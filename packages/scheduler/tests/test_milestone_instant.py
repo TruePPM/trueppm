@@ -113,12 +113,178 @@ def _networks_with_an_fs_link(
     return tasks, deps, (f"T{a}", f"T{b}"), lag_in, lag_out, Calendar(exceptions=exceptions)
 
 
+def _effective_early_instant(day: date | None, t: Task, cal: Calendar) -> date:
+    """The working-time position ``day`` (``t``'s early date) represents (#4207).
+
+    For an ordinary (>0 duration) task every date field is unambiguous. A
+    zero-duration task is placed as an instant (:func:`_place_milestone` in
+    ``engine.py``) and *shown* on one of two adjacent working days —
+    ``milestone_at_day_end`` records which, unconditionally, the moment the
+    forward pass places it — so two schedules that land the same task on the
+    same raw instant by different predecessor paths (one a direct zero-lag
+    link, the other a composed lag through an intervening milestone) can
+    legitimately disagree on which of those two days is shown. Folding the
+    flag back in recovers the working-time position both agree on: a
+    start-of-day reading is shown on the first working day at or after its
+    instant (``_instant_day``), and a day shown "at day end" names the
+    midnight after it, so it is the same position as the next *working* day
+    shown "at day start" — Monday, not Saturday, for the end of a Friday.
+    ``early_start``/``early_finish`` are the same field for a zero-duration
+    task (both set to the same ``day`` in ``_forward_pass``), so this
+    applies identically to either.
+    """
+    assert day is not None
+    if t.duration == timedelta(0) and t.milestone_at_day_end:
+        from trueppm_scheduler.engine import _next_working_day
+
+        return _next_working_day(day + timedelta(days=1), cal)
+    return day
+
+
+def _possible_late_positions(day: date | None, t: Task, cal: Calendar) -> set[date]:
+    """The working-time position(s) ``day`` (``t``'s late date) could represent (#4207).
+
+    Unlike the early date, ``milestone_at_day_end`` does not tell us how a
+    zero-duration task's *late* date was shown: ``_late_display`` (``engine.py``)
+    sometimes returns ``task.early_start`` verbatim (so it carries the early
+    flag), and otherwise picks between a start-of-day and an end-of-day reading
+    of its own, using the early flag (``early[1]``) as one input among several —
+    not a value this test can reconstruct from the public ``Task`` fields alone.
+    Rather than guess which reading applied, return both candidate instants a
+    shown day ``day`` could mean (the day itself, read as a start; or the next
+    working day after it, if ``day`` were instead an end-of-day reading) and let
+    the caller check for overlap. An ordinary (>0 duration) task has no such
+    ambiguity and returns a single-element set.
+    """
+    assert day is not None
+    if t.duration != timedelta(0):
+        return {day}
+    from trueppm_scheduler.engine import _next_working_day
+
+    return {day, _next_working_day(day + timedelta(days=1), cal)}
+
+
+def _float_agrees(t: Task, u: Task) -> bool:
+    """Whether ``u``'s total float is the one ``t``'s implies, given each one's reading (#4207).
+
+    Total float is measured between raw instants, not shown days, but a
+    milestone's *own* float is measured to :func:`_float_late_instant`
+    (``engine.py``, #4183), which caps a start-of-day reading's late instant at
+    the last working day on or before ``project_finish`` and leaves an
+    end-of-day reading's alone. That cap is the only place a milestone's early
+    reading enters its float, so two schedules that agree on every raw instant
+    but show a zero-duration task with opposite readings (``milestone_at_day_end``,
+    see :func:`_effective_early_instant`) can report float that differs by the
+    one day the cap removes: the end-of-day reading's float is the start-of-day
+    reading's, or one working day more. It cannot be more than one — the
+    uncapped late instant never passes the midnight after ``project_finish``, so
+    only ``project_finish`` itself lies between it and the cap. With the same
+    reading (and always for an ordinary task) the float must be identical.
+    ``is_critical`` is ``total_float == 0`` here (nothing is complete), so it
+    follows the same rule.
+    """
+    if t.duration != timedelta(0) or t.milestone_at_day_end == u.milestone_at_day_end:
+        return u.total_float == t.total_float
+    start, end = (t, u) if not t.milestone_at_day_end else (u, t)
+    return end.total_float - start.total_float in (timedelta(0), timedelta(days=1))
+
+
 @pytest.mark.fuzz
+@example(
+    # Critical-path case (#4207): T0 -SS(+1)-> T1, split (T1, T2) with
+    # lag_in=-1/lag_out=+1. Found by scheduler:fuzz-deep ~1 in 20,000 examples —
+    # too rare for the default "gate" profile to ever hit on its own.
+    case=(
+        [_task("T0", 0), _task("T1", 0), _task("T2", 0)],
+        [_dep("T0", "T1", DependencyType.SS, lag=1)],
+        ("T1", "T2"),
+        -1,
+        1,
+        Calendar(),
+    )
+)
+@example(
+    # Off-critical-path case (#4207): T1 -SS(+3)-> T2, split (T2, T3) with
+    # lag_in=-2/lag_out=+2, across a calendar exception. Found by
+    # scheduler:fuzz-deep ~1 in 60,000 examples.
+    case=(
+        [_task("T0", 0), _task("T1", 2), _task("T2", 0), _task("T3", 0)],
+        [_dep("T1", "T2", DependencyType.SS, lag=3)],
+        ("T2", "T3"),
+        -2,
+        2,
+        Calendar(exceptions=[DateRange(date(2026, 1, 14), date(2026, 1, 15))]),
+    )
+)
+@example(
+    # Float case (#4207): the same raw instants in both networks, but T3 is read
+    # at the start of Tuesday directly and at the end of Monday through M, so
+    # only the start-of-day reading's late instant is capped at the finish —
+    # total float 0 (critical) directly, 1 through M. Found by
+    # scheduler:fuzz-deep.
+    case=(
+        [_task("T0", 0), _task("T1", 2), _task("T2", 0), _task("T3", 0)],
+        [_dep("T1", "T2", DependencyType.SS, lag=1)],
+        ("T2", "T3"),
+        -2,
+        2,
+        Calendar(),
+    )
+)
+@example(
+    # The same cap off the critical path (#4207): T6 carries 3 days of float
+    # read at the start of Tuesday, 4 read at the end of Monday through M.
+    case=(
+        [
+            _task("T0", 0),
+            _task("T1", 3),
+            _task("T2", 1),
+            _task("T3", 3),
+            _task("T4", 5),
+            _task("T5", 0),
+            _task("T6", 0),
+        ],
+        [
+            _dep("T1", "T4", DependencyType.FF, lag=0),
+            _dep("T4", "T5", DependencyType.SS, lag=1),
+        ],
+        ("T5", "T6"),
+        -1,
+        1,
+        Calendar(),
+    )
+)
+@example(
+    # Weekend fold (#4207): T3 sits at Saturday midnight, shown at the start of
+    # Monday directly and at the end of Friday through M. The same position:
+    # the end of Friday folds to the next *working* day, Monday, not Saturday.
+    case=(
+        [_task("T0", 2), _task("T1", 1), _task("T2", 0), _task("T3", 0)],
+        [_dep("T0", "T1"), _dep("T1", "T2", DependencyType.SS, lag=3)],
+        ("T2", "T3"),
+        -1,
+        1,
+        Calendar(),
+    )
+)
+@example(
+    # Exception-day fold (#4207): T2 is shown at the end of Tue 01-13 through M
+    # and at the start of Fri 01-16 directly; 01-14/15 are a calendar exception,
+    # so the end of Tuesday folds to Friday.
+    case=(
+        [_task("T0", 1), _task("T1", 0), _task("T2", 0)],
+        [_dep("T0", "T1", DependencyType.SS, lag=9)],
+        ("T1", "T2"),
+        -1,
+        1,
+        Calendar(exceptions=[DateRange(date(2026, 1, 14), date(2026, 1, 15))]),
+    )
+)
 @given(_networks_with_an_fs_link())
 def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
     case: tuple[list[Task], list[Dependency], tuple[str, str], int, int, Calendar],
 ) -> None:
-    """Every original task keeps its ES/EF/LS/LF and float; M sits on A's finish.
+    """Every original task keeps its working-time position and float; M sits on A's finish.
 
     ``A -FS(l1)-> M -FS(l2)-> B`` must schedule exactly as ``A -FS(l1+l2)-> B``:
     the milestone is a raw instant, never rounded to a working day, so calendar-day
@@ -130,6 +296,34 @@ def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
     lag from ``M``'s pre-floor instant, exactly as it would from ``A`` directly
     (#4225, the deterministic pin is
     ``test_a_milestone_floored_at_project_start_passes_its_raw_instant_on``).
+
+    A zero-duration ``B`` compares its *early* date by working-time position
+    (:func:`_effective_early_instant`), not raw equality (#4207): B's raw
+    instant composes correctly through M either way, but which of the two
+    adjacent working days it is *shown* on depends on whether the FS link
+    that places it carried zero lag (direct, or into M) or a nonzero one (out
+    of M) — a real display convention (:func:`_start_reading`, #4173), not a
+    scheduling difference. B's *late* date inherits the same ambiguity by a
+    path this test cannot always resolve from the public ``Task`` fields, so
+    it is compared as an overlap of the two working-time positions ``day``
+    could mean (:func:`_possible_late_positions`), not raw equality either.
+    B's ``total_float`` and ``is_critical`` may differ by the one finish day
+    the engine's start-of-day float cap removes (:func:`_float_agrees`,
+    #4183). Those three are the only places the reading reaches a field
+    compared here; ``free_float`` also reads it and is deliberately not
+    compared. Every tolerance applies only to a task whose
+    ``milestone_at_day_end`` differs between the two networks: only B (and
+    any milestone inheriting B's reading over a zero-lag link) can flip, and
+    only when ``A`` is read at the start of the day at B's instant, so ``A``
+    still bounds ``project_finish`` identically in both networks and every
+    other task's dates and float are compared exactly.
+
+    The price of comparing by position: this property no longer notices a
+    regression in *which* reading a milestone inherits (the #4079-era bug
+    where a lagged link inherited its predecessor milestone's reading), because
+    such a regression moves only the shown day, not the position.
+    ``test_monte_carlo_agrees_with_cpm_through_a_completed_milestone_reached_by_lag``
+    still pins that rule.
     """
     tasks, deps, (a, b), lag_in, lag_out, cal = case
     direct = _project(tasks, [*deps, _dep(a, b, lag=lag_in + lag_out)], cal)
@@ -142,9 +336,26 @@ def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
     after = _by_id(via_m)
     for tid, t in before.items():
         u = after[tid]
-        assert (u.early_start, u.early_finish) == (t.early_start, t.early_finish), tid
-        assert (u.late_start, u.late_finish) == (t.late_start, t.late_finish), tid
-        assert u.total_float == t.total_float, tid
+        assert _effective_early_instant(u.early_start, u, cal) == _effective_early_instant(
+            t.early_start, t, cal
+        ), tid
+        assert _effective_early_instant(u.early_finish, u, cal) == _effective_early_instant(
+            t.early_finish, t, cal
+        ), tid
+        if u.milestone_at_day_end == t.milestone_at_day_end:
+            # Same reading: nothing reading-dependent can differ, so neither can
+            # the late dates or the float — only a flipped reading earns slack.
+            assert (u.late_start, u.late_finish) == (t.late_start, t.late_finish), tid
+            assert u.total_float == t.total_float, tid
+        else:
+            assert _possible_late_positions(u.late_start, u, cal) & _possible_late_positions(
+                t.late_start, t, cal
+            ), tid
+            assert _possible_late_positions(u.late_finish, u, cal) & _possible_late_positions(
+                t.late_finish, t, cal
+            ), tid
+            assert _float_agrees(t, u), tid
+        assert u.is_critical == (u.total_float == timedelta(0)), tid
     if lag_in == 0 and durations_of(tasks, a) > 0:
         # With no lag between work and M, M is shown on that work's finish day —
         # or on the project start, for an SF-only A finishing before it (#4223).
