@@ -1,0 +1,53 @@
+# OSV-Scanner suppressions for the website's locked dependency set
+# (packages/website/package-lock.json), auto-discovered by the security:osv CI
+# job.
+#
+# Same accepted-risk contract as packages/api/osv-scanner.toml,
+# packages/scheduler/osv-scanner.toml, packages/web/osv-scanner.toml and
+# packages/mobile/osv-scanner.toml: every entry carries a `reason` and an
+# expiry, so a suppression stays documented and rots on its own instead of
+# silently masking a future advisory.
+#
+# `[[PackageOverrides]]` rather than `[[IgnoredVulns]]` on purpose, matching
+# the web/mobile files: pinning `name` + `version` keeps the suppression
+# scoped to the exact unfixable resolution, so a future advisory against a
+# version we do upgrade to still blocks the pipeline.
+
+# GHSA-ch52-4w7c-c8xp — http-cache-semantics fails to validate security-zeroed
+# cache entries when processing a client `max-stale` directive, letting an
+# unauthenticated attacker retrieve another user's cached response — including
+# Set-Cookie session credentials — from a shared cache (HIGH, CVSS 8.7,
+# CWE-524).
+#
+# `first_patched_version: null` on the advisory, and npm's `latest` tag for
+# http-cache-semantics IS 4.2.0 — the flagged version. There is no newer
+# release in any line to bump to; confirmed directly against the npm registry
+# and the GHSA API, not just the advisory text.
+#
+# It is a DIRECT dependency of astro itself (`^4.2.0`), not several layers
+# down, and that range is unchanged between astro's current floor (7.2.8) and
+# its newest release (7.3.5) — so bumping astro cannot change the resolved
+# version either, since `^4.2.0` only ever resolves to 4.2.0.
+#
+# Reachability, verified rather than assumed: http-cache-semantics is required
+# in exactly one astro file, astro/dist/assets/build/remote.js, which
+# constructs a `CachePolicy` instance per build-time fetch of a remote image
+# referenced in our own content (astro:assets downloading remote images during
+# `astro build`). The advisory's trigger requires an attacker-controlled
+# `max-stale` header reaching a cache SHARED across multiple end users.
+# packages/website has no `output` set in astro.config.mjs (default: static)
+# and ships no server-mode adapter, so there is no production process holding
+# a shared, multi-tenant cache for this code to ever touch — the only
+# "requests" this code sees are our own build fetching our own configured
+# remote image URLs.
+#
+# Re-evaluate when http-cache-semantics ships a patched release, or when astro
+# stops depending on it directly. Tracked in #4262.
+
+[[PackageOverrides]]
+name = "http-cache-semantics"
+version = "4.2.0"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-ch52-4w7c-c8xp: no patched release exists in any line — npm `latest` is 4.2.0, the flagged version itself, confirmed against both the npm registry and the GHSA API. Direct dependency of astro (^4.2.0, same range on astro's current floor and its newest release), used only in astro's build-time remote-image fetcher (astro/dist/assets/build/remote.js). The cross-user cache disclosure requires a shared cache serving multiple end users; packages/website builds as a static site with no server-mode adapter, so no such shared cache exists in this deployment for the vulnerable code path to reach."
