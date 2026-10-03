@@ -152,3 +152,42 @@ ecosystem = "npm"
 ignore = true
 effectiveUntil = 2026-12-31
 reason = "GHSA-vcc3-ghjq-m6fr: the only patched release (0.5.0) is ESM-only with a default export, and its consumer query-string@7.1.3 is CJS and calls the require() result directly — verified to throw `decodeComponent is not a function` under @react-native/babel-preset. query-string cannot be bumped either: @react-navigation/core pins ^7.1.3 at latest, and query-string 8.x/9.x expose only a default export at the entry, breaking its `import * as queryString` usage. Reached only via the deep-link URL parser (getStateFromPath), and this app configures no linking prop and no URL scheme, so no external input reaches the decoder."
+
+# GHSA-vfj7-8cjw-p6xm — braces (the micromatch glob dependency, distinct from
+# brace-expansion above) stack-exhaustion DoS via deeply nested patterns (HIGH,
+# CVSS 8.7, CWE-674). The recursive AST walkers in parse/compile/expand have no
+# depth guard, so a pattern under the character limit but deeply nested blows
+# the call stack and kills the Node process with an uncaught RangeError.
+#
+# `first_patched_version: null` on the advisory, and npm's `latest` tag for
+# braces IS 3.0.3 — the flagged version. There is no newer release in any line
+# to bump to; confirmed directly against the npm registry and the GHSA API, not
+# just the advisory text.
+#
+# Reaches the tree on the same tailwindcss path as the web lockfile, plus the
+# Jest/Metro toolchain:
+#
+#   3.0.3 <- chokidar@~3.0.2 / micromatch@^3.0.3 <- tailwindcss     (devDependency)
+#   3.0.3 <- micromatch <- @jest/transform, jest-haste-map, jest-message-util,
+#            metro-file-map                                        (build/test-time)
+#
+# None of this is bundled into the app: the Jest/Metro path runs only during
+# test execution and bundling, and tailwindcss only during the build-time file
+# watcher and content-glob matching. The brace patterns reaching
+# parse/compile/expand come from our own tailwind content globs and Jest/Metro's
+# internal file-matching globs, never from user or network input.
+#
+# The real fix is dropping tailwindcss@3 (and with it chokidar/micromatch@3)
+# entirely via the v3->v4 migration tracked on #4261 (milestone 0.5) — not
+# something to pull forward just to clear this gate; the Jest/Metro path is
+# independent of that migration and has no upstream fix to wait on either.
+# Re-evaluate when braces ships any release past 3.0.3, when #4261 lands, or
+# when Jest/Metro move off micromatch@3. Tracked in #4262.
+
+[[PackageOverrides]]
+name = "braces"
+version = "3.0.3"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-vfj7-8cjw-p6xm: no patched release exists in any line — npm `latest` is 3.0.3, the flagged version itself, confirmed against both the npm registry and the GHSA API. Build-time/test-time only, via chokidar/micromatch under tailwindcss, and via micromatch under the Jest/Metro toolchain (@jest/transform, jest-haste-map, metro-file-map). Not bundled into the app; brace patterns reaching parse/compile/expand come from our own tailwind content globs and Jest/Metro's internal globs, not from user input. Clears when tailwindcss v3->v4 migration (#4261) removes that chain, when Jest/Metro move off micromatch@3, or when braces ships a fix."

@@ -53,3 +53,36 @@ ecosystem = "npm"
 ignore = true
 effectiveUntil = 2026-12-31
 reason = "GHSA-mh99-v99m-4gvg: no patched 2.x release exists. Dev-only, via minimatch@5 under @redocly/openapi-core <- openapi-typescript (codegen). Not bundled into the shipped app; brace patterns come from our own redocly config, not from user input. Clears when openapi-typescript moves to @redocly/openapi-core@2.x, which drops minimatch."
+
+# GHSA-vfj7-8cjw-p6xm — braces (the micromatch glob dependency, distinct from
+# brace-expansion above) stack-exhaustion DoS via deeply nested patterns (HIGH,
+# CVSS 8.7, CWE-674). The recursive AST walkers in parse/compile/expand have no
+# depth guard, so a pattern under the character limit but deeply nested blows
+# the call stack and kills the Node process with an uncaught RangeError.
+#
+# `first_patched_version: null` on the advisory, and npm's `latest` tag for
+# braces IS 3.0.3 — the flagged version. There is no newer release in any line
+# to bump to; confirmed directly against the npm registry and the GHSA API, not
+# just the advisory text.
+#
+# Reaches the tree on exactly one path, devDependency-only:
+#
+#   3.0.3 <- chokidar@~3.0.2 / micromatch@^3.0.3 <- tailwindcss
+#
+# tailwindcss is a devDependency; braces runs only as part of the build-time
+# file watcher and content-glob matcher. Not in `dependencies`, not bundled
+# into the shipped SPA. The brace patterns reaching parse/compile/expand come
+# from tailwind's own content-glob config, never from user or network input.
+#
+# The real fix is dropping tailwindcss@3 (and with it chokidar/micromatch@3)
+# entirely via the v3->v4 migration tracked on #4261 (milestone 0.5) — not
+# something to pull forward just to clear this gate. Re-evaluate when braces
+# ships any release past 3.0.3, or when #4261 lands. Tracked in #4262.
+
+[[PackageOverrides]]
+name = "braces"
+version = "3.0.3"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-vfj7-8cjw-p6xm: no patched release exists in any line — npm `latest` is 3.0.3, the flagged version itself, confirmed against both the npm registry and the GHSA API. Dev-only, via chokidar/micromatch under tailwindcss (devDependency). Not bundled into the shipped app; brace patterns reaching parse/compile/expand come from tailwind's own content-glob config, not from user input. Clears when tailwindcss v3->v4 migration (#4261) removes this chain, or when braces ships a fix."
