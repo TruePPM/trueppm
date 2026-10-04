@@ -60,8 +60,11 @@ function expireSession(): void {
 apiClient.interceptors.request.use((config) => {
   const { accessToken, sessionExpired } = useAuthStore.getState();
   if (sessionExpired) {
-    // Synchronous abort: surface as a generic error to the caller's onError.
-    return Promise.reject(new Error('Session expired'));
+    // Synchronous abort: surface as a generic, cause-agnostic error to the
+    // caller's onError — this message reaches SyncStatusModal's "Last error"
+    // text verbatim (via useSyncStatus/readError), so it must not claim
+    // "expired" any more than the banner copy does (#4256).
+    return Promise.reject(new Error('Signed out'));
   }
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
@@ -209,7 +212,7 @@ apiClient.interceptors.response.use(
     // Prevent infinite retry loops
     if (originalRequest._retried) {
       expireSession();
-      throw new Error('Session expired');
+      throw new Error('Signed out');
     }
 
     originalRequest._retried = true;
@@ -230,7 +233,7 @@ apiClient.interceptors.response.use(
       return await apiClient(originalRequest);
     } catch {
       expireSession();
-      throw new Error('Session expired');
+      throw new Error('Signed out');
     }
   },
 );

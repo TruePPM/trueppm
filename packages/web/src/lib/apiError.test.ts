@@ -35,7 +35,7 @@ describe('isClientRejection', () => {
   });
 
   it('is false for a plain non-axios error', () => {
-    expect(isClientRejection(new Error('Session expired'))).toBe(false);
+    expect(isClientRejection(new Error('Signed out'))).toBe(false);
     expect(isClientRejection('boom')).toBe(false);
     expect(isClientRejection(null)).toBe(false);
   });

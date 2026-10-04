@@ -276,12 +276,12 @@ The whole interface supports Light, Dark, and Auto themes via a single toggle in
 your account menu. Chrome and content adapt together — there is never a dark
 sidebar stranded on a light app.
 
-## When your session expires
+## When you're signed out
 
-If your session expires while you're working — a timed-out token, a signed-out
-tab left open — TruePPM shows a "Your session expired" prompt rather than
-silently dropping you onto the login screen with no explanation. From there you
-can:
+If your session ends while you're working — a timed-out token, a password
+reset, an admin deactivating your account, or a signed-out tab left open —
+TruePPM shows a "You've been signed out" prompt rather than silently dropping
+you onto the login screen with no explanation. From there you can:
 
 - **Sign in** to re-authenticate immediately, or
 - **Continue viewing (read-only)** to keep looking at whatever the app already

@@ -56,7 +56,7 @@ so a reloading tab waits for a sibling's in-flight rotation and then presents
 the rotated cookie. A refresh refused with `401` is retried once after a short
 pause, which covers a browser without the Locks API. A session that has really
 ended (signed out, revoked, or past its lifetime) is refused again on the retry
-and the client shows the session-expired dialog.
+and the client shows the sign-in dialog.
 
 ## Which identifier authenticates
 

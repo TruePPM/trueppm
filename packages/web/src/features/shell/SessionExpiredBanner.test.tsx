@@ -62,8 +62,13 @@ describe('SessionExpiredBanner', () => {
     act(() => {
       useAuthStore.getState().markSessionExpired();
     });
-    const dialog = screen.getByRole('dialog', { name: /Your session expired/ });
+    const dialog = screen.getByRole('dialog', { name: /You've been signed out/ });
     expect(dialog).toBeInTheDocument();
+    // Body wording is deliberately distinct from the title ("session was ended" vs.
+    // "signed out") so the dialog doesn't repeat itself (#4256) — and distinct from
+    // the retired cause-naming copy ("your session expired"), which would not match
+    // this pattern either.
+    expect(dialog).toHaveTextContent(/your session was ended/i);
     const button = screen.getByRole('button', { name: 'Sign in' });
     expect(button).toHaveFocus();
   });
@@ -144,6 +149,10 @@ describe('SessionExpiredBanner', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     const persistentBanner = screen.getByRole('status');
+    // Lead sentence is cause-agnostic too (#4256) — this is a genuine negative
+    // control: the retired "Your session expired." wording would fail this
+    // assertion while still passing the "viewing cached content" one below.
+    expect(persistentBanner).toHaveTextContent(/you've been signed out/i);
     expect(persistentBanner).toHaveTextContent(/viewing cached content read-only/);
     // The cached screen behind the (now-gone) modal is still on the page —
     // this is the actual escape-hatch guarantee: reachable cached content.

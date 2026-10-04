@@ -85,12 +85,12 @@ export function SessionExpiredBanner() {
           id="session-expired-title"
           className="text-base font-semibold text-neutral-text-primary m-0 mb-2"
         >
-          Your session expired
+          You&apos;ve been signed out
         </h2>
         <p id="session-expired-body" className="text-sm text-neutral-text-secondary m-0 mb-5">
-          For your security, you&apos;ve been signed out. Recent unsaved edits may not have been
-          saved. Sign in again to continue, or keep viewing the read-only content already loaded in
-          this tab.
+          For your security, your session was ended. Recent unsaved edits may not have been saved.
+          Sign in again to continue, or keep viewing the read-only content already loaded in this
+          tab.
         </p>
         <div className="flex justify-end gap-2">
           {/* Touch targets clear the 44px min on mobile (rule 5, where touch is
@@ -162,7 +162,7 @@ export function SessionExpiredReadOnlyBar() {
     <div
       role="status"
       aria-live="polite"
-      aria-label="Session expired — viewing read-only"
+      aria-label="Signed out — viewing read-only"
       className="flex flex-wrap items-center justify-between gap-2 border-b border-semantic-at-risk bg-semantic-at-risk-bg px-4 py-1.5"
     >
       <p className="flex items-center gap-2 text-xs font-medium text-semantic-at-risk m-0">
@@ -173,8 +173,8 @@ export function SessionExpiredReadOnlyBar() {
           className="inline-block h-3 w-3 shrink-0 align-[-0.125em]"
           aria-hidden="true"
         />
-        Your session expired. You&apos;re viewing cached content read-only — changes won&apos;t save
-        until you sign in again.
+        You&apos;ve been signed out. You&apos;re viewing cached content read-only — changes
+        won&apos;t save until you sign in again.
       </p>
       {/* 44px min touch target on mobile (rule 5) — this is the sole recovery
           affordance in read-only mode and the bar is mounted at every

@@ -45,7 +45,7 @@ const CONNECTION_PRESENTATION: Record<
   failed: {
     dot: 'bg-semantic-critical',
     label: 'Disconnected',
-    aria: 'Disconnected — your session expired. Sign in again to reconnect.',
+    aria: "Disconnected — you've been signed out. Sign in again to reconnect.",
   },
 };
 

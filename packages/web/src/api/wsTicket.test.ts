@@ -19,7 +19,7 @@ describe('fetchWsTicket (ADR-0141, #818)', () => {
   });
 
   it('propagates errors so the caller can fall back to a reconnect', async () => {
-    vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Session expired'));
-    await expect(fetchWsTicket()).rejects.toThrow('Session expired');
+    vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Signed out'));
+    await expect(fetchWsTicket()).rejects.toThrow('Signed out');
   });
 });

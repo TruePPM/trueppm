@@ -180,7 +180,7 @@ describe('StatusBar', () => {
       useWsConnectionStore.setState({ state: 'failed', reconnectAttempts: 0 });
       renderWithRouter(<StatusBar />);
       expect(screen.getByText('Disconnected')).toBeInTheDocument();
-      expect(screen.getByLabelText(/session expired/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/you've been signed out/i)).toBeInTheDocument();
     });
 
     it('does not show the viewing count (or its anonymity contract) outside the live state', () => {
@@ -235,7 +235,7 @@ describe('StatusBar — project unavailable', () => {
     act(() => {
       useWsConnectionStore.setState({ state: 'failed', reconnectAttempts: 3 });
     });
-    expect(screen.queryByText(/your session expired/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/you've been signed out/i)).not.toBeInTheDocument();
   });
 
   it('still renders the pill on a project that IS available', () => {

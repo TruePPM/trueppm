@@ -47,7 +47,7 @@ test.describe('Session expired banner', () => {
     // (where SessionExpiredBanner is mounted), not the catch-all 404.
     await page.goto('/projects/e2e-session/overview');
 
-    const dialog = page.getByRole('dialog', { name: /Your session expired/ });
+    const dialog = page.getByRole('dialog', { name: /You've been signed out/ });
     await expect(dialog).toBeVisible({ timeout: 10_000 });
     await expect(dialog.getByRole('button', { name: 'Sign in' })).toBeFocused();
 
@@ -101,7 +101,7 @@ test.describe('Session expired banner', () => {
     // refresh retry 401s, and the session expires — surfacing the blocking
     // re-auth modal on top of the still-open status dialog.
     await statusDialog.getByRole('button', { name: 'Save status' }).click();
-    const gate = page.getByRole('dialog', { name: /Your session expired/ });
+    const gate = page.getByRole('dialog', { name: /You've been signed out/ });
     await expect(gate).toBeVisible({ timeout: 10_000 });
     await expect(gate.getByRole('button', { name: 'Sign in' })).toBeFocused();
 
@@ -112,7 +112,7 @@ test.describe('Session expired banner', () => {
     // Scoped by accessible name — the Overview page's own "no attention
     // items" empty state also uses role="status", so an unscoped locator
     // would be a strict-mode collision.
-    const readOnlyBanner = page.getByRole('status', { name: /Session expired/ });
+    const readOnlyBanner = page.getByRole('status', { name: /Signed out/ });
     await expect(readOnlyBanner).toBeVisible();
     await expect(readOnlyBanner).toContainText(/viewing cached content read-only/);
     const readOnlySignIn = readOnlyBanner.getByRole('button', { name: /Sign in again/ });
@@ -169,7 +169,7 @@ test.describe('Session expired banner', () => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
     await expect(page.getByText(PROJECT.name).first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('dialog', { name: /Your session expired/ })).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: /You've been signed out/ })).toHaveCount(0);
     expect(refreshCalls).toBe(2);
   });
 });
