@@ -65,10 +65,12 @@ What is compared:
 | Monte Carlo | Not compared. Only the Python engine runs it; the Rust engine is deterministic CPM only |
 
 Not generated yet: progress and actuals, the data date, `planned_start`,
-per-task calendars, and summary tasks. Two link shapes where both engines
-disagree with the reference are excluded until they are triaged (#4272, a
-lagged FF/SF link into a milestone; #4273, an FF link out of a milestone);
-see `_known_divergent` in the test file.
+per-task calendars, and summary tasks. Every link shape is generated, and none
+is excluded: when the engines disagree with the reference on one, fix the engine
+(or, with a concrete reason, the documented rule and the reference together) —
+do not carve the shape out of the generator. The last two exclusions, a lagged
+FF/SF link into a milestone (#4272) and an FF link out of one (#4273), were
+removed that way.
 
 The Rust engine is checked two ways. Locally, when `cargo` is on `PATH`, the
 Rust properties build the crate's `oracle_runner` example and feed it the same

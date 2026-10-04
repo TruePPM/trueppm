@@ -17,8 +17,7 @@ function task(
     durationDays:
       opts.durationDays ??
       Math.round(
-        (new Date(earlyFinish).getTime() - new Date(earlyStart).getTime()) /
-          (24 * 60 * 60 * 1000),
+        (new Date(earlyFinish).getTime() - new Date(earlyStart).getTime()) / (24 * 60 * 60 * 1000),
       ) + 1,
     isMilestone: opts.isMilestone ?? false,
     name: opts.name ?? id,
@@ -34,12 +33,7 @@ function task(
   };
 }
 
-function edge(
-  sourceId: string,
-  targetId: string,
-  type: CpmEdge['type'] = 'FS',
-  lag = 0,
-): CpmEdge {
+function edge(sourceId: string, targetId: string, type: CpmEdge['type'] = 'FS', lag = 0): CpmEdge {
   return { sourceId, targetId, type, lag };
 }
 
@@ -82,12 +76,7 @@ describe('runCpmForwardPass', () => {
       task('A', '2025-01-06', '2025-01-10'),
       task('B', '2025-01-06', '2025-01-08'),
     ];
-    const { results } = runCpmForwardPass(
-      tasks,
-      [edge('A', 'B', 'SS')],
-      'A',
-      '2025-01-13',
-    );
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B', 'SS')], 'A', '2025-01-13');
     const b = results.find((r) => r.taskId === 'B')!;
     expect(b.earlyStart).toBe('2025-01-13');
     expect(b.earlyFinish).toBe('2025-01-15');
@@ -100,12 +89,7 @@ describe('runCpmForwardPass', () => {
       task('A', '2025-01-06', '2025-01-10'),
       task('B', '2025-01-06', '2025-01-08'), // original 3 days
     ];
-    const { results } = runCpmForwardPass(
-      tasks,
-      [edge('A', 'B', 'FF')],
-      'A',
-      '2025-01-13',
-    );
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B', 'FF')], 'A', '2025-01-13');
     const b = results.find((r) => r.taskId === 'B')!;
     // A finishes Jan 17; B should finish Jan 17 (FF), starting Jan 15
     expect(b.earlyFinish).toBe('2025-01-17');
@@ -120,18 +104,14 @@ describe('runCpmForwardPass', () => {
 
   it('marks task as critical when new finish exceeds lateFinish', () => {
     // A has lateFinish Jan 15; after drag it finishes Jan 17 → critical
-    const tasks: CpmTask[] = [
-      task('A', '2025-01-06', '2025-01-10', { lateFinish: '2025-01-15' }),
-    ];
+    const tasks: CpmTask[] = [task('A', '2025-01-06', '2025-01-10', { lateFinish: '2025-01-15' })];
     const { results } = runCpmForwardPass(tasks, [], 'A', '2025-01-13');
     expect(results[0].isCritical).toBe(true);
   });
 
   it('does not mark task as critical when finish is within float', () => {
     // A has lateFinish Jan 20; after drag it finishes Jan 17 — still on track
-    const tasks: CpmTask[] = [
-      task('A', '2025-01-06', '2025-01-10', { lateFinish: '2025-01-20' }),
-    ];
+    const tasks: CpmTask[] = [task('A', '2025-01-06', '2025-01-10', { lateFinish: '2025-01-20' })];
     const { results } = runCpmForwardPass(tasks, [], 'A', '2025-01-13');
     expect(results[0].isCritical).toBe(false);
   });
@@ -139,14 +119,13 @@ describe('runCpmForwardPass', () => {
   it('identifies worst milestone', () => {
     const tasks: CpmTask[] = [
       task('A', '2025-01-06', '2025-01-10'),
-      task('M1', '2025-01-11', '2025-01-11', { isMilestone: true, name: 'Go Live', durationDays: 1 }),
+      task('M1', '2025-01-11', '2025-01-11', {
+        isMilestone: true,
+        name: 'Go Live',
+        durationDays: 1,
+      }),
     ];
-    const { worstMilestone } = runCpmForwardPass(
-      tasks,
-      [edge('A', 'M1', 'FS')],
-      'A',
-      '2025-01-13',
-    );
+    const { worstMilestone } = runCpmForwardPass(tasks, [edge('A', 'M1', 'FS')], 'A', '2025-01-13');
     expect(worstMilestone).not.toBeNull();
     expect(worstMilestone?.name).toBe('Go Live');
     // The day after A's Fri finish is a Saturday, so the milestone's
@@ -187,12 +166,7 @@ describe('runCpmForwardPass', () => {
       task('A', '2025-01-06', '2025-01-10'),
       task('B', '2025-01-06', '2025-01-08'), // 3 days, starts before the constraint
     ];
-    const { results } = runCpmForwardPass(
-      tasks,
-      [edge('A', 'B', 'SF')],
-      'A',
-      '2025-01-14',
-    );
+    const { results } = runCpmForwardPass(tasks, [edge('A', 'B', 'SF')], 'A', '2025-01-14');
     const b = results.find((r) => r.taskId === 'B')!;
     expect(b.earlyStart).toBe('2025-01-09');
     expect(b.earlyFinish).toBe('2025-01-13');
@@ -240,9 +214,7 @@ describe('runCpmForwardPass', () => {
       // A explicitly carries durationDays = 5 even though its original dates
       // (Mon–Fri) span exactly 5 calendar days too — dragging it to a start
       // that crosses a weekend must still honor the 5 *working*-day duration.
-      const tasks: CpmTask[] = [
-        task('A', '2025-01-06', '2025-01-10', { durationDays: 5 }),
-      ];
+      const tasks: CpmTask[] = [task('A', '2025-01-06', '2025-01-10', { durationDays: 5 })];
       const { results } = runCpmForwardPass(tasks, [], 'A', '2025-01-08'); // Wed
       // Wed, Thu, Fri, (skip Sat/Sun), Mon, Tue = 5 working days
       expect(results[0].earlyFinish).toBe('2025-01-14');
@@ -602,9 +574,7 @@ describe('runCpmForwardPass — relaxation is bidirectional', () => {
     const { results } = runCpmForwardPass(tasks, [edge('A', 'B')], 'A', '2024-01-01');
     const b = results.find((r) => r.taskId === 'B')!;
 
-    expect(new Date(b.earlyStart).getTime()).toBeLessThanOrEqual(
-      new Date(b.earlyFinish).getTime(),
-    );
+    expect(new Date(b.earlyStart).getTime()).toBeLessThanOrEqual(new Date(b.earlyFinish).getTime());
   });
 
   it('will not pull a task back through its own planned_start (SNET)', () => {
@@ -859,6 +829,60 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     expect(b(viaM).earlyFinish).toBe(b(direct).earlyFinish);
   });
 
+  it('lands a lagged FF into a milestone where FS lands it (#4272)', () => {
+    // A (Mon 01-05..Fri 01-09) -FF+1-> M -FS-> C: Saturday midnight + 1 day is
+    // Sunday midnight, the start of Monday, so C starts Monday 01-12 — exactly as
+    // with FS+1. Snapping the lagged date as if M had a finish day started C Tuesday.
+    const tasks: CpmTask[] = [
+      task('A', '2026-01-05', '2026-01-09'),
+      milestone('M', '2026-01-12'),
+      task('C', '2026-01-12', '2026-01-12'),
+    ];
+    const run = (type: CpmEdge['type']) =>
+      runCpmForwardPass(tasks, [edge('A', 'M', type, 1), edge('M', 'C')], 'A', '2026-01-05');
+    const c = (r: ReturnType<typeof run>) => r.results.find((x) => x.taskId === 'C')!;
+    expect(c(run('FF')).earlyStart).toBe('2026-01-12');
+    expect(c(run('FF'))).toEqual(c(run('FS')));
+  });
+
+  it('proposes the raw anchor instant plus the lag for SF into a milestone (#4272)', () => {
+    // S starts Mon 01-12, so its SF anchor is the close of Fri 01-09; +1 day is
+    // Sunday midnight, the start of Monday — not the end of Monday.
+    const tasks: CpmTask[] = [
+      task('S', '2026-01-12', '2026-01-13'),
+      milestone('M', '2026-01-12'),
+      task('C', '2026-01-12', '2026-01-12'),
+    ];
+    const { results } = runCpmForwardPass(
+      tasks,
+      [edge('S', 'M', 'SF', 1), edge('M', 'C')],
+      'S',
+      '2026-01-12',
+    );
+    const m = results.find((r) => r.taskId === 'M')!;
+    expect(m.earlyStart).toBe('2026-01-12');
+    expect(m.milestoneAtDayEnd).toBe(false);
+    expect(results.find((r) => r.taskId === 'C')!.earlyStart).toBe('2026-01-12');
+  });
+
+  it("anchors an FF out of a start-of-day milestone on that milestone's instant (#4273)", () => {
+    // M0 is dropped on Mon 01-05 (the start of that day). M0 -FF-> M1 puts M1 on
+    // the same instant, so the +1 lag after it starts T on Tuesday; anchoring the
+    // FF link on the close of Friday let the weekend absorb the lag.
+    const tasks: CpmTask[] = [
+      milestone('M0', '2026-01-05'),
+      milestone('M1', '2026-01-05'),
+      task('T', '2026-01-06', '2026-01-06'),
+    ];
+    const { results } = runCpmForwardPass(
+      tasks,
+      [edge('M0', 'M1', 'FF'), edge('M1', 'T', 'FS', 1)],
+      'M0',
+      '2026-01-05',
+    );
+    expect(results.find((r) => r.taskId === 'T')!.earlyStart).toBe('2026-01-06');
+  });
+
   it('treats SS out of a milestone like FS — its start and finish are one point', () => {
     const tasks: CpmTask[] = [
       task('A', '2026-01-05', '2026-01-09'),
@@ -952,7 +976,7 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     expect(unflagged.results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-09');
   });
 
-  it('only inherits a milestone predecessor\'s reading across a zero-lag link (#4206)', () => {
+  it("only inherits a milestone predecessor's reading across a zero-lag link (#4206)", () => {
     // A -SS-> M1 gives M1 a start-of-day reading (SS's fresh-reading fallback).
     // M1 -FS+3-> M2 lands on a working-day midnight, ambiguous between the two
     // readings. At zero lag M2 must inherit M1's own reading (same midnight,
@@ -1039,9 +1063,7 @@ describe('runCpmResizeForwardPass', () => {
   });
 
   it('flags a resized task as critical when its new finish reaches lateFinish', () => {
-    const tasks: CpmTask[] = [
-      task('A', '2025-01-06', '2025-01-10', { lateFinish: '2025-01-15' }),
-    ];
+    const tasks: CpmTask[] = [task('A', '2025-01-06', '2025-01-10', { lateFinish: '2025-01-15' })];
     const { results } = runCpmResizeForwardPass(tasks, [], 'A', 8);
     expect(results.find((r) => r.taskId === 'A')!.isCritical).toBe(true);
   });

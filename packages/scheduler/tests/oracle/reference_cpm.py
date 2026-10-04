@@ -283,13 +283,6 @@ def finish_meeting(link: RefLink, need: date, cal: RefCalendar) -> date:
     ``need`` in working time, which the end of the last working day before it does.
     """
     if link.lag == 0:
-        # Exercised today by every zero-lag FF/SF between two tasks with work,
-        # and by a zero-lag SF out of a milestone. The one caller this does
-        # NOT see yet is a zero-lag FF out of a milestone: `_known_divergent`
-        # excludes every FF-out-of-milestone case (TODO(#4273)), regardless of
-        # lag, so that specific path through this branch is untested until
-        # #4273 is resolved. Keep the branch as-is rather than deleting logic
-        # the #4273 fix will need.
         return close_of_previous_working_day(need, cal)
     return end_on_or_after_day_closed_by(need, cal)
 

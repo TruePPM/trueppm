@@ -11,27 +11,26 @@ use crate::calendar::{
     checked_offset_days, finish_from_start, next_working_day, prev_working_day,
     retreat_calendar_days, start_from_finish, PassCalendars,
 };
-use crate::forward::{start_anchored, start_reading, Instant, MilestoneInstants};
+use crate::forward::{milestone_link, start_anchored, start_reading, Instant, MilestoneInstants};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
 /// `(start_ref, finish_ref)` a milestone successor at `instant` offers its
-/// predecessors: the instant itself, and the last working day before it. Every
-/// backward inversion is `anchor + lag <= ref`, so these slot into the formulas
-/// written for ordinary tasks. Mirrors the Python `_milestone_refs` (#4079).
-pub(crate) fn milestone_refs(
-    instant: NaiveDate,
-    cal: &Calendar,
-) -> Result<(NaiveDate, NaiveDate), String> {
-    Ok((
-        instant,
-        prev_working_day(checked_offset_days(instant, -1)?, cal)?,
-    ))
+/// predecessors: the instant itself, and the day it closes — *unsnapped*, because
+/// a link into a milestone proposes a raw instant (#4272). Every backward
+/// inversion is `anchor + lag <= ref`, so these slot into the formulas written
+/// for ordinary tasks (FF into a milestone is FS, [`milestone_link`]). Mirrors the
+/// Python `_milestone_refs` (#4079).
+pub(crate) fn milestone_refs(instant: NaiveDate) -> Result<(NaiveDate, NaiveDate), String> {
+    Ok((instant, checked_offset_days(instant, -1)?))
 }
 
 /// Latest instant a milestone may sit on and still honor one successor link: the
-/// inverse of `forward::edge_anchor` for a milestone predecessor. Mirrors the
-/// Python `_milestone_latest` (#4079).
+/// inverse of `forward::edge_anchor` for a milestone predecessor. A lagged FF
+/// measures from `X - 1` itself (#4273), so its inverse is the raw
+/// `finish_ref + 1 - lag`; FF reaches this only from a successor with work (into
+/// a milestone it is FS, [`milestone_link`]). Mirrors the Python
+/// `_milestone_latest` (#4079).
 pub(crate) fn milestone_latest(
     dep_type: DependencyType,
     lag_days: i64,
@@ -41,6 +40,9 @@ pub(crate) fn milestone_latest(
 ) -> Result<NaiveDate, String> {
     if start_anchored(dep_type) {
         return checked_offset_days(start_ref, -lag_days);
+    }
+    if dep_type == DependencyType::FF && lag_days != 0 {
+        return checked_offset_days(finish_ref, 1 - lag_days);
     }
     let last = prev_working_day(checked_offset_days(finish_ref, -lag_days)?, node_cal)?;
     next_working_day(checked_offset_days(last, 1)?, node_cal)
@@ -140,16 +142,16 @@ fn start_read_cap(
 /// Python `_link_start_ref`.
 fn link_start_ref(
     start_ref: NaiveDate,
-    dep: &Dependency,
+    (dep_type, lag_days): (DependencyType, i64),
     pred_is_milestone: bool,
     succ_cal: &Calendar,
     project_finish: NaiveDate,
 ) -> Result<NaiveDate, String> {
-    if !start_anchored(dep.dep_type) {
+    if !start_anchored(dep_type) {
         return Ok(start_ref);
     }
-    let inherits = pred_is_milestone && dep.lag_days() == 0;
-    let base_display = dep.dep_type == DependencyType::SS && !inherits;
+    let inherits = pred_is_milestone && lag_days == 0;
+    let base_display = dep_type == DependencyType::SS && !inherits;
     start_read_cap(start_ref, base_display, succ_cal, project_finish)
 }
 
@@ -174,26 +176,39 @@ fn late_display(
 }
 
 /// `(start_ref, finish_ref)` a live successor's late window offers its predecessor
-/// along `dep`; a milestone successor's start reference is capped per link
-/// ([`link_start_ref`], #4183).
+/// along `dep`, and the type to invert the link as: FF into a milestone is FS
+/// ([`milestone_link`], #4272). A milestone successor's start reference is capped
+/// per link ([`link_start_ref`], #4183).
 fn late_refs(
     succ_idx: usize,
     succ: &Task,
     late_instants: &[Option<NaiveDate>],
     cals: &PassCalendars,
     link: (&Dependency, bool, NaiveDate),
-) -> Result<(NaiveDate, NaiveDate), String> {
+) -> Result<(NaiveDate, NaiveDate, DependencyType), String> {
+    let (dep, pred_is_milestone, project_finish) = link;
     match late_instants[succ_idx] {
         Some(x) => {
             let succ_cal = cals.for_node(succ_idx);
-            let (start_ref, finish_ref) = milestone_refs(x, succ_cal)?;
-            let (dep, pred_is_milestone, project_finish) = link;
+            let (start_ref, finish_ref) = milestone_refs(x)?;
+            let seen = milestone_link(dep.dep_type);
             Ok((
-                link_start_ref(start_ref, dep, pred_is_milestone, succ_cal, project_finish)?,
+                link_start_ref(
+                    start_ref,
+                    (seen, dep.lag_days()),
+                    pred_is_milestone,
+                    succ_cal,
+                    project_finish,
+                )?,
                 finish_ref,
+                seen,
             ))
         }
-        None => Ok((succ.late_start.unwrap(), succ.late_finish.unwrap())),
+        None => Ok((
+            succ.late_start.unwrap(),
+            succ.late_finish.unwrap(),
+            dep.dep_type,
+        )),
     }
 }
 
@@ -269,7 +284,7 @@ pub fn backward_pass(
                     continue;
                 }
                 let dep = &deps[*edge.weight()];
-                let (start_ref, finish_ref) = late_refs(
+                let (start_ref, finish_ref, seen) = late_refs(
                     s,
                     &tasks[s],
                     &late_instants,
@@ -277,7 +292,7 @@ pub fn backward_pass(
                     (dep, true, project_finish),
                 )?;
                 bound = bound.min(milestone_latest(
-                    dep.dep_type,
+                    seen,
                     dep.lag_days(),
                     start_ref,
                     finish_ref,
@@ -427,7 +442,7 @@ fn successor_constraints(
         let lag_days = dep.lag_days();
 
         // A milestone successor offers its late instant (#4079).
-        let (succ_ls, succ_lf) = late_refs(
+        let (succ_ls, succ_lf, seen) = late_refs(
             edge.target().index(),
             succ,
             late_instants,
@@ -435,7 +450,7 @@ fn successor_constraints(
             (dep, false, project_finish),
         )?;
 
-        match dep.dep_type {
+        match seen {
             DependencyType::FS => {
                 // Predecessor must finish the day before successor's late start minus lag.
                 lf_constraints.push(prev_working_day(
