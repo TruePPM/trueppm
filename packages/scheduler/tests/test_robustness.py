@@ -9,6 +9,7 @@ multi-million-iteration spin, an uncaught ``OverflowError``, or a
 
 from __future__ import annotations
 
+import contextlib
 from datetime import date, timedelta
 
 import pytest
@@ -558,3 +559,33 @@ class TestMonteCarloLagDeltaCap:
         det = schedule(p)
         mc = monte_carlo(p, runs=50, seed=0)
         assert mc.p50 == mc.p95 == det.project_finish
+
+
+class TestMonteCarloMilestoneAtDateMin:
+    """A milestone at ``date.min`` never leaks a bare ``ValueError`` from Monte Carlo.
+
+    Monte Carlo steps a day off integer ordinals (the day before a milestone, an
+    FF/SF anchor) without ``date`` arithmetic, so at ordinal 1 it asked
+    ``date.fromordinal(0)`` and escaped the SchedulerError contract on every
+    milestone shape, including a lone one ``schedule()`` places cleanly (#4265).
+    """
+
+    def test_lone_milestone_matches_schedule(self) -> None:
+        p = make_project([task("m", 0)], start=date.min, calendar=Calendar(working_days=1))
+        det = schedule(p)
+        mc = monte_carlo(p, runs=24, seed=0)
+        assert mc.p50 == mc.p95 == det.project_finish == date.min
+
+    @pytest.mark.parametrize("dep_type", list(DependencyType))
+    @pytest.mark.parametrize("lag", [0, -1])
+    @pytest.mark.parametrize("succ_days", [0, 1])
+    def test_linked_milestone_returns_or_raises_scheduler_error(
+        self, dep_type: DependencyType, lag: int, succ_days: int
+    ) -> None:
+        p = make_project(
+            [task("a", 0), task("b", succ_days)],
+            [Dependency("a", "b", dep_type, lag=timedelta(days=lag))],
+            start=date.min,
+        )
+        with contextlib.suppress(InvalidScheduleInput):
+            monte_carlo(p, runs=8, seed=1)
