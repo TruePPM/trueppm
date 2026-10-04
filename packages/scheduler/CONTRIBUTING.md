@@ -35,6 +35,56 @@ monorepo checkout a missing fixture still fails the run: the module recognizes
 the checkout's layout, and `TRUEPPM_MONOREPO=1` (set by CI and
 `make test-scheduler`) enforces the same thing independently.
 
+### The independent CPM oracle
+
+The conformance fixtures above prove the Python and Rust engines **agree**. They
+do not prove either is **right**: every `fixtures/expected/*.json` snapshot is
+Python's own output, so a rule both engines get wrong passes — one snapshot,
+`milestone_tasks.json`, did (#4079). `tests/oracle/reference_cpm.py` closes that
+gap. It is a deliberately slow, day-by-day reference CPM pass written from the
+documented conventions (the [Conventions](README.md#conventions) list), and it
+imports nothing from `trueppm_scheduler`. Do not make it faster or share code
+with the engine; its value is that it is independent and easy to read.
+
+`tests/test_cpm_oracle.py` holds both engines to it over Hypothesis-generated
+networks — all four link types, leads and lags, random working-day masks and
+calendar exceptions, milestones — plus the named milestone properties: inserting
+a zero-duration milestone into an FS link moves nothing and the milestone sits on
+the predecessor's finish; a start milestone at the project start delays nothing;
+`EF - ES + 1 == duration` for every task with work; a dangling FS milestone is
+time-neutral.
+
+What is compared:
+
+| Field | Compared |
+|-------|----------|
+| `early_start`, `early_finish` (task with work) | Exactly, always |
+| `late_start`, `late_finish`, `total_float`, `free_float`, `is_critical` (task with work) | Exactly, unless a milestone lies downstream of the task or decides the project finish. Those depend on which edge of its day the milestone is shown on, a display rule the reference does not model. On a network with no milestones they are always compared. |
+| Milestone early date | By working-time position: the shown day folded with `milestone_at_day_end`, never by shown day alone (#4178, #4207) |
+| Milestone late dates and floats, `scheduled_start`, `critical_path`, `driving_edges` | Not compared |
+| Monte Carlo | Not compared. Only the Python engine runs it; the Rust engine is deterministic CPM only |
+
+Not generated yet: progress and actuals, the data date, `planned_start`,
+per-task calendars, and summary tasks. Two link shapes where both engines
+disagree with the reference are excluded until they are triaged; see
+`_known_divergent` in the test file.
+
+The Rust engine is checked two ways. Locally, when `cargo` is on `PATH`, the
+Rust properties build the crate's `oracle_runner` example and feed it the same
+generated networks; without a toolchain they skip. In CI, `wasm:test` runs
+`packages/wasm-scheduler/tests/oracle_conformance.rs` against
+`packages/wasm-scheduler/fixtures/oracle/corpus.json`, a seeded corpus generated
+**by the reference**, and `scheduler:test` fails if that corpus no longer matches
+the reference. After changing the reference, regenerate it with:
+
+```bash
+REGEN_ORACLE_CORPUS=1 pytest tests/test_cpm_oracle.py -k corpus
+```
+
+The corpus and the fixture format are not yet published for other
+implementations to test against. That is tracked in #4165 (publish the
+conformance corpus) and #4164 (a JSON Schema for the project document).
+
 ### Performance benchmarks
 
 The bench suite asserts hard time budgets. Run it before submitting a MR

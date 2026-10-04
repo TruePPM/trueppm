@@ -235,6 +235,11 @@ The same framing, with the underlying math, is in
 > Rust/WASM engine (`trueppm-wasm-scheduler`, used for browser-side and offline
 > recompute) implements the deterministic CPM pass only — there is no
 > probabilistic path there to keep in conformance.
+>
+> Both engines are tested against each other and, separately, against an
+> independent reference CPM written from the conventions below. The fields that
+> comparison covers exactly, and the ones it does not, are listed in
+> [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md#the-independent-cpm-oracle).
 
 ## Conventions
 
