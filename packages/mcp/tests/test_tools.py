@@ -440,6 +440,9 @@ async def test_get_board_state_composes_columns_and_cards(settings: Settings) ->
 async def test_get_schedule_summary_adds_critical_task_count(settings: Settings) -> None:
     def tasks_handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params.get("is_critical") == "true"
+        # #4250: excludes phase rows so a phase rolled up critical=True (because
+        # one of its children is) doesn't double-count that child.
+        assert request.url.params.get("is_phase") == "false"
         return _json(_page([{"id": "t-1"}, {"id": "t-2"}], count=2))
 
     routes: Routes = {

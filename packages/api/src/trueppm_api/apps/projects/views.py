@@ -3781,6 +3781,14 @@ class ProjectViewSet(
         negative float, which means already late).
         Critical: incomplete tasks where is_critical=True.
 
+        Both counts are leaf rows only — a phase's ``total_float`` and
+        ``is_critical`` are rollups of its children
+        (``scheduling.services._rollup_one_summary``), not facts about the phase
+        row itself (ADR-0105/ADR-0293), so counting the phase on top of the leaf
+        whose value it rolled up would double-count that leaf. Same
+        :func:`task_is_phase_expr` exclusion as the project overview's
+        ``critical_task_count`` (#4238/#4242/#4250).
+
         health_band comes from :func:`compute_health_band` — the manual
         Project.health override when the PM has reported one, otherwise the
         counts. It is on the payload because the shell chip fetches this endpoint
@@ -3809,7 +3817,13 @@ class ProjectViewSet(
         from django.db.models import Count, Max, Q
 
         live_tasks = project.tasks.filter(is_deleted=False)
-        counts = live_tasks.aggregate(
+        # _is_phase (#4250): a phase's total_float/is_critical are rollups of its
+        # children, not facts about the row itself (ADR-0105/ADR-0293) — see
+        # task_is_phase_expr's docstring. `task_count` deliberately still counts
+        # every row (phases included): it is a raw inventory total, not a value
+        # a phase's children also contribute to, so there is nothing to
+        # double-count there.
+        counts = live_tasks.annotate(_is_phase=task_is_phase_expr()).aggregate(
             task_count=Count("id"),
             # Folded into the existing aggregate rather than a second query: this
             # endpoint is hit on every dashboard mount.
@@ -3818,11 +3832,12 @@ class ProjectViewSet(
                 "id",
                 filter=~Q(status=TaskStatus.COMPLETE)
                 & Q(total_float__isnull=False)
-                & Q(total_float__lte=5),
+                & Q(total_float__lte=5)
+                & Q(_is_phase=False),
             ),
             critical_count=Count(
                 "id",
-                filter=~Q(status=TaskStatus.COMPLETE) & Q(is_critical=True),
+                filter=~Q(status=TaskStatus.COMPLETE) & Q(is_critical=True) & Q(_is_phase=False),
             ),
         )
         task_count = counts["task_count"]
@@ -3831,8 +3846,13 @@ class ProjectViewSet(
 
         # Top-5 lists for the dropdown menus still need to fetch the WBS path
         # and name fields; those are bounded LIMIT 5 queries and not collapsed
-        # into the aggregate.
-        incomplete_tasks = live_tasks.exclude(status=TaskStatus.COMPLETE)
+        # into the aggregate. Same leaf-only exclusion as the counts above —
+        # otherwise a phase could appear in its own "critical tasks" dropdown.
+        incomplete_tasks = (
+            live_tasks.exclude(status=TaskStatus.COMPLETE)
+            .annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=False)
+        )
         at_risk_qs = (
             incomplete_tasks.filter(
                 total_float__isnull=False,
@@ -3960,11 +3980,16 @@ class ProjectViewSet(
 
         At-risk / critical use the status_summary semantics: incomplete tasks with
         total_float <= 5 working days → at_risk_count; incomplete is_critical=True →
-        critical_count. ``distinct=True`` on both conditional counts matches the
-        annotate-over-reverse-FK convention of ProgramViewSet.projects — defensive
-        against fan-out if a second to-many join is ever added to this queryset (the
-        membership scope is a ``pk__in`` subquery, not a join, so today there is only
-        the one ``tasks`` join).
+        critical_count. Leaf rows only (#4250) — a phase's total_float/is_critical
+        are rollups of its children, not facts about the phase row itself
+        (ADR-0105/ADR-0293); see :func:`task_is_phase_expr`.
+
+        The two counts come from :func:`program_rollup.risk_counts_by_project`, a
+        grouped query over ``Task`` keyed by ``project_id``, rather than a
+        reverse-FK ``Count("tasks", filter=...)`` annotation on this queryset —
+        the phase exclusion's RawSQL names its own FROM table literally and
+        cannot safely ride a join whose alias this query does not control. See
+        that function's docstring for why.
 
         health_band comes from :func:`compute_health_band` — the same rule the
         single-project status-summary calls, so the two cannot disagree about one
@@ -3972,62 +3997,47 @@ class ProjectViewSet(
         provenance is published on both endpoints or on neither, or the two
         disagree one level up about whether a band is a person's call (#3525).
         """
-        from django.db.models import Count, Q
-
         from trueppm_api.apps.projects.lifecycle import visible_projects
+        from trueppm_api.apps.projects.program_rollup import risk_counts_by_project
 
-        incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
+        # Drafts are excluded (#2962/#3128). This is the health figure the
+        # exclusion list names: a "which of mine is on fire?" triage row for a
+        # plan nobody has committed to answers a question the caller did not ask,
+        # and a half-built schedule reliably reads as critical. The plain list
+        # (``self.get_queryset()`` without this) deliberately still shows the
+        # draft — that is the list a member browses to resume it.
         rows = (
-            # Drafts are excluded (#2962/#3128). This is the health figure the
-            # exclusion list names: a "which of mine is on fire?" triage row for a
-            # plan nobody has committed to answers a question the caller did not ask,
-            # and a half-built schedule reliably reads as critical. The plain list
-            # (``self.get_queryset()`` without this) deliberately still shows the
-            # draft — that is the list a member browses to resume it.
             visible_projects(self.get_queryset())
             .filter(is_archived=False)
-            .annotate(
-                at_risk_count=Count(
-                    "tasks",
-                    filter=incomplete
-                    & Q(tasks__total_float__isnull=False)
-                    & Q(tasks__total_float__lte=5),
-                    distinct=True,
-                ),
-                critical_count=Count(
-                    "tasks",
-                    filter=incomplete & Q(tasks__is_critical=True),
-                    distinct=True,
-                ),
-            )
-            .values("id", "name", "health", "at_risk_count", "critical_count")
+            .values("id", "name", "health")
             .order_by("name")
         )
+        counts = risk_counts_by_project([row["id"] for row in rows])
 
         # `health_band_source` ships on this row too, not only on the
         # single-project status summary: both actions call the one
         # `compute_health_band`, and publishing provenance on one endpoint but not
         # its twin reintroduces one level up the disagreement ADR-0133's "one rule,
-        # called twice" exists to prevent (#3525).
-        bands = [
-            (row, compute_health_band(row["health"], row["at_risk_count"], row["critical_count"]))
-            for row in rows
-        ]
-
-        return Response(
-            [
+        # called twice" exists to prevent (#3525). Built as a fresh list of plain
+        # dicts rather than mutating `rows` in place — `.values("id", "name",
+        # "health")` types as a TypedDict with exactly those three keys, and
+        # writing the counts onto it would be a type error.
+        results = []
+        for row in rows:
+            at_risk_count, critical_count = counts.get(row["id"], (0, 0))
+            band, source = compute_health_band(row["health"], at_risk_count, critical_count)
+            results.append(
                 {
                     "id": str(row["id"]),
                     "name": row["name"],
                     "health_band": band,
                     "health_band_source": source,
-                    "at_risk_count": row["at_risk_count"],
-                    "critical_count": row["critical_count"],
+                    "at_risk_count": at_risk_count,
+                    "critical_count": critical_count,
                 }
-                for row, (band, source) in bands
-            ],
-            status=status.HTTP_200_OK,
-        )
+            )
+
+        return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Blocked tasks on this project (ADR-0124, #1134)",
@@ -5057,6 +5067,17 @@ def _filter_task_scalars(qs: QuerySet[Task], params: Any) -> QuerySet[Task]:
     is_subtask = params.get("is_subtask")
     if is_subtask is not None:
         qs = qs.filter(is_subtask=_is_truthy(is_subtask))
+    is_phase = params.get("is_phase")
+    if is_phase is not None:
+        # Annotated under a name distinct from `annotate_tasks_queryset`'s own
+        # `is_phase` (serializer field) annotation, applied later in get_queryset
+        # — this runs first, before that annotation exists, and the two must not
+        # collide on name (#4250). Same task_is_phase_expr() semantics as that
+        # annotation and as the overview/attention/status-summary phase
+        # exclusions: a phase has >=1 direct structural (non-subtask) child.
+        qs = qs.annotate(_is_phase_filter=task_is_phase_expr()).filter(
+            _is_phase_filter=_is_truthy(is_phase)
+        )
     return qs
 
 
@@ -5983,6 +6004,21 @@ class TaskListPagination(ScheduleFetchPagination):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by the is_subtask flag (true/1 or false/0).",
+            ),
+            OpenApiParameter(
+                name="is_phase",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter by whether the row is a phase — has at least one direct "
+                    "structural (non-subtask) child (true/1 or false/0). A phase's "
+                    "status, estimate, assignee, percent, and schedule fields are "
+                    "rollups of its children, never set directly (ADR-0293); "
+                    "`is_phase=false` is the exclusion a client wants when counting "
+                    "or listing leaf work only, e.g. a critical-path or at-risk "
+                    "triage (#4250)."
+                ),
             ),
             OpenApiParameter(
                 name="labels",

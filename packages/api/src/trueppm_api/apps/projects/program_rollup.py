@@ -404,6 +404,49 @@ def spi_counts_by_project(
     return out
 
 
+def risk_counts_by_project(project_ids: Collection[Any]) -> dict[Any, tuple[int, int]]:
+    """project_id → ``(at_risk_count, critical_count)`` for the status/health triage counts.
+
+    Same semantics as ``ProjectViewSet.status_summary``: incomplete tasks only
+    (``status`` != COMPLETE), leaf rows only. A phase's ``total_float`` and
+    ``is_critical`` are rollups of its children
+    (``scheduling.services._rollup_one_summary``: ``total_float = min(child floats)``,
+    ``is_critical = any(child.is_critical)``) — not facts about the phase row itself
+    (ADR-0105/ADR-0293) — so counting the phase on top of the leaf whose value it
+    rolled up double-counts that leaf (#4250). See :func:`task_is_phase_expr`.
+
+    Built as a grouped query over ``Task`` rather than a reverse-FK
+    ``Count("tasks", filter=...)`` annotation on a ``Project`` queryset, because
+    :func:`task_is_phase_expr`'s ``RawSQL`` names its own FROM table
+    (``projects_task``) literally. On a ``Project`` queryset the join Django adds
+    for ``tasks`` is not guaranteed to resolve to that bare table name — it can be
+    aliased, particularly once a second filtered aggregate over the same relation
+    is added — so the exclusion could silently match against the wrong joined row
+    instead of raising. Keeping ``Task`` as the base model side-steps that
+    entirely; same shape as :func:`spi_counts_by_project`.
+
+    Projects with no incomplete leaf work are absent from the dict — callers read
+    with ``.get(pid, (0, 0))``.
+    """
+    if not project_ids:
+        return {}
+    incomplete = ~Q(status=TaskStatus.COMPLETE)
+    rows = (
+        Task.objects.filter(project_id__in=list(project_ids), is_deleted=False)
+        .annotate(_is_phase=task_is_phase_expr())
+        .filter(_is_phase=False)
+        .values("project_id")
+        .annotate(
+            at_risk=Count(
+                "id",
+                filter=incomplete & Q(total_float__isnull=False) & Q(total_float__lte=5),
+            ),
+            critical=Count("id", filter=incomplete & Q(is_critical=True)),
+        )
+    )
+    return {r["project_id"]: (r["at_risk"], r["critical"]) for r in rows}
+
+
 def spi_health_band(spi: float) -> str:
     """Map an SPI proxy onto the three health bands (shared with the overview card)."""
     if spi >= 0.95:

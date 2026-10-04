@@ -432,6 +432,47 @@ class TestTaskAPI:
         assert r.status_code == 200
         assert all(t["is_critical"] is True for t in r.data["results"])
 
+    def test_filter_is_phase_true_returns_only_phase_rows(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """``?is_phase=true`` — a row with >=1 direct structural (non-subtask) child (#4250)."""
+        Task.objects.create(project=project, name="Phase", wbs_path="1", duration=5)
+        Task.objects.create(project=project, name="Phase child", wbs_path="1.1", duration=5)
+        Task.objects.create(project=project, name="Leaf", wbs_path="2", duration=5)
+
+        r = client.get(f"/api/v1/tasks/?project={project.pk}&is_phase=true")
+
+        assert r.status_code == 200
+        names = {t["name"] for t in r.data["results"]}
+        assert names == {"Phase"}
+
+    def test_filter_is_phase_false_excludes_phase_rows(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        Task.objects.create(project=project, name="Phase", wbs_path="1", duration=5)
+        Task.objects.create(project=project, name="Phase child", wbs_path="1.1", duration=5)
+        Task.objects.create(project=project, name="Leaf", wbs_path="2", duration=5)
+
+        r = client.get(f"/api/v1/tasks/?project={project.pk}&is_phase=false")
+
+        assert r.status_code == 200
+        names = {t["name"] for t in r.data["results"]}
+        assert names == {"Phase child", "Leaf"}
+
+    def test_filter_is_phase_leaf_with_only_subtask_children_is_not_a_phase(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """A row whose only children are drawer subtasks is not a phase (ADR-0293)."""
+        Task.objects.create(project=project, name="Leaf with subtask", wbs_path="1", duration=5)
+        Task.objects.create(
+            project=project, name="Sub", wbs_path="1.1", duration=1, is_subtask=True
+        )
+
+        r = client.get(f"/api/v1/tasks/?project={project.pk}&is_phase=true")
+
+        assert r.status_code == 200
+        assert r.data["results"] == []
+
 
 @pytest.mark.django_db
 class TestDependencyAPI:

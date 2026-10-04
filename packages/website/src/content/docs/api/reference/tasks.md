@@ -8,7 +8,7 @@ documentedFor: "0.4"
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/tasks/` | List (filter: `?project=`, `?is_critical=true`) |
+| GET | `/api/v1/tasks/` | List (filter: `?project=`, `?is_critical=true`, `?is_phase=true/false`) |
 | GET | `/api/v1/tasks/search/` | Board card search (required: `?project=`, `?q=`); returns slim `{id, name, status, short_id}` matches |
 | POST | `/api/v1/tasks/` | Create |
 | GET | `/api/v1/tasks/{id}/` | Retrieve |
@@ -25,6 +25,8 @@ CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_f
 Those eight fields (the six above plus `free_float` and `scheduled_start`) are **null if and only if the task is outside the schedulable set** — `status=BACKLOG`, `type=EPIC`, a recurring template or occurrence, or soft-deleted — or has never been scheduled (ADR-1152). The scheduler clears them when a task leaves that set, so a value in any of them means the engine computed it *for that task*, and a null means "not in the plan" rather than "not calculated yet". Do not treat a missing date on a backlog card as a scheduling gap to fill; treat `is_critical: null` as "no answer", distinct from `false` ("computed, and not on the critical path"). `duration` is **not** one of these fields — it is a user-owned estimate and is never cleared.
 
 Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
+
+`?is_phase=false` excludes phase rows from the list — the rollup fields a phase carries (`status`, `is_critical`, `total_float`, and the rest) are derived from its children, not facts about the phase row itself, so a client counting or listing critical-path or at-risk work should filter it out to avoid double-counting a child's contribution. `?is_phase=true` returns only phase rows. A leaf whose only children are drawer subtasks (`is_subtask=true`) is **not** a phase — a drawer subtask is not structural work.
 
 ### Who may create a task
 
