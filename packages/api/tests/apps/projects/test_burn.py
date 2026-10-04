@@ -253,6 +253,85 @@ def test_baseline_series_present_only_when_active_baseline(
     assert len(resp.data["baseline_series"]) == 1
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize("chart_type", ["burndown", "burnup"])
+def test_baseline_series_omitted_when_baseline_lacks_cpm_dates(
+    project: Project, member: object, chart_type: str
+) -> None:
+    """A pre-CPM baseline must not produce a misleading overlay (#4257).
+
+    ``has_cpm_dates=False`` means the snapshot was taken before CPM first ran, so
+    ``BaselineTask.finish`` is mostly-or-entirely null — one task here still
+    carries a real date (has_cpm_dates only requires at least one null, not all).
+    Before the fix, summing every baselined task's weight into ``total`` while
+    only subtracting the rare non-null ``finish <= day`` rows into ``done``
+    produced a planned curve that never reached zero (burndown) or plateaued
+    below total (burnup). The overlay must instead be omitted entirely — the
+    same shape as having no active baseline at all.
+    """
+    tasks = _create_tasks(project, 2)
+    today = date.today().isoformat()
+    baseline = Baseline.objects.create(
+        project=project, name="Pre-CPM", is_active=True, has_cpm_dates=False
+    )
+    BaselineTask.objects.create(
+        baseline=baseline,
+        task_id=tasks[0].pk,
+        task_name=tasks[0].name,
+        finish=None,
+        duration=1,
+    )
+    BaselineTask.objects.create(
+        baseline=baseline,
+        task_id=tasks[1].pk,
+        task_name=tasks[1].name,
+        finish=date.today() + timedelta(days=2),
+        duration=1,
+    )
+    c = _client(member)
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"chart_type": chart_type, "since": today, "until": today},
+    )
+    assert resp.status_code == 200
+    assert "baseline_series" not in resp.data
+
+
+@pytest.mark.django_db
+def test_baseline_series_omitted_when_baseline_lacks_cpm_dates_points_metric(
+    project: Project, member: object
+) -> None:
+    """Same omission for metric=points (#4257), whose join path (via live Task
+    story_points) is separate code from the tasks-metric path above.
+    """
+    tasks = _create_tasks(project, 2, points=5)
+    today = date.today().isoformat()
+    baseline = Baseline.objects.create(
+        project=project, name="Pre-CPM", is_active=True, has_cpm_dates=False
+    )
+    BaselineTask.objects.create(
+        baseline=baseline,
+        task_id=tasks[0].pk,
+        task_name=tasks[0].name,
+        finish=None,
+        duration=1,
+    )
+    BaselineTask.objects.create(
+        baseline=baseline,
+        task_id=tasks[1].pk,
+        task_name=tasks[1].name,
+        finish=date.today() + timedelta(days=2),
+        duration=1,
+    )
+    c = _client(member)
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"metric": "points", "since": today, "until": today},
+    )
+    assert resp.status_code == 200
+    assert "baseline_series" not in resp.data
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------

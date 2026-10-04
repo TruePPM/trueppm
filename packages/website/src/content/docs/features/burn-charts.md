@@ -69,7 +69,7 @@ past that horizon, or an explicit `since` more than 366 days before `until`, is 
 never refused for span; the window is clamped to the 366 days ending at `until`
 instead, and the response echoes the `since` it actually used.
 
-The response echoes `chart_type`, `metric`, `since`, and `until`, plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. For `burndown` / `burnup` only, a project with an active baseline also gets a `baseline_series` planned-remaining overlay (`{date, planned}` rows); `combined` does not carry one.
+The response echoes `chart_type`, `metric`, `since`, and `until`, plus a `series` array with one entry per calendar day. For `burndown`/`burnup`, each row is `{date, actual, ideal, scope}`; for `combined`, rows are `{date, remaining, completed, total, ideal}`. For `burndown` / `burnup` only, a project with an active baseline also gets a `baseline_series` planned-remaining overlay (`{date, planned}` rows); `combined` does not carry one. The overlay is omitted (the key is absent, same as having no active baseline) when the active baseline was captured before the CPM engine first ran — its snapshotted finish dates are mostly or entirely missing, so there is no real plan to overlay.
 
 `IsAuthenticated` + project read permission required. Project must be a member of the requesting user's accessible projects.
 
