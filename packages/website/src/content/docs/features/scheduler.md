@@ -78,7 +78,14 @@ To express a wait of *n* working days, either size the lag against the calendar
 the successor lands on, or model the wait as a zero-resource task — durations are
 working-day counted, so that path is calendar-aware end to end.
 
-Negative lag snaps backward to the previous working day under the same rule.
+Negative lag (a lead) follows the same rule and also snaps **forward**, never
+backward, to the next working day. A lead that pulls the candidate date into a
+weekend does not borrow the working day before it — it lands on the working day
+after:
+
+| FS `lag` after a Friday finish | Successor starts |
+|---|---|
+| `-7d` | Mon 01-05 (candidate is Sat 01-03, which snaps forward — **not** Fri 01-02) |
 
 :::note
 Whether lag *should* be working-day counted — MS Project's default duration-unit

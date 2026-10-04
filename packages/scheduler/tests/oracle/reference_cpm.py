@@ -9,14 +9,16 @@ CPM Scheduler pages), so a property that holds ``engine == reference`` is
 evidence of correctness rather than of parity.
 
 "Written from the documented conventions" is not the same claim as "written
-without ever looking at engine behavior" — a handful of rules are underspecified
-or contradicted by the docs, and for those the choice below was calibrated
-against what the engines actually do, not derived from prose alone: the SF
-zero-lag anchor and the SF-only milestone floor (both land on the documented
-rules, #4145 and #4218, once read against engine output), the zero-lag FF
-finish instant (:func:`finish_meeting`), and the lead (negative lag) snap
-direction, which follows the engines *against* the docs — see the note on that
-bullet below and #4274. Every other rule is read from the docs alone.
+without ever looking at engine behavior" — a handful of rules were
+underspecified or contradicted by the docs, and for those the choice below was
+calibrated against what the engines actually do, not derived from prose alone:
+the SF zero-lag anchor and the SF-only milestone floor (both land on the
+documented rules, #4145 and #4218, once read against engine output), the
+zero-lag FF finish instant (:func:`finish_meeting`), and the lead (negative
+lag) snap direction — see the note on that bullet below. The lead snap
+direction was the one place the docs disagreed with both engines (#4274); the
+docs were wrong and have been corrected to match the engines, which is what
+this module already modeled. Every other rule is read from the docs alone.
 
 It deliberately imports nothing from ``trueppm_scheduler``: its input is plain
 data (:class:`RefProject`) and its output is plain data (:class:`RefTask`).
@@ -48,10 +50,8 @@ Documented rules modeled
 * Durations count working days; a lag counts **calendar** days added to the
   link's anchor, and the resulting date snaps forward to a working day (README,
   "Duration and lag are counted in different units"; #2534). This snaps
-  **forward** for a lead (negative lag) too, which is what both engines do —
-  the README and website docs say a lead snaps *backward*, to the previous
-  working day. That is a documented behavior the reference deliberately does
-  not follow; see #4274 for which side is wrong.
+  **forward** for a lead (negative lag) too, which is what both engines do and
+  what the docs now say (#4274 decided the docs, not the engines, were wrong).
 * Anchors: FS and FF anchor on the predecessor's finish (the midnight closing its
   last working day); SS on its start (the midnight opening its first working day);
   SF on its start *read as a finish* — the midnight closing the working day
