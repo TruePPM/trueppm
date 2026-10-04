@@ -112,7 +112,6 @@ before it — it lands on the Monday after:
 #
 # Not Fri 2026-01-09 — the engine never snaps a lead or lag backward.
 ```
-```
 
 ### Per-task calendars
 
