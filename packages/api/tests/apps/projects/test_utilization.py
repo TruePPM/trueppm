@@ -32,6 +32,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.utilization import (
     _AVATAR_COLORS,
+    _DEFAULT_WORKING_DAYS,
     Allocation,
     _accumulate_days,
     _count_working_days_in_range,
@@ -44,6 +45,7 @@ from trueppm_api.apps.projects.utilization import (
     _weekly_util_for_resource,
     aggregate_utilization_weekly,
     peak_concurrent_units,
+    resolve_working_calendar,
 )
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
@@ -1167,6 +1169,79 @@ class TestWeeklyUtilForResourceDirectly:
         row = self._row(0.5, "1.0", 1, {"2026-03-02": {"hours": 0.25, "tasks": []}})  # Mon only
         week_dates = [(date(2026, 3, 2), date(2026, 3, 8))]
         assert _weekly_util_for_resource(row, week_dates) == [50]
+
+
+@pytest.mark.django_db
+class TestResolveWorkingCalendarDirectly:
+    """``resolve_working_calendar`` — the ``(mask, exception_ranges)`` pair the
+    daily engine's own "resource calendar wins" resolution exposes to callers
+    (``_check_overallocation`` in ``apps/resources/views.py``) that need only
+    the working-day question, not a load figure. ``hours_per_day`` and
+    ``calendar_differs`` are the two return values of ``_resolve_resource_calendar``
+    this wrapper discards via ``_`` — not targeted here, same reasoning as the
+    discarded-``cal_differs`` equivalent mutant documented for
+    ``compute_team_utilization``'s roster-entry call site.
+    """
+
+    def test_resource_calendar_wins_over_the_project_calendar(self) -> None:
+        project_cal = Calendar.objects.create(name="Proj", working_days=31, hours_per_day=8.0)
+        resource_cal = Calendar.objects.create(name="Res", working_days=127, hours_per_day=4.0)
+        project = Project.objects.create(
+            name="P", start_date=date(2026, 3, 2), calendar=project_cal
+        )
+        resource = Resource.objects.create(name="Frank", max_units="1.0", calendar=resource_cal)
+
+        mask, exception_ranges = resolve_working_calendar(resource, project)
+
+        assert mask == 127
+        assert exception_ranges == []
+
+    def test_resource_without_its_own_calendar_falls_back_to_the_project_calendar(self) -> None:
+        """``working_days=127`` (every day) rather than the Mon-Fri default (31) —
+        a mutant that forced ``project_cal`` to ``None`` anywhere along the chain
+        (``getattr(project, "calendar", None)``, a wrong attribute name on that
+        ``getattr``, or ``_resolve_project_calendar(None)``) would fall through to
+        the SAME default mask a real Mon-Fri project calendar also produces, so a
+        31-day fixture here could not tell the two apart."""
+        project_cal = Calendar.objects.create(name="Proj", working_days=127, hours_per_day=8.0)
+        project = Project.objects.create(
+            name="P", start_date=date(2026, 3, 2), calendar=project_cal
+        )
+        resource = Resource.objects.create(name="Grace", max_units="1.0")
+
+        mask, exception_ranges = resolve_working_calendar(resource, project)
+
+        assert mask == 127
+        assert exception_ranges == []
+
+    def test_no_project_falls_back_to_the_mon_fri_default_not_zero(self) -> None:
+        resource = Resource.objects.create(name="Hank", max_units="1.0")
+
+        mask, exception_ranges = resolve_working_calendar(resource, None)
+
+        assert mask == _DEFAULT_WORKING_DAYS
+        assert exception_ranges == []
+
+    def test_exception_ranges_come_from_the_winning_calendar_not_the_losing_one(self) -> None:
+        """Both calendars carry an exception; only the RESOURCE's (the winner)
+        must come back — a mutant that read the project's exceptions instead
+        would return the wrong range here, since the two dates differ."""
+        project_cal = Calendar.objects.create(name="Proj", working_days=31, hours_per_day=8.0)
+        resource_cal = Calendar.objects.create(name="Res", working_days=31, hours_per_day=8.0)
+        CalendarException.objects.create(
+            calendar=project_cal, exc_start=date(2026, 3, 2), exc_end=date(2026, 3, 2)
+        )
+        CalendarException.objects.create(
+            calendar=resource_cal, exc_start=date(2026, 3, 9), exc_end=date(2026, 3, 9)
+        )
+        project = Project.objects.create(
+            name="P", start_date=date(2026, 3, 2), calendar=project_cal
+        )
+        resource = Resource.objects.create(name="Iris", max_units="1.0", calendar=resource_cal)
+
+        _mask, exception_ranges = resolve_working_calendar(resource, project)
+
+        assert exception_ranges == [(date(2026, 3, 9), date(2026, 3, 9))]
 
 
 @pytest.mark.django_db
