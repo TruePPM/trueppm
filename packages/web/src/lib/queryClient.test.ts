@@ -74,7 +74,7 @@ describe('queryClient — MutationCache session-expired gating (#1922)', () => {
         useMutation({
           // Mirrors what the apiClient request interceptor throws
           // synchronously once sessionExpired is true.
-          mutationFn: () => Promise.reject(new Error('Session expired')),
+          mutationFn: () => Promise.reject(new Error('Signed out')),
         }),
       { wrapper },
     );
@@ -114,7 +114,7 @@ describe('queryClient — MutationCache session-expired gating (#1922)', () => {
     const { result } = renderHook(
       () =>
         useMutation({
-          mutationFn: () => Promise.reject(new Error('Session expired')),
+          mutationFn: () => Promise.reject(new Error('Signed out')),
         }),
       { wrapper },
     );

@@ -104,13 +104,13 @@ describe('apiClient', () => {
 
       // config is required — the interceptor reads _retried and headers from it.
       // The refresh attempt will fail (no network in tests) → the catch block calls
-      // expireSession() and re-throws 'Session expired'.
+      // expireSession() and re-throws 'Signed out'.
       const axiosError = Object.assign(new Error('Unauthorized'), {
         isAxiosError: true,
         response: { status: 401 },
         config: { headers: {} },
       });
-      await expect(rejected(axiosError)).rejects.toThrow('Session expired');
+      await expect(rejected(axiosError)).rejects.toThrow('Signed out');
       expect(useAuthStore.getState().accessToken).toBeNull();
     });
 

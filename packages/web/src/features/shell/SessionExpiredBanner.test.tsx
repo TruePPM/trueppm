@@ -149,6 +149,10 @@ describe('SessionExpiredBanner', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     const persistentBanner = screen.getByRole('status');
+    // Lead sentence is cause-agnostic too (#4256) — this is a genuine negative
+    // control: the retired "Your session expired." wording would fail this
+    // assertion while still passing the "viewing cached content" one below.
+    expect(persistentBanner).toHaveTextContent(/you've been signed out/i);
     expect(persistentBanner).toHaveTextContent(/viewing cached content read-only/);
     // The cached screen behind the (now-gone) modal is still on the page —
     // this is the actual escape-hatch guarantee: reachable cached content.

@@ -279,9 +279,9 @@ sidebar stranded on a light app.
 ## When you're signed out
 
 If your session ends while you're working — a timed-out token, a password
-reset, an admin-initiated sign-out, or a signed-out tab left open — TruePPM
-shows a "You've been signed out" prompt rather than silently dropping you onto
-the login screen with no explanation. From there you can:
+reset, an admin deactivating your account, or a signed-out tab left open —
+TruePPM shows a "You've been signed out" prompt rather than silently dropping
+you onto the login screen with no explanation. From there you can:
 
 - **Sign in** to re-authenticate immediately, or
 - **Continue viewing (read-only)** to keep looking at whatever the app already
