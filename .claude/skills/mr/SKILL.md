@@ -163,6 +163,13 @@ Rules:
 - **A finding is something that changed the branch or was consciously accepted** — a bug
   fixed, a permission tightened, a query batched, a risk documented. Restating what the
   diff already does is not a finding; count it as 0.
+- **`completeness-check` may carry two lines — the one sanctioned exception to "one line
+  per gate".** When its round-2 full audit ran, round 2 gets its own line under the same
+  gate name with `round 2` first in the parenthetical:
+  `- gate: completeness-check — 2 findings (round 2; opus; causes: class-missed 2; overlap 1/3)`.
+  Do not invent a `completeness-check-r2` name — it resolves to no skill and would be a
+  phantom gate. `/kaizen` splits the two rounds by the marker. Format and counting rules
+  live in `.claude/skills/completeness-check/SKILL.md` § Recording it.
 - **`n/a` and `skipped` are different.** `n/a` means the fast-path table or the gate's own
   scope excludes this diff (no models changed → `migration-check — n/a`). `skipped` means
   the gate applied and was deliberately not run — only ever at the user's request, and

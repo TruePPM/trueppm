@@ -205,17 +205,19 @@ stats = defaultdict(lambda: {'ran': 0, 'found': 0, 'findings': 0, 'na': 0, 'skip
 for mr in json.load(sys.stdin):
     for name, outcome in re.findall(r'^\s*[-*]\s*gate:\s*([a-z-]+)\s*[—-]\s*(.+)$',
                                     mr.get('description') or '', re.M):
-        s = stats[name]
         o = outcome.strip().lower()
+        if name == 'completeness-check' and 'round 2' in o:
+            name = 'completeness-check:r2'
+        s = stats[name]
         if o.startswith('n/a'):     s['na'] += 1
         elif o.startswith('skip'):  s['skipped'] += 1
         else:
             n = int(m.group(1)) if (m := re.match(r'(\d+)', o)) else 0
             s['ran'] += 1; s['findings'] += n; s['found'] += 1 if n else 0
-print(f\"{'gate':<20}{'ran':>5}{'found>0':>9}{'yield':>8}{'total':>7}{'n/a':>6}{'skip':>6}\")
+print(f\"{'gate':<24}{'ran':>5}{'found>0':>9}{'yield':>8}{'total':>7}{'n/a':>6}{'skip':>6}\")
 for name, s in sorted(stats.items(), key=lambda kv: -kv[1]['ran']):
     y = f\"{100*s['found']/s['ran']:.0f}%\" if s['ran'] else '—'
-    print(f\"{name:<20}{s['ran']:>5}{s['found']:>9}{y:>8}{s['findings']:>7}{s['na']:>6}{s['skipped']:>6}\")
+    print(f\"{name:<24}{s['ran']:>5}{s['found']:>9}{y:>8}{s['findings']:>7}{s['na']:>6}{s['skipped']:>6}\")
 "
 ```
 
@@ -231,6 +233,19 @@ the sample says nothing and the correct finding is "not enough data yet"):
   report: this gate is load-bearing, and any proposal to trim it elsewhere should be
   resisted. Kaizen exists to remove friction, not protection.
 - **High yield *and* rule-shaped findings** → see the CI-migration test in Step 2.
+
+Two `completeness-check` readings go beyond yield (see that skill's § Recording it):
+
+- **`completeness-check:r2`** is the conditional round-2 full audit. Its `total` counts
+  only what round 1 missed, so its yield is the direct measure of whether the second
+  pass earns its agent. Near-0% over ≥ 10 runs → tighten its trigger; also read the
+  `overlap k/N` notes — consistently high overlap means the two audits converge and
+  round 2 adds little.
+- **The `causes:` tally** answers whether upstream requirement clarification would pay.
+  Sum the tags across both rounds. If `requirement-unclear` is a real share of findings,
+  propose an acceptance-criteria check in `/batch` Step 2; if it stays near zero, the
+  findings are discovered by reading the code, and no up-front question would have
+  prevented them.
 
 **Caveats to state in the report, every time:**
 

@@ -49,6 +49,9 @@ What it caught, by class — use these as the checklist, they are the ones that 
   claims are checked against code, and that is where docs gaps were found.
 - **Again, narrowly, on the commits made in response to it.** A fix for a completeness
   finding is new code; the round-2 audits above found gaps in round-1 fixes.
+- **Again, in full, when round 1 says the branch is in trouble** — see
+  [Round 2](#round-2--a-second-full-audit-when-round-1-says-the-branch-is-in-trouble).
+  This replaces the narrow re-run for that branch; it covers the fix commits too.
 - Exempt: dependency bumps, CI-config-only and chore branches with no behavior change.
 
 ## How to run
@@ -106,19 +109,80 @@ The brief asks it to be **the reviewer who must block a bad merge**, and to chec
 The agent returns, under ~500 words:
 
 ```
-BLOCKERS: <must fix before push — evidence file:line, minimal fix>
-GAPS:     <should fix before push — evidence, minimal fix>
+BLOCKERS: <must fix before push — [cause] evidence file:line, minimal fix>
+GAPS:     <should fix before push — [cause] evidence, minimal fix>
 CLEAN:    <what it checked and found sound, briefly — so the next reader knows the denominator>
 ```
 
+Every BLOCKER and GAP opens with exactly one **cause tag** — why the gap exists, not
+which checklist step found it:
+
+| Tag | The gap exists because… |
+|---|---|
+| `requirement-unclear` | the issue (body + comments) did not settle what was wanted, so a reasonable implementer could have built it either way |
+| `requirement-missed` | the issue settled it and the branch did not do it — including a comment's scope correction |
+| `class-missed` | the reported instance is fixed and another member of the same class is not |
+| `collateral` | a shared rule moved and another consumer of the old behavior broke |
+| `test-weak` | a test that cannot fail, or a test-plan line nobody ran |
+| `docs-stale` | a docs claim is false of the code, or the old claim survives elsewhere |
+| `merged-tree` | a collision with `origin/main` as fetched now |
+
+The tags exist to answer one question with data: would asking for requirement
+clarification *before* implementation (in `/batch` Step 2) prevent a real share of these
+findings? Only `requirement-unclear` would. Tag honestly — a `requirement-missed` filed as
+`requirement-unclear` makes the upstream fix look cheaper than it is.
+
 The author then fixes every BLOCKER and GAP on the branch (or files an open issue for a
 GAP the user explicitly defers, and says so in the MR), re-runs the affected tests with
-negative controls, and only then pushes.
+negative controls, and only then pushes — unless round 1 triggers round 2, below.
+
+## Round 2 — a second full audit when round 1 says the branch is in trouble
+
+The narrow re-run audits only the fix commits, so it catches a bad fix but never what
+round 1 failed to see. One auditor's recall is incomplete, and a branch that produced
+many or structural findings is the branch where that matters: the author's model of the
+problem was off, and the fixes reach code round 1 never had to reason about.
+
+**Trigger** — after round 1's fixes are committed, run round 2 if round 1 reported:
+
+- any **BLOCKER** tagged `class-missed` or `collateral` (the fix's scope changed), or
+- **four or more** BLOCKERS + GAPS in total.
+
+Otherwise the narrow re-run is enough.
+
+**How:**
+
+- A **fresh** agent — not round 1's auditor, not via `SendMessage` to it, not the author.
+- **Do not show it round 1's findings.** Give it the same brief round 1 got (worktree,
+  issue numbers, user decisions). A list of known findings anchors the audit on them;
+  the point of round 2 is the findings round 1 did not have.
+- **`opus`**, regardless of the escalation criteria — the trigger is itself the evidence
+  that this branch needs the stronger reasoner.
+- After it reports, **compare the two lists**. Record the overlap: how many round-2
+  findings round 1 had already reported. High overlap means the audits are converging on
+  the same set; low overlap means there are probably more gaps neither found.
+
+**Stop after two rounds.** If round 2 still reports a BLOCKER, the problem is the branch,
+not the audit. Do not start round 3; stop and put the choice to the user — split the
+branch, rethink the approach, or fix and push with the residual risk stated in the MR.
+This is the same reasoning that makes `/pre-release full` a one-time gate: fresh agents
+always find something adjacent, and an audit loop has no natural end.
+
+Round 2's own fixes still get the narrow re-run.
 
 ## Recording it
 
 - The MR description carries a `## Requirements` table (see `/mr`) built from step 1.
-- The `## Gates` ledger carries `- gate: completeness-check — <N> findings (<model>; <one-line gist>)`,
-  where N counts BLOCKERS + GAPS that changed the branch or were consciously deferred.
+- The `## Gates` ledger carries `- gate: completeness-check — <N> findings (<model>; causes: <tally>; <one-line gist>)`,
+  where N counts BLOCKERS + GAPS that changed the branch or were consciously deferred,
+  and the tally lists each cause tag used with its count (`causes: class-missed 2,
+  test-weak 1`; omit it at 0 findings).
   `0 findings` is a real outcome and is recorded — it is how `/kaizen` will learn whether
   this gate keeps earning its slot.
+- If round 2 ran, it gets **its own line** under the same gate name, with `round 2` as
+  the first item in the parenthetical and the overlap after the causes:
+  `- gate: completeness-check — <N> findings (round 2; opus; causes: …; overlap <k>/<N>)`.
+  N counts only what round 1 did not already report. Keep the gate name unchanged —
+  the ledger parser matches on skill names, and `/kaizen` splits round 2 out by the
+  `round 2` marker. A narrow re-run's findings are added to round 1's count, not given
+  their own line.
