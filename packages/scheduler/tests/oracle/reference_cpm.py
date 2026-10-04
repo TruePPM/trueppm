@@ -61,7 +61,9 @@ Documented rules modeled
 * FS/SS constrain the successor's start: it is the first working-day start at or
   after ``anchor + lag``. FF/SF constrain its finish: with a lag, the end of the
   first working day on or after the day ``anchor + lag`` closes; with no lag there
-  is no date to snap, so it only has to reach ``anchor`` in working time. A task
+  is no date to snap, so it only has to reach ``anchor`` in working time; a lead
+  counts back from that zero-lag finish, so the finish is monotone in the lag
+  (#4273). A task
   stays contiguous; a finish link that pins it later than its start links allow
   right-aligns it on that finish (#3806). A milestone successor is the raw latest
   of everything its links require.
@@ -281,9 +283,19 @@ def finish_meeting(link: RefLink, need: date, cal: RefCalendar) -> date:
     ends with the first working day on or after the day ``need`` closes. With no
     lag there is no date arithmetic to snap — the finish only has to reach
     ``need`` in working time, which the end of the last working day before it does.
+
+    A lead counts back from that zero-lag finish, not from the raw anchor, so the
+    finish is monotone in the lag (#4273). The two differ only for an anchor just
+    after non-working time — a milestone at the start of Monday: counted from the
+    instant, a one-day lead names Saturday and snaps forward to Monday, *later*
+    than zero lag's Friday; counted from Friday it reaches Thursday. For a task
+    with work, and for SF, the anchor already closes a working day, so they agree.
     """
     if link.lag == 0:
         return close_of_previous_working_day(need, cal)
+    if link.lag < 0:
+        anchor = need - timedelta(days=link.lag)
+        need = close_of_previous_working_day(anchor, cal) + timedelta(days=link.lag)
     return end_on_or_after_day_closed_by(need, cal)
 
 

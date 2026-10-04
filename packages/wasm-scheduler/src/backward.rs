@@ -26,11 +26,12 @@ pub(crate) fn milestone_refs(instant: NaiveDate) -> Result<(NaiveDate, NaiveDate
 }
 
 /// Latest instant a milestone may sit on and still honor one successor link: the
-/// inverse of `forward::edge_anchor` for a milestone predecessor. A lagged FF
-/// measures from `X - 1` itself (#4273), so its inverse is the raw
-/// `finish_ref + 1 - lag`; FF reaches this only from a successor with work (into
-/// a milestone it is FS, [`milestone_link`]). Mirrors the Python
-/// `_milestone_latest` (#4079).
+/// inverse of `forward::edge_anchor` for a milestone predecessor. An FF with a
+/// positive lag measures from `X - 1` itself (#4273), so its inverse is the raw
+/// `finish_ref + 1 - lag`; an FF lead measures from `prev_wd(X - 1)` like zero
+/// lag and inverts through the finish-anchored branch. FF reaches this only from a
+/// successor with work (into a milestone it is FS, [`milestone_link`]). Mirrors
+/// the Python `_milestone_latest` (#4079).
 pub(crate) fn milestone_latest(
     dep_type: DependencyType,
     lag_days: i64,
@@ -41,7 +42,7 @@ pub(crate) fn milestone_latest(
     if start_anchored(dep_type) {
         return checked_offset_days(start_ref, -lag_days);
     }
-    if dep_type == DependencyType::FF && lag_days != 0 {
+    if dep_type == DependencyType::FF && lag_days > 0 {
         return checked_offset_days(finish_ref, 1 - lag_days);
     }
     let last = prev_working_day(checked_offset_days(finish_ref, -lag_days)?, node_cal)?;

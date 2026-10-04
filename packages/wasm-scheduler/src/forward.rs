@@ -60,12 +60,15 @@ pub(crate) fn start_anchored(dep_type: DependencyType) -> bool {
 /// also where a zero-duration milestone standing at that same midnight puts it.
 ///
 /// FF out of a milestone (#4273) measures from the instant itself, the point FS
-/// measures from: a lagged FF anchors on the day the instant closes, `x - 1`
-/// (a non-working day when the instant opens a working day after a weekend), and
-/// the lag then snaps forward like any lagged FF. With no lag there is no date to
-/// snap, so the successor only has to reach the instant in working time — the
-/// last working day before it. Anchoring a lagged FF there too let a weekend
-/// absorb the lag. Links *into* a milestone go through [`milestone_proposal`].
+/// measures from. With no lag there is no date to snap, so the successor only has
+/// to reach the instant in working time — the last working day before it. A
+/// positive lag anchors on the day the instant closes, `x - 1` (a non-working day
+/// when the instant opens a working day after a weekend), and snaps forward like
+/// any lagged FF; anchoring it on the last working day let a weekend absorb it. A
+/// lead counts back from the zero-lag anchor, so the successor's finish is
+/// monotone in the lag: from `x - 1` a one-day lead out of a start-of-Monday
+/// milestone named Saturday and snapped forward to Monday, later than zero lag's
+/// Friday. Links *into* a milestone go through [`milestone_proposal`].
 pub(crate) fn edge_anchor(
     dep_type: DependencyType,
     start: NaiveDate,
@@ -82,7 +85,7 @@ pub(crate) fn edge_anchor(
             DependencyType::SF => prev_working_day(checked_offset_days(start, -1)?, pred_cal),
         },
         Some(x) if start_anchored(dep_type) => Ok(x),
-        Some(x) if dep_type == DependencyType::FF && lag_days != 0 => checked_offset_days(x, -1),
+        Some(x) if dep_type == DependencyType::FF && lag_days > 0 => checked_offset_days(x, -1),
         Some(x) => prev_working_day(checked_offset_days(x, -1)?, pred_cal),
     }
 }
@@ -865,6 +868,44 @@ mod tests {
         for (lag, finish) in [(0, 5), (1, 5), (2, 6), (3, 7)] {
             let w = schedule_one(&tasks, &[("M0", "W", "FF", lag)], "W");
             assert_eq!(w.early_finish, d(finish), "lag {lag}");
+        }
+    }
+
+    /// #4273, leads: an FF lead out of a start-of-day milestone counts back from
+    /// the zero-lag anchor (the close of Friday), so `W`'s finish is monotone in
+    /// the lag. `A` ends Fri 01-09 and FS+2 puts `M` at the start of Mon 01-12.
+    /// Counted from the day the instant closes, a one-day lead named Saturday and
+    /// snapped forward, finishing `W` on Monday — later than zero lag's Friday.
+    #[test]
+    fn an_ff_lead_out_of_a_milestone_is_monotone_in_the_lag() {
+        let tasks = [("A", 5), ("M", 0), ("W", 1)];
+        let expected = [
+            (-4, 5),
+            (-3, 6),
+            (-2, 7),
+            (-1, 8),
+            (0, 9),
+            (1, 12),
+            (2, 13),
+            (3, 14),
+            (4, 15),
+            (5, 16),
+            (6, 19),
+            (7, 19),
+        ];
+        let mut previous = None;
+        for (lag, finish) in expected {
+            let deps = [("A", "M", "FS", 2), ("M", "W", "FF", lag)];
+            let w = schedule_one(&tasks, &deps, "W");
+            assert_eq!(w.early_finish, d(finish), "lag {lag}");
+            if let Some(p) = previous {
+                assert!(
+                    w.early_finish >= p,
+                    "lag {lag} finishes before lag {}",
+                    lag - 1
+                );
+            }
+            previous = Some(w.early_finish);
         }
     }
 

@@ -883,6 +883,29 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     expect(results.find((r) => r.taskId === 'T')!.earlyStart).toBe('2026-01-06');
   });
 
+  it('counts an FF lag out of a start-of-day milestone from its instant, monotone in the lag (#4273)', () => {
+    // M is dropped on Mon 01-12, the start of that day. A positive FF lag counts
+    // from the day M's instant closes (Sunday): +2 finishes W on Tuesday, where
+    // counting from the close of Friday let the weekend absorb it (Monday). A
+    // lead counts back from the zero-lag finish (Friday): -1 finishes W on
+    // Thursday. Counted from Sunday instead it named Saturday and snapped
+    // forward to Monday — later than no lead at all.
+    const finishFor = (lag: number): string => {
+      const { results } = runCpmForwardPass(
+        [milestone('M', '2026-01-12'), task('W', '2026-01-12', '2026-01-12')],
+        [edge('M', 'W', 'FF', lag)],
+        'M',
+        '2026-01-12',
+      );
+      return results.find((r) => r.taskId === 'W')!.earlyFinish;
+    };
+    expect(finishFor(2)).toBe('2026-01-13');
+    expect(finishFor(1)).toBe('2026-01-12');
+    expect(finishFor(0)).toBe('2026-01-09');
+    expect(finishFor(-1)).toBe('2026-01-08');
+    expect(finishFor(-2)).toBe('2026-01-07');
+  });
+
   it('treats SS out of a milestone like FS — its start and finish are one point', () => {
     const tasks: CpmTask[] = [
       task('A', '2026-01-05', '2026-01-09'),

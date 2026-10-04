@@ -14,6 +14,7 @@ corpus agreed with itself for as long as both engines carried the extra day.
 from __future__ import annotations
 
 import copy
+import itertools
 from datetime import date, timedelta
 
 import pytest
@@ -1716,6 +1717,65 @@ class TestFinishLinkOutOfAStartOfDayMilestone:
         assert {t.id: t.early_finish for t in result.tasks}["W"] == finish
         mc = monte_carlo(p, runs=16, seed=1)
         assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+    @staticmethod
+    def _held_at_monday(lag: int) -> Project:
+        """``M`` held at the start of Mon 01-12 by its SNET, ``M -FF(lag)-> W(1d)``.
+
+        Off the project start (Mon 01-05), so a lead has room to pull ``W`` earlier.
+        """
+        m = Task(id="M", name="M", duration=timedelta(0), planned_start=_JAN_12_MON)
+        return _project([m, _task("W", 1)], [_dep("M", "W", DependencyType.FF, lag)])
+
+    # (lag, W early finish, W late finish). Leads count back from the zero-lag
+    # finish (Friday, the close of the working day before M's instant); positive
+    # lags count from the day the instant closes (Sunday) and snap forward. Before
+    # this rule a lead also counted from Sunday: -1 named Saturday and snapped to
+    # Monday, finishing W *later* than no lead at all. W's late finish is the
+    # project finish's working-time close: the end of Friday while M at the start
+    # of Monday is the finish.
+    _LEAD_TABLE = (
+        (-4, MON, _JAN_9_FRI),
+        (-3, _JAN_6_TUE, _JAN_9_FRI),
+        (-2, date(2026, 1, 7), _JAN_9_FRI),
+        (-1, date(2026, 1, 8), _JAN_9_FRI),
+        (0, _JAN_9_FRI, _JAN_9_FRI),
+        (1, _JAN_12_MON, _JAN_12_MON),
+        (2, _JAN_13_TUE, _JAN_13_TUE),
+        (3, date(2026, 1, 14), date(2026, 1, 14)),
+        (4, date(2026, 1, 15), date(2026, 1, 15)),
+        (5, date(2026, 1, 16), date(2026, 1, 16)),
+        (6, date(2026, 1, 19), date(2026, 1, 19)),
+        (7, date(2026, 1, 19), date(2026, 1, 19)),
+    )
+
+    @pytest.mark.parametrize(("lag", "early", "late"), _LEAD_TABLE)
+    def test_an_ff_lead_or_lag_out_of_a_held_milestone(
+        self, lag: int, early: date, late: date
+    ) -> None:
+        p = self._held_at_monday(lag)
+        result = schedule(p)
+        w = {t.id: t for t in result.tasks}["W"]
+        assert (w.early_finish, w.late_finish) == (early, late)
+        assert w.early_start == w.early_finish and w.late_start == w.late_finish
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+    def test_an_ff_link_out_of_a_milestone_is_monotone_in_its_lag(self) -> None:
+        """A longer lag (or a shorter lead) never finishes the successor earlier.
+
+        The completeness-check repro: ``-1`` finished ``W`` on Mon 01-12 while
+        ``0`` finished it on Fri 01-09.
+        """
+        rows = [
+            {t.id: t for t in schedule(self._held_at_monday(lag)).tasks}["W"]
+            for lag in range(-4, 8)
+        ]
+        for earlier, later in itertools.pairwise(rows):
+            assert earlier.early_finish is not None and later.early_finish is not None
+            assert earlier.late_finish is not None and later.late_finish is not None
+            assert earlier.early_finish <= later.early_finish
+            assert earlier.late_finish <= later.late_finish
 
     def test_monte_carlo_agrees_with_cpm(self) -> None:
         p = self._chain(DependencyType.FF, 0)

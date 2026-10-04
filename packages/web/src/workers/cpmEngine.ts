@@ -67,8 +67,9 @@
  *
  * Zero-duration milestones are INSTANTS (#4079), exactly as in both server
  * engines: a milestone after work sits on that work's finish day, links out of
- * it measure from the instant (FS/SS, and a lagged FF, #4273) or the last
- * working day before it (SF, and FF with no lag), links into it propose a raw
+ * it measure from the instant (FS/SS, and an FF with a positive lag, #4273) or
+ * the last working day before it (SF, and an FF with no lag or a lead, so an FF
+ * finish is monotone in its lag), links into it propose a raw
  * instant with FF read as FS (#4272), and inserting one into an FS link moves
  * nothing. A milestone this
  * pass does not re-place reads its instant from the server's
@@ -270,8 +271,9 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
  * `nextWorkingDay(anchor + lag)`. Ordinary work anchors FS on the day after its
  * finish, SS on its start, FF on its finish and SF on the last working day
  * *before* its start; a milestone anchors FS/SS on its instant, SF on the last
- * working day before it, and FF on the day its instant closes when lagged
- * (#4273) — the last working day before it with no lag. Mirrors the server
+ * working day before it, and FF on the day its instant closes for a positive
+ * lag (#4273) — the last working day before it with no lag or a lead, so a lead
+ * counts back from the zero-lag finish and never lands later than it. Mirrors the server
  * engines' `_edge_anchor` / `edge_anchor` (#4079, #4145).
  *
  * SF (#4145) is the finish-anchored instant rule applied to the predecessor's
@@ -283,7 +285,7 @@ function edgeAnchor(edge: CpmEdge, source: TaskState): number {
   const startAnchored = edge.type === 'FS' || edge.type === 'SS';
   if (source.instantMs !== null) {
     if (startAnchored) return source.instantMs;
-    if (edge.type === 'FF' && edge.lag !== 0) return source.instantMs - MS_PER_DAY;
+    if (edge.type === 'FF' && edge.lag > 0) return source.instantMs - MS_PER_DAY;
     return prevWorkingDay(source.instantMs - MS_PER_DAY);
   }
   switch (edge.type) {

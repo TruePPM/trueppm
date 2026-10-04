@@ -1223,7 +1223,7 @@ def _milestone_context(
             return _late_dates(succ)
         # The same per-link cap the backward pass applies (#4183).
         succ_cal = cal_of(succ.id)
-        start_ref, finish_ref = _milestone_refs(late, succ_cal)
+        start_ref, finish_ref = _milestone_refs(late)
         pf = result.project_finish
         is_milestone = own is not None
         return _link_start_ref(start_ref, dep_type, lag, is_milestone, succ_cal, pf), finish_ref
@@ -1239,7 +1239,7 @@ def _milestone_context(
         # advances one that reads as start of day, and #4183's tie bound only
         # adjusts one that reads as end of day.
         succ_cal = cal_of(succ.id)
-        _, finish_ref = _milestone_refs(early, succ_cal)
+        _, finish_ref = _milestone_refs(early)
         raw = instants.get(succ.id)
         assert raw is not None  # free_instants is derived from instants (#4180)
         start_ref = _free_start_ref((early, raw[1]), dep_type, lag, own_link, succ_cal)
