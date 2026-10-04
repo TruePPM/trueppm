@@ -62,7 +62,7 @@ describe('SessionExpiredBanner', () => {
     act(() => {
       useAuthStore.getState().markSessionExpired();
     });
-    const dialog = screen.getByRole('dialog', { name: /Your session expired/ });
+    const dialog = screen.getByRole('dialog', { name: /You've been signed out/ });
     expect(dialog).toBeInTheDocument();
     const button = screen.getByRole('button', { name: 'Sign in' });
     expect(button).toHaveFocus();
