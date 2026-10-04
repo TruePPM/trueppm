@@ -12425,8 +12425,10 @@ class ProjectBurnBaselinePointSerializer(serializers.Serializer[dict[str, Any]])
 class ProjectBurnSeriesSerializer(serializers.Serializer[dict[str, Any]]):
     """Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.
 
-    See :func:`services.burn_series` (#3679). ``baseline_series`` is present only
-    when the project has an active baseline.
+    See :func:`services.burn_series` (#3679). ``baseline_series`` is absent when
+    the project has no active baseline, or when the active baseline has
+    ``has_cpm_dates=False`` (#4257) — a pre-CPM baseline whose overlay would
+    otherwise never reach zero (burndown) or plateau below total (burnup).
     """
 
     chart_type = serializers.ChoiceField(choices=["burndown", "burnup"], read_only=True)

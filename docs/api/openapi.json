@@ -66320,7 +66320,7 @@
             },
             "ProjectBurnSeries": {
                 "type": "object",
-                "description": "Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series` (#3679). ``baseline_series`` is present only\nwhen the project has an active baseline.",
+                "description": "Response for ``?chart_type=burndown|burnup`` on ``GET /projects/{id}/burn/``.\n\nSee :func:`services.burn_series` (#3679). ``baseline_series`` is absent when\nthe project has no active baseline, or when the active baseline has\n``has_cpm_dates=False`` (#4257) — a pre-CPM baseline whose overlay would\notherwise never reach zero (burndown) or plateau below total (burnup).",
                 "properties": {
                     "chart_type": {
                         "allOf": [
