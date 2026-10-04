@@ -1054,6 +1054,121 @@ class TestTeamUtilization:
         TaskResource.objects.create(task=future, resource=resource, units=Decimal("1.0"))
         assert client.get(self.url(project.pk)).json()["team_utilization_pct"] == 0.0
 
+    def test_idle_roster_members_capacity_uses_the_real_project_calendar(
+        self, client: APIClient, user: object, membership: object
+    ) -> None:
+        """#4266 mutation baseline: an idle roster member's capacity is resolved
+        via a SEPARATE ``_resolve_resource_calendar`` call than a loaded member's
+        (whose hours come straight off the daily engine's own row) — so a bug
+        that drops ``project_cal`` only on that idle path is invisible to every
+        other test here, which all use the 8h/day calendar default and so can't
+        tell "real project hours" apart from "silently fell back to the 8h
+        default". Resource A is idle on a 4h/day, Monday-only calendar — if the
+        idle path's project_cal were ignored, A's capacity would double (the
+        8h/5-working-day default) and dilute the ratio to 33.3%, not 50%.
+        """
+        cal = Calendar.objects.create(name="ShortWeek", working_days=31, hours_per_day=4.0)
+        p = Project.objects.create(name="Short", start_date=datetime.date(2026, 1, 1), calendar=cal)
+        ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
+        idle = Resource.objects.create(name="Idle", max_units=Decimal("1.0"))
+        ProjectResource.objects.create(project=p, resource=idle)
+        busy = Resource.objects.create(name="Busy", max_units=Decimal("1.0"))
+        ProjectResource.objects.create(project=p, resource=busy)
+        start, end = _this_week()
+        task = Task.objects.create(
+            project=p, name="Wiring", duration=5, early_start=start, early_finish=end
+        )
+        TaskResource.objects.create(task=task, resource=busy, units=Decimal("1.0"))
+
+        data = client.get(self.url(p.pk)).json()
+        # busy: 4h/day x 5 days = 20h load, 20h capacity. idle (correct): 4h/day x
+        # 5 days = 20h capacity, 0 load. Total 20/40 = 50%. If idle's capacity
+        # instead fell back to the 8h default it would be 40h, giving 20/60 = 33.3%.
+        assert data["team_utilization_pct"] == 50.0
+
+    def test_idle_roster_members_capacity_uses_the_real_project_working_days(
+        self, client: APIClient, user: object, membership: object
+    ) -> None:
+        """#4266 mutation baseline: the idle-member branch resolves its working-
+        day MASK from a local ``_resolve_project_calendar(project_cal)`` call —
+        separate from the daily engine's own (correct) resolution that a loaded
+        member's row already carries. A bug that drops ``project_cal`` on just
+        this call falls back to the Mon-Fri default mask, which the sibling test
+        above cannot see because its calendar's mask (31, Mon-Fri) IS the
+        default — only hours_per_day differs there. Here the real calendar is
+        Mon-Wed only (3 working days, not 5), so a fallback to the 5-day default
+        changes idle's capacity and therefore the ratio.
+        """
+        cal = Calendar.objects.create(name="MonWed", working_days=7, hours_per_day=8.0)
+        p = Project.objects.create(
+            name="Short3Day", start_date=datetime.date(2026, 1, 1), calendar=cal
+        )
+        ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
+        idle = Resource.objects.create(name="Idle", max_units=Decimal("1.0"))
+        ProjectResource.objects.create(project=p, resource=idle)
+        busy = Resource.objects.create(name="Busy", max_units=Decimal("1.0"))
+        ProjectResource.objects.create(project=p, resource=busy)
+        start, end = _this_week()
+        task = Task.objects.create(
+            project=p, name="Wiring", duration=5, early_start=start, early_finish=end
+        )
+        TaskResource.objects.create(task=task, resource=busy, units=Decimal("1.0"))
+
+        data = client.get(self.url(p.pk)).json()
+        # busy (via the engine, correctly Mon-Wed): 8h/day x 3 days = 24h load,
+        # 24h capacity -> 100% on its own. idle (correct, same real mask): 8h/day
+        # x 3 days = 24h capacity, 0 load. Total 24/48 = 50%. If idle's mask fell
+        # back to the 5-day Mon-Fri default, idle capacity would be 40h, giving
+        # 24/64 = 37.5%.
+        assert data["team_utilization_pct"] == 50.0
+
+    def test_two_loaded_resources_sum_their_load_not_overwrite_it(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """Both resources carry real load — if the accumulator overwrote instead
+        of summing, the ratio would reflect only whichever resource's row was
+        processed last, not their combined load."""
+        a = self._roster(project, name="A")
+        b = self._roster(project, name="B")
+        self._assign_all_week(project, a, units="1.0")
+        self._assign_all_week(project, b, units="0.5")
+        data = client.get(self.url(project.pk)).json()
+        # (1.0 + 0.5) / 2 members x 1.0 capacity each = 75%, not either resource's
+        # own 100% or 50% alone.
+        assert data["team_utilization_pct"] == 75.0
+
+    def test_fractional_capacity_between_zero_and_one_is_a_real_zero_not_no_capacity(
+        self, client: APIClient, user: object, membership: object
+    ) -> None:
+        """Capacity strictly between 0 and 1 (0.2h here) must still be treated as
+        *real* capacity — the undefined-ratio guard checks `<= 0`, not `<= 1`."""
+        cal = Calendar.objects.create(
+            name="OneDayTiny", working_days=1, hours_per_day=0.2
+        )  # Monday only
+        p = Project.objects.create(name="Tiny", start_date=datetime.date(2026, 1, 1), calendar=cal)
+        ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
+        Resource.objects.create(name="Idle")
+        resource = Resource.objects.create(name="Idle2", max_units=Decimal("1.0"))
+        ProjectResource.objects.create(project=p, resource=resource)
+
+        data = client.get(self.url(p.pk)).json()
+        assert data["team_utilization_pct"] == 0.0
+        assert data["team_utilization_reason"] is None
+
+    def test_pct_rounds_to_one_decimal_not_an_integer(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """One of three equally-capacitied roster members is fully booked: a
+        repeating-decimal ratio (33.333...%) that an int-returning `round` or a
+        2-decimal `round` would both render differently from the documented
+        1-decimal contract."""
+        busy = self._roster(project, name="Busy")
+        self._roster(project, name="Idle1")
+        self._roster(project, name="Idle2")
+        self._assign_all_week(project, busy, units="1.0")
+        data = client.get(self.url(project.pk)).json()
+        assert data["team_utilization_pct"] == 33.3
+
 
 # ---------------------------------------------------------------------------
 # Added time — the schedule risk premium on the overview payload (#2483)

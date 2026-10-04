@@ -237,6 +237,17 @@ dev = [
     "djangorestframework-stubs[compatible-mypy]==3.18.1",
     "ruff>=0.8,<1.0",
     "testcontainers[postgres]>=4.7,<5.0",
+    # Mutation testing (#4266) — the API-side beachhead for the same gap
+    # `packages/scheduler`'s mutmut config closes there: coverage proves a line
+    # ran under test, mutation testing proves the suite would FAIL if that line
+    # were wrong. Dev/CI-only — never shipped in the image.
+    #
+    # EXACT pin, matching packages/scheduler/pyproject.toml's rationale verbatim:
+    # mutmut is the measuring instrument behind a future gating floor, and a
+    # minor release can change WHAT gets measured (3.8.0 itself started
+    # mutating @dataclass methods and ternary conditions, moving the scheduler's
+    # denominator with no commit on our side, #3720). Bump it in its own MR.
+    "mutmut==3.8.0",
 ]
 # Nightly OpenAPI fuzzing only (the schedule-gated `api:fuzz` CI job, #2121).
 # Deliberately a separate extra rather than part of `dev`: Schemathesis 4.x
@@ -278,6 +289,74 @@ testpaths = ["tests"]
 addopts = "--strict-markers --tb=short -q --timeout=180 --timeout-method=thread"
 asyncio_mode = "auto"
 DJANGO_SETTINGS_MODULE = "trueppm_api.settings.dev"
+
+# Mutation testing (#4266). Same missing third leg as packages/scheduler closes
+# with its own [tool.mutmut] (#2282): coverage proves a line ran under test,
+# mutation testing proves the tests would FAIL if that line were wrong. Runs
+# nightly and (for MRs touching the beachhead module) per-rule allow_failure via
+# the `api:mutation` CI job — never on the critical path for an ordinary API
+# change. See that job's comments in .gitlab-ci.yml for the gating posture.
+#
+# BEACHHEAD SCOPE, chosen per #4266's acceptance criteria over the 5-role RBAC
+# permission matrix: apps/projects/utilization.py. It is the module memory
+# already flags as a repeat-offender shape — capacity/utilization computation
+# has shipped wrong on green suites twice (capacity silently reading the ZERO
+# load of a bare Task.assignee instead of TaskResource.units; progress on an
+# in-progress task shrinking early_start toward early_finish and reading as lost
+# allocation, #2621/#2623) — exactly the "weak assertion, not a missing line"
+# shape mutation testing is built to catch, and it is close to pure computation
+# (dict/Decimal/date arithmetic) rather than ORM-querying, which keeps the
+# per-mutant pytest-django cost down.
+[tool.mutmut]
+source_paths = ["src/trueppm_api"]
+only_mutate = [
+    "*/apps/projects/utilization.py",
+]
+# Scopes BOTH the stats-collection pass and every per-mutant run to the test
+# files that exercise the beachhead — not the ~3,500-test API suite mutmut's
+# `also_copy` default (tests/, pyproject.toml, lock files) brings into the
+# `mutants/` sandbox regardless. Without this, mutmut's single pre-mutation
+# stats run would boot and migrate the Postgres test DB against the whole
+# suite before mutating a single line — pytest-django under mutmut pays that
+# cost PER MUTANT, which is the runtime risk the issue calls out measuring
+# before committing to module size.
+#
+# TWO files, not one: test_utilization.py exercises every function in the
+# module EXCEPT compute_team_utilization, whose own direct coverage lives in
+# test_overview.py's TestTeamUtilization class (it backs the Overview KPI
+# card's team-utilization endpoint, not the resource heat map). The first
+# local baseline run with only test_utilization.py selected scored every one
+# of compute_team_utilization's 94 mutants `no_tests` — not a real coverage
+# gap, just the wrong test file for that one function. Scoped to the class via
+# `::TestTeamUtilization`, not the whole 1,172-line test_overview.py module.
+pytest_add_cli_args_test_selection = [
+    "tests/apps/projects/test_utilization.py",
+    "tests/apps/projects/test_overview.py::TestTeamUtilization",
+]
+# --reuse-db: the stats pass creates+migrates the test DB once; every
+# subsequent mutant run (a fresh fork of mutmut's main process) reuses it
+# rather than paying a full migration replay again. Paired with running the CI
+# job at --max-children=1 (see api:mutation in .gitlab-ci.yml) — multiple
+# mutmut workers forked concurrently would share this ONE reused database by
+# name, and pytest-django's per-test transaction rollback gives no isolation
+# across separate OS processes hitting the same tables at once. Serial
+# execution trades worker parallelism for a score that is not corrupted by
+# cross-process DB contention; the beachhead module's ~50 fast tests keep the
+# serial wall time inside the nightly budget regardless (measured baseline in
+# the #4266 MR description).
+pytest_add_cli_args = [
+    "--reuse-db",
+]
+# mutmut's own default `also_copy` (tests/, pyproject.toml, lock files) does
+# NOT include a root-level conftest.py — only test_utilization.py's module
+# itself is scoped into mutants/ by pytest_add_cli_args_test_selection above,
+# but pytest-django's Postgres bootstrap lives in the ROOT conftest.py (not
+# tests/conftest.py) specifically so it runs before pytest-django reads
+# DJANGO_SETTINGS_MODULE — see that file's own docstring. Mutmut executes
+# pytest with its cwd changed to `mutants/`, so without this entry the mutated
+# sandbox has no root conftest.py and every mutant run fails before a single
+# test imports Django.
+also_copy = ["conftest.py"]
 
 [tool.mypy]
 python_version = "3.11"
