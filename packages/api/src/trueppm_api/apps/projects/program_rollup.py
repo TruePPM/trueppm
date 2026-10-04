@@ -433,15 +433,23 @@ def risk_counts_by_project(project_ids: Collection[Any]) -> dict[Any, tuple[int,
     incomplete = ~Q(status=TaskStatus.COMPLETE)
     rows = (
         Task.objects.filter(project_id__in=list(project_ids), is_deleted=False)
+        # Narrow before the correlated is_phase EXISTS runs: a row that is
+        # complete, or incomplete but neither critical nor low-float, cannot
+        # contribute to either Count below no matter what _is_phase turns out
+        # to be, so excluding it here is semantics-preserving (NULL total_float
+        # and NULL is_critical already fail both conditions in SQL) and avoids
+        # evaluating the per-row ltree EXISTS for rows whose answer can't matter.
+        .filter(incomplete)
+        .filter(Q(is_critical=True) | Q(total_float__lte=5))
         .annotate(_is_phase=task_is_phase_expr())
         .filter(_is_phase=False)
         .values("project_id")
         .annotate(
             at_risk=Count(
                 "id",
-                filter=incomplete & Q(total_float__isnull=False) & Q(total_float__lte=5),
+                filter=Q(total_float__isnull=False) & Q(total_float__lte=5),
             ),
-            critical=Count("id", filter=incomplete & Q(is_critical=True)),
+            critical=Count("id", filter=Q(is_critical=True)),
         )
     )
     return {r["project_id"]: (r["at_risk"], r["critical"]) for r in rows}

@@ -6014,7 +6014,7 @@ class TaskListPagination(ScheduleFetchPagination):
                     "Filter by whether the row is a phase — has at least one direct "
                     "structural (non-subtask) child (true/1 or false/0). A phase's "
                     "status, estimate, assignee, percent, and schedule fields are "
-                    "rollups of its children, never set directly (ADR-0293); "
+                    "rollups of its children, never set directly (ADR-0024/ADR-0293); "
                     "`is_phase=false` is the exclusion a client wants when counting "
                     "or listing leaf work only, e.g. a critical-path or at-risk "
                     "triage (#4250)."

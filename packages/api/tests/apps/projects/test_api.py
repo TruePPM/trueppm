@@ -458,6 +458,11 @@ class TestTaskAPI:
         assert r.status_code == 200
         names = {t["name"] for t in r.data["results"]}
         assert names == {"Phase child", "Leaf"}
+        # Pins the count field too — it comes from a separate queryset
+        # (_task_count_base_queryset) than `results`, so a change that moves the
+        # is_phase filter after the count is built would silently reinflate it
+        # without this assertion catching it.
+        assert r.data["count"] == 2
 
     def test_filter_is_phase_leaf_with_only_subtask_children_is_not_a_phase(
         self, client: APIClient, project: Project, membership: ProjectMembership
