@@ -64,6 +64,11 @@ describe('SessionExpiredBanner', () => {
     });
     const dialog = screen.getByRole('dialog', { name: /You've been signed out/ });
     expect(dialog).toBeInTheDocument();
+    // Body wording is deliberately distinct from the title ("session was ended" vs.
+    // "signed out") so the dialog doesn't repeat itself (#4256) — and distinct from
+    // the retired cause-naming copy ("your session expired"), which would not match
+    // this pattern either.
+    expect(dialog).toHaveTextContent(/your session was ended/i);
     const button = screen.getByRole('button', { name: 'Sign in' });
     expect(button).toHaveFocus();
   });
