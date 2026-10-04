@@ -1105,15 +1105,28 @@ def _burn_baseline_series(
 ) -> list[dict[str, Any]] | None:
     """Baseline overlay for the burn chart, or ``None`` when there is nothing to draw.
 
-    ``None`` covers three cases the caller treats identically — no active baseline,
-    an empty baseline task list, and (points metric) a baseline whose live tasks
-    carry no story points at all, where a flat zero line would be misread as
-    "planned nothing".
+    ``None`` covers four cases the caller treats identically — no active baseline,
+    an active baseline with ``has_cpm_dates=False``, an empty baseline task list,
+    and (points metric) a baseline whose live tasks carry no story points at all,
+    where a flat zero line would be misread as "planned nothing".
+
+    ``has_cpm_dates=True`` only (#4257, same exclusion as ``spi_counts_by_project``
+    and friends in ``program_rollup.py``, #4242): a baseline snapshotted before the
+    CPM engine first ran has mostly-or-entirely null ``BaselineTask.finish`` rows.
+    Summing those weights into ``total`` while only subtracting the few non-null
+    ``finish <= day`` rows into ``done`` produces a planned curve that never
+    reaches zero (burndown) or plateaus below total (burnup) — a plan that reads
+    as permanently behind or permanently incomplete. The maintainer decision on
+    #4257 is to omit the overlay entirely for such a baseline, exactly as if the
+    project had no active baseline at all, rather than invent a fallback curve.
     """
     from trueppm_api.apps.projects.models import Baseline, BaselineTask, Task
 
     active_baseline = Baseline.objects.filter(
-        project_id=project_id, is_active=True, is_deleted=False
+        project_id=project_id,
+        is_active=True,
+        is_deleted=False,
+        has_cpm_dates=True,
     ).first()
     if active_baseline is None:
         return None
