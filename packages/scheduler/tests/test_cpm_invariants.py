@@ -179,15 +179,8 @@ def test_project_duration_equals_last_critical_task_early_finish(project: Projec
 
 
 # ---------------------------------------------------------------------------
-# A candidate "transitively across a chain" property was attempted and
-# dropped — see the handback report / MR description for why. In short: a
-# driving edge (zero per-edge free-float slack) does not imply
-# total_float(pred) <= total_float(succ) once a zero-duration milestone sits
-# on either end, because a milestone's own float is measured against its
-# *instant* (capped by #4183's ``_float_late_instant``) rather than the shown
-# day its successor's day-level total_float is measured against. Hypothesis
-# found ``t1 -FS-> join`` with total_float 5d vs 4d on the very first run.
-# Shipping that assertion would either be a wrong invariant or require fully
-# verifying a milestone-instant-vs-day-level engine defect neither this issue
-# nor the time available for it covers — left undone rather than guessed at.
+# TODO(#4269): a candidate "driving_edges implies total_float(pred) <=
+# total_float(succ)" property was attempted and dropped — Hypothesis found a
+# milestone counterexample (t1 -FS-> join, 5d vs 4d) on the first run. See
+# #4269 for the repro and whether it is an engine defect or a wrong invariant.
 # ---------------------------------------------------------------------------
