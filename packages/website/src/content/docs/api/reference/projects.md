@@ -37,8 +37,8 @@ to fan out.
 | `task_count` | `integer` | Live (non-deleted) tasks in the project |
 | `health_band` | `on_track \| at_risk \| critical` | The project's health band — see [Read `health_band`, do not re-derive it](#read-health_band-do-not-re-derive-it) |
 | `health_band_source` | `reported \| derived` | Which of the two branches below decided `health_band` — see [Which of the two produced the band](#which-of-the-two-produced-the-band) |
-| `at_risk_count` | `integer` | Incomplete tasks with `total_float` ≤ 5 working days, including negative float |
-| `critical_count` | `integer` | Incomplete tasks on the critical path |
+| `at_risk_count` | `integer` | Incomplete tasks with `total_float` ≤ 5 working days, including negative float. Leaf rows only — phase rows excluded, since a phase's `total_float` is a rollup of its children, not a fact about the phase row itself |
+| `critical_count` | `integer` | Incomplete tasks on the critical path. Leaf rows only — phase rows excluded, since a phase's `is_critical` is a rollup of its children, not a fact about the phase row itself |
 | `at_risk_tasks` | `array` | Up to 5 at-risk tasks as `{id, name, wbs}`, lowest float first |
 | `critical_tasks` | `array` | Up to 5 critical tasks as `{id, name, wbs}`, in WBS order |
 | `monte_carlo_p80` | `date \| null` | P80 finish from the project's most recent Monte Carlo run |

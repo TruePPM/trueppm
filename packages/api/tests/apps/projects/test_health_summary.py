@@ -177,3 +177,83 @@ class TestHealthSummary:
         resp = client.get(URL)
         assert resp.status_code == 200
         assert resp.json() == []
+
+
+class TestHealthSummaryPhaseExclusion:
+    """A phase row must not inflate critical_count / at_risk_count (#4250).
+
+    Same bug class as the single-project status-summary's phase exclusion — a
+    phase's ``is_critical``/``total_float`` are rollups of its children
+    (``scheduling.services._rollup_one_summary``), not facts about the phase
+    row itself (ADR-0024/ADR-0293). This endpoint reads the counts through a
+    reverse FK from Project, which is the path the fix had to route around
+    :func:`task_is_phase_expr`'s RawSQL (see ``program_rollup.risk_counts_by_project``).
+    """
+
+    def test_phase_row_excluded_from_critical_and_at_risk_counts(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        p = _make_project("Phased", user, calendar)
+        Task.objects.create(
+            project=p,
+            name="Phase",
+            wbs_path="1",
+            duration=5,
+            is_critical=True,
+            total_float=0,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        for i in (1, 2):
+            Task.objects.create(
+                project=p,
+                name=f"Phase child {i}",
+                wbs_path=f"1.{i}",
+                duration=5,
+                is_critical=True,
+                total_float=0,
+                status=TaskStatus.IN_PROGRESS,
+            )
+
+        row = next(r for r in client.get(URL).json() if r["name"] == "Phased")
+        # Two leaf children only — the phase row would otherwise triple-count.
+        assert row["critical_count"] == 2
+        assert row["at_risk_count"] == 2
+
+    def test_leaf_critical_task_still_counted(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        p = _make_project("Leafy", user, calendar)
+        _critical_task(p, "1")
+        row = next(r for r in client.get(URL).json() if r["name"] == "Leafy")
+        assert row["critical_count"] == 1
+        assert row["at_risk_count"] == 1
+
+    def test_counts_are_scoped_per_project(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """One project's phase row must not leak a count onto a sibling project."""
+        phased = _make_project("Phased", user, calendar)
+        Task.objects.create(
+            project=phased,
+            name="Phase",
+            wbs_path="1",
+            duration=5,
+            is_critical=True,
+            total_float=0,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        Task.objects.create(
+            project=phased,
+            name="Phase child",
+            wbs_path="1.1",
+            duration=5,
+            is_critical=True,
+            total_float=0,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        plain = _make_project("Plain", user, calendar)
+        _critical_task(plain, "1")
+
+        rows = {r["name"]: r for r in client.get(URL).json()}
+        assert rows["Phased"]["critical_count"] == 1
+        assert rows["Plain"]["critical_count"] == 1

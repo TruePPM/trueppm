@@ -265,6 +265,95 @@ class TestStatusSummary:
         assert resp.status_code in (403, 404)
 
 
+class TestStatusSummaryPhaseExclusion:
+    """A phase row must not inflate critical_count / at_risk_count (#4250).
+
+    A phase's ``is_critical`` and ``total_float`` are rollups of its children
+    (``scheduling.services._rollup_one_summary``: ``is_critical = any(child
+    is_critical)``, ``total_float = min(child floats)``) — not facts about the
+    phase row itself (ADR-0024/ADR-0293). The phase row below is set up the way
+    a real rollup would leave it: ``is_critical=True``, ``total_float=0``,
+    derived from its two critical, zero-float children.
+    """
+
+    URL = "/api/v1/projects/{pk}/status-summary/"
+
+    def test_phase_row_excluded_from_critical_and_at_risk_counts(
+        self, client: APIClient, project: Project
+    ) -> None:
+        Task.objects.create(
+            project=project,
+            name="Phase",
+            wbs_path="1",
+            duration=5,
+            is_critical=True,
+            total_float=0,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        for i in (1, 2):
+            Task.objects.create(
+                project=project,
+                name=f"Phase child {i}",
+                wbs_path=f"1.{i}",
+                duration=5,
+                is_critical=True,
+                total_float=0,
+                status=TaskStatus.IN_PROGRESS,
+            )
+
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        # Two leaf children only — the phase row would otherwise triple-count
+        # on top of the two children whose rollup produced its own value.
+        assert data["critical_count"] == 2
+        assert data["at_risk_count"] == 2
+        wbs_critical = [t["wbs"] for t in data["critical_tasks"]]
+        wbs_at_risk = [t["wbs"] for t in data["at_risk_tasks"]]
+        assert "1" not in wbs_critical
+        assert "1" not in wbs_at_risk
+        assert {"1.1", "1.2"} <= set(wbs_critical)
+        assert {"1.1", "1.2"} <= set(wbs_at_risk)
+
+    def test_leaf_critical_task_still_counted(self, client: APIClient, project: Project) -> None:
+        """A genuine leaf (no structural children) is unaffected by the exclusion."""
+        Task.objects.create(
+            project=project,
+            name="Leaf",
+            wbs_path="1",
+            duration=5,
+            is_critical=True,
+            total_float=0,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        assert data["critical_count"] == 1
+        assert data["at_risk_count"] == 1
+
+    def test_leaf_with_only_subtask_children_is_not_a_phase(
+        self, client: APIClient, project: Project
+    ) -> None:
+        """A row whose only children are drawer subtasks is real work, not a phase."""
+        Task.objects.create(
+            project=project,
+            name="Leaf with subtask",
+            wbs_path="1",
+            duration=5,
+            is_critical=True,
+            total_float=0,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        Task.objects.create(
+            project=project,
+            name="Drawer subtask",
+            wbs_path="1.1",
+            duration=1,
+            is_subtask=True,
+            status=TaskStatus.NOT_STARTED,
+        )
+        data = client.get(self.URL.format(pk=project.pk)).json()
+        wbs_critical = [t["wbs"] for t in data["critical_tasks"]]
+        assert "1" in wbs_critical
+
+
 class TestStatusSummaryHealthBand:
     """``health_band`` on the status summary (#3501).
 

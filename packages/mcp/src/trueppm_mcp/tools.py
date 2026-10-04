@@ -515,9 +515,24 @@ async def _get_schedule_summary(client: TruePPMClient, project_id: str) -> dict[
 
     Carries a compact ``why`` (ADR-0368) citing the CPM finish and its critical-path
     driver count, with a pointer to ``get_schedule_derivation`` for the full chain.
+
+    ``is_phase=false`` (#4250) excludes phase rows from the critical-task count — a
+    phase's ``is_critical`` is a rollup of its children (ADR-0024/ADR-0293: "any
+    child critical"), not a fact about the phase row itself, so counting the phase
+    on top of the leaf whose criticality it rolled up would double-count that leaf.
+
+    Compatibility note: an older server that predates the ``is_phase`` filter
+    param (#4250) ignores the unknown query param rather than rejecting the
+    request — DRF query-param filtering here has always matched on recognized
+    names and passed unrecognized ones through unused — so this tool degrades to
+    the pre-#4250 (phase-inflated) count against such a server rather than
+    erroring.
     """
     forecast = await client.get(f"projects/{project_id}/forecast/")
-    critical = await client.get(_TASKS_PATH, params={"project": project_id, "is_critical": "true"})
+    critical = await client.get(
+        _TASKS_PATH,
+        params={"project": project_id, "is_critical": "true", "is_phase": "false"},
+    )
     data = forecast if isinstance(forecast, Mapping) else {}
     result = _compact_mapping(data)
     result["critical_task_count"] = _count(critical)
