@@ -4033,6 +4033,111 @@ scheduler:mutation:
     expire_in: 30 days
     when: always
 
+api:mutation:
+  # Mutation testing for the API's own high-risk beachhead module (#4266),
+  # sibling to scheduler:mutation above (#2282) — same instrument, same
+  # justification: coverage proves a line ran under test, mutation testing
+  # proves the suite would FAIL if that line were wrong. The API layer had
+  # none despite computations in this exact shape shipping wrong on green
+  # suites twice (capacity reading the ZERO load of a bare Task.assignee
+  # instead of TaskResource.units; progress on an in-progress task reading as
+  # LOST allocation because early_start is the remaining-work date, not the
+  # commitment date — #2621/#2623).
+  #
+  # GATING POSTURE: report-only, unlike the scheduler job. MUTATION_MIN is
+  # unset (check_mutation_score.py's own default), so every run exits 0
+  # regardless of score UNLESS the stats pass could not be measured at all
+  # (exit 2, see that script's docstring) — that failure mode is not gated by
+  # a floor, it is a real bug in this job's own plumbing and must stay loud.
+  # This mirrors the scheduler job's own history, not a weaker standard: #2282
+  # ran report-only for a full observation window before #3215 set
+  # scheduler's MUTATION_MIN from a multi-night baseline record, and nobody
+  # chose that floor — it was read off the data. Setting one here before a
+  # baseline exists would be the same mistake in miniature. The follow-up
+  # issue (#4268) tracks picking a floor once a week of nightly artifacts
+  # exists; until then this job's whole value is the JSON artifact and the
+  # printed summary, not a pass/fail verdict.
+  #
+  # job-level allow_failure: true. Unlike the scheduler's nightly (which
+  # dropped allow_failure once #3215 gave it a real floor to enforce), this
+  # job has no floor yet to make redding meaningful, and it shares the nightly
+  # schedule with Renovate/SonarCloud/scheduler:mutation/api:fuzz — the same
+  # "do not train maintainers to ignore nightly red over an open-ended,
+  # unfloored signal" reasoning api:fuzz documents above. Survivors are
+  # triaged from the JUnit-adjacent JSON artifact + `mutmut results`, same as
+  # the scheduler job; this is not a merge blocker on any MR shape.
+  #
+  # Why DB-backed mutation testing is safe here: --max-children=1 (below) runs
+  # mutants strictly serially, one pytest-django process at a time against one
+  # reused test database (pytest_add_cli_args: --reuse-db in
+  # packages/api/pyproject.toml [tool.mutmut]). Parallel mutant workers would
+  # share that one reused DB by name with no cross-process isolation —
+  # pytest-django's per-test transaction rollback only isolates tests within
+  # ONE process. Serial execution is the trade against worker parallelism that
+  # keeps a survivor's cause attributable to the mutation, not to another
+  # worker's concurrent writes. The beachhead module's test file
+  # (tests/apps/projects/test_utilization.py, ~50 tests) is what keeps the
+  # resulting wall time inside the nightly budget regardless — see the #4266
+  # MR description for the measured baseline this scope was chosen against.
+  #
+  # Scope is set in [tool.mutmut] in packages/api/pyproject.toml:
+  # apps/projects/utilization.py only, via only_mutate AND
+  # pytest_add_cli_args_test_selection (the latter scopes which tests even run
+  # during the stats pass — without it mutmut's single pre-mutation stats run
+  # would boot and migrate against the ~3,500-test API suite before mutating a
+  # single line, which pytest-django under mutmut pays PER MUTANT).
+  extends: .api
+  stage: test
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    # Same posture as scheduler:mutation's instrument-change rule: an MR that
+    # changes the measuring instrument itself — the mutmut pin, the
+    # [tool.mutmut] scope, or this score-check script — is measured before it
+    # merges, not the night after.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/pyproject.toml
+        - packages/api/scripts/check_mutation_score.py
+    # An MR that changes the measured module itself also runs this job,
+    # informationally — allow_failure is job-level above (no floor exists yet
+    # to make a per-rule override meaningful the way #4147 did for the
+    # scheduler), so this rule exists only to surface the score on the diff
+    # that moved it rather than waiting for the next nightly.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/src/trueppm_api/apps/projects/utilization.py
+  allow_failure: true
+  variables:
+    DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    TRUEPPM_ALLOW_DEV_SETTINGS: "1"
+    DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
+    REDIS_URL: "redis://valkey:6379"
+  # Bounded well under the nightly schedule's shared window. Measured baseline
+  # (serial, ~50 tests, ~800 mutants on this module): see the #4266 MR
+  # description. Headroom over the measured wall time, same reasoning as
+  # api:test's `timeout:`.
+  timeout: 30m
+  script:
+    - cd packages/api
+    - timeout 30 sh -c 'until pg_isready --dbname "$DATABASE_URL" >/dev/null 2>&1; do sleep 1; done' || echo "warning - postgres not ready after 30s, proceeding"
+    # `|| true` on both, same reasoning as scheduler:mutation: a non-zero exit
+    # from `mutmut run` just means survivors exist, and it also swallows a
+    # stats-collection crash — which check_mutation_score.py's exit 2 below is
+    # what catches, by design (see that script's docstring).
+    - mutmut run --max-children=1 || true
+    - mutmut results || true
+    - mutmut export-cicd-stats
+    - python scripts/check_mutation_score.py --self-test
+    - python scripts/check_mutation_score.py mutants/mutmut-cicd-stats.json
+  artifacts:
+    paths:
+      - packages/api/mutants/mutmut-cicd-stats.json
+    expire_in: 30 days
+    when: always
+
 api:fuzz:
   # Nightly OpenAPI contract-fuzzing of the live HTTP API with Schemathesis
   # (#2121) — the API-surface sibling of scheduler:fuzz-deep. Schedule-only and

@@ -170,6 +170,58 @@ sibling attributes such as `xǁTaskǁto_dict__mutmut_orig` on their class, so a 
 that walks `vars(cls)` must skip them, and the stats pass stops at the first failing
 test — one such failure means no mutant runs at all.
 
+### Mutation testing on the API
+
+The API side has its own beachhead, scoped the same way for the same reason:
+a narrow, pure-ish computation module where a weak assertion is most
+dangerous. `[tool.mutmut]` in `packages/api/pyproject.toml` covers
+`apps/projects/utilization.py` — the calendar-aware resource-utilization
+engine — chosen over the 5-role RBAC permission matrix because capacity and
+utilization computations in this exact shape have already shipped wrong on
+green suites twice: capacity reading the zero load of a bare `Task.assignee`
+instead of `TaskResource.units`, and progress on an in-progress task reading
+as *lost* allocation because `early_start` is the remaining-work date, not
+the commitment date.
+
+```bash
+cd packages/api
+pip install -e ".[dev]"          # mutmut is in the dev extra
+mutmut run --max-children=1       # serial — see the note on the DB below
+mutmut results                    # list surviving mutants
+mutmut show <mutant-name>         # see the exact corruption that survived
+```
+
+`--max-children=1` is not optional the way it is for the scheduler. The
+scheduler's mutmut config mutates pure, DB-free code, so its workers can run
+in parallel. The API's tests are pytest-django tests against a real
+PostgreSQL, and `[tool.mutmut] pytest_add_cli_args` adds `--reuse-db` so each
+mutant reuses the one test database the stats pass created rather than
+re-migrating per mutant. Parallel mutant workers sharing that one reused
+database by name would have no isolation across OS processes — pytest-django
+only isolates tests *within* one process — so a parallel run can manufacture
+false survivors that are really cross-process DB contention. Serial execution
+trades worker parallelism for a score that means what it says.
+
+The stats-collection pass and every per-mutant run are both scoped (via
+`pytest_add_cli_args_test_selection`) to the specific test files that exercise
+the beachhead module — not pytest's default `testpaths`, which would pull in
+the ~3,500-test API suite before mutating a single line. If you add a function
+to a mutation-tested module, check it is actually covered by one of the listed
+test selectors before trusting its mutants' `no_tests` count: a function
+tested only by a *different* file reads as fully uncovered under mutmut even
+though the repo's own coverage gate sees it fine — this is what the module's
+`compute_team_utilization` did on the first local baseline run, until
+`tests/apps/projects/test_overview.py::TestTeamUtilization` was added to the
+selector alongside `test_utilization.py`.
+
+In CI this runs as **`api:mutation`**, report-only (`allow_failure: true`,
+no `MUTATION_MIN` floor): unlike the scheduler's job, there is not yet a
+multi-night baseline record to set one from. [Issue
+#4268](https://gitlab.com/trueppm/trueppm/-/issues/4268) tracks setting a
+floor once that baseline window exists — see `scheduler:mutation`'s own
+comments in `.gitlab-ci.yml` for the method (observed low end of the nightly
+record, minus one point of jitter headroom, ratcheted down only).
+
 ## CI gates
 
 The quality gates that run on every merge request:
