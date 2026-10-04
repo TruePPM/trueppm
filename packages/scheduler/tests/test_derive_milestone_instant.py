@@ -439,11 +439,11 @@ A early_finish = 2026-01-09
     duration_from_early_start - - - 2026-01-09 - 5 B
 A late_start = 2026-01-05
     project_finish - - - 2026-01-14 - - .
-    successor_ff M FF 0 2026-01-09 0 - .
+    successor_ff M FF 0 2026-01-09 -2 - .
     duration_from_late_finish - - - 2026-01-05 - 5 B
 A late_finish = 2026-01-09
     project_finish - - - 2026-01-14 - - .
-    successor_ff M FF 0 2026-01-09 0 - B
+    successor_ff M FF 0 2026-01-09 -2 - B
 A total_float = 0
     early_start - - - 2026-01-05 - 0 B
     late_start - - - 2026-01-05 - - B
@@ -456,28 +456,28 @@ C early_start = 2026-01-05
 C early_finish = 2026-01-06
     project_start - - - 2026-01-05 0 - .
     duration_from_early_start - - - 2026-01-06 - 2 B
-C late_start = 2026-01-09
+C late_start = 2026-01-12
     project_finish - - - 2026-01-14 - - .
-    successor_sf M SF 1 2026-01-09 1 - B
-C late_finish = 2026-01-12
+    successor_sf M SF 1 2026-01-12 2 - B
+C late_finish = 2026-01-13
     project_finish - - - 2026-01-14 - - .
-    successor_sf M SF 1 2026-01-09 1 - .
-    duration_from_late_start M SF 1 2026-01-12 - 2 B
-C total_float = 4
-    early_start - - - 2026-01-05 - 4 B
-    late_start - - - 2026-01-09 - - B
+    successor_sf M SF 1 2026-01-12 2 - .
+    duration_from_late_start M SF 1 2026-01-13 - 2 B
+C total_float = 5
+    early_start - - - 2026-01-05 - 5 B
+    late_start - - - 2026-01-12 - - B
 C free_float = 4
     successor_free_slack M SF 1 2026-01-09 - 4 B
 C scheduled_start = 2026-01-05
     early_start - - - 2026-01-05 - - B
 M early_start = 2026-01-09
     project_start - - - 2026-01-05 0 - .
-    predecessor_ff A FF 0 2026-01-09 0 - B
-    predecessor_sf C SF 1 2026-01-05 2 - .
+    predecessor_ff A FF 0 2026-01-09 -1 - B
+    predecessor_sf C SF 1 2026-01-05 1 - .
 M early_finish = 2026-01-09
     project_start - - - 2026-01-05 0 - .
-    predecessor_ff A FF 0 2026-01-09 0 - B
-    predecessor_sf C SF 1 2026-01-05 2 - .
+    predecessor_ff A FF 0 2026-01-09 -1 - B
+    predecessor_sf C SF 1 2026-01-05 1 - .
 M late_start = 2026-01-09
     project_finish - - - 2026-01-14 - - .
     successor_fs B FS 0 2026-01-09 -3 - B
@@ -554,11 +554,11 @@ C scheduled_start = 2026-01-05
 M early_start = 2026-01-10
     project_start - - - 2026-01-05 0 - .
     predecessor_fs A FS 1 2026-01-10 -1 - B
-    predecessor_ff C FF 0 2026-01-06 0 - .
+    predecessor_ff C FF 0 2026-01-06 -1 - .
 M early_finish = 2026-01-10
     project_start - - - 2026-01-05 0 - .
     predecessor_fs A FS 1 2026-01-10 -1 - B
-    predecessor_ff C FF 0 2026-01-06 0 - .
+    predecessor_ff C FF 0 2026-01-06 -1 - .
 M late_start = 2026-01-12
     project_finish - - - 2026-01-12 - - .
     successor_ff B FF 0 2026-01-12 0 - B

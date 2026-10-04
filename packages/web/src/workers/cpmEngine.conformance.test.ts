@@ -165,6 +165,11 @@ const OUT_OF_SCOPE: Record<string, string> = {
   sf_before_project_start_data_date: 'adapter: does not thread actuals/status date',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',
+  // #4272. Zero-lag FF into a milestone from an actuals-driven predecessor.
+  milestone_ff_after_non_working_actual_finish: 'adapter: does not thread actuals/status date',
+  // #4272. The FF predecessor finishes under a named six-day member calendar,
+  // same shape as `per_task_calendar_six_day`.
+  milestone_ff_after_six_day_calendar_finish: 'engine gap: per-task calendars not modeled',
 };
 
 interface FixtureTask {

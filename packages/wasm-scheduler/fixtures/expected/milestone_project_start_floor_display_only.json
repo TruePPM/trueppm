@@ -18,11 +18,11 @@
       "id": "D_T1",
       "early_start": "2026-01-05",
       "early_finish": "2026-01-05",
-      "late_start": "2026-01-05",
-      "late_finish": "2026-01-05",
-      "total_float": 0.0,
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
       "free_float": 0.0,
-      "is_critical": true,
+      "is_critical": false,
       "scheduled_start": "2026-01-05"
     },
     {
@@ -85,11 +85,11 @@
       "id": "V_T1",
       "early_start": "2026-01-05",
       "early_finish": "2026-01-05",
-      "late_start": "2026-01-05",
-      "late_finish": "2026-01-05",
-      "total_float": 0.0,
+      "late_start": "2026-01-06",
+      "late_finish": "2026-01-06",
+      "total_float": 86400.0,
       "free_float": 0.0,
-      "is_critical": true,
+      "is_critical": false,
       "scheduled_start": "2026-01-05"
     },
     {
@@ -150,9 +150,7 @@
     }
   ],
   "critical_path": [
-    "D_T1",
     "D_T5",
-    "V_T1",
     "V_M",
     "V_T5"
   ],

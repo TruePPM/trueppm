@@ -185,12 +185,13 @@ def test_a_floor_beats_a_finish_anchored_link_proposing_the_same_midnight() -> N
 
 
 def test_a_finish_anchored_link_outranks_a_start_link_one_midnight_earlier() -> None:
-    # SF from A (starting Mon) anchors on Fri, +1 lag → Sat → finishes Mon: its
-    # instant is Tuesday's midnight. The FS link from milestone M1 proposes Monday's.
+    # SF from A (starting Mon) anchors on the close of Fri; +3 lag → Tuesday's
+    # midnight, read as the end of Monday (#4272: the raw instant, never snapped).
+    # The FS link from milestone M1 proposes Monday's midnight, the start of Monday.
     # Both display Monday; only the instant comparison picks SF.
     project = _project(
         [_task("A", 5), _task("M1", 0), _task("M2", 0)],
-        [_dep("A", "M2", DependencyType.SF, 1), _dep("M1", "M2")],
+        [_dep("A", "M2", DependencyType.SF, 3), _dep("M1", "M2")],
     )
     for q in (Quantity.EARLY_START, Quantity.EARLY_FINISH):
         assert _rows(project, "M2", q) == (
@@ -239,28 +240,30 @@ def test_milestone_total_float_is_measured_between_instants() -> None:
     )
 
 
-def test_a_milestone_successors_late_references_use_its_own_calendar() -> None:
-    # M runs on a Mon-Thu calendar; its SF finish reference is the last working
-    # day before its late instant *on M's calendar*. Read on the default calendar
-    # it would be a Friday and A's late dates would be cited from the wrong day.
+def test_a_milestone_successors_sf_reference_is_the_raw_day_its_instant_closes() -> None:
+    # M runs on a Mon-Thu calendar and its late instant is Saturday midnight. An
+    # SF link into M proposes a raw instant (#4272), so the finish reference A's
+    # late start inverts against is the day that instant closes — Friday — not the
+    # last working day before it on M's calendar (Thursday). Snapping it to
+    # Thursday, as the engine did before #4272, cited A's late start a day early.
     project = _project(
         [_task("A", 1, calendar_id="four"), _task("M", 0, calendar_id="four"), _task("L", 5)],
         [_dep("A", "M", DependencyType.SF, 4)],
         calendars={"four": FOUR},
     )
     assert _rows(project, "A", Quantity.LATE_START) == (
-        "2026-01-05",
+        "2026-01-06",
         [
             ("project_finish", None, "2026-01-08", None, False),
-            ("successor_sf", "M", "2026-01-05", None, True),
+            ("successor_sf", "M", "2026-01-06", None, True),
         ],
     )
     assert _rows(project, "A", Quantity.LATE_FINISH) == (
-        "2026-01-05",
+        "2026-01-06",
         [
             ("project_finish", None, "2026-01-08", None, False),
-            ("successor_sf", "M", "2026-01-05", None, False),
-            ("duration_from_late_start", "M", "2026-01-05", 1, True),
+            ("successor_sf", "M", "2026-01-06", None, False),
+            ("duration_from_late_start", "M", "2026-01-06", 1, True),
         ],
     )
 

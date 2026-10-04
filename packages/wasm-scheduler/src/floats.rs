@@ -12,7 +12,7 @@ use crate::calendar::{
     checked_offset_days, next_working_day, prev_working_day, retreat_calendar_days,
     working_days_between, PassCalendars, WorkingDayCounter,
 };
-use crate::forward::{start_anchored, start_reading, Instant, MilestoneInstants};
+use crate::forward::{milestone_link, start_anchored, start_reading, Instant, MilestoneInstants};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 
@@ -64,12 +64,20 @@ fn milestone_free_instants(
                 continue;
             }
             let dep = &deps[*edge.weight()];
-            let (start_ref, finish_ref) = match free[s] {
-                Some(x) => milestone_refs(x, cals.for_node(s))?,
-                None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
+            // FF into a milestone is FS (#4272).
+            let (start_ref, finish_ref, seen) = match free[s] {
+                Some(x) => {
+                    let (a, b) = milestone_refs(x)?;
+                    (a, b, milestone_link(dep.dep_type))
+                }
+                None => (
+                    succ.early_start.unwrap(),
+                    succ.early_finish.unwrap(),
+                    dep.dep_type,
+                ),
             };
             bound = bound.min(milestone_latest(
-                dep.dep_type,
+                seen,
                 dep.lag_days(),
                 start_ref,
                 finish_ref,
@@ -116,15 +124,14 @@ impl SpanCounter<'_> {
 /// forward-imposed date, which diverged whenever a calendar-day lag re-lands
 /// across non-working days as the task slips (#1828).
 fn free_float_anchor(
-    dep: &Dependency,
+    (dep_type, lag_days): (DependencyType, i64),
     es: NaiveDate,
     ef: NaiveDate,
     succ_es: NaiveDate,
     succ_ef: NaiveDate,
     node_cal: &Calendar,
 ) -> Result<(NaiveDate, NaiveDate), String> {
-    let lag_days = dep.lag_days();
-    Ok(match dep.dep_type {
+    Ok(match dep_type {
         DependencyType::FS => (
             ef,
             prev_working_day(checked_offset_days(succ_es, -1 - lag_days)?, node_cal)?,
@@ -147,17 +154,17 @@ fn free_float_anchor(
 /// Python `_free_start_ref`.
 fn free_start_ref(
     succ_early: Instant,
-    dep: &Dependency,
+    (dep_type, lag_days): (DependencyType, i64),
     own: Option<Instant>,
     succ_cal: &Calendar,
 ) -> Result<NaiveDate, String> {
     let (instant, start_display) = succ_early;
-    if start_display || !start_anchored(dep.dep_type) {
+    if start_display || !start_anchored(dep_type) {
         return Ok(instant);
     }
     let base_display = match own {
-        Some(o) if dep.lag_days() == 0 => o.1,
-        _ => dep.dep_type == DependencyType::SS,
+        Some(o) if lag_days == 0 => o.1,
+        _ => dep_type == DependencyType::SS,
     };
     if !start_reading(instant, base_display, succ_cal)? {
         return Ok(instant);
@@ -256,10 +263,16 @@ pub fn compute_floats(
             }
             let dep = &deps[*edge.weight()];
             let s = edge.target().index();
+            // The arithmetic inverts the type a milestone successor sees — FF into
+            // a milestone is FS (#4272) — while a driving edge keeps the link's own.
+            let link = match free_instants[s] {
+                Some(_) => (milestone_link(dep.dep_type), dep.lag_days()),
+                None => (dep.dep_type, dep.lag_days()),
+            };
             // The free-float instant a lagged milestone successor is measured at
             // (#4180) is the baseline both the slack and the driving-edge check use.
             let raw_refs = match free_instants[s] {
-                Some(x) => milestone_refs(x, cals.for_node(s))?,
+                Some(x) => milestone_refs(x)?,
                 None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
             };
             // A tie that flips the milestone's reading moves it (#4183), layered on
@@ -270,7 +283,7 @@ pub fn compute_floats(
                 Some((_, start_display)) => (
                     free_start_ref(
                         (free_instants[s].unwrap(), start_display),
-                        dep,
+                        link,
                         milestones.links[i],
                         cals.for_node(s),
                     )?,
@@ -281,13 +294,8 @@ pub fn compute_floats(
             let slack_to = |(succ_start, succ_finish): (NaiveDate, NaiveDate)| {
                 Ok::<i32, String>(match instants[i] {
                     Some(own) => {
-                        let latest = milestone_latest(
-                            dep.dep_type,
-                            dep.lag_days(),
-                            succ_start,
-                            succ_finish,
-                            node_cal,
-                        )?;
+                        let latest =
+                            milestone_latest(link.0, link.1, succ_start, succ_finish, node_cal)?;
                         if latest < own.0 {
                             -spans.between(latest, own.0, node_cal)?
                         } else {
@@ -296,7 +304,7 @@ pub fn compute_floats(
                     }
                     None => {
                         let (anchor, latest) =
-                            free_float_anchor(dep, es, ef, succ_start, succ_finish, node_cal)?;
+                            free_float_anchor(link, es, ef, succ_start, succ_finish, node_cal)?;
                         spans.between(anchor, latest, node_cal)?
                     }
                 })

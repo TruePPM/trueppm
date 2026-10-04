@@ -51,19 +51,31 @@ pub(crate) fn start_anchored(dep_type: DependencyType) -> bool {
 /// calendar. Ordinary work (`instant` is `None`) anchors FS on the day after its
 /// inclusive finish, SS on its start, FF on its finish and SF on the last working
 /// day *before* its start. A milestone is one instant: FS/SS measure from the
-/// instant, FF/SF from the last working day before it. Mirrors the Python
+/// instant, SF from the last working day before it. Mirrors the Python
 /// `_edge_anchor` (#4079, #4145).
 ///
 /// SF (#4145) is the finish-anchored instant rule applied to the predecessor's
 /// start instant: MS Project and P6 finish an SF successor at the start of its
 /// predecessor's start day, so its last working day is the day before — which is
 /// also where a zero-duration milestone standing at that same midnight puts it.
+///
+/// FF out of a milestone (#4273) measures from the instant itself, the point FS
+/// measures from. With no lag there is no date to snap, so the successor only has
+/// to reach the instant in working time — the last working day before it. A
+/// positive lag anchors on the day the instant closes, `x - 1` (a non-working day
+/// when the instant opens a working day after a weekend), and snaps forward like
+/// any lagged FF; anchoring it on the last working day let a weekend absorb it. A
+/// lead counts back from the zero-lag anchor, so the successor's finish is
+/// monotone in the lag: from `x - 1` a one-day lead out of a start-of-Monday
+/// milestone named Saturday and snapped forward to Monday, later than zero lag's
+/// Friday. Links *into* a milestone go through [`milestone_proposal`].
 pub(crate) fn edge_anchor(
     dep_type: DependencyType,
     start: NaiveDate,
     finish: NaiveDate,
     instant: Option<NaiveDate>,
     pred_cal: &Calendar,
+    lag_days: i64,
 ) -> Result<NaiveDate, String> {
     match instant {
         None => match dep_type {
@@ -73,8 +85,72 @@ pub(crate) fn edge_anchor(
             DependencyType::SF => prev_working_day(checked_offset_days(start, -1)?, pred_cal),
         },
         Some(x) if start_anchored(dep_type) => Ok(x),
+        Some(x) if dep_type == DependencyType::FF && lag_days > 0 => checked_offset_days(x, -1),
         Some(x) => prev_working_day(checked_offset_days(x, -1)?, pred_cal),
     }
+}
+
+/// The type a link has as a zero-duration successor sees it: FF is FS (#4272,
+/// #4273). A milestone's start and finish are one instant, and FF and FS anchor
+/// on the same point of the predecessor, so into a milestone they are one link
+/// and every pass treats them as one. Mirrors the Python `_milestone_link`.
+pub(crate) fn milestone_link(dep_type: DependencyType) -> DependencyType {
+    if dep_type == DependencyType::FF {
+        DependencyType::FS
+    } else {
+        dep_type
+    }
+}
+
+/// The `(instant, start_display)` one incoming link proposes to a milestone.
+///
+/// The link's anchor *instant* plus the lag, never snapped: a milestone occupies
+/// no working day, so there is nothing for a lag to land on but the instant
+/// (#4272). FS/SS — and FF, which into a milestone is FS ([`milestone_link`]) —
+/// propose `anchor + lag`; SF proposes the midnight closing its anchor day plus
+/// the lag. Before #4272 an FF/SF link proposed the end of the first working day
+/// on or after `anchor + lag`, so a lag across a weekend put the milestone a
+/// working day after its FS equivalent. The reading is the FS/SS-from-work one,
+/// except at zero lag out of a milestone, where the proposal is the very
+/// midnight the predecessor occupies and carries its reading over (#4079); an
+/// instant just after non-working time reads as start of day ([`start_reading`],
+/// #4173). `cal` is the milestone's own calendar. Mirrors the Python
+/// `_milestone_proposal`.
+pub(crate) fn milestone_proposal(
+    dep_type: DependencyType,
+    lag_days: i64,
+    (start, finish): (NaiveDate, NaiveDate),
+    pred_instant: Option<Instant>,
+    pred_cal: &Calendar,
+    cal: &Calendar,
+) -> Result<Instant, String> {
+    let dep_type = milestone_link(dep_type);
+    let anchor = edge_anchor(
+        dep_type,
+        start,
+        finish,
+        pred_instant.map(|i| i.0),
+        pred_cal,
+        0,
+    )?;
+    if dep_type == DependencyType::SF {
+        // The close of the anchor day, which is the working day before the start.
+        let raw = checked_offset_days(anchor, 1 + lag_days)?;
+        return Ok((raw, start_reading(raw, false, cal)?));
+    }
+    let raw = checked_offset_days(anchor, lag_days)?;
+    let base_display = match pred_instant {
+        // Same midnight as the predecessor milestone (#4079): its own reading
+        // carries over verbatim.
+        Some(i) if lag_days == 0 => i.1,
+        // Ordinary work, or a milestone reached through a nonzero lag: a
+        // different midnight than the predecessor's own instant, so its reading
+        // is computed fresh. Inheriting it would leak a display quirk of the
+        // predecessor's instant (the Sunday/Monday snap, #4173) onto an instant
+        // it has nothing to do with (#4206).
+        _ => dep_type == DependencyType::SS,
+    };
+    Ok((raw, start_reading(raw, base_display, cal)?))
 }
 
 /// The day an instant is shown on: the first working day at or after it for a
@@ -124,8 +200,9 @@ pub(crate) fn start_reading(
 /// occupies — as that predecessor is shown (a lagged link out of a milestone
 /// falls back to the FS/SS-from-work rule, #4206) — except that an instant just
 /// after non-working time is always shown at the start of the next working day
-/// ([`start_reading`], #4173); FF/SF links propose the end of the finish day
-/// `next_wd(anchor + lag)`. Mirrors the Python `_place_milestone` (#4079).
+/// ([`start_reading`], #4173); FF links propose what FS would and SF links the
+/// midnight closing their anchor day plus the lag, raw instants never snapped
+/// ([`milestone_proposal`], #4272). Mirrors the Python `_place_milestone` (#4079).
 ///
 /// The project-start floor (`start_floor`) only bounds where the milestone is
 /// *shown* (#4225); `floors` holds the others (data date, SNET, a recorded actual
@@ -163,39 +240,18 @@ fn place_milestone(
         let dep = &deps[*edge.weight()];
         let p = edge.source().index();
         let pred = &tasks[p];
-        let pred_instant = links[p];
-        let anchor = edge_anchor(
+        let (raw, start_display) = milestone_proposal(
             dep.dep_type,
-            pred.early_start.unwrap(),
-            pred.early_finish.unwrap(),
-            pred_instant.map(|i| i.0),
+            dep.lag_days(),
+            (pred.early_start.unwrap(), pred.early_finish.unwrap()),
+            links[p],
             cals.for_node(p),
+            cal,
         )?;
-        let raw = checked_offset_days(anchor, dep.lag_days())?;
-        if start_anchored(dep.dep_type) {
-            let base_display = match pred_instant {
-                // Same midnight as the predecessor milestone (#4079): its own
-                // reading carries over verbatim.
-                Some(i) if dep.lag_days() == 0 => i.1,
-                // Ordinary work, or a milestone reached through a nonzero lag: a
-                // different midnight than the predecessor's own instant, so its
-                // reading is computed fresh. Inheriting it would leak a display
-                // quirk of the predecessor's instant (the Sunday/Monday snap,
-                // #4173) onto an instant it has nothing to do with (#4206).
-                _ => dep.dep_type == DependencyType::SS,
-            };
-            let start_display = start_reading(raw, base_display, cal)?;
-            offer(
-                &mut best,
-                (raw, start_display, instant_day(raw, start_display, cal)?),
-            );
-        } else {
-            let finish_day = next_working_day(raw, cal)?;
-            offer(
-                &mut best,
-                (checked_offset_days(finish_day, 1)?, false, finish_day),
-            );
-        }
+        offer(
+            &mut best,
+            (raw, start_display, instant_day(raw, start_display, cal)?),
+        );
     }
     let link = best;
     if let Some(floor) = start_floor {
@@ -572,6 +628,7 @@ fn edge_constraints(
             pred.early_finish.unwrap(),
             instants[p].map(|i| i.0),
             cals.for_node(p),
+            dep.lag_days(),
         )?;
         let bound = advance_calendar_days(anchor, dep.lag_days(), calendar)?;
         if start_anchored(dep.dep_type) {
@@ -724,6 +781,132 @@ mod tests {
         assert_eq!(via_m.total_float, direct.total_float);
         // M is still never shown before the project start, nor late before early.
         assert_eq!((m.early_start, m.late_start), (d(5), d(5)));
+    }
+
+    /// Every task's result, as JSON so two schedules compare field by field.
+    fn schedule_all(tasks: &[(&str, i64)], deps: &[(&str, &str, &str, i64)]) -> serde_json::Value {
+        let ids: Vec<&str> = tasks.iter().map(|(t, _)| *t).collect();
+        serde_json::to_value(
+            ids.iter()
+                .map(|id| schedule_one(tasks, deps, id))
+                .collect::<Vec<_>>(),
+        )
+        .expect("results serialize")
+    }
+
+    /// #4272: a lagged FF link into a milestone proposes a raw instant. `A` finishes
+    /// Fri 2026-01-09 (Saturday midnight); +1 day is Sunday midnight, the start of
+    /// Monday 01-12, so `C` starts Monday — as with FS+1d. Snapping the lagged date
+    /// forward as if `M` had a finish day started `C` on Tuesday.
+    #[test]
+    fn lagged_ff_into_a_milestone_lands_where_fs_does() {
+        let tasks = [("A", 5), ("M", 0), ("C", 1)];
+        let c = schedule_one(&tasks, &[("A", "M", "FF", 1), ("M", "C", "FS", 0)], "C");
+        assert_eq!(c.early_start, d(12));
+        assert_eq!(c.total_float, 0.0);
+        for lag in -4..8 {
+            assert_eq!(
+                schedule_all(&tasks, &[("A", "M", "FF", lag), ("M", "C", "FS", 0)]),
+                schedule_all(&tasks, &[("A", "M", "FS", lag), ("M", "C", "FS", 0)]),
+                "lag {lag}"
+            );
+        }
+    }
+
+    /// #4272: SF into a milestone is its anchor instant — the close of the working
+    /// day before the predecessor starts — plus the lag. `S` starts Mon 01-12, so
+    /// it anchors where `A(5d)` finishes, and schedules `M` as `A -FS(l)-> M` does.
+    #[test]
+    fn lagged_sf_into_a_milestone_is_its_anchor_instant_plus_the_lag() {
+        let tasks = [("A", 5), ("S", 2), ("M", 0), ("C", 1)];
+        for lag in -4..8 {
+            let sf = [
+                ("A", "S", "FS", 0),
+                ("S", "M", "SF", lag),
+                ("M", "C", "FS", 0),
+            ];
+            let fs = [
+                ("A", "S", "FS", 0),
+                ("A", "M", "FS", lag),
+                ("M", "C", "FS", 0),
+            ];
+            for id in ["M", "C"] {
+                let (a, b) = (schedule_one(&tasks, &sf, id), schedule_one(&tasks, &fs, id));
+                assert_eq!(a.early_start, b.early_start, "{id} lag {lag}");
+                assert_eq!(
+                    a.milestone_at_day_end, b.milestone_at_day_end,
+                    "{id} lag {lag}"
+                );
+            }
+        }
+    }
+
+    /// #4273: an FF link out of a milestone anchors on its own instant. `M0` sits at
+    /// the start of Mon 01-05; `M0 -FF-> M1` must put `M1` there too, so the +1d
+    /// lag after it starts `T` on Tuesday. Anchoring on the close of Friday let the
+    /// weekend absorb the lag and started `T` on Monday.
+    #[test]
+    fn ff_out_of_a_start_of_day_milestone_anchors_on_its_instant() {
+        let tasks = [("M0", 0), ("M1", 0), ("T", 1)];
+        let t = schedule_one(&tasks, &[("M0", "M1", "FF", 0), ("M1", "T", "FS", 1)], "T");
+        assert_eq!(t.early_start, d(6));
+        for lag in -4..8 {
+            assert_eq!(
+                schedule_all(&tasks, &[("M0", "M1", "FF", lag), ("M1", "T", "FS", 1)]),
+                schedule_all(&tasks, &[("M0", "M1", "FS", lag), ("M1", "T", "FS", 1)]),
+                "lag {lag}"
+            );
+        }
+    }
+
+    /// #4273, into work: a lagged FF counts from the day `M0`'s instant closes.
+    /// Monday midnight +2 closes Tuesday, so `W` finishes Tuesday; from the close
+    /// of Friday, +2 was Sunday, snapped to Monday.
+    #[test]
+    fn a_lagged_ff_out_of_a_milestone_into_work_counts_from_the_instant() {
+        let tasks = [("M0", 0), ("W", 1)];
+        for (lag, finish) in [(0, 5), (1, 5), (2, 6), (3, 7)] {
+            let w = schedule_one(&tasks, &[("M0", "W", "FF", lag)], "W");
+            assert_eq!(w.early_finish, d(finish), "lag {lag}");
+        }
+    }
+
+    /// #4273, leads: an FF lead out of a start-of-day milestone counts back from
+    /// the zero-lag anchor (the close of Friday), so `W`'s finish is monotone in
+    /// the lag. `A` ends Fri 01-09 and FS+2 puts `M` at the start of Mon 01-12.
+    /// Counted from the day the instant closes, a one-day lead named Saturday and
+    /// snapped forward, finishing `W` on Monday — later than zero lag's Friday.
+    #[test]
+    fn an_ff_lead_out_of_a_milestone_is_monotone_in_the_lag() {
+        let tasks = [("A", 5), ("M", 0), ("W", 1)];
+        let expected = [
+            (-4, 5),
+            (-3, 6),
+            (-2, 7),
+            (-1, 8),
+            (0, 9),
+            (1, 12),
+            (2, 13),
+            (3, 14),
+            (4, 15),
+            (5, 16),
+            (6, 19),
+            (7, 19),
+        ];
+        let mut previous = None;
+        for (lag, finish) in expected {
+            let deps = [("A", "M", "FS", 2), ("M", "W", "FF", lag)];
+            let w = schedule_one(&tasks, &deps, "W");
+            assert_eq!(w.early_finish, d(finish), "lag {lag}");
+            if let Some(p) = previous {
+                assert!(
+                    w.early_finish >= p,
+                    "lag {lag} finishes before lag {}",
+                    lag - 1
+                );
+            }
+            previous = Some(w.early_finish);
+        }
     }
 
     /// #4225: a data-date floor is not a display bound — an unreached milestone

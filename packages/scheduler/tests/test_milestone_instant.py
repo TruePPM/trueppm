@@ -14,6 +14,7 @@ corpus agreed with itself for as long as both engines carried the extra day.
 from __future__ import annotations
 
 import copy
+import itertools
 from datetime import date, timedelta
 
 import pytest
@@ -1107,8 +1108,13 @@ def _advance_working_days(d: date, n: int, cal: Calendar) -> date:
 
 
 @st.composite
-def _fs_ss_networks_with_milestones(draw: st.DrawFn) -> Project:
-    """A small random FS/SS DAG with milestones and non-negative calendar-day lags."""
+def _networks_with_milestones(draw: st.DrawFn) -> Project:
+    """A small random DAG with milestones and non-negative calendar-day lags.
+
+    Every link type, so the definitional float properties below also cover FF and
+    SF links into and out of milestones — the backward-pass and free-float twins
+    of the forward rule #4272 and #4273 changed.
+    """
     n = draw(st.integers(min_value=2, max_value=6))
     tasks = [_task(f"T{i}", draw(st.sampled_from([0, 0, 1, 2, 3, 5]))) for i in range(n)]
     deps: list[Dependency] = []
@@ -1119,7 +1125,7 @@ def _fs_ss_networks_with_milestones(draw: st.DrawFn) -> Project:
                     _dep(
                         f"T{i}",
                         f"T{j}",
-                        draw(st.sampled_from([DependencyType.FS, DependencyType.SS])),
+                        draw(st.sampled_from(list(DependencyType))),
                         draw(st.sampled_from([0, 0, 1, 2, 3])),
                     )
                 )
@@ -1127,7 +1133,7 @@ def _fs_ss_networks_with_milestones(draw: st.DrawFn) -> Project:
 
 
 @pytest.mark.fuzz
-@given(_fs_ss_networks_with_milestones())
+@given(_networks_with_milestones())
 def test_total_float_is_the_slip_the_finish_absorbs(p: Project) -> None:
     """Definitional total float (#4174): slipping a live work task by its total
     float must not move the project's finish, and one more working day must.
@@ -1296,7 +1302,7 @@ def _early_position(t: Task) -> tuple[date | None, date | None, bool]:
 
 
 @pytest.mark.fuzz
-@given(_fs_ss_networks_with_milestones())
+@given(_networks_with_milestones())
 # The #4180 repro, pinned because the derandomized gate profile does not reach it.
 @example(_project([_task("A", 4), _task("M", 0)], [_dep("A", "M", lag=2)]))
 @example(
@@ -1567,3 +1573,211 @@ def test_lengthening_any_task_never_moves_the_finish_earlier(
         ).project_finish
 
     assert finish(1) >= finish(0)
+
+
+# ---------------------------------------------------------------------------
+# FF/SF links into and out of a milestone agree with their FS form (#4272, #4273)
+# ---------------------------------------------------------------------------
+
+_JAN_5_MON = date(2026, 1, 5)
+_JAN_6_TUE = date(2026, 1, 6)
+
+
+def _without_link_types(result: ScheduleResult) -> dict[str, object]:
+    """Every scheduled field and the critical path — everything but a link's own type.
+
+    ``driving_edges`` names each link by its type, so an FF network and its FS twin
+    differ there by construction; which links drive is still compared, by endpoints.
+    """
+    data = result.to_dict()
+    data["driving_edges"] = sorted(
+        (e["predecessor_id"], e["successor_id"]) for e in data["driving_edges"]
+    )
+    return data
+
+
+class TestLaggedFinishLinkIntoAMilestone:
+    """#4272: an FF/SF link into a milestone proposes a raw instant, never a snapped day.
+
+    ``A(5d, Mon 01-05..Fri 01-09) -FF+1d-> M -FS-> C(1d)``. ``M`` has no working day
+    to occupy, so ``A``'s finish instant (Saturday midnight) plus one day is Sunday
+    midnight, shown as the start of Monday 01-12, and ``C`` starts Monday — exactly
+    where ``A -FS+1d-> M`` puts it. Both engines used to snap the lagged date
+    forward as if ``M`` had a finish day (end of Monday), starting ``C`` on Tuesday
+    01-13 and moving the project finish a working day.
+    """
+
+    def _chain(self, dep_type: DependencyType, lag: int) -> Project:
+        return _project(
+            [_task("A", 5), _task("M", 0), _task("C", 1)],
+            [_dep("A", "M", dep_type, lag), _dep("M", "C")],
+        )
+
+    def test_the_reported_repro(self) -> None:
+        result = schedule(self._chain(DependencyType.FF, 1))
+        by_id = {t.id: t for t in result.tasks}
+        assert by_id["M"].early_start == _JAN_12_MON
+        assert not by_id["M"].milestone_at_day_end
+        assert by_id["C"].early_start == _JAN_12_MON
+        assert result.project_finish == _JAN_12_MON
+        # The backward pass inverts the same rule: nothing on the chain has float.
+        assert all(t.total_float == timedelta(0) for t in result.tasks)
+
+    @pytest.mark.parametrize("lag", range(-4, 8))
+    def test_ff_into_a_milestone_schedules_exactly_as_fs(self, lag: int) -> None:
+        """Every field of every task, early and late, for leads and lags alike."""
+        ff = schedule(self._chain(DependencyType.FF, lag))
+        fs = schedule(self._chain(DependencyType.FS, lag))
+        assert _without_link_types(ff) == _without_link_types(fs)
+
+    @pytest.mark.parametrize("lag", range(-4, 8))
+    def test_sf_into_a_milestone_is_its_anchor_instant_plus_the_lag(self, lag: int) -> None:
+        """``S(2d) -SF(l)-> M`` from ``S`` starting Monday 01-12 anchors on the close
+        of Friday 01-09 — the instant ``A(5d)`` finishes at — so it schedules exactly
+        as ``A -FS(l)-> M``. Before #4272 a lag across the weekend snapped forward."""
+        sf = _project(
+            [_task("A", 5), _task("S", 2), _task("M", 0), _task("C", 1)],
+            [_dep("A", "S"), _dep("S", "M", DependencyType.SF, lag), _dep("M", "C")],
+        )
+        fs = _project(
+            [_task("A", 5), _task("S", 2), _task("M", 0), _task("C", 1)],
+            [_dep("A", "S"), _dep("A", "M", DependencyType.FS, lag), _dep("M", "C")],
+        )
+        sf_by_id, fs_by_id = _by_id(sf), _by_id(fs)
+        for tid in ("M", "C"):
+            assert sf_by_id[tid].early_start == fs_by_id[tid].early_start, tid
+            assert sf_by_id[tid].milestone_at_day_end == fs_by_id[tid].milestone_at_day_end
+
+    def test_monte_carlo_agrees_with_cpm(self) -> None:
+        p = self._chain(DependencyType.FF, 1)
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p80 == mc.p95 == schedule(p).project_finish == _JAN_12_MON
+
+    def test_monte_carlo_agrees_through_a_completed_predecessor(self) -> None:
+        """A completed ``A`` is resolved once, in date space (``_completed_edge_constraints``)."""
+        a = _task("A", 5)
+        a.actual_start, a.actual_finish, a.percent_complete = _JAN_5_MON, _JAN_9_FRI, 100.0
+        p = _project([a, _task("M", 0), _task("C", 1)], [_dep("A", "M", DependencyType.FF, 1)])
+        p.dependencies.append(_dep("M", "C"))
+        result = schedule(p)
+        assert {t.id: t.early_start for t in result.tasks}["C"] == _JAN_12_MON
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
+class TestFinishLinkOutOfAStartOfDayMilestone:
+    """#4273: an FF link out of a milestone anchors on the milestone's own instant.
+
+    ``M0`` is held at the start of Monday 01-05 by the project start. ``M0 -FF->
+    M1 -FS+1d-> T(1d)`` must put ``M1`` on that same instant — where ``M0 -FS-> M1``
+    puts it — and ``T`` on Tuesday 01-06. Both engines anchored the FF link on the
+    close of the previous working day (Friday), so the weekend absorbed the lag
+    after ``M1`` and ``T`` started Monday.
+    """
+
+    def _chain(self, dep_type: DependencyType, lag: int) -> Project:
+        return _project(
+            [_task("M0", 0), _task("M1", 0), _task("T", 1)],
+            [_dep("M0", "M1", dep_type, lag), _dep("M1", "T", lag=1)],
+        )
+
+    def test_the_reported_repro(self) -> None:
+        by_id = _by_id(self._chain(DependencyType.FF, 0))
+        assert by_id["M1"].early_start == _JAN_5_MON
+        assert not by_id["M1"].milestone_at_day_end
+        assert by_id["T"].early_start == _JAN_6_TUE
+
+    @pytest.mark.parametrize("lag", range(-4, 8))
+    def test_ff_out_of_a_milestone_into_one_schedules_exactly_as_fs(self, lag: int) -> None:
+        ff = schedule(self._chain(DependencyType.FF, lag))
+        fs = schedule(self._chain(DependencyType.FS, lag))
+        assert _without_link_types(ff) == _without_link_types(fs)
+
+    @pytest.mark.parametrize(
+        ("lag", "finish"),
+        [
+            # No lag: no date to snap, so W only has to reach M0's instant in
+            # working time — the end of Friday is the start of Monday, and W's
+            # floor at the project start puts it on Monday.
+            (0, _JAN_5_MON),
+            # Monday midnight + 1 day closes Monday, a working day: end of Monday.
+            (1, _JAN_5_MON),
+            # + 2 closes Tuesday. Anchored on Friday (the pre-#4273 rule), +2 was
+            # Sunday and snapped to Monday: the weekend absorbed a day of lag.
+            (2, _JAN_6_TUE),
+            (3, date(2026, 1, 7)),
+        ],
+    )
+    def test_a_lagged_ff_into_work_counts_from_the_instant(self, lag: int, finish: date) -> None:
+        p = _project(
+            [_task("M0", 0), _task("W", 1)],
+            [_dep("M0", "W", DependencyType.FF, lag)],
+        )
+        result = schedule(p)
+        assert {t.id: t.early_finish for t in result.tasks}["W"] == finish
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+    @staticmethod
+    def _held_at_monday(lag: int) -> Project:
+        """``M`` held at the start of Mon 01-12 by its SNET, ``M -FF(lag)-> W(1d)``.
+
+        Off the project start (Mon 01-05), so a lead has room to pull ``W`` earlier.
+        """
+        m = Task(id="M", name="M", duration=timedelta(0), planned_start=_JAN_12_MON)
+        return _project([m, _task("W", 1)], [_dep("M", "W", DependencyType.FF, lag)])
+
+    # (lag, W early finish, W late finish). Leads count back from the zero-lag
+    # finish (Friday, the close of the working day before M's instant); positive
+    # lags count from the day the instant closes (Sunday) and snap forward. Before
+    # this rule a lead also counted from Sunday: -1 named Saturday and snapped to
+    # Monday, finishing W *later* than no lead at all. W's late finish is the
+    # project finish's working-time close: the end of Friday while M at the start
+    # of Monday is the finish.
+    _LEAD_TABLE = (
+        (-4, MON, _JAN_9_FRI),
+        (-3, _JAN_6_TUE, _JAN_9_FRI),
+        (-2, date(2026, 1, 7), _JAN_9_FRI),
+        (-1, date(2026, 1, 8), _JAN_9_FRI),
+        (0, _JAN_9_FRI, _JAN_9_FRI),
+        (1, _JAN_12_MON, _JAN_12_MON),
+        (2, _JAN_13_TUE, _JAN_13_TUE),
+        (3, date(2026, 1, 14), date(2026, 1, 14)),
+        (4, date(2026, 1, 15), date(2026, 1, 15)),
+        (5, date(2026, 1, 16), date(2026, 1, 16)),
+        (6, date(2026, 1, 19), date(2026, 1, 19)),
+        (7, date(2026, 1, 19), date(2026, 1, 19)),
+    )
+
+    @pytest.mark.parametrize(("lag", "early", "late"), _LEAD_TABLE)
+    def test_an_ff_lead_or_lag_out_of_a_held_milestone(
+        self, lag: int, early: date, late: date
+    ) -> None:
+        p = self._held_at_monday(lag)
+        result = schedule(p)
+        w = {t.id: t for t in result.tasks}["W"]
+        assert (w.early_finish, w.late_finish) == (early, late)
+        assert w.early_start == w.early_finish and w.late_start == w.late_finish
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+    def test_an_ff_link_out_of_a_milestone_is_monotone_in_its_lag(self) -> None:
+        """A longer lag (or a shorter lead) never finishes the successor earlier.
+
+        The completeness-check repro: ``-1`` finished ``W`` on Mon 01-12 while
+        ``0`` finished it on Fri 01-09.
+        """
+        rows = [
+            {t.id: t for t in schedule(self._held_at_monday(lag)).tasks}["W"]
+            for lag in range(-4, 8)
+        ]
+        for earlier, later in itertools.pairwise(rows):
+            assert earlier.early_finish is not None and later.early_finish is not None
+            assert earlier.late_finish is not None and later.late_finish is not None
+            assert earlier.early_finish <= later.early_finish
+            assert earlier.late_finish <= later.late_finish
+
+    def test_monte_carlo_agrees_with_cpm(self) -> None:
+        p = self._chain(DependencyType.FF, 0)
+        mc = monte_carlo(p, runs=16, seed=1)
+        assert mc.p50 == mc.p80 == mc.p95 == schedule(p).project_finish == _JAN_6_TUE

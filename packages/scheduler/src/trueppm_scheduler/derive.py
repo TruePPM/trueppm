@@ -51,6 +51,7 @@ from trueppm_scheduler.engine import (
     _milestone_finish_bound,
     _milestone_instants,
     _milestone_latest,
+    _milestone_proposal,
     _milestone_refs,
     _next_working_day,
     _prev_working_day,
@@ -60,7 +61,6 @@ from trueppm_scheduler.engine import (
     _safe_offset,
     _sf_latest_start,
     _start_from_finish,
-    _start_reading,
     _working_days_between,
     schedule,
 )
@@ -380,7 +380,8 @@ def _pred_forward_contribution(
 
     Milestones (#4079): a milestone predecessor anchors on its instant
     (``engine._edge_anchor``), and a milestone *target* is shown on the day of the
-    instant the link proposes (``engine._place_milestone``). ``keys`` then receives
+    raw instant the link proposes (``engine._milestone_proposal``, where FF into a
+    milestone is FS, #4272). ``keys`` then receives
     the instant and its start-of-day reading, the key the engine compares on.
     """
     assert pred.early_start is not None and pred.early_finish is not None
@@ -393,29 +394,26 @@ def _pred_forward_contribution(
             pred.early_finish,
             None if pred_instant is None else pred_instant[0],
             ctx.pred_cal,
+            lag,
         ),
         lag,
     )
     imposed = _next_working_day(raw, cal)
     key: tuple[date, bool] | None = None
     if ctx.to_milestone:
-        if dep_type in _START_ANCHORED:
-            # Mirrors engine._place_milestone (#4079 fuzz regression): a
-            # predecessor milestone's own reading only carries over at zero lag,
-            # where the proposed instant is that same midnight. A nonzero lag
-            # proposes a different midnight and is read fresh, like an ordinary
-            # FS/SS predecessor, or it would inherit a display quirk that
-            # belongs to the predecessor's instant and not this one.
-            base_display = (
-                pred_instant[1]
-                if pred_instant is not None and lag == timedelta(0)
-                else dep_type == DependencyType.SS
-            )
-            start_display = _start_reading(raw, base_display, cal)
-            imposed = _instant_day(raw, start_display, cal)
-            key = (raw, start_display)
-        else:
-            key = (_safe_offset(imposed, timedelta(days=1)), False)
+        # engine._place_milestone's own proposal (#4079, #4272): the link's anchor
+        # instant plus the lag, unsnapped, with FF into a milestone read as FS.
+        raw, start_display = _milestone_proposal(
+            dep_type,
+            lag,
+            pred.early_start,
+            pred.early_finish,
+            pred_instant,
+            ctx.pred_cal,
+            cal,
+        )
+        imposed = _instant_day(raw, start_display, cal)
+        key = (raw, start_display)
     kind, label = _FORWARD_PRED_KIND[dep_type]
     contribution = DerivationContribution(
         kind=kind,
@@ -656,6 +654,7 @@ def _derive_backward(
     milestone_day: _DayFn | None = None,
     finish_instant: date | None = None,
     early_instant: date | None = None,
+    milestone_ids: frozenset[str] = frozenset(),
 ) -> tuple[str | int | None, list[DerivationContribution]]:
     """Replay :func:`engine._backward_pass` for one node, recording provenance.
 
@@ -686,6 +685,7 @@ def _derive_backward(
         milestone_day=milestone_day,
         finish_instant=finish_instant,
         bounds_out=bounds,
+        milestone_ids=milestone_ids,
     )
     contribs = [*lf_terms, *ls_terms]
 
@@ -766,6 +766,15 @@ def _late_dates(
     return succ.late_start, succ.late_finish
 
 
+def _as_seen_by(
+    succ: Task, dep_type: DependencyType, milestone_ids: frozenset[str]
+) -> DependencyType:
+    """The type the engine inverts a link as: FF into a live milestone is FS (#4272)."""
+    if dep_type == DependencyType.FF and succ.id in milestone_ids:
+        return DependencyType.FS
+    return dep_type
+
+
 def _backward_successor_terms(
     succs: list[tuple[Task, DependencyType, timedelta]],
     cal: Calendar,
@@ -775,6 +784,7 @@ def _backward_successor_terms(
     milestone_day: _DayFn | None = None,
     finish_instant: date | None = None,
     bounds_out: dict[int, date] | None = None,
+    milestone_ids: frozenset[str] = frozenset(),
 ) -> tuple[list[DerivationContribution], list[DerivationContribution]]:
     """Split the outgoing edges into late-finish and late-start candidate terms.
 
@@ -782,6 +792,9 @@ def _backward_successor_terms(
     workable day exactly as ``engine._backward_pass`` seeds it (#1820) — the
     provenance must cite the date the engine actually floors at, not a raw weekend
     ``project_finish``.
+
+    ``milestone_ids`` are the live milestones: an FF link into one is inverted as
+    FS, the type ``engine._milestone_link`` gives it (#4272), and keeps its FF label.
     """
     end = finish_instant or _safe_offset(project_finish, timedelta(days=1))
     seed = _prev_working_day(_safe_offset(end, -timedelta(days=1)), cal)
@@ -815,6 +828,8 @@ def _backward_successor_terms(
         # a derivation term or the explanation would disagree with the late dates.
         if _is_complete(succ):
             continue
+        terms, kind, label = bounds[dep_type]
+        dep_type = _as_seen_by(succ, dep_type, milestone_ids)
         succ_start, succ_finish = (refs or _late_dates)(succ, dep_type, lag)
 
         if dep_type == DependencyType.FS:
@@ -824,7 +839,6 @@ def _backward_successor_terms(
         else:  # FF and SF both retreat from the successor's late finish.
             raw = _safe_offset(succ_finish, -lag)
 
-        terms, kind, label = bounds[dep_type]
         imposed = _prev_working_day(raw, cal)
         if dep_type == DependencyType.SF:
             # An SF link anchors on the working day *before* this task's start
@@ -1077,6 +1091,7 @@ def _derive_free_float(
     tf_days: int,
     early_refs: _RefsFn | None = None,
     milestone: tuple[date, _DayFn] | None = None,
+    milestone_ids: frozenset[str] = frozenset(),
 ) -> tuple[int, list[DerivationContribution]]:
     """Replay :func:`engine._compute_floats` free-float slack, recording provenance.
 
@@ -1109,13 +1124,15 @@ def _derive_free_float(
             and succ.early_start is not None
             and succ.early_finish is not None
         )
+        # FF into a live milestone is inverted as FS (#4272); the term keeps FF.
+        seen = _as_seen_by(succ, dep_type, milestone_ids)
         latest, slack = _inverse_link_constraint(
             task,
             succ,
-            dep_type,
+            seen,
             lag,
             cal,
-            early_refs(succ, dep_type, lag) if early_refs is not None else None,
+            early_refs(succ, seen, lag) if early_refs is not None else None,
             milestone,
         )
         slack = max(0, slack)
@@ -1153,6 +1170,7 @@ class _MilestoneContext:
     own_instants: tuple[date, date] | None
     links: list[_LinkContext]
     finish_instant: date
+    milestone_ids: frozenset[str] = frozenset()
 
 
 def _milestone_context(
@@ -1205,7 +1223,7 @@ def _milestone_context(
             return _late_dates(succ)
         # The same per-link cap the backward pass applies (#4183).
         succ_cal = cal_of(succ.id)
-        start_ref, finish_ref = _milestone_refs(late, succ_cal)
+        start_ref, finish_ref = _milestone_refs(late)
         pf = result.project_finish
         is_milestone = own is not None
         return _link_start_ref(start_ref, dep_type, lag, is_milestone, succ_cal, pf), finish_ref
@@ -1221,7 +1239,7 @@ def _milestone_context(
         # advances one that reads as start of day, and #4183's tie bound only
         # adjusts one that reads as end of day.
         succ_cal = cal_of(succ.id)
-        _, finish_ref = _milestone_refs(early, succ_cal)
+        _, finish_ref = _milestone_refs(early)
         raw = instants.get(succ.id)
         assert raw is not None  # free_instants is derived from instants (#4180)
         start_ref = _free_start_ref((early, raw[1]), dep_type, lag, own_link, succ_cal)
@@ -1246,7 +1264,15 @@ def _milestone_context(
         _LinkContext(link_instants.get(p.id, instants.get(p.id)), cal_of(p.id), own is not None)
         for p, _, _ in preds
     ]
-    return _MilestoneContext(late_refs, early_refs, milestone, own_instants, links, finish_instant)
+    return _MilestoneContext(
+        late_refs,
+        early_refs,
+        milestone,
+        own_instants,
+        links,
+        finish_instant,
+        frozenset(late_instants),
+    )
 
 
 def derive_value(
@@ -1343,6 +1369,7 @@ def derive_value(
             milestone_day=milestone[1] if milestone is not None else None,
             finish_instant=mctx.finish_instant,
             early_instant=milestone[0] if milestone is not None else None,
+            milestone_ids=mctx.milestone_ids,
         )
     elif q is Quantity.SCHEDULED_START:
         value, contribs = _derive_scheduled_start(task, cal)
@@ -1351,7 +1378,9 @@ def derive_value(
         if q is Quantity.TOTAL_FLOAT:
             value, contribs = tf_days, tf_contribs
         else:
-            value, contribs = _derive_free_float(task, succs, cal, tf_days, early_refs, milestone)
+            value, contribs = _derive_free_float(
+                task, succs, cal, tf_days, early_refs, milestone, mctx.milestone_ids
+            )
 
     binding = next((c for c in contribs if c.is_binding), None)
     return Derivation(

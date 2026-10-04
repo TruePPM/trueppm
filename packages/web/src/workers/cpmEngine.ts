@@ -67,8 +67,11 @@
  *
  * Zero-duration milestones are INSTANTS (#4079), exactly as in both server
  * engines: a milestone after work sits on that work's finish day, links out of
- * it measure from the instant (FS/SS) or the last working day before it
- * (FF/SF), and inserting one into an FS link moves nothing. A milestone this
+ * it measure from the instant (FS/SS, and an FF with a positive lag, #4273) or
+ * the last working day before it (SF, and an FF with no lag or a lead, so an FF
+ * finish is monotone in its lag), links into it propose a raw
+ * instant with FF read as FS (#4272), and inserting one into an FS link moves
+ * nothing. A milestone this
  * pass does not re-place reads its instant from the server's
  * `milestone_at_day_end` (`CpmTask.milestoneAtDayEnd`); only when that is absent
  * does it fall back to reading the end of its day when it has a predecessor and
@@ -87,12 +90,7 @@
  *    disclosure the drag target itself has always had.
  */
 
-import type {
-  CpmEdge,
-  CpmTask,
-  PreviewMilestone,
-  PreviewTaskResult,
-} from './cpmWorker.types';
+import type { CpmEdge, CpmTask, PreviewMilestone, PreviewTaskResult } from './cpmWorker.types';
 
 /**
  * Internal mutable task state during the forward pass.
@@ -272,9 +270,11 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
  * The raw date a predecessor's constraint is measured from: every bound is
  * `nextWorkingDay(anchor + lag)`. Ordinary work anchors FS on the day after its
  * finish, SS on its start, FF on its finish and SF on the last working day
- * *before* its start; a milestone anchors FS/SS on its instant and FF/SF on the
- * last working day before it. Mirrors the server engines' `_edge_anchor` /
- * `edge_anchor` (#4079, #4145).
+ * *before* its start; a milestone anchors FS/SS on its instant, SF on the last
+ * working day before it, and FF on the day its instant closes for a positive
+ * lag (#4273) — the last working day before it with no lag or a lead, so a lead
+ * counts back from the zero-lag finish and never lands later than it. Mirrors the server
+ * engines' `_edge_anchor` / `edge_anchor` (#4079, #4145).
  *
  * SF (#4145) is the finish-anchored instant rule applied to the predecessor's
  * start instant: MS Project and P6 finish an SF successor at the start of its
@@ -284,7 +284,9 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
 function edgeAnchor(edge: CpmEdge, source: TaskState): number {
   const startAnchored = edge.type === 'FS' || edge.type === 'SS';
   if (source.instantMs !== null) {
-    return startAnchored ? source.instantMs : prevWorkingDay(source.instantMs - MS_PER_DAY);
+    if (startAnchored) return source.instantMs;
+    if (edge.type === 'FF' && edge.lag > 0) return source.instantMs - MS_PER_DAY;
+    return prevWorkingDay(source.instantMs - MS_PER_DAY);
   }
   switch (edge.type) {
     case 'FS':
@@ -430,8 +432,7 @@ function runForwardPassCore(
   // --- Read each milestone's instant off the dates it arrived with (#4079) ---
   for (const task of stateMap.values()) {
     if (task.instantMs === null) continue;
-    const followsWork =
-      task.atDayEndHint ?? (predecessors.get(task.id) ?? []).length > 0;
+    const followsWork = task.atDayEndHint ?? (predecessors.get(task.id) ?? []).length > 0;
     task.startDisplay = !followsWork;
     task.instantMs = followsWork ? task.earlyFinishMs + MS_PER_DAY : task.earlyStartMs;
   }
@@ -730,8 +731,9 @@ function relaxForward(
  * working day after FS from work, at the start of the day after SS from work,
  * and as the source is shown after another milestone — except that an instant
  * just after a weekend reads as the next working start (`startReading`, #4173);
- * FF/SF links propose the
- * end of the finish day. The latest instant wins, a start-of-day reading on a
+ * FF links propose what FS would, and SF links the midnight closing their
+ * anchor day plus the lag — raw instants, never snapped (#4272, the server's
+ * `_milestone_proposal`). The latest instant wins, a start-of-day reading on a
  * tie. A task whose every predecessor left the subgraph keeps its dates.
  */
 function placeMilestone(task: TaskState, preds: CpmEdge[], stateMap: Map<string, TaskState>): void {
@@ -755,21 +757,25 @@ function placeMilestone(task: TaskState, preds: CpmEdge[], stateMap: Map<string,
     const source = stateMap.get(edge.sourceId);
     if (!source) continue;
     linked = true;
-    const raw = edgeAnchor(edge, source) + edge.lag * MS_PER_DAY;
-    if (edge.type === 'FS' || edge.type === 'SS') {
-      // A milestone predecessor's own reading is only the same midnight as `raw`
-      // when the edge carries no lag (#4206 class, TS instance). A nonzero lag
-      // lands on a different midnight, so a lagged edge must seed fresh, same as
-      // when the source isn't itself a milestone.
-      const startDisplay = startReading(
-        raw,
-        source.instantMs !== null && edge.lag === 0 ? source.startDisplay : edge.type === 'SS',
-      );
+    // Into a milestone FF is FS: its start and finish are one instant (#4272).
+    const seen: CpmEdge = edge.type === 'FF' ? { ...edge, type: 'FS' } : edge;
+    if (seen.type === 'SF') {
+      // The raw midnight closing the anchor day, plus the lag — never snapped.
+      const raw = edgeAnchor(seen, source) + (1 + seen.lag) * MS_PER_DAY;
+      const startDisplay = startReading(raw, false);
       offer(raw, startDisplay, instantDay(raw, startDisplay));
-    } else {
-      const finishDay = nextWorkingDay(raw);
-      offer(finishDay + MS_PER_DAY, false, finishDay);
+      continue;
     }
+    const raw = edgeAnchor(seen, source) + seen.lag * MS_PER_DAY;
+    // A milestone predecessor's own reading is only the same midnight as `raw`
+    // when the edge carries no lag (#4206 class, TS instance). A nonzero lag
+    // lands on a different midnight, so a lagged edge must seed fresh, same as
+    // when the source isn't itself a milestone.
+    const startDisplay = startReading(
+      raw,
+      source.instantMs !== null && seen.lag === 0 ? source.startDisplay : seen.type === 'SS',
+    );
+    offer(raw, startDisplay, instantDay(raw, startDisplay));
   }
   if (!linked) return;
   task.instantMs = bestInstant;
@@ -841,9 +847,7 @@ function collectResults(stateMap: Map<string, TaskState>): {
   let worstDelta = 0;
 
   for (const task of stateMap.values()) {
-    const deltaDays = Math.round(
-      (task.earlyFinishMs - task.baselineFinishMs) / MS_PER_DAY,
-    );
+    const deltaDays = Math.round((task.earlyFinishMs - task.baselineFinishMs) / MS_PER_DAY);
     // Real float check (issue #1493): critical ⇔ total float (lateFinish -
     // earlyFinish) has hit zero or gone negative. `>=` (not `>`) so a task
     // that lands exactly on its late finish — the textbook zero-float

@@ -24,9 +24,10 @@ What is compared, exactly
   ``project_finish`` (implied by the per-task dates), and Monte Carlo, which the
   Rust engine does not implement.
 * Not generated: progress/actuals, the data date, ``planned_start``, per-task
-  calendars, summary tasks. And two link shapes where both engines disagree with
-  the reference, excluded until they are triaged — see :func:`_known_divergent`
-  and TODO(#4272)/TODO(#4273).
+  calendars, summary tasks. Every link shape is generated: the last two the
+  engines disagreed with the reference on — a lagged FF/SF link into a milestone
+  (#4272) and an FF link out of one (#4273) — were fixed in the engines, not
+  excluded here.
 
 The Rust side runs in two ways. The Hypothesis properties drive a native build of
 the crate's ``oracle_runner`` example over stdin when ``cargo`` (or a prebuilt
@@ -54,7 +55,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import assume, given
+from hypothesis import assume, example, given
 from hypothesis import strategies as st
 
 from tests.oracle.reference_cpm import (
@@ -343,29 +344,30 @@ def random_ref_project(rng: random.Random) -> RefProject:
     )
 
 
-def _known_divergent(project: RefProject) -> bool:
-    """Networks where both engines disagree with the reference — reported, unfixed.
-
-    * TODO(#4272): a lagged FF or SF link *into* a milestone: the engines snap
-      the milestone as if it were a task's finish, onto the end of a working
-      day, so it can sit one working day after the same link written as FS.
-      ``A(5d, Mon-Fri) -FF+1d-> M -FS-> C(1d)`` starts ``C`` on Tuesday; with
-      ``-FS+1d->`` it starts Monday.
-    * TODO(#4273): an FF link *out of* a milestone: the engines anchor it on
-      the end of the working day before a start-of-day milestone rather than
-      on its instant, so a later lag is absorbed by the weekend.
-      ``M0(held at project start, Mon) -FF-> M1 -FS+1d-> T(1d)`` starts ``T``
-      on Monday; with ``M0 -FS-> M1`` it starts Tuesday.
-
-    For a zero-duration task start and finish are one instant, so in both cases
-    FS and FF must agree; the reference has them agree, the engines do not.
-    """
-    is_milestone = {tid: n == 0 for tid, n in project.durations.items()}
-    return any(
-        (link.kind == "FF" and is_milestone[link.pred])  # TODO(#4273)
-        or (link.lag != 0 and link.kind in ("FF", "SF") and is_milestone[link.succ])  # TODO(#4272)
-        for link in project.links
-    )
+# The two link shapes the engines used to disagree with the reference on, pinned
+# because a derandomized gate run need not draw them.
+#: #4272 — ``A(5d) -FF+1d-> M -FS-> C(1d)``: ``C`` starts Monday 01-12, as with FS+1d.
+LAGGED_FF_INTO_A_MILESTONE = RefProject(
+    start=_EPOCH,
+    durations={"T0": 5, "T1": 0, "T2": 1},
+    links=(RefLink("T0", "T1", "FF", 1), RefLink("T1", "T2", "FS", 0)),
+)
+#: #4273 — ``M0 -FF-> M1 -FS+1d-> T(1d)``, ``M0`` at the start of Monday: ``T`` on Tuesday.
+FF_OUT_OF_A_START_OF_DAY_MILESTONE = RefProject(
+    start=_EPOCH,
+    durations={"T0": 0, "T1": 0, "T2": 1},
+    links=(RefLink("T0", "T1", "FF", 0), RefLink("T1", "T2", "FS", 1)),
+)
+#: #4273 — ``A(5d) -FS+2d-> M -FF-1d-> W(1d)``, ``M`` at the start of Mon 01-12: a
+#: lead counts back from the zero-lag finish (Fri 01-09), so ``W`` ends Thu 01-08.
+#: Counted from the day the instant closes it named Saturday, snapped to Monday —
+#: later than no lead — and the reference's ``finish_meeting`` agreed, so the
+#: oracle never flagged it.
+FF_LEAD_OUT_OF_A_START_OF_DAY_MILESTONE = RefProject(
+    start=_EPOCH,
+    durations={"T0": 5, "T1": 0, "T2": 1},
+    links=(RefLink("T0", "T1", "FS", 2), RefLink("T1", "T2", "FF", -1)),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -382,9 +384,11 @@ def test_python_engine_matches_reference_on_networks_of_work(project: RefProject
 
 @pytest.mark.fuzz
 @given(ref_projects(milestones=True))
+@example(LAGGED_FF_INTO_A_MILESTONE)
+@example(FF_OUT_OF_A_START_OF_DAY_MILESTONE)
+@example(FF_LEAD_OUT_OF_A_START_OF_DAY_MILESTONE)
 def test_python_engine_matches_reference_with_milestones(project: RefProject) -> None:
     """Milestones anywhere: their working-time position, and every task with work."""
-    assume(not _known_divergent(project))
     assert_matches_reference(python_engine(project), project)
 
 
@@ -458,10 +462,12 @@ def test_rust_engine_matches_reference_on_networks_of_work(
 
 @pytest.mark.fuzz
 @given(project=ref_projects(milestones=True))
+@example(project=LAGGED_FF_INTO_A_MILESTONE)
+@example(project=FF_OUT_OF_A_START_OF_DAY_MILESTONE)
+@example(project=FF_LEAD_OUT_OF_A_START_OF_DAY_MILESTONE)
 def test_rust_engine_matches_reference_with_milestones(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
-    assume(not _known_divergent(project))
     assert_matches_reference(rust_engine.schedule(project), project)
 
 
@@ -563,7 +569,6 @@ def test_a_start_milestone_at_project_start_delays_nothing(
     milestone, whose links count from its raw instant even before the project
     start (#4225), so a link from ``S`` would hold it there.
     """
-    assume(not _known_divergent(project))
     eligible = sorted(
         tid
         for tid, n in project.durations.items()
@@ -625,6 +630,42 @@ def test_a_zero_day_fs_milestone_is_time_neutral(project: RefProject, data: st.D
     assert_matches_reference(after, with_m)
 
 
+@pytest.mark.fuzz
+@given(ref_projects(milestones=True), st.integers(0, 63))
+# The #4273 repro at zero lag: shortening ``M -FF-> W`` to a one-day lead used to
+# finish ``W`` on Monday, after zero lag's Friday.
+@example(
+    replace(
+        FF_LEAD_OUT_OF_A_START_OF_DAY_MILESTONE,
+        links=(RefLink("T0", "T1", "FS", 2), RefLink("T1", "T2", "FF", 0)),
+    ),
+    1,
+)
+def test_a_shorter_lag_never_finishes_work_later(project: RefProject, which: int) -> None:
+    """Taking a day off any link's lag never moves a task with work later (#4273).
+
+    A lag only relaxes as it shrinks, so every early finish is monotone in it. The
+    reference and both engines once agreed on a rule that broke this — an FF lead
+    out of a start-of-day milestone counted from the day the instant closes and
+    snapped forward past the zero-lag finish — so agreement alone never caught it.
+    Asserted on the reference and on the Python engine.
+    """
+    assume(project.links)
+    i = which % len(project.links)
+    link = project.links[i]
+    shorter = replace(
+        project,
+        links=(*project.links[:i], replace(link, lag=link.lag - 1), *project.links[i + 1 :]),
+    )
+    ref_before, ref_after = reference_schedule(project), reference_schedule(shorter)
+    eng_before, eng_after = python_engine(project), python_engine(shorter)
+    for tid, n in project.durations.items():
+        if n == 0:
+            continue
+        assert ref_after.tasks[tid].finish_at <= ref_before.tasks[tid].finish_at, tid
+        assert eng_after[tid].early_finish <= eng_before[tid].early_finish, tid
+
+
 # ---------------------------------------------------------------------------
 # The committed corpus — how Rust is held to the reference in CI.
 # ---------------------------------------------------------------------------
@@ -661,8 +702,6 @@ def build_corpus() -> dict[str, Any]:
     cases = []
     for k in range(CORPUS_SIZE):
         project = random_ref_project(rng)
-        while _known_divergent(project):
-            project = random_ref_project(rng)
         ref = reference_schedule(project)
         cases.append(
             {
