@@ -510,6 +510,24 @@ _MIN_ORDINAL = date.min.toordinal()
 _MAX_ORDINAL = date.max.toordinal()
 
 
+def _safe_fromordinal(ordinal: int) -> date:
+    """``date.fromordinal`` with the :func:`_safe_offset` contract.
+
+    Monte Carlo works in integer ordinals and steps a day off them (the day before
+    a milestone, an FF/SF anchor plus lag) without going through ``date``
+    arithmetic, so a project starting at ``date.min`` reaches ordinal 0 and
+    ``date.fromordinal`` raises a bare ``ValueError`` where ``schedule()`` raises
+    :class:`InvalidScheduleInput` for the same input (#4265).
+    """
+    if not _MIN_ORDINAL <= ordinal <= _MAX_ORDINAL:
+        raise InvalidScheduleInput(
+            "The schedule span pushed a date past the representable date range; move "
+            "the project start date away from that end of the range or reduce "
+            "durations/lags."
+        )
+    return date.fromordinal(ordinal)
+
+
 def _snap_to_working_day(
     d: date, calendar: Calendar, *, forward: bool, max_scan: int = MAX_CALENDAR_SCAN_DAYS
 ) -> date:
@@ -5071,7 +5089,7 @@ class _McIndex:
         if before.any():
             cal = self.cal_of_col[col]
             for o in np.unique(ordinals[before]).tolist():
-                prev = _prev_working_day(date.fromordinal(int(o)), cal).toordinal()
+                prev = _prev_working_day(_safe_fromordinal(int(o)), cal).toordinal()
                 out[before & (ordinals == o)] = prev
         return out
 
@@ -5088,7 +5106,7 @@ class _McIndex:
         if before.any():
             cal = self.cal_of_col[col]
             for o in np.unique(ordinals[before]).tolist():
-                nxt = _next_working_day(date.fromordinal(int(o)), cal).toordinal()
+                nxt = _next_working_day(_safe_fromordinal(int(o)), cal).toordinal()
                 out[before & (ordinals == o)] = nxt
         return out
 
@@ -5335,9 +5353,13 @@ def _mc_milestone_bounds(
         # proposal, because it only ever raises the flag of a key and never
         # reorders two keys.
         instant = winner // 2
-        day_before = instant - 1
-        after_non_working = index.next_wd_ordinal(col, day_before) != day_before
-        return instant, (winner % 2).astype(bool) | after_non_working
+        start_display = (winner % 2).astype(bool)
+        # _start_reading short-circuits on a start-of-day reading, so only an
+        # end-of-day one probes the day before; at date.min that day does not
+        # exist, and a start-of-day winner there must not ask for it (#4265).
+        day_before = np.where(start_display, instant, instant - 1)
+        after_non_working = ~start_display & (index.next_wd_ordinal(col, day_before) != day_before)
+        return instant, start_display | after_non_working
 
     shown_key = key if start is None else np.maximum(key, start * 2 + 1)
     # Nothing but the project start proposed: the link instant is the shown one.

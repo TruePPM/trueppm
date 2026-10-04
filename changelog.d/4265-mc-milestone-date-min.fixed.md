@@ -1,0 +1,1 @@
+- **scheduler:** `monte_carlo()` no longer escapes its exception contract with a bare `ValueError: ordinal must be >= 1` when a milestone sits at `date.min`. A lone milestone there now simulates to the same date `schedule()` returns, and linked shapes that run off the front of the date range raise `InvalidScheduleInput` (#4265).
