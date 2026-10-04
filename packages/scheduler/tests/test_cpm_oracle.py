@@ -81,7 +81,25 @@ from trueppm_scheduler import (
     schedule,
 )
 
-PACKAGES_DIR = Path(__file__).resolve().parents[2]
+
+def _find_packages_dir() -> Path:
+    """The monorepo's ``packages/`` dir, found by walking up to ``.gitlab-ci.yml``.
+
+    Not a fixed ``parents[N]``: mutmut runs this file from the copied
+    ``packages/scheduler/mutants/tests/`` sandbox, one level deeper, where a fixed
+    depth lands on ``packages/scheduler`` and the corpus — which lives outside the
+    package, so ``also_copy`` cannot bring it in — reads as missing. That killed
+    ``scheduler:mutation``'s stats pass (#4279). Outside the monorepo, fall back to
+    the layout guess so the corpus tests skip.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / ".gitlab-ci.yml").is_file() and (parent / "packages").is_dir():
+            return parent / "packages"
+    return here.parents[2]
+
+
+PACKAGES_DIR = _find_packages_dir()
 WASM_DIR = PACKAGES_DIR / "wasm-scheduler"
 CORPUS_PATH = WASM_DIR / "fixtures" / "oracle" / "corpus.json"
 REGEN_CORPUS = os.environ.get("REGEN_ORACLE_CORPUS") == "1"
