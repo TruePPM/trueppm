@@ -139,8 +139,11 @@ Each agent's prompt must be **self-contained**. An agent that has to go
 rediscover context spends its budget on cache reads of files you could have
 named. Include:
 
-- The issue number, title, and the **full issue body** — paste it, do not make
-  the agent fetch it.
+- The issue number, title, the **full issue body**, and **its comments**
+  (`glab issue view N --comments`) — paste them, do not make the agent fetch
+  them. Scope corrections live in comments; an agent briefed from the body alone
+  implements a requirement that may already have been superseded, and
+  `completeness-check` then reports the branch as missing it.
 - Its worktree path, and the instruction to `cd` there and `source .envrc` first.
 - The specific files or symbols to start from, if the issue names them.
 - The exact gates that apply to this diff (from the `CLAUDE.md` fast-path table),
