@@ -98,8 +98,20 @@ If you need a wait of *n* working days, size the lag against the calendar the
 successor will actually land on — or model the wait as a zero-resource task,
 which is duration-counted and therefore calendar-aware end to end.
 
-Negative lag (lead) is supported and follows the same calendar-day rule, snapping
-backward to the previous working day.
+Negative lag (lead) is supported and follows the same calendar-day rule: the
+candidate date snaps **forward** to the next working day too, never backward.
+A lead that pulls the candidate into a weekend does not borrow the Friday
+before it — it lands on the Monday after:
+
+```python
+# Predecessor A is 6 working days starting Mon 2026-01-05, so it finishes
+# Mon 2026-01-12. FS link, lag=-3 (a 3-day lead).
+#
+#   candidate = A.finish + 1 day - 3 days = Sat 2026-01-10
+#   Sat is non-working, so it snaps forward -> successor starts Mon 2026-01-12
+#
+# Not Fri 2026-01-09 — the engine never snaps a lead or lag backward.
+```
 
 ### Per-task calendars
 
@@ -253,7 +265,7 @@ convention. The same list, with the comparison spelled out, is on
 
 - Durations and three-point estimates count **working days**, in **whole days only**; a sub-day duration or lag raises `InvalidScheduleInput`. **Differs** — both tools schedule in hours. ([#826](https://gitlab.com/trueppm/trueppm/-/issues/826))
 - `Calendar.hours_per_day` and `Calendar.timezone` are **inert** — they round-trip and change no date. **Differs.** ([#4131](https://gitlab.com/trueppm/trueppm/-/issues/4131))
-- Lag counts **calendar days**; the resulting date snaps to the successor's next working day (previous, for a lead). **Differs** — MS Project and P6 count lag in working time by default. ([#2534](https://gitlab.com/trueppm/trueppm/-/issues/2534); open question [#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535))
+- Lag counts **calendar days**; the resulting date always snaps **forward** to the successor's next working day — a lead (negative lag) follows the same rule and never snaps backward. **Differs** — MS Project and P6 count lag in working time by default. ([#2534](https://gitlab.com/trueppm/trueppm/-/issues/2534); open question [#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535))
 - Per-task calendars: duration expands on the task's own calendar, lag is consumed on the successor's. ([ADR-0120](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0120-cross-project-dependencies-within-program.md))
 
 **Links and constraints**
