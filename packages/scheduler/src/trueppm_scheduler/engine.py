@@ -3758,7 +3758,7 @@ def _sample_pert(
     differs. On a symmetric triple this fit is ~12% tighter than lambda=4 (so its
     P80/P95 land slightly earlier); on a triple whose mode sits at an end it is
     wider (#4133). Switching conventions would move every seeded percentile, so it
-    is a semantics change with a migration, not a bugfix.
+    is a semantics change with a migration, not a bugfix (ADR-1245).
 
     When opt == pess (degenerate task), returns the constant value.
     When estimates are missing, falls back to ml.

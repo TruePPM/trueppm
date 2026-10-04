@@ -14,8 +14,11 @@ derived independently of `_sample_pert`, not against a previous run's output. It
 would fail on a wrong-but-stable sampler, which is exactly what the existing tests
 cannot do.
 
-**Deriving the closed form from the implementation actually in use**
-(`_sample_pert`, `engine.py:2352`, read before writing this module):
+**The specification is ADR-1245** (`docs/adr/1245-pert-sampler-moment-fit-convention.md`):
+a Beta on [o, p] fitted by method of moments to the classic PERT mean and standard
+deviation (Malcolm et al. 1959), which is deliberately *not* the lambda=4 Beta-PERT.
+The expected values below come from that published formula. The engine's
+`_sample_pert` implements the same formula:
 
     mu    = (o + 4*m + p) / 6          # PERT mean, kappa=4 weighting on the mode
     sigma = (p - o) / 6                # PERT standard deviation
@@ -66,11 +69,14 @@ from trueppm_scheduler.engine import _sample_pert
 
 
 def _pert_alpha_beta(o: float, m: float, p: float) -> tuple[float, float, float, float]:
-    """Re-derive `_sample_pert`'s target mean/variance and fitted Beta(alpha, beta).
+    """Derive the specified target mean/variance and fitted Beta(alpha, beta).
 
-    Mirrors `engine.py`'s `_sample_pert` derivation line-for-line (including the
-    `mu_norm` clip, which is a no-op for every case exercised in this module — none
-    of the (o, m, p) triples below push the normalized mean near 0 or 1). Kept as a
+    The spec is ADR-1245: mean `(o + 4m + p) / 6` and standard deviation `(p - o) / 6`
+    (the classic PERT moments, Malcolm et al. 1959), fitted by method of moments. This
+    helper implements that spec. It also matches `_sample_pert`'s derivation line for
+    line, including the `mu_norm` clip, which is a no-op for every case exercised in
+    this module (none of the (o, m, p) triples below push the normalized mean near 0
+    or 1). Kept as a
     separate implementation, not a call into `_sample_pert`, so the oracle cannot be
     made to agree with a bug by construction.
 
@@ -163,6 +169,47 @@ def test_sample_pert_mean_and_variance_match_pert_closed_form() -> None:
     assert var_reldiff < 0.02, (
         f"empirical variance {samples.var():.4f} vs closed-form {sigma2:.4f} "
         f"(reldiff {var_reldiff:.4%}) — sampler variance diverges from ((p-o)/6)**2"
+    )
+
+
+@pytest.mark.parametrize(
+    ("o", "m", "p", "seed"),
+    [
+        pytest.param(2.0, 5.0, 8.0, 11, id="symmetric-engine-tighter"),
+        pytest.param(5.0, 5.0, 20.0, 12, id="mode-at-optimistic-engine-wider"),
+    ],
+)
+def test_sample_pert_spread_is_classic_pert_not_lambda4(
+    o: float, m: float, p: float, seed: int
+) -> None:
+    """The sampled std is the classic PERT `(p - o) / 6`, not the λ=4 Beta-PERT std.
+
+    Both expected values are written from the published closed forms (ADR-1245), not
+    from `_pert_alpha_beta` or the engine: classic PERT std = `(p - o) / 6` (Malcolm et
+    al. 1959); λ=4 Beta-PERT variance = `(mu - o)(p - mu) / 7` (Vose 2008). The two
+    conventions share the mean, so a mean check cannot tell them apart. This test
+    can. The triples are the ones where the two standard deviations differ by 12-18%,
+    far outside the 2% sampling tolerance. The first assertion proves the case can
+    discriminate, so the test is not vacuous. On (1, 2, 10) the two differ by only 3%,
+    so that triple is not used here.
+    """
+    mu = (o + 4.0 * m + p) / 6.0
+    classic_sd = (p - o) / 6.0
+    lambda4_sd = math.sqrt((mu - o) * (p - mu) / 7.0)
+    tolerance = 0.02
+
+    assert abs(classic_sd - lambda4_sd) / classic_sd > 5 * tolerance, (
+        "fixture cannot discriminate the two conventions — pick a triple where they differ"
+    )
+
+    rng = np.random.default_rng(seed)
+    empirical_sd = float(_sample_pert(o, m, p, 200_000, rng).std())
+
+    assert abs(empirical_sd - classic_sd) / classic_sd < tolerance, (
+        f"sampled std {empirical_sd:.4f} is not the classic PERT std {classic_sd:.4f} "
+        f"(λ=4 Beta-PERT would give {lambda4_sd:.4f}). The sampler convention is "
+        "ADR-1245. Changing it moves every seeded percentile and is a semantics change "
+        "that needs a superseding ADR, not an update to this test."
     )
 
 
