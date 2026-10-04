@@ -321,7 +321,7 @@ Risk Analysis default to. Both have the same mean. In practice: on a symmetric
 estimate the band here is slightly narrower (about 12% smaller σ) than @RISK's
 default, so P80 and P95 land a little earlier; on an estimate whose most-likely
 value sits at the optimistic end it is wider
-([#4133](https://gitlab.com/trueppm/trueppm/-/issues/4133)). Changing the
+([ADR-1245](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1245-pert-sampler-moment-fit-convention.md), [#4133](https://gitlab.com/trueppm/trueppm/-/issues/4133)). Changing the
 convention would move every stored forecast, so it is not a setting.
 PERT is preferred over a triangular distribution because it gives more weight to
 the most-likely estimate, producing more realistic samples for human-estimated
