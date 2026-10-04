@@ -3857,12 +3857,15 @@ scheduler:fuzz-deep:
   # and one job running all of them grew from 29 min (7 properties) to ~58 min
   # (12) in four days — against the 60-min project timeout. `other` runs every
   # fuzz property outside the named files, so a property added in a new file is
-  # still fuzzed rather than silently dropped; it collects nothing today, and
-  # pytest's exit 5 ("no tests collected") is success for that shard only. When
-  # `other` starts collecting, give that file its own shard.
+  # still fuzzed rather than silently dropped. It catches whichever fuzz files
+  # have no dedicated shard yet, so whether it collects anything varies with
+  # what else has landed; pytest's exit 5 ("no tests collected") is success for
+  # that shard only, for the runs where it is still empty. When a file in
+  # `other` grows properties expensive enough to need isolating, give it its
+  # own shard the same way `oracle` got one (#3987).
   parallel:
     matrix:
-      - FUZZ_SHARD: [contract, milestone, other]
+      - FUZZ_SHARD: [contract, milestone, oracle, other]
   timeout: 50m
   # Persist Hypothesis's example database across scheduled runs so the search
   # accumulates a shrinking corpus of interesting inputs rather than starting
@@ -3890,7 +3893,8 @@ scheduler:fuzz-deep:
       case "$FUZZ_SHARD" in
         contract)  set -- tests/test_contract_fuzz.py ;;
         milestone) set -- tests/test_milestone_instant.py ;;
-        other)     set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py ;;
+        oracle)    set -- tests/test_cpm_oracle.py ;;
+        other)     set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py ;;
         *) echo "unknown FUZZ_SHARD '$FUZZ_SHARD'"; exit 1 ;;
       esac
       rc=0

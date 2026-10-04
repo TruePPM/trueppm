@@ -25,7 +25,8 @@ What is compared, exactly
   Rust engine does not implement.
 * Not generated: progress/actuals, the data date, ``planned_start``, per-task
   calendars, summary tasks. And two link shapes where both engines disagree with
-  the reference, excluded until they are triaged — see :func:`_known_divergent`.
+  the reference, excluded until they are triaged — see :func:`_known_divergent`
+  and TODO(#4272)/TODO(#4273).
 
 The Rust side runs in two ways. The Hypothesis properties drive a native build of
 the crate's ``oracle_runner`` example over stdin when ``cargo`` (or a prebuilt
@@ -327,23 +328,24 @@ def random_ref_project(rng: random.Random) -> RefProject:
 def _known_divergent(project: RefProject) -> bool:
     """Networks where both engines disagree with the reference — reported, unfixed.
 
-    * A lagged FF or SF link *into* a milestone: the engines snap the milestone as
-      if it were a task's finish, onto the end of a working day, so it can sit one
-      working day after the same link written as FS. ``A(5d, Mon-Fri) -FF+1d-> M
-      -FS-> C(1d)`` starts ``C`` on Tuesday; with ``-FS+1d->`` it starts Monday.
-    * An FF link *out of* a milestone: the engines anchor it on the end of the
-      working day before a start-of-day milestone rather than on its instant, so a
-      later lag is absorbed by the weekend. ``M0(held at project start, Mon)
-      -FF-> M1 -FS+1d-> T(1d)`` starts ``T`` on Monday; with ``M0 -FS-> M1`` it
-      starts Tuesday.
+    * TODO(#4272): a lagged FF or SF link *into* a milestone: the engines snap
+      the milestone as if it were a task's finish, onto the end of a working
+      day, so it can sit one working day after the same link written as FS.
+      ``A(5d, Mon-Fri) -FF+1d-> M -FS-> C(1d)`` starts ``C`` on Tuesday; with
+      ``-FS+1d->`` it starts Monday.
+    * TODO(#4273): an FF link *out of* a milestone: the engines anchor it on
+      the end of the working day before a start-of-day milestone rather than
+      on its instant, so a later lag is absorbed by the weekend.
+      ``M0(held at project start, Mon) -FF-> M1 -FS+1d-> T(1d)`` starts ``T``
+      on Monday; with ``M0 -FS-> M1`` it starts Tuesday.
 
     For a zero-duration task start and finish are one instant, so in both cases
     FS and FF must agree; the reference has them agree, the engines do not.
     """
     is_milestone = {tid: n == 0 for tid, n in project.durations.items()}
     return any(
-        (link.kind == "FF" and is_milestone[link.pred])
-        or (link.lag != 0 and link.kind in ("FF", "SF") and is_milestone[link.succ])
+        (link.kind == "FF" and is_milestone[link.pred])  # TODO(#4273)
+        or (link.lag != 0 and link.kind in ("FF", "SF") and is_milestone[link.succ])  # TODO(#4272)
         for link in project.links
     )
 

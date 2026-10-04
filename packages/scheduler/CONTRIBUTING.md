@@ -59,15 +59,16 @@ What is compared:
 | Field | Compared |
 |-------|----------|
 | `early_start`, `early_finish` (task with work) | Exactly, always |
-| `late_start`, `late_finish`, `total_float`, `free_float`, `is_critical` (task with work) | Exactly, unless a milestone lies downstream of the task or decides the project finish. Those depend on which edge of its day the milestone is shown on, a display rule the reference does not model. On a network with no milestones they are always compared. |
+| `late_start`, `late_finish`, `total_float`, `free_float`, `is_critical` (task with work) | Exactly, unless a milestone lies downstream of the task or decides the project finish. Those depend on which edge of its day the milestone is shown on, a display rule the reference does not model. On a network with no milestones they are always compared. (tracked in #4275) |
 | Milestone early date | By working-time position: the shown day folded with `milestone_at_day_end`, never by shown day alone (#4178, #4207) |
-| Milestone late dates and floats, `scheduled_start`, `critical_path`, `driving_edges` | Not compared |
+| Milestone late dates and floats, `scheduled_start`, `critical_path`, `driving_edges` | Not compared (tracked in #4275) |
 | Monte Carlo | Not compared. Only the Python engine runs it; the Rust engine is deterministic CPM only |
 
 Not generated yet: progress and actuals, the data date, `planned_start`,
 per-task calendars, and summary tasks. Two link shapes where both engines
-disagree with the reference are excluded until they are triaged; see
-`_known_divergent` in the test file.
+disagree with the reference are excluded until they are triaged (#4272, a
+lagged FF/SF link into a milestone; #4273, an FF link out of a milestone);
+see `_known_divergent` in the test file.
 
 The Rust engine is checked two ways. Locally, when `cargo` is on `PATH`, the
 Rust properties build the crate's `oracle_runner` example and feed it the same
