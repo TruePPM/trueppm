@@ -412,7 +412,7 @@ def risk_counts_by_project(project_ids: Collection[Any]) -> dict[Any, tuple[int,
     ``is_critical`` are rollups of its children
     (``scheduling.services._rollup_one_summary``: ``total_float = min(child floats)``,
     ``is_critical = any(child.is_critical)``) — not facts about the phase row itself
-    (ADR-0105/ADR-0293) — so counting the phase on top of the leaf whose value it
+    (ADR-0024/ADR-0293) — so counting the phase on top of the leaf whose value it
     rolled up double-counts that leaf (#4250). See :func:`task_is_phase_expr`.
 
     Built as a grouped query over ``Task`` rather than a reverse-FK

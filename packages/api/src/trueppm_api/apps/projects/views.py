@@ -3784,7 +3784,7 @@ class ProjectViewSet(
         Both counts are leaf rows only — a phase's ``total_float`` and
         ``is_critical`` are rollups of its children
         (``scheduling.services._rollup_one_summary``), not facts about the phase
-        row itself (ADR-0105/ADR-0293), so counting the phase on top of the leaf
+        row itself (ADR-0024/ADR-0293), so counting the phase on top of the leaf
         whose value it rolled up would double-count that leaf. Same
         :func:`task_is_phase_expr` exclusion as the project overview's
         ``critical_task_count`` (#4238/#4242/#4250).
@@ -3818,7 +3818,7 @@ class ProjectViewSet(
 
         live_tasks = project.tasks.filter(is_deleted=False)
         # _is_phase (#4250): a phase's total_float/is_critical are rollups of its
-        # children, not facts about the row itself (ADR-0105/ADR-0293) — see
+        # children, not facts about the row itself (ADR-0024/ADR-0293) — see
         # task_is_phase_expr's docstring. `task_count` deliberately still counts
         # every row (phases included): it is a raw inventory total, not a value
         # a phase's children also contribute to, so there is nothing to
@@ -3982,7 +3982,7 @@ class ProjectViewSet(
         total_float <= 5 working days → at_risk_count; incomplete is_critical=True →
         critical_count. Leaf rows only (#4250) — a phase's total_float/is_critical
         are rollups of its children, not facts about the phase row itself
-        (ADR-0105/ADR-0293); see :func:`task_is_phase_expr`.
+        (ADR-0024/ADR-0293); see :func:`task_is_phase_expr`.
 
         The two counts come from :func:`program_rollup.risk_counts_by_project`, a
         grouped query over ``Task`` keyed by ``project_id``, rather than a

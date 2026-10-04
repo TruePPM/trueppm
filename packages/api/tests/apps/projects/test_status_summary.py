@@ -271,7 +271,7 @@ class TestStatusSummaryPhaseExclusion:
     A phase's ``is_critical`` and ``total_float`` are rollups of its children
     (``scheduling.services._rollup_one_summary``: ``is_critical = any(child
     is_critical)``, ``total_float = min(child floats)``) — not facts about the
-    phase row itself (ADR-0105/ADR-0293). The phase row below is set up the way
+    phase row itself (ADR-0024/ADR-0293). The phase row below is set up the way
     a real rollup would leave it: ``is_critical=True``, ``total_float=0``,
     derived from its two critical, zero-float children.
     """

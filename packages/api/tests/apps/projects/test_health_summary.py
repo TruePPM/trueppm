@@ -185,7 +185,7 @@ class TestHealthSummaryPhaseExclusion:
     Same bug class as the single-project status-summary's phase exclusion — a
     phase's ``is_critical``/``total_float`` are rollups of its children
     (``scheduling.services._rollup_one_summary``), not facts about the phase
-    row itself (ADR-0105/ADR-0293). This endpoint reads the counts through a
+    row itself (ADR-0024/ADR-0293). This endpoint reads the counts through a
     reverse FK from Project, which is the path the fix had to route around
     :func:`task_is_phase_expr`'s RawSQL (see ``program_rollup.risk_counts_by_project``).
     """
