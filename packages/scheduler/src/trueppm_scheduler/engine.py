@@ -5659,7 +5659,7 @@ def monte_carlo(
        pessimistic) set samples from a PERT-Beta distribution: a Beta fitted by
        method of moments to the classic PERT mean ``(o + 4m + p) / 6`` and
        standard deviation ``(p - o) / 6``, **not** the lambda=4 Beta-PERT of
-       @RISK / Vose (#4133). On a symmetric estimate its band is slightly
+       @RISK / Vose (ADR-1245, #4133). On a symmetric estimate its band is slightly
        narrower than lambda=4's (see :func:`_sample_pert`).
     3. **Deterministic** — any other task uses its fixed ``duration`` every run.
 

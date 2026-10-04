@@ -274,7 +274,7 @@ convention. The same list, with the comparison spelled out, is on
 
 **Monte Carlo**
 
-- Three-point estimates sample a Beta **fitted by method of moments to the classic PERT mean `(O + 4M + P) / 6` and σ = `(P − O) / 6`** — not the λ=4 Beta-PERT. Same mean; on a symmetric estimate the band is ~12% narrower (P80/P95 slightly earlier), on one whose mode sits at an end it is wider. **Differs** from @RISK's default. ([#4133](https://gitlab.com/trueppm/trueppm/-/issues/4133))
+- Three-point estimates sample a Beta **fitted by method of moments to the classic PERT mean `(O + 4M + P) / 6` and σ = `(P − O) / 6`** — not the λ=4 Beta-PERT. Same mean; on a symmetric estimate the band is ~12% narrower (P80/P95 slightly earlier), on one whose mode sits at an end it is wider. **Differs** from @RISK's default. ([ADR-1245](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1245-pert-sampler-moment-fit-convention.md), [#4133](https://gitlab.com/trueppm/trueppm/-/issues/4133))
 - Every sampled duration is **floored at `Task.duration`** — the optimistic tail below the plan is not expressed. **Differs** — risk tools sample the whole estimate. ([#3765](https://gitlab.com/trueppm/trueppm/-/issues/3765))
 - "Never before the CPM finish" holds **only on FS/SS-only networks**; on an FF/SF network a percentile can land earlier, because CPM itself is non-monotone there. ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806))
 - A fixed `seed` reproduces P50/P80/P95 on the **same numpy and `trueppm-scheduler` versions** — see [Reproducibility](#reproducibility-seeded-runs). ([#4099](https://gitlab.com/trueppm/trueppm/-/issues/4099))
