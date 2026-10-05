@@ -129,6 +129,108 @@ def test_delete_other_users_entry_is_404(calendar: Calendar, alice: object, bob:
 
 
 @pytest.mark.django_db
+def test_patch_on_archived_project_is_403(calendar: Calendar, alice: object) -> None:
+    """Archived-project read-only applies even to the author's own entry (#4318)."""
+    proj = _project(calendar)
+    _member(proj, alice)
+    task = _task(proj)
+    entry = TimeEntry.objects.create(task=task, user=alice, minutes=30)
+    proj.is_archived = True
+    proj.save()
+
+    resp = _client(alice).patch(
+        f"/api/v1/me/time-entries/{entry.pk}/", {"minutes": 45}, format="json"
+    )
+
+    assert resp.status_code == 403
+    entry.refresh_from_db()
+    assert entry.minutes == 30
+
+
+@pytest.mark.django_db
+def test_delete_on_archived_project_is_403(calendar: Calendar, alice: object) -> None:
+    proj = _project(calendar)
+    _member(proj, alice)
+    task = _task(proj)
+    entry = TimeEntry.objects.create(task=task, user=alice, minutes=30)
+    proj.is_archived = True
+    proj.save()
+
+    resp = _client(alice).delete(f"/api/v1/me/time-entries/{entry.pk}/")
+
+    assert resp.status_code == 403
+    entry.refresh_from_db()
+    assert entry.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_patch_after_membership_removed_is_403(calendar: Calendar, alice: object) -> None:
+    """A removed member can no longer edit their own historical entry (#4318)."""
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    entry = TimeEntry.objects.create(task=task, user=alice, minutes=30)
+    membership.soft_delete()
+
+    resp = _client(alice).patch(
+        f"/api/v1/me/time-entries/{entry.pk}/", {"minutes": 45}, format="json"
+    )
+
+    assert resp.status_code == 403
+    entry.refresh_from_db()
+    assert entry.minutes == 30
+
+
+@pytest.mark.django_db
+def test_delete_after_membership_removed_is_403(calendar: Calendar, alice: object) -> None:
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    entry = TimeEntry.objects.create(task=task, user=alice, minutes=30)
+    membership.soft_delete()
+
+    resp = _client(alice).delete(f"/api/v1/me/time-entries/{entry.pk}/")
+
+    assert resp.status_code == 403
+    entry.refresh_from_db()
+    assert entry.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_patch_after_demoted_to_viewer_is_403(calendar: Calendar, alice: object) -> None:
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    entry = TimeEntry.objects.create(task=task, user=alice, minutes=30)
+    membership.role = Role.VIEWER
+    membership.save()
+
+    resp = _client(alice).patch(
+        f"/api/v1/me/time-entries/{entry.pk}/", {"minutes": 45}, format="json"
+    )
+
+    assert resp.status_code == 403
+    entry.refresh_from_db()
+    assert entry.minutes == 30
+
+
+@pytest.mark.django_db
+def test_delete_after_demoted_to_viewer_is_403(calendar: Calendar, alice: object) -> None:
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    entry = TimeEntry.objects.create(task=task, user=alice, minutes=30)
+    membership.role = Role.VIEWER
+    membership.save()
+
+    resp = _client(alice).delete(f"/api/v1/me/time-entries/{entry.pk}/")
+
+    assert resp.status_code == 403
+    entry.refresh_from_db()
+    assert entry.is_deleted is False
+
+
+@pytest.mark.django_db
 def test_patch_cannot_set_future_date(calendar: Calendar, alice: object) -> None:
     from django.utils import timezone
 

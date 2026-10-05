@@ -289,6 +289,37 @@ project gets `404` whether the task id is real or made up — the two are
 deliberately indistinguishable. A project member who lacks write authority on the
 task (a Viewer, or a Member acting on someone else's task) still gets `403`,
 because that refusal is a fact about their role, not about the task's existence.
+`POST /tasks/{id}/time-entries/` resolves its task the same membership-scoped way.
+
+Time tracking's two `/me/` write surfaces that act on a row you already
+own — `PATCH`/`DELETE /me/time-entries/{id}/` and `POST /me/timer/start` (against
+the task you're starting a *new* timer on) — re-check this live, not just at
+creation: editing or deleting your own entry, or starting a timer, answers `403`
+if the project has since been archived, or if you have since been removed from
+the project or demoted below Team Member. Because these routes only ever act on
+your *own* row, there is no existence oracle to protect here, so the refusal is
+always `403`, never `404`.
+
+**`POST /me/timer/stop` is the one write path here that never answers this `403`,
+deliberately.** A running timer belongs to exactly one project, and once that
+project is archived or your access has lapsed, you have no other way to resolve
+it — you can't PATCH or DELETE a timer the way you can an entry, and you can't
+unarchive the project yourself. A `403` here would be a dead end: the
+timer would still be running server-side, every retry would answer the same
+refusal, and the official API client restores the running-timer UI on any
+non-`409` error, so it would reappear and loop forever. So the server discards
+the timer — deletes it, logs nothing — and answers the same `409` it already
+uses for "no timer is running" (e.g. you already stopped it from another
+device). The timer is simply gone the next time you check
+`GET /me/timer/`; nothing is logged, and nothing can be recovered for it.
+
+Starting a *second* timer has the same wrinkle, because doing so always stops
+and logs whichever one was already running (see
+[Timesheet](/features/timesheet/)). If *that prior* timer's own project has
+since been archived, or your membership there has ended, it is discarded
+instead of logged — never a `403` on the new start, because a stale timer on an
+unrelated project must not block a legitimate one elsewhere. The new timer
+still starts normally and the response's `finalized_entry` is `null`.
 
 #### The demo read-only `403`
 
