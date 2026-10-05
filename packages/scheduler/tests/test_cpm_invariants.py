@@ -20,13 +20,13 @@ reason is documented on the property that uses it.
 from __future__ import annotations
 
 import dataclasses
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from hypothesis import given
 
 from tests.test_contract_fuzz import _plausible_projects
-from trueppm_scheduler import Project, SchedulerError, schedule
+from trueppm_scheduler import Calendar, Project, SchedulerError, Task, schedule
 
 pytestmark = pytest.mark.fuzz
 
@@ -137,6 +137,29 @@ def _clear_completion(project: Project) -> Project:
     return dataclasses.replace(project, tasks=tasks)
 
 
+def _task_calendar(project: Project, task: Task) -> Calendar:
+    """The calendar the engine schedules ``task`` on: its ``calendar_id`` entry in
+    ``project.calendars`` when one resolves, else the project calendar."""
+    if task.calendar_id is not None and project.calendars:
+        return project.calendars.get(task.calendar_id, project.calendar)
+    return project.calendar
+
+
+def _first_working_day_in(start: date, end: date, cal: Calendar) -> date | None:
+    """First working day in ``[start, end)``, or ``None`` if there is none.
+
+    Walks day by day rather than reusing ``engine._working_days_between``, so the
+    property does not check the engine against its own span arithmetic. It stops
+    at the first working day, so a passing case costs only the non-working run.
+    """
+    d = start
+    while d < end:
+        if cal.is_working_day(d):
+            return d
+        d += timedelta(days=1)
+    return None
+
+
 @given(project=_plausible_projects())
 def test_project_duration_equals_last_critical_task_early_finish(project: Project) -> None:
     """``project_finish`` equals the ``early_finish`` of the last task on
@@ -153,6 +176,16 @@ def test_project_duration_equals_last_critical_task_early_finish(project: Projec
     pass's base case — critical (``late_finish == early_finish``) therefore
     forces ``early_finish == project_finish`` for that task.
 
+    "Equals" is in working time, not calendar date. ``actual_start`` is a
+    recorded fact the engine does not snap, so a milestone can sit on a
+    non-working day — a Saturday milestone is the same working-time instant as
+    a Monday-start one, carries zero float against a Monday ``project_finish``
+    (``total_float`` counts working days in ``[early_start, late_start)``), and
+    is legitimately critical while its date is two days short (#4280). So the
+    assertion is that no working day on the task's own calendar lies between
+    its ``early_finish`` and ``project_finish``: a critical sink that finishes
+    one or more working days early still fails.
+
     Narrowed to projects with no completed task via :func:`_clear_completion`
     — see its docstring for why a completed task can legitimately break this
     without the engine being wrong.
@@ -163,6 +196,8 @@ def test_project_duration_equals_last_critical_task_early_finish(project: Projec
     for at least one task, is always a zero-float sink when nothing is
     complete) — so this is asserted rather than skipped.
     """
+    # TODO(#4281): a milestone clamped to project start by a negative-lag FS can
+    # still end critical_path a working day short — open engine question.
     project = _clear_completion(project)
     try:
         result = schedule(project)
@@ -172,10 +207,47 @@ def test_project_duration_equals_last_critical_task_early_finish(project: Projec
     assert result.critical_path, "no completed task, yet critical_path is empty"
     task_map = {t.id: t for t in result.tasks}
     last = task_map[result.critical_path[-1]]
-    assert last.early_finish == result.project_finish, (
-        f"{last.id}: last critical_path entry has early_finish {last.early_finish}, "
-        f"not project_finish {result.project_finish}"
+    assert last.early_finish is not None
+    gap = _first_working_day_in(
+        last.early_finish, result.project_finish, _task_calendar(project, last)
     )
+    assert gap is None, (
+        f"{last.id}: last critical_path entry has early_finish {last.early_finish}, "
+        f"a working day ({gap}) short of project_finish {result.project_finish}"
+    )
+
+
+def test_milestone_pinned_to_non_working_day_ends_critical_path_in_working_time() -> None:
+    """Pinned counterexample from the nightly deep fuzz run (#4280).
+
+    A Saturday ``actual_start`` milestone and a 17-day task finishing Monday
+    are both critical sinks; the milestone ends ``critical_path`` with an
+    ``early_finish`` two calendar days — but zero working days — before
+    ``project_finish``.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="t0", name="t", duration=timedelta(days=17), actual_start=date(2027, 1, 1)),
+            Task(id="t1", name="t", duration=timedelta(0), actual_start=date(2027, 1, 23)),
+        ],
+        dependencies=[],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    result = schedule(project)
+    task_map = {t.id: t for t in result.tasks}
+    last = task_map[result.critical_path[-1]]
+
+    assert result.critical_path == ["t0", "t1"]
+    assert last.early_finish == date(2027, 1, 23)
+    assert result.project_finish == date(2027, 1, 25)
+    assert _first_working_day_in(last.early_finish, result.project_finish, project.calendar) is None
+    # The helper still catches a real gap: Friday is a working day short of Monday.
+    assert _first_working_day_in(
+        date(2027, 1, 22), result.project_finish, project.calendar
+    ) == date(2027, 1, 22)
 
 
 # ---------------------------------------------------------------------------
