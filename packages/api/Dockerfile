@@ -6,7 +6,7 @@
 # release builds unchanged.
 ARG DOCKERHUB_PREFIX=docker.io
 
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e AS builder
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5 AS builder
 
 # `apt-get upgrade` (not just `update`) so this layer carries the Debian
 # security team's latest point-release patches even when the upstream
@@ -159,7 +159,7 @@ RUN /venv/bin/python -c "import django; import trueppm_scheduler; django.setup()
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only what is needed to run
 # ---------------------------------------------------------------------------
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:e41613d42d4891e4930f79523f93f81bbc7632584ec65e36ab055f41a800b41e AS runtime
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5 AS runtime
 
 # See the matching comment in the builder stage above — this is the stage that
 # actually ships, so this `upgrade` is the one that matters for the Trivy gate.

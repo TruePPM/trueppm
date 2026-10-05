@@ -25,7 +25,7 @@
 # release builds unchanged.
 ARG DOCKERHUB_PREFIX=docker.io
 
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS builder
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5 AS builder
 
 ENV VIRTUAL_ENV=/venv
 RUN python -m venv "$VIRTUAL_ENV"
@@ -90,7 +90,7 @@ RUN /venv/bin/python -c "import trueppm_mcp.cli; print('boot smoke: OK')"
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only the venv
 # ---------------------------------------------------------------------------
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9 AS runtime
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5 AS runtime
 
 COPY --from=builder /venv /venv
 
