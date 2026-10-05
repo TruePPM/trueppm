@@ -142,6 +142,27 @@ Three things about it are operator-visible:
   duplicates, expect some tasks to appear under different WBS codes afterward.
 :::
 
+:::caution[Three 0.4 migrations build indexes on `projects_task` without `CONCURRENTLY`]
+Three migrations new in 0.4 add an index to the task table with a plain
+`CREATE INDEX`, which takes a lock that **blocks writes** to `projects_task`
+(inserts, updates and deletes; reads continue) for as long as each index takes
+to build. Other index builds on this table in 0.4 use `CONCURRENTLY` to avoid
+exactly this; these three do not.
+
+- `projects.0104_historicalproject_stale_task_threshold_days_and_more` builds
+  `task_status_changed_idx`.
+- `projects.0134_task_edited_at_task_seeded_at_task_source_id_and_more` builds
+  `task_untouched_seeded_idx`.
+- `projects.0152_aggregate_task_wbs_name_idx` builds `task_proj_wbs_name_idx`.
+
+The build time grows with the number of task rows, so on a large install,
+task writes pause for that long on each index. Writes from an old pod during a
+rolling deploy also wait on the lock. We have not measured a per-million-rows
+figure for these builds; to size the window, time one on a restored copy of
+your database before you upgrade, and schedule the upgrade for a quiet period
+when task writes can pause.
+:::
+
 **Known transient-500 windows on multi-replica installs.** Three of the five
 migrations drop a column or table outright, with no intervening
 `null=True`-then-remove deprecation release, so an old pod's code still names
