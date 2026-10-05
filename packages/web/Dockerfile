@@ -33,7 +33,7 @@ RUN npm run build
 # nginx-unprivileged runs as a non-root user (uid 101) and listens on an
 # unprivileged port (8080) — see nginx.conf. The reverse proxy in
 # docker-compose.prod.yml maps host 80 -> container 8080.
-FROM ${DOCKERHUB_PREFIX}/nginxinc/nginx-unprivileged:alpine@sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af
+FROM ${DOCKERHUB_PREFIX}/nginxinc/nginx-unprivileged:alpine@sha256:b9241c6e7b8e9a862f129d8d4199ab64b10390949a78bdd5603379b32c844083
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
