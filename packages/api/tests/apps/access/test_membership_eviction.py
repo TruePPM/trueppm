@@ -9,9 +9,11 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.timetracking.models import ActiveTimer
 
 User = get_user_model()
 
@@ -69,6 +71,99 @@ def test_creating_membership_does_not_evict(
     with patch(_EVICT) as evict, django_capture_on_commit_callbacks(execute=True):
         ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
     evict.assert_not_called()
+
+
+def _task(project: Project, name: str = "T1") -> Task:
+    return Task.objects.create(project=project, name=name, duration=1)
+
+
+# ---------------------------------------------------------------------------
+# Running-timer discard on revocation (#4318) — the chosen semantics is discard,
+# never finalize-on-revoke: see `_discard_active_timers_on_revocation`'s docstring.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_soft_delete_discards_active_timer(
+    user: Any, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    task = _task(project)
+    m = ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    ActiveTimer.objects.create(user=user, task=task, started_at=timezone.now())
+
+    with patch(_EVICT), django_capture_on_commit_callbacks(execute=True):
+        m.soft_delete()
+
+    assert not ActiveTimer.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+def test_demotion_below_member_discards_active_timer(
+    user: Any, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    task = _task(project)
+    m = ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    ActiveTimer.objects.create(user=user, task=task, started_at=timezone.now())
+
+    with patch(_EVICT), django_capture_on_commit_callbacks(execute=True):
+        m.role = Role.VIEWER
+        m.save()
+
+    assert not ActiveTimer.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+def test_demotion_to_member_does_not_discard_active_timer(
+    user: Any, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Demoting Admin -> Member keeps can_log_time true, so the timer survives."""
+    task = _task(project)
+    m = ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    timer = ActiveTimer.objects.create(user=user, task=task, started_at=timezone.now())
+
+    with patch(_EVICT), django_capture_on_commit_callbacks(execute=True):
+        m.role = Role.MEMBER
+        m.save()
+
+    assert ActiveTimer.objects.filter(pk=timer.pk).exists()
+
+
+@pytest.mark.django_db
+def test_hard_delete_discards_active_timer(
+    user: Any, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    task = _task(project)
+    m = ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    ActiveTimer.objects.create(user=user, task=task, started_at=timezone.now())
+
+    with patch(_EVICT), django_capture_on_commit_callbacks(execute=True):
+        m.delete()
+
+    assert not ActiveTimer.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+def test_discard_is_scoped_to_the_revoked_project_only(
+    user: Any, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Revoking membership on one project must not touch a timer on another project
+    the user is still a live member of — only one ActiveTimer can exist per user
+    (OneToOneField), so this proves the discard filters by project, not just by user.
+    """
+    cal = project.calendar
+    other_project = Project.objects.create(
+        name="OtherProj", start_date=date(2026, 1, 1), calendar=cal
+    )
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=other_project, user=user, role=Role.MEMBER)
+    m = ProjectMembership.objects.get(project=project, user=user)
+    other_task = _task(other_project, "OtherTask")
+    timer = ActiveTimer.objects.create(user=user, task=other_task, started_at=timezone.now())
+
+    with patch(_EVICT), django_capture_on_commit_callbacks(execute=True):
+        m.soft_delete()
+
+    assert ActiveTimer.objects.filter(pk=timer.pk).exists()
 
 
 def test_pre_save_receiver_skips_unsaved_instance() -> None:

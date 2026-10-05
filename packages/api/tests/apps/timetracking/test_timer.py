@@ -178,6 +178,82 @@ def test_stop_caps_minutes_at_ceiling(calendar: Calendar, alice: object, setting
 
 
 @pytest.mark.django_db
+def test_stop_on_archived_project_is_403(calendar: Calendar, alice: object) -> None:
+    """Archiving does not touch membership, so the revocation hook never runs — the
+    stop-time re-check inside ``services.stop_timer`` is what catches this (#4318).
+    """
+    proj = _project(calendar)
+    _member(proj, alice)
+    task = _task(proj)
+    ActiveTimer.objects.create(user=alice, task=task, started_at=timezone.now())
+    proj.is_archived = True
+    proj.save()
+
+    resp = _client(alice).post("/api/v1/me/timer/stop")
+
+    assert resp.status_code == 403
+    assert ActiveTimer.objects.filter(user=alice).exists()  # untouched — refused, not consumed
+    assert not TimeEntry.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
+def test_stop_after_membership_removed_bypassing_hook_is_403(
+    calendar: Calendar, alice: object
+) -> None:
+    """Defence-in-depth: the explicit role re-check in ``stop_timer`` still refuses even
+    when the ``ActiveTimer`` somehow survives revocation. ``.update()`` bypasses
+    ``ProjectMembership.save()`` (and so the discard-on-revocation signal) on purpose, to
+    isolate this check from that behavior — the end-to-end discard is covered separately
+    in ``test_membership_eviction.py`` and below.
+    """
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    ActiveTimer.objects.create(user=alice, task=task, started_at=timezone.now())
+    ProjectMembership.objects.filter(pk=membership.pk).update(is_deleted=True)
+
+    resp = _client(alice).post("/api/v1/me/timer/stop")
+
+    assert resp.status_code == 403
+    assert not TimeEntry.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
+def test_stop_after_demoted_to_viewer_bypassing_hook_is_403(
+    calendar: Calendar, alice: object
+) -> None:
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    ActiveTimer.objects.create(user=alice, task=task, started_at=timezone.now())
+    ProjectMembership.objects.filter(pk=membership.pk).update(role=Role.VIEWER)
+
+    resp = _client(alice).post("/api/v1/me/timer/stop")
+
+    assert resp.status_code == 403
+    assert not TimeEntry.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
+def test_timer_revoked_then_stop_creates_no_entry(calendar: Calendar, alice: object) -> None:
+    """End-to-end: membership revocation discards the timer, so stop finds nothing to
+    finalize and answers the existing 409 — never a TimeEntry (#4318 chosen semantics:
+    discard, not finalize-on-revoke).
+    """
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    ActiveTimer.objects.create(user=alice, task=task, started_at=timezone.now())
+
+    membership.soft_delete()
+
+    assert not ActiveTimer.objects.filter(user=alice).exists()
+    resp = _client(alice).post("/api/v1/me/timer/stop")
+    assert resp.status_code == 409
+    assert not TimeEntry.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
 def test_start_on_viewer_is_403(calendar: Calendar, alice: object) -> None:
     proj = _project(calendar)
     _member(proj, alice, Role.VIEWER)

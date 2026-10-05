@@ -114,6 +114,21 @@ def test_non_member_gets_404_not_403(calendar: Calendar, alice: object, bob: obj
 
 
 @pytest.mark.django_db
+def test_log_time_on_archived_project_is_403(calendar: Calendar, alice: object) -> None:
+    """An archived project is read-only project-wide — logging time is a write (#4318)."""
+    proj = _project(calendar)
+    _member(proj, alice)
+    task = _task(proj)
+    proj.is_archived = True
+    proj.save()
+
+    resp = _client(alice).post(_url(task), {"minutes": 30}, format="json")
+
+    assert resp.status_code == 403
+    assert not TimeEntry.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
 def test_scheduler_admin_owner_may_log(calendar: Calendar, alice: object) -> None:
     for role in (Role.SCHEDULER, Role.ADMIN, Role.OWNER):
         user = User.objects.create_user(username=f"u{role}", password="pw")

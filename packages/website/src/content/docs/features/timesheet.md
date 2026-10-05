@@ -94,6 +94,12 @@ Manager approval, non-project time categories (PTO, admin, training), and the ea
 
 The timesheet is a personal, individual-contributor surface: it shows and submits **your** logged time on tasks you can access. It carries no cross-project rollup, no per-person visibility for managers, and no portfolio or governance scope — a contributor reviewing their own week is squarely community-edition functionality.
 
+### If you leave a project, or it's archived
+
+Logging, editing, and deleting time are all **live** checks, not one-time checks made when the entry was first created. If a project is archived, or you are removed from it (or demoted below Team Member), every write against your own entries on that project — including stopping a timer still running there — is refused, even though those entries belonged to you and still exist.
+
+A running timer is treated differently from a logged entry: if your membership ends while a timer is ticking, that timer is **discarded**, not auto-logged. Nothing silently turns into a `TimeEntry` on a project you no longer belong to — the time simply isn't recorded, the same as if you had never started the timer.
+
 ## Endpoints
 
 | Method | Path | Notes |

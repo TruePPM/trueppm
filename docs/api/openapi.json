@@ -7792,7 +7792,7 @@
         "/api/v1/me/time-entries/{id}/": {
             "patch": {
                 "operationId": "v1_me_time_entries_partial_update",
-                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).\n\n**Re-checks live Member+ and the archived-project gate on every write (#4318).**\nThe queryset above only proves the entry is *owned by the caller* — it says\nnothing about whether that caller is still a project member, or whether the\nproject has since been archived. A former member who still holds a valid\nsession could otherwise edit or delete their own historical entries in a\nproject they no longer belong to, or one that is now read-only. Both checks run\nagainst the entry's own ``task`` (object-level, via ``CanLogTime`` and\n``IsProjectNotArchived`` on ``permission_classes``) — a revoked member or an\narchived project answers **403**, matching the sibling write paths; this never\nleaks existence (the entry already resolved as the caller's own), so there is\nno 404 case to preserve here.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7902,7 +7902,7 @@
             },
             "delete": {
                 "operationId": "v1_me_time_entries_destroy",
-                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).\n\n**Re-checks live Member+ and the archived-project gate on every write (#4318).**\nThe queryset above only proves the entry is *owned by the caller* — it says\nnothing about whether that caller is still a project member, or whether the\nproject has since been archived. A former member who still holds a valid\nsession could otherwise edit or delete their own historical entries in a\nproject they no longer belong to, or one that is now read-only. Both checks run\nagainst the entry's own ``task`` (object-level, via ``CanLogTime`` and\n``IsProjectNotArchived`` on ``permission_classes``) — a revoked member or an\narchived project answers **403**, matching the sibling write paths; this never\nleaks existence (the entry already resolved as the caller's own), so there is\nno 404 case to preserve here.",
                 "parameters": [
                     {
                         "in": "path",
@@ -8106,7 +8106,7 @@
         "/api/v1/me/timer/stop": {
             "post": {
                 "operationId": "v1_me_timer_stop_create",
-                "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Naturally idempotent without a\nkey — a second stop finds no timer and returns ``409`` rather than a 500 or a\ndouble-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a\nkeyed retry replays the original ``201`` instead of racing into that 409.",
+                "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Naturally idempotent without a\nkey — a second stop finds no timer and returns ``409`` rather than a 500 or a\ndouble-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a\nkeyed retry replays the original ``201`` instead of racing into that 409.\n\n**No object to resolve a project from at this layer (#4318).** Unlike\n``MeTimeEntryDetailView``, the request carries no id — the running timer, and\ntherefore its task and project, is only known once ``services.stop_timer``\nlooks it up. The archived-project and live-Member+ re-checks accordingly live\n*inside* ``stop_timer`` itself (``timetracking/services.py``), not on\n``permission_classes`` here: it raises ``PermissionDenied`` (403), which\npropagates through this view exactly like any other ``APIException``. In\npractice a revoked or demoted member's ``ActiveTimer`` row is usually already\ngone by the time this runs — the ``ProjectMembership`` revocation hook\n(``access/signals.py``) discards it immediately — so this is defence-in-depth\nfor an archived project (archiving does not evict membership) and for any\ntimer the hook predates, and most revocations surface here as the existing\n``409`` (no timer left to stop) rather than a ``403``.",
                 "tags": [
                     "me"
                 ],
@@ -8127,6 +8127,17 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/TimeEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
@@ -46902,7 +46913,7 @@
         "/api/v1/tasks/{task_pk}/time-entries/": {
             "get": {
                 "operationId": "v1_tasks_time_entries_retrieve",
-                "description": "``/api/v1/tasks/{task_pk}/time-entries/`` — create and list caller-scoped entries.\n\nPOST creates an entry owned by ``request.user`` (server-set; the body can never\nspoof ``user``). GET returns the caller's **own** entries on the task plus their own\n``total_logged_minutes`` — the cross-contributor rollup is Enterprise/#100 and is\ndeliberately not exposed here (no surveillance surface, ADR-0185 §Consequences).\n\nInherits :class:`IdempotencyMixin` (ADR-0170) so a create honours an\n``Idempotency-Key`` and a retried POST never double-logs.",
+                "description": "``/api/v1/tasks/{task_pk}/time-entries/`` — create and list caller-scoped entries.\n\nPOST creates an entry owned by ``request.user`` (server-set; the body can never\nspoof ``user``). GET returns the caller's **own** entries on the task plus their own\n``total_logged_minutes`` — the cross-contributor rollup is Enterprise/#100 and is\ndeliberately not exposed here (no surveillance surface, ADR-0185 §Consequences).\n\nInherits :class:`IdempotencyMixin` (ADR-0170) so a create honours an\n``Idempotency-Key`` and a retried POST never double-logs.\n\nCarries ``IsProjectNotArchived`` alongside ``CanLogTime`` (#4318) — an archived\nproject is hard read-only project-wide, and a time entry is a write like any\nother. Both are object-level checks invoked via ``check_object_permissions``\nafter the task resolves; GET is unaffected (reads always pass both).",
                 "parameters": [
                     {
                         "in": "path",
@@ -46960,7 +46971,7 @@
             },
             "post": {
                 "operationId": "v1_tasks_time_entries_create",
-                "description": "``/api/v1/tasks/{task_pk}/time-entries/`` — create and list caller-scoped entries.\n\nPOST creates an entry owned by ``request.user`` (server-set; the body can never\nspoof ``user``). GET returns the caller's **own** entries on the task plus their own\n``total_logged_minutes`` — the cross-contributor rollup is Enterprise/#100 and is\ndeliberately not exposed here (no surveillance surface, ADR-0185 §Consequences).\n\nInherits :class:`IdempotencyMixin` (ADR-0170) so a create honours an\n``Idempotency-Key`` and a retried POST never double-logs.",
+                "description": "``/api/v1/tasks/{task_pk}/time-entries/`` — create and list caller-scoped entries.\n\nPOST creates an entry owned by ``request.user`` (server-set; the body can never\nspoof ``user``). GET returns the caller's **own** entries on the task plus their own\n``total_logged_minutes`` — the cross-contributor rollup is Enterprise/#100 and is\ndeliberately not exposed here (no surveillance surface, ADR-0185 §Consequences).\n\nInherits :class:`IdempotencyMixin` (ADR-0170) so a create honours an\n``Idempotency-Key`` and a retried POST never double-logs.\n\nCarries ``IsProjectNotArchived`` alongside ``CanLogTime`` (#4318) — an archived\nproject is hard read-only project-wide, and a time entry is a write like any\nother. Both are object-level checks invoked via ``check_object_permissions``\nafter the task resolves; GET is unaffected (reads always pass both).",
                 "parameters": [
                     {
                         "in": "path",

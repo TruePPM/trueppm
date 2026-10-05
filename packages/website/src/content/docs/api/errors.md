@@ -289,6 +289,15 @@ project gets `404` whether the task id is real or made up — the two are
 deliberately indistinguishable. A project member who lacks write authority on the
 task (a Viewer, or a Member acting on someone else's task) still gets `403`,
 because that refusal is a fact about their role, not about the task's existence.
+`POST /tasks/{id}/time-entries/` resolves its task the same membership-scoped way.
+
+Time tracking's two `/me/` write surfaces — `PATCH`/`DELETE /me/time-entries/{id}/`
+and `POST /me/timer/stop` — re-check this live, not just at creation: editing or
+deleting your own entry, or stopping your own running timer, answers `403` if the
+project has since been archived, or if you have since been removed from the
+project or demoted below Team Member. Because these routes only ever act on your
+*own* row, there is no existence oracle to protect here, so the refusal is always
+`403`, never `404`.
 
 #### The demo read-only `403`
 

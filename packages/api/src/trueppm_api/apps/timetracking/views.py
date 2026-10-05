@@ -9,7 +9,11 @@ RBAC posture:
     membership-scoped queryset, so existence is never leaked — IDOR-safe);
   * member-but-Viewer on an accessible task → **403** (``CanLogTime`` object check);
   * another user's entry → **404** (detail queryset is scoped to ``request.user``,
-    so author-only edit/delete is an existence-oracle close, not a 403).
+    so author-only edit/delete is an existence-oracle close, not a 403);
+  * archived project, or a membership revoked/demoted below Member since the
+    write started → **403** on every write path (``IsProjectNotArchived`` /
+    ``CanLogTime``, re-checked live rather than trusted from when the entry or
+    timer was created — #4318).
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.permissions import CanLogTime
+from trueppm_api.apps.access.permissions import CanLogTime, IsProjectNotArchived
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Task
 from trueppm_api.apps.timetracking import services
@@ -80,9 +84,14 @@ class TaskTimeEntryView(IdempotencyMixin, APIView):
 
     Inherits :class:`IdempotencyMixin` (ADR-0170) so a create honours an
     ``Idempotency-Key`` and a retried POST never double-logs.
+
+    Carries ``IsProjectNotArchived`` alongside ``CanLogTime`` (#4318) — an archived
+    project is hard read-only project-wide, and a time entry is a write like any
+    other. Both are object-level checks invoked via ``check_object_permissions``
+    after the task resolves; GET is unaffected (reads always pass both).
     """
 
-    permission_classes = [IsAuthenticated, CanLogTime]
+    permission_classes = [IsAuthenticated, CanLogTime, IsProjectNotArchived]
 
     @extend_schema(
         responses={
@@ -164,18 +173,34 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
     locking design that #100 owns at 0.5, and it would silently break the un-submit
     escape hatch. The timesheet grid renders a submitted week read-only as a UI
     convention only, and says so on the page (#2701).
+
+    **Re-checks live Member+ and the archived-project gate on every write (#4318).**
+    The queryset above only proves the entry is *owned by the caller* — it says
+    nothing about whether that caller is still a project member, or whether the
+    project has since been archived. A former member who still holds a valid
+    session could otherwise edit or delete their own historical entries in a
+    project they no longer belong to, or one that is now read-only. Both checks run
+    against the entry's own ``task`` (object-level, via ``CanLogTime`` and
+    ``IsProjectNotArchived`` on ``permission_classes``) — a revoked member or an
+    archived project answers **403**, matching the sibling write paths; this never
+    leaks existence (the entry already resolved as the caller's own), so there is
+    no 404 case to preserve here.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CanLogTime, IsProjectNotArchived]
 
     def _own_entry_or_404(self, request: Request, pk: str) -> TimeEntry:
         user = cast("_User", request.user)
-        qs = TimeEntry.objects.filter(user=user, is_deleted=False)
+        qs = TimeEntry.objects.filter(user=user, is_deleted=False).select_related("task")
         return get_object_or_404(qs, pk=pk)
 
     @extend_schema(request=TimeEntrySerializer, responses={200: TimeEntrySerializer})
     def patch(self, request: Request, pk: str) -> Response:
         entry = self._own_entry_or_404(request, pk)
+        # Object-level re-check (#4318): resolves the task's live membership role
+        # and the project's archive flag, not whatever was true when the entry
+        # was logged.
+        self.check_object_permissions(request, entry.task)
         serializer = TimeEntrySerializer(
             entry, data=request.data, partial=True, context={"request": request}
         )
@@ -186,6 +211,8 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
     @extend_schema(responses={204: OpenApiResponse(description="Entry soft-deleted; empty body.")})
     def delete(self, request: Request, pk: str) -> Response:
         entry = self._own_entry_or_404(request, pk)
+        # Object-level re-check (#4318) — see the ``patch`` method above.
+        self.check_object_permissions(request, entry.task)
         # Record the actor so the task activity stream can attribute the synthesized
         # ``time_deleted`` event (issue #1888). Always the owner here — entries are
         # self-scoped — but stamping it keeps a consistent actor shape across events.
@@ -511,11 +538,31 @@ class MeTimerStopView(IdempotencyMixin, APIView):
     key — a second stop finds no timer and returns ``409`` rather than a 500 or a
     double-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a
     keyed retry replays the original ``201`` instead of racing into that 409.
+
+    **No object to resolve a project from at this layer (#4318).** Unlike
+    ``MeTimeEntryDetailView``, the request carries no id — the running timer, and
+    therefore its task and project, is only known once ``services.stop_timer``
+    looks it up. The archived-project and live-Member+ re-checks accordingly live
+    *inside* ``stop_timer`` itself (``timetracking/services.py``), not on
+    ``permission_classes`` here: it raises ``PermissionDenied`` (403), which
+    propagates through this view exactly like any other ``APIException``. In
+    practice a revoked or demoted member's ``ActiveTimer`` row is usually already
+    gone by the time this runs — the ``ProjectMembership`` revocation hook
+    (``access/signals.py``) discards it immediately — so this is defence-in-depth
+    for an archived project (archiving does not evict membership) and for any
+    timer the hook predates, and most revocations surface here as the existing
+    ``409`` (no timer left to stop) rather than a ``403``.
     """
 
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(responses={201: TimeEntrySerializer, 409: OpenApiTypes.OBJECT})
+    @extend_schema(
+        responses={
+            201: TimeEntrySerializer,
+            403: OpenApiTypes.OBJECT,
+            409: OpenApiTypes.OBJECT,
+        }
+    )
     def post(self, request: Request) -> Response:
         entry = services.stop_timer(user=cast("_User", request.user))
         if entry is None:

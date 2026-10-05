@@ -10,12 +10,14 @@ deliberate.
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
 
+from trueppm_api.apps.access.permissions import CanLogTime, assert_project_not_archived
 from trueppm_api.apps.timetracking.models import ActiveTimer, TimeEntry, TimeEntrySource
 
 if TYPE_CHECKING:
@@ -27,6 +29,28 @@ if TYPE_CHECKING:
 def _timer_max_minutes() -> int:
     """The stale-timer ceiling (settings ``TIMETRACKING_TIMER_MAX_MINUTES``, default 600)."""
     return int(getattr(settings, "TIMETRACKING_TIMER_MAX_MINUTES", 600))
+
+
+def _assert_live_member_can_log_time(user: _User, project_id: Any) -> None:
+    """Re-check role >= Member on ``project_id`` with no ``request`` in hand (#4318).
+
+    Mirrors ``can_user_log_time`` (``access/permissions.py``), which is the
+    authoritative predicate everywhere a request is available — but ``stop_timer``
+    runs from a service with only a ``user``, so it re-derives the role directly
+    from a live (non-soft-deleted) ``ProjectMembership`` row rather than through the
+    request-cached helper. Raises the identical ``CanLogTime.message`` so the 403
+    body is indistinguishable from the view-layer refusal on the sibling write
+    paths — one contract, enforced from two call sites that cannot share a request.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    role = (
+        ProjectMembership.objects.filter(project_id=project_id, user=user, is_deleted=False)
+        .values_list("role", flat=True)
+        .first()
+    )
+    if role is None or role < Role.MEMBER:
+        raise PermissionDenied(CanLogTime.message)
 
 
 def log_time(
@@ -84,10 +108,23 @@ def stop_timer(*, user: _User) -> TimeEntry | None:
     Returns ``None`` when no timer is running so the caller can respond ``409`` — a
     duplicate stop is a no-op, never a double-log or a 500. ``select_for_update`` makes
     concurrent stops serialize: the loser finds no row and gets ``None``.
+
+    **Re-checks the archived-project gate and live Member+ role before finalizing
+    (#4318).** This is defence-in-depth, not the primary control: a ``ProjectMembership``
+    revocation (removal, or demotion below Member) deletes the user's ``ActiveTimer`` rows
+    outright via the ``pre_save`` eviction hook in ``access/signals.py`` — the discard
+    decision made for #4318 — so in the common revoked-member case there is no row left
+    here to stop, and the caller already gets the existing ``409``. What this still catches:
+    an **archived** project, which does not touch membership and so never fires that hook,
+    and any ``ActiveTimer`` that predates it. Both checks raise ``PermissionDenied`` (403)
+    rather than silently discarding, so a timer this layer should not finalize is refused,
+    never fabricated into a ``TimeEntry``.
     """
-    timer = ActiveTimer.objects.select_for_update().filter(user=user).first()
+    timer = ActiveTimer.objects.select_for_update().select_related("task").filter(user=user).first()
     if timer is None:
         return None
+    assert_project_not_archived(timer.task.project_id)
+    _assert_live_member_can_log_time(user, timer.task.project_id)
     return _finalize(timer)
 
 
