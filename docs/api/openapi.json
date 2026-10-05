@@ -7848,6 +7848,17 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -7932,6 +7943,17 @@
                     "204": {
                         "description": "Entry soft-deleted; empty body."
                     },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -8004,7 +8026,7 @@
         "/api/v1/me/timer/start": {
             "post": {
                 "operationId": "v1_me_timer_start_create",
-                "description": "``POST /api/v1/me/timer/start`` — start (or restart) the caller's timer (ADR-0185 §4).\n\nSecond-start: if a timer is already running it is atomically stopped and logged, and\nthat finalized entry rides back in ``finalized_entry`` for the undo toast. The task\nis resolved membership-scoped (404 for cross-project) and gated by ``can_log_time``\n(403 for a Viewer).",
+                "description": "``POST /api/v1/me/timer/start`` — start (or restart) the caller's timer (ADR-0185 §4).\n\nSecond-start: if a timer is already running it is atomically stopped and logged, and\nthat finalized entry rides back in ``finalized_entry`` for the undo toast. The task\nis resolved membership-scoped (404 for cross-project) and gated by ``can_log_time``\n(403 for a Viewer).\n\nCarries ``IsProjectNotArchived`` alongside ``CanLogTime`` (#4318) — starting a timer\nis a write like any other, so the **new** task's project being archived answers 403\nexactly as it does on the other write paths. This says nothing about the *prior*\nrunning timer a second-start may finalize: that timer's own project is re-checked\ninside ``services.start_timer`` (discard rather than finalize if it is no longer\nwritable), because it belongs to a different project than the one this permission\nclass is resolving against here.",
                 "tags": [
                     "me"
                 ],
@@ -8045,6 +8067,17 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/MeTimerStartResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
@@ -47023,6 +47056,17 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/TimeEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },

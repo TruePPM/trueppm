@@ -114,6 +114,23 @@ def test_non_member_gets_404_not_403(calendar: Calendar, alice: object, bob: obj
 
 
 @pytest.mark.django_db
+def test_log_time_after_membership_soft_deleted_is_404(calendar: Calendar, alice: object) -> None:
+    """#4318 GAP: a membership created and then revoked resolves the task 404, same as
+    one that was never a member — the existing cross-project-IDOR contract, confirmed
+    here for the revoked-membership case specifically (not just never-a-member).
+    """
+    proj = _project(calendar)
+    membership = _member(proj, alice)
+    task = _task(proj)
+    membership.soft_delete()
+
+    resp = _client(alice).post(_url(task), {"minutes": 30}, format="json")
+
+    assert resp.status_code == 404
+    assert not TimeEntry.objects.filter(task=task).exists()
+
+
+@pytest.mark.django_db
 def test_log_time_on_archived_project_is_403(calendar: Calendar, alice: object) -> None:
     """An archived project is read-only project-wide — logging time is a write (#4318)."""
     proj = _project(calendar)

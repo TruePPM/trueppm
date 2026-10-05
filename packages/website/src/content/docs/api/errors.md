@@ -291,13 +291,21 @@ task (a Viewer, or a Member acting on someone else's task) still gets `403`,
 because that refusal is a fact about their role, not about the task's existence.
 `POST /tasks/{id}/time-entries/` resolves its task the same membership-scoped way.
 
-Time tracking's two `/me/` write surfaces — `PATCH`/`DELETE /me/time-entries/{id}/`
-and `POST /me/timer/stop` — re-check this live, not just at creation: editing or
-deleting your own entry, or stopping your own running timer, answers `403` if the
-project has since been archived, or if you have since been removed from the
-project or demoted below Team Member. Because these routes only ever act on your
-*own* row, there is no existence oracle to protect here, so the refusal is always
-`403`, never `404`.
+Time tracking's `/me/` write surfaces — `PATCH`/`DELETE /me/time-entries/{id}/`,
+`POST /me/timer/start`, and `POST /me/timer/stop` — re-check this live, not just
+at creation: editing or deleting your own entry, or starting or stopping your own
+timer, answers `403` if the project has since been archived, or if you have since
+been removed from the project or demoted below Team Member. Because these routes
+only ever act on your *own* row, there is no existence oracle to protect here, so
+the refusal is always `403`, never `404`.
+
+`POST /me/timer/start` has one more wrinkle: starting a second timer always stops
+and logs whichever one was already running (see
+[Timesheet](/features/timesheet/)). If *that* prior timer's own project has since
+been archived, or your membership there has ended, it is discarded instead of
+logged — never a `403` on the new start, because a stale timer on an unrelated
+project must not block a legitimate one elsewhere. The new timer still starts
+normally and the response's `finalized_entry` is `null`.
 
 #### The demo read-only `403`
 

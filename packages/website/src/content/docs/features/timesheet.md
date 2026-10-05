@@ -96,9 +96,9 @@ The timesheet is a personal, individual-contributor surface: it shows and submit
 
 ### If you leave a project, or it's archived
 
-Logging, editing, and deleting time are all **live** checks, not one-time checks made when the entry was first created. If a project is archived, or you are removed from it (or demoted below Team Member), every write against your own entries on that project — including stopping a timer still running there — is refused, even though those entries belonged to you and still exist.
+Logging, editing, and deleting time are all **live** checks, not one-time checks made when the entry was first created. If a project is archived, or you are removed from it (or demoted below Team Member), every write against your own entries on that project — logging a new one, editing or deleting an existing one, or starting or stopping a timer there — is refused, even though those entries belonged to you and still exist.
 
-A running timer is treated differently from a logged entry: if your membership ends while a timer is ticking, that timer is **discarded**, not auto-logged. Nothing silently turns into a `TimeEntry` on a project you no longer belong to — the time simply isn't recorded, the same as if you had never started the timer.
+A running timer is treated differently from a logged entry: if your membership ends while a timer is ticking, that timer is **discarded**, not auto-logged. Nothing silently turns into a `TimeEntry` on a project you no longer belong to — the time simply isn't recorded, the same as if you had never started the timer. This applies whether you stop it yourself, or you simply start a *different* timer elsewhere — a timer's own project ending has nothing to do with the project you're starting your next timer on, so the stale one is quietly dropped rather than blocking you or being logged against a project you can no longer write to.
 
 ## Endpoints
 

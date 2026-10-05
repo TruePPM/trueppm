@@ -134,7 +134,7 @@ class TaskTimeEntryView(IdempotencyMixin, APIView):
 
     @extend_schema(
         request=TimeEntrySerializer,
-        responses={201: TimeEntrySerializer},
+        responses={201: TimeEntrySerializer, 403: OpenApiTypes.OBJECT},
     )
     def post(self, request: Request, task_pk: str) -> Response:
         task = _member_task_or_404(request, task_pk)
@@ -194,7 +194,10 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
         qs = TimeEntry.objects.filter(user=user, is_deleted=False).select_related("task")
         return get_object_or_404(qs, pk=pk)
 
-    @extend_schema(request=TimeEntrySerializer, responses={200: TimeEntrySerializer})
+    @extend_schema(
+        request=TimeEntrySerializer,
+        responses={200: TimeEntrySerializer, 403: OpenApiTypes.OBJECT},
+    )
     def patch(self, request: Request, pk: str) -> Response:
         entry = self._own_entry_or_404(request, pk)
         # Object-level re-check (#4318): resolves the task's live membership role
@@ -208,7 +211,12 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
         serializer.save()
         return Response(serializer.data)
 
-    @extend_schema(responses={204: OpenApiResponse(description="Entry soft-deleted; empty body.")})
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Entry soft-deleted; empty body."),
+            403: OpenApiTypes.OBJECT,
+        }
+    )
     def delete(self, request: Request, pk: str) -> Response:
         entry = self._own_entry_or_404(request, pk)
         # Object-level re-check (#4318) — see the ``patch`` method above.
@@ -477,9 +485,17 @@ class MeTimerStartView(IdempotencyMixin, APIView):
     that finalized entry rides back in ``finalized_entry`` for the undo toast. The task
     is resolved membership-scoped (404 for cross-project) and gated by ``can_log_time``
     (403 for a Viewer).
+
+    Carries ``IsProjectNotArchived`` alongside ``CanLogTime`` (#4318) — starting a timer
+    is a write like any other, so the **new** task's project being archived answers 403
+    exactly as it does on the other write paths. This says nothing about the *prior*
+    running timer a second-start may finalize: that timer's own project is re-checked
+    inside ``services.start_timer`` (discard rather than finalize if it is no longer
+    writable), because it belongs to a different project than the one this permission
+    class is resolving against here.
     """
 
-    permission_classes = [IsAuthenticated, CanLogTime]
+    permission_classes = [IsAuthenticated, CanLogTime, IsProjectNotArchived]
 
     @extend_schema(
         request=TimerStartSerializer,
@@ -493,6 +509,7 @@ class MeTimerStartView(IdempotencyMixin, APIView):
                     "finalized_entry": TimeEntrySerializer(allow_null=True, required=False),
                 },
             ),
+            403: OpenApiTypes.OBJECT,
         },
     )
     def post(self, request: Request) -> Response:

@@ -147,6 +147,78 @@ def test_second_start_atomically_stops_and_logs_prior(calendar: Calendar, alice:
 
 
 @pytest.mark.django_db
+def test_second_start_discards_prior_timer_on_archived_project(
+    calendar: Calendar, alice: object
+) -> None:
+    """#4318 BLOCKER: a stale timer on a project that has since been archived must not
+    be silently finalized into a write against it — it is discarded, and the new start
+    on a different, writable project proceeds normally.
+    """
+    p1 = _project(calendar, "P1")
+    p2 = _project(calendar, "P2")
+    _member(p1, alice)
+    _member(p2, alice)
+    t1 = _task(p1, "A")
+    t2 = _task(p2, "B")
+    ActiveTimer.objects.create(
+        user=alice, task=t1, started_at=timezone.now() - timedelta(minutes=5)
+    )
+    p1.is_archived = True
+    p1.save()
+
+    resp = _client(alice).post("/api/v1/me/timer/start", {"task": str(t2.pk)}, format="json")
+
+    assert resp.status_code == 201
+    assert resp.data["finalized_entry"] is None
+    assert not TimeEntry.objects.filter(task=t1).exists()
+    assert ActiveTimer.objects.filter(user=alice).count() == 1
+    assert str(ActiveTimer.objects.get(user=alice).task_id) == str(t2.pk)
+
+
+@pytest.mark.django_db
+def test_second_start_discards_prior_timer_on_revoked_membership(
+    calendar: Calendar, alice: object
+) -> None:
+    """Same as above, for a membership revoked underneath the stale timer. ``.update()``
+    bypasses ``ProjectMembership.save()`` (and so the discard-on-revocation signal) on
+    purpose, to prove this is the *second-start* path's own re-check, not the signal's.
+    """
+    p1 = _project(calendar, "P1")
+    p2 = _project(calendar, "P2")
+    membership = _member(p1, alice)
+    _member(p2, alice)
+    t1 = _task(p1, "A")
+    t2 = _task(p2, "B")
+    ActiveTimer.objects.create(
+        user=alice, task=t1, started_at=timezone.now() - timedelta(minutes=5)
+    )
+    ProjectMembership.objects.filter(pk=membership.pk).update(is_deleted=True)
+
+    resp = _client(alice).post("/api/v1/me/timer/start", {"task": str(t2.pk)}, format="json")
+
+    assert resp.status_code == 201
+    assert resp.data["finalized_entry"] is None
+    assert not TimeEntry.objects.filter(task=t1).exists()
+    assert ActiveTimer.objects.filter(user=alice).count() == 1
+    assert str(ActiveTimer.objects.get(user=alice).task_id) == str(t2.pk)
+
+
+@pytest.mark.django_db
+def test_start_on_archived_project_is_403(calendar: Calendar, alice: object) -> None:
+    """#4318 GAP: starting a timer is a write like any other — archived blocks it."""
+    proj = _project(calendar)
+    _member(proj, alice)
+    task = _task(proj)
+    proj.is_archived = True
+    proj.save()
+
+    resp = _client(alice).post("/api/v1/me/timer/start", {"task": str(task.pk)}, format="json")
+
+    assert resp.status_code == 403
+    assert not ActiveTimer.objects.filter(user=alice).exists()
+
+
+@pytest.mark.django_db
 def test_duplicate_stop_returns_409(calendar: Calendar, alice: object) -> None:
     proj = _project(calendar)
     _member(proj, alice)

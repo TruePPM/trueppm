@@ -31,16 +31,16 @@ def _timer_max_minutes() -> int:
     return int(getattr(settings, "TIMETRACKING_TIMER_MAX_MINUTES", 600))
 
 
-def _assert_live_member_can_log_time(user: _User, project_id: Any) -> None:
-    """Re-check role >= Member on ``project_id`` with no ``request`` in hand (#4318).
+def _member_can_still_log_time(user: _User, project_id: Any) -> bool:
+    """Role >= Member on ``project_id`` right now, with no ``request`` in hand (#4318).
 
     Mirrors ``can_user_log_time`` (``access/permissions.py``), which is the
-    authoritative predicate everywhere a request is available — but ``stop_timer``
-    runs from a service with only a ``user``, so it re-derives the role directly
-    from a live (non-soft-deleted) ``ProjectMembership`` row rather than through the
-    request-cached helper. Raises the identical ``CanLogTime.message`` so the 403
-    body is indistinguishable from the view-layer refusal on the sibling write
-    paths — one contract, enforced from two call sites that cannot share a request.
+    authoritative predicate everywhere a request is available — but this service
+    layer only ever has a ``user``, so it re-derives the role directly from a live
+    (non-soft-deleted) ``ProjectMembership`` row rather than through the
+    request-cached helper. A boolean, not a raise: ``start_timer``'s second-start
+    needs to *decide* (finalize vs. discard the stale timer), while ``stop_timer``
+    wraps this in :func:`_assert_live_member_can_log_time` to refuse outright.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
 
@@ -49,7 +49,30 @@ def _assert_live_member_can_log_time(user: _User, project_id: Any) -> None:
         .values_list("role", flat=True)
         .first()
     )
-    if role is None or role < Role.MEMBER:
+    return role is not None and role >= Role.MEMBER
+
+
+def _project_is_archived_now(project_id: Any) -> bool:
+    """Direct, request-less archived check (#4318) — the boolean twin of
+    :func:`~trueppm_api.apps.access.permissions.assert_project_not_archived`.
+
+    That helper raises, which suits ``stop_timer``'s refuse-outright contract; the
+    second-start path in ``start_timer`` needs a plain bool to decide whether the
+    *existing* timer should be discarded rather than finalized.
+    """
+    from trueppm_api.apps.projects.models import Project
+
+    return Project.objects.filter(pk=project_id, is_archived=True).exists()
+
+
+def _assert_live_member_can_log_time(user: _User, project_id: Any) -> None:
+    """Raise 403 unless :func:`_member_can_still_log_time` — see its docstring.
+
+    Raises the identical ``CanLogTime.message`` so the 403 body is indistinguishable
+    from the view-layer refusal on the sibling write paths — one contract, enforced
+    from two call sites that cannot share a request.
+    """
+    if not _member_can_still_log_time(user, project_id):
         raise PermissionDenied(CanLogTime.message)
 
 
@@ -87,11 +110,33 @@ def start_timer(*, user: _User, task: Task, note: str = "") -> tuple[ActiveTimer
     timer (the UI surfaces it in the undo toast). The ``OneToOneField(user)`` guarantees
     a single live timer, so this can never leave two rows. ``select_for_update`` locks
     the existing timer row so a concurrent double-start serializes rather than racing.
+
+    **The existing timer is re-checked before it is finalized (#4318).** A member who
+    starts a timer on project A, loses write access there (archived, removed, or
+    demoted below Member), and then legitimately starts a *new* timer on project B
+    must not have project A's stale timer silently logged as a ``TimeEntry`` — that
+    would create a write on a project they can no longer write to, through a path
+    (starting work elsewhere) that has nothing to do with project A. So this applies
+    the same **discard** semantics the ``ProjectMembership`` revocation hook uses
+    (``access/signals.py``): if project A is archived, or the caller can no longer
+    log time there, the existing ``ActiveTimer`` row is simply deleted, with no
+    ``TimeEntry`` created. The common case (membership still live) is unaffected —
+    the prior timer is finalized exactly as before. This deliberately never *raises*:
+    a stale timer on an unrelated, inaccessible project must not block a legitimate
+    new start on a project the caller can still write to.
     """
     finalized: TimeEntry | None = None
-    existing = ActiveTimer.objects.select_for_update().filter(user=user).first()
+    existing = (
+        ActiveTimer.objects.select_for_update().select_related("task").filter(user=user).first()
+    )
     if existing is not None:
-        finalized = _finalize(existing)
+        existing_project_id = existing.task.project_id
+        if _project_is_archived_now(existing_project_id) or not _member_can_still_log_time(
+            user, existing_project_id
+        ):
+            existing.delete()
+        else:
+            finalized = _finalize(existing)
     timer = ActiveTimer.objects.create(
         user=user,
         task=task,
