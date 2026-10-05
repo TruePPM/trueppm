@@ -153,7 +153,7 @@ rather than reason over an incomplete list.
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `get_schedule_summary` | `project_id` | CPM finish, Monte Carlo P50/P80/P95, SPI, and the critical-task count, plus a compact `why` citing the CPM finish and how many critical-path tasks drive it. |
+| `get_schedule_summary` | `project_id` | CPM finish, Monte Carlo P50/P80/P95, and the critical-task count, plus a compact `why` citing the CPM finish and how many critical-path tasks drive it. |
 | `get_monte_carlo_forecast` | `project_id` | The latest **persisted** Monte Carlo run (P50/P80/P95, `cpm_finish`, delta). Read-only — never triggers a new simulation. Carries a compact `why` — the P80 risk premium over the CPM finish and the single largest duration-sensitivity driver. |
 | `get_release_forecast` | `project_id` | Backlog delivery forecast from the team's velocity Monte Carlo: P50/P80 **sprint counts** and calendar dates to clear the committed backlog (plus P95 date). Always a range, never a single date; returns a `warming_up` shape when velocity history is thin. |
 | `whatif` | `project_id`, `task_id`, one of `duration_delta` / `new_duration`, optional `n_simulations` | **What breaks if this task's duration changes.** Perturbs one task and recomputes CPM + Monte Carlo **in memory, persisting nothing**. Returns `current` vs. `whatif` P50/P80/P95, the deterministic CPM finish for each, `critical_path_changed`, and `delta_vs_current` (signed calendar-day shifts, positive = later/worse), plus a compact `why`. |
