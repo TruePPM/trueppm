@@ -1341,7 +1341,7 @@ docs:version-accuracy:
     # shallow clone carries none, and a tag-only fetch at depth 1 is cheap
     # (tag refs, not history). Without git the check would skip with a NOTE on
     # every run and never fail.
-    - git fetch --quiet --depth=1 origin 'refs/tags/*:refs/tags/*'
+    - git fetch --quiet --depth=1 origin '+refs/tags/*:refs/tags/*'
   script:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
