@@ -8139,7 +8139,7 @@
         "/api/v1/me/timer/stop": {
             "post": {
                 "operationId": "v1_me_timer_stop_create",
-                "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Naturally idempotent without a\nkey — a second stop finds no timer and returns ``409`` rather than a 500 or a\ndouble-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a\nkeyed retry replays the original ``201`` instead of racing into that 409.\n\n**No object to resolve a project from at this layer (#4318).** Unlike\n``MeTimeEntryDetailView``, the request carries no id — the running timer, and\ntherefore its task and project, is only known once ``services.stop_timer``\nlooks it up. The archived-project and live-Member+ re-checks accordingly live\n*inside* ``stop_timer`` itself (``timetracking/services.py``), not on\n``permission_classes`` here: it raises ``PermissionDenied`` (403), which\npropagates through this view exactly like any other ``APIException``. In\npractice a revoked or demoted member's ``ActiveTimer`` row is usually already\ngone by the time this runs — the ``ProjectMembership`` revocation hook\n(``access/signals.py``) discards it immediately — so this is defence-in-depth\nfor an archived project (archiving does not evict membership) and for any\ntimer the hook predates, and most revocations surface here as the existing\n``409`` (no timer left to stop) rather than a ``403``.",
+                "description": "``POST /api/v1/me/timer/stop`` — finalize the caller's running timer (ADR-0185 §4).\n\nReturns the created ``TimeEntry`` (``source=\"timer\"``). Naturally idempotent without a\nkey — a second stop finds no timer and returns ``409`` rather than a 500 or a\ndouble-log — and carries :class:`IdempotencyMixin` (matching ``MeTimerStartView``) so a\nkeyed retry replays the original ``201`` instead of racing into that 409.\n\n**No object to resolve a project from at this layer (#4318).** Unlike\n``MeTimeEntryDetailView``, the request carries no id — the running timer, and\ntherefore its task and project, is only known once ``services.stop_timer``\nlooks it up. The archived-project and live-Member+ re-checks accordingly live\n*inside* ``stop_timer`` itself (``timetracking/services.py``), not on\n``permission_classes`` here.\n\n**Never a 403 from either re-check (#4318 round 2).** An earlier version of\n``stop_timer`` raised ``PermissionDenied`` when a timer's project was archived\nor access had lapsed — which left the ``ActiveTimer`` row in place and made\nthat timer permanently un-stoppable (every retry re-hit the same 403, and the\nweb client restores the timer into its cache on any non-409 error). Both\nchecks now **discard** the timer and return ``None``, so this view answers the\nsame ``409`` (\"no timer to stop\") it already answers for a timer that was\nstopped from another device — a state the client already clears silently with\nno error toast. In practice a revoked or demoted member's ``ActiveTimer`` row\nis usually already gone by the time this runs regardless — the\n``ProjectMembership`` revocation hook (``access/signals.py``) discards it\nimmediately — so an archived project (which does not evict membership, and so\nnever fires that hook) is the common way to actually reach this discard.",
                 "tags": [
                     "me"
                 ],
@@ -8160,17 +8160,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/TimeEntry"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
                                 }
                             }
                         },

@@ -254,8 +254,8 @@ cross-contributor rollup in the community edition.
 | DELETE | `/api/v1/me/time-entries/{id}/` | Soft-delete an entry — author only |
 | GET | `/api/v1/me/time-entries/?from=&to=` | Weekly cross-project rollup (`results` + `totals.by_day` / `by_cell` / `today_minutes` / `week_minutes`); defaults to the current week |
 | GET | `/api/v1/me/timer/` | The caller's running timer with server-computed `elapsed_seconds` / `stale`, or `{active: false}` |
-| POST | `/api/v1/me/timer/start` | Start a timer (`{task, note?}`); a second start atomically stops and logs the running timer first, returning it as `finalized_entry`; Member+ |
-| POST | `/api/v1/me/timer/stop` | Stop the running timer and log it as a `TimeEntry` (`source: "timer"`); `409` if no timer is running |
+| POST | `/api/v1/me/timer/start` | Start a timer (`{task, note?}`); Member+ on the task's project, `403` if it's archived. A second start atomically stops and logs the running timer first, returning it as `finalized_entry` — unless *that* timer's own project is archived or your access there has lapsed, in which case it's discarded (`finalized_entry: null`) rather than logged |
+| POST | `/api/v1/me/timer/stop` | Stop the running timer and log it as a `TimeEntry` (`source: "timer"`); `409` if no timer is running, or if the timer's project is archived or your access there has lapsed — the timer is discarded, never finalized, and never answers `403` (there's no other way to clear a stuck timer) |
 
 A manual `entry_date` cannot be in the future, nor older than the backdate window
 (`TIMETRACKING_BACKDATE_DAYS`, default 60 days). A timer left running past the stale

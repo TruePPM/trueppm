@@ -561,14 +561,21 @@ class MeTimerStopView(IdempotencyMixin, APIView):
     therefore its task and project, is only known once ``services.stop_timer``
     looks it up. The archived-project and live-Member+ re-checks accordingly live
     *inside* ``stop_timer`` itself (``timetracking/services.py``), not on
-    ``permission_classes`` here: it raises ``PermissionDenied`` (403), which
-    propagates through this view exactly like any other ``APIException``. In
-    practice a revoked or demoted member's ``ActiveTimer`` row is usually already
-    gone by the time this runs — the ``ProjectMembership`` revocation hook
-    (``access/signals.py``) discards it immediately — so this is defence-in-depth
-    for an archived project (archiving does not evict membership) and for any
-    timer the hook predates, and most revocations surface here as the existing
-    ``409`` (no timer left to stop) rather than a ``403``.
+    ``permission_classes`` here.
+
+    **Never a 403 from either re-check (#4318 round 2).** An earlier version of
+    ``stop_timer`` raised ``PermissionDenied`` when a timer's project was archived
+    or access had lapsed — which left the ``ActiveTimer`` row in place and made
+    that timer permanently un-stoppable (every retry re-hit the same 403, and the
+    web client restores the timer into its cache on any non-409 error). Both
+    checks now **discard** the timer and return ``None``, so this view answers the
+    same ``409`` ("no timer to stop") it already answers for a timer that was
+    stopped from another device — a state the client already clears silently with
+    no error toast. In practice a revoked or demoted member's ``ActiveTimer`` row
+    is usually already gone by the time this runs regardless — the
+    ``ProjectMembership`` revocation hook (``access/signals.py``) discards it
+    immediately — so an archived project (which does not evict membership, and so
+    never fires that hook) is the common way to actually reach this discard.
     """
 
     permission_classes = [IsAuthenticated]
@@ -576,7 +583,6 @@ class MeTimerStopView(IdempotencyMixin, APIView):
     @extend_schema(
         responses={
             201: TimeEntrySerializer,
-            403: OpenApiTypes.OBJECT,
             409: OpenApiTypes.OBJECT,
         }
     )

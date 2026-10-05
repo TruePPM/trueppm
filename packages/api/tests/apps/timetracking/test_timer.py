@@ -250,9 +250,15 @@ def test_stop_caps_minutes_at_ceiling(calendar: Calendar, alice: object, setting
 
 
 @pytest.mark.django_db
-def test_stop_on_archived_project_is_403(calendar: Calendar, alice: object) -> None:
-    """Archiving does not touch membership, so the revocation hook never runs — the
-    stop-time re-check inside ``services.stop_timer`` is what catches this (#4318).
+def test_stop_on_archived_project_discards_timer_and_returns_409(
+    calendar: Calendar, alice: object
+) -> None:
+    """#4318 round 2: archiving does not touch membership, so the revocation hook never
+    runs — the stop-time re-check inside ``services.stop_timer`` is what catches this.
+    It must DISCARD, not refuse: an earlier version raised 403 here, which left the
+    ``ActiveTimer`` row in place and made the timer permanently un-stoppable (every
+    retry re-hit the same 403). The fix routes through the same ``409`` as "no timer
+    running", with the row actually gone so the next GET /me/timer/ reports inactive.
     """
     proj = _project(calendar)
     _member(proj, alice)
@@ -263,20 +269,21 @@ def test_stop_on_archived_project_is_403(calendar: Calendar, alice: object) -> N
 
     resp = _client(alice).post("/api/v1/me/timer/stop")
 
-    assert resp.status_code == 403
-    assert ActiveTimer.objects.filter(user=alice).exists()  # untouched — refused, not consumed
+    assert resp.status_code == 409
+    assert not ActiveTimer.objects.filter(user=alice).exists()  # discarded, not stuck
     assert not TimeEntry.objects.filter(task=task).exists()
 
 
 @pytest.mark.django_db
-def test_stop_after_membership_removed_bypassing_hook_is_403(
+def test_stop_after_membership_removed_bypassing_hook_discards_and_returns_409(
     calendar: Calendar, alice: object
 ) -> None:
-    """Defence-in-depth: the explicit role re-check in ``stop_timer`` still refuses even
+    """Defence-in-depth: the explicit role re-check in ``stop_timer`` still discards even
     when the ``ActiveTimer`` somehow survives revocation. ``.update()`` bypasses
     ``ProjectMembership.save()`` (and so the discard-on-revocation signal) on purpose, to
     isolate this check from that behavior — the end-to-end discard is covered separately
-    in ``test_membership_eviction.py`` and below.
+    in ``test_membership_eviction.py`` and below. Discard here matches the archived-project
+    case above for the same reason (#4318 round 2): a 403 would leave the row stuck.
     """
     proj = _project(calendar)
     membership = _member(proj, alice)
@@ -286,12 +293,13 @@ def test_stop_after_membership_removed_bypassing_hook_is_403(
 
     resp = _client(alice).post("/api/v1/me/timer/stop")
 
-    assert resp.status_code == 403
+    assert resp.status_code == 409
+    assert not ActiveTimer.objects.filter(user=alice).exists()
     assert not TimeEntry.objects.filter(task=task).exists()
 
 
 @pytest.mark.django_db
-def test_stop_after_demoted_to_viewer_bypassing_hook_is_403(
+def test_stop_after_demoted_to_viewer_bypassing_hook_discards_and_returns_409(
     calendar: Calendar, alice: object
 ) -> None:
     proj = _project(calendar)
@@ -302,7 +310,8 @@ def test_stop_after_demoted_to_viewer_bypassing_hook_is_403(
 
     resp = _client(alice).post("/api/v1/me/timer/stop")
 
-    assert resp.status_code == 403
+    assert resp.status_code == 409
+    assert not ActiveTimer.objects.filter(user=alice).exists()
     assert not TimeEntry.objects.filter(task=task).exists()
 
 

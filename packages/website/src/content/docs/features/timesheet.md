@@ -25,7 +25,11 @@ authoritative source, so the elapsed time is never lost to a closed tab and neve
 
 **Starting a second timer while one is already running stops and logs the first one
 automatically** — there is no "timer already running" error to work around. The just-logged entry
-surfaces in a confirmation toast with **Undo**, naming the task the prior timer was on.
+surfaces in a confirmation toast with **Undo**, naming the task the prior timer was on. The one
+exception: if the *prior* timer's own project has since been archived, or your membership there
+has ended, it is silently **discarded** instead — no entry, no toast, nothing to undo — rather
+than logging a chunk of time against a project you can no longer write to. Your new timer still
+starts normally either way.
 
 **Stopping** a timer (the chip's stop control, or starting a new one) writes a `TimeEntry` dated to
 the day the timer *started* — so a timer that happens to cross midnight is attributed to the day
@@ -96,9 +100,9 @@ The timesheet is a personal, individual-contributor surface: it shows and submit
 
 ### If you leave a project, or it's archived
 
-Logging, editing, and deleting time are all **live** checks, not one-time checks made when the entry was first created. If a project is archived, or you are removed from it (or demoted below Team Member), every write against your own entries on that project — logging a new one, editing or deleting an existing one, or starting or stopping a timer there — is refused, even though those entries belonged to you and still exist.
+Logging, editing, and deleting time are all **live** checks, not one-time checks made when the entry was first created. If a project is archived, or you are removed from it (or demoted below Team Member), logging a new entry, editing or deleting an existing one, or starting a timer there is refused, even though those entries belonged to you and still exist.
 
-A running timer is treated differently from a logged entry: if your membership ends while a timer is ticking, that timer is **discarded**, not auto-logged. Nothing silently turns into a `TimeEntry` on a project you no longer belong to — the time simply isn't recorded, the same as if you had never started the timer. This applies whether you stop it yourself, or you simply start a *different* timer elsewhere — a timer's own project ending has nothing to do with the project you're starting your next timer on, so the stale one is quietly dropped rather than blocking you or being logged against a project you can no longer write to.
+A **running timer** is treated differently from a logged entry, and the archived case and the membership case both lead here: if the project a timer is running on is archived, or your membership there ends, that timer is **discarded**, not auto-logged. Nothing silently turns into a `TimeEntry` on a project you can no longer write to — the time simply isn't recorded, the same as if you had never started the timer. This applies whichever way the timer stops: you stop it yourself (the chip answers as if nothing was running — not an error), or you start a *different* timer elsewhere, which discards the stale one instead of logging it (see above). Unlike every other write here, stopping a timer is never **refused** outright — a refusal would leave the timer stuck running forever with no way to clear it, so the server always resolves it one way or the other.
 
 ## Endpoints
 
@@ -109,8 +113,8 @@ A running timer is treated differently from a logged entry: if your membership e
 | `GET` | `/api/v1/me/time-entries/?from=&to=` | The weekly cross-project rollup that backs the grid: entries in range plus precomputed daily/cell/week totals and the week's submission marker. |
 | `POST`/`DELETE` | `/api/v1/me/timesheets/{week_start}/submit` | Submit or un-submit a week (`week_start` is normalized to its ISO Monday). |
 | `GET` | `/api/v1/me/timer/` | The caller's running timer, if any, with server-computed `elapsed_seconds` and `stale`. |
-| `POST` | `/api/v1/me/timer/start` | Start a timer on a task; second-start atomically stops and logs the prior one, returned as `finalized_entry`. |
-| `POST` | `/api/v1/me/timer/stop` | Stop the running timer and log it as a `TimeEntry`; `409` if none is running. |
+| `POST` | `/api/v1/me/timer/start` | Start a timer on a task (`403` if that project is archived or you're below Team Member); second-start atomically stops and logs the prior one, returned as `finalized_entry` — or discards it with `finalized_entry: null` if the prior timer's own project is archived or your access there has lapsed. |
+| `POST` | `/api/v1/me/timer/stop` | Stop the running timer and log it as a `TimeEntry`; `409` if none is running, including when the timer is discarded rather than logged because its project is archived or your access there has lapsed. |
 
 Every read and write here is scoped to the authenticated caller — there is no cross-project rollup
 of *other* people's time and no admin surface to log or edit on someone else's behalf.

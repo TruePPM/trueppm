@@ -15,9 +15,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import PermissionDenied
 
-from trueppm_api.apps.access.permissions import CanLogTime, assert_project_not_archived
 from trueppm_api.apps.timetracking.models import ActiveTimer, TimeEntry, TimeEntrySource
 
 if TYPE_CHECKING:
@@ -38,9 +36,10 @@ def _member_can_still_log_time(user: _User, project_id: Any) -> bool:
     authoritative predicate everywhere a request is available — but this service
     layer only ever has a ``user``, so it re-derives the role directly from a live
     (non-soft-deleted) ``ProjectMembership`` row rather than through the
-    request-cached helper. A boolean, not a raise: ``start_timer``'s second-start
-    needs to *decide* (finalize vs. discard the stale timer), while ``stop_timer``
-    wraps this in :func:`_assert_live_member_can_log_time` to refuse outright.
+    request-cached helper. A boolean, not a raise: both ``start_timer``'s
+    second-start and ``stop_timer`` *decide* what to do with a timer whose access
+    has lapsed (discard it) rather than refuse the request outright — see each
+    function's docstring for why discard, not a 403, is the answer both places.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
 
@@ -53,27 +52,16 @@ def _member_can_still_log_time(user: _User, project_id: Any) -> bool:
 
 
 def _project_is_archived_now(project_id: Any) -> bool:
-    """Direct, request-less archived check (#4318) — the boolean twin of
-    :func:`~trueppm_api.apps.access.permissions.assert_project_not_archived`.
+    """Direct, request-less archived check (#4318).
 
-    That helper raises, which suits ``stop_timer``'s refuse-outright contract; the
-    second-start path in ``start_timer`` needs a plain bool to decide whether the
-    *existing* timer should be discarded rather than finalized.
+    Mirrors ``_is_project_archived`` (``access/permissions.py``), which is
+    request-cached and unavailable here for the same reason
+    :func:`_member_can_still_log_time` re-derives role directly instead of calling
+    the request-cached ``_membership_role``.
     """
     from trueppm_api.apps.projects.models import Project
 
     return Project.objects.filter(pk=project_id, is_archived=True).exists()
-
-
-def _assert_live_member_can_log_time(user: _User, project_id: Any) -> None:
-    """Raise 403 unless :func:`_member_can_still_log_time` — see its docstring.
-
-    Raises the identical ``CanLogTime.message`` so the 403 body is indistinguishable
-    from the view-layer refusal on the sibling write paths — one contract, enforced
-    from two call sites that cannot share a request.
-    """
-    if not _member_can_still_log_time(user, project_id):
-        raise PermissionDenied(CanLogTime.message)
 
 
 def log_time(
@@ -150,9 +138,10 @@ def start_timer(*, user: _User, task: Task, note: str = "") -> tuple[ActiveTimer
 def stop_timer(*, user: _User) -> TimeEntry | None:
     """Stop ``user``'s running timer, finalize it into a :class:`TimeEntry`, delete the row.
 
-    Returns ``None`` when no timer is running so the caller can respond ``409`` — a
-    duplicate stop is a no-op, never a double-log or a 500. ``select_for_update`` makes
-    concurrent stops serialize: the loser finds no row and gets ``None``.
+    Returns ``None`` when no timer is running (or when the timer is discarded —
+    see below) so the caller can respond ``409`` — a duplicate stop is a no-op,
+    never a double-log or a 500. ``select_for_update`` makes concurrent stops
+    serialize: the loser finds no row and gets ``None``.
 
     **Re-checks the archived-project gate and live Member+ role before finalizing
     (#4318).** This is defence-in-depth, not the primary control: a ``ProjectMembership``
@@ -161,15 +150,33 @@ def stop_timer(*, user: _User) -> TimeEntry | None:
     decision made for #4318 — so in the common revoked-member case there is no row left
     here to stop, and the caller already gets the existing ``409``. What this still catches:
     an **archived** project, which does not touch membership and so never fires that hook,
-    and any ``ActiveTimer`` that predates it. Both checks raise ``PermissionDenied`` (403)
-    rather than silently discarding, so a timer this layer should not finalize is refused,
-    never fabricated into a ``TimeEntry``.
+    and any ``ActiveTimer`` that predates it.
+
+    **Discard, never raise, on either check — round 2 of #4318.** The first pass raised
+    ``PermissionDenied`` (403) here, which was itself a bug: raising left the
+    ``ActiveTimer`` row in place, so a timer on a now-archived project could **never**
+    be stopped — every retry re-hit the same 403, and the web client
+    (``useActiveTimer.ts``) restores the optimistically-cleared timer into its cache on
+    any non-409 error, so the chip reappeared and the user was stuck retrying forever.
+    Deleting the row and returning ``None`` instead routes through the exact same,
+    already-handled path as "no timer is running": the view answers the ordinary
+    ``409``, which the client already clears silently, no restore and no error toast.
+    This is the same resolution ``start_timer``'s second-start discard and the
+    ``ProjectMembership`` revocation hook both already use — one semantics (discard a
+    timer whose access has lapsed) applied everywhere it can arise, rather than two
+    different outcomes for the same underlying situation. Deliberately does **not**
+    raise after the delete, even just to signal the refusal for observability: this
+    function runs inside ``@transaction.atomic`` under ``ATOMIC_REQUESTS``, and DRF's
+    exception handler calls ``set_rollback()`` for any raised ``APIException`` — which
+    would roll back the very delete meant to free the caller from this state.
     """
     timer = ActiveTimer.objects.select_for_update().select_related("task").filter(user=user).first()
     if timer is None:
         return None
-    assert_project_not_archived(timer.task.project_id)
-    _assert_live_member_can_log_time(user, timer.task.project_id)
+    project_id = timer.task.project_id
+    if _project_is_archived_now(project_id) or not _member_can_still_log_time(user, project_id):
+        timer.delete()
+        return None
     return _finalize(timer)
 
 
