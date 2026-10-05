@@ -3402,6 +3402,16 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['signal-privacy', 'proj-1'] });
   });
 
+  // --- #4283: Decisions-view oversight-visibility consent ---
+  it('invalidates decisions-policy on decisions_policy_changed', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('decisions_policy_changed', { id: 'proj-1', oversight_visible: true });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['decisions-policy', 'proj-1'] });
+  });
+
   // --- #3772: velocity-suggestion settlement ---
   it.each(['velocity_suggestion_accepted', 'velocity_suggestion_dismissed'])(
     'invalidates every velocity-suggestions query and the sprint backlog on %s',

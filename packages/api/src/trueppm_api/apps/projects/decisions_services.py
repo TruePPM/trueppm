@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db import transaction
 from django.db.models import F, QuerySet
 
 from trueppm_api.apps.access.models import Role
@@ -31,6 +32,44 @@ def get_or_create_decisions_policy(project: Project) -> ProjectDecisionsPolicy:
     """
     policy, _ = ProjectDecisionsPolicy.objects.get_or_create(project=project)
     return policy
+
+
+def set_oversight_visible(
+    policy: ProjectDecisionsPolicy, oversight_visible: bool
+) -> ProjectDecisionsPolicy:
+    """Flip the team's oversight-visibility switch and notify live clients (#4283).
+
+    Mirrors ``signal_privacy_services.set_signal_audience``'s layering: the write and
+    its live-client broadcast live in the one chokepoint every writer of this field
+    passes through, so a future caller can never persist the switch without
+    broadcasting it — the defect this closes (``ProjectDecisionsPolicyView.patch``
+    saved the policy with no broadcast anywhere in the write path). Plain ``save()``
+    (not ``update_fields``) so ``VersionedModel`` bumps ``server_version`` and
+    ``HistoricalRecords`` captures who flipped the switch.
+    """
+    policy.oversight_visible = oversight_visible
+    policy.save()
+    _emit_oversight_visible_changed(policy.project_id, oversight_visible)
+    return policy
+
+
+def _emit_oversight_visible_changed(project_id: Any, oversight_visible: bool) -> None:
+    """Broadcast the oversight-visibility change on commit (#4283).
+
+    Mirrors ``signal_privacy_services._emit_consent_changed``'s deferral: the write
+    must commit before a peer's refetch could observe the new value, so the
+    broadcast is deferred with ``transaction.on_commit()`` per project convention.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    project_id_str = str(project_id)
+    transaction.on_commit(
+        lambda: broadcast_board_event(
+            project_id_str,
+            "decisions_policy_changed",
+            {"id": project_id_str, "oversight_visible": oversight_visible},
+        )
+    )
 
 
 def can_read_decisions(

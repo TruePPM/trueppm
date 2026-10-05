@@ -162,6 +162,11 @@ The set is open-ended and grows as features land; current event types include:
   `task_attachment_created`, `task_attachment_deleted`, `comment_created`
 - **Notes log**: `task_note_created`, `task_note_updated`, `task_note_deleted`,
   `task_note_pinned`, `task_note_decision_toggled`
+- **Decisions visibility (ADR-0167)**: `decisions_policy_changed` — a project Admin
+  flipped the team's oversight-visibility consent switch for the project Decisions
+  view. Payload is `{"id": <project id>, "oversight_visible": <bool>}`; a client
+  re-reads `GET /api/v1/projects/{id}/decisions-policy/` to re-apply the gate for
+  the reading identity
 - **Roster / assignments**: `roster_changed`, `assignment_created`,
   `assignment_updated`, `assignment_deleted`
 - **Board config**: `board_config_updated`, `board_view_created`,
@@ -356,6 +361,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `signal_ceiling_proposal_changed` | **WS-only** |
 | `signal_ceiling_vote_cast` | **WS-only** |
 | `project_calendar_changed` | **WS-only** |
+| `decisions_policy_changed` | **WS-only** |
 
 ### WS-only events on other channels
 

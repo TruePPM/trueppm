@@ -38,6 +38,8 @@
  *                  (every task-scoped + pending-list query) + sprint-backlog (#2845, #3772)
  *   signal_privacy_changed / signal_ceiling_proposal_changed → invalidate signal-privacy + ceiling-proposals
  *   signal_ceiling_vote_cast → invalidate ceiling-proposals + signal-privacy (tally lives in both, #3771)
+ *   decisions_policy_changed → invalidate decisions-policy (ADR-0167, #4283 — a peer's
+ *                  oversight-visibility consent toggle reaches an open Decisions panel live)
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   slip_conflict_acknowledged / slip_conflicts_updated → invalidate slip-conflicts (ADR-0120 D4, issue 1359)
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
@@ -1097,6 +1099,23 @@ function registerSignalPrivacyHandlers(on: OnFn, deps: WsHandlerDeps): void {
   });
 }
 
+// --- Decisions-view visibility consent (ADR-0167 §3, #4283) ---
+function registerDecisionsPolicyHandlers(on: OnFn, deps: WsHandlerDeps): void {
+  const { queryClient, projectIdRef } = deps;
+
+  // decisions_services.set_oversight_visible emits this on transaction.on_commit
+  // (ProjectDecisionsPolicyView.patch), but the write path previously broadcast
+  // nothing at all — a peer with the Decisions panel open silently rendered a
+  // stale oversight-visibility posture until their next full refetch. Payload is
+  // signal-only (id + the new value), so unconditionally invalidate rather than
+  // try to splice it; useDecisionsPolicy's cache key is ['decisions-policy', id].
+  on('decisions_policy_changed', () => {
+    void queryClient.invalidateQueries({
+      queryKey: ['decisions-policy', projectIdRef.current],
+    });
+  });
+}
+
 /**
  * Register every event_type → handler binding on `on`, grouped into focused
  * families. Each `register*` call is self-contained (it closes only over its
@@ -1113,6 +1132,7 @@ function registerEventHandlers(on: OnFn, deps: WsHandlerDeps): void {
   registerSprintHandlers(on, deps);
   registerMembershipAndBoardHandlers(on, deps);
   registerSignalPrivacyHandlers(on, deps);
+  registerDecisionsPolicyHandlers(on, deps);
 }
 
 // The hook-owned refs backing the trailing-invalidation debounce (#773).
