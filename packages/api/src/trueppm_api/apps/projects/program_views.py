@@ -87,6 +87,7 @@ from trueppm_api.apps.projects.models import (
     TaskType,
     format_short_id_display,
 )
+from trueppm_api.apps.projects.program_rollup import drift_counts_by_project
 from trueppm_api.apps.projects.serializers import (
     ProgramExportJobSerializer,
     ProgramImportJobSerializer,
@@ -2575,14 +2576,23 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         program = self.get_object()
         # Per-project overdue / at-risk counts (#560), so the Projects tab reads
-        # like a morning standup. Both are conditional COUNTs over the project's
-        # own tasks in the SAME query (no N+1) — distinct=True guards against the
-        # row-fanout that two filtered aggregates over one reverse relation would
-        # otherwise produce. "Incomplete" excludes COMPLETE and soft-deleted rows;
-        # "overdue" = past the CPM early_finish; "at-risk" reuses the canonical
-        # ≤5-working-days-of-float rule (cf. ProjectViewSet.status_summary).
+        # like a morning standup. "Incomplete" excludes COMPLETE and soft-deleted
+        # rows; "overdue" = past the CPM early_finish; "at-risk" reuses the
+        # canonical ≤5-working-days-of-float rule (cf. ProjectViewSet.status_summary).
+        #
+        # Computed below via program_rollup.drift_counts_by_project(), a grouped
+        # query over Task keyed by project_id (same shape as
+        # risk_counts_by_project), rather than an annotation on this Project
+        # queryset (#4276): leaf rows only — a phase's `total_float`/
+        # `early_finish` are rollups of its children (ADR-0024/ADR-0293), not
+        # facts about the phase row itself — and that exclusion's RawSQL names
+        # its own FROM table (`projects_task`) literally, which neither a
+        # reverse-FK `Count("tasks", filter=...)` (the join Django adds for
+        # `tasks` is not guaranteed to resolve to that bare name) nor a second
+        # correlated `Subquery` over `Task` stacked in the same `.annotate()`
+        # (Django disambiguates with `U0`/`U1` instead) can be relied on to
+        # preserve. See that function's docstring for why.
         today = timezone.localdate()
-        incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
         # ---------------------------------------------------------------------
         # THIS ACTION BUILDS ITS OWN QUERYSET, and therefore inherits NOTHING from
         # ProjectScopedViewSet.get_queryset — not its `pk__in=member_project_ids`
@@ -2624,25 +2634,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # only alongside a field that actually reads a calendar.
             .select_related("program")
             .annotate(
-                overdue_count=Count(
-                    "tasks",
-                    filter=incomplete & Q(tasks__early_finish__lt=today),
-                    distinct=True,
-                ),
-                at_risk_count=Count(
-                    "tasks",
-                    filter=incomplete
-                    & Q(tasks__total_float__isnull=False)
-                    & Q(tasks__total_float__lte=5),
-                    distinct=True,
-                ),
-                # Bulk-methodology impact preview counts (#3296). Subquery, not a
-                # fourth/fifth/sixth/seventh filtered Count alongside the two above:
-                # this row already carries a `distinct=True` fan-out guard for
-                # `tasks`, and stacking more joined aggregates over `tasks` /
-                # `baselines` / dependency edges multiplies that join rather than
-                # adding to it. Each Subquery below is its own single-column,
-                # single-group query plan instead.
+                # Bulk-methodology impact preview counts (#3296). Each is its own
+                # correlated Subquery — a single-column, single-group query plan
+                # over its own base model — rather than a filtered Count joined
+                # onto this Project queryset's `tasks` / `baselines` / dependency
+                # relations, which would multiply the join instead of adding to
+                # it. (overdue_count/at_risk_count moved off this queryset
+                # entirely, to program_rollup.drift_counts_by_project() — see the
+                # comment above this annotate() block.)
                 sprint_count=Coalesce(
                     Subquery(
                         Sprint.objects.filter(project=OuterRef("pk"))
@@ -2760,6 +2759,23 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # For an agent token it also sets `request._mcp_scope_filtered`, so the T8 audit
         # annotation now records the narrowing on this route as well.
         qs = self.filter_queryset(qs)
+        # Materialized here (one query — the queryset above, including every
+        # annotation, is still lazy up to this point) so overdue_count/
+        # at_risk_count can be attached as plain attributes from the
+        # drift_counts_by_project() dict (#4276) — the same `getattr(obj,
+        # "overdue_count", None)` read ProjectSerializer.get_overdue_count()
+        # already does, so neither the serializer nor its field declarations
+        # change. A second query (the grouped Task aggregate), not a per-row
+        # query: project_rows is the full bounded page, not one row at a time.
+        project_rows = list(qs)
+        drift_counts = drift_counts_by_project([p.id for p in project_rows], today)
+        for p in project_rows:
+            # Dynamic attributes, same as the other `_change_reason`-style
+            # non-field writes in this app — there is no model field to type
+            # them against, by design (see the comment above).
+            p.overdue_count, p.at_risk_count = drift_counts.get(  # type: ignore[attr-defined]
+                p.id, (0, 0)
+            )
         # Serialized WITH context (#3439). Be precise about why, because the obvious
         # reason is no longer the true one: of the 20 retained fields, the only two that
         # ever read `self.context["request"]` were `can_author` and
@@ -2777,7 +2793,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # request — and the two overridden getters are what keep the per-ROW cost at
         # zero. See the query-count test before changing either.
         return Response(
-            ProgramProjectRowSerializer(qs, many=True, context={"request": request}).data
+            ProgramProjectRowSerializer(project_rows, many=True, context={"request": request}).data
         )
 
     @extend_schema(

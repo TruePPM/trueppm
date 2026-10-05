@@ -737,6 +737,46 @@ class TestAttentionDriftSort:
         drifts = [_parse_drift(i) for i in drift_items]
         assert drifts == [7, 5, 3]
 
+    def test_critical_phase_baseline_drift_not_double_counted(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """#4276: same bug class as `_critical_late_items`'s phase exclusion
+        (test_critical_phase_with_stale_status_is_not_listed_late) — a phase's
+        `is_critical` is a rollup of its children (ADR-0024/ADR-0293), so a
+        phase would otherwise show up as its own baseline-drift item alongside
+        the leaf child whose finish it mirrors.
+        """
+        from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+        baseline = Baseline.objects.create(
+            project=project, name="B1", is_active=True, has_cpm_dates=True
+        )
+        today = datetime.date.today()
+        drifted = today + datetime.timedelta(days=5)
+        phase = make_task(
+            project,
+            name="Phase",
+            wbs_path="1",
+            is_critical=True,
+            early_finish=drifted,
+        )
+        child = make_task(
+            project,
+            name="Phase child",
+            wbs_path="1.1",
+            is_critical=True,
+            early_finish=drifted,
+        )
+        for t in (phase, child):
+            BaselineTask.objects.create(
+                baseline=baseline, task_id=t.pk, task_name=t.name, finish=today, duration=1
+            )
+
+        items = client.get(f"/api/v1/projects/{project.pk}/attention/").json()["items"]
+        drift_items = [i for i in items if i["type"] == "baseline_drift"]
+        # Leaf child only — the phase row would otherwise double-count it.
+        assert [i["task_name"] for i in drift_items] == ["Phase child"]
+
 
 # ---------------------------------------------------------------------------
 # Overview — SPI proxy uses baseline, allows SPI > 1.0 (#398)

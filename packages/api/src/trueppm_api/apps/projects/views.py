@@ -12834,6 +12834,11 @@ class ProjectAttentionView(APIView):
         # a day that is now at the END of the same day slipped a working day with
         # no change of shown day. The shown-day SQL filter can only over-select;
         # the working-time comparison below decides (#4197).
+        #
+        # Leaf rows only (#4276), same as `_critical_late_items` above: a phase's
+        # `is_critical` is a rollup of its children (ADR-0024/ADR-0293), not a
+        # fact about the phase row itself, so a phase would otherwise be listed
+        # here on top of the critical leaf whose value it rolled up.
         candidates = list(
             Task.objects.filter(
                 project=project,
@@ -12841,6 +12846,8 @@ class ProjectAttentionView(APIView):
                 is_critical=True,
                 early_finish__isnull=False,
             )
+            .annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=False)
             .annotate(
                 baseline_finish=Subquery(
                     active_baseline.tasks.filter(task_id=OuterRef("pk")).values("finish")[:1]

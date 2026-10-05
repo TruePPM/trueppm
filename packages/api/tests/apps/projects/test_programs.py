@@ -1712,6 +1712,49 @@ def test_projects_endpoint_counts_zero_with_no_qualifying_tasks(
 
 
 @pytest.mark.django_db
+def test_projects_endpoint_overdue_and_at_risk_counts_exclude_phase_rows(
+    owner: object, calendar: Calendar
+) -> None:
+    """A phase row must not inflate overdue_count/at_risk_count (#4276).
+
+    Same bug class as #4250/#4242: a phase's `total_float`/`early_finish` are
+    rollups of its children (ADR-0024/ADR-0293), not facts about the phase row
+    itself, so counting the phase on top of the leaf whose value it rolled up
+    double-counts that leaf.
+    """
+    program = _create_program(_client(owner))
+    project = Project.objects.create(
+        name="Phased", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    past = date(2020, 1, 1)
+    Task.objects.create(
+        project=project,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        total_float=-1,
+        early_finish=past,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    Task.objects.create(
+        project=project,
+        name="Phase child",
+        wbs_path="1.1",
+        duration=5,
+        total_float=-1,
+        early_finish=past,
+        status=TaskStatus.IN_PROGRESS,
+    )
+
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/projects/")
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data if r["id"] == str(project.pk))
+    # One leaf child only — the phase row would otherwise double-count it.
+    assert row["overdue_count"] == 1
+    assert row["at_risk_count"] == 1
+
+
+@pytest.mark.django_db
 def test_projects_endpoint_count_annotations_are_not_n_plus_one(
     owner: object, calendar: Calendar
 ) -> None:
