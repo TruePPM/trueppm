@@ -150,7 +150,10 @@ named. Include:
   and which are `n/a`, so the agent does not run the whole battery.
 - The scoped test command — the affected test file, not the whole suite.
 - The completion contract from Step 5 — it **stops and reports after Step 5.4**;
-  it does not push or open the MR itself. Step 6 explains why.
+  it does not push or open the MR itself. Tell it up front that **you will
+  resume it later**, after an independent completeness-check, to do the push and
+  open the MR (Step 6) — so that resumption reads as the plan, not as scope being
+  added to a finished task.
 
 Tell each agent explicitly:
 
@@ -184,7 +187,10 @@ itself (no re-delegation), so in a wave **you are the only legitimate source of
 that fresh agent.** Skip this step and completeness-check simply never runs on
 this branch — which is the gap that prompted writing this step down at all.
 
-For each issue, once its Step 5 agent reports:
+For each issue, once its Step 5 agent reports, first check the exemption
+`completeness-check/SKILL.md` already states — **dependency bumps, CI-config-only
+and chore branches with no behavior change** skip this step entirely, same as
+they skip `completeness-check` outside a wave. Otherwise:
 
 1. Spawn **one fresh `general-purpose` agent**. Give it the worktree path, the
    issue number(s) with comments, and any user decisions the branch implements —
@@ -203,7 +209,10 @@ For each issue, once its Step 5 agent reports:
    `SendMessage` is refused as out-of-scope (a stalled agent can read added scope
    as injection), do not retry it — brief a **fresh** agent instead with the
    worktree path, the findings, and the original issue context, and have it make
-   the fix as a new commit.
+   the fix as a new commit. **That replacement agent, not you, then also carries
+   items 7–10** — it is now the one with the worktree and the context to push and
+   open the MR; do not let the original agent's refusal become the orchestrator's
+   job by default.
 5. Re-check and trigger round 2 **per `completeness-check`'s own rule in its
    SKILL.md** — this step defers to that rule rather than restating it, so look
    there, not here, for the current trigger and shape.
@@ -220,10 +229,15 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    `glab mr create` directly. `/mr` is `disable-model-invocation` — an agent
    cannot call it and must not try. `.claude/skills/mr/SKILL.md` is the canonical
    format for both paths.
-9. Include `Closes #NNN` in the MR description, and a `## Gates` section with one
+9. Include `Closes #NNN` in the MR description, a `## Gates` section with one
    `gate: <name> — <N> findings` line per gate run, including every
-   completeness-check line from this step. `0 findings` is a real outcome; never
-   omit a zero, and never conflate `n/a` with `skipped`.
+   completeness-check line from this step (`0 findings` is a real outcome; never
+   omit a zero, never conflate `n/a` with `skipped`), and the `## Requirements`
+   table `mr/SKILL.md` requires in every MR. Build it yourself from the
+   acceptance criteria and the completeness-check auditor's step-1
+   (requirements-traceability) findings — step 1's output is prose, not a
+   ready-made table — and hand the table to this agent; it has no other way to
+   see either the criteria or the audit's findings.
 10. **Never merge.** Hand back the MR URL and stop.
 
 The agent reports back: MR URL, the full gate ledger, the commit SHA, and
@@ -255,9 +269,8 @@ An agent that produced no commit costs the same as one that shipped. Re-brief it
 with what was missing, or take the issue over yourself; do not report it as done.
 
 Also check the MR description's `## Gates` section actually carries a
-`completeness-check` line (and a `round 2` / `/fix-diff` line if Step 6 triggered
-one). Its absence means Step 6 was skipped under time pressure, not that the
-branch had nothing to find.
+`completeness-check` line, and a `round 2` line if round 2 ran. Its absence means
+Step 6 was skipped under time pressure, not that the branch had nothing to find.
 
 ## Step 8 — Report
 
