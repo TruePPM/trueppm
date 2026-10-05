@@ -1336,7 +1336,12 @@ docs:version-accuracy:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash grep sed findutils python3 perl-utils
+    - apk add --no-cache bash grep sed findutils python3 perl-utils git
+    # The pinned "latest release" check (#4106) reads tag names. The default
+    # shallow clone carries none, and a tag-only fetch at depth 1 is cheap
+    # (tag refs, not history). Without git the check would skip with a NOTE on
+    # every run and never fail.
+    - git fetch --quiet --depth=1 origin 'refs/tags/*:refs/tags/*'
   script:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
