@@ -142,25 +142,33 @@ Three things about it are operator-visible:
   duplicates, expect some tasks to appear under different WBS codes afterward.
 :::
 
-:::caution[Three 0.4 migrations build indexes on `projects_task` without `CONCURRENTLY`]
-Three migrations new in 0.4 add an index to the task table with a plain
-`CREATE INDEX`, which takes a lock that **blocks writes** to `projects_task`
-(inserts, updates and deletes; reads continue) for as long as each index takes
-to build. Other index builds on this table in 0.4 use `CONCURRENTLY` to avoid
-exactly this; these three do not.
+:::caution[Four 0.4 index builds and one constraint lock `projects_task` for their duration]
+Several migrations new or changed in 0.4 add an index or a constraint to the
+task table with a non-concurrent statement. Each of these takes a lock on
+`projects_task` for as long as it runs. The index builds below hold a lock that
+**blocks writes** (inserts, updates and deletes; reads continue). The constraint
+below holds a lock that **blocks reads as well**.
 
 - `projects.0104_historicalproject_stale_task_threshold_days_and_more` builds
-  `task_status_changed_idx`.
+  `task_status_changed_idx` with a plain `CREATE INDEX`.
+- `projects.0128_acceptancecriterion_sync_seq_apitoken_sync_seq_and_more` builds
+  `task_proj_syncseq_idx` with a plain `CREATE INDEX`.
 - `projects.0134_task_edited_at_task_seeded_at_task_source_id_and_more` builds
-  `task_untouched_seeded_idx`.
-- `projects.0152_aggregate_task_wbs_name_idx` builds `task_proj_wbs_name_idx`.
+  `task_untouched_seeded_idx` with a plain `CREATE INDEX`.
+- `projects.0152_aggregate_task_wbs_name_idx` builds `task_proj_wbs_name_idx`
+  with a plain `CREATE INDEX`.
+- `projects.0121_task_three_point_estimate_ordered` adds the CHECK constraint
+  `task_three_point_estimate_ordered` with a plain `ADD CONSTRAINT`, which
+  validates every row. The migration runs a repair step first that clears
+  mis-ordered three-point estimates, so the risk here is lock time, not a
+  crash loop.
 
 The build time grows with the number of task rows, so on a large install,
-task writes pause for that long on each index. Writes from an old pod during a
-rolling deploy also wait on the lock. We have not measured a per-million-rows
-figure for these builds; to size the window, time one on a restored copy of
-your database before you upgrade, and schedule the upgrade for a quiet period
-when task writes can pause.
+task writes (and, for the constraint, reads) pause for that long on each step.
+Writes from an old pod during a rolling deploy also wait on the lock. We have
+not measured a per-million-rows figure for these operations; to size the window,
+time one on a restored copy of your database before you upgrade, and schedule
+the upgrade for a quiet period when task traffic is low.
 :::
 
 **Known transient-500 windows on multi-replica installs.** Three of the five
