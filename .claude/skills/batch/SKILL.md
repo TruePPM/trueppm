@@ -129,9 +129,9 @@ Sonnet work.
 
 **Read-only gates always run on Sonnet.** `regression-check`, `rbac-check`,
 `perf-check`, `security-review`, `broadcast-check`, `migration-check` read a diff
-and report findings. None needs Opus. The one exception is `completeness-check`,
-which escalates to Opus on the same criteria listed above — it hunts for what the
-diff does *not* contain, which is reasoning, not pattern-matching (see its skill).
+and report findings. None needs Opus. `completeness-check` is the one exception,
+and it is not a gate this agent runs on itself — Step 6 covers why and how, and
+uses the same tier as this agent's own escalation call.
 
 ### The brief
 
@@ -149,7 +149,8 @@ named. Include:
 - The exact gates that apply to this diff (from the `CLAUDE.md` fast-path table),
   and which are `n/a`, so the agent does not run the whole battery.
 - The scoped test command — the affected test file, not the whole suite.
-- The completion contract from Step 5.
+- The completion contract from Step 5 — it **stops and reports after Step 5.4**;
+  it does not push or open the MR itself. Step 6 explains why.
 
 Tell each agent explicitly:
 
@@ -160,29 +161,71 @@ Tell each agent explicitly:
 - **Stop and report** if blocked after two attempts at the same failure, rather
   than looping. A stuck agent is the 166M case.
 
-## Step 5 — Completion contract
+## Step 5 — Finish the code, then stop
 
-Every agent finishes by, in order:
+Every agent finishes the code itself by, in order:
 
 1. Tests and docs in the **same commit** as the code change.
 2. A changelog fragment at `changelog.d/<issue>.<type>.md`, unless the change is
    exempt (chore/ci/docs, or the MR carries `no-changelog`).
 3. `make pre-push` green. Log it to a **file** — piping it through `tail` loses
    the diagnostic and an OOM kill reads as a bare `exit 144`.
-4. Push the branch.
-5. **Open the MR itself**, reproducing the `/mr` skill's format by running
+4. **Stop and report back** — commit SHA, worktree path, which gates from the
+   `CLAUDE.md` fast-path table it ran and their findings. **It does not push and
+   does not open the MR.** Step 6 runs against the not-yet-pushed branch; pushing
+   first would just mean redoing the push after completeness-check's fixes.
+
+## Step 6 — Completeness-check, run by you, before push
+
+`completeness-check` (`.claude/skills/completeness-check/SKILL.md`) requires an
+agent that did not write the branch — never the Step 5 agent, never reached via
+`SendMessage` to it. Step 4 already forbids the Step 5 agent from spawning one
+itself (no re-delegation), so in a wave **you are the only legitimate source of
+that fresh agent.** Skip this step and completeness-check simply never runs on
+this branch — which is the gap that prompted writing this step down at all.
+
+For each issue, once its Step 5 agent reports:
+
+1. Spawn **one fresh `general-purpose` agent**. Give it the worktree path, the
+   issue number(s) with comments, and any user decisions the branch implements —
+   not your own notes on what Step 5 already checked; a list of known findings
+   anchors the audit on them. Pass `model` explicitly:
+   - **`opus`** if this issue's Step 4 implementing agent ran on Opus (i.e. met
+     one of this skill's escalation criteria) — same tier in, same tier checking.
+   - **`sonnet`** otherwise.
+2. Read its `BLOCKERS` / `GAPS` / `CLEAN` report.
+3. Clean → record `gate: completeness-check — 0 findings (<model>)` and go
+   straight to pushing (item 7 below).
+4. Findings → hand them to the **same Step 5 agent** (`SendMessage` — it is
+   stalled, not gone) to fix, with the exact BLOCKER/GAP text. It fixes, re-runs
+   the affected tests with negative controls, and reports back.
+5. Re-check per `completeness-check`'s own rule, which this step defers to rather
+   than restates: a **narrow** re-check (fresh agent, same model, scoped to the
+   fix diff only, once) by default; a **full round 2** (fresh agent, `opus`
+   regardless of tier, same brief as round 1 but never its findings) if round 1
+   reported a BLOCKER tagged `class-missed` or `collateral`, or four or more
+   BLOCKERS+GAPS total. Stop after round 2 — a branch still failing goes back to
+   the user, not to a round 3.
+6. Record every round on the ledger exactly as `completeness-check`'s own SKILL.md
+   specifies (`round 2` / `/fix-diff` markers, cause tags, overlap count).
+
+Only once this clears does the Step 5 agent, resumed, finish the branch:
+
+7. Push the branch.
+8. **Open the MR itself**, reproducing the `/mr` skill's format by running
    `glab mr create` directly. `/mr` is `disable-model-invocation` — an agent
    cannot call it and must not try. `.claude/skills/mr/SKILL.md` is the canonical
    format for both paths.
-6. Include `Closes #NNN` in the MR description, and a `## Gates` section with one
-   `gate: <name> — <N> findings` line per gate run. `0 findings` is a real
-   outcome; never omit a zero, and never conflate `n/a` with `skipped`.
-7. **Never merge.** Hand back the MR URL and stop.
+9. Include `Closes #NNN` in the MR description, and a `## Gates` section with one
+   `gate: <name> — <N> findings` line per gate run, including every
+   completeness-check line from this step. `0 findings` is a real outcome; never
+   omit a zero, and never conflate `n/a` with `skipped`.
+10. **Never merge.** Hand back the MR URL and stop.
 
-The agent reports back: MR URL, the gate ledger, the commit SHA, and anything it
-deliberately left undone.
+The agent reports back: MR URL, the full gate ledger, the commit SHA, and
+anything it deliberately left undone.
 
-## Step 6 — Verify before you believe it
+## Step 7 — Verify before you believe it
 
 **An agent reporting "done" is not evidence.** The known failure mode is a
 subagent that stops at the first gate artifact and reports success — 3 of 5 in
@@ -207,7 +250,12 @@ summary describes what landed.
 An agent that produced no commit costs the same as one that shipped. Re-brief it
 with what was missing, or take the issue over yourself; do not report it as done.
 
-## Step 7 — Report
+Also check the MR description's `## Gates` section actually carries a
+`completeness-check` line (and a `round 2` / `/fix-diff` line if Step 6 triggered
+one). Its absence means Step 6 was skipped under time pressure, not that the
+branch had nothing to find.
+
+## Step 8 — Report
 
 One table: issue, model used, MR, pipeline status, commits, gate findings. Then
 state plainly:
@@ -235,6 +283,9 @@ Cache reads were 95.9% of the measured spend. Each of these cuts
 - **Pre-MR gates as one parallel batch**, never serially (#526).
 - **Apply only the gates the diff earns** — the `CLAUDE.md` fast-path table is
   authoritative. A bugfix with a known root cause does not need `architect`.
+- **`completeness-check` runs between Step 5 and the push, spawned by you, not by
+  the implementing agent** — it is the one gate the implementing agent
+  structurally cannot run on itself (Step 6).
 - **No re-delegation** from inside an agent.
 - **Two-strike rule**: an agent stuck on the same failure twice stops and reports.
 - **Long-running work goes to the background**, not to a polling loop.
