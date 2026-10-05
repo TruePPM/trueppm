@@ -96,6 +96,7 @@ def test_get_list_returns_saved_views(pm_client, pm, project):
     assert len(data) == 1
     assert data[0]["name"] == "My view"
     assert data[0]["config"]["sort"] == "priority"
+    assert data[0]["created_by"] == pm.pk
 
 
 def test_get_list_requires_auth(client, project):
@@ -145,6 +146,9 @@ def test_post_sets_created_by(pm_client, pm, project):
     assert resp.status_code == 201
     view = BoardSavedView.objects.get(pk=resp.json()["id"])
     assert view.created_by == pm
+    # #4290: an integer PK on the wire, not the stringified PK of the 0.4 betas.
+    assert resp.json()["created_by"] == pm.pk
+    assert isinstance(resp.json()["created_by"], int)
 
 
 def test_post_rejects_duplicate_name(pm_client, pm, project):

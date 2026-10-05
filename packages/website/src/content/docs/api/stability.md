@@ -313,6 +313,26 @@ deprecation window rather than being removed outright:
    `drop` instead: an empty body behaves the same, and an optional `note` (up to 1000
    characters) is new.
 
+   **Bypassed an eleventh time, in 0.4 (#4290).** `created_by` changes type on four
+   response schemas between betas, with no deprecation window. On `ShareLink`,
+   `ShareLinkCreateResponse` (`/api/v1/projects/{id}/share-links/`) and
+   `ExternalStakeholder` (`/api/v1/programs/{id}/external-stakeholders/`) it carried the
+   creator's **display name**; on `BoardSavedView` (`/api/v1/projects/{id}/board-views/`)
+   it carried the creator's user id as a **string**. All four now carry the creator's
+   **integer user id**, which is what `created_by` means on every other schema, and is
+   `null` once that user is deleted. The display name moves to a new
+   `created_by_name` field on the three schemas that had it, following the existing
+   `*_name` convention (`owner_name`, `actor_name`, `assignee_name`).
+
+   Changing a field's type is **Breaking** by the table above. The exception is
+   available because all four surfaces are new in 0.4 and have only appeared in beta
+   tags. After `0.4.0` the same change would need a full window. Before this change a
+   client could not join `created_by` across resources, and a display name never
+   parses as an id. A client that rendered `created_by` on a share link or external
+   stakeholder should read `created_by_name` instead. A client that compared a board
+   view's `created_by` to a user id should compare it as a number. `/auth/me/` still
+   returns `id` as a decimal string, so convert one side before you compare.
+
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for
    removals after GA.

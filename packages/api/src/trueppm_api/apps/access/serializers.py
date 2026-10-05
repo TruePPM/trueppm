@@ -649,22 +649,32 @@ class ProgramUserDefinedMentionGroupWriteSerializer(
 class ExternalStakeholderSerializer(serializers.ModelSerializer[ExternalStakeholder]):
     """CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).
 
-    ``created_by`` is echoed as the adder's display name (never the raw user row);
+    ``created_by`` is the adder's integer user PK (the wire meaning it has on every
+    other schema) and ``created_by_name`` their display name, never the raw user row;
     ``program`` comes from the URL and is never accepted from the body (IDOR-safe —
     the viewset scopes and stamps it). Case-insensitive per-program email uniqueness
     is validated here so the client gets a friendly field error instead of the DB
     constraint's 500 on the race loser.
     """
 
-    created_by = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = ExternalStakeholder
-        fields = ["id", "name", "email", "note", "created_by", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "name",
+            "email",
+            "note",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_by", "created_by_name", "created_at", "updated_at"]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_created_by(self, obj: ExternalStakeholder) -> str | None:
+    def get_created_by_name(self, obj: ExternalStakeholder) -> str | None:
         user = obj.created_by
         if user is None:
             return None

@@ -153,7 +153,7 @@ describe('BoardViewDropdown', () => {
           name: 'Sprint 7',
           config: DEFAULT_CONFIG,
           schemaVersion: 1,
-          createdBy: 'user-1',
+          createdBy: 7,
           serverVersion: 1,
           createdAt: '2026-01-01T00:00:00Z',
           updatedAt: '2026-01-01T00:00:00Z',
@@ -170,7 +170,7 @@ describe('BoardViewDropdown', () => {
         typeof savedViewsHook.useBoardSavedViews
       >['remove'],
     });
-    renderDropdown({ currentUserId: 'user-1' });
+    renderDropdown({ currentUserId: '7' });
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
     expect(screen.getByText('Sprint 7')).toBeInTheDocument();
   });
@@ -188,7 +188,7 @@ describe('BoardViewDropdown', () => {
           name: 'Sprint 7',
           config: DEFAULT_CONFIG,
           schemaVersion: 1,
-          createdBy: 'user-1',
+          createdBy: 7,
           serverVersion: 1,
           createdAt: '2026-01-01T00:00:00Z',
           updatedAt: '2026-01-01T00:00:00Z',
@@ -205,12 +205,47 @@ describe('BoardViewDropdown', () => {
         typeof savedViewsHook.useBoardSavedViews
       >['remove'],
     });
-    renderDropdown({ currentUserId: 'user-1' });
+    renderDropdown({ currentUserId: '7' });
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
     const deleteButton = screen.getByLabelText('Delete view "Sprint 7"');
     expect(deleteButton.className).toContain('opacity-0');
     expect(deleteButton.className).toContain('group-hover:opacity-100');
     expect(deleteButton.className).toContain('focus:opacity-100');
+  });
+
+  it('matches the integer createdBy against the string /auth/me id, and hides delete for another user (#4290)', () => {
+    vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
+      views: [
+        {
+          id: 'sv-mine',
+          name: 'Mine',
+          config: DEFAULT_CONFIG,
+          schemaVersion: 1,
+          createdBy: 7,
+          serverVersion: 1,
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          id: 'sv-theirs',
+          name: 'Theirs',
+          config: DEFAULT_CONFIG,
+          schemaVersion: 1,
+          createdBy: 8,
+          serverVersion: 1,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      isLoading: false,
+      create: { mutate: vi.fn(), isPending: false },
+      update: { mutate: vi.fn(), isPending: false },
+      remove: { mutate: vi.fn(), isPending: false },
+    } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>);
+    renderDropdown({ currentUserId: '7' });
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.getByLabelText('Delete view "Mine"')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Delete view "Theirs"')).not.toBeInTheDocument();
   });
 
   it('applies saved view on click', () => {
@@ -221,7 +256,7 @@ describe('BoardViewDropdown', () => {
           name: 'Sprint 7',
           config: { ...DEFAULT_CONFIG, showCost: true },
           schemaVersion: 1,
-          createdBy: 'user-1',
+          createdBy: 7,
           serverVersion: 1,
           createdAt: '2026-01-01T00:00:00Z',
           updatedAt: '2026-01-01T00:00:00Z',
@@ -238,7 +273,7 @@ describe('BoardViewDropdown', () => {
         typeof savedViewsHook.useBoardSavedViews
       >['remove'],
     });
-    const { onApply } = renderDropdown({ currentUserId: 'user-1' });
+    const { onApply } = renderDropdown({ currentUserId: '7' });
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
     fireEvent.click(screen.getByText('Sprint 7'));
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ showCost: true }), 'sv-1');

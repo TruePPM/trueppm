@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.models import ShareContentKind, ShareLink
@@ -28,7 +29,14 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
     returned once, in the create response, via ``ShareLinkCreateResponseSerializer``.
     """
 
-    created_by = serializers.SerializerMethodField()
+    # ``created_by`` is the creator's integer user PK — the same wire meaning it has
+    # on every other schema — and ``created_by_name`` carries the display name, per
+    # the ``*_name`` convention. Both are null once the creator is deleted
+    # (``on_delete=SET_NULL``).
+    created_by: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
+        read_only=True, allow_null=True
+    )
+    created_by_name = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -41,6 +49,7 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
             "show_assignees",
             "show_milestone_dates",
             "created_by",
+            "created_by_name",
             "created_at",
             "expires_at",
             "revoked_at",
@@ -51,7 +60,8 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
         ]
         read_only_fields = fields
 
-    def get_created_by(self, obj: ShareLink) -> str | None:
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_created_by_name(self, obj: ShareLink) -> str | None:
         user = obj.created_by
         if user is None:
             return None

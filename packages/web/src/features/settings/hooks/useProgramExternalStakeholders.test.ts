@@ -30,7 +30,8 @@ const STAKEHOLDER = {
   name: 'Jane Client',
   email: 'jane@client.com',
   note: 'VP Sponsor',
-  created_by: 'alice',
+  created_by: 3,
+  created_by_name: 'alice',
   created_at: '2026-06-01T00:00:00Z',
   updated_at: '2026-06-01T00:00:00Z',
 };

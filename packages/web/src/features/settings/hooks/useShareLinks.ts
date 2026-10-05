@@ -16,7 +16,10 @@ export interface ShareLink {
   showAssignees: boolean;
   /** Schedule links only — when false the public schedule omits milestone rows. */
   showMilestoneDates: boolean;
-  createdBy: string | null;
+  /** Creator's integer user PK; null once the creator is deleted. */
+  createdBy: number | null;
+  /** Creator's display name, for the "Created by" line. */
+  createdByName: string | null;
   createdAt: string;
   expiresAt: string | null;
   revokedAt: string | null;
@@ -39,7 +42,8 @@ interface ShareLinkRaw {
   label: string;
   show_assignees: boolean;
   show_milestone_dates: boolean;
-  created_by: string | null;
+  created_by: number | null;
+  created_by_name: string | null;
   created_at: string;
   expires_at: string | null;
   revoked_at: string | null;
@@ -63,6 +67,7 @@ function mapLink(raw: ShareLinkRaw): ShareLink {
     showAssignees: raw.show_assignees,
     showMilestoneDates: raw.show_milestone_dates,
     createdBy: raw.created_by,
+    createdByName: raw.created_by_name,
     createdAt: raw.created_at,
     expiresAt: raw.expires_at,
     revokedAt: raw.revoked_at,

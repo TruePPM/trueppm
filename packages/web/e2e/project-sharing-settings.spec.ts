@@ -48,7 +48,8 @@ const FIXTURE_LINK = {
   label: 'Client board',
   show_assignees: false,
   show_milestone_dates: true,
-  created_by: 'Alice',
+  created_by: 1,
+  created_by_name: 'Alice',
   created_at: '2026-05-01T00:00:00Z',
   expires_at: null,
   revoked_at: null,
@@ -107,6 +108,8 @@ test.describe('Project Settings → Sharing (#283 / #1486)', () => {
 
     const sharing = page.getByRole('region', { name: 'Sharing', exact: true });
     await expect(sharing.getByText('Client board')).toBeVisible();
+    // The creator is named from `created_by_name`; `created_by` is the integer PK (#4290).
+    await expect(sharing.getByText(/Created by Alice/)).toBeVisible();
   });
 
   // Before the fix, `links` fell through to `?? []` on a failed GET, which

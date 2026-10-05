@@ -671,7 +671,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
             id: 'sv-e2e-1',
             name: body.name,
             config: body.config,
-            created_by: 'e2e-user',
+            created_by: 1,
             server_version: 1,
             created_at: '2026-01-01T00:00:00Z',
             updated_at: '2026-01-01T00:00:00Z',
