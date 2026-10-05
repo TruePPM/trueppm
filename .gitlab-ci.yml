@@ -5627,6 +5627,11 @@ sso:integration:
         - packages/web/src/features/settings/workspace/SsoProviderPanel.tsx
         - packages/web/src/features/settings/workspace/ssoProviders.ts
         - packages/web/src/features/settings/workspace/WorkspaceSsoPage.tsx
+        # An allauth/oauthlib re-lock (#4308) must exercise the real-IdP round
+        # trip before merge — this is the only job that does, and a bare
+        # pyproject.toml range change doesn't move the api/pyproject.toml path
+        # above, only the lock that pins the resolved version.
+        - packages/api/uv.lock
   cache:
     - key:
         files:
