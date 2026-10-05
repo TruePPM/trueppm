@@ -1141,6 +1141,27 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         await client.aclose()
 
 
+async def test_get_schedule_summary_description_does_not_promise_spi(
+    settings: Settings,
+) -> None:
+    """The registered tool description must not claim a field the tool never sets.
+
+    ``_get_schedule_summary`` only ever reads ``/forecast/`` and a critical-task
+    count (#4301) — neither produces an ``spi`` key — so an MCP client reading the
+    tool's own contract must not be told SPI is part of the answer (regression for
+    #4301, where a model asked "what's the SPI?" would otherwise be told the field
+    exists and fill the gap with an invented value instead of a citation).
+    """
+    client = _client(settings, {})
+    server = build_server(client)
+    try:
+        tool = server._tool_manager.get_tool("get_schedule_summary")
+        assert tool is not None
+        assert "SPI" not in tool.description
+    finally:
+        await client.aclose()
+
+
 def test_base_url_prefix_is_stable() -> None:
     """Guards the ``/api/v1/`` prefix the route table strips (belt-and-suspenders)."""
     assert API_PREFIX == "/api/v1/"

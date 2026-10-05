@@ -772,7 +772,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
     @server.tool()
     async def get_schedule_summary(project_id: str) -> dict[str, Any]:
-        """CPM finish, Monte Carlo P50/P80/P95, SPI, and critical-task count.
+        """CPM finish, Monte Carlo P50/P80/P95, and critical-task count.
 
         Includes a compact ``why`` — the CPM finish and how many critical-path tasks
         drive it — so the summary is explained by default. Call
