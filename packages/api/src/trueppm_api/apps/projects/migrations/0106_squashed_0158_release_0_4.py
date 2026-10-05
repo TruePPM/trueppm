@@ -27,6 +27,8 @@ def _original(app: str, module: str, name: str) -> Any:
     migration rule 6); a callable may only be deleted from its original module
     after its body is copied into this file.
     """
+    # Every call site passes a constant app/module/name from this file, never user input.
+    # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
     return getattr(importlib.import_module(f"trueppm_api.apps.{app}.migrations.{module}"), name)
 
 
