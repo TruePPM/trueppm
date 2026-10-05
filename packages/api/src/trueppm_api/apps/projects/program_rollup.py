@@ -226,11 +226,18 @@ def top_contributing_project(program: Program) -> dict[str, Any] | None:
     if not ranked:
         return None
 
+    # Leaf rows only (#4276): a phase's `is_critical` is a rollup of its children
+    # (ADR-0024/ADR-0293, `_rollup_one_summary`), not a fact about the phase row
+    # itself, so counting the phase on top of the leaf whose value it rolled up
+    # double-counts that leaf and can tip the worst-project tie-break. See
+    # task_is_phase_expr's docstring.
     critical_counts = {
         r["project_id"]: r["c"]
         for r in (
             Task.objects.filter(project_id__in=project_ids, is_deleted=False, is_critical=True)
             .exclude(status__in=_ACTIVE_EXCLUDE)
+            .annotate(_is_phase=task_is_phase_expr())
+            .filter(_is_phase=False)
             .values("project_id")
             .annotate(c=Count("id"))
         )
@@ -293,6 +300,60 @@ def task_is_phase_expr() -> RawSQL:
         [],
         output_field=BooleanField(),
     )
+
+
+def drift_counts_by_project(
+    project_ids: Collection[Any], today: datetime.date
+) -> dict[Any, tuple[int, int]]:
+    """project_id → ``(overdue_count, at_risk_count)`` for the program's project roster.
+
+    Same semantics as ``ProgramViewSet.projects`` (#560): incomplete tasks only
+    (``status`` != COMPLETE), leaf rows only. A phase's ``total_float`` and
+    ``early_finish`` are rollups of its children
+    (``scheduling.services._rollup_one_summary``) — not facts about the phase row
+    itself (ADR-0024/ADR-0293) — so counting the phase on top of the leaf whose
+    value it rolled up double-counts that leaf (#4276). See :func:`task_is_phase_expr`.
+
+    Built as a grouped query over ``Task`` rather than a reverse-FK
+    ``Count("tasks", filter=...)`` annotation — or a per-row correlated
+    ``Subquery`` — on a ``Project`` queryset, for the same reason as
+    :func:`risk_counts_by_project`: :func:`task_is_phase_expr`'s ``RawSQL`` names
+    its own FROM table (``projects_task``) literally, and that bare name is not
+    guaranteed once more than one reference to ``Task`` shares the same compiled
+    statement. A *joined* reverse-FK Count aliases the join; a *second*
+    correlated ``Subquery`` over ``Task`` in the same ``.annotate()`` call hits
+    the identical problem the other way (Django assigns ``U0``/``U1`` to
+    disambiguate the two subqueries' own FROM clauses) — confirmed by a failing
+    ``invalid reference to FROM-clause entry for table "projects_task"`` when
+    ``overdue_count`` and ``at_risk_count`` were each tried as their own
+    Subquery here. Keeping ``Task`` as the base model of one standalone query,
+    same shape as :func:`spi_counts_by_project`/:func:`risk_counts_by_project`,
+    side-steps both failure modes.
+
+    Projects with no qualifying leaf work are absent from the dict — callers
+    read with ``.get(pid, (0, 0))``.
+    """
+    if not project_ids:
+        return {}
+    incomplete = ~Q(status=TaskStatus.COMPLETE)
+    rows = (
+        Task.objects.filter(project_id__in=list(project_ids), is_deleted=False)
+        .filter(incomplete)
+        # Narrow before the correlated is_phase EXISTS runs (same reasoning as
+        # risk_counts_by_project's round-2 fix, #4250): a row that cannot
+        # contribute to either Count below no matter what _is_phase turns out
+        # to be is excluded first, so the per-row ltree EXISTS only runs for
+        # rows whose answer can matter.
+        .filter(Q(early_finish__lt=today) | (Q(total_float__isnull=False) & Q(total_float__lte=5)))
+        .annotate(_is_phase=task_is_phase_expr())
+        .filter(_is_phase=False)
+        .values("project_id")
+        .annotate(
+            overdue=Count("id", filter=Q(early_finish__lt=today)),
+            at_risk=Count("id", filter=Q(total_float__isnull=False) & Q(total_float__lte=5)),
+        )
+    )
+    return {r["project_id"]: (r["overdue"], r["at_risk"]) for r in rows}
 
 
 def spi_counts_by_project(
@@ -718,18 +779,32 @@ def _schedule_variance_by_project(project_ids: list[Any]) -> dict[Any, float]:
 
 
 def _critical_task_total(project_ids: list[Any]) -> int:
-    """Total open critical-path tasks across the program."""
+    """Total open critical-path tasks across the program.
+
+    Leaf rows only (#4276): a phase's `is_critical` is a rollup of its children
+    (ADR-0024/ADR-0293, `_rollup_one_summary`: `is_critical = any(child.is_critical)`),
+    not a fact about the phase row itself, so counting the phase on top of the
+    leaf whose value it rolled up double-counts that leaf and inflates this
+    program-total KPI. See :func:`task_is_phase_expr`.
+    """
     if not project_ids:
         return 0
     return (
         Task.objects.filter(project_id__in=project_ids, is_deleted=False, is_critical=True)
         .exclude(status__in=_ACTIVE_EXCLUDE)
+        .annotate(_is_phase=task_is_phase_expr())
+        .filter(_is_phase=False)
         .count()
     )
 
 
 def _at_risk_task_total(project_ids: list[Any]) -> int:
-    """Total open tasks with ≤ 5 working days of float across the program."""
+    """Total open tasks with ≤ 5 working days of float across the program.
+
+    Leaf rows only (#4276), same rollup reasoning as :func:`_critical_task_total`:
+    a phase's `total_float` is `min(child floats)` (ADR-0024/ADR-0293), not a fact
+    about the phase row itself.
+    """
     if not project_ids:
         return 0
     return (
@@ -740,6 +815,8 @@ def _at_risk_task_total(project_ids: list[Any]) -> int:
             total_float__lte=5,
         )
         .exclude(status__in=_ACTIVE_EXCLUDE)
+        .annotate(_is_phase=task_is_phase_expr())
+        .filter(_is_phase=False)
         .count()
     )
 

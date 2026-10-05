@@ -293,6 +293,111 @@ def test_schedule_health_average_blends_to_at_risk(
     assert data["kpis"]["schedule_health"]["value"] == "at_risk"
 
 
+# ---------------------------------------------------------------------------
+# Program-total KPIs — phase exclusion (#4276, sibling of #4250)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_critical_and_at_risk_totals_exclude_phase_rows(
+    member: object, program: Program, calendar: Calendar
+) -> None:
+    """A phase row must not inflate critical_tasks/at_risk_tasks program totals.
+
+    Same bug class as #4250: a phase's `is_critical`/`total_float` are rollups
+    of its children (`scheduling.services._rollup_one_summary`, ADR-0024/
+    ADR-0293), not facts about the phase row itself, so `_critical_task_total`/
+    `_at_risk_task_total` must exclude it the same way `task_is_phase_expr()`
+    excludes it everywhere else.
+    """
+    a = _project(program, calendar, "A")
+    Task.objects.create(
+        project=a,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        is_critical=True,
+        total_float=0,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    Task.objects.create(
+        project=a,
+        name="Phase child",
+        wbs_path="1.1",
+        duration=5,
+        is_critical=True,
+        total_float=0,
+        status=TaskStatus.IN_PROGRESS,
+    )
+
+    _configure(
+        program,
+        [RollupKpi.CRITICAL_TASKS.value, RollupKpi.AT_RISK_TASKS.value],
+        AggregationPolicy.WORST.value,
+    )
+    kpis = _client(member).get(_url(program)).data["kpis"]
+    # One real leaf child only — the phase row would otherwise double it.
+    assert kpis["critical_tasks"]["value"] == 1
+    assert kpis["at_risk_tasks"]["value"] == 1
+
+
+@pytest.mark.django_db
+def test_top_contributing_project_tie_break_excludes_phase_rows(
+    program: Program, calendar: Calendar
+) -> None:
+    """The worst-project tie-break's critical_counts must not double-count a
+    phase on top of the leaf whose `is_critical` it rolled up (#4276).
+
+    Both projects land in the same health band (critical, SPI 0 via
+    :func:`_make_critical_project`). Project "AAA" has ONE real critical leaf
+    wrapped in a phase; project "BBB" has TWO separate critical leaf tasks.
+    Unfixed, the phase inflates "AAA"'s count to a tie (2 vs 2), and the
+    tie-break's ascending-name fallback then picks "AAA" — the wrong project,
+    since it has the smaller base of real critical work.
+    """
+    from trueppm_api.apps.projects.program_rollup import top_contributing_project
+
+    a = _make_critical_project(program, calendar, "AAA")
+    Task.objects.create(
+        project=a,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        is_critical=True,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    Task.objects.create(
+        project=a,
+        name="Phase child",
+        wbs_path="1.1",
+        duration=5,
+        is_critical=True,
+        status=TaskStatus.IN_PROGRESS,
+    )
+
+    b = _make_critical_project(program, calendar, "BBB")
+    Task.objects.create(
+        project=b,
+        name="Leaf 1",
+        wbs_path="1",
+        duration=5,
+        is_critical=True,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    Task.objects.create(
+        project=b,
+        name="Leaf 2",
+        wbs_path="2",
+        duration=5,
+        is_critical=True,
+        status=TaskStatus.IN_PROGRESS,
+    )
+
+    worst = top_contributing_project(program)
+    assert worst is not None
+    assert worst["name"] == "BBB"
+
+
 @pytest.mark.django_db
 def test_spi_counts_has_cpm_dates_false_baseline_matches_no_baseline_path(
     program: Program, calendar: Calendar
