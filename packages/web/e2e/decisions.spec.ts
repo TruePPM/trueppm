@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/coverage';
+import { test, expect, type WebSocketRoute } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
 
 /**
@@ -242,5 +242,82 @@ test.describe('Decisions view — empty + locked states', () => {
     await expect(page.getByText(/A project admin can extend visibility/)).toBeVisible();
     // The consent switch is absent for a non-admin.
     await expect(page.getByRole('switch', { name: 'Oversight visibility' })).toHaveCount(0);
+  });
+});
+
+test.describe('Decisions view — live oversight-visibility sync (#4283)', () => {
+  // Proves the issue's own test-plan line: a peer (Member+) with the Decisions
+  // panel open sees another admin's oversight-visibility toggle reflected in
+  // OversightConsentControl without a manual refetch. The API half (the
+  // broadcast firing, deferred to on_commit) is covered by pytest; the
+  // invalidation wiring is covered by useProjectWebSocket.test.ts. What only an
+  // E2E can show is the thing those two don't touch: the real control, with its
+  // real accessible role (`switch`, not `checkbox`) and name, actually flips in
+  // a real browser off the back of a real socket message — no reload.
+  //
+  // The decisions-policy route is STATEFUL (reads a closure variable) rather
+  // than a fixed fulfill: the WS handler only invalidates the query, it does
+  // not carry the new value itself, so the test must prove the *refetch*
+  // observes the changed server state, not just that a refetch was requested.
+  test('a peer admin sees the switch flip live when another admin toggles it', async ({
+    page,
+  }) => {
+    let oversightVisible = false;
+    let socket: WebSocketRoute | undefined;
+
+    await setup(page, { canEdit: true, oversightVisible: false });
+
+    // Mint the WS ticket so the project socket can open (ADR-0141, #818) —
+    // setup()'s setupCatchAll() would otherwise 404 it.
+    await page.route('**/api/v1/ws/ticket/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }),
+      }),
+    );
+    // Override setup()'s static decisions-policy route (last-registered wins)
+    // with a stateful one so a refetch after the toggle below observes the new
+    // value, not the value captured at render time.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/decisions-policy/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ oversight_visible: oversightVisible, can_edit: true }),
+      }),
+    );
+    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+      socket = ws;
+    });
+
+    await openDecisionsTab(page);
+
+    const toggle = page.getByRole('switch', { name: 'Oversight visibility' });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    // Wait for the socket to actually be connected before relying on it —
+    // mirrors connection-status.spec.ts's "Live" wait, so a push below is never
+    // racing the handshake.
+    await expect(page.getByRole('contentinfo', { name: 'Application status' })).toContainText(
+      'Live',
+      { timeout: 10_000 },
+    );
+    if (!socket) throw new Error('expected the project WebSocket to have connected');
+
+    // Another admin flips the switch server-side. The client's cache is still
+    // stale at this point — only the broadcast below triggers the refetch.
+    oversightVisible = true;
+    socket.send(
+      JSON.stringify({
+        protocol_version: 1,
+        event_type: 'decisions_policy_changed',
+        payload: { id: PROJECT_ID, oversight_visible: true },
+        seq: 1,
+      }),
+    );
+
+    // The switch reflects the peer's change without a manual reload.
+    await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 10_000 });
   });
 });

@@ -38,9 +38,10 @@
  *                  (every task-scoped + pending-list query) + sprint-backlog (#2845, #3772)
  *   signal_privacy_changed / signal_ceiling_proposal_changed → invalidate signal-privacy + ceiling-proposals
  *   signal_ceiling_vote_cast → invalidate ceiling-proposals + signal-privacy (tally lives in both, #3771)
- *   decisions_policy_changed → invalidate decisions-policy + decisions (ADR-0167, #4283 — a
- *                  peer's oversight-visibility consent toggle reaches an open Decisions panel
- *                  live, including flipping an already-locked reader's list in or out)
+ *   decisions_policy_changed → invalidate decisions-policy (ADR-0167, #4283 — keeps a Member+
+ *                  peer's OversightConsentControl in sync with another admin's toggle; an
+ *                  oversight reader, below Member, is never connected to this socket in the
+ *                  first place and sees the change on their next load, see the handler below)
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   slip_conflict_acknowledged / slip_conflicts_updated → invalidate slip-conflicts (ADR-0120 D4, issue 1359)
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
@@ -1111,21 +1112,22 @@ function registerDecisionsPolicyHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // signal-only (id + the new value), so unconditionally invalidate rather than
   // try to splice it; useDecisionsPolicy's cache key is ['decisions-policy', id].
   //
-  // Also invalidate the decisions LIST (useDecisions' ['decisions', id, sprint]
-  // keys). A denied oversight reader's list query resolves to a terminal
-  // `isLocked: true` with no retry on 403 (useDecisions.ts) and no
-  // refetchInterval, so turning oversight_visible ON would otherwise leave an
-  // already-mounted, already-locked DecisionsPanel locked forever — the switch
-  // flips but the reader who needed it never finds out. The reverse direction
-  // matters too: turning it OFF must re-lock a reader who was already in.
-  // Mirrors the task_note_decision_toggled handler above, which invalidates
-  // both the per-task notes cache and the project decisions list for the same
-  // reason (completeness-check finding, #4283).
+  // This does NOT also invalidate the decisions LIST (useDecisions'
+  // ['decisions', id, sprint] keys), and that is deliberate rather than an
+  // oversight: ProjectConsumer.connect() closes with 4003 for any role below
+  // Member (apps/sync/consumers.py), and can_read_decisions applies the
+  // oversight_visible gate to exactly those same below-Member roles
+  // (decisions_services.py). Every socket that can receive this event is
+  // therefore already Member+, for whom the decisions-list read already
+  // succeeds unconditionally regardless of oversight_visible — invalidating
+  // their list would refetch identical content. An oversight reader (below
+  // Member, the only role the switch actually gates) is never connected to
+  // this socket at all and sees the new posture on their next page load, not
+  // live — there is no live-sync path for that role today.
   on('decisions_policy_changed', () => {
     void queryClient.invalidateQueries({
       queryKey: ['decisions-policy', projectIdRef.current],
     });
-    void queryClient.invalidateQueries({ queryKey: ['decisions', projectIdRef.current] });
   });
 }
 
