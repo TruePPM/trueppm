@@ -3291,7 +3291,14 @@ export function getLastPendingJunctionCount(): number {
   return _lastPendingJunctionCount;
 }
 
-function makeDepPaintContext(
+/**
+ * Exported for tests only (#4087) — lets a test construct one frame's
+ * {@link DepPaintContext} directly and probe `getScreen`'s per-frame cache
+ * (same id within one context → same object; a fresh context → a fresh
+ * object). Every production call site still goes through
+ * `paintDependencyLayout`.
+ */
+export function makeDepPaintContext(
   ctx: CanvasRenderingContext2D,
   layout: DependencyLayout,
   scrollLeft: number,
@@ -3506,36 +3513,47 @@ function pushMergeJunction(
 }
 
 /**
- * Row-range margin for the {@link collectFSPaths} target pre-filter (#4087),
- * matching the #3769 obstacle-scan's own `rA - 1` / `rB + 1` band so a target
- * (or a predecessor) one row past the visible edge is not dropped before its
+ * Row-range margin for the {@link collectFSPaths} pre-filter (#4087),
+ * matching the #3769 obstacle-scan's own `rA - 1` / `rB + 1` band so a span
+ * that ends one row past the visible edge is not dropped before its
  * trunk/feeder is even evaluated.
  */
 const TARGET_ROW_MARGIN = 1;
 
-function rowNear(rowIndex: number, lo: number, hi: number): boolean {
-  return rowIndex >= lo && rowIndex <= hi;
-}
-
 /**
- * True when at least one predecessor in `group` resolves to a row inside
- * `[lo, hi]` (#4087). Catches a target just past the visible band whose
- * feeder still crosses it — a predecessor on screen with a target one row
- * below the fold must not vanish — without paying for the full junction/path
- * construction `collectFSGroup` would otherwise do for every off-screen
- * target. `getScreen` is a cheap, per-frame-memoized lookup (see
- * `makeDepPaintContext`), so this scan costs a map lookup per predecessor,
- * not a path build.
+ * True when the row SPAN of at least one predecessor→target link overlaps
+ * `[lo, hi]` (#4087).
+ *
+ * This must be a span test, not a point test on either endpoint alone: a
+ * predecessor near the visible band with a target thousands of rows away
+ * (or the reverse) still draws a feeder/trunk that visibly crosses the
+ * band, exactly like a plain single-FS arrow's own `offScreen` test already
+ * requires — and a point-only check (does EITHER row individually land in
+ * `[lo, hi]`) drops that case entirely, because neither endpoint's row is
+ * anywhere near the band even though the line between them crosses it.
+ * A target whose own row is inside `[lo, hi]` is automatically covered: for
+ * any predecessor, `rowMax` is then always `>= lo` and `rowMin` always
+ * `<= hi`, since the target's row itself sits inside both bounds — so this
+ * single test subsumes what used to be a separate target-row check.
+ *
+ * Reads row indices straight from the layout's `nodes` map rather than
+ * `pc.getScreen` — the filter must stay allocation-free for the (common)
+ * off-screen groups it rejects, so it never pays for a screen-space
+ * projection before deciding whether the group is even a candidate.
  */
-function groupHasRowNear(
-  pc: DepPaintContext,
+function groupSpanOverlapsRange(
+  nodes: ReadonlyMap<string, DepNode>,
+  targetRow: number,
   group: readonly TaskLink[],
   lo: number,
   hi: number,
 ): boolean {
   for (const link of group) {
-    const src = pc.getScreen(link.sourceId);
-    if (src && rowNear(src.rowIndex, lo, hi)) return true;
+    const src = nodes.get(link.sourceId);
+    if (!src) continue;
+    const rowMin = Math.min(src.rowIndex, targetRow);
+    const rowMax = Math.max(src.rowIndex, targetRow);
+    if (rowMax >= lo && rowMin <= hi) return true;
   }
   return false;
 }
@@ -3550,15 +3568,15 @@ function groupHasRowNear(
  * #4087: `fsByTarget` holds every target in the layout, not just the ones on
  * screen — at the 5k-task ceiling this walked (and, for every merge target,
  * built full junction geometry for) thousands of off-screen groups every
- * frame. A target is a candidate only when ITS row, or at least one
- * predecessor's row, falls within the visible band ± {@link TARGET_ROW_MARGIN}
- * — the OR keeps a feeder that crosses the viewport from a just-off-screen
- * target alive (see `groupHasRowNear`), while still bounding the work done
- * per frame to O(visible rows), not O(total tasks).
+ * frame. A target is a candidate only when at least one predecessor→target
+ * link's row SPAN overlaps the visible band ± {@link TARGET_ROW_MARGIN} (see
+ * {@link groupSpanOverlapsRange}), bounding the work done per frame to
+ * O(visible rows), not O(total tasks).
  */
 function collectFSPaths(
   pc: DepPaintContext,
   fsByTarget: DependencyLayout['fsByTarget'],
+  nodes: ReadonlyMap<string, DepNode>,
   visibleFirstRow: number,
   visibleLastRow: number,
   pendingPaths: PendingPath[],
@@ -3567,9 +3585,11 @@ function collectFSPaths(
   const lo = visibleFirstRow - TARGET_ROW_MARGIN;
   const hi = visibleLastRow + TARGET_ROW_MARGIN;
   for (const [targetId, group] of fsByTarget) {
+    const targetNode = nodes.get(targetId);
+    if (!targetNode) continue;
+    if (!groupSpanOverlapsRange(nodes, targetNode.rowIndex, group, lo, hi)) continue;
     const tgt = pc.getScreen(targetId);
     if (!tgt) continue;
-    if (!rowNear(tgt.rowIndex, lo, hi) && !groupHasRowNear(pc, group, lo, hi)) continue;
     collectFSGroup(pc, targetId, tgt, group, pendingPaths, pendingJunctions);
   }
 }
@@ -3729,7 +3749,15 @@ export function paintDependencyLayout(
   // be known before orthogonal crossings can be detected and lift order decided.
   const pendingPaths: PendingPath[] = [];
   const pendingJunctions: PendingJunction[] = [];
-  collectFSPaths(pc, layout.fsByTarget, visibleFirstRow, visibleLastRow, pendingPaths, pendingJunctions);
+  collectFSPaths(
+    pc,
+    layout.fsByTarget,
+    layout.nodes,
+    visibleFirstRow,
+    visibleLastRow,
+    pendingPaths,
+    pendingJunctions,
+  );
   collectNonFSPaths(pc, layout.nonFSLinks, pendingPaths);
   // #4087: the path-count budget — the falsification line for the fix above.
   // Captured right after collection, before hop detection/stroking add nothing
