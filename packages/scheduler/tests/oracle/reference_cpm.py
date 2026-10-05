@@ -68,10 +68,11 @@ Documented rules modeled
   right-aligns it on that finish (#3806). A milestone successor is the raw latest
   of everything its links require.
 * Every task with work is floored at the project start (snapped forward to a
-  working day), except one whose links are **all** SF (#4218). A milestone's raw
-  instant is never floored — the project start only bounds the day it is *shown*
-  on (#4225), and not even that for an SF-only milestone (#4218); with no links it
-  sits at the project start.
+  working day), except one its SF links **bind**: placed by its SF links alone it
+  lands where all its links put it (#4218, #4220). A milestone's raw instant is
+  never floored — the project start only bounds the day it is *shown* on (#4225),
+  and not even that for a milestone an SF link binds; with no links it sits at the
+  project start.
 * The project finish is the latest (shown) finish; nothing may finish after it.
   ``total_float`` is the working days from early start to late start;
   ``free_float`` is the largest working-day slip that keeps every successor's
@@ -365,16 +366,27 @@ def _forward_task(
         instant = max(need for _, need in needs) if needs else project_start
         return instant, instant
 
-    start_needs = [need for link, need in needs if constrains_start(link)]
-    if not _sf_only(project, tid):
-        start_needs.append(project_start)
+    # The project start floors the task unless its SF links bind it (#4218, #4220):
+    # placed by the SF links alone it lands exactly where every link puts it.
+    sf_needs = [(link, need) for link, need in needs if link.kind == "SF"]
+    if sf_needs:
+        span = _place(needs, n, cal, None)
+        if _place(sf_needs, n, cal, None) == span:
+            return span
+    return _place(needs, n, cal, project_start)
 
+
+def _place(needs: list[tuple[RefLink, date]], n: int, cal: RefCalendar, floor: date | None) -> Span:
+    """Earliest span of ``n`` working days meeting every need, and ``floor`` if given."""
+    start_needs = [need for link, need in needs if constrains_start(link)]
+    if floor is not None:
+        start_needs.append(floor)
     finishes = [
         finish_meeting(link, need, cal) for link, need in needs if not constrains_start(link)
     ]
     if start_needs:
         finishes.append(finish_from_start(start_at_or_after(max(start_needs), cal), n, cal))
-    finish = max(finishes)  # non-empty: a floor, or at least one SF link
+    finish = max(finishes)  # non-empty: a floor, or at least one finish link
     return start_from_finish(finish, n, cal), finish
 
 
@@ -458,18 +470,24 @@ def _project_finish(
     return finish, bool(by_work) and max(by_work) == finish
 
 
-def _sf_only(project: RefProject, tid: str) -> bool:
-    links = incoming(project, tid)
-    return bool(links) and all(link.kind == "SF" for link in links)
+def _sf_binds(project: RefProject, tid: str, early: dict[str, Span]) -> bool:
+    """Does an SF link propose the milestone's raw instant (#4220)?"""
+    cal = project.calendar
+    sf = [
+        link_need(link, early[link.pred], cal)
+        for link in incoming(project, tid)
+        if link.kind == "SF"
+    ]
+    return bool(sf) and max(sf) >= early[tid][0]
 
 
 def _shown_instant(
     project: RefProject, tid: str, early: dict[str, Span], project_start: date
 ) -> date:
     """Where a milestone is shown: its raw instant, but never before the project start
-    (#4225) — unless its links are all SF, which place it alone (#4218)."""
+    (#4225) — unless an SF link binds it, which places it alone (#4218, #4220)."""
     raw = early[tid][0]
-    return raw if _sf_only(project, tid) else max(raw, project_start)
+    return raw if _sf_binds(project, tid, early) else max(raw, project_start)
 
 
 def _feeds_a_milestone(project: RefProject, tid: str) -> bool:

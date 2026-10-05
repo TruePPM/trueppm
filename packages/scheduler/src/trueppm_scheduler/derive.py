@@ -42,6 +42,7 @@ from trueppm_scheduler.engine import (
     _effective_duration_days,
     _finish_from_start,
     _float_late_instant,
+    _floor_waived,
     _free_start_ref,
     _Instant,
     _instant_day,
@@ -54,6 +55,7 @@ from trueppm_scheduler.engine import (
     _milestone_proposal,
     _milestone_refs,
     _next_working_day,
+    _place_work,
     _prev_working_day,
     _project_free_instants,
     _resolve_task_calendars,
@@ -475,12 +477,13 @@ def _derive_forward(
         return (value.isoformat() if value else None, contribs)
 
     # --- Early-start candidates (mirror engine._forward_pass) ---
-    # An SF-only task is not floored at the project start (engine._sf_only, #4218),
-    # so that term is not a candidate for it and must not be offered as one.
-    sf_only = bool(preds) and all(dep_type is DependencyType.SF for _, dep_type, _ in preds)
+    # The hard floors first; the project-start floor is offered below only when the
+    # engine applied it — not to a task its SF links bind (engine._floor_waived,
+    # #4218/#4220), where it is not a candidate and must not be offered as one.
     contribs = _forward_floor_contribs(
-        task, cal, project_start, status_date, include_project_start=not sf_only
+        task, cal, project_start, status_date, include_project_start=False
     )
+    hard_dates = [c.imposed_date for c in contribs if c.imposed_date is not None]
 
     # FS/SS impose the early start (appended in-line); FF/SF impose the early finish
     # and are collected separately so the binding resolution below can flag them.
@@ -494,6 +497,10 @@ def _derive_forward(
             ef_terms.append(contribution)
         else:
             contribs.append(contribution)
+
+    sf_terms = [c for c in ef_terms if c.kind == "predecessor_sf"]
+    if not _start_floor_waived(task, hard_dates, contribs, ef_terms, sf_terms, keys, cal, ctxs):
+        contribs[:0] = _forward_floor_contribs(task, cal, project_start, None)[:1]
 
     if to_milestone:
         # A milestone is one instant (#4079): every term competes for the same
@@ -513,6 +520,44 @@ def _derive_forward(
         contribs.append(derived)
 
     return (value.isoformat() if value else None, contribs)
+
+
+def _start_floor_waived(
+    task: Task,
+    hard_dates: list[date],
+    es_terms: list[DerivationContribution],
+    ef_terms: list[DerivationContribution],
+    sf_terms: list[DerivationContribution],
+    keys: dict[int, tuple[date, bool]],
+    cal: Calendar,
+    ctxs: list[_LinkContext],
+) -> bool:
+    """Whether the engine waived this task's project-start floor (#4218/#4220).
+
+    Replays :func:`engine._floor_waived` (work) and :func:`engine._place_milestone`
+    (a milestone) on the same bounds the engine evaluated: the floor is waived
+    exactly when the task has an SF link and its SF links, with the hard floors,
+    place it where every link does. ``es_terms`` holds the hard floors and the FS/SS
+    terms; their dates, and the FF/SF terms', are the engine's own bounds.
+    """
+    if not sf_terms:
+        return False
+    if any(c.to_milestone for c in ctxs):
+        # Raw instants, not readings: a floor proposes the start of its own day.
+        def raw(c: DerivationContribution) -> date:
+            key = keys.get(id(c))
+            assert c.imposed_date is not None
+            return c.imposed_date if key is None else key[0]
+
+        latest = max(raw(c) for c in [*es_terms, *ef_terms])
+        return max([*hard_dates, *(raw(c) for c in sf_terms)]) >= latest
+
+    def dates(terms: list[DerivationContribution]) -> list[date]:
+        return [c.imposed_date for c in terms if c.imposed_date is not None]
+
+    duration_days = _effective_duration_days(task)
+    placed = _place_work(dates(es_terms), dates(ef_terms), duration_days, cal)
+    return _floor_waived(placed, hard_dates, dates(sf_terms), duration_days, cal)
 
 
 def _resolve_forward_binding(
@@ -560,8 +605,8 @@ def _forward_floor_contribs(
     """The non-network early-start candidates: project start, data date, SNET, and
     — for in-progress work — the recorded ``actual_start`` floor.
 
-    ``include_project_start`` is false for a task whose every predecessor link is
-    SF, which the engine places by those links alone (#4218).
+    ``include_project_start`` is false when the caller offers the project-start
+    floor separately: the engine waives it for a task its SF links bind (#4220).
 
     ``actual_start`` (ADR-0132 §2, #2621) is only reachable here for a task that
     is not complete (``_derive_forward`` routes completed tasks through
