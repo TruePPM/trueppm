@@ -3195,7 +3195,10 @@ interface DepPaintContext {
   /**
    * Project a cached canvas-origin node into screen space. Called only for tasks
    * touched by a link, so the paint stays O(visible) rather than rebuilding an
-   * N-entry map per frame.
+   * N-entry map per frame. The projected node is memoized per id for this
+   * frame (#4087) — a repeat lookup of the same id within one
+   * `paintDependencyLayout` call returns the cached object instead of
+   * reallocating it.
    */
   getScreen: (id: string) => DepScreenNode | undefined;
   rowY: (rowIndex: number) => number;
@@ -3254,6 +3257,40 @@ export function getLastObstacleBoxCount(): number {
   return _lastObstacleBoxCount;
 }
 
+/**
+ * Total entries pushed to `pendingPaths` in the most recent `paintDependencyLayout`
+ * frame — every plain FS arrow, every merge feeder, every merge trunk, and every
+ * non-FS (SS/FF/SF) curve. Reset at the top of that function.
+ *
+ * Exposed for tests only, via {@link getLastPendingPathCount} — the #4087
+ * falsification line: merge trunks and junction dots were pushed unconditionally
+ * regardless of visibility, and `collectFSPaths` walked every target in the
+ * layout rather than only the visible ones, so this count scaled with total
+ * task count instead of the visible row band. The fix must make it scale with
+ * the visible range (plus the #3769 margin), not with layout size.
+ */
+let _lastPendingPathCount = 0;
+
+/** See {@link _lastPendingPathCount}. Test-only. */
+export function getLastPendingPathCount(): number {
+  return _lastPendingPathCount;
+}
+
+/**
+ * Total entries pushed to `pendingJunctions` in the most recent
+ * `paintDependencyLayout` frame. Reset at the top of that function.
+ *
+ * Exposed for tests only, via {@link getLastPendingJunctionCount} (#4087) —
+ * companion to {@link getLastPendingPathCount}: a merge junction's halo + dot
+ * must not be emitted for a target that never resolves to a visible trunk.
+ */
+let _lastPendingJunctionCount = 0;
+
+/** See {@link _lastPendingJunctionCount}. Test-only. */
+export function getLastPendingJunctionCount(): number {
+  return _lastPendingJunctionCount;
+}
+
 function makeDepPaintContext(
   ctx: CanvasRenderingContext2D,
   layout: DependencyLayout,
@@ -3285,6 +3322,15 @@ function makeDepPaintContext(
     return out;
   };
 
+  // #4087: the same id is frequently resolved more than once per frame — a
+  // merge target is fetched once in `collectFSPaths` and again as `tgt` in
+  // `collectFSGroup`'s single-FS fallback, and a task that feeds more than one
+  // target is looked up once per group it participates in. `scrollLeft` is
+  // fixed for the lifetime of this context (one `makeDepPaintContext` call per
+  // frame), so the projected node is safe to memoize per id for the frame and
+  // must NOT be reused across frames (a later scroll would stale the offsets).
+  const screenCache = new Map<string, DepScreenNode>();
+
   return {
     milestoneHalfDiag: Math.ceil((MILESTONE_SIZE / 2) * Math.SQRT2), // = 9px
     cpWidth: ctx.canvas.width / (window.devicePixelRatio || 1),
@@ -3293,9 +3339,11 @@ function makeDepPaintContext(
     hoverChain,
     effectiveDriving: (link) => !anyDriving || link.isDriving === true,
     getScreen: (id) => {
+      const cached = screenCache.get(id);
+      if (cached) return cached;
       const n = nodes.get(id);
       if (!n) return undefined;
-      return {
+      const node: DepScreenNode = {
         rowIndex: n.rowIndex,
         barLeft: n.barLeft - scrollLeft,
         barRight: n.barRight - scrollLeft,
@@ -3303,6 +3351,8 @@ function makeDepPaintContext(
         isMilestone: n.isMilestone,
         parentId: n.parentId,
       };
+      screenCache.set(id, node);
+      return node;
     },
     rowY: (rowIndex) => rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop,
     ancestorsOf: (id) => ancestorIdsOf(nodes, id),
@@ -3424,6 +3474,17 @@ function pushMergeJunction(
   // Trunk: 2-point horizontal from junction east to the arrowhead base. The trunk's
   // chain role is derived from the merge target — every predecessor edge into the
   // same target shares its role on a merge.
+  //
+  // #4087: every feeder above already gets this exact offScreen test, but the
+  // trunk + junction dot were pushed unconditionally regardless of whether the
+  // junction itself ever lands on screen — "valid predecessor" meant "in the
+  // layout", not "on screen". A target whose row is visible always passes this
+  // (junctionY === tgtY, which is on screen by construction), so a visible
+  // target with every predecessor off-screen still gets its trunk; only a
+  // target that is ALSO off-screen (the common case at 5k tasks, scrolled
+  // elsewhere) skips it.
+  if (offScreen(junctionX, tipX, junctionY, junctionY, pc.cpWidth, pc.cpHeight)) return;
+
   const trunkRole = arrowRole(targetId, targetId, pc.hoverChain);
   const {
     stroke: trunkStroke,
@@ -3445,21 +3506,70 @@ function pushMergeJunction(
 }
 
 /**
+ * Row-range margin for the {@link collectFSPaths} target pre-filter (#4087),
+ * matching the #3769 obstacle-scan's own `rA - 1` / `rB + 1` band so a target
+ * (or a predecessor) one row past the visible edge is not dropped before its
+ * trunk/feeder is even evaluated.
+ */
+const TARGET_ROW_MARGIN = 1;
+
+function rowNear(rowIndex: number, lo: number, hi: number): boolean {
+  return rowIndex >= lo && rowIndex <= hi;
+}
+
+/**
+ * True when at least one predecessor in `group` resolves to a row inside
+ * `[lo, hi]` (#4087). Catches a target just past the visible band whose
+ * feeder still crosses it — a predecessor on screen with a target one row
+ * below the fold must not vanish — without paying for the full junction/path
+ * construction `collectFSGroup` would otherwise do for every off-screen
+ * target. `getScreen` is a cheap, per-frame-memoized lookup (see
+ * `makeDepPaintContext`), so this scan costs a map lookup per predecessor,
+ * not a path build.
+ */
+function groupHasRowNear(
+  pc: DepPaintContext,
+  group: readonly TaskLink[],
+  lo: number,
+  hi: number,
+): boolean {
+  for (const link of group) {
+    const src = pc.getScreen(link.sourceId);
+    if (src && rowNear(src.rowIndex, lo, hi)) return true;
+  }
+  return false;
+}
+
+/**
  * Collect every FS path, merging 2+ predecessors of one target into a junction.
  *
  * Split junctions are intentionally absent (issue #466): a split T-junction is one V
  * line passing through plus one H branching off — visually a plain Manhattan corner.
  * Merge junctions remain because 2+ lines visibly meet.
+ *
+ * #4087: `fsByTarget` holds every target in the layout, not just the ones on
+ * screen — at the 5k-task ceiling this walked (and, for every merge target,
+ * built full junction geometry for) thousands of off-screen groups every
+ * frame. A target is a candidate only when ITS row, or at least one
+ * predecessor's row, falls within the visible band ± {@link TARGET_ROW_MARGIN}
+ * — the OR keeps a feeder that crosses the viewport from a just-off-screen
+ * target alive (see `groupHasRowNear`), while still bounding the work done
+ * per frame to O(visible rows), not O(total tasks).
  */
 function collectFSPaths(
   pc: DepPaintContext,
   fsByTarget: DependencyLayout['fsByTarget'],
+  visibleFirstRow: number,
+  visibleLastRow: number,
   pendingPaths: PendingPath[],
   pendingJunctions: PendingJunction[],
 ): void {
+  const lo = visibleFirstRow - TARGET_ROW_MARGIN;
+  const hi = visibleLastRow + TARGET_ROW_MARGIN;
   for (const [targetId, group] of fsByTarget) {
     const tgt = pc.getScreen(targetId);
     if (!tgt) continue;
+    if (!rowNear(tgt.rowIndex, lo, hi) && !groupHasRowNear(pc, group, lo, hi)) continue;
     collectFSGroup(pc, targetId, tgt, group, pendingPaths, pendingJunctions);
   }
 }
@@ -3619,8 +3729,13 @@ export function paintDependencyLayout(
   // be known before orthogonal crossings can be detected and lift order decided.
   const pendingPaths: PendingPath[] = [];
   const pendingJunctions: PendingJunction[] = [];
-  collectFSPaths(pc, layout.fsByTarget, pendingPaths, pendingJunctions);
+  collectFSPaths(pc, layout.fsByTarget, visibleFirstRow, visibleLastRow, pendingPaths, pendingJunctions);
   collectNonFSPaths(pc, layout.nonFSLinks, pendingPaths);
+  // #4087: the path-count budget — the falsification line for the fix above.
+  // Captured right after collection, before hop detection/stroking add nothing
+  // further to either array.
+  _lastPendingPathCount = pendingPaths.length;
+  _lastPendingJunctionCount = pendingJunctions.length;
 
   // PHASE 2 — Rule 15 Type A: detect every orthogonal crossing across the full set of
   // Manhattan paths. Horizontal segments go OVER vertical by convention (Rule 15.4).

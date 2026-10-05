@@ -32,6 +32,8 @@ import {
   setRendererRowModes,
   SUMMARY_BAR_HEIGHT,
   getLastObstacleBoxCount,
+  getLastPendingPathCount,
+  getLastPendingJunctionCount,
 } from './GanttRenderer';
 import {
   buildScaleData,
@@ -3067,11 +3069,16 @@ describe('dependency layer — merge junction fallbacks (#2459)', () => {
     expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.selectionRing);
   });
 
-  it('still draws the trunk when every predecessor feeder is culled off-screen', () => {
+  it('still draws the trunk when the target row is visible but every predecessor feeder is off-screen (#4087)', () => {
+    // 't' sits at row 0 (on screen in an 800x200 viewport); 40 filler rows
+    // push p1/p2 far enough down to fail the per-feeder offScreen test. The
+    // junction's own offScreen test (#4087) keys off the TARGET's row, which
+    // is on screen, so the trunk + dot must still render even though neither
+    // predecessor does.
     const filler = Array.from({ length: 40 }, (_, i) =>
       depTask(`f${i}`, '2026-04-06', '2026-04-07'),
     );
-    const tasks = [...filler, p1, p2, target];
+    const tasks = [target, ...filler, p1, p2];
     const { ctx, calls } = makeFullCtx(800, 200); // short viewport → deep rows are culled
     paintDependencyLayout(
       ctx,
@@ -3081,6 +3088,26 @@ describe('dependency layer — merge junction fallbacks (#2459)', () => {
     );
     // Junction + trunk are still emitted even though both feeders were culled.
     expect(calls.filter((c) => c.name === 'arc').length).toBeGreaterThan(0);
+  });
+
+  it('culls the trunk and junction dot when the merge target itself is off-screen (#4087)', () => {
+    // Same shape as above, but reversed: the target is ALSO pushed below the
+    // fold (it sits after the filler, like every predecessor). Nothing in
+    // this group is on screen, so the trunk/junction must not be emitted —
+    // the pre-#4087 bug pushed them unconditionally regardless of the
+    // target's own visibility.
+    const filler = Array.from({ length: 40 }, (_, i) =>
+      depTask(`f${i}`, '2026-04-06', '2026-04-07'),
+    );
+    const tasks = [...filler, p1, p2, target];
+    const { ctx, calls } = makeFullCtx(800, 200);
+    paintDependencyLayout(
+      ctx,
+      prepareDependencyLayout(tasks, [depLink('p1', 't'), depLink('p2', 't')], scales),
+      0,
+      0,
+    );
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
   });
 
   it('treats a summary ancestor of the merge target as transparent for EVERY predecessor (#3769)', () => {
@@ -3172,6 +3199,95 @@ describe('dependency layer — obstacle/halo scan intersects the visible row ran
     const clamped = getLastObstacleBoxCount();
 
     expect(clamped).toBe(unclamped);
+  });
+});
+
+describe('dependency layer — merge junction trunk/junction visibility culling (#4087)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+
+  /** `n` sequential FS-linked tasks; every 5th target also gets a second
+   *  predecessor two rows back, producing the issue's ~40% merge-junction
+   *  density over a long, mostly off-screen task list. */
+  function buildMergeHeavyTasks(n: number): { tasks: Task[]; links: TaskLink[] } {
+    const tasks: Task[] = [];
+    const links: TaskLink[] = [];
+    for (let i = 0; i < n; i++) {
+      const day = (i % 25) + 1;
+      const start = `2026-04-${String(day).padStart(2, '0')}`;
+      tasks.push(depTask(`t${i}`, start, start));
+      if (i === 0) continue;
+      links.push(depLink(`t${i - 1}`, `t${i}`));
+      if (i >= 2 && i % 5 < 2) links.push(depLink(`t${i - 2}`, `t${i}`)); // 2/5 = 40% merges
+    }
+    return { tasks, links };
+  }
+
+  it('keeps the pending path + junction counts at O(visible rows) for a 5k-task layout with ~40% merges, scrolled to the middle', () => {
+    // Reproduces the issue's own measured shape: 5,757 fills at 5k tasks
+    // pre-fix, because `collectFSPaths` walked every target in the layout
+    // regardless of visibility. A ~30-row visible band (the issue's own
+    // measurement at a 1400x800 viewport) must bound the per-frame count
+    // regardless of total task count.
+    const ROW_COUNT = 5000;
+    const { tasks, links } = buildMergeHeavyTasks(ROW_COUNT);
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const { ctx } = makeFullCtx(1400, 800);
+
+    const firstRow = Math.floor(ROW_COUNT / 2) - 15;
+    const lastRow = firstRow + 30;
+    const scrollTop = firstRow * ROW_HEIGHT;
+
+    paintDependencyLayout(ctx, layout, 0, scrollTop, undefined, null, { firstRow, lastRow });
+
+    // Falsification line from #4087: the fix must land far under the
+    // pre-fix per-frame path count and scale with the viewport window, not
+    // the 5k-task layout.
+    expect(getLastPendingPathCount()).toBeLessThan(200);
+
+    // A junction is only ever emitted for a target that resolves to a row
+    // in the visible band — never more than the rows actually on screen.
+    const visibleRowCount = lastRow - firstRow + 1;
+    expect(getLastPendingJunctionCount()).toBeLessThanOrEqual(visibleRowCount);
+  });
+
+  it('keeps a merge trunk alive when the target row is past the row-range margin but a predecessor is inside it', () => {
+    // p1/p2 land at rows 9/10 (inside the visible [0, 15] band); 9 more
+    // filler rows after them push the target 't' to row 20 — 4 rows past
+    // the visible range's last row plus the #4087 ±1 margin (16), the first
+    // row a target-row-only pre-filter would have dropped. The predecessor
+    // OR-check must keep the group alive so the feeder/trunk crossing the
+    // viewport does not disappear.
+    const before = Array.from({ length: 9 }, (_, i) => depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    const after = Array.from({ length: 9 }, (_, i) => depTask(`g${i}`, '2026-04-06', '2026-04-07'));
+    const p1 = depTask('p1', '2026-04-06', '2026-04-10');
+    const p2 = depTask('p2', '2026-04-08', '2026-04-13');
+    const target = depTask('t', '2026-05-04', '2026-05-08');
+    const tasks = [...before, p1, p2, ...after, target];
+    const links = [depLink('p1', 't'), depLink('p2', 't')];
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    // Tall enough that the pixel offScreen test never culls on its own —
+    // isolates the row-range pre-filter as the only thing under test.
+    const { ctx, calls } = makeFullCtx(800, 2000);
+
+    paintDependencyLayout(ctx, layout, 0, 0, undefined, null, { firstRow: 0, lastRow: 15 });
+
+    expect(calls.filter((c) => c.name === 'arc').length).toBeGreaterThan(0);
+  });
+
+  it('culls a merge group entirely when neither the target nor any predecessor is near the visible row range', () => {
+    const filler = Array.from({ length: 50 }, (_, i) => depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    const p1 = depTask('p1', '2026-04-06', '2026-04-10');
+    const p2 = depTask('p2', '2026-04-08', '2026-04-13');
+    const target = depTask('t', '2026-05-04', '2026-05-08');
+    const tasks = [...filler, p1, p2, target]; // rows 50/51/52 — far past [0, 15]
+    const links = [depLink('p1', 't'), depLink('p2', 't')];
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const { ctx, calls } = makeFullCtx(800, 2000);
+
+    paintDependencyLayout(ctx, layout, 0, 0, undefined, null, { firstRow: 0, lastRow: 15 });
+
+    expect(getLastPendingPathCount()).toBe(0);
+    expect(calls.filter((c) => c.name === 'arc')).toHaveLength(0);
   });
 });
 
