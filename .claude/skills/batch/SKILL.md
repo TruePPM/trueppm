@@ -194,20 +194,24 @@ For each issue, once its Step 5 agent reports:
      one of this skill's escalation criteria) — same tier in, same tier checking.
    - **`sonnet`** otherwise.
 2. Read its `BLOCKERS` / `GAPS` / `CLEAN` report.
-3. Clean → record `gate: completeness-check — 0 findings (<model>)` and go
-   straight to pushing (item 7 below).
+3. Clean → record `gate: completeness-check — 0 findings (<model>)`, resume the
+   Step 5 agent by `SendMessage` to do items 7–10 below, and stop — you do not
+   push or open the MR yourself.
 4. Findings → hand them to the **same Step 5 agent** (`SendMessage` — it is
    stalled, not gone) to fix, with the exact BLOCKER/GAP text. It fixes, re-runs
-   the affected tests with negative controls, and reports back.
-5. Re-check per `completeness-check`'s own rule, which this step defers to rather
-   than restates: a **narrow** re-check (fresh agent, same model, scoped to the
-   fix diff only, once) by default; a **full round 2** (fresh agent, `opus`
-   regardless of tier, same brief as round 1 but never its findings) if round 1
-   reported a BLOCKER tagged `class-missed` or `collateral`, or four or more
-   BLOCKERS+GAPS total. Stop after round 2 — a branch still failing goes back to
-   the user, not to a round 3.
+   the affected tests with negative controls, and reports back. If that
+   `SendMessage` is refused as out-of-scope (a stalled agent can read added scope
+   as injection), do not retry it — brief a **fresh** agent instead with the
+   worktree path, the findings, and the original issue context, and have it make
+   the fix as a new commit.
+5. Re-check and trigger round 2 **per `completeness-check`'s own rule in its
+   SKILL.md** — this step defers to that rule rather than restating it, so look
+   there, not here, for the current trigger and shape.
 6. Record every round on the ledger exactly as `completeness-check`'s own SKILL.md
-   specifies (`round 2` / `/fix-diff` markers, cause tags, overlap count).
+   "Recording it" section specifies — as of this writing that means: round 2 (if
+   triggered) gets its own line marked `round 2`; a narrow re-check's findings are
+   folded into round 1's count, not given a separate line. Do not invent a marker
+   that file doesn't define.
 
 Only once this clears does the Step 5 agent, resumed, finish the branch:
 
