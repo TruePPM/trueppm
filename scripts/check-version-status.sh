@@ -204,6 +204,33 @@ version_gt() {
   if [ "$a_min" -gt "$b_min" ]; then echo 1; else echo 0; fi
 }
 
+# Read tag names on stdin, print the newest one (#4106). `sort -V` is wrong for
+# prereleases (it puts beta.10 before beta.4 only by luck and ranks rc below
+# stable inconsistently), so the order is explicit: X.Y.Z first, then a stable
+# release outranks any prerelease of the same X.Y.Z, then alpha < beta < rc,
+# then the numeric N of `-kind.N`. Non-matching names are ignored.
+newest_tag() {
+  python3 -c '
+import re, sys
+pat = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?$")
+kind = {"alpha": 0, "beta": 1, "rc": 2}
+best, best_key = "", None
+for line in sys.stdin:
+    tag = line.strip()
+    m = pat.match(tag)
+    if not m:
+        continue
+    major, minor, patch = int(m[1]), int(m[2]), int(m[3])
+    if m[4]:
+        key = (major, minor, patch, 0, kind[m[4]], int(m[5]))
+    else:
+        key = (major, minor, patch, 1, 0, 0)
+    if best_key is None or key > best_key:
+        best, best_key = tag, key
+print(best)
+'
+}
+
 # ── Declaration coverage ratchet (#2846) ────────────────────────────────────
 #
 # The pairing check below is only armed on a page that DECLARES documentedFor.
@@ -481,6 +508,9 @@ badge_check() { # badge_check <sidebar_file> <docs_root> <highest_shipped>
 # fixtures in self_test keep exercising exactly what they were written for.
 run_scan() {
   local roadmap="$1" docs_root="$2" baseline="${3:-}" sidebar="${4:-}" extra_files="${5:-}"
+  # Newline-separated git tag names (#4106). Empty = the pinned-latest check is
+  # skipped, which is how the fixtures and the tagless CI image run it.
+  local tags="${6:-}"
 
   if [ ! -f "$roadmap" ]; then
     echo "ERROR: roadmap source of truth not found at: $roadmap" >&2
@@ -726,6 +756,37 @@ $extra"
       fi
     done <<< "$stale_hits"
   done <<< "$files"
+
+  # ── Pinned "latest release is <tag>" claims (#4106) ────────────────────────
+  #
+  # The block above compares at major.minor, so "the latest release is
+  # v0.4.0-beta.1" passed for the whole of 0.4 while beta.4 shipped: a pinned
+  # tag asserted as "latest" in present tense goes stale at every prerelease,
+  # and this gate could not see below the minor. The fix is to point at the
+  # Releases page instead of naming a tag, so this check exists to catch a
+  # pinned claim, not to keep one current. Compared against the newest git tag
+  # by full prerelease ordering (newest_tag). Historical phrasing ("first
+  # shipped as beta.1") is not matched: it has no "latest ... is" anchor.
+  if [ -n "$tags" ]; then
+    local newest pin_re pin_hits pin_hit pin_ver
+    newest="$(printf '%s\n' "$tags" | newest_tag)"
+    pin_re='(latest|newest)[[:space:]]+(tagged[[:space:]]+|shipped[[:space:]]+)?(pre-?)?release[[:space:]]+is[[:space:]]+(the[[:space:]]+)?`?v?[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?`?'
+    while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      local pin_collapsed
+      pin_collapsed="$(tr '\n' ' ' < "$f" | tr -s '[:space:]' ' ')"
+      pin_hits="$(printf '%s' "$pin_collapsed" | grep -ozEi "$pin_re" 2>/dev/null | tr '\0' '\n' || true)"
+      while IFS= read -r pin_hit; do
+        [ -z "$pin_hit" ] && continue
+        pin_ver="$(printf '%s' "$pin_hit" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?' | tail -n 1)"
+        if [ "${pin_ver#v}" != "${newest#v}" ]; then
+          echo "VIOLATION: $f: pinned \"latest release\" names $pin_ver but the newest tag is $newest: \"$pin_hit\"" >&2
+          echo "    Link the Releases page (https://gitlab.com/trueppm/trueppm/-/releases) instead of pinning a tag." >&2
+          stale_violations=$((stale_violations + 1))
+        fi
+      done <<< "$pin_hits"
+    done <<< "$files"
+  fi
 
   # ── Forward-tense prose about a shipped version (#4058) ────────────────────
   #
@@ -1077,6 +1138,67 @@ This page documents functionality added in **TruePPM 0.2**.
 
   fm_case "latest-release-paren-form-current" expect-pass \
     'On `v0.2.0-alpha.1` (the latest release) only the username is matched.' || return 1
+
+  # ── Pinned "latest release" vs the newest git tag (#4106) ──────────────────
+  # The minor-level check above cannot see `v0.4.0-beta.1` going stale while
+  # beta.4 exists. Ordering is tested directly first: a wrong comparator passes
+  # every pin_case below by accident, so it gets its own assertions.
+  local ordering
+  ordering="$(printf '%s\n' v0.4.0-beta.4 v0.4.0-beta.10 v0.4.0-beta.9 | newest_tag)"
+  [ "$ordering" = "v0.4.0-beta.10" ] || {
+    echo "SELF-TEST FAILED: newest_tag chose '$ordering' over beta.10." >&2
+    return 1
+  }
+  ordering="$(printf '%s\n' v0.4.0-beta.9 v0.4.0-rc.1 | newest_tag)"
+  [ "$ordering" = "v0.4.0-rc.1" ] || {
+    echo "SELF-TEST FAILED: newest_tag chose '$ordering' over rc.1." >&2
+    return 1
+  }
+  ordering="$(printf '%s\n' v0.4.0-rc.2 v0.4.0 | newest_tag)"
+  [ "$ordering" = "v0.4.0" ] || {
+    echo "SELF-TEST FAILED: newest_tag chose '$ordering' over stable 0.4.0." >&2
+    return 1
+  }
+  echo "SELF-TEST OK: newest_tag orders beta.N numerically and rc/stable above beta."
+
+  pin_case() { # pin_case <name> <expect-pass|expect-fail> <tags> <body>
+    local name="$1" expect="$2" tags="$3" body="$4"
+    local dir="$tmp/pin-$name"
+    mkdir -p "$dir/docs"
+    cp "$docs/overview/roadmap.md" "$dir/docs/"
+    printf '%s\n' "$body" > "$dir/README.md"
+    if run_scan "$dir/docs/roadmap.md" "$dir/docs" "" "" "$dir/README.md" "$tags" >/dev/null 2>&1; then
+      if [ "$expect" != "expect-pass" ]; then
+        echo "SELF-TEST FAILED: pinned-latest $name was accepted and should not be." >&2
+        return 1
+      fi
+      echo "SELF-TEST OK: pinned-latest $name accepted."
+    else
+      if [ "$expect" != "expect-fail" ]; then
+        echo "SELF-TEST FAILED: pinned-latest $name was rejected and should not be." >&2
+        return 1
+      fi
+      echo "SELF-TEST OK: pinned-latest $name rejected."
+    fi
+  }
+
+  pin_case "stale-beta1-behind-beta4" expect-fail "$(printf 'v0.4.0-beta.1\nv0.4.0-beta.4')" \
+    'The latest tagged release is `0.4.0-beta.1`. A rigorous harness.' || return 1
+
+  pin_case "historical-first-beta" expect-pass "$(printf 'v0.4.0-beta.1\nv0.4.0-beta.4')" \
+    'The first beta was `v0.4.0-beta.1` (September 15, 2026); the newest tag is on the Releases page.' || return 1
+
+  pin_case "current-latest-numeric-order" expect-pass "$(printf 'v0.4.0-beta.4\nv0.4.0-beta.10')" \
+    'The latest tagged release is the `0.4.0-beta.10` pre-release.' || return 1
+
+  pin_case "stale-behind-rc" expect-fail "$(printf 'v0.4.0-beta.9\nv0.4.0-rc.1')" \
+    'The latest release is v0.4.0-beta.9; the release line is still a beta.' || return 1
+
+  pin_case "stale-behind-stable" expect-fail "$(printf 'v0.4.0-rc.2\nv0.4.0')" \
+    'The latest release is `v0.4.0-rc.2`.' || return 1
+
+  pin_case "no-tags-skips" expect-pass "" \
+    'The latest release is v0.4.0-beta.1.' || return 1
 
   # ── Forward-tense prose about a shipped version (#4058) ────────────────────
   # Phrasings the literal "ships in 0.X" check cannot see. Each shipped-version
@@ -1489,7 +1611,16 @@ main() {
     update_baseline "$docs_root" "$baseline"
     return $?
   fi
-  run_scan "$roadmap" "$docs_root" "$baseline" "$sidebar" "$extra"
+  # Git tags for the pinned-latest check (#4106). A tagless checkout (the
+  # alpine lint job has no git; a shallow clone may have none) skips that check
+  # with a notice rather than failing every pipeline on a missing input.
+  local tags=""
+  tags="$(git -C "$REPO_ROOT" tag -l 2>/dev/null || true)"
+  if [ -z "$(printf '%s' "$tags" | newest_tag)" ]; then
+    echo "NOTE: no version tags visible to git; skipping the pinned \"latest release\" check." >&2
+    tags=""
+  fi
+  run_scan "$roadmap" "$docs_root" "$baseline" "$sidebar" "$extra" "$tags"
 }
 
 main "$@"
