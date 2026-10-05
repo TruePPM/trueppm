@@ -562,20 +562,23 @@ def test_inserting_a_milestone_into_an_fs_link_moves_nothing(
 def test_a_start_milestone_at_project_start_delays_nothing(
     project: RefProject, data: st.DataObject
 ) -> None:
-    """``S -FS(0)->`` any task with work that is not SF-only changes nothing at all.
+    """``S -FS(0)->`` any task with work not placed before the project start changes
+    nothing at all.
 
-    Excluded on purpose, as documented behavior rather than a delay: an SF-only
-    task, which any FS link returns to the project-start floor (#4218); and a
-    milestone, whose links count from its raw instant even before the project
-    start (#4225), so a link from ``S`` would hold it there.
+    Excluded on purpose, as documented behavior rather than a delay: a task an SF
+    link places before the project start — its project-start floor is ``min(project
+    start, SF placement)`` (#4218, #4220), so the link from ``S`` is the first bound
+    to hold it at the start; and a milestone, whose links count from its raw instant
+    even before the project start (#4225), so a link from ``S`` would hold it there.
     """
+    before = python_engine(project)
     eligible = sorted(
         tid
         for tid, n in project.durations.items()
         if n > 0
         and not (
-            (inc := [ln for ln in project.links if ln.succ == tid])
-            and all(ln.kind == "SF" for ln in inc)
+            any(ln.kind == "SF" for ln in project.links if ln.succ == tid)
+            and before[tid].early_start < project.start
         )
     )
     assume(eligible)
@@ -585,7 +588,7 @@ def test_a_start_milestone_at_project_start_delays_nothing(
         durations={"S": 0, **project.durations},
         links=project.links + tuple(RefLink("S", t, "FS", 0) for t in targets),
     )
-    before, after = python_engine(project), python_engine(with_start)
+    after = python_engine(with_start)
     for tid, t in before.items():
         assert after[tid] == t, tid
     assert_matches_reference(after, with_start)

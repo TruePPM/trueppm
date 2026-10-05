@@ -434,13 +434,13 @@ def test_an_snet_before_the_project_start_binds_an_sf_only_task() -> None:
     assert by["B"].early_start == date(2026, 2, 25)
 
 
-def test_a_binding_non_sf_link_keeps_the_project_start_floor() -> None:
-    """Mixed FS + SF where the FS lead binds: the floor still applies (#4220).
+def test_a_binding_lead_on_an_sf_linked_task_may_sit_before_the_start() -> None:
+    """Mixed FS + SF where the FS lead binds, before the project start (#4220).
 
     C (2d) would run Thu 02-26..Fri 02-27 on its SF link from A. X (3d) ends Wed
     03-04, so FS-6 lands on Fri 02-27: later than the SF placement, so the FS lead
-    binds — and it lands before the project start, so C is floored on Mon 03-02.
-    Leads that bind stay floored, exactly as before #4218.
+    binds. C's project-start floor is ``min(project start, SF placement)`` = Thu
+    02-26, so the lead is not floored: C runs Fri 02-27..Mon 03-02.
     """
     result = _schedule(
         [
@@ -454,6 +454,18 @@ def test_a_binding_non_sf_link_keeps_the_project_start_floor() -> None:
         ],
     )
     c = {t.id: t for t in result.tasks}["C"]
+    assert c.early_start == date(2026, 2, 27)
+    assert c.early_finish == PROJECT_START
+
+
+def test_a_lead_on_a_task_with_no_sf_link_stays_floored() -> None:
+    """Without an SF link there is no SF placement, so the floor is the project
+    start: the same FS-6 lead holds C on Mon 03-02, exactly as before #4218."""
+    result = _schedule(
+        [Task(id="X", name="X", duration=_days(3)), Task(id="C", name="C", duration=_days(2))],
+        [Dependency("X", "C", dep_type=DependencyType.FS, lag=_days(-6))],
+    )
+    c = {t.id: t for t in result.tasks}["C"]
     assert c.early_start == PROJECT_START
 
 
@@ -461,8 +473,8 @@ def test_a_non_binding_fs_lead_leaves_the_sf_placement_alone() -> None:
     """Mixed FS + SF where the SF link binds: no floor (#4220).
 
     The FS lead from X lands on Mon 02-23, earlier than the SF bound (C must finish
-    Fri 02-27), so the SF link binds and C sits on Fri 02-27. Before #4220 any FS
-    link on the task floored it on Mon 03-02.
+    Fri 02-27), so C sits on Fri 02-27. Before #4220 any FS link on the task
+    floored it on Mon 03-02.
     """
     result = _schedule(
         [
@@ -480,7 +492,7 @@ def test_a_non_binding_fs_lead_leaves_the_sf_placement_alone() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #4220 — the floor follows the binding bound, so a non-binding link is inert
+# #4220 — the floor is min(project start, SF placement): placements are monotone
 # ---------------------------------------------------------------------------
 
 
@@ -544,20 +556,94 @@ def test_no_non_binding_link_moves_an_sf_placed_task(
     assert (moved.early_start, moved.early_finish) == (base.early_start, base.early_finish)
 
 
-def test_adding_any_link_never_moves_a_task_before_the_sf_placement() -> None:
+def test_adding_a_non_sf_link_never_moves_a_task_earlier_and_lags_are_monotone() -> None:
     """Sweep FS/SS/FF lags from B into D: D is never earlier than without the link,
-    and it moves off the SF placement only when the new link binds — landing on
-    the project start (a binding pre-start lead) or later, never in between."""
+    and for each type a shorter lag never finishes D later (#4220, #4273)."""
     base = _repro_4220(with_ss=False)["D"]
     assert base.early_start is not None
     for dep_type in (DependencyType.FS, DependencyType.SS, DependencyType.FF):
+        previous: date | None = None
         for lag in range(-12, 6):
             link = Dependency("B", "D", dep_type=dep_type, lag=_days(lag))
             d = _repro_4220(with_ss=False, extra=[link])["D"]
-            assert d.early_start is not None
+            assert d.early_start is not None and d.early_finish is not None
             assert d.early_start >= base.early_start, (dep_type, lag)
-            if d.early_start != base.early_start:
-                assert d.early_start >= PROJECT_START, (dep_type, lag)
+            if previous is not None:
+                assert d.early_finish >= previous, (dep_type, lag)
+            previous = d.early_finish
+
+
+def test_a_shorter_sf_lag_never_finishes_work_later() -> None:
+    """The completeness-check counterexample to the first #4220 rule (#4273).
+
+    T0 (1d) ─SF(lag)─► T2 (1d) and T1 (3d) ─FF-5─► T2. At lag 0 the SF link places T2
+    on Fri 02-27 and the FF lead (Wed 03-04 - 5 = Fri 02-27) ties it. At lag -1 the
+    SF bound moves to Thu 02-26, the FF lead is left binding — and the first #4220
+    rule then floored T2 on Mon 03-02, so a shorter lag finished it later. Under
+    ``min(project start, SF placement)`` T2 stays on Fri 02-27. Negative control:
+    fails on b20274aa5.
+    """
+
+    def t2(lag: int) -> Task:
+        result = _schedule(
+            [
+                Task(id="T0", name="T0", duration=_days(1)),
+                Task(id="T1", name="T1", duration=_days(3)),
+                Task(id="T2", name="T2", duration=_days(1)),
+            ],
+            [
+                _sf_dep("T0", "T2", lag),
+                Dependency("T1", "T2", dep_type=DependencyType.FF, lag=_days(-5)),
+            ],
+        )
+        return {t.id: t for t in result.tasks}["T2"]
+
+    assert t2(0).early_finish == date(2026, 2, 27)
+    assert t2(-1).early_finish == date(2026, 2, 27)
+    for lag in range(-6, 4):
+        t_short, t_long = t2(lag - 1), t2(lag)
+        assert t_short.early_finish is not None and t_long.early_finish is not None
+        assert t_short.early_finish <= t_long.early_finish, lag
+
+
+def test_an_upstream_sf_link_never_moves_a_downstream_task_later() -> None:
+    """The completeness-check's upstream counterexample to the first #4220 rule.
+
+    A (3d) ─SF─► T (1d) puts T on Fri 02-27; X (3d) ─FS-7─► T proposes Thu 02-26,
+    which does not bind. Adding Z (3d) ─SF─► A pulls A back to Wed 02-25..Fri 02-27,
+    so T's SF bound moves to Tue 02-24 and the FS lead becomes the binding one. The
+    first #4220 rule then floored T on Mon 03-02 and its FS+5 successor S slid from
+    Thu 03-05 to Mon 03-09. Making a predecessor earlier must never make anything
+    later: T lands on the FS lead's Thu 02-26. Negative control: fails on b20274aa5.
+    """
+
+    def run(with_z: bool) -> dict[str, Task]:
+        deps = [
+            _sf_dep("A", "T"),
+            Dependency("X", "T", dep_type=DependencyType.FS, lag=_days(-7)),
+            Dependency("T", "S", dep_type=DependencyType.FS, lag=_days(5)),
+        ]
+        if with_z:
+            deps.append(_sf_dep("Z", "A"))
+        result = _schedule(
+            [
+                Task(id="A", name="A", duration=_days(3)),
+                Task(id="X", name="X", duration=_days(3)),
+                Task(id="Z", name="Z", duration=_days(3)),
+                Task(id="T", name="T", duration=_days(1)),
+                Task(id="S", name="S", duration=_days(1)),
+            ],
+            deps,
+        )
+        return {t.id: t for t in result.tasks}
+
+    without, with_z = run(False), run(True)
+    assert without["T"].early_start == date(2026, 2, 27)
+    assert with_z["A"].early_start == date(2026, 2, 25)
+    assert with_z["T"].early_start == date(2026, 2, 26)
+    for tid in ("T", "S"):
+        a, b = with_z[tid].early_finish, without[tid].early_finish
+        assert a is not None and b is not None and a <= b, tid
 
 
 def test_a_milestone_with_a_non_binding_ss_link_stays_before_the_project_start() -> None:
@@ -601,24 +687,26 @@ def _mixed_project(fs_lag_days: int, c_days: int) -> Project:
 
 
 @pytest.mark.parametrize("quantity", [Quantity.EARLY_START, Quantity.EARLY_FINISH])
-def test_derivation_offers_no_project_start_term_when_the_sf_link_binds(
+def test_derivation_offers_no_project_start_term_for_an_sf_linked_task(
     quantity: Quantity,
 ) -> None:
-    """``derive_value`` replays the waiver: C's SF link binds, so the project start
-    is not a candidate and the binding term's date is the engine's (#4220)."""
+    """``derive_value`` matches the engine: C has an SF link, so the project start is
+    not a candidate and the binding term's date is the engine's (#4220)."""
     project = _mixed_project(-10, 1)
     d = derive_value(project, "C", quantity)
     assert "project_start" not in {c.kind for c in d.contributions}
     assert d.binding is not None and d.binding.imposed_date == date(2026, 2, 27)
 
 
-def test_derivation_names_the_project_start_when_a_binding_lead_is_floored() -> None:
-    """A binding FS lead keeps the floor, and the derivation names it as binding."""
+def test_derivation_names_a_binding_lead_on_an_sf_linked_task() -> None:
+    """A binding FS lead places the SF-linked task before the start, and the
+    derivation names that link, with no project-start candidate (#4220)."""
     project = _mixed_project(-6, 2)
     d = derive_value(project, "C", Quantity.EARLY_START)
+    assert "project_start" not in {c.kind for c in d.contributions}
     assert d.binding is not None
-    assert d.binding.kind == "project_start"
-    assert d.binding.imposed_date == PROJECT_START
+    assert d.binding.kind == "predecessor_fs"
+    assert d.binding.imposed_date == date(2026, 2, 27)
 
 
 def test_the_data_date_still_floors_a_mixed_link_task() -> None:
@@ -639,16 +727,16 @@ def test_the_data_date_still_floors_a_mixed_link_task() -> None:
 
 @pytest.mark.parametrize(
     ("ss_lag", "expected"),
-    [(0, date(2026, 2, 26)), (1, PROJECT_START), (5, date(2026, 3, 3))],
+    [(0, date(2026, 2, 26)), (1, date(2026, 2, 27)), (5, date(2026, 3, 3))],
 )
 def test_monte_carlo_matches_cpm_for_a_mixed_link_task(ss_lag: int, expected: date) -> None:
-    """Zero-variance Monte Carlo replays the binding-bound rule per run (#4220).
+    """Zero-variance Monte Carlo agrees with CPM for a mixed-link task (#4220).
 
     D (2d) carries an SF link (Thu 02-26..Fri 02-27) and an SS link from pre-start
-    B (Thu 02-26). At lag 0 the SS bound ties the SF placement — a tie is the SF
-    link binding — and D stays before the project start; at +1 the SS bound, Fri
-    02-27, binds before the start and D is floored on Mon 03-02; at +5 it binds past
-    the start. C follows D by FS with a long lag, so D sets the project finish.
+    B (Thu 02-26). At lag 0 the SS bound ties the SF placement; at +1 it binds on
+    Fri 02-27, still before the project start, and D stays there, since its floor
+    is the SF placement; at +5 it binds past the start. C follows D by FS with a
+    long lag, so D sets the project finish — and the pre-start pad must hold D.
     """
     project = Project(
         id="sf-mixed-mc",
@@ -672,32 +760,6 @@ def test_monte_carlo_matches_cpm_for_a_mixed_link_task(ss_lag: int, expected: da
     mc = monte_carlo(project, runs=16, seed=3, max_runs=None, max_tasks=None)
     assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
     assert {t.id: t for t in result.tasks}["D"].early_start == expected
-
-
-def test_monte_carlo_matches_cpm_for_a_mixed_link_milestone() -> None:
-    """The milestone half of the per-run replay: M is shown before the project start
-    (its SS link does not bind), and a lagged FS successor of it sets the finish."""
-    project = Project(
-        id="sf-mixed-mc-m",
-        name="sf-mixed-mc-m",
-        start_date=PROJECT_START,
-        calendar=Calendar(),
-        tasks=[
-            Task(id="A", name="A", duration=_days(3)),
-            Task(id="B", name="B", duration=_days(2)),
-            Task(id="M", name="M", duration=_days(0)),
-            Task(id="C", name="C", duration=_days(2)),
-        ],
-        dependencies=[
-            _sf_dep("A", "B"),
-            _sf_dep("A", "M"),
-            Dependency("B", "M", dep_type=DependencyType.SS),
-            Dependency("M", "C", dep_type=DependencyType.FS, lag=_days(14)),
-        ],
-    )
-    result = schedule(project)
-    mc = monte_carlo(project, runs=16, seed=3, max_runs=None, max_tasks=None)
-    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
 
 
 def test_multiple_sf_links_take_the_latest_bound() -> None:
