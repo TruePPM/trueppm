@@ -166,7 +166,9 @@ The set is open-ended and grows as features land; current event types include:
   flipped the team's oversight-visibility consent switch for the project Decisions
   view. Payload is `{"id": <project id>, "oversight_visible": <bool>}`; a client
   re-reads `GET /api/v1/projects/{id}/decisions-policy/` to re-apply the gate for
-  the reading identity
+  the reading identity, and re-reads the Decisions list
+  (`GET /api/v1/projects/{id}/decisions/`) so an oversight reader's view unlocks
+  (or re-locks) without a manual reload
 - **Roster / assignments**: `roster_changed`, `assignment_created`,
   `assignment_updated`, `assignment_deleted`
 - **Board config**: `board_config_updated`, `board_view_created`,

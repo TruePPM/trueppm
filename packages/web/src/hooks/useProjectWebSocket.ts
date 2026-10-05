@@ -38,8 +38,9 @@
  *                  (every task-scoped + pending-list query) + sprint-backlog (#2845, #3772)
  *   signal_privacy_changed / signal_ceiling_proposal_changed → invalidate signal-privacy + ceiling-proposals
  *   signal_ceiling_vote_cast → invalidate ceiling-proposals + signal-privacy (tally lives in both, #3771)
- *   decisions_policy_changed → invalidate decisions-policy (ADR-0167, #4283 — a peer's
- *                  oversight-visibility consent toggle reaches an open Decisions panel live)
+ *   decisions_policy_changed → invalidate decisions-policy + decisions (ADR-0167, #4283 — a
+ *                  peer's oversight-visibility consent toggle reaches an open Decisions panel
+ *                  live, including flipping an already-locked reader's list in or out)
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   slip_conflict_acknowledged / slip_conflicts_updated → invalidate slip-conflicts (ADR-0120 D4, issue 1359)
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
@@ -1109,10 +1110,22 @@ function registerDecisionsPolicyHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // stale oversight-visibility posture until their next full refetch. Payload is
   // signal-only (id + the new value), so unconditionally invalidate rather than
   // try to splice it; useDecisionsPolicy's cache key is ['decisions-policy', id].
+  //
+  // Also invalidate the decisions LIST (useDecisions' ['decisions', id, sprint]
+  // keys). A denied oversight reader's list query resolves to a terminal
+  // `isLocked: true` with no retry on 403 (useDecisions.ts) and no
+  // refetchInterval, so turning oversight_visible ON would otherwise leave an
+  // already-mounted, already-locked DecisionsPanel locked forever — the switch
+  // flips but the reader who needed it never finds out. The reverse direction
+  // matters too: turning it OFF must re-lock a reader who was already in.
+  // Mirrors the task_note_decision_toggled handler above, which invalidates
+  // both the per-task notes cache and the project decisions list for the same
+  // reason (completeness-check finding, #4283).
   on('decisions_policy_changed', () => {
     void queryClient.invalidateQueries({
       queryKey: ['decisions-policy', projectIdRef.current],
     });
+    void queryClient.invalidateQueries({ queryKey: ['decisions', projectIdRef.current] });
   });
 }
 

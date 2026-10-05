@@ -3403,13 +3403,20 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
   });
 
   // --- #4283: Decisions-view oversight-visibility consent ---
-  it('invalidates decisions-policy on decisions_policy_changed', () => {
+  it('invalidates decisions-policy and the decisions list on decisions_policy_changed', () => {
+    // Both invalidations matter: decisions-policy is what OversightConsentControl
+    // reads, and decisions is the list useDecisions reads. A denied oversight
+    // reader's list query is a terminal isLocked:true (403, no retry, no
+    // refetchInterval) — without the second invalidation, flipping
+    // oversight_visible on would never un-stick an already-mounted, already-locked
+    // DecisionsPanel (completeness-check finding on this issue).
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
     dispatch('decisions_policy_changed', { id: 'proj-1', oversight_visible: true });
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['decisions-policy', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['decisions', 'proj-1'] });
   });
 
   // --- #3772: velocity-suggestion settlement ---
