@@ -280,7 +280,8 @@ class DrivingEdge:
 
     A driving edge does **not** imply ``total_float(predecessor) <=
     total_float(successor)`` in general (#4269). The textbook identity needs the
-    link to be a fixed working-time offset, and two links here are not:
+    link to be a fixed working-time offset counted in one unit, and three links
+    here are not:
 
     * a non-zero lag is calendar days, so it spans fewer working days once the
       predecessor's late date reaches a weekend. ``M1 -FS+2d-> M2`` from a Monday
@@ -289,8 +290,13 @@ class DrivingEdge:
     * a zero-duration successor's own float is capped by
       :func:`_float_late_instant` (#4183) while its predecessors read the uncapped
       late instant, so it can report a day less float than the task driving it.
+    * float is counted in each task's own working days (ADR-0120 D3), so across
+      two calendars the same calendar-time slack differs: a 7-day-week
+      predecessor can float 10 days while the 5-day-week successor it drives
+      floats 8.
 
-    With a zero lag into a work task the identity holds. The scheduler's
+    With a zero lag into a work task on the predecessor's calendar the identity
+    holds. The scheduler's
     ``test_cpm_invariants.py`` checks exactly that scope and pins both exceptions.
     """
 

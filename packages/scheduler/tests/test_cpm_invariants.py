@@ -287,7 +287,7 @@ def _float_inversions(
     In textbook CPM a zero-slack link gives ``total_float(pred) <=
     total_float(succ)``: the backward pass bounds the predecessor's late date by
     the successor's, shifted by a link offset that is constant in the unit float is
-    counted in. ``scoped`` skips the two links where that premise is false here by
+    counted in. ``scoped`` skips the three links where that premise is false here by
     design, not by defect (#4269):
 
     * **a non-zero lag.** Lag is calendar days, then snapped; float is working days.
@@ -299,6 +299,10 @@ def _float_inversions(
       reading that places it early, while its predecessors read the uncapped
       instant. The milestone can report a day less float than the predecessor
       that drives it.
+    * **two different calendars.** Each task's float is counted in its *own*
+      working days (ADR-0120 D3). The same stretch of calendar time is 10 days of
+      float on a 7-day calendar and 8 on a 5-day one, so the predecessor on the
+      longer working week out-floats the successor it drives.
 
     ``scoped=False`` applies the textbook identity to every driving edge, which is
     what the pinned counterexamples below use to show it does not hold there.
@@ -308,7 +312,14 @@ def _float_inversions(
     found = []
     for edge in result.driving_edges:
         pred, succ = tasks[edge.predecessor_id], tasks[edge.successor_id]
-        if scoped and (lags[(pred.id, succ.id)] != timedelta(0) or succ.duration == timedelta(0)):
+        if scoped and (
+            lags[(pred.id, succ.id)] != timedelta(0)
+            or succ.duration == timedelta(0)
+            # Compared by the calendar each task resolves to, not by
+            # ``calendar_id``: two ids naming equal calendars count float in the
+            # same unit, and only a real difference breaks the identity.
+            or _task_calendar(project, pred) != _task_calendar(project, succ)
+        ):
             continue
         assert pred.total_float is not None and succ.total_float is not None
         if pred.total_float > succ.total_float:
@@ -329,9 +340,11 @@ def test_driving_edge_never_gains_float_upstream(project: Project) -> None:
     predecessor's.
 
     Narrowed by :func:`_zero_lags` and scoped by :func:`_float_inversions` to
-    work successors; each exclusion has a pinned counterexample below showing the
-    engine is right and the textbook identity is not. With the gate profile's 200
-    examples about a hundred in-scope driving edges are checked.
+    work successors on the predecessor's calendar; each exclusion has a pinned
+    counterexample below showing the engine is right and the textbook identity is
+    not. ``_plausible_projects`` draws a single project calendar, so the calendar
+    exclusion removes nothing here. The gate profile's 200 examples check roughly
+    75-100 in-scope driving edges, depending on the derandomized seed.
     """
     project = _zero_lags(project)
     try:
@@ -471,6 +484,91 @@ def test_milestone_float_cap_driving_edge_can_carry_more_float_upstream() -> Non
 
     assert _float_inversions(project, result, scoped=False) == [("A", "M")]
     assert _float_inversions(project, result) == []
+
+
+def _two_calendar_project(
+    a_cal: str = "seven", b_cal: str = "five", a_planned_start: date | None = None
+) -> Project:
+    """``A(1d) -FS-> B(1d)`` beside a 10-day ``L``, each on its named calendar.
+
+    The project calendar is a 5-day week; ``A`` and ``B`` opt into ``"seven"`` (a
+    7-day week) or ``"five"`` (the same 5-day week) through ``calendar_id``.
+    """
+    five = Calendar(working_days=0b0011111)
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),  # a Monday
+        tasks=[
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=1),
+                calendar_id=a_cal,
+                planned_start=a_planned_start,
+            ),
+            Task(id="B", name="B", duration=timedelta(days=1), calendar_id=b_cal),
+            Task(id="L", name="L", duration=timedelta(days=10)),
+        ],
+        dependencies=[Dependency(predecessor_id="A", successor_id="B")],
+        calendar=five,
+        calendars={"seven": Calendar(working_days=0b1111111), "five": five},
+    )
+
+
+def test_per_task_calendar_driving_edge_can_carry_more_float_upstream() -> None:
+    """A zero-lag driving edge across calendars: ``A`` at 10 days of float, ``B`` at 8.
+
+    Both are the same slack in calendar time. ``A`` (7-day week) can start as late
+    as Thursday 03-12, ``B`` (5-day week) as late as Friday 03-13, and each counts
+    the stretch from its early start in its own working days (ADR-0120 D3). Swap
+    the calendars and the numbers swap with them, so the inversion is the unit,
+    not the schedule.
+    """
+    project = _two_calendar_project()
+    result = schedule(project)
+    tasks = {t.id: t for t in result.tasks}
+
+    assert DrivingEdge("A", "B", "FS") in result.driving_edges
+    assert tasks["A"].total_float == timedelta(days=10)
+    assert tasks["B"].total_float == timedelta(days=8)
+
+    # A's ten days are real: starting it Thursday 03-12 leaves the finish alone,
+    # Friday moves it.
+    thursday = date(2026, 3, 12)
+    assert (
+        schedule(_two_calendar_project(a_planned_start=thursday)).project_finish
+        == result.project_finish
+    )
+    assert (
+        schedule(_two_calendar_project(a_planned_start=thursday + timedelta(days=1))).project_finish
+        > result.project_finish
+    )
+
+    swapped = _two_calendar_project("five", "seven")
+    swapped_tasks = {t.id: t for t in schedule(swapped).tasks}
+    assert swapped_tasks["A"].total_float == timedelta(days=8)
+    assert swapped_tasks["B"].total_float == timedelta(days=10)
+
+    # Negative control: without the calendar skip the scoped check would flag it.
+    assert _float_inversions(project, result, scoped=False) == [("A", "B")]
+    assert _float_inversions(project, result) == []
+    # The skip is narrow: on one shared calendar the edge stays in scope, so a
+    # planted inversion there is still caught.
+    same = _two_calendar_project("five", "five")
+    same_result = schedule(same)
+    assert DrivingEdge("A", "B", "FS") in same_result.driving_edges
+    assert _float_inversions(same, same_result) == []
+    planted = dataclasses.replace(
+        same_result,
+        tasks=[
+            dataclasses.replace(t, total_float=t.total_float + timedelta(days=1))
+            if t.id == "A" and t.total_float is not None
+            else t
+            for t in same_result.tasks
+        ],
+    )
+    assert _float_inversions(same, planted) == [("A", "B")]
 
 
 def test_float_inversion_check_flags_a_zero_lag_work_successor() -> None:
