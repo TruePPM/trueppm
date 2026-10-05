@@ -3292,6 +3292,28 @@ export function getLastPendingJunctionCount(): number {
 }
 
 /**
+ * Count of `fsByTarget` groups that passed `groupSpanOverlapsRange` and were
+ * handed to `collectFSGroup` in the most recent `paintDependencyLayout` frame
+ * — i.e. the groups the #4087 pre-filter actually let through, before any
+ * per-edge offScreen test or path/junction construction runs. Reset at the
+ * top of that function.
+ *
+ * Exposed for tests only, via {@link getLastFSGroupsEvaluated} — the
+ * pending-path/junction counts above can stay small for reasons unrelated to
+ * the pre-filter (e.g. every surviving group degrading to a culled single
+ * arrow), so neither one actually proves the pre-filter itself is bounding
+ * the work. This counter is the direct measurement of that: it must stay
+ * O(visible rows), not O(total merge targets), independent of what any
+ * individual group goes on to render.
+ */
+let _lastFSGroupsEvaluated = 0;
+
+/** See {@link _lastFSGroupsEvaluated}. Test-only. */
+export function getLastFSGroupsEvaluated(): number {
+  return _lastFSGroupsEvaluated;
+}
+
+/**
  * Exported for tests only (#4087) — lets a test construct one frame's
  * {@link DepPaintContext} directly and probe `getScreen`'s per-frame cache
  * (same id within one context → same object; a fresh context → a fresh
@@ -3331,11 +3353,21 @@ export function makeDepPaintContext(
 
   // #4087: the same id is frequently resolved more than once per frame — a
   // merge target is fetched once in `collectFSPaths` and again as `tgt` in
-  // `collectFSGroup`'s single-FS fallback, and a task that feeds more than one
-  // target is looked up once per group it participates in. `scrollLeft` is
-  // fixed for the lifetime of this context (one `makeDepPaintContext` call per
-  // frame), so the projected node is safe to memoize per id for the frame and
-  // must NOT be reused across frames (a later scroll would stale the offsets).
+  // `collectFSGroup`'s single-FS fallback, and a task that feeds more than
+  // one target is looked up once per group it participates in. `scrollLeft`
+  // is fixed for the lifetime of this context (one `makeDepPaintContext`
+  // call per frame), so the projected node is safe to memoize per id for
+  // the frame.
+  //
+  // This cache is deliberately per-frame rather than reused across frames
+  // (recorded in the MR as a partial fix, not a gap). `DepScreenNode`
+  // depends only on `scrollLeft` — `barLeft`/`barRight` are offset by it;
+  // `rowIndex`/`isCritical`/`isMilestone`/`parentId` don't move with scroll
+  // at all — so a vertical-only scroll (`scrollTop` changes, `scrollLeft`
+  // doesn't) would not actually stale a node cached from a prior frame.
+  // Nothing here tracks whether `scrollLeft` changed between frames, so a
+  // cross-frame cache would need that invalidation to be correct; a fresh
+  // `Map` per call is the simple version measured for this fix.
   const screenCache = new Map<string, DepScreenNode>();
 
   return {
@@ -3588,6 +3620,7 @@ function collectFSPaths(
     const targetNode = nodes.get(targetId);
     if (!targetNode) continue;
     if (!groupSpanOverlapsRange(nodes, targetNode.rowIndex, group, lo, hi)) continue;
+    _lastFSGroupsEvaluated++;
     const tgt = pc.getScreen(targetId);
     if (!tgt) continue;
     collectFSGroup(pc, targetId, tgt, group, pendingPaths, pendingJunctions);
@@ -3649,13 +3682,40 @@ function nonFSGeometry(
 /**
  * SS / FF / SF — cubic Bézier. Skipped from hop detection (Bézier-vs-Manhattan
  * crossings are out of scope for Rule 15 v1), hence no `rows` span.
+ *
+ * #4087: `nonFSLinks` is a flat, unfiltered list, so a long-span SS/FF/SF
+ * link whose both endpoints are far from the visible band used to call
+ * `getScreen` twice before its own `offScreen` test ever ran. The row-span
+ * reject below is the same allocation-free check `collectFSPaths` applies
+ * (`nodes.get(...).rowIndex` against the visible band ± the #3769 margin)
+ * — a link whose span doesn't overlap the band at all is skipped before any
+ * screen-space projection; `offScreen`'s pixel-based test still runs after
+ * for everything the row check lets through, since a span that merely
+ * overlaps in row-space can still resolve off-canvas in pixel-space (e.g.
+ * horizontal scroll).
  */
 function collectNonFSPaths(
   pc: DepPaintContext,
   nonFSLinks: readonly TaskLink[],
+  nodes: ReadonlyMap<string, DepNode>,
+  visibleFirstRow: number,
+  visibleLastRow: number,
   pendingPaths: PendingPath[],
 ): void {
+  const lo = visibleFirstRow - TARGET_ROW_MARGIN;
+  const hi = visibleLastRow + TARGET_ROW_MARGIN;
   for (const link of nonFSLinks) {
+    // #4087: same allocation-free row-span reject as `collectFSPaths` — read
+    // raw row indices off `nodes` and skip before ever calling `getScreen`
+    // (which `pushSingleFS`'s pixel-based `offScreen` test below still
+    // needs for the links this reject lets through).
+    const srcNode = nodes.get(link.sourceId);
+    const tgtNode = nodes.get(link.targetId);
+    if (!srcNode || !tgtNode) continue;
+    const rowMin = Math.min(srcNode.rowIndex, tgtNode.rowIndex);
+    const rowMax = Math.max(srcNode.rowIndex, tgtNode.rowIndex);
+    if (rowMax < lo || rowMin > hi) continue;
+
     const src = pc.getScreen(link.sourceId);
     const tgt = pc.getScreen(link.targetId);
     if (!src || !tgt) continue;
@@ -3729,8 +3789,15 @@ export function paintDependencyLayout(
   hoverChain: DepArrowHoverChain | null = null,
   visibleRowRange?: { firstRow: number; lastRow: number },
 ): void {
-  if (layout.empty) return;
+  // #4087: reset every per-frame test-only counter before the `empty` early
+  // return, not after — an empty-layout frame (e.g. every link just got
+  // deleted) must not leave the PREVIOUS frame's counts sitting around for
+  // a test (or a future caller) to read as if they were current.
   _lastObstacleBoxCount = 0;
+  _lastPendingPathCount = 0;
+  _lastPendingJunctionCount = 0;
+  _lastFSGroupsEvaluated = 0;
+  if (layout.empty) return;
   const visibleFirstRow = visibleRowRange?.firstRow ?? 0;
   const visibleLastRow = visibleRowRange?.lastRow ?? layout.barByRow.length - 1;
   const pc = makeDepPaintContext(
@@ -3758,7 +3825,7 @@ export function paintDependencyLayout(
     pendingPaths,
     pendingJunctions,
   );
-  collectNonFSPaths(pc, layout.nonFSLinks, pendingPaths);
+  collectNonFSPaths(pc, layout.nonFSLinks, layout.nodes, visibleFirstRow, visibleLastRow, pendingPaths);
   // #4087: the path-count budget — the falsification line for the fix above.
   // Captured right after collection, before hop detection/stroking add nothing
   // further to either array.

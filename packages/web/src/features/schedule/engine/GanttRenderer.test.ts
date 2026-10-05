@@ -34,6 +34,7 @@ import {
   getLastObstacleBoxCount,
   getLastPendingPathCount,
   getLastPendingJunctionCount,
+  getLastFSGroupsEvaluated,
   makeDepPaintContext,
 } from './GanttRenderer';
 import {
@@ -3091,6 +3092,37 @@ describe('dependency layer — merge junction fallbacks (#2459)', () => {
     expect(calls.filter((c) => c.name === 'arc').length).toBeGreaterThan(0);
   });
 
+  it('still draws the trunk when the target is at a mid-list row inside an explicit visible range and both predecessor feeders are outside it (#4087)', () => {
+    // The test above never passes `visibleRowRange`, so it defaults to the
+    // layout's full row extent and never actually exercises
+    // `collectFSPaths`'s own row pre-filter — only the pixel-based
+    // offScreen tests. This variant passes an explicit, mid-list
+    // `visibleRowRange` so the pre-filter itself is in play: 't' sits at
+    // row 502, inside [490, 520]; p1/p2 sit at rows 0/1, far outside it
+    // (and off-screen in pixel space too, once `scrollTop` is aligned).
+    const before: Task[] = [];
+    for (let i = 0; i < 503; i++) {
+      if (i === 0) before.push(p1);
+      else if (i === 1) before.push(p2);
+      else if (i === 502) before.push(target);
+      else before.push(depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    }
+    const { ctx, calls } = makeFullCtx(800, 800);
+    const firstRow = 490;
+    const lastRow = 520;
+    const scrollTop = firstRow * ROW_HEIGHT;
+    paintDependencyLayout(
+      ctx,
+      prepareDependencyLayout(before, [depLink('p1', 't'), depLink('p2', 't')], scales),
+      0,
+      scrollTop,
+      undefined,
+      null,
+      { firstRow, lastRow },
+    );
+    expect(calls.filter((c) => c.name === 'arc').length).toBeGreaterThan(0);
+  });
+
   it('culls the trunk and junction dot when the merge target itself is off-screen (#4087)', () => {
     // Same shape as above, but reversed: the target is ALSO pushed below the
     // fold (it sits after the filler, like every predecessor). Nothing in
@@ -3249,6 +3281,16 @@ describe('dependency layer — merge junction trunk/junction visibility culling 
     // in the visible band — never more than the rows actually on screen.
     const visibleRowCount = lastRow - firstRow + 1;
     expect(getLastPendingJunctionCount()).toBeLessThanOrEqual(visibleRowCount);
+
+    // GAP 3 (completeness-check round 2): neither count above actually
+    // proves the PRE-FILTER itself is bounding the work — both can stay
+    // small for reasons entirely downstream of it (e.g. every surviving
+    // group degrading to a single culled arrow). Assert directly on the
+    // pre-filter's own output: it must evaluate O(visible rows) groups,
+    // nowhere near the ~5k total merge-target count in this layout.
+    const totalTargets = ROW_COUNT - 1; // every row but the first gets a link
+    expect(getLastFSGroupsEvaluated()).toBeLessThan(100);
+    expect(getLastFSGroupsEvaluated()).toBeLessThan(totalTargets / 10);
   });
 
   it('keeps a merge trunk alive when the target row is past the row-range margin but a predecessor is inside it', () => {
@@ -3373,6 +3415,52 @@ describe('dependency layer — merge junction trunk/junction visibility culling 
     paintDependencyLayout(ctx, layout, 0, scrollTop, undefined, null, { firstRow, lastRow });
 
     expect(getLastPendingPathCount()).toBeLessThan(200);
+
+    const totalTargets = ROW_COUNT - 1;
+    expect(getLastFSGroupsEvaluated()).toBeLessThan(100);
+    expect(getLastFSGroupsEvaluated()).toBeLessThan(totalTargets / 10);
+  });
+});
+
+describe('dependency layer — row-span pre-filter on non-FS (SS/FF/SF) links (#4087)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-06-01');
+
+  it('keeps a straddling SS link whose endpoints sit on opposite sides of a distant visible band', () => {
+    const src = depTask('s', '2026-04-06', '2026-04-10');
+    const tgt = depTask('u', '2026-05-04', '2026-05-08');
+    const tasks: Task[] = [];
+    for (let i = 0; i <= 2000; i++) {
+      if (i === 10) tasks.push(src);
+      else if (i === 2000) tasks.push(tgt);
+      else tasks.push(depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    }
+    const links = [depLink('s', 'u', { type: 'SS' })];
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const { ctx, calls } = makeFullCtx(800, 800);
+    const firstRow = 500;
+    const lastRow = 530;
+    const scrollTop = firstRow * ROW_HEIGHT;
+
+    paintDependencyLayout(ctx, layout, 0, scrollTop, undefined, null, { firstRow, lastRow });
+
+    expect(calls.filter((c) => c.name === 'bezierCurveTo').length).toBeGreaterThan(0);
+  });
+
+  it('skips a non-FS link whose row span never comes near the visible band', () => {
+    const src = depTask('s', '2026-04-06', '2026-04-10');
+    const tgt = depTask('u', '2026-05-04', '2026-05-08');
+    // Both endpoints sit at rows 10/20 — nowhere near [500, 530] and on the
+    // SAME side of it, so the row span itself never overlaps the band.
+    const filler = Array.from({ length: 30 }, (_, i) => depTask(`f${i}`, '2026-04-06', '2026-04-07'));
+    const tasks = [...filler.slice(0, 10), src, ...filler.slice(10, 19), tgt, ...filler.slice(19)];
+    const links = [depLink('s', 'u', { type: 'SS' })];
+    const layout = prepareDependencyLayout(tasks, links, scales);
+    const { ctx, calls } = makeFullCtx(800, 800);
+
+    paintDependencyLayout(ctx, layout, 0, 0, undefined, null, { firstRow: 500, lastRow: 530 });
+
+    expect(getLastPendingPathCount()).toBe(0);
+    expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
   });
 });
 
