@@ -3,7 +3,7 @@ title: Architecture Overview
 description: System diagram, design decisions, and package structure.
 ---
 
-This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, web frontend, and the 0.2 settings/administration and program platform are all functional as of 0.4 — the latest shipped pre-release is `v0.4.0-beta.1` (September 15, 2026), TruePPM's first beta, which layered the read-only MCP server, basic single sign-on, and in-app time capture and baselines on top of the 0.3 agile-team feature set and the v2 interface refresh.
+This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, web frontend, and the 0.2 settings/administration and program platform are all functional as of 0.4 — 0.4 is TruePPM's first beta (`v0.4.0-beta.1`, September 15, 2026), and the newest pre-release is on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases). The first beta layered the read-only MCP server, basic single sign-on, and in-app time capture and baselines on top of the 0.3 agile-team feature set and the v2 interface refresh.
 
 ## System diagram
 
