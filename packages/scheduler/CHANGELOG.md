@@ -18,6 +18,17 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A link that does not bind a task no longer moves it to the project start
+  (#4220).** Since #4218 a task whose links are all SF can be placed before the
+  project start, but any FS, SS or FF link on it restored the project-start
+  floor, even one asking for an earlier date than the SF link. Adding such a
+  link, shortening an SF lag, or moving an SF predecessor earlier could move the
+  task later. A task's project-start floor is now the earlier of the project
+  start and its SF placement: a task with an SF link is not held back by the
+  project start, so a binding FS, SS or FF lead on it may also place it there,
+  while a task with no SF link keeps the floor. Monte Carlo, the Rust/WASM engine
+  and `derive_value` match. MS Project's behavior for mixed links and leads is
+  unverified (#4319).
 - **A milestone held at the project start no longer delays its successors
   (#4225).** When a lead or an SF-only predecessor (#4218) put a milestone's
   links before the project start, the milestone was floored at the project

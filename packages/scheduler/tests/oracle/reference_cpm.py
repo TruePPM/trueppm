@@ -67,11 +67,13 @@ Documented rules modeled
   stays contiguous; a finish link that pins it later than its start links allow
   right-aligns it on that finish (#3806). A milestone successor is the raw latest
   of everything its links require.
-* Every task with work is floored at the project start (snapped forward to a
-  working day), except one whose links are **all** SF (#4218). A milestone's raw
-  instant is never floored — the project start only bounds the day it is *shown*
-  on (#4225), and not even that for an SF-only milestone (#4218); with no links it
-  sits at the project start.
+* Every task's project-start floor (snapped forward to a working day) is
+  ``min(project start, SF placement)`` (#4218, #4220). A task with no SF link has
+  no SF placement and takes the project start; a task with one is already held at
+  or after its SF placement by that link, so the floor never binds and is left
+  out. A milestone's raw instant is never floored — the project start only bounds
+  the day it is *shown* on (#4225), and not even that for a milestone with an SF
+  link; with no links it sits at the project start.
 * The project finish is the latest (shown) finish; nothing may finish after it.
   ``total_float`` is the working days from early start to late start;
   ``free_float`` is the largest working-day slip that keeps every successor's
@@ -366,7 +368,7 @@ def _forward_task(
         return instant, instant
 
     start_needs = [need for link, need in needs if constrains_start(link)]
-    if not _sf_only(project, tid):
+    if not _sf_linked(project, tid):
         start_needs.append(project_start)
 
     finishes = [
@@ -458,18 +460,19 @@ def _project_finish(
     return finish, bool(by_work) and max(by_work) == finish
 
 
-def _sf_only(project: RefProject, tid: str) -> bool:
-    links = incoming(project, tid)
-    return bool(links) and all(link.kind == "SF" for link in links)
+def _sf_linked(project: RefProject, tid: str) -> bool:
+    """Has ``tid`` an SF link? Its project-start floor is ``min(start, SF placement)``,
+    which never binds, so it has none (#4218, #4220)."""
+    return any(link.kind == "SF" for link in incoming(project, tid))
 
 
 def _shown_instant(
     project: RefProject, tid: str, early: dict[str, Span], project_start: date
 ) -> date:
     """Where a milestone is shown: its raw instant, but never before the project start
-    (#4225) — unless its links are all SF, which place it alone (#4218)."""
+    (#4225) — unless it has an SF link, which lifts the floor (#4218, #4220)."""
     raw = early[tid][0]
-    return raw if _sf_only(project, tid) else max(raw, project_start)
+    return raw if _sf_linked(project, tid) else max(raw, project_start)
 
 
 def _feeds_a_milestone(project: RefProject, tid: str) -> bool:
