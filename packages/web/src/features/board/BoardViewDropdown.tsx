@@ -27,6 +27,7 @@ import {
   type BoardViewConfig,
 } from '@/hooks/useBoardSavedViews';
 import { CheckIcon } from '@/components/Icons';
+import { isSameUser } from '@/lib/userId';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useLabels } from '@/hooks/useLabels';
 import { labelDotStyle } from '@/lib/labelColors';
@@ -188,7 +189,7 @@ interface BoardViewDropdownProps {
   activeViewId: string | null;
   /** Called when a view is selected; null to clear active view */
   onApply: (config: Partial<BoardViewConfig>, viewId: string | null) => void;
-  currentUserId?: string | null;
+  currentUserId?: string | number | null;
 }
 
 export function BoardViewDropdown({
@@ -400,7 +401,7 @@ export function BoardViewDropdown({
                       <SavedViewMeta summary={summaryOf(sv)} />
                     </button>
                     {/* Delete — shown on hover; always visible for creator */}
-                    {(sv.createdBy === currentUserId || !sv.createdBy) && (
+                    {(isSameUser(sv.createdBy, currentUserId) || sv.createdBy == null) && (
                       <button
                         type="button"
                         onClick={(e) => handleDelete(e, sv)}

@@ -28,7 +28,7 @@ export interface ApiBacklogItem {
   pulled_task_project_name: string | null;
   pulled_at: string | null;
   pulled_by: string | null;
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   updated_at: string;
 }

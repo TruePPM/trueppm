@@ -8483,10 +8483,11 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
     read-only thereafter.
     """
 
-    created_by = serializers.SerializerMethodField()
-
-    def get_created_by(self, obj: BoardSavedView) -> str | None:
-        return str(obj.created_by_id) if obj.created_by_id else None
+    # Integer user PK, matching ``created_by`` on every other schema — it was briefly
+    # a stringified PK in the 0.4 betas, which no client could join across resources.
+    created_by: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
+        read_only=True, allow_null=True
+    )
 
     def to_representation(self, instance: BoardSavedView) -> dict[str, Any]:
         """Upgrade the stored config to the current shape on read.

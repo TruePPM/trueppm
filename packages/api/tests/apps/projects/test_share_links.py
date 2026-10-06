@@ -150,6 +150,32 @@ def test_admin_token_cannot_create(project):
 
 
 @pytest.mark.django_db
+def test_created_by_is_integer_pk_and_name_is_separate(project):
+    """#4290: ``created_by`` is the creator's integer PK on both the create response
+    and the list — the same wire meaning as on every other schema — and the display
+    name moved to ``created_by_name``. Before, ``created_by`` carried the name.
+    """
+    admin = _member(project, "creator", Role.ADMIN)
+    admin.first_name, admin.last_name = "Ada", "Lovelace"
+    admin.save()
+    client = _client(admin)
+    created = client.post(_links_url(project), {"label": "x"}, format="json").data
+    listed = client.get(_links_url(project)).data[0]
+    for body in (created, listed):
+        assert body["created_by"] == admin.pk
+        assert isinstance(body["created_by"], int)
+        assert body["created_by_name"] == "Ada Lovelace"
+
+
+@pytest.mark.django_db
+def test_created_by_and_name_are_null_without_a_creator(admin_client, project):
+    share_services.mint_share_link(project, None)
+    row = admin_client.get(_links_url(project)).data[0]
+    assert row["created_by"] is None
+    assert row["created_by_name"] is None
+
+
+@pytest.mark.django_db
 def test_list_shows_active_excludes_revoked(admin_client, project):
     admin_client.post(_links_url(project), {"label": "keep"}, format="json")
     revoked = admin_client.post(_links_url(project), {"label": "gone"}, format="json").data

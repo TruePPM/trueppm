@@ -385,7 +385,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------
-  // (e) #2633 - user ids are integers server-side, strings in types.ts - 14 operations
+  // (e) #2633 - user ids are integers server-side, strings in types.ts - 13 operations
   // ---------------------------------------------------------------------------
   'GET /api/v1/projects/{id}/': {
     reason:
@@ -461,13 +461,6 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
     allow: ['*'],
   },
-  'POST /api/v1/task-relations/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
-    allow: ['*'],
-  },
   // #3649 narrowed the cluster-(a) wildcard on these two `/members/` operations to
   // just its pagination-envelope claim, which surfaced this pre-existing #2633
   // drift underneath it — it was never fixed, only hidden by the broader waiver.
@@ -495,7 +488,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
     allow: ['*'],
   },
   // ---------------------------------------------------------------------------
-  // (f) MOCK WRONG - stale or invented fields, and enums the server cannot emit - 46 operations
+  // (f) MOCK WRONG - stale or invented fields, and enums the server cannot emit - 45 operations
   // ---------------------------------------------------------------------------
   'GET /api/v1/agent-actions/': {
     reason:
@@ -576,13 +569,6 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
       'field the server does not send. Observed: results[].server_version:unknown-property, ' +
       'results[].name:unknown-property, results[].email:unknown-property, ' +
       'results[].job_role:unknown-property, results[].max_units:unknown-property, +2 more.',
-    allow: ['*'],
-  },
-  'GET /api/v1/task-relations/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: [].created_by:type.',
     allow: ['*'],
   },
   'GET /api/v1/task-resources/': {

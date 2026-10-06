@@ -65,7 +65,8 @@ function link(overrides: Partial<ShareLink> = {}): ShareLink {
     label: 'Client board',
     showAssignees: false,
     showMilestoneDates: true,
-    createdBy: 'Kelly',
+    createdBy: 7,
+    createdByName: 'Kelly',
     createdAt: '2026-07-06T00:00:00Z',
     expiresAt: null,
     revokedAt: null,
@@ -102,6 +103,13 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
     expect(
       screen.getByRole('button', { name: /About the Public links options/i }),
     ).toBeInTheDocument();
+  });
+
+  it('names the creator from createdByName, never the integer createdBy id (#4290)', () => {
+    sharedLinksResult = { data: [link()], isLoading: false };
+    render(<ProjectSharingPage />);
+    expect(screen.getByText(/Created by Kelly/)).toBeInTheDocument();
+    expect(screen.queryByText(/Created by 7/)).not.toBeInTheDocument();
   });
 
   it('groups active links by kind with a count and expiry clause', () => {

@@ -627,7 +627,7 @@ export interface TaskRelation {
   target: string;
   relationType: RelationType;
   note: string;
-  createdBy: string | null;
+  createdBy: number | null;
   createdAt: string;
   sourceCard?: RelationCard | null;
   targetCard?: RelationCard | null;

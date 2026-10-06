@@ -19,7 +19,10 @@ export interface ExternalStakeholder {
   name: string;
   email: string;
   note: string;
-  created_by: string | null;
+  /** Adder's integer user PK; null once that user is deleted. */
+  created_by: number | null;
+  /** Adder's display name, for the "Added by" column. */
+  created_by_name: string | null;
   created_at: string;
   updated_at: string;
 }

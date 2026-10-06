@@ -24,7 +24,7 @@ interface ApiTaskRelation {
   target: string;
   relation_type: RelationType;
   note: string | null;
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   source_card: ApiRelationCard | null;
   target_card: ApiRelationCard | null;

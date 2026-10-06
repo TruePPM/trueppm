@@ -49,7 +49,8 @@ const STAKEHOLDER = {
   name: 'Dana Client',
   email: 'dana@client.example',
   note: 'Sponsor',
-  created_by: 'kelly',
+  created_by: 1,
+  created_by_name: 'kelly',
 };
 
 function renderPage() {
@@ -160,6 +161,8 @@ describe('ProgramStakeholdersPage (settings)', () => {
     expect(rowScope.getByText('Email')).toBeInTheDocument();
     expect(rowScope.getByText('Note')).toBeInTheDocument();
     expect(rowScope.getByText('Added by')).toBeInTheDocument();
+    // The display name, not the integer created_by PK (#4290).
+    expect(rowScope.getByText('kelly')).toBeInTheDocument();
   });
 
   it('hides the add form and remove controls for a viewer', () => {

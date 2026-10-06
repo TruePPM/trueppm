@@ -13,13 +13,27 @@ import { useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CalmToolbar, type CalmToolbarProps } from './CalmToolbar';
 
+const mocks = vi.hoisted(() => ({
+  views: [] as unknown[],
+  currentUser: undefined as { id: string } | undefined,
+}));
+
 vi.mock('@/hooks/useBoardSavedViews', () => ({
   useBoardSavedViews: () => ({
-    views: [],
+    views: mocks.views,
     isLoading: false,
     create: { mutate: vi.fn(), isPending: false },
     update: { mutate: vi.fn(), isPending: false },
     remove: { mutate: vi.fn(), isPending: false },
+  }),
+}));
+
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({
+    user: mocks.currentUser,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
   }),
 }));
 
@@ -102,6 +116,27 @@ function renderToolbar(overrides: Partial<CalmToolbarProps> = {}) {
 describe('CalmToolbar', () => {
   beforeEach(() => {
     localStorage.clear();
+    mocks.views = [];
+    mocks.currentUser = undefined;
+  });
+
+  it('passes the /auth/me id to the saved-view dropdown so the creator can delete their own view (#4290)', () => {
+    const view = (id: string, name: string, createdBy: number) => ({
+      id,
+      name,
+      config: {},
+      schemaVersion: 3,
+      createdBy,
+      serverVersion: 1,
+      createdAt: '',
+      updatedAt: '',
+    });
+    mocks.views = [view('sv-mine', 'Mine', 7), view('sv-theirs', 'Theirs', 8)];
+    mocks.currentUser = { id: '7' };
+    renderToolbar();
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.getByLabelText('Delete view "Mine"')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Delete view "Theirs"')).toBeNull();
   });
 
   it('renders the identity block with project name and activity stats', () => {

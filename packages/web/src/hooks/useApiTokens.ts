@@ -47,7 +47,7 @@ export interface ApiToken {
    * consumers must tolerate its absence.
    */
   scopes?: ApiTokenScope[];
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;

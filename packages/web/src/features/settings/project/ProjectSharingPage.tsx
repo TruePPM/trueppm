@@ -70,7 +70,7 @@ function ShareLinkRow({ link, projectId }: { link: ShareLink; projectId: string 
             </span>
           </div>
           <div className="mt-0.5 text-[11px] text-neutral-text-secondary">
-            {link.createdBy ? `Created by ${link.createdBy}` : 'Created'} ·{' '}
+            {link.createdByName ? `Created by ${link.createdByName}` : 'Created'} ·{' '}
             {`Viewed ${link.accessCount}×`}
             {link.accessCount > 0 ? ` · last ${relativeTime(link.lastAccessedAt)}` : ''}
           </div>

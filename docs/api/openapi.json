@@ -53179,9 +53179,9 @@
                         "description": "Config shape version; upgraded on read via the migration registry (ADR-0086)."
                     },
                     "created_by": {
-                        "type": "string",
-                        "nullable": true,
-                        "readOnly": true
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     },
                     "server_version": {
                         "type": "integer",
@@ -55535,7 +55535,7 @@
             },
             "ExternalStakeholder": {
                 "type": "object",
-                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is echoed as the adder's display name (never the raw user row);\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
+                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is the adder's integer user PK (the wire meaning it has on every\nother schema) and ``created_by_name`` their display name, never the raw user row;\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -55555,6 +55555,11 @@
                         "type": "string"
                     },
                     "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_by_name": {
                         "type": "string",
                         "nullable": true,
                         "readOnly": true
@@ -55573,6 +55578,7 @@
                 "required": [
                     "created_at",
                     "created_by",
+                    "created_by_name",
                     "email",
                     "id",
                     "name",
@@ -55581,7 +55587,7 @@
             },
             "ExternalStakeholderRequest": {
                 "type": "object",
-                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is echoed as the adder's display name (never the raw user row);\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
+                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is the adder's integer user PK (the wire meaning it has on every\nother schema) and ``created_by_name`` their display name, never the raw user row;\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -61389,7 +61395,7 @@
             },
             "PatchedExternalStakeholderRequest": {
                 "type": "object",
-                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is echoed as the adder's display name (never the raw user row);\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
+                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is the adder's integer user PK (the wire meaning it has on every\nother schema) and ``created_by_name`` their display name, never the raw user row;\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -71629,6 +71635,11 @@
                         "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
                     },
                     "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_by_name": {
                         "type": "string",
                         "nullable": true,
                         "readOnly": true
@@ -71678,6 +71689,7 @@
                     "content_kind",
                     "created_at",
                     "created_by",
+                    "created_by_name",
                     "expires_at",
                     "id",
                     "is_active",
@@ -71761,6 +71773,11 @@
                         "description": "Schedule links only. When false, milestone rows (and their dated diamonds) are omitted from the public schedule. Defaults true — milestones are the headline an external audience wants."
                     },
                     "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_by_name": {
                         "type": "string",
                         "nullable": true,
                         "readOnly": true
@@ -71818,6 +71835,7 @@
                     "content_kind",
                     "created_at",
                     "created_by",
+                    "created_by_name",
                     "expires_at",
                     "id",
                     "is_active",

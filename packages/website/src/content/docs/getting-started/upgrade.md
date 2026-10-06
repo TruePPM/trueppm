@@ -416,6 +416,23 @@ an older API pod is still running during a rolling update, it can create a
 project with an empty code without failing. The new version gives that project a
 key the next time it is edited. The exclusion is planned to be removed in 0.5.
 
+### `created_by` is an integer user id on share links, stakeholders, and saved board views
+
+Upgrading from `0.4.0-beta.6` or earlier changes one response field on three API
+surfaces. This affects only API clients and scripts; the web UI is updated with
+the server, and no data or migration is involved.
+
+- **Share links** (`/api/v1/projects/{id}/share-links/`) and **external
+  stakeholders** (`/api/v1/programs/{id}/external-stakeholders/`): `created_by`
+  was the creator's display name. It is now the creator's integer user id, and the
+  name moves to a new `created_by_name` field.
+- **Saved board views** (`/api/v1/projects/{id}/board-views/`): `created_by` was
+  the creator's user id as a string, such as `"7"`. It is now the integer `7`.
+
+If a script reads either field, update it before upgrading. See the
+[API stability policy](/api/stability/#deprecation-window--notice) for why this
+change ships between betas.
+
 ### Dead-letter and observability scrape credentials now require superuser
 
 Upgrading from `0.4.0-beta.4` or earlier changes who can reach these endpoints.

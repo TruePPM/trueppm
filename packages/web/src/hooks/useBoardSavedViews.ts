@@ -45,7 +45,8 @@ export interface BoardSavedView {
   config: BoardViewConfig;
   /** Shape version of config (ADR-0086); upgraded on read via the migration registry. */
   schemaVersion: number;
-  createdBy: string | null;
+  /** Creator's integer user PK; compare to the current user with `isSameUser`. */
+  createdBy: number | null;
   serverVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -70,7 +71,7 @@ interface ApiSavedView {
   name: string;
   config: ApiViewConfig;
   schema_version?: number;
-  created_by: string | null;
+  created_by: number | null;
   server_version: number;
   created_at: string;
   updated_at: string;

@@ -179,8 +179,11 @@ def test_owner_can_create_and_list(program: object, owner_user: object) -> None:
     assert resp.data["name"] == "Jane Client"
     assert resp.data["email"] == "jane@client.com"
     assert resp.data["note"] == "VP Sponsor"
-    # created_by is echoed as the adder's display name (username fallback), not a row.
-    assert resp.data["created_by"] == "es_owner"
+    # #4290: created_by is the adder's integer PK (same meaning as on every other
+    # schema); the display name (username fallback) is created_by_name.
+    assert resp.data["created_by"] == owner_user.pk  # type: ignore[attr-defined]
+    assert isinstance(resp.data["created_by"], int)
+    assert resp.data["created_by_name"] == "es_owner"
 
     lst = _client(owner_user).get(_url(program))
     assert lst.status_code == 200

@@ -56,7 +56,7 @@ export interface ApiWebhook {
   disabled_at: string | null;
   disabled_reason: string;
   created_at: string;
-  created_by: string | null;
+  created_by: number | null;
 }
 
 export interface ApiWebhookDelivery {

@@ -96,7 +96,7 @@ function StakeholderRow({
       <div className="md:contents">
         <span className={STACKED_LABEL_CLASS}>Added by</span>
         <span className="block text-xs text-neutral-text-secondary truncate">
-          {stakeholder.created_by ?? '—'}
+          {stakeholder.created_by_name ?? '—'}
         </span>
       </div>
       <div className="flex gap-1 md:justify-end">
