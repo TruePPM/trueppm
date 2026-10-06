@@ -92,6 +92,7 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
+    "postcss-selector-parser": "^7.1.6",
     "js-yaml": "^4.3.2",
     "dompurify": "^3.4.13",
     "undici": "^7.29.1",
