@@ -10,7 +10,7 @@ export interface ApiBaseline {
   id: string;
   project: string;
   name: string;
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   is_active: boolean;
   has_cpm_dates: boolean;

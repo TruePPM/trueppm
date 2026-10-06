@@ -1462,7 +1462,7 @@ export interface SprintRetroPayload {
   sprint: string;
   notes: string;
   team_visibility: RetroVisibility;
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   updated_at: string;
   action_items: SprintRetroActionItem[];

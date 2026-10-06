@@ -72,7 +72,7 @@ interface RelationWire {
   target: string;
   relation_type: string;
   note: string;
-  created_by: string | null;
+  created_by: number | null;
   created_at: string;
   source_card: RelationCardWire | null;
   target_card: RelationCardWire | null;
@@ -110,7 +110,7 @@ async function stubRelations(page: Page, initial: RelationWire[] = []): Promise<
         target: body.target,
         relation_type: body.relation_type,
         note: '',
-        created_by: 'e2e-user',
+        created_by: 1,
         created_at: new Date().toISOString(),
         source_card: null,
         // The picked task is cross-project, so the server returns its redacted card.
@@ -244,7 +244,7 @@ test.describe('Task relations (#2068)', () => {
         target: SIBLING_TASK_ID,
         relation_type: 'blocks',
         note: '',
-        created_by: 'e2e-user',
+        created_by: 1,
         created_at: '2026-07-16T00:00:00Z',
         source_card: null,
         target_card: SIBLING_CARD,

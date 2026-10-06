@@ -267,7 +267,7 @@ test.describe('Program breadcrumb — direct link to the current program (#2669)
     description: '',
     methodology: 'HYBRID',
     effective_methodology: 'HYBRID',
-    created_by: 'e2e-user',
+    created_by: 1,
     created_at: '2026-05-18T00:00:00Z',
     updated_at: '2026-05-18T00:00:00Z',
     my_role: 400,

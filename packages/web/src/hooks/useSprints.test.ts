@@ -631,7 +631,7 @@ describe('sprint retrospective', () => {
     sprint: 'sp-1',
     notes: 'went well',
     team_visibility: 'team_only',
-    created_by: 'u-1',
+    created_by: 1,
     created_at: '2026-05-01T00:00:00Z',
     updated_at: '2026-05-01T00:00:00Z',
     action_items: [],

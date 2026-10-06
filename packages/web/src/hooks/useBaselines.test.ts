@@ -26,7 +26,7 @@ const BASELINE: ApiBaseline = {
   id: 'bl-1',
   project: 'proj-1',
   name: 'Baseline 1',
-  created_by: 'user-1',
+  created_by: 1,
   created_at: '2026-05-01T00:00:00Z',
   is_active: false,
   has_cpm_dates: true,

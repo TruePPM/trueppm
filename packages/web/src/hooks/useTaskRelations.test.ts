@@ -50,7 +50,7 @@ function apiRelation(over: Record<string, unknown> = {}) {
     target: 't2',
     relation_type: 'blocks',
     note: '',
-    created_by: 'u1',
+    created_by: 1,
     created_at: '2026-07-16T00:00:00Z',
     source_card: null,
     target_card: null,

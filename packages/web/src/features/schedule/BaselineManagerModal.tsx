@@ -57,7 +57,7 @@ export function BaselineManagerModal({
   const { data: baselines = [], isLoading, isError, refetch } = useBaselines(projectId);
   const { members } = useProjectMembers(projectId);
   const nameById = useMemo(
-    () => new Map(members.map((m) => [m.id, m.username])),
+    () => new Map(members.map((m) => [String(m.id), m.username])),
     [members],
   );
 
@@ -209,7 +209,7 @@ export function BaselineManagerModal({
                   <BaselineRow
                     key={b.id}
                     baseline={b}
-                    capturedBy={b.created_by ? nameById.get(b.created_by) : undefined}
+                    capturedBy={b.created_by != null ? nameById.get(String(b.created_by)) : undefined}
                     canActivate={canActivate}
                     canDelete={canDelete}
                     activating={activateBaseline.isPending}

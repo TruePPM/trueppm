@@ -56,7 +56,7 @@ vi.mock('@/hooks/useBaselines', () => ({
   useDeleteBaseline: () => deleteMut,
 }));
 vi.mock('@/hooks/useProjectMembers', () => ({
-  useProjectMembers: () => ({ members: [{ id: 'u1', username: 'kelly', role: ROLE_OWNER }], isLoading: false, error: null }),
+  useProjectMembers: () => ({ members: [{ id: '7', username: 'kelly', role: ROLE_OWNER }], isLoading: false, error: null }),
 }));
 vi.mock('@/components/Toast', () => ({ toast: toastSpies }));
 // Stub only the hook — spread the real module through, so the selector helpers
@@ -79,7 +79,7 @@ function baseline(over: Partial<ApiBaseline> = {}): ApiBaseline {
     id: 'b1',
     project: 'p1',
     name: 'Baseline 1',
-    created_by: 'u1',
+    created_by: 7,
     created_at: '2026-07-12T10:00:00Z',
     is_active: true,
     has_cpm_dates: true,
@@ -280,7 +280,7 @@ describe('BaselineManagerModal — states', () => {
 
 describe('BaselineManagerModal — row metadata', () => {
   it('attributes the capture to the member who took it', () => {
-    setList([baseline({ created_by: 'u1' })]);
+    setList([baseline({ created_by: 7 })]);
     render(ROLE_ADMIN);
     expect(screen.getByText(/· by kelly/)).toBeInTheDocument();
   });
@@ -292,7 +292,7 @@ describe('BaselineManagerModal — row metadata', () => {
   });
 
   it('omits the author when the capturing user is no longer a project member', () => {
-    setList([baseline({ created_by: 'gone-user' })]);
+    setList([baseline({ created_by: 99 })]);
     render(ROLE_ADMIN);
     expect(screen.queryByText(/· by /)).toBeNull();
   });
