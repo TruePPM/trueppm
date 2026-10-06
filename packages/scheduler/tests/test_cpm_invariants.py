@@ -2,8 +2,8 @@
 
 ``.claude/skills/test-strategy/SKILL.md`` names three invariants that must hold
 for any valid DAG: ``total_float >= 0``, a critical-path task has
-``total_float == 0``, and project duration equals the ``early_finish`` of the
-last task on the critical path. ``test_contract_fuzz.py`` only ever asserted
+``total_float == 0``, and project duration equals the latest ``early_finish``
+on the critical path. ``test_contract_fuzz.py`` only ever asserted
 ``free_float <= total_float`` and ``early_start <= early_finish`` — this module
 is the dedicated home for the three invariants above, plus one more that falls
 out of the engine's own ``driving_edges`` output.
@@ -119,7 +119,7 @@ def test_no_negative_total_float(project: Project) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Invariant 3: project duration == early_finish of the last critical-path task
+# Invariant 3: project duration == the latest early_finish on the critical path
 # ---------------------------------------------------------------------------
 
 
@@ -170,21 +170,50 @@ def _first_working_day_in(start: date, end: date, cal: Calendar) -> date | None:
     return None
 
 
+def _assert_latest_critical_task_reaches_project_finish(project: Project) -> None:
+    project = _clear_completion(project)
+    try:
+        result = schedule(project)
+    except SchedulerError:
+        return
+
+    assert result.critical_path, "no completed task, yet critical_path is empty"
+    task_map = {t.id: t for t in result.tasks}
+    latest = max(
+        (task_map[tid] for tid in result.critical_path),
+        key=lambda t: t.early_finish or date.min,
+    )
+    assert latest.early_finish is not None
+    gap = _first_working_day_in(
+        latest.early_finish, result.project_finish, _task_calendar(project, latest)
+    )
+    assert gap is None, (
+        f"{latest.id}: latest critical early_finish is {latest.early_finish}, "
+        f"a working day ({gap}) short of project_finish {result.project_finish}"
+    )
+
+
 @given(project=_plausible_projects())
 def test_project_duration_equals_last_critical_task_early_finish(project: Project) -> None:
-    """``project_finish`` equals the ``early_finish`` of the last task on
-    ``critical_path``.
+    """``project_finish`` equals the latest ``early_finish`` on the critical path.
 
-    ``critical_path`` is documented as topologically ordered
-    (``ScheduleResult.critical_path``), so its last element has no critical
-    successor. A critical task with at least one successor always has at
-    least one *critical* successor too — its own zero float is inherited from
-    the single tightest downstream path, and that path's next hop cannot
-    itself carry slack without contradicting the zero float upstream of it.
-    So the last entry is a true sink (no successors at all), and a sink's
-    ``late_finish`` is anchored directly on ``project_finish`` by the backward
-    pass's base case — critical (``late_finish == early_finish``) therefore
-    forces ``early_finish == project_finish`` for that task.
+    The global early-finish maximizer is a sink whose ``late_finish`` the
+    backward pass anchors directly on ``project_finish``, so with nothing
+    complete it carries zero float and is on the critical path.
+
+    The *last entry* of ``critical_path`` is not the right task to check. The
+    list is a topological order of the critical set, not a chain, and a critical
+    task can have successors without having a critical one, so the last entry
+    can finish early (#4281). Two documented rules produce that:
+
+    * a milestone the project start holds only where it is *shown* (#4225): a
+      lead puts its instant before the project start, it is shown on the first
+      working day with zero float, and its successors measure their lags from
+      the earlier instant and keep slack;
+    * a calendar-day lag across non-working time: ``M -FS+2d-> N`` with ``M``
+      at the end of a Friday puts ``N`` at the start of Monday. ``M`` slipping
+      one working day moves ``N`` three calendar days, so ``M`` has zero float
+      while ``N`` has a day of it.
 
     "Equals" is in working time, not calendar date. ``actual_start`` is a
     recorded fact the engine does not snap, so a milestone can sit on a
@@ -202,29 +231,9 @@ def test_project_duration_equals_last_critical_task_early_finish(project: Projec
 
     If ``critical_path`` is ever empty for a non-degenerate, non-completed
     project, that is itself worth knowing about (it should not happen per the
-    reasoning above: the global early-finish maximizer, which always exists
-    for at least one task, is always a zero-float sink when nothing is
-    complete) — so this is asserted rather than skipped.
+    reasoning above) — so this is asserted rather than skipped.
     """
-    # TODO(#4281): a milestone clamped to project start by a negative-lag FS can
-    # still end critical_path a working day short — open engine question.
-    project = _clear_completion(project)
-    try:
-        result = schedule(project)
-    except SchedulerError:
-        return
-
-    assert result.critical_path, "no completed task, yet critical_path is empty"
-    task_map = {t.id: t for t in result.tasks}
-    last = task_map[result.critical_path[-1]]
-    assert last.early_finish is not None
-    gap = _first_working_day_in(
-        last.early_finish, result.project_finish, _task_calendar(project, last)
-    )
-    assert gap is None, (
-        f"{last.id}: last critical_path entry has early_finish {last.early_finish}, "
-        f"a working day ({gap}) short of project_finish {result.project_finish}"
-    )
+    _assert_latest_critical_task_reaches_project_finish(project)
 
 
 def test_milestone_pinned_to_non_working_day_ends_critical_path_in_working_time() -> None:
@@ -258,6 +267,84 @@ def test_milestone_pinned_to_non_working_day_ends_critical_path_in_working_time(
     assert _first_working_day_in(
         date(2027, 1, 22), result.project_finish, project.calendar
     ) == date(2027, 1, 22)
+
+
+@pytest.mark.parametrize("lead_days", [-3, -4])
+def test_milestone_held_at_project_start_by_a_lead_ends_critical_path_early(
+    lead_days: int,
+) -> None:
+    """Pinned counterexample from the deep Hypothesis profile (#4281).
+
+    ``t0 -FS(lead)-> t1 -FS+2d-> join``: the lead puts ``t1``'s instant before the
+    project start. ``t1`` is shown on the first working day with zero float, while
+    ``join`` is measured from the earlier instant (#4225) and keeps a day of slack,
+    so ``critical_path`` ends on ``t1`` a working day short of ``project_finish``.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="t0", name="t", duration=timedelta(days=2)),
+            Task(id="t1", name="t", duration=timedelta(0)),
+            Task(id="join", name="t", duration=timedelta(0)),
+        ],
+        dependencies=[
+            Dependency("t0", "t1", DependencyType.FS, timedelta(days=lead_days)),
+            Dependency("t1", "join", DependencyType.FS, timedelta(days=2)),
+        ],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    result = schedule(project)
+    task_map = {t.id: t for t in result.tasks}
+
+    assert result.critical_path == ["t0", "t1"]
+    assert task_map["t1"].early_finish == date(2026, 3, 2)
+    assert task_map["join"].early_start == date(2026, 3, 2)
+    assert task_map["join"].total_float == timedelta(days=1)
+    assert result.project_finish == date(2026, 3, 3)
+    _assert_latest_critical_task_reaches_project_finish(project)
+
+
+def test_calendar_day_lag_across_a_weekend_ends_critical_path_early() -> None:
+    """Pinned counterexample from the deep Hypothesis profile (#4281).
+
+    ``t1`` (Mon-Wed) ``-FS+2d-> t3`` puts ``t3`` at the end of Friday, and
+    ``t3 -FS+2d-> join`` puts ``join`` at the start of Monday. A one-working-day
+    slip of ``t3`` would push ``join`` past the Tuesday ``project_finish`` that
+    ``t2`` sets, so ``t3`` is critical while ``join`` keeps a day of float, and
+    ``t3`` ends ``critical_path`` on Friday.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="t0", name="t", duration=timedelta(0)),
+            Task(id="t1", name="t", duration=timedelta(days=3)),
+            Task(id="t2", name="t", duration=timedelta(days=4)),
+            Task(id="t3", name="t", duration=timedelta(0)),
+            Task(id="join", name="t", duration=timedelta(0)),
+        ],
+        dependencies=[
+            Dependency("t0", "t1", DependencyType.FS),
+            Dependency("t0", "t2", DependencyType.FS),
+            Dependency("t0", "t3", DependencyType.FS),
+            Dependency("t1", "t2", DependencyType.FS),
+            Dependency("t1", "t3", DependencyType.FS, timedelta(days=2)),
+            Dependency("t0", "join", DependencyType.SS),
+            Dependency("t3", "join", DependencyType.FS, timedelta(days=2)),
+        ],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    result = schedule(project)
+    task_map = {t.id: t for t in result.tasks}
+
+    assert result.critical_path == ["t0", "t1", "t2", "t3"]
+    assert task_map["t3"].early_finish == date(2026, 3, 6)
+    assert task_map["join"].total_float == timedelta(days=1)
+    assert result.project_finish == date(2026, 3, 10)
+    _assert_latest_critical_task_reaches_project_finish(project)
 
 
 # ---------------------------------------------------------------------------
