@@ -210,7 +210,7 @@ pub(crate) fn start_reading(
 /// itself, so a milestone held at it by that floor alone has nothing to add
 /// downstream — measuring a successor's lag from the floored instant made
 /// `A -FS-> M -FS(2cd)-> B` put `B` a working day after `A -FS(2cd)-> B` whenever
-/// `A` sits before the project start (an SF-only task, #4218, or a negative lag).
+/// `A` sits before the project start (an SF-linked task, #4218, or a negative lag).
 /// `link` is the latest proposal without the project-start floor and `shown` the
 /// latest with it; with nothing but that floor proposing, they are the same.
 #[allow(clippy::too_many_arguments)]
@@ -257,7 +257,7 @@ fn place_milestone(
     if let Some(floor) = start_floor {
         offer(&mut best, (floor, true, floor));
     }
-    // Every node carries a floor or an incoming link: only an SF-only node goes
+    // Every node carries a floor or an incoming link: only an SF-linked node goes
     // without the project-start floor (#4218), and it has at least one SF link.
     let (x, start_display, day) = best.expect("a floor or an incoming link proposes an instant");
     let shown = (x, start_display);
@@ -276,7 +276,7 @@ type StartFloors = (NaiveDate, NaiveDate, Option<NaiveDate>);
 /// calendar address (mirroring the Python pass's `id(cal)` memo, #1824) so the
 /// snap runs once per calendar rather than once per task — a sparse calendar's
 /// snap walk is not free. The third element is the data-date floor on its own
-/// (`None` without a status date): what an SF-only task, which the project start
+/// (`None` without a status date): what an SF-linked task, which the project start
 /// does not floor, is held at (#4218). Mirrors the Python `_calendar_floors`.
 fn start_floors_for(
     memo: &mut HashMap<*const Calendar, StartFloors>,
@@ -406,22 +406,23 @@ pub fn forward_pass(
             (tasks[i].effective_duration_days(), start)
         };
 
-        // An SF-only task is placed by its SF links alone and is not floored at the
-        // project start — only at the data date (#4218). The project start is a
+        // A task with an SF link is not floored at the project start — only at the
+        // data date (#4218, #4220): its project-start floor is `min(project start,
+        // SF placement)`, which its SF link already enforces. The project start is a
         // planning convention an SF link may overrule (MS Project schedules such a
         // successor ahead of it); the data date is a fact about time, and remaining
         // work cannot be forecast into the past. A complete-without-actuals task
         // was never floored at the data date, so it keeps no floor at all. Mirrors
         // the Python `_early_start_floors`.
-        let is_sf_only = sf_only(idx, pg, deps);
-        let mut es_constraints: Vec<NaiveDate> = if !is_sf_only {
+        let is_sf_linked = sf_linked(idx, pg, deps);
+        let mut es_constraints: Vec<NaiveDate> = if !is_sf_linked {
             vec![base_es]
         } else if tasks[i].is_complete() {
             Vec::new()
         } else {
             data_floor.into_iter().collect()
         };
-        // Every floor but the project start's — the list an SF-only task gets —
+        // Every floor but the project start's — the list an SF-linked task gets —
         // binds a milestone's link instant; the project start only bounds where
         // it is shown (#4225, see `place_milestone`).
         let mut hard_floors: Vec<NaiveDate> = if tasks[i].is_complete() {
@@ -448,7 +449,7 @@ pub fn forward_pass(
             hard_floors.push(snet);
         }
         if duration_days == 0 {
-            let start_floor = (!is_sf_only).then_some(start_base);
+            let start_floor = (!is_sf_linked).then_some(start_base);
             let (instant, day, link) = place_milestone(
                 idx,
                 tasks,
@@ -474,13 +475,13 @@ pub fn forward_pass(
         es_constraints.extend(pred_es_constraints);
 
         if es_constraints.is_empty() {
-            // An SF-only task with no data date, SNET or actual start (#4218): its
-            // SF links alone place it, and nothing floors the start they
-            // back-solve. `sf_only` guarantees `ef_constraints` is non-empty here.
+            // An SF-linked task with no FS/SS link and no data date, SNET or actual
+            // start (#4218): its finish links place it, and nothing floors the start they
+            // back-solve. `sf_linked` guarantees `ef_constraints` is non-empty here.
             let min_ef = *ef_constraints
                 .iter()
                 .max()
-                .expect("an SF-only task has an SF constraint");
+                .expect("an SF-linked task has an SF constraint");
             let es = start_from_finish(min_ef, duration_days, node_cal)?;
             let ef = finish_from_start(es, duration_days, node_cal)?.max(min_ef);
             let task = &mut tasks[i];
@@ -588,14 +589,15 @@ fn pinned_placement(
     Ok(None)
 }
 
-/// Whether `idx` has incoming links and every one of them is SF (#4218).
+/// Whether `idx` has at least one incoming SF link (#4218, #4220).
 ///
-/// Such a task is placed by its SF links alone and is not floored at the project
-/// start. Mirrors the Python `_sf_only`.
-pub(crate) fn sf_only(idx: NodeIndex, pg: &ProjectGraph, deps: &[Dependency]) -> bool {
-    let mut incoming = pg.graph.edges_directed(idx, Direction::Incoming).peekable();
-    incoming.peek().is_some()
-        && incoming.all(|edge| deps[*edge.weight()].dep_type == DependencyType::SF)
+/// Such a task is not floored at the project start: its floor is
+/// `min(project start, SF placement)`, and its SF links already hold it at or after
+/// its SF placement, so that floor never binds. Mirrors the Python `_sf_linked`.
+pub(crate) fn sf_linked(idx: NodeIndex, pg: &ProjectGraph, deps: &[Dependency]) -> bool {
+    pg.graph
+        .edges_directed(idx, Direction::Incoming)
+        .any(|edge| deps[*edge.weight()].dep_type == DependencyType::SF)
 }
 
 /// Split a node's incoming edges into early-start and early-finish constraints.
@@ -723,17 +725,52 @@ mod tests {
         assert_eq!(b.early_finish, NaiveDate::from_ymd_opt(2026, 1, 2).unwrap());
     }
 
-    /// #4218: any non-SF link keeps the project-start floor. `C` has the same SF
-    /// link as above plus an FS lead from `X` that would also land before the
-    /// project start on its own; both are floored at Monday 2026-01-05.
+    /// #4220: a task with an SF link has the project-start floor
+    /// `min(project start, SF placement)`. `C`'s SF link places it on Fri 01-02 and
+    /// the FS lead from `X` lands on Mon 2025-12-29, so `C` stays on Friday. Before
+    /// #4220 any FS link floored it on Monday 01-05.
     #[test]
-    fn a_non_sf_link_keeps_the_project_start_floor() {
+    fn a_non_binding_non_sf_link_keeps_the_sf_placement() {
         let c = schedule_one(
             &[("A", 3), ("X", 3), ("C", 1)],
             &[("A", "C", "SF", 0), ("X", "C", "FS", -10)],
             "C",
         );
-        assert_eq!(c.early_start, d(5));
+        assert_eq!(c.early_start, NaiveDate::from_ymd_opt(2026, 1, 2).unwrap());
+    }
+
+    /// #4220: a binding lead on an SF-linked task is not floored either. `C` (2d)
+    /// would run Thu 01-01..Fri 01-02 on its SF link; the FS lead from `X` (Thu
+    /// 01-08 - 6 = Fri 01-02) binds, so `C` starts Friday, before the project start.
+    /// Without the SF link the same lead is floored on Monday 01-05.
+    #[test]
+    fn a_binding_lead_on_an_sf_linked_task_may_sit_before_the_start() {
+        let tasks = [("A", 3), ("X", 3), ("C", 2)];
+        let lead = ("X", "C", "FS", -6);
+        let c = schedule_one(&tasks, &[("A", "C", "SF", 0), lead], "C");
+        assert_eq!(c.early_start, NaiveDate::from_ymd_opt(2026, 1, 2).unwrap());
+        let floored = schedule_one(&tasks, &[lead], "C");
+        assert_eq!(floored.early_start, d(5));
+    }
+
+    /// #4220 / #4273: a shorter SF lag never finishes work later. `T0 -SF(l)-> T2`
+    /// plus `T1 -FF(-5)-> T2`: at lag -1 the FF lead binds, and the first #4220 rule
+    /// floored `T2` on Monday, a working day after lag 0's Friday.
+    #[test]
+    fn a_shorter_sf_lag_never_finishes_work_later() {
+        let tasks = [("T0", 1), ("T1", 3), ("T2", 1)];
+        let mut previous = None;
+        for lag in -6..4 {
+            let t2 = schedule_one(
+                &tasks,
+                &[("T0", "T2", "SF", lag), ("T1", "T2", "FF", -5)],
+                "T2",
+            );
+            if let Some(p) = previous {
+                assert!(t2.early_finish >= p, "lag {lag}");
+            }
+            previous = Some(t2.early_finish);
+        }
     }
 
     /// The zero-lag half of the rule is unchanged: `P` is the start of Tue
@@ -752,7 +789,7 @@ mod tests {
     }
 
     /// #4225: the project-start floor only places a milestone where it is shown.
-    /// `T1 -SF(-2cd)-> T2` puts SF-only `T2` on Wed 2025-12-31, so `T2 -FS(2cd)->
+    /// `T1 -SF(-2cd)-> T2` puts SF-linked `T2` on Wed 2025-12-31, so `T2 -FS(2cd)->
     /// T3` measures from midnight 2026-01-01 and is floored at Mon 2026-01-05.
     /// Splitting that link with `M` must land `T3` on the same day — `M` is shown
     /// on Monday, but `T3`'s lag counts from `M`'s pre-floor instant. Measuring it

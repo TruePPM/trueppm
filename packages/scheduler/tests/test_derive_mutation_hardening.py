@@ -188,7 +188,8 @@ def test_a_finish_anchored_link_outranks_a_start_link_one_midnight_earlier() -> 
     # SF from A (starting Mon) anchors on the close of Fri; +3 lag → Tuesday's
     # midnight, read as the end of Monday (#4272: the raw instant, never snapped).
     # The FS link from milestone M1 proposes Monday's midnight, the start of Monday.
-    # Both display Monday; only the instant comparison picks SF.
+    # Both display Monday; only the instant comparison picks SF. The SF link binds,
+    # so the project-start floor is waived and is not a candidate at all (#4220).
     project = _project(
         [_task("A", 5), _task("M1", 0), _task("M2", 0)],
         [_dep("A", "M2", DependencyType.SF, 3), _dep("M1", "M2")],
@@ -197,7 +198,6 @@ def test_a_finish_anchored_link_outranks_a_start_link_one_midnight_earlier() -> 
         assert _rows(project, "M2", q) == (
             "2026-01-05",
             [
-                ("project_start", None, "2026-01-05", None, False),
                 ("predecessor_fs", "M1", "2026-01-05", None, False),
                 ("predecessor_sf", "A", "2026-01-05", None, True),
             ],
