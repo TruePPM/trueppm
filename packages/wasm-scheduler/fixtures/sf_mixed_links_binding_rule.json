@@ -1,0 +1,36 @@
+{
+  "id": "p-sf-mixed-links-binding-rule",
+  "name": "A task with an SF link has the project-start floor min(project start, SF placement), whatever other links it has (#4220)",
+  "start_date": "2026-10-05",
+  "tasks": [
+    {"id": "A", "name": "Predecessor on the project's first working day", "duration": 259200.0},
+    {"id": "B", "name": "SF-only: runs Thu-Fri before the project opens", "duration": 172800.0},
+    {"id": "E", "name": "SF + non-binding SS from pre-start B: stays on the SF placement", "duration": 86400.0},
+    {"id": "X", "name": "Ordinary work Mon-Wed", "duration": 259200.0},
+    {"id": "F", "name": "SF + binding FS lead from X: the lead places it, before the project start", "duration": 172800.0},
+    {"id": "G", "name": "SF + non-binding FF lead from B: stays on the SF placement", "duration": 86400.0},
+    {"id": "M", "name": "Milestone, SF + non-binding SS from B: shown before the project start", "duration": 0.0},
+    {"id": "N", "name": "Milestone, SF + binding FS from X: the FS link places it", "duration": 0.0},
+    {"id": "H", "name": "FS from pre-start B, no SF link: floored at the project start", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "E", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "E", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "F", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "X", "successor_id": "F", "dep_type": "FS", "lag": -518400.0},
+    {"predecessor_id": "A", "successor_id": "G", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "G", "dep_type": "FF", "lag": -259200.0},
+    {"predecessor_id": "A", "successor_id": "M", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "M", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "N", "dep_type": "SF", "lag": 0.0},
+    {"predecessor_id": "X", "successor_id": "N", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "H", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

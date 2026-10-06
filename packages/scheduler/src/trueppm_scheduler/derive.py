@@ -475,11 +475,11 @@ def _derive_forward(
         return (value.isoformat() if value else None, contribs)
 
     # --- Early-start candidates (mirror engine._forward_pass) ---
-    # An SF-only task is not floored at the project start (engine._sf_only, #4218),
-    # so that term is not a candidate for it and must not be offered as one.
-    sf_only = bool(preds) and all(dep_type is DependencyType.SF for _, dep_type, _ in preds)
+    # A task with an SF link is not floored at the project start (engine._sf_linked,
+    # #4218/#4220), so that term is not a candidate for it and must not be offered.
+    sf_linked = any(dep_type is DependencyType.SF for _, dep_type, _ in preds)
     contribs = _forward_floor_contribs(
-        task, cal, project_start, status_date, include_project_start=not sf_only
+        task, cal, project_start, status_date, include_project_start=not sf_linked
     )
 
     # FS/SS impose the early start (appended in-line); FF/SF impose the early finish
@@ -560,8 +560,9 @@ def _forward_floor_contribs(
     """The non-network early-start candidates: project start, data date, SNET, and
     — for in-progress work — the recorded ``actual_start`` floor.
 
-    ``include_project_start`` is false for a task whose every predecessor link is
-    SF, which the engine places by those links alone (#4218).
+    ``include_project_start`` is false for a task with an SF link, whose
+    project-start floor is ``min(project start, SF placement)`` and never binds
+    (#4218, #4220).
 
     ``actual_start`` (ADR-0132 §2, #2621) is only reachable here for a task that
     is not complete (``_derive_forward`` routes completed tasks through
@@ -629,7 +630,7 @@ def _forward_pullback_binding(
     the date it forces onto the start is the ``early_start`` itself.
     """
     # The engine pulls back from the *latest* EF bound (``max(ef_constraints)``), so
-    # that is the driver. An SF-only task (#4218) reaches this with several SF terms
+    # that is the driver. An SF-linked task (#4218) reaches this with several SF terms
     # and no ES term at all, where the earliest one would name the wrong link.
     driver = max(ef_terms, key=lambda c: c.imposed_date or date.min) if ef_terms else None
     return DerivationContribution(

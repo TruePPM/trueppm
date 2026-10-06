@@ -96,8 +96,9 @@ def first_working_day(project: Any) -> datetime.date:
 
     This is the *effective* schedule floor — the CPM forward pass clamps every
     task's ``early_start`` to ``next_working_day(project.start_date)`` (see the
-    scheduler engine; the one exception, a task whose links are all SF, is placed
-    by those links and is never user-authored, #4218), so a ``planned_start`` on a
+    scheduler engine; the one exception, a task with an SF link, whose floor is
+    ``min(project start, SF placement)``, is placed by the network and is never
+    user-authored, #4218/#4220), so a ``planned_start`` on a
     non-working project start date (e.g. a Saturday) is a ghost value the engine
     immediately pushes forward.
     The project-start floor guard must therefore compare against this date, not

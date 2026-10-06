@@ -163,6 +163,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   sf_before_project_start:
     'adapter: seeds all tasks at project start, overriding SNET; mixed-link project-start floor not modeled',
   sf_before_project_start_data_date: 'adapter: does not thread actuals/status date',
+  // #4220. The waiver is decided by which link binds, and this engine models no
+  // project-start floor for mixed links at all (see `sf_before_project_start`).
+  sf_mixed_links_binding_rule: 'engine gap: mixed-link project-start floor not modeled',
   // A genuine forward-pass divergence, unrelated to calendars or the adapter.
   fs_negative_lag_floored: 'engine gap: negative lag is not floored at the project start',
   // #4272. Zero-lag FF into a milestone from an actuals-driven predecessor.

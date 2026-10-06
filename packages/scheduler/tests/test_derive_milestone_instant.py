@@ -471,11 +471,9 @@ C free_float = 4
 C scheduled_start = 2026-01-05
     early_start - - - 2026-01-05 - - B
 M early_start = 2026-01-09
-    project_start - - - 2026-01-05 0 - .
     predecessor_ff A FF 0 2026-01-09 -1 - B
     predecessor_sf C SF 1 2026-01-05 1 - .
 M early_finish = 2026-01-09
-    project_start - - - 2026-01-05 0 - .
     predecessor_ff A FF 0 2026-01-09 -1 - B
     predecessor_sf C SF 1 2026-01-05 1 - .
 M late_start = 2026-01-09

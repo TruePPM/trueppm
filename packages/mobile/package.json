@@ -16,6 +16,10 @@
     "format:check": "prettier --check src/",
     "typecheck": "tsc --noEmit"
   },
+  "overrides": {
+    "argparse": "^2.0.1",
+    "postcss-selector-parser": "^7.1.6"
+  },
   "dependencies": {
     "@react-navigation/bottom-tabs": "^7.18.3",
     "@react-navigation/native": "^7.3.4",

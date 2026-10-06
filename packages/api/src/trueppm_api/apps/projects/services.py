@@ -58,9 +58,10 @@ def shift_project_start_if_needed(project: Any, candidate_start: date | None) ->
     the *earlier* direction: the user's intent to put the task on a date is
     honored and the project start follows. The engine invariant is untouched —
     no task's *committed* start precedes the project start because the project
-    start moved. (The engine may still *compute* an earlier start for a task whose
-    links are all SF, #4218; that is a network placement, not a user-authored
-    date, and does not move the project start.)
+    start moved. (The engine may still *compute* an earlier start for a task with
+    an SF link, whose project-start floor is ``min(project start, SF placement)``,
+    #4218/#4220; that is a network placement, not a user-authored date, and does
+    not move the project start.)
 
     Only the earlier direction is automatic. Moving a project start *later* past
     existing tasks stays a deliberate, separately-validated Project edit.

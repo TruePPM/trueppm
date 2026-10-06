@@ -26,7 +26,17 @@ import pytest
 from hypothesis import given
 
 from tests.test_contract_fuzz import _plausible_projects
-from trueppm_scheduler import Calendar, Project, SchedulerError, Task, schedule
+from trueppm_scheduler import (
+    Calendar,
+    Dependency,
+    DependencyType,
+    DrivingEdge,
+    Project,
+    SchedulerError,
+    ScheduleResult,
+    Task,
+    schedule,
+)
 
 pytestmark = pytest.mark.fuzz
 
@@ -251,8 +261,343 @@ def test_milestone_pinned_to_non_working_day_ends_critical_path_in_working_time(
 
 
 # ---------------------------------------------------------------------------
-# TODO(#4269): a candidate "driving_edges implies total_float(pred) <=
-# total_float(succ)" property was attempted and dropped — Hypothesis found a
-# milestone counterexample (t1 -FS-> join, 5d vs 4d) on the first run. See
-# #4269 for the repro and whether it is an engine defect or a wrong invariant.
+# Invariant 4: a driving edge never carries more float upstream than downstream
 # ---------------------------------------------------------------------------
+
+
+def _zero_lags(project: Project) -> Project:
+    """``project`` with every dependency's lag set to zero.
+
+    The narrowing :func:`test_driving_edge_never_gains_float_upstream` needs: a
+    calendar-day lag is not a fixed working-time offset, so a driving edge with lag
+    can legitimately carry more float upstream than downstream (see
+    :func:`test_calendar_day_lag_driving_edge_can_carry_more_float_upstream`).
+    Zeroing the lags, rather than skipping lagged edges, keeps every drawn link in
+    scope; skipping them leaves the property about one zero-lag link in 21.
+    """
+    deps = [dataclasses.replace(d, lag=timedelta(0)) for d in project.dependencies]
+    return dataclasses.replace(project, dependencies=deps)
+
+
+def _float_inversions(
+    project: Project, result: ScheduleResult, *, scoped: bool = True
+) -> list[tuple[str, str]]:
+    """Driving edges whose predecessor has more total float than its successor.
+
+    In textbook CPM a zero-slack link gives ``total_float(pred) <=
+    total_float(succ)``: the backward pass bounds the predecessor's late date by
+    the successor's, shifted by a link offset that is constant in the unit float is
+    counted in. ``scoped`` skips the three links where that premise is false here by
+    design, not by defect (#4269):
+
+    * **a non-zero lag.** Lag is calendar days, then snapped; float is working days.
+      The same calendar-day lag spans more working days from a Monday than from
+      the weekend the predecessor's late date can sit on, so the predecessor can
+      out-float the successor by the working days the lag stops covering.
+    * **a zero-duration successor.** A milestone's own float is measured to its
+      late instant capped by ``engine._float_late_instant`` (#4183), keeping the
+      reading that places it early, while its predecessors read the uncapped
+      instant. The milestone can report a day less float than the predecessor
+      that drives it.
+    * **two different calendars.** Each task's float is counted in its *own*
+      working days (ADR-0120 D3). The same stretch of calendar time is 10 days of
+      float on a 7-day calendar and 8 on a 5-day one, so the predecessor on the
+      longer working week out-floats the successor it drives.
+
+    ``scoped=False`` applies the textbook identity to every driving edge, which is
+    what the pinned counterexamples below use to show it does not hold there.
+    """
+    tasks = {t.id: t for t in result.tasks}
+    lags = {(d.predecessor_id, d.successor_id): d.lag for d in project.dependencies}
+    found = []
+    for edge in result.driving_edges:
+        pred, succ = tasks[edge.predecessor_id], tasks[edge.successor_id]
+        if scoped and (
+            lags[(pred.id, succ.id)] != timedelta(0)
+            or succ.duration == timedelta(0)
+            # Compared by the calendar each task resolves to, not by
+            # ``calendar_id``: two ids naming equal calendars count float in the
+            # same unit, and only a real difference breaks the identity.
+            or _task_calendar(project, pred) != _task_calendar(project, succ)
+        ):
+            continue
+        assert pred.total_float is not None and succ.total_float is not None
+        if pred.total_float > succ.total_float:
+            found.append((pred.id, succ.id))
+    return found
+
+
+@given(project=_plausible_projects())
+def test_driving_edge_never_gains_float_upstream(project: Project) -> None:
+    """A driving edge into a work task never has more float on its predecessor.
+
+    ``driving_edges`` come from a forward-anchored inversion (each link's free
+    float, ``engine._free_float_days``) and ``total_float`` from the backward
+    pass, so nothing in the engine makes them agree by construction — this is the
+    property that ties the two together. A zero-slack link with a zero lag is a
+    fixed working-time offset, so slipping the predecessor past its successor's
+    float would slip the successor past its own, and its own late date bounds the
+    predecessor's.
+
+    Narrowed by :func:`_zero_lags` and scoped by :func:`_float_inversions` to
+    work successors on the predecessor's calendar; each exclusion has a pinned
+    counterexample below showing the engine is right and the textbook identity is
+    not. ``_plausible_projects`` draws a single project calendar, so the calendar
+    exclusion removes nothing here. The gate profile's 200 examples check roughly
+    75-100 in-scope driving edges, depending on the derandomized seed.
+    """
+    project = _zero_lags(project)
+    try:
+        result = schedule(project)
+    except SchedulerError:
+        return
+
+    assert _float_inversions(project, result) == []
+
+
+def _join_repro(*, include_long_task: bool = True, push_t1_days: int = 0) -> Project:
+    """The #4269 repro: ``t0 -SS-> join`` and ``t1 -FS+2d-> join``, all milestones.
+
+    ``t2`` (6 days) sets ``project_finish`` and gives the join float; without it
+    every task is critical and there is nothing to compare. ``push_t1_days`` puts a
+    work predecessor of that many days in front of ``t1``, landing it at the end of
+    a later working day.
+    """
+    tasks = [
+        Task(id="t0", name="t", duration=timedelta(0)),
+        Task(id="t1", name="t", duration=timedelta(0)),
+        Task(id="join", name="t", duration=timedelta(0)),
+    ]
+    deps = [
+        Dependency(predecessor_id="t0", successor_id="join", dep_type=DependencyType.SS),
+        Dependency(
+            predecessor_id="t1",
+            successor_id="join",
+            dep_type=DependencyType.FS,
+            lag=timedelta(days=2),
+        ),
+    ]
+    if include_long_task:
+        tasks.append(Task(id="t2", name="t", duration=timedelta(days=6)))
+    if push_t1_days:
+        tasks.append(Task(id="w", name="w", duration=timedelta(days=push_t1_days)))
+        deps.append(Dependency(predecessor_id="w", successor_id="t1"))
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),  # a Monday
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(working_days=0b0011111),
+    )
+
+
+def test_calendar_day_lag_driving_edge_can_carry_more_float_upstream() -> None:
+    """The #4269 repro: a driving edge with ``t1`` at 5 days of float, ``join`` at 4.
+
+    Both numbers are right. ``t1`` (start of Monday 03-02) reaches ``join`` at the
+    end of Tuesday through two calendar days of lag, which cover two working days.
+    ``join`` can slip 4 working days, to the end of Monday 03-09. ``t1`` can slip 5,
+    to the end of Friday 03-06: from there the same two calendar days are the
+    weekend and land on the start of Monday, before ``join``'s late instant. The
+    lag shrank from two working days to zero as ``t1`` slipped, so ``t1`` gained
+    the difference. It is the lag, not the milestones: the same link between work
+    tasks does the same (the property's :func:`_zero_lags` narrowing exists for it).
+    """
+    result = schedule(_join_repro())
+    tasks = {t.id: t for t in result.tasks}
+
+    assert DrivingEdge("t1", "join", "FS") in result.driving_edges
+    assert result.project_finish == date(2026, 3, 9)
+    assert tasks["t1"].total_float == timedelta(days=5)
+    assert tasks["join"].total_float == timedelta(days=4)
+
+    # t1's fifth day of float is real: a 5-day predecessor holds it to the end of
+    # Friday and the finish does not move; a sixth day does move it.
+    assert schedule(_join_repro(push_t1_days=5)).project_finish == date(2026, 3, 9)
+    assert schedule(_join_repro(push_t1_days=6)).project_finish > date(2026, 3, 9)
+
+    # Without t2 there is no float to compare: both are critical.
+    lone = {t.id: t for t in schedule(_join_repro(include_long_task=False)).tasks}
+    assert lone["t1"].total_float == lone["join"].total_float == timedelta(0)
+
+    # The unscoped identity flags this edge; the scoped property skips it.
+    assert _float_inversions(_join_repro(), result, scoped=False) == [("t1", "join")]
+    assert _float_inversions(_join_repro(), result) == []
+
+
+def _capped_milestone_project(a_planned_start: date | None = None) -> Project:
+    """``A(1d) -FS-> M`` and ``B(1d) -SS+1d-> M`` beside a 5-day ``L``.
+
+    Both links reach ``M`` at Tuesday midnight. A tie at one midnight resolves to
+    the start-of-day reading, so ``M`` is a start-of-day milestone on Tuesday and
+    ``engine._float_late_instant`` caps its own float.
+    """
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),  # a Monday
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=1), planned_start=a_planned_start),
+            Task(id="B", name="B", duration=timedelta(days=1)),
+            Task(id="M", name="M", duration=timedelta(0)),
+            Task(id="L", name="L", duration=timedelta(days=5)),
+        ],
+        dependencies=[
+            Dependency(predecessor_id="A", successor_id="M"),
+            Dependency(
+                predecessor_id="B",
+                successor_id="M",
+                dep_type=DependencyType.SS,
+                lag=timedelta(days=1),
+            ),
+        ],
+        calendar=Calendar(working_days=0b0011111),
+    )
+
+
+def test_milestone_float_cap_driving_edge_can_carry_more_float_upstream() -> None:
+    """A zero-lag driving edge into a milestone: ``A`` at 4 days of float, ``M`` at 3.
+
+    ``A`` can slip to Friday and still finish by the end of the project's last day,
+    so its 4 days are real. ``M``'s own float keeps the start-of-day reading that
+    places it early (#4183): 4 days of slip would put it at the start of Saturday,
+    shown on Monday past ``project_finish``, so it stops at 3. ``A`` reads ``M``'s
+    uncapped late instant, as ``engine._float_late_instant`` documents. The cap is
+    the whole difference: measured to the uncapped instant ``M`` would report 4.
+    """
+    project = _capped_milestone_project()
+    result = schedule(project)
+    tasks = {t.id: t for t in result.tasks}
+
+    assert DrivingEdge("A", "M", "FS") in result.driving_edges
+    assert not tasks["M"].milestone_at_day_end
+    assert tasks["A"].total_float == timedelta(days=4)
+    assert tasks["M"].total_float == timedelta(days=3)
+
+    # A's fourth day is real: starting it on Friday leaves the finish alone.
+    friday = date(2026, 3, 6)
+    assert schedule(_capped_milestone_project(friday)).project_finish == result.project_finish
+    assert schedule(_capped_milestone_project(friday + timedelta(days=1))).project_finish > (
+        result.project_finish
+    )
+
+    assert _float_inversions(project, result, scoped=False) == [("A", "M")]
+    assert _float_inversions(project, result) == []
+
+
+def _two_calendar_project(
+    a_cal: str = "seven", b_cal: str = "five", a_planned_start: date | None = None
+) -> Project:
+    """``A(1d) -FS-> B(1d)`` beside a 10-day ``L``, each on its named calendar.
+
+    The project calendar is a 5-day week; ``A`` and ``B`` opt into ``"seven"`` (a
+    7-day week) or ``"five"`` (the same 5-day week) through ``calendar_id``.
+    """
+    five = Calendar(working_days=0b0011111)
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),  # a Monday
+        tasks=[
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=1),
+                calendar_id=a_cal,
+                planned_start=a_planned_start,
+            ),
+            Task(id="B", name="B", duration=timedelta(days=1), calendar_id=b_cal),
+            Task(id="L", name="L", duration=timedelta(days=10)),
+        ],
+        dependencies=[Dependency(predecessor_id="A", successor_id="B")],
+        calendar=five,
+        calendars={"seven": Calendar(working_days=0b1111111), "five": five},
+    )
+
+
+def test_per_task_calendar_driving_edge_can_carry_more_float_upstream() -> None:
+    """A zero-lag driving edge across calendars: ``A`` at 10 days of float, ``B`` at 8.
+
+    Both are the same slack in calendar time. ``A`` (7-day week) can start as late
+    as Thursday 03-12, ``B`` (5-day week) as late as Friday 03-13, and each counts
+    the stretch from its early start in its own working days (ADR-0120 D3). Swap
+    the calendars and the numbers swap with them, so the inversion is the unit,
+    not the schedule.
+    """
+    project = _two_calendar_project()
+    result = schedule(project)
+    tasks = {t.id: t for t in result.tasks}
+
+    assert DrivingEdge("A", "B", "FS") in result.driving_edges
+    assert tasks["A"].total_float == timedelta(days=10)
+    assert tasks["B"].total_float == timedelta(days=8)
+
+    # A's ten days are real: starting it Thursday 03-12 leaves the finish alone,
+    # Friday moves it.
+    thursday = date(2026, 3, 12)
+    assert (
+        schedule(_two_calendar_project(a_planned_start=thursday)).project_finish
+        == result.project_finish
+    )
+    assert (
+        schedule(_two_calendar_project(a_planned_start=thursday + timedelta(days=1))).project_finish
+        > result.project_finish
+    )
+
+    swapped = _two_calendar_project("five", "seven")
+    swapped_tasks = {t.id: t for t in schedule(swapped).tasks}
+    assert swapped_tasks["A"].total_float == timedelta(days=8)
+    assert swapped_tasks["B"].total_float == timedelta(days=10)
+
+    # Negative control: without the calendar skip the scoped check would flag it.
+    assert _float_inversions(project, result, scoped=False) == [("A", "B")]
+    assert _float_inversions(project, result) == []
+    # The skip is narrow: on one shared calendar the edge stays in scope, so a
+    # planted inversion there is still caught.
+    same = _two_calendar_project("five", "five")
+    same_result = schedule(same)
+    assert DrivingEdge("A", "B", "FS") in same_result.driving_edges
+    assert _float_inversions(same, same_result) == []
+    planted = dataclasses.replace(
+        same_result,
+        tasks=[
+            dataclasses.replace(t, total_float=t.total_float + timedelta(days=1))
+            if t.id == "A" and t.total_float is not None
+            else t
+            for t in same_result.tasks
+        ],
+    )
+    assert _float_inversions(same, planted) == [("A", "B")]
+
+
+def test_float_inversion_check_flags_a_zero_lag_work_successor() -> None:
+    """Negative control: the scoping does not hide an inversion it should catch.
+
+    A zero-lag link between two work tasks is exactly what the property checks; a
+    result whose predecessor reports a day more float than its successor must be
+    flagged, or the property would pass on an engine that produced one.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=2)),
+            Task(id="B", name="B", duration=timedelta(days=2)),
+        ],
+        dependencies=[Dependency(predecessor_id="A", successor_id="B")],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    result = schedule(project)
+    assert DrivingEdge("A", "B", "FS") in result.driving_edges
+    assert _float_inversions(project, result) == []
+
+    broken = dataclasses.replace(
+        result,
+        tasks=[
+            dataclasses.replace(t, total_float=timedelta(days=1)) if t.id == "A" else t
+            for t in result.tasks
+        ],
+    )
+    assert _float_inversions(project, broken) == [("A", "B")]
