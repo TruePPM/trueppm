@@ -170,6 +170,22 @@ def _first_working_day_in(start: date, end: date, cal: Calendar) -> date | None:
     return None
 
 
+def _working_time_finish_bound(result: ScheduleResult, cal: Calendar) -> date:
+    """The exclusive bound :func:`_first_working_day_in` checks a finish against.
+
+    When every task shown on ``project_finish`` is a milestone at the start of that
+    day, the project ends at the end of the working day before it, so work that
+    finishes that earlier day reaches the project finish in working time.
+    """
+    shown = [t for t in result.tasks if t.early_finish == result.project_finish]
+    if not all(t.duration == timedelta(0) and not t.milestone_at_day_end for t in shown):
+        return result.project_finish
+    day = result.project_finish - timedelta(days=1)
+    while not cal.is_working_day(day):
+        day -= timedelta(days=1)
+    return day
+
+
 def _assert_latest_critical_task_reaches_project_finish(project: Project) -> None:
     project = _clear_completion(project)
     try:
@@ -179,27 +195,30 @@ def _assert_latest_critical_task_reaches_project_finish(project: Project) -> Non
 
     assert result.critical_path, "no completed task, yet critical_path is empty"
     task_map = {t.id: t for t in result.tasks}
-    latest = max(
-        (task_map[tid] for tid in result.critical_path),
-        key=lambda t: t.early_finish or date.min,
-    )
-    assert latest.early_finish is not None
-    gap = _first_working_day_in(
-        latest.early_finish, result.project_finish, _task_calendar(project, latest)
-    )
-    assert gap is None, (
-        f"{latest.id}: latest critical early_finish is {latest.early_finish}, "
-        f"a working day ({gap}) short of project_finish {result.project_finish}"
-    )
+    critical = [task_map[tid] for tid in result.critical_path]
+    latest = max(critical, key=lambda t: t.early_finish or date.min)
+    has_successor = {d.predecessor_id for d in project.dependencies}
+    sinks = [t for t in critical if t.id not in has_successor]
+    for task, role in [(latest, "latest critical"), *((t, "critical sink") for t in sinks)]:
+        assert task.early_finish is not None
+        cal = _task_calendar(project, task)
+        gap = _first_working_day_in(task.early_finish, _working_time_finish_bound(result, cal), cal)
+        assert gap is None, (
+            f"{task.id}: {role} task has early_finish {task.early_finish}, "
+            f"a working day ({gap}) short of project_finish {result.project_finish}"
+        )
 
 
+# The name still says "last" so the Hypothesis example database keeps its key.
 @given(project=_plausible_projects())
 def test_project_duration_equals_last_critical_task_early_finish(project: Project) -> None:
-    """``project_finish`` equals the latest ``early_finish`` on the critical path.
+    """``project_finish`` equals the latest ``early_finish`` on the critical path,
+    and every critical task with no successor finishes on it.
 
-    The global early-finish maximizer is a sink whose ``late_finish`` the
-    backward pass anchors directly on ``project_finish``, so with nothing
-    complete it carries zero float and is on the critical path.
+    A task with no successor has its ``late_finish`` anchored directly on
+    ``project_finish`` by the backward pass's base case, so zero float means it
+    finishes there. The global early-finish maximizer is such a task, so with
+    nothing complete it is on the critical path.
 
     The *last entry* of ``critical_path`` is not the right task to check. The
     list is a topological order of the critical set, not a chain, and a critical
@@ -344,6 +363,42 @@ def test_calendar_day_lag_across_a_weekend_ends_critical_path_early() -> None:
     assert task_map["t3"].early_finish == date(2026, 3, 6)
     assert task_map["join"].total_float == timedelta(days=1)
     assert result.project_finish == date(2026, 3, 10)
+    _assert_latest_critical_task_reaches_project_finish(project)
+
+
+def test_critical_sink_reaches_a_start_of_day_milestone_finish_in_working_time() -> None:
+    """Pinned counterexample from the deep Hypothesis profile (#4281).
+
+    ``t2`` ends on Monday and ``join`` sits at the start of Tuesday, which is the
+    same point in working time, so the critical sink ``t2`` reaches
+    ``project_finish`` although its date is a day earlier.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="t0", name="t", duration=timedelta(0)),
+            Task(id="t1", name="t", duration=timedelta(0)),
+            Task(id="t2", name="t", duration=timedelta(days=1)),
+            Task(id="join", name="t", duration=timedelta(0)),
+        ],
+        dependencies=[
+            Dependency("t0", "t1", DependencyType.FS),
+            Dependency("t0", "t2", DependencyType.FS, timedelta(days=5)),
+            Dependency("t0", "join", DependencyType.SS, timedelta(days=8)),
+            Dependency("t1", "join", DependencyType.FS),
+        ],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    result = schedule(project)
+    task_map = {t.id: t for t in result.tasks}
+
+    assert task_map["t2"].is_critical
+    assert task_map["t2"].early_finish == date(2026, 3, 9)
+    assert result.project_finish == date(2026, 3, 10)
+    assert not task_map["join"].milestone_at_day_end
+    assert _working_time_finish_bound(result, project.calendar) == date(2026, 3, 9)
     _assert_latest_critical_task_reaches_project_finish(project)
 
 

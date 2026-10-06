@@ -25,7 +25,7 @@ Each member project is a lane: a summary row carrying the project name, with tha
 
 ## The cross-project critical path
 
-The critical path is computed across the **merged** program graph, not stitched together from per-project paths. An upstream task that gates another project's milestone is therefore shown as **critical** — drawn with the same red bar fill as on a single-project schedule — and its float is measured against the whole program. The red bars trace the one chain that, if it slips, slips the program.
+The critical path is computed across the **merged** program graph, not stitched together from per-project paths. An upstream task that gates another project's milestone is therefore shown as **critical** — drawn with the same red bar fill as on a single-project schedule — and its float is measured against the whole program. Any red bar that slips can slip the program.
 
 ## Cross-project dependencies
 
