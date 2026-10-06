@@ -189,20 +189,28 @@ this branch — which is the gap that prompted writing this step down at all.
 
 For each issue, once its Step 5 agent reports, first check the exemption
 `completeness-check/SKILL.md` already states — **dependency bumps, CI-config-only
-and chore branches with no behavior change** skip this step entirely, same as
-they skip `completeness-check` outside a wave. Otherwise:
+and chore branches with no behavior change** are exempt from items 1–6 only. An
+exempt branch still resumes the Step 5 agent for items 7–10, because the push and
+MR happen regardless of the audit. Otherwise run items 1–6 first:
 
 1. Spawn **one fresh `general-purpose` agent**. Give it the worktree path, the
    issue number(s) with comments, and any user decisions the branch implements —
    not your own notes on what Step 5 already checked; a list of known findings
-   anchors the audit on them. Pass `model` explicitly:
+   anchors the audit on them. Tell it explicitly that it is **read-only: no
+   commits, no pushes, no tracker changes, no subagents, and no command expected
+   to run longer than about five minutes.** Pass `model` explicitly:
    - **`opus`** if this issue's Step 4 implementing agent ran on Opus (i.e. met
-     one of this skill's escalation criteria) — same tier in, same tier checking.
+     one of this skill's escalation criteria), **or** the branch touches an
+     authorization boundary (`completeness-check/SKILL.md` § How to run) — same
+     tier in, same tier checking, plus the auth-boundary case the auditor's own
+     rule adds.
    - **`sonnet`** otherwise.
 2. Read its `BLOCKERS` / `GAPS` / `CLEAN` report.
 3. Clean → record `gate: completeness-check — 0 findings (<model>)`, resume the
    Step 5 agent by `SendMessage` to do items 7–10 below, and stop — you do not
-   push or open the MR yourself.
+   push or open the MR yourself. If that `SendMessage` is refused, use the same
+   fallback as item 4: brief a fresh agent with the worktree, the issue, and the
+   push/MR steps, and have it do items 7–10.
 4. Findings → hand them to the **same Step 5 agent** (`SendMessage` — it is
    stalled, not gone) to fix, with the exact BLOCKER/GAP text. It fixes, re-runs
    the affected tests with negative controls, and reports back. If that
@@ -215,7 +223,10 @@ they skip `completeness-check` outside a wave. Otherwise:
    job by default.
 5. Re-check and trigger round 2 **per `completeness-check`'s own rule in its
    SKILL.md** — this step defers to that rule rather than restating it, so look
-   there, not here, for the current trigger and shape.
+   there, not here, for the current trigger and shape. A narrow re-check after a
+   fix commit is a **fresh, non-author agent** spawned by you, with the model rules
+   in that SKILL's § How to run; it is required on every executable fix commit,
+   not only when a trigger fires.
 6. Record every round on the ledger exactly as `completeness-check`'s own SKILL.md
    "Recording it" section specifies — as of this writing that means: round 2 (if
    triggered) gets its own line marked `round 2`; a narrow re-check's findings are
@@ -233,11 +244,11 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    `gate: <name> — <N> findings` line per gate run, including every
    completeness-check line from this step (`0 findings` is a real outcome; never
    omit a zero, never conflate `n/a` with `skipped`), and the `## Requirements`
-   table `mr/SKILL.md` requires in every MR. Build it yourself from the
-   acceptance criteria and the completeness-check auditor's step-1
-   (requirements-traceability) findings — step 1's output is prose, not a
-   ready-made table — and hand the table to this agent; it has no other way to
-   see either the criteria or the audit's findings.
+   table `mr/SKILL.md` requires for every issue-linked MR (it omits the section
+   only for chores with no issue). The auditor returns only BLOCKERS / GAPS /
+   CLEAN, so build the table yourself from the issue's acceptance criteria, using
+   the auditor's CLEAN section as the evidence for each MET row, and hand the
+   table to this agent — it has no other way to see the criteria.
 10. **Never merge.** Hand back the MR URL and stop.
 
 The agent reports back: MR URL, the full gate ledger, the commit SHA, and
@@ -269,8 +280,9 @@ An agent that produced no commit costs the same as one that shipped. Re-brief it
 with what was missing, or take the issue over yourself; do not report it as done.
 
 Also check the MR description's `## Gates` section actually carries a
-`completeness-check` line, and a `round 2` line if round 2 ran. Its absence means
-Step 6 was skipped under time pressure, not that the branch had nothing to find.
+`completeness-check` line, and a `round 2` line if round 2 ran. Unless the branch
+is exempt, its absence means Step 6 was skipped under time pressure, not that the
+branch had nothing to find.
 
 ## Step 8 — Report
 
