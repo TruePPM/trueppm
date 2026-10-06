@@ -42,6 +42,7 @@ import type {
   BoardGroupMode,
 } from '@/hooks/useBoardToolbarPrefs';
 import { BoardViewDropdown } from './BoardViewDropdown';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { BoardSprintSwitcher } from './BoardSprintSwitcher';
 import { BoardSearchControl } from './BoardSearchControl';
 import { BoardZoomControl } from './BoardZoomControl';
@@ -528,6 +529,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
   const breakpoint = useBreakpoint();
   const hideQuietToggleLabels = breakpoint === 'md';
   const showQuietTogglesInline = breakpoint !== 'sm';
+  const { user: currentUser } = useCurrentUser();
 
   return (
     <div
@@ -549,6 +551,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
           currentConfig={props.currentViewConfig}
           activeViewId={props.activeViewId}
           onApply={props.onApplyView}
+          currentUserId={currentUser?.id}
         />
         <BoardSprintSwitcher
           sprints={props.sprints}
