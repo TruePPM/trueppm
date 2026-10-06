@@ -393,7 +393,7 @@ class ScheduleResult:
     project_finish: date
     # Ordering is UNSPECIFIED — look up by id, not position (see class docstring, #1862).
     tasks: list[Task]  # copies with all CPM fields populated
-    critical_path: list[str]  # task IDs in topological order along the critical path
+    critical_path: list[str]  # every critical task ID, in topological order (not one chain)
     # Dependencies whose relationship free float is zero (#2095). Order is
     # deterministic (sorted) so the two engines' snapshots stay comparable.
     driving_edges: list[DrivingEdge] = field(default_factory=list)

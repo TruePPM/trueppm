@@ -61,7 +61,7 @@ The scheduling engine requires mathematical correctness tests:
 - **Known-answer tests**: Hand-calculated CPM results for small graphs (3-10 tasks).
   Compare engine output to known correct values for early/late start/finish, float, critical path.
 - **Property-based tests**: For any valid DAG, verify: total_float ≥ 0, critical path tasks
-  have total_float = 0, project duration = early_finish of last task.
+  have total_float = 0, project duration = latest critical early_finish.
 - **Monte Carlo statistical tests**: For known distributions, verify P50/P80/P95 converge
   to analytical values within 2% over 10,000 runs.
 - **Regression tests**: Every bug fix includes a test case that reproduces the bug.
