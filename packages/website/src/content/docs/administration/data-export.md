@@ -62,6 +62,7 @@ from a member project can still download their own bundle until its `expires_at`
 download is not re-checked against current membership.
 A backlog item that was pulled into a project you cannot read exports with status `archived`
 and no `pulled_to` reference, because its target task is withheld.
+<!-- TODO(#4310): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
 This narrowing ships in the next release; see
 [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
 Until then, the program export includes every member project.

@@ -75,6 +75,7 @@ A webhook is scoped to exactly one project **or** one program:
 
 Program-scoped reads require program Viewer+; mutations require Program Manager or above. The two scopes are additive: a project event reaches both its own project webhooks and its program's webhooks.
 
+<!-- TODO(#4310): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
 A program-scoped webhook delivers events from a member project only while the user who created it still holds project membership on that project, checked when each event is dispatched. Removing that membership stops new deliveries for the project. Events already queued, or retrying after a failed attempt, are still delivered. A webhook whose creator was deleted delivers no member-project events. Only the webhook's creator can edit it, and only while they still have membership on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log. This narrowing ships in the next release; see [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
 
 ## Payload format

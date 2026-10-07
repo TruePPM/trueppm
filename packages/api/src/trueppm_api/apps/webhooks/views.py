@@ -333,13 +333,50 @@ class WebhookViewSet(
     # and why the id is pinned at all (#2583).
     deliveries=extend_schema(
         summary="List recent webhook deliveries",
-        responses={200: WEBHOOK_DELIVERY_PAGE},
+        responses={
+            200: WEBHOOK_DELIVERY_PAGE,
+            403: OpenApiResponse(
+                description=(
+                    "Not the webhook's creator (#4310). The delivery log replays past "
+                    "payloads from every member project, so it is restricted to the "
+                    "registrant even for another Program Admin."
+                )
+            ),
+        },
         operation_id="v1_programs_webhooks_deliveries_list",
     ),
     create=extend_schema(
         summary="Register a webhook",
         responses={201: WebhookCreateResponseSerializer},
         operation_id="v1_programs_webhooks_create",
+    ),
+    update=extend_schema(
+        summary="Replace a webhook",
+        responses={
+            200: WebhookSerializer,
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(
+                description=(
+                    "Refused (#4310) unless the requester is the webhook's creator AND "
+                    "still holds live ProjectMembership on every project the program "
+                    "covers. Checked before validation, so a no-op update is refused too."
+                )
+            ),
+        },
+    ),
+    partial_update=extend_schema(
+        summary="Update a webhook",
+        responses={
+            200: WebhookSerializer,
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(
+                description=(
+                    "Refused (#4310) unless the requester is the webhook's creator AND "
+                    "still holds live ProjectMembership on every project the program "
+                    "covers. Checked before validation, so a no-op PATCH is refused too."
+                )
+            ),
+        },
     ),
 )
 class ProgramWebhookViewSet(WebhookViewSet):
@@ -348,8 +385,12 @@ class ProgramWebhookViewSet(WebhookViewSet):
     A program-scoped webhook fires for events on any project within the program.
     Inherits the test/deliveries actions and the rendering/dispatch substrate
     from WebhookViewSet; only the scope resolution and RBAC ladder change:
-    list/retrieve require Program Viewer+ (IsProgramMember), mutations require
-    Program Admin+ (IsProgramAdmin).
+    list/retrieve require Program Viewer+ (IsProgramMember). Create requires Program
+    Admin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the
+    requester must be the webhook'''s registrant (created_by) AND still hold live
+    ProjectMembership on every project the program covers, checked in get_object
+    before validation — refused with 403 otherwise, including a no-op PATCH. The
+    delivery log is likewise restricted to the registrant, not to Admin+ generally.
     """
 
     def get_permissions(self) -> list[BasePermission]:

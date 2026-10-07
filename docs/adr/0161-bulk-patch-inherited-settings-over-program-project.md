@@ -168,6 +168,11 @@ already happened (#4310); both now intersect with the caller's live membership.
   when its registrant (`Webhook.created_by`) holds live membership on P, checked at
   dispatch time. A NULL or deactivated registrant fails closed. Project-scoped webhooks
   are unchanged: they are scoped to the project whose event fires.
+- `GET /programs/{id}/resource-contention/` (round 2, #4310): the contention scope was
+  every visible member project with no membership intersection, so a Program Scheduler or
+  Admin with no `ProjectMembership` on a member project read that project's task ids,
+  names, statuses and dates. It now intersects the scope with the caller's live
+  membership, the same predicate `task_search` already applied.
 
 **Alternatives considered.**
 

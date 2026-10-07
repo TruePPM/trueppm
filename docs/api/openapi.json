@@ -10081,7 +10081,7 @@
         "/api/v1/programs/{id}/export/jobs/{job_id}/download/": {
             "get": {
                 "operationId": "v1_programs_export_jobs_download_retrieve",
-                "description": "Stream a completed program export bundle (#1958, ADR-0219). Admin+.\n\nAuthenticated — the archive contains the whole program including its audit\nhistory, so it is never served from a raw, unauthenticated storage URL.\n``409`` if not ready, ``410 Gone`` once the link has expired. The job is\nprogram-scoped so a ``job_id`` from another program 404s (IDOR guard).\n\n**ADR-0678 agent opt-out — settled in #3014.** The mixin's ``Program`` branch\ngoverns this route on ``program.mcp_enabled`` alone, so a child project's\n\"off\" did not withhold the bundle: an ``mcp:read`` token at Admin+ could\ndownload an archive carrying the tasks of a team that had switched agent\nreads off. ``McpProgramExportConsent`` now decides that, per the operator's\n``TRUEPPM_MCP_PROGRAM_EXPORT_POLICY`` — ``withhold`` (default) refuses the\ndownload to an agent when any member project has opted out; ``allow`` keeps\nthe previous program-level-artifact behavior. Humans are unaffected either\nway. The lever is serve-or-refuse rather than filter because the archive is\nbuilt asynchronously and streamed as opaque bytes, so at download time there\nis nothing left to narrow.",
+                "description": "Stream a completed program export bundle (#1958, ADR-0219). Admin+.\n\nAuthenticated — the archive contains the whole program including its audit\nhistory, so it is never served from a raw, unauthenticated storage URL.\n``409`` if not ready, ``410 Gone`` once the link has expired. The job is\nprogram-scoped so a ``job_id`` from another program 404s (IDOR guard). It is\nalso requester-scoped (#4310): a ``job_id`` belonging to another admin's export\nrequest 404s the same way, not 403 — the lookup filters on ``requested_by``\nalongside ``program``, so the two refusals are indistinguishable from outside.\n\n**ADR-0678 agent opt-out — settled in #3014.** The mixin's ``Program`` branch\ngoverns this route on ``program.mcp_enabled`` alone, so a child project's\n\"off\" did not withhold the bundle: an ``mcp:read`` token at Admin+ could\ndownload an archive carrying the tasks of a team that had switched agent\nreads off. ``McpProgramExportConsent`` now decides that, per the operator's\n``TRUEPPM_MCP_PROGRAM_EXPORT_POLICY`` — ``withhold`` (default) refuses the\ndownload to an agent when any member project has opted out; ``allow`` keeps\nthe previous program-level-artifact behavior. Humans are unaffected either\nway. The lever is serve-or-refuse rather than filter because the archive is\nbuilt asynchronously and streamed as opaque bytes, so at download time there\nis nothing left to narrow.",
                 "summary": "Download a completed async program export bundle",
                 "parameters": [
                     {
@@ -10157,6 +10157,17 @@
                     },
                     "403": {
                         "description": "Not a program Admin — or an agent (`mcp:read`) token where a member project has opted out of agent reads and `TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` is `withhold` (#3014). The body carries the ADR-0809 refusal envelope naming `capability_scope`."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "No job with this id in this program, OR the job belongs to a different admin's export request (#4310). A bundle can be downloaded only by the admin who requested it — another Program Admin's request for the same job id gets the same 404 an unrelated program would, not a 403, so the two cases are indistinguishable from outside."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -10829,7 +10840,7 @@
         "/api/v1/programs/{id}/resource-contention/": {
             "get": {
                 "operationId": "v1_programs_resource_contention_retrieve",
-                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\nBounded by ``_ALLOCATION_ASSIGNMENT_LIMIT`` assignment rows, cut on a resource\nboundary and disclosed as ``truncated`` / ``resource_count`` (ADR-1118) — the\nsame contract as the per-project endpoint, and for the same reason: a resource\nreturned with only part of its spans would report a *wrong* load, not an\nincomplete one, because ADR-0031's verdict is summed over the whole set.\n\n``max_units`` here is deliberately the resource's **own** default and NOT a\nper-project ``units_override`` (#3574). This span is cross-project by\nconstruction, so there is no single project whose override applies; and the\noverrides are slices of one person's time rather than additive capacities, so\nsumming them would not produce a total ceiling either. The per-project reads\n(``ProjectViewSet.resource_allocation``, the utilization engine, the heat map,\nthe Overview card) all apply the override; this one states the whole person.\n\nWindowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,\nADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect\nfixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map\n(#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an\nin-progress task and narrows toward ``early_finish`` as ``percent_complete``\nrises, which would otherwise misreport cross-project contention as work is\nreported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for\nrows a CPM run has not yet populated it on.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           task span start across all member projects. Returns 409 if no\n           member project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across the member projects of this\nprogram **the caller holds live ProjectMembership on** (#4310), each span tagged\nwith its source project, so the client can show who is over-allocated across\nsibling projects in overlapping windows (the contention the GA-launch sample\nprogram deliberately creates). A member project the caller cannot read\ncontributes no spans, the same scoping ``task_search`` applies.\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\nBounded by ``_ALLOCATION_ASSIGNMENT_LIMIT`` assignment rows, cut on a resource\nboundary and disclosed as ``truncated`` / ``resource_count`` (ADR-1118) — the\nsame contract as the per-project endpoint, and for the same reason: a resource\nreturned with only part of its spans would report a *wrong* load, not an\nincomplete one, because ADR-0031's verdict is summed over the whole set.\n\n``max_units`` here is deliberately the resource's **own** default and NOT a\nper-project ``units_override`` (#3574). This span is cross-project by\nconstruction, so there is no single project whose override applies; and the\noverrides are slices of one person's time rather than additive capacities, so\nsumming them would not produce a total ceiling either. The per-project reads\n(``ProjectViewSet.resource_allocation``, the utilization engine, the heat map,\nthe Overview card) all apply the override; this one states the whole person.\n\nWindowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,\nADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect\nfixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map\n(#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an\nin-progress task and narrows toward ``early_finish`` as ``percent_complete``\nrises, which would otherwise misreport cross-project contention as work is\nreported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for\nrows a CPM run has not yet populated it on.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           task span start across all member projects. Returns 409 if no\n           member project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "summary": "Within-program resource contention (cross-project allocation)",
                 "parameters": [
                     {
@@ -15605,7 +15616,7 @@
         "/api/v1/programs/{program_pk}/webhooks/": {
             "get": {
                 "operationId": "v1_programs_webhooks_list",
-                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember). Create requires Program\nAdmin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the\nrequester must be the webhook'''s registrant (created_by) AND still hold live\nProjectMembership on every project the program covers, checked in get_object\nbefore validation — refused with 403 otherwise, including a no-op PATCH. The\ndelivery log is likewise restricted to the registrant, not to Admin+ generally.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -15689,7 +15700,7 @@
             },
             "post": {
                 "operationId": "v1_programs_webhooks_create",
-                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember). Create requires Program\nAdmin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the\nrequester must be the webhook'''s registrant (created_by) AND still hold live\nProjectMembership on every project the program covers, checked in get_object\nbefore validation — refused with 403 otherwise, including a no-op PATCH. The\ndelivery log is likewise restricted to the registrant, not to Admin+ generally.",
                 "summary": "Register a webhook",
                 "parameters": [
                     {
@@ -15801,7 +15812,7 @@
         "/api/v1/programs/{program_pk}/webhooks/{id}/": {
             "get": {
                 "operationId": "v1_programs_webhooks_retrieve",
-                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember). Create requires Program\nAdmin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the\nrequester must be the webhook'''s registrant (created_by) AND still hold live\nProjectMembership on every project the program covers, checked in get_object\nbefore validation — refused with 403 otherwise, including a no-op PATCH. The\ndelivery log is likewise restricted to the registrant, not to Admin+ generally.",
                 "parameters": [
                     {
                         "in": "path",
@@ -15866,7 +15877,8 @@
             },
             "put": {
                 "operationId": "v1_programs_webhooks_update",
-                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember). Create requires Program\nAdmin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the\nrequester must be the webhook'''s registrant (created_by) AND still hold live\nProjectMembership on every project the program covers, checked in get_object\nbefore validation — refused with 403 otherwise, including a no-op PATCH. The\ndelivery log is likewise restricted to the registrant, not to Admin+ generally.",
+                "summary": "Replace a webhook",
                 "parameters": [
                     {
                         "in": "path",
@@ -15930,6 +15942,12 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "description": "Validation error."
+                    },
+                    "403": {
+                        "description": "Refused (#4310) unless the requester is the webhook's creator AND still holds live ProjectMembership on every project the program covers. Checked before validation, so a no-op update is refused too."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -15945,46 +15963,13 @@
                                 }
                             }
                         }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
-                                }
-                            }
-                        }
                     }
-                },
-                "summary": "Update webhook"
+                }
             },
             "patch": {
                 "operationId": "v1_programs_webhooks_partial_update",
-                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember). Create requires Program\nAdmin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the\nrequester must be the webhook'''s registrant (created_by) AND still hold live\nProjectMembership on every project the program covers, checked in get_object\nbefore validation — refused with 403 otherwise, including a no-op PATCH. The\ndelivery log is likewise restricted to the registrant, not to Admin+ generally.",
+                "summary": "Update a webhook",
                 "parameters": [
                     {
                         "in": "path",
@@ -16047,6 +16032,12 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "description": "Validation error."
+                    },
+                    "403": {
+                        "description": "Refused (#4310) unless the requester is the webhook's creator AND still holds live ProjectMembership on every project the program covers. Checked before validation, so a no-op PATCH is refused too."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -16062,46 +16053,12 @@
                                 }
                             }
                         }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
-                                }
-                            }
-                        }
                     }
-                },
-                "summary": "Partially update webhook"
+                }
             },
             "delete": {
                 "operationId": "v1_programs_webhooks_destroy",
-                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember). Create requires Program\nAdmin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the\nrequester must be the webhook'''s registrant (created_by) AND still hold live\nProjectMembership on every project the program covers, checked in get_object\nbefore validation — refused with 403 otherwise, including a no-op PATCH. The\ndelivery log is likewise restricted to the registrant, not to Admin+ generally.",
                 "parameters": [
                     {
                         "in": "path",
@@ -16205,6 +16162,9 @@
                             }
                         },
                         "description": ""
+                    },
+                    "403": {
+                        "description": "Not the webhook's creator (#4310). The delivery log replays past payloads from every member project, so it is restricted to the registrant even for another Program Admin."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

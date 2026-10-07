@@ -1721,6 +1721,16 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "carries the ADR-0809 refusal envelope naming `capability_scope`."
                 )
             ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "No job with this id in this program, OR the job belongs to a different "
+                    "admin's export request (#4310). A bundle can be downloaded only by the "
+                    "admin who requested it — another Program Admin's request for the same "
+                    "job id gets the same 404 an unrelated program would, not a 403, so the "
+                    "two cases are indistinguishable from outside."
+                ),
+            ),
         },
     )
     @action(
@@ -1736,7 +1746,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         Authenticated — the archive contains the whole program including its audit
         history, so it is never served from a raw, unauthenticated storage URL.
         ``409`` if not ready, ``410 Gone`` once the link has expired. The job is
-        program-scoped so a ``job_id`` from another program 404s (IDOR guard).
+        program-scoped so a ``job_id`` from another program 404s (IDOR guard). It is
+        also requester-scoped (#4310): a ``job_id`` belonging to another admin's export
+        request 404s the same way, not 403 — the lookup filters on ``requested_by``
+        alongside ``program``, so the two refusals are indistinguishable from outside.
 
         **ADR-0678 agent opt-out — settled in #3014.** The mixin's ``Program`` branch
         governs this route on ``program.mcp_enabled`` alone, so a child project's
@@ -1816,10 +1829,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         """Cross-project resource allocation for the within-program contention view (#1149).
 
         The program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):
-        returns each resource with their task spans across **every member project of this
-        program**, each span tagged with its source project, so the client can show who is
-        over-allocated across sibling projects in overlapping windows (the contention the
-        GA-launch sample program deliberately creates).
+        returns each resource with their task spans across the member projects of this
+        program **the caller holds live ProjectMembership on** (#4310), each span tagged
+        with its source project, so the client can show who is over-allocated across
+        sibling projects in overlapping windows (the contention the GA-launch sample
+        program deliberately creates). A member project the caller cannot read
+        contributes no spans, the same scoping ``task_search`` applies.
 
         This is OSS, within-program **visibility** only — it surfaces contention data but
         does not level resources or cross a program boundary. Cross-program leveling and the
@@ -1881,6 +1896,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         if _excluded is not None:
             member_qs = member_qs.exclude(pk__in=_excluded)
         member_project_ids = list(member_qs.values_list("id", flat=True))
+        # #4310 (round 2, B1): IsProgramScheduler is a PROGRAM gate. Project read is
+        # ProjectMembership-gated regardless of program role, the same predicate
+        # task_search applies — without this, a Program Admin/Scheduler with no
+        # membership on a member project read its task names, dates and status here.
+        from trueppm_api.apps.access.permissions import live_member_project_ids
+
+        _readable = live_member_project_ids(request.user, member_project_ids)
+        member_project_ids = [pid for pid in member_project_ids if pid in _readable]
 
         # --- Resolve window bounds across all member projects ---
         base_tasks = Task.objects.filter(project_id__in=member_project_ids, is_deleted=False)
