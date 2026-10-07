@@ -1,0 +1,73 @@
+{
+  "project_id": "linktypes-ff-ss",
+  "project_start": "2013-01-01",
+  "project_finish": "2013-01-07",
+  "tasks": [
+    {
+      "id": "1",
+      "early_start": "2013-01-01",
+      "early_finish": "2013-01-03",
+      "late_start": "2013-01-01",
+      "late_finish": "2013-01-03",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2013-01-01"
+    },
+    {
+      "id": "2",
+      "early_start": "2013-01-03",
+      "early_finish": "2013-01-03",
+      "late_start": "2013-01-03",
+      "late_finish": "2013-01-03",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2013-01-03"
+    },
+    {
+      "id": "3",
+      "early_start": "2013-01-04",
+      "early_finish": "2013-01-07",
+      "late_start": "2013-01-04",
+      "late_finish": "2013-01-07",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2013-01-04"
+    },
+    {
+      "id": "4",
+      "early_start": "2013-01-04",
+      "early_finish": "2013-01-04",
+      "late_start": "2013-01-07",
+      "late_finish": "2013-01-07",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2013-01-04"
+    }
+  ],
+  "critical_path": [
+    "1",
+    "2",
+    "3"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "1",
+      "successor_id": "2",
+      "dep_type": "FF"
+    },
+    {
+      "predecessor_id": "2",
+      "successor_id": "3",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "3",
+      "successor_id": "4",
+      "dep_type": "SS"
+    }
+  ]
+}

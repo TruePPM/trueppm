@@ -1,0 +1,38 @@
+{
+  "_source": {
+    "sample": "LinkTypes_Result.mpp",
+    "origin": "InfiniteSkills 'all four link types' MS Project 2013 teaching/course working file.",
+    "export_method": "Extracted with MPXJ (https://www.mpxj.org/), not by running MS Project ourselves. Task graph, durations, calendar and the Start/Finish dates MS Project computed and saved are reproduced verbatim from that extraction.",
+    "calendar": "Standard: Mon-Fri, 08:00-12:00/13:00-17:00, zero calendar exceptions (no holidays). The engine schedules in whole working days, so the lunch break is not separately modeled (hours_per_day is reserved-but-inert, see Calendar docstring).",
+    "project_start": "2013-01-01T08:00",
+    "notes": "The source file's tasks 5-7 (and its Start-to-Finish relation on tasks 1-4) are out of scope here: #4322 uses those for the SF reference case, so this fixture holds only the 1/2/3/4 slice #4323 needs. Task 3's own FS predecessor (task 2) is incidental scaffolding giving task 3 real dates, not itself under test. What is under test: the zero-lag FF relation 2<-1 and the zero-lag SS relation 4<-3, both on a whole-day calendar (#4323). 2013-01-01 is a Tuesday. Verified: schedule() reproduces all four saved Start/Finish dates at day level."
+  },
+  "project": {
+    "id": "linktypes-ff-ss",
+    "name": "LinkTypes FF/SS slice",
+    "start_date": "2013-01-01",
+    "tasks": [
+      {"id": "1", "name": "Move out old Furntiture", "duration": 259200.0},
+      {"id": "2", "name": "Pull up old Carpet", "duration": 86400.0},
+      {"id": "3", "name": "Take down the Curtains", "duration": 172800.0},
+      {"id": "4", "name": "Remove the Curtain Pole", "duration": 86400.0}
+    ],
+    "dependencies": [
+      {"predecessor_id": "1", "successor_id": "2", "dep_type": "FF", "lag": 0.0},
+      {"predecessor_id": "2", "successor_id": "3", "dep_type": "FS", "lag": 0.0},
+      {"predecessor_id": "3", "successor_id": "4", "dep_type": "SS", "lag": 0.0}
+    ],
+    "calendar": {
+      "working_days": 31,
+      "exceptions": [],
+      "hours_per_day": 8.0,
+      "timezone": "UTC"
+    }
+  },
+  "expected": {
+    "1": {"early_start": "2013-01-01", "early_finish": "2013-01-03", "milestone": false},
+    "2": {"early_start": "2013-01-03", "early_finish": "2013-01-03", "milestone": false},
+    "3": {"early_start": "2013-01-04", "early_finish": "2013-01-07", "milestone": false},
+    "4": {"early_start": "2013-01-04", "early_finish": "2013-01-04", "milestone": false}
+  }
+}

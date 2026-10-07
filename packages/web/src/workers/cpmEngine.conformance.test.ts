@@ -80,6 +80,9 @@ const IN_SCOPE_FIXTURES = [
   // unconstrained source. This engine never applied the project-start floor, so
   // it already agrees with the server engines here; this pins that it stays so.
   'sf_before_project_start_chain',
+  // #4323: zero-lag FF and SS from the LinkTypes.mpp known-answer slice, both
+  // already-supported link types, one source task, no calendar exceptions.
+  'msproject_ff_ss_whole_day',
 ] as const;
 
 /**

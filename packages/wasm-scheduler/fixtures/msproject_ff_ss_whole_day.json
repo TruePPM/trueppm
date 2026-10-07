@@ -1,0 +1,22 @@
+{
+  "id": "linktypes-ff-ss",
+  "name": "LinkTypes FF/SS slice (MS Project known-answer, #4323)",
+  "start_date": "2013-01-01",
+  "tasks": [
+    {"id": "1", "name": "Move out old Furntiture", "duration": 259200.0},
+    {"id": "2", "name": "Pull up old Carpet", "duration": 86400.0},
+    {"id": "3", "name": "Take down the Curtains", "duration": 172800.0},
+    {"id": "4", "name": "Remove the Curtain Pole", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "1", "successor_id": "2", "dep_type": "FF", "lag": 0.0},
+    {"predecessor_id": "2", "successor_id": "3", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "3", "successor_id": "4", "dep_type": "SS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
