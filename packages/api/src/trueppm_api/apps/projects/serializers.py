@@ -2247,6 +2247,12 @@ class ProgramExportJobSerializer(serializers.ModelSerializer[ProgramExportJob]):
     def get_download_url(self, obj: ProgramExportJob) -> str | None:
         if obj.status != ExportJobStatus.SUCCESS:
             return None
+        # #4310 (GAP 3): the download is served only to the requester, so the link is
+        # withheld from every other admin who can read this job's metadata. Without a
+        # request in context the caller is not known, and the link is withheld too.
+        request = self.context.get("request")
+        if request is None or obj.requested_by_id != request.user.pk:
+            return None
         return f"/api/v1/programs/{obj.program_id}/export/jobs/{obj.id}/download/"
 
 

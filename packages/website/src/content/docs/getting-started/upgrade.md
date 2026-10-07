@@ -105,8 +105,8 @@ upgrade:
   while its creator (`created_by`) holds project membership on that project. Removing the
   membership stops new deliveries. Events already queued, or retrying, are still delivered.
   A webhook whose creator account was deleted, or is deactivated, delivers no member-project
-  events. Editing a program webhook makes the editor its creator, and only the creator can
-  read its delivery log.
+  events. Only the webhook's creator can edit it, and only while they still have membership
+  on its projects. Only the creator can read its delivery log.
 
 **Operator check after the upgrade.** Program webhooks now showing no deliveries for a
 member project usually belong to a creator without membership there. Either add the

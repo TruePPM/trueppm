@@ -1632,7 +1632,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             from trueppm_api.apps.projects.services import enqueue_program_export
 
             job = enqueue_program_export(program=program, requested_by=request.user)
-            return Response(ProgramExportJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+            return Response(
+                ProgramExportJobSerializer(job, context={"request": request}).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
 
         from trueppm_api.apps.projects.seed.exporter import dump_seed, export_program
 
@@ -1670,7 +1673,9 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         jobs = ProgramExportJob.objects.filter(program=program)
         paginator = pagination.PageNumberPagination()
         page = paginator.paginate_queryset(jobs, request, view=self)
-        data = ProgramExportJobSerializer(page if page is not None else jobs, many=True).data
+        data = ProgramExportJobSerializer(
+            page if page is not None else jobs, many=True, context={"request": request}
+        ).data
         return paginator.get_paginated_response(data)
 
     @extend_schema(
@@ -1693,7 +1698,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         """
         program = self.get_object()
         job = get_object_or_404(ProgramExportJob, pk=job_id, program=program)
-        return Response(ProgramExportJobSerializer(job).data)
+        return Response(ProgramExportJobSerializer(job, context={"request": request}).data)
 
     @extend_schema(
         summary="Download a completed async program export bundle",

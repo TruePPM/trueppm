@@ -187,11 +187,7 @@ def _client_for(user: Any) -> APIClient:
 def test_non_member_admin_cannot_re_point_a_members_webhook(
     program: Program, project_p: Project, member_owner: Any, program_admin: Any
 ) -> None:
-    """#4310 (B2): a PATCH re-stamps the registrant, so the editor is checked for membership.
-
-    Without the re-stamp, the member's webhook would keep their membership and the
-    admin's new URL would receive P's events.
-    """
+    """#4310 (B2, option c): a non-member admin's PATCH is refused, so the URL is unchanged."""
     ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
     hook = _program_webhook(program, member_owner)
 
@@ -200,12 +196,64 @@ def test_non_member_admin_cannot_re_point_a_members_webhook(
         {"url": "https://attacker.example.com/collect"},
         format="json",
     )
-    assert resp.status_code == 200, resp.content
 
+    assert resp.status_code == 403
     hook.refresh_from_db()
-    assert hook.created_by_id == program_admin.pk
-    assert _dispatch(project_p) == 0
-    assert WebhookDelivery.objects.count() == 0
+    assert hook.url == "https://example.com/hook"
+    assert hook.created_by_id == member_owner.pk
+    # The original subscription still receives P's event; the attacker URL gets nothing.
+    assert _dispatch(project_p) == 1
+
+
+def test_non_member_admin_empty_patch_then_delivery_log_leaks_nothing(
+    program: Program, project_p: Project, member_owner: Any, program_admin: Any
+) -> None:
+    """#4310 (B3 closure): a no-op PATCH must not make the outsider the registrant.
+
+    Previously an empty PATCH re-stamped created_by, and the delivery log then
+    returned every stored past payload of P. Both steps are refused now.
+    """
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    hook = _program_webhook(program, member_owner)
+    with patch.object(wh_tasks, "deliver_webhook") as mock_task:
+        mock_task.delay = MagicMock()
+        dispatch_webhooks(str(project_p.pk), "task.created", {"id": "t-4310-secret"})
+    assert WebhookDelivery.objects.filter(webhook=hook).count() == 1
+
+    client = _client_for(program_admin)
+    patch_resp = client.patch(
+        f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/", {}, format="json"
+    )
+    assert patch_resp.status_code == 403
+
+    log_resp = client.get(f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/deliveries/")
+    assert log_resp.status_code == 403
+    assert b"t-4310-secret" not in log_resp.content
+    hook.refresh_from_db()
+    assert hook.created_by_id == member_owner.pk
+
+
+def test_member_creator_can_patch_then_loses_edit_on_revocation(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """The registrant edits while a live member, and is refused once membership is revoked."""
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
+    membership = ProjectMembership.objects.create(
+        project=project_p, user=member_owner, role=Role.MEMBER
+    )
+    hook = _program_webhook(program, member_owner)
+    client = _client_for(member_owner)
+    url = f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/"
+
+    ok = client.patch(url, {"url": "https://example.com/new-hook"}, format="json")
+    assert ok.status_code == 200, ok.content
+
+    membership.is_deleted = True
+    membership.save(update_fields=["is_deleted"])
+    refused = client.patch(url, {"url": "https://example.com/newer-hook"}, format="json")
+    assert refused.status_code == 403
+    hook.refresh_from_db()
+    assert hook.url == "https://example.com/new-hook"
 
 
 def test_another_admin_cannot_read_a_members_delivery_log(

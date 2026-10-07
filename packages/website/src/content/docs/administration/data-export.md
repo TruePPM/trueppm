@@ -57,6 +57,9 @@ being open to every member. The response is a JSON attachment.
 
 A program export includes only the member projects you hold project membership on.
 A Program Admin who is not a member of a project does not receive that project's content.
+A bundle's download link is shown only to the admin who requested it. A requester removed
+from a member project can still download their own bundle until its `expires_at`; the
+download is not re-checked against current membership.
 A backlog item that was pulled into a project you cannot read exports with status `archived`
 and no `pulled_to` reference, because its target task is withheld.
 This narrowing ships in the next release; see

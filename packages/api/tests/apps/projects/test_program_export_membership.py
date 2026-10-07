@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
@@ -276,3 +277,30 @@ def test_admin_without_membership_cannot_receive_another_members_in_flight_job(
     assert resp.status_code == 202
     assert resp.data["id"] != str(in_flight.pk)
     assert ProgramExportJob.objects.get(pk=resp.data["id"]).requested_by_id == admin_user.pk
+
+
+# ---------------------------------------------------------------------------
+# Download link visibility (#4310, GAP 3)
+# ---------------------------------------------------------------------------
+
+
+def test_download_url_is_shown_only_to_the_requester(
+    admin_user: Any, owner: Any, program: Program, project_p: Project
+) -> None:
+    """A link to another admin's bundle would be a dead end (404), so it is withheld."""
+    job = ProgramExportJob.objects.create(
+        program=program,
+        requested_by=owner,
+        status=ExportJobStatus.SUCCESS,
+        file_path="program-exports/x.tar.gz",
+        expires_at=timezone.now() + datetime.timedelta(days=1),
+    )
+    detail = f"/api/v1/programs/{program.pk}/export/jobs/{job.pk}/"
+
+    assert _client(owner).get(detail).data["download_url"] is not None
+    assert _client(admin_user).get(detail).data["download_url"] is None
+
+    listing = _client(admin_user).get(f"/api/v1/programs/{program.pk}/export/jobs/")
+    assert listing.status_code == 200
+    rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
+    assert [row["download_url"] for row in rows] == [None]

@@ -33,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.viewsets import GenericViewSet
 
+from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.access.permissions import (
     IsProgramAdmin,
     IsProgramMember,
@@ -372,6 +373,33 @@ class ProgramWebhookViewSet(WebhookViewSet):
             return [IsAuthenticated(), IsProgramAdmin()]
         return [IsAuthenticated(), IsProgramMember()]
 
+    def get_object(self) -> Webhook:
+        obj: Webhook = super().get_object()
+        # #4310 (B2, option c): only the registrant, and only while still a live member
+        # of every project the webhook covers, may change it. Checked before validation
+        # so a no-op PATCH is refused too, and so a non-member cannot re-point the URL
+        # and start receiving a member project's events.
+        if self.action in ("update", "partial_update") and not self._can_edit(obj):
+            raise PermissionDenied("Only the webhook's creator can edit it while a member.")
+        return obj
+
+    def _can_edit(self, webhook: Webhook) -> bool:
+        if webhook.created_by_id is None or webhook.created_by_id != self.request.user.pk:
+            return False
+        project_ids = set(
+            Project.objects.filter(program_id=webhook.program_id, is_deleted=False).values_list(
+                "pk", flat=True
+            )
+        )
+        if not project_ids:
+            return True
+        live = set(
+            ProjectMembership.live()
+            .filter(user=self.request.user, project_id__in=project_ids)
+            .values_list("project_id", flat=True)
+        )
+        return live == project_ids
+
     def get_queryset(self) -> QuerySet[Webhook]:
         program_pk = self.kwargs["program_pk"]
         return (
@@ -379,13 +407,6 @@ class ProgramWebhookViewSet(WebhookViewSet):
             .select_related("program", "created_by")
             .order_by("-created_at")
         )
-
-    def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
-        # #4310 (B2): an edit re-points the subscription, so the editor becomes its
-        # registrant. Without re-stamping, a non-member admin could change url/secret
-        # on a member's webhook and receive that member's project events. Dispatch
-        # matches on created_by, so the new owner is the one checked.
-        serializer.save(created_by=self.request.user)
 
     def _check_delivery_log_access(self, webhook: Webhook) -> None:
         # #4310 (B3): the delivery log replays past event payloads from every member
