@@ -117,6 +117,8 @@ kubectl get secret <release>-trueppm-connection \
 
 ## Key values
 
+The layout is concern first, then tier: a knob that more than one tier has lives in a map keyed by tier (`resources.web`, `replicas.web`, `service.web`, `processes.worker`, …), and the `web:` root holds only the web tier's on/off switch and nginx configuration. See [ADR-1248](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1248-helm-values-are-concern-first-keyed-by-tier.md).
+
 | Value | Default | Notes |
 |-------|---------|-------|
 | `postgresql.auth.password` | `""` (generated) | Set to pin an explicit DB password. |
@@ -127,7 +129,7 @@ kubectl get secret <release>-trueppm-connection \
 | `ingress.tls` | `[]` | TLS Secret + host list for edge termination. Empty renders HTTP-only (dev/demo). |
 | `networkPolicy.enabled` | `true` | Default-on; requires a NetworkPolicy-enforcing CNI. |
 | `networkPolicy.ingressControllerSelector` | `namespaceSelector` matching `kubernetes.io/metadata.name: ingress-nginx`, empty `podSelector` | NetworkPolicyPeer (rendered verbatim, so `ipBlock` works) admitted by the `api`/`web` default-deny ingress policies. Left at the default on k3s/RKE2, `kube-system` is admitted too. Otherwise, a controller elsewhere is silently blackholed. An empty value refuses to render. |
-| `networkPolicy.ingressControllerConfirmed` | `false` | The one upgrade that first adds the `api`/`web` ingress policies refuses to render on the default selector unless this is `true` or the selector is set (#4000). Also consulted on a fresh install with no chart-rendered Ingress when `demo.enabled` is true or `web.service.type` is `LoadBalancer`/`NodePort` — both bypass any in-cluster ingress controller (#4003). |
+| `networkPolicy.ingressControllerConfirmed` | `false` | The one upgrade that first adds the `api`/`web` ingress policies refuses to render on the default selector unless this is `true` or the selector is set (#4000). Also consulted on a fresh install with no chart-rendered Ingress when `demo.enabled` is true or `service.web.type` is `LoadBalancer`/`NodePort` — both bypass any in-cluster ingress controller (#4003). |
 | `networkPolicy.monitoringSelector` | `{}` | Optional peer admitted to the `api` pod for in-cluster Prometheus/Blackbox health scrapes. Without it they are dropped, and the dead-letter and beat alerts go silent (#4001). |
 | `podSecurityContext` | `runAsNonRoot`, uid 1000, `fsGroup` 1000 | Pod-level security context for every workload. `fsGroup` keeps `persistence.media` / `backup.persistence` PVCs writable. Set `runAsUser: null` and `fsGroup: null` on OpenShift. |
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
@@ -142,9 +144,9 @@ kubectl get secret <release>-trueppm-connection \
 | `web.securityHeaders.referrerPolicy` | `strict-origin-when-cross-origin` | `Referrer-Policy` value. Stops a navigation off a TruePPM page from handing the destination site the full URL it came from. Tighten to `no-referrer`, or `""` to omit when an upstream already sets it. |
 | `web.securityHeaders.contentSecurityPolicy` | `default-src 'self'; …; frame-ancestors 'none'` | CSP for the SPA document, matching `nginx/app.conf.template`. Tunable because a CSP that breaks the app is worse than none — widen it for off-origin fonts/images or a split-origin API ([SPA security headers](https://trueppm.com/administration/helm-values/#spa-security-headers)). |
 | `web.securityHeaders.strictTransportSecurity` | `""` (off) | HSTS. Off by default: TLS terminates at the Ingress in the default topology and most controllers emit HSTS themselves. Set `"max-age=63072000; includeSubDomains"` when this tier *is* your TLS edge. |
-| `celeryWorker.concurrency` | `2` | **Pinned** prefork pool size. Unset, Celery's `cpu_count()` reads the node's cores, not the cgroup limit, and OOM-kills the worker. |
-| `celeryWorker.maxTasksPerChild` | `100` | Recycle prefork children to bound RSS growth on long tasks; `0` disables. |
-| `celeryWorker.extraArgs` | `[]` | Extra `celery worker` flags, appended in order. |
+| `processes.worker.concurrency` | `2` | **Pinned** prefork pool size. Unset, Celery's `cpu_count()` reads the node's cores, not the cgroup limit, and OOM-kills the worker. |
+| `processes.worker.maxTasksPerChild` | `100` | Recycle prefork children to bound RSS growth on long tasks; `0` disables. |
+| `processes.worker.extraArgs` | `[]` | Extra `celery worker` flags, appended in order. |
 | `image.webRepository` | `.../web` | Web tier image (shares `image.tag`/`pullPolicy` with the API). |
 | `image.tag` | `""` | Empty resolves to `v<appVersion>` (e.g. `v0.4.0-beta.4`) — the tag form on the default GitLab registry. GHCR (`ghcr.io/trueppm/{api,web}`) publishes the **bare** version (`0.4.0-beta.4`, no `v`), so set this explicitly when you repoint `image.repository` there. A value set here is used verbatim. |
 | `probes.api.readinessPath` | `/api/v1/readyz` | Deep API readiness check; liveness stays on `probes.api.livenessPath` (`/api/v1/health/`). Rate-limited on its own scope (`env.TRUEPPM_THROTTLE_READYZ_RATE`, default `2000/min`) rather than exempted entirely, since it does real DB/cache work per call. |

@@ -7,8 +7,32 @@
 # `https://` strings were example VALUES, and its one pointer at the sizing page
 # was written as `(see /administration/sizing/)` — a site-relative path, which
 # resolves to nothing from inside a values file on someone's disk.
+#
+# LAYOUT (ADR-1248): concern first, then tier. A knob that more than one tier has
+# lives in a concern map keyed by tier name — resources.<tier>, probes.<tier>,
+# lifecycle.<tier>, replicas.<tier>, processes.<tier>, autoscaling.<tier>,
+# podDisruptionBudget.<tier>, service.<tier> — where <tier> is one of api, worker,
+# beat, web. A tier-named root (`web:`) holds only what exists for that one tier
+# and nowhere else (its on/off switch and its nginx configuration). Optional
+# add-ons (backup, demo, otelCollector, tests, postgresql, valkey) are
+# self-contained blocks. The schema rejects unknown keys, so a key in the wrong
+# place fails the render rather than being silently ignored.
 
+# Fleet-wide replica count, in the shape 0.3 shipped. It sets the API and Celery
+# worker replicas, and is the default every entry in `replicas:` below falls back
+# to. Celery Beat never reads it: Beat is a pinned singleton (a second one
+# double-fires every periodic task).
 replicaCount: 1
+
+# Per-tier replica overrides (ADR-1248). An EMPTY entry means "follow the
+# top-level replicaCount"; set a number only to scale that tier independently.
+# https://docs.trueppm.com/administration/helm-values/#image-and-replicas
+replicas:
+  # Web tier (nginx SPA). Ships EMPTY, not 1: Helm's `default` treats any truthy
+  # value as set, so a shipped `1` meant the fallback could never fire and, under
+  # values-prod.yaml's replicaCount: 2, the render was api=2, worker=2, web=1 —
+  # the only tier a user actually loads was the unprotected singleton (#3188).
+  web: ""
 
 # Global values propagate to the bundled postgresql / valkey subcharts. The
 # presence of this block tells those subcharts they are running under the parent
@@ -35,32 +59,34 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
+# Kubernetes Services. The bare `type`/`port` are the API Service, in the shape
+# 0.3 shipped; each other tier's Service is a named entry (ADR-1248).
 service:
   type: ClusterIP
   port: 8000
+  # Web tier Service (rendered only while web.enabled). Exposing THIS one — not
+  # the API Service — is the safe way to publish a demo.
+  web:
+    type: ClusterIP
+    port: 80
 
 # Web tier (#1896) — the nginx-served React SPA. On by default so a stock
 # `helm install` renders a complete, browsable instance (there was no web tier
 # before 0.4). Disable it if you front the SPA from your own CDN / static host and
 # only want the API + workers from this chart.
+#
+# This root holds only what exists for the web tier alone: its on/off switch and
+# its nginx configuration. Its replicas, Service, resources, probes, lifecycle and
+# disruption budget live in the concern maps under the `web` tier key
+# (replicas.web, service.web, resources.web, ...) — see ADR-1248.
 # https://docs.trueppm.com/administration/helm-values/#service-and-web-tier
 web:
   enabled: true
-  # Independent replica count. EMPTY means "follow the top-level replicaCount",
-  # which is what the fallback in the template was always documented to do and
-  # never did: this shipped as `1`, and Helm's `default` treats any truthy value
-  # as set, so the fallback could not fire. Under values-prod.yaml's
-  # replicaCount: 2 the render was api=2, worker=2, web=1 — the only tier a user
-  # actually loads was the unprotected singleton (#3188). Set a number here only
-  # to scale the web tier independently of the rest.
-  replicaCount: ""
-  # Port nginx listens on inside the container. The stock unprivileged nginx SPA
-  # image serves on 8080 as a non-root user, which satisfies the restricted
-  # podSecurityContext (runAsNonRoot).
+  # Port nginx listens on inside the container (nginx's `listen`; the web
+  # Service targets it by name). The stock unprivileged nginx SPA image serves on
+  # 8080 as a non-root user, which satisfies the restricted podSecurityContext
+  # (runAsNonRoot).
   containerPort: 8080
-  service:
-    type: ClusterIP
-    port: 80
   # Django admin exposure through the web tier's nginx (#2569).
   #
   # Django admin is a plain Django view, so NONE of the DRF `login` throttle
@@ -415,7 +441,7 @@ networkPolicy:
   # default here is simply wrong for them, not merely a guess that might miss:
   # a tunnel (Cloudflare Tunnel is the one demo mode's docs name, ADR-0658 D9)
   # pointed at svc/<release>-trueppm-web, and a LoadBalancer/NodePort
-  # web.service.type reached directly from client/node IPs. Point this at the
+  # service.web.type reached directly from client/node IPs. Point this at the
   # tunnel's own namespace, or at an ipBlock naming the load balancer's/node's
   # source range — see ingressControllerConfirmed below and #4003.
   ingressControllerSelector:
@@ -434,7 +460,7 @@ networkPolicy:
   #
   # A second, narrower guard (#4003) also consults this on a FRESH install (not
   # just upgrades) whenever no chart-rendered Ingress exists AND either
-  # demo.enabled is true or web.service.type is LoadBalancer/NodePort — the two
+  # demo.enabled is true or service.web.type is LoadBalancer/NodePort — the two
   # documented exposure paths that bypass any in-cluster ingress controller.
   # Point ingressControllerSelector at the tunnel's namespace or a source-range
   # ipBlock instead of setting this, unless you have actually reviewed the
@@ -499,7 +525,7 @@ tests:
 
 # Image pull secrets for a private / mirrored registry. THIS IS THE AIR-GAPPED
 # PATH: mirror registry.gitlab.com/trueppm/trueppm/* into your own registry, set
-# image.repository and web.image.repository to it, and name the pull secret here.
+# image.repository and image.webRepository to it, and name the pull secret here.
 #   imagePullSecrets:
 #     - name: regcred
 imagePullSecrets: []
@@ -580,62 +606,73 @@ containerSecurityContext:
   seccompProfile:
     type: RuntimeDefault
 
-# API/uvicorn worker process tuning (#3833, #3829 measurements).
-#
-# The shipped image's CMD runs a single uvicorn process, and that single
-# process pins at about one core — request CPU does not scale with the pod's
-# CPU limit at all, only with replicaCount. `workers: 1` here is that same
-# single-process behavior made an explicit, overridable value rather than a
-# hardcoded Dockerfile CMD with no chart knob (the render for the default value
-# is byte-identical in effect to the unmodified image CMD).
-#
-# Raising it is a memory AND a database-connection decision, not just CPU:
-# each additional worker is its own process (~160 MiB resident, measured) that
-# comes out of the pod's `resources.limits.memory` below, and — because
-# `trueppm_api.settings.prod` (the settings module this chart sets) holds each
-# connection open for `CONN_MAX_AGE=600` seconds under `ATOMIC_REQUESTS` — each
-# worker holds its own persistent PostgreSQL connection for most of its
-# lifetime. `replicaCount x api.workers` therefore counts against PostgreSQL's
-# `max_connections` (#2275); add a pooler (PgBouncer) or raise
-# `max_connections` before scaling this past a couple of workers per pod on a
-# large deployment.
-#
-# On Kubernetes, `replicaCount` buys the same request throughput as more
-# workers per pod AND buys redundancy, which a second worker in the same pod
-# does not — prefer replicas there and reach for this only inside a pod you are
-# already sizing generously. Only multi-worker pods have been measured (four
-# workers cut eight concurrent Schedule opens from 22.5s to 7.3s against a
-# single process, on an 18-vCPU host with the bundled PostgreSQL capped at 2
-# CPU, which itself used 11 cores at that concurrency and was the second
-# bottleneck); replicas are expected to behave the same but have not been.
-# https://docs.trueppm.com/administration/sizing/#raising-the-uvicorn-worker-count
-api:
-  # Must be >= 1. 1 preserves the shipped image's single-process default.
-  workers: 1
+# ---------------------------------------------------------------------------
+# Per-pod process model (ADR-1248)
+# ---------------------------------------------------------------------------
+# How many processes each pod runs, and how they recycle. Keyed by tier like
+# resources.* — and sized together with it, since every extra process comes out
+# of that tier's memory limit. Leaf names are the flags of the binary they set
+# (`uvicorn --workers`, `celery worker --concurrency`), so the upstream docs map
+# one-to-one; a single synthetic name across tiers would collide with uvicorn's
+# unrelated `--limit-concurrency`.
+processes:
+  # API/uvicorn worker process tuning (#3833, #3829 measurements).
+  #
+  # The shipped image's CMD runs a single uvicorn process, and that single
+  # process pins at about one core — request CPU does not scale with the pod's
+  # CPU limit at all, only with replicaCount. `workers: 1` here is that same
+  # single-process behavior made an explicit, overridable value rather than a
+  # hardcoded Dockerfile CMD with no chart knob (the render for the default value
+  # is byte-identical in effect to the unmodified image CMD).
+  #
+  # Raising it is a memory AND a database-connection decision, not just CPU:
+  # each additional worker is its own process (~160 MiB resident, measured) that
+  # comes out of the pod's `resources.api.limits.memory` below, and — because
+  # `trueppm_api.settings.prod` (the settings module this chart sets) holds each
+  # connection open for `CONN_MAX_AGE=600` seconds under `ATOMIC_REQUESTS` — each
+  # worker holds its own persistent PostgreSQL connection for most of its
+  # lifetime. `replicaCount x processes.api.workers` therefore counts against
+  # PostgreSQL's `max_connections` (#2275); add a pooler (PgBouncer) or raise
+  # `max_connections` before scaling this past a couple of workers per pod on a
+  # large deployment.
+  #
+  # On Kubernetes, `replicaCount` buys the same request throughput as more
+  # workers per pod AND buys redundancy, which a second worker in the same pod
+  # does not — prefer replicas there and reach for this only inside a pod you are
+  # already sizing generously. Only multi-worker pods have been measured (four
+  # workers cut eight concurrent Schedule opens from 22.5s to 7.3s against a
+  # single process, on an 18-vCPU host with the bundled PostgreSQL capped at 2
+  # CPU, which itself used 11 cores at that concurrency and was the second
+  # bottleneck); replicas are expected to behave the same but have not been.
+  # https://docs.trueppm.com/administration/sizing/#raising-the-uvicorn-worker-count
+  api:
+    # Must be >= 1. 1 preserves the shipped image's single-process default.
+    workers: 1
 
-# Celery worker process tuning (#2571).
-#
-# Celery prefork defaults its pool size to `cpu_count()`, which inside a
-# container reads the NODE's core count and ignores the cgroup CPU limit. On a
-# 32-core node that forks 32 children at ~150-250 MB RSS each — roughly 6.4 GB
-# against the 2Gi limit below — so the worker OOMKills at zero load and takes
-# CPM recalculation, imports, notification email, and Beat down with it. The
-# break-even is around 10 cores, well under a routine cloud node size, so the
-# concurrency MUST be pinned in-chart rather than left to auto-detection.
-# https://docs.trueppm.com/administration/helm-values/#celery-worker-tuning
-celeryWorker:
-  # Pinned, not auto-detected. 2 matches the small-profile sizing guidance and
-  # the dev compose file; raise it toward the pod's CPU limit as you scale
-  # (see https://docs.trueppm.com/administration/sizing/). Must be >= 1.
-  concurrency: 2
-  # Recycle each prefork child after this many tasks so a long-running job
-  # (workspace export and MS Project import can run for minutes and hold large
-  # parse buffers) cannot accumulate RSS for the pod's whole lifetime. Set to 0
-  # to disable recycling.
-  maxTasksPerChild: 100
-  # Escape hatch for flags the chart does not model, appended verbatim and in
-  # order after the flags above — e.g. ["--queues=exports", "--prefetch-multiplier=1"].
-  extraArgs: []
+  # Celery worker process tuning (#2571).
+  #
+  # Celery prefork defaults its pool size to `cpu_count()`, which inside a
+  # container reads the NODE's core count and ignores the cgroup CPU limit. On a
+  # 32-core node that forks 32 children at ~150-250 MB RSS each — roughly 6.4 GB
+  # against resources.worker's 2Gi limit — so the worker OOMKills at zero load
+  # and takes CPM recalculation, imports, notification email, and Beat down with
+  # it. The break-even is around 10 cores, well under a routine cloud node size,
+  # so the concurrency MUST be pinned in-chart rather than left to
+  # auto-detection.
+  # https://docs.trueppm.com/administration/helm-values/#celery-worker-tuning
+  worker:
+    # Pinned, not auto-detected. 2 matches the small-profile sizing guidance and
+    # the dev compose file; raise it toward the pod's CPU limit as you scale
+    # (see https://docs.trueppm.com/administration/sizing/). Must be >= 1.
+    concurrency: 2
+    # Recycle each prefork child after this many tasks so a long-running job
+    # (workspace export and MS Project import can run for minutes and hold large
+    # parse buffers) cannot accumulate RSS for the pod's whole lifetime. Set to 0
+    # to disable recycling.
+    maxTasksPerChild: 100
+    # Escape hatch for flags the chart does not model, appended verbatim and in
+    # order after the flags above — e.g. ["--queues=exports", "--prefetch-multiplier=1"].
+    extraArgs: []
 
 # Default resource requests/limits for the API and Celery worker containers.
 # Tune for your workload; these are conservative single-team defaults.

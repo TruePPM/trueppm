@@ -549,24 +549,24 @@ wc_n="$(echo "$wc_default" | sed -nE 's/.*--concurrency=([0-9]+).*/\1/p')"
 [ "$wc_n" -ge 1 ] || fail "default --concurrency is '$wc_n' — must be >= 1"
 
 # The knob must actually be wired, not just present with a default.
-grep -q -- '--concurrency=4' <<<"$(worker_cmd --set celeryWorker.concurrency=4)" \
-  || fail "celeryWorker.concurrency=4 did not render '--concurrency=4' — the values knob is not wired"
+grep -q -- '--concurrency=4' <<<"$(worker_cmd --set processes.worker.concurrency=4)" \
+  || fail "processes.worker.concurrency=4 did not render '--concurrency=4' — the values knob is not wired"
 
 # extraArgs must append verbatim AND in the declared order.
-wc_extra="$(worker_cmd --set 'celeryWorker.extraArgs={--queues=exports,--prefetch-multiplier=1}')"
+wc_extra="$(worker_cmd --set 'processes.worker.extraArgs={--queues=exports,--prefetch-multiplier=1}')"
 grep -q -- '--queues=exports' <<<"$wc_extra" \
-  || fail "celeryWorker.extraArgs did not render into the worker command"
+  || fail "processes.worker.extraArgs did not render into the worker command"
 case "$wc_extra" in
   *"--queues=exports"*"--prefetch-multiplier=1"*) ;;
-  *) fail "celeryWorker.extraArgs rendered out of order: $wc_extra" ;;
+  *) fail "processes.worker.extraArgs rendered out of order: $wc_extra" ;;
 esac
 
 # concurrency=0 must be REJECTED, not passed through: Celery reads
 # `--concurrency=0` as "use the default", i.e. cpu_count() — the exact OOMKill
 # this knob exists to prevent. A silent 0 would reopen #2571 through the very
 # setting that fixed it, so the render has to fail.
-if worker_cmd --set celeryWorker.concurrency=0 >/dev/null 2>&1; then
-  fail "celeryWorker.concurrency=0 rendered successfully — it must fail the render, because Celery treats --concurrency=0 as cpu_count() (#2571)"
+if worker_cmd --set processes.worker.concurrency=0 >/dev/null 2>&1; then
+  fail "processes.worker.concurrency=0 rendered successfully — it must fail the render, because Celery treats --concurrency=0 as cpu_count() (#2571)"
 fi
 
 # 8. The DEFAULT render must ask for an image tag that the release pipeline
@@ -958,6 +958,98 @@ for overlay in "" "$CHART/values-dev.yaml" "$CHART/values-prod.yaml"; do
   helm lint "$CHART" "$@" >/dev/null 2>&1 \
     || fail "helm lint failed for overlay '${overlay:-<defaults>}' — values.schema.json rejects a value the chart ships (#2879)"
 done
+
+# 12b. Values layout is concern-first, keyed by tier (ADR-1248, #4299).
+#    (a) Every component-first key that a 0.4 PRERELEASE shipped and 0.4.0 moved
+#        must be REFUSED, not ignored. A values file still carrying one is an
+#        operator who believes they set it; the closed schema is what turns that
+#        into a named error at `helm upgrade` time. If one of these renders, the
+#        key was re-added to the schema and two keys now claim the same knob.
+for old_key in 'web.replicaCount=2' 'web.service.type=NodePort' 'web.service.port=80' \
+               'api.workers=2' 'celeryWorker.concurrency=2' \
+               'celeryWorker.maxTasksPerChild=10' 'celeryWorker.extraArgs={--queues=x}'; do
+  if helm template trueppm "$CHART" --set image.tag=latest --set "$old_key" >/dev/null 2>&1; then
+    fail "the pre-ADR-1248 key '${old_key%%=*}' rendered successfully — it moved to a concern-first map in 0.4.0 and the schema must refuse it (#4299)"
+  fi
+done
+#    (b) A values file in the shape 0.3 SHIPPED must still render: ADR-1248 only
+#        moved keys that never reached a 0.3 tag. This is the 0.3.0-alpha.3
+#        values.yaml's user-settable keys verbatim (minus comments).
+layout_03="$(mktemp)"
+cat >"$layout_03" <<'V03'
+replicaCount: 2
+global:
+  trueppm:
+    connectionSecretName: ""
+image:
+  repository: registry.gitlab.com/trueppm/trueppm/api
+  tag: "latest"
+  pullPolicy: IfNotPresent
+service:
+  type: ClusterIP
+  port: 8000
+ingress:
+  enabled: false
+postgresql:
+  enabled: true
+  auth:
+    username: trueppm
+    password: ""
+    database: trueppm
+valkey:
+  enabled: true
+  auth:
+    enabled: true
+    password: ""
+networkPolicy:
+  enabled: false
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+resources:
+  api:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 2Gi}
+  worker:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 2Gi}
+env:
+  DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+  TRUEPPM_FRONTEND_BASE_URL: ""
+envFrom: []
+admin:
+  passwordFile: /run/trueppm/admin_password
+  email: ""
+V03
+layout_03_out="$(helm template trueppm "$CHART" -f "$layout_03" 2>&1)" \
+  || fail "a values file in the 0.3 shape no longer renders — ADR-1248 must not rename a key that shipped in a 0.3 tag (#4299). Output: $(head -5 <<<"$layout_03_out")"
+rm -f "$layout_03"
+for tier in api celery-worker web; do
+  got="$(yq eval "select(.kind == \"Deployment\" and .metadata.name == \"trueppm-${tier}\") | .spec.replicas" - <<<"$layout_03_out" | grep -v '^---$' | grep -v '^$')"
+  [ "$got" = "2" ] \
+    || fail "0.3-shaped replicaCount: 2 rendered ${tier}=${got} — the fleet-wide replicaCount must still drive api and worker, and be replicas.web's fallback (ADR-1248)"
+done
+#    (c) The moved keys are wired at their new paths. replicas.web overrides the
+#        fleet default without moving api; service.web.* reaches the web Service.
+layout_new="$(helm template trueppm "$CHART" --set image.tag=latest --set replicaCount=2 \
+  --set replicas.web=4 --set service.web.type=NodePort --set service.web.port=8081 \
+  --set networkPolicy.ingressControllerConfirmed=true)"
+for pair in trueppm-web:4 trueppm-api:2; do
+  got="$(yq eval "select(.kind == \"Deployment\" and .metadata.name == \"${pair%%:*}\") | .spec.replicas" - <<<"$layout_new" | grep -v '^---$' | grep -v '^$')"
+  [ "$got" = "${pair##*:}" ] \
+    || fail "replicas.web=4 with replicaCount=2 rendered ${pair%%:*}=${got}, want ${pair##*:} (ADR-1248)"
+done
+web_svc="$(yq eval 'select(.kind == "Service" and .metadata.name == "trueppm-web") | (.spec.type + ":" + (.spec.ports[0].port | tostring))' - <<<"$layout_new" | grep -v '^---$' | grep -v '^$')"
+[ "$web_svc" = "NodePort:8081" ] \
+  || fail "service.web.type/port did not reach the web Service (got '$web_svc', want NodePort:8081) — the moved keys are not wired (ADR-1248)"
 
 # N. Probe Host header (#3183, #3237). kubelet dials a probe by POD IP, so with
 #    no Host header Django validates `<podIP>:8000` against ALLOWED_HOSTS in
@@ -1434,7 +1526,7 @@ api_cmd() {
 ac_default="$(api_cmd)"
 case "$ac_default" in
   *"--workers 1"*) ;;
-  *"--workers"*) fail "api.workers default did not render as 1 worker: $ac_default" ;;
+  *"--workers"*) fail "processes.api.workers default did not render as 1 worker: $ac_default" ;;
   *) ;; # flag omitted entirely — also a valid rendering of the default
 esac
 grep -qE -- '^uvicorn ' <<<"$ac_default" \
@@ -1444,18 +1536,18 @@ grep -q -- '--host 0.0.0.0 --port 8000' <<<"$ac_default" \
 
 # N+6.b — the knob must actually be wired, and must not silently change the
 #         bind address/port the readiness/liveness probes and Service target.
-ac_four="$(api_cmd --set api.workers=4)"
+ac_four="$(api_cmd --set processes.api.workers=4)"
 grep -q -- '--workers 4' <<<"$ac_four" \
-  || fail "api.workers=4 did not render '--workers 4' in the api container command — the values knob is not wired"
+  || fail "processes.api.workers=4 did not render '--workers 4' in the api container command — the values knob is not wired"
 grep -q -- '--host 0.0.0.0 --port 8000' <<<"$ac_four" \
-  || fail "api.workers=4 changed --host/--port away from the Dockerfile CMD: $ac_four"
+  || fail "processes.api.workers=4 changed --host/--port away from the Dockerfile CMD: $ac_four"
 
 # N+6.c — 0 must be REJECTED, not passed through: uvicorn treats --workers 0 as
 #         an invalid argument, so a silent 0 would crash-loop the api container
 #         at whatever moment an operator or a values-merge produced it, instead
 #         of failing at `helm template`/`helm upgrade --dry-run` time.
-if api_cmd --set api.workers=0 >/dev/null 2>&1; then
-  fail "api.workers=0 rendered successfully — it must fail the render, uvicorn requires at least one worker (#3833)"
+if api_cmd --set processes.api.workers=0 >/dev/null 2>&1; then
+  fail "processes.api.workers=0 rendered successfully — it must fail the render, uvicorn requires at least one worker (#3833)"
 fi
 
 # N+7. The demo's scheduled reset (ADR-1197 D9, #3925). The CronJob is a SECOND COPY of
@@ -2114,32 +2206,32 @@ if grep -q '(#4003)' <<<"$ingress_demo_err"; then
   fail "demo.enabled with ingress.enabled=true tripped the #4003 exposure guard — it must be scoped to ingress.enabled=false, an Ingress-fronted release is covered by the #4000 upgrade guard instead"
 fi
 
-# 15g/h. web.service.type LoadBalancer and NodePort each refuse on a fresh
+# 15g/h. service.web.type LoadBalancer and NodePort each refuse on a fresh
 #        install with no Ingress and the default selector, and name the
 #        service type in the message.
 for wt in LoadBalancer NodePort; do
-  wt_err="$(helm template trueppm "$CHART" --set image.tag=latest --set web.service.type="$wt" 2>&1 >/dev/null || true)"
+  wt_err="$(helm template trueppm "$CHART" --set image.tag=latest --set service.web.type="$wt" 2>&1 >/dev/null || true)"
   grep -q '(#4003)' <<<"$wt_err" \
-    || fail "web.service.type=$wt with the default selector rendered, or refused for an unrelated reason (#4003). Output: $wt_err"
+    || fail "service.web.type=$wt with the default selector rendered, or refused for an unrelated reason (#4003). Output: $wt_err"
   grep -q "$wt" <<<"$wt_err" \
-    || fail "the web-exposure guard's refusal for web.service.type=$wt does not name the service type (#4003). Output: $wt_err"
+    || fail "the web-exposure guard's refusal for service.web.type=$wt does not name the service type (#4003). Output: $wt_err"
 done
 
 # 15i. ingressControllerConfirmed=true also satisfies the LoadBalancer/NodePort
 #      case.
-helm template trueppm "$CHART" --set image.tag=latest --set web.service.type=LoadBalancer \
+helm template trueppm "$CHART" --set image.tag=latest --set service.web.type=LoadBalancer \
   --set networkPolicy.ingressControllerConfirmed=true >/dev/null \
-  || fail "web.service.type=LoadBalancer did not render with networkPolicy.ingressControllerConfirmed=true (#4003)"
+  || fail "service.web.type=LoadBalancer did not render with networkPolicy.ingressControllerConfirmed=true (#4003)"
 
 # 15j. An ipBlock peer (the shape a cloud load balancer or a set of node
 #      addresses needs) also satisfies it, reusing the same selector key the
 #      #4000 guard's ipBlock case already proves works for the ingress
 #      controller peer (section 14b).
-helm template trueppm "$CHART" --set image.tag=latest --set web.service.type=NodePort \
+helm template trueppm "$CHART" --set image.tag=latest --set service.web.type=NodePort \
   --set-json 'networkPolicy.ingressControllerSelector={"namespaceSelector":null,"podSelector":null,"ipBlock":{"cidr":"10.0.0.0/8"}}' >/dev/null \
-  || fail "web.service.type=NodePort did not render with an ipBlock ingressControllerSelector (#4003)"
+  || fail "service.web.type=NodePort did not render with an ipBlock ingressControllerSelector (#4003)"
 
-# 15k. The top-level (API) service.type is a DIFFERENT knob from web.service.type
+# 15k. The top-level (API) service.type is a DIFFERENT knob from service.web.type
 #      and must not be read by this guard — demo.enabled already refuses a
 #      non-ClusterIP API Service on its own (templates/api/service.yaml,
 #      #3908), and that refusal must fire, not this one, when only the API
@@ -2200,13 +2292,14 @@ echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op
 echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays quiet once they are configured"
 echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
+echo "  - layout (ADR-1248): the 7 moved pre-0.4.0 component-first keys are refused; a 0.3-shaped values file renders api=worker=web=2; replicas.web and service.web.* are wired"
 echo "  - both api probes send Host: $noing_host with no Ingress, $ing_host with one (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"
 echo "  - backup: no-destination render refused; all $backup_dest_checked documented destinations accepted; CronJob and scripts/backup.sh agree on all $manifest_fields_checked MANIFEST fields"
 echo "  - placement: $place_checked previously-rejected keys accepted; $place_workloads workloads carry a self-scoped spread constraint; HPA owns replicas alone; web follows replicaCount and has a PDB"
 echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"
-echo "  - api.workers=1 by default (image CMD behavior preserved), api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
+echo "  - processes.api.workers=1 by default (image CMD behavior preserved), processes.api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
 echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
 echo "  - interactive demo edge hardening: method fence + auth carve-outs + /admin/ /ws/ 404 only under demo.interactive; share-link demo's block stays byte-identical; api/celery-worker egress-demo NetworkPolicy scoped to DNS+datastores only; media-path and managed-datastore guards refuse to render; TRUEPPM_DEMO_READ_ONLY reaches all $demo_ro_checked settings.prod-importing containers, not just api"
 echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"

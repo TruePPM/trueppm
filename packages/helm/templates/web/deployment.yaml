@@ -8,10 +8,11 @@ metadata:
     app.kubernetes.io/component: web
 spec:
   # `default` treats 0 and "" as unset, so this fallback only works because
-  # web.replicaCount now ships EMPTY. It shipped as 1 — truthy — so the
-  # fallback could never fire and the tier every user actually loads was a
-  # singleton under values-prod.yaml's replicaCount: 2 (#3188).
-  replicas: {{ .Values.web.replicaCount | default .Values.replicaCount }}
+  # replicas.web ships EMPTY. Its predecessor (web.replicaCount, renamed by
+  # ADR-1248) shipped as 1 — truthy — so the fallback could never fire and the
+  # tier every user actually loads was a singleton under values-prod.yaml's
+  # replicaCount: 2 (#3188).
+  replicas: {{ .Values.replicas.web | default .Values.replicaCount }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}

@@ -292,7 +292,7 @@ installs and later upgrades skip it, because it compares against a policy that
 must already exist for there to be a "transition" at all. A **separate** check
 fires on a fresh install too, for the two paths that bypass any in-cluster
 ingress controller entirely: `demo.enabled` (the documented Cloudflare Tunnel
-exposure) and `web.service.type: LoadBalancer`/`NodePort`. Neither has a prior
+exposure) and `service.web.type: LoadBalancer`/`NodePort`. Neither has a prior
 policy to compare against, so the render simply refuses while the selector is
 still the default — see [Public read-only demo
 mode](/administration/helm-values/#public-read-only-demo-mode). A cloud load
@@ -342,6 +342,52 @@ Three more things to check for this upgrade:
 - **GitOps.** Tools that render the chart with `helm template` and apply the
   result themselves, such as Argo CD, never run this check. Set the selector
   before you sync.
+
+### Helm: seven values keys moved into the concern-first maps
+
+Upgrading the Helm chart from `0.4.0-beta.6` or earlier moves seven values keys
+that 0.4 prereleases introduced. The chart lays out its values concern first, then
+tier (`resources.api`, `probes.worker`, `lifecycle.web`), and these seven went the
+other way. They move before 0.4.0, because the schema rejects unknown keys and any
+later rename would break `helm upgrade` for everyone who had set them
+([ADR-1248](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1248-helm-values-are-concern-first-keyed-by-tier.md)).
+
+| Old key (0.4 prereleases) | New key |
+|---|---|
+| `web.replicaCount` | `replicas.web` |
+| `web.service.type` | `service.web.type` |
+| `web.service.port` | `service.web.port` |
+| `api.workers` | `processes.api.workers` |
+| `celeryWorker.concurrency` | `processes.worker.concurrency` |
+| `celeryWorker.maxTasksPerChild` | `processes.worker.maxTasksPerChild` |
+| `celeryWorker.extraArgs` | `processes.worker.extraArgs` |
+
+The defaults and the behavior do not change, only where the key lives. If your
+values file or `--set` flags still use an old key, the render refuses and names
+it, for example `at '': additional properties 'celeryWorker' not allowed` or
+`at '/web': additional properties 'replicaCount' not allowed`. Nothing is
+silently dropped. Rename the key and run the upgrade again. As a YAML diff:
+
+```yaml
+# Before (0.4.0-beta.6 and earlier)        # After
+api:                                       processes:
+  workers: 4                                 api:
+celeryWorker:                                  workers: 4
+  concurrency: 4                             worker:
+web:                                           concurrency: 4
+  replicaCount: 2                          replicas:
+  service:                                   web: 2
+    type: LoadBalancer                     service:
+                                             web:
+                                               type: LoadBalancer
+```
+
+Every 0.3 key keeps its name and meaning. The top-level `replicaCount` still
+sets the API and worker replicas, `service.type`/`service.port` still describe
+the API Service, and a values file written for 0.3 renders unchanged. Keys that
+exist only for the web tier's nginx stay under `web:`: `web.enabled`,
+`web.containerPort`, `web.maxBodySize`, `web.adminAccess.*`, and
+`web.securityHeaders.*`. The `api:` and `celeryWorker:` roots no longer exist.
 
 ### Milestone date shift after recalculation
 

@@ -133,7 +133,7 @@ The chart's fullname helper collapses the release name when it already contains
 | Object | In-cluster name | Port |
 |---|---|---|
 | API Service | `<release>-api` (or `<release>-trueppm-api`) | `8000` (`service.port`) |
-| Web Service | `<release>-web` (or `<release>-trueppm-web`) | `80` (`web.service.port`), container `8080` |
+| Web Service | `<release>-web` (or `<release>-trueppm-web`) | `80` (`service.web.port`), container `8080` |
 
 :::caution[nginx resolves upstreams once, at startup]
 nginx resolves a `proxy_pass` hostname when it parses the config, not per

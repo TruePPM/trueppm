@@ -125,8 +125,8 @@ Chart defaults, and what each tier costs you when it goes away.
 | Tier | Chart default | Minimum safe | What sets it | Losing one pod | Losing the node |
 |---|---|---|---|---|---|
 | **API** | `replicaCount: 1` | **2** | `replicaCount`, or `autoscaling.enabled` with `autoscaling.api.minReplicas: 2`. Guard voluntary evictions with `podDisruptionBudget.enabled`. | At 1: total API outage until the pod reschedules. At ≥2: in-flight requests fail, clients retry, WebSockets reconnect. | The chart ships **no** `affinity` or `topologySpreadConstraints` values, so two replicas may both be scheduled on one node. See rung 4. |
-| **Web (nginx SPA)** | `web.replicaCount: 1` | **2** | `web.replicaCount`. Note it does **not** inherit the top-level `replicaCount` — `values-prod.yaml` sets `replicaCount: 2` and the web tier still runs **one** pod. | The browser gets nothing at `/` — a blank page or a 502 — while `/api` and `/ws` keep working. | Same as above, plus: **no PDB covers this tier**; `pdb.yaml` renders budgets for `api` and `celery-worker` only. |
-| **Celery worker** | `replicaCount: 1` *(the same key as the API — there is no separate `celeryWorker.replicaCount`)* | **2** | `replicaCount`; tune throughput with `celeryWorker.concurrency` rather than replicas alone. | Nothing is lost. `acks_late` + `reject_on_worker_lost` redeliver the in-flight task; the 30-second drains re-dispatch orphaned outbox rows. Work is **delayed**. | Same, at the cost of one drain cycle. |
+| **Web (nginx SPA)** | `replicas.web: ""` (follows `replicaCount`) | **2** | `replicaCount`, or `replicas.web` to scale it independently. Guard voluntary evictions with `podDisruptionBudget.enabled`, which covers this tier too. | The browser gets nothing at `/` — a blank page or a 502 — while `/api` and `/ws` keep working. | Same as above. |
+| **Celery worker** | `replicaCount: 1` *(the same key as the API — there is no separate worker replica key yet)* | **2** | `replicaCount`; tune throughput with `processes.worker.concurrency` rather than replicas alone. | Nothing is lost. `acks_late` + `reject_on_worker_lost` redeliver the in-flight task; the 30-second drains re-dispatch orphaned outbox rows. Work is **delayed**. | Same, at the cost of one drain cycle. |
 | **Celery beat** | `replicas: 1`, **hardcoded**, `strategy: Recreate` | **1 — by design** | Nothing. Two beats would double-fire every periodic task. | Every periodic tick stops: no drains, no retention purge, no heartbeat. Nothing is lost; everything waits. Detect it with `/api/v1/health/beat/`. | Same. A PDB would only block node drains, which is why beat is excluded from `pdb.yaml`. |
 | **PostgreSQL (bundled)** | 1 StatefulSet replica, **8Gi PVC** | **1, and not this one** | `postgresql.persistence.size`; production sets `postgresql.enabled: false`. | Total outage. Every API pod goes `NotReady`. Committed data survives on the PVC. | With `ReadWriteOnce` storage the pod cannot start elsewhere until the volume detaches; with node-local storage the data is stranded with the node. |
 | **Valkey (bundled)** | 1 StatefulSet replica, AOF on a **2Gi PVC** | **1, and not this one** | `valkey.persistence.size`; production sets `valkey.enabled: false`. | **Every API pod goes `NotReady` and the ingress returns 503** — `/readyz` gates on a cache round-trip. Real-time, async, cache, and throttles fail together. | Same, plus the RWO caveat above. |
@@ -227,14 +227,14 @@ Now that the datastores can survive without you, make the pods that talk to them
 redundant.
 
 ```yaml
-replicaCount: 2         # API *and* Celery worker — one key drives both
-web:
-  replicaCount: 2       # does NOT inherit replicaCount; set it explicitly
+replicaCount: 2         # API, Celery worker, and (while replicas.web is empty) web
 podDisruptionBudget:
   enabled: true
   api:
     maxUnavailable: 1
   worker:
+    maxUnavailable: 1
+  web:
     maxUnavailable: 1
 ```
 
@@ -244,10 +244,9 @@ Three things to know before you rely on this:
   budget at `replicaCount: 1` would make the node undrainable — the cluster could
   never evict the only pod. `maxUnavailable` keeps a single-replica install
   drainable; the protection only becomes meaningful at two or more replicas.
-- **There is no PDB for the web tier.** `pdb.yaml` covers `api` and
-  `celery-worker` only. Run `web.replicaCount: 2` anyway — without it a node drain
+- **The web tier needs two replicas too.** With one web pod, a node drain
   takes the UI offline while the API stays up, which reads to users as a total
-  outage.
+  outage. It follows `replicaCount` unless you set `replicas.web`.
 - **The chart exposes no scheduling constraints.** There are no `affinity`,
   `nodeSelector`, `tolerations`, or `topologySpreadConstraints` values, so nothing
   stops both API replicas from landing on the same node — which is the exact
