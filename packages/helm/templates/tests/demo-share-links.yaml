@@ -86,7 +86,7 @@ spec:
         - /bin/sh
         - -ec
         - |
-          host="{{ include "trueppm.fullname" . }}-web:{{ .Values.web.service.port }}"
+          host="{{ include "trueppm.fullname" . }}-web:{{ .Values.service.web.port }}"
           # web's nginx forwards `Host $host` to Django, so the Service name would
           # reach get_host() and 400 DisallowedHost: no doc tells an operator to
           # allow it. demo.baseUrl's host is the one name every working demo

@@ -95,7 +95,7 @@ spec:
               service:
                 name: {{ include "trueppm.fullname" $ }}-web
                 port:
-                  number: {{ $.Values.web.service.port }}
+                  number: {{ $.Values.service.web.port }}
           {{- else }}
           - path: {{ .path }}
             pathType: {{ .pathType | default "Prefix" }}

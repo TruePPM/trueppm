@@ -7,9 +7,9 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
-  type: {{ .Values.web.service.type }}
+  type: {{ .Values.service.web.type }}
   ports:
-    - port: {{ .Values.web.service.port }}
+    - port: {{ .Values.service.web.port }}
       targetPort: http
       protocol: TCP
       name: http

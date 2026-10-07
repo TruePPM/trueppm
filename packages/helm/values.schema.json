@@ -20,8 +20,24 @@
       "type": "string"
     },
     "replicaCount": {
+      "description": "Fleet-wide replica count (the 0.3 shape). Sets the API and Celery worker replicas and is the default every replicas.<tier> entry falls back to. Celery Beat never reads it (pinned singleton).",
       "type": "integer",
       "minimum": 0
+    },
+    "replicas": {
+      "description": "Per-tier replica overrides (ADR-1248). Each entry is empty by default, meaning \"follow the top-level replicaCount\". Beat has no entry: it is a pinned singleton.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "web": {
+          "description": "Empty string means \"follow the top-level replicaCount\". An integer scales the web tier independently.",
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "image": {
       "type": "object",
@@ -47,6 +63,7 @@
       }
     },
     "service": {
+      "description": "Kubernetes Services. The bare type/port are the API Service (the 0.3 shape); each other tier's Service is a named entry (ADR-1248).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -62,33 +79,9 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 65535
-        }
-      }
-    },
-    "web": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
         },
-        "replicaCount": {
-          "description": "Empty string means \"follow the top-level replicaCount\". An integer scales the web tier independently.",
-          "type": [
-            "integer",
-            "string",
-            "null"
-          ]
-        },
-        "containerPort": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "maxBodySize": {
-          "type": "string"
-        },
-        "service": {
+        "web": {
+          "description": "The web tier's Service, rendered only while web.enabled. Was web.service in 0.4 prereleases.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -106,6 +99,24 @@
               "maximum": 65535
             }
           }
+        }
+      }
+    },
+    "web": {
+      "description": "Web tier on/off switch and its nginx configuration \u2014 only what exists for the web tier alone. Its replicas, Service, resources, probes, lifecycle and disruption budget live under the web key of the concern maps (replicas.web, service.web, ...), per ADR-1248.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "containerPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "maxBodySize": {
+          "type": "string"
         },
         "adminAccess": {
           "type": "object",
@@ -403,7 +414,7 @@
           "type": "object"
         },
         "ingressControllerConfirmed": {
-          "description": "Confirms the default ingressControllerSelector is right for this cluster. Consulted on the one helm upgrade that first introduces the api/web ingress policies (#4000), and also on a fresh install with no chart-rendered Ingress when demo.enabled is true or web.service.type is LoadBalancer/NodePort (#4003) -- both bypass any in-cluster ingress controller, so the default selector is wrong for them rather than merely unconfirmed.",
+          "description": "Confirms the default ingressControllerSelector is right for this cluster. Consulted on the one helm upgrade that first introduces the api/web ingress policies (#4000), and also on a fresh install with no chart-rendered Ingress when demo.enabled is true or service.web.type is LoadBalancer/NodePort (#4003) -- both bypass any in-cluster ingress controller, so the default selector is wrong for them rather than merely unconfirmed.",
           "type": "boolean"
         },
         "monitoringSelector": {
@@ -468,32 +479,41 @@
       "description": "Rendered wholesale with toYaml into every container spec. Open for the same reason as podSecurityContext.",
       "type": "object"
     },
-    "api": {
+    "processes": {
+      "description": "Per-pod process model, keyed by tier like resources (ADR-1248). Leaf names are the flags of the binary each one sets.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "workers": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "celeryWorker": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "concurrency": {
-          "type": "integer",
-          "minimum": 1
+        "api": {
+          "description": "API (uvicorn) process model. workers sets `uvicorn --workers`. Was api.workers in 0.4 prereleases.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workers": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         },
-        "maxTasksPerChild": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "extraArgs": {
-          "type": "array",
-          "items": {
-            "type": "string"
+        "worker": {
+          "description": "Celery worker process model: `--concurrency`, `--max-tasks-per-child`, and extra flags. Was celeryWorker.* in 0.4 prereleases.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "concurrency": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxTasksPerChild": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "extraArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         }
       }

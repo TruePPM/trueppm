@@ -149,7 +149,7 @@ own pool and PgBouncer is mandatory.
 - **PgBouncer:** **required.** `ATOMIC_REQUESTS=true` + `CONN_MAX_AGE=60` means every
   API and Celery worker holds a Postgres connection; 6 API pods × 3 workers + 4
   Celery pods × 4 will exceed the default `max_connections=100` without pooling.
-- **Celery pinning:** set `celeryWorker.concurrency: 4` to match the pod CPU
+- **Celery pinning:** set `processes.worker.concurrency: 4` to match the pod CPU
   limit. The chart pins concurrency for you — it defaults to `2` — so the worker
   never falls back to Celery's `cpu_count()` default, which reads the *node's*
   core count rather than the cgroup CPU limit and gets OOM-killed on a large
@@ -158,8 +158,8 @@ own pool and PgBouncer is mandatory.
   request-serving API pods so a portfolio recompute never starves interactive traffic.
 
 Both profiles slot into the [values reference](/administration/helm-values/) —
-set `replicaCount` / `web.replicaCount`, `resources.*`, the managed-datastore
-`env.DATABASE_URL` / `env.REDIS_URL`, and (for Profile B) `celeryWorker.concurrency`.
+set `replicaCount` / `replicas.web`, `resources.*`, the managed-datastore
+`env.DATABASE_URL` / `env.REDIS_URL`, and (for Profile B) `processes.worker.concurrency`.
 
 ### Raising the uvicorn worker count
 
@@ -174,16 +174,16 @@ The image's `CMD` is `uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port
 |---|---|
 | **Docker Compose** | Override the `api` service's `command` in `docker-compose.override.yml`, appending `--workers 2`. |
 | **Single server with systemd** | Add `--workers N` to the `ExecStart` line. |
-| **Helm** | Set `api.workers` (default `1`, the shipped single-process behavior, unchanged). Builds that include [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) render it as `--workers N` on the `api` container's command — the same escape-hatch shape as `celeryWorker.extraArgs`. See [`api.workers`](/administration/helm-values/#image-and-replicas) in the values reference. |
+| **Helm** | Set `processes.api.workers` (default `1`, the shipped single-process behavior, unchanged). Builds that include [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) render it as `--workers N` on the `api` container's command — the same escape-hatch shape as `processes.worker.extraArgs`. See [`processes.api.workers`](/administration/helm-values/#image-and-replicas) in the values reference. |
 
-Raising `api.workers` is a memory and database-connection decision, not just a
+Raising `processes.api.workers` is a memory and database-connection decision, not just a
 CPU one. Each additional worker is its own process — about 160 MiB resident in
 the measurement above, on top of Django's base import footprint — and it comes
 out of the pod's `resources.limits.memory`; size that limit before raising the
 worker count. Each worker also holds its own PostgreSQL connection for most of
 its lifetime (`CONN_MAX_AGE=600` under `ATOMIC_REQUESTS` in
 `trueppm_api.settings.prod`, the settings module the chart sets), so
-`replicaCount x api.workers` counts against PostgreSQL's `max_connections` — add
+`replicaCount x processes.api.workers` counts against PostgreSQL's `max_connections` — add
 a connection pooler (PgBouncer) or raise `max_connections` before pushing
 either number far ([#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275)).
 
@@ -204,16 +204,17 @@ Redundancy](/administration/durability/#the-step-up-ladder) for what that costs.
 
 The Helm chart (`packages/helm/values.yaml`) ships these defaults:
 
-- **API pod** (Django + uvicorn) and **Celery worker** each request `250m CPU / 512Mi` and limit at `1 CPU / 2Gi`. Both are driven by the **same** `replicaCount` key — there is no separate `celeryWorker.replicaCount` — and the production overlay sets it to `2`.
-- **Web tier** (nginx + the compiled SPA) runs **one** replica. `web.replicaCount` does *not* inherit the top-level `replicaCount`, so `values-prod.yaml` leaves it at 1; set it explicitly.
+- **API pod** (Django + uvicorn) and **Celery worker** each request `250m CPU / 512Mi` and limit at `1 CPU / 2Gi`. Both are driven by the **same** `replicaCount` key — there is no separate worker replica key yet — and the production overlay sets it to `2`.
+- **Web tier** (nginx + the compiled SPA) follows the top-level `replicaCount` while `replicas.web` is empty (the default), so `values-prod.yaml` runs two web pods. Set `replicas.web` to scale it independently.
 - **Bundled PostgreSQL** requests `250m / 1Gi`, limits `2 CPU / 4Gi`, with an 8Gi PVC.
 - **Bundled Valkey** requests `100m / 256Mi`, limits `1 CPU / 1Gi`, with a 2Gi PVC and **AOF persistence enabled** (`valkey-server --appendonly yes`).
 
-The key constraint to understand: uvicorn runs a **single worker per pod by default** — `packages/api/Dockerfile` sets `CMD ["uvicorn", …]` with no `--workers` flag, and the chart's `api.workers` value (default `1`) preserves that until you raise it — so on Kubernetes request throughput scales by **replica count alone** unless you also raise the per-pod worker count. That one process is a measured limit, not a theoretical one: eight people opening the same 8,000-task Schedule at once waited 22.5 s each with it, and 7.3 s with four workers ([Many users, many projects, and programs](#many-users-many-projects-and-programs)). See [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count) for the memory and database-connection cost of doing so. Celery concurrency is pinned by the chart at `celeryWorker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
+The key constraint to understand: uvicorn runs a **single worker per pod by default** — `packages/api/Dockerfile` sets `CMD ["uvicorn", …]` with no `--workers` flag, and the chart's `processes.api.workers` value (default `1`) preserves that until you raise it — so on Kubernetes request throughput scales by **replica count alone** unless you also raise the per-pod worker count. That one process is a measured limit, not a theoretical one: eight people opening the same 8,000-task Schedule at once waited 22.5 s each with it, and 7.3 s with four workers ([Many users, many projects, and programs](#many-users-many-projects-and-programs)). See [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count) for the memory and database-connection cost of doing so. Celery concurrency is pinned by the chart at `processes.worker.concurrency` (default `2`); raise it toward the pod's CPU limit as you scale.
 
 The **web** row was absent from this table until 0.4, and so was its redundancy:
-`web.replicaCount` shipped as a truthy `1`, which meant the fallback to the
-top-level `replicaCount` that `values.yaml` documented could never fire. A
+the web replica key (then `web.replicaCount`, now `replicas.web`) shipped as a
+truthy `1`, which meant the fallback to the top-level `replicaCount` that
+`values.yaml` documented could never fire. A
 `values-prod.yaml` deploy rendered api=2, worker=2, **web=1**, with no
 PodDisruptionBudget on any tier — the only tier a browser actually loads was the
 unprotected singleton. It now follows `replicaCount` like the rest.
@@ -234,7 +235,7 @@ These defaults are tuned for evaluation, not scale. At every tier above:
 - **File attachments default to the local filesystem**, which is not durable and — above one replica — not even correct. From 0.4 the chart can back local storage with a claim (`persistence.media`), but a `ReadWriteOnce` claim binds to one node, so an upload accepted by one API pod is a `404` from the next; the chart refuses to render that combination. Every tier on this page runs the API at 2+ replicas, so at these sizes **object storage is a requirement, not a durability nicety**: set `TRUEPPM_DEFAULT_FILE_STORAGE` to an S3-compatible backend (MinIO, SeaweedFS, etc.) together with `TRUEPPM_S3_BUCKET_NAME` — see [object storage](/administration/configuration/storage-and-networking/#object-storage-s3-compatible). If you must stay on local disk, the claim needs a `ReadWriteMany` storage class (CephFS, NFS, Azure Files, EFS); see [attachment storage](/administration/helm-values/#attachment-storage-persistencemedia).
 - **Check `jit` on the database you bring.** PostgreSQL enables JIT by default. Behind PgBouncer in transaction-pooling mode, set `ALTER ROLE <user> SET jit = off` or the managed service's `jit` parameter yourself — TruePPM's own setting is best-effort there regardless of build. *(Legacy case: the original 0.4.0-beta.1 release didn't turn JIT off on its own at all, making a 2,000-task Schedule take tens of seconds to open; every beta since turns it off per connection.)* See [PostgreSQL JIT](#postgresql-jit).
 - The **Horizontal Pod Autoscaler is off by default**, not absent. The chart ships an `autoscaling/v2` HPA for the API tier (and optionally the worker tier) behind `autoscaling.enabled`; the defaults scale the API between 2 and 6 replicas at 75% CPU utilization. It is opt-in because an HPA overrides the static `replicaCount` and **requires `metrics-server`** (or a custom metrics adapter) to be installed in the cluster. Without it, scale replicas manually. See the [values reference](/administration/helm-values/) for the full key list.
-- **Autoscale the API tier; keep the worker tier on fixed replicas.** The `celeryWorker.concurrency` pinning advice above and a CPU-utilization HPA are two different answers to the same load, and following both naively double-counts: the HPA adds worker pods while each pod's concurrency is already pinned to its CPU limit, so a Monte Carlo burst can multiply total in-flight tasks well past what the database connection ceiling tolerates. Until worker autoscaling keys off queue depth rather than CPU, the safe posture is `autoscaling.enabled=true` with `autoscaling.worker.enabled=false` — HPA for request-serving traffic, fixed replicas plus pinned concurrency for the CPU-bound queue.
+- **Autoscale the API tier; keep the worker tier on fixed replicas.** The `processes.worker.concurrency` pinning advice above and a CPU-utilization HPA are two different answers to the same load, and following both naively double-counts: the HPA adds worker pods while each pod's concurrency is already pinned to its CPU limit, so a Monte Carlo burst can multiply total in-flight tasks well past what the database connection ceiling tolerates. Until worker autoscaling keys off queue depth rather than CPU, the safe posture is `autoscaling.enabled=true` with `autoscaling.worker.enabled=false` — HPA for request-serving traffic, fixed replicas plus pinned concurrency for the CPU-bound queue.
 
 ## Bottlenecks, in the order they bite
 
@@ -242,7 +243,7 @@ Items 1 and 2 are measured; items 3 and 4 are reasoned from the deployment shape
 
 1. **Project size in the Schedule.** Opening a project fetches every task. Up to about 2,000 tasks that takes about a second; past 8,000 it rises steeply, and every change someone makes costs each open Schedule that load again. This is fixed in code, not hardware — see [Toward 100,000 tasks](#toward-100000-tasks). On 0.4.0-beta.1, [PostgreSQL JIT](#postgresql-jit) makes this far worse.
 2. **Single uvicorn worker per pod.** Request CPU is a single process per pod, and it pins at one core: eight concurrent opens of an 8,000-task Schedule took 22.5 s each with one process and 7.3 s with four. WebSocket collaboration keeps connections open (the Channels capacity of 1500 is fine). Add `--workers` or scale replicas before reaching 100 users — see [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count). **This is the single most important non-default change.**
-3. **Celery / recalculation and Monte Carlo.** The scheduler is the heavy part. A full CPM recalculation runs on every change, costs about 1 ms per task, and holds about 30 KB of memory per task — a program with cross-project dependencies counts its whole task total ([#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831)). A portfolio reforecast or a Monte Carlo run is a CPU-bound burst. Scale Celery replicas, and raise `celeryWorker.concurrency` to match the pod's CPU limit. The chart pins this at `2` by default precisely so it never falls back to Celery's `cpu_count()` auto-detection, which reads the node's cores rather than the cgroup limit, over-allocates, and gets OOM-killed (the dev compose file caps it at 2 for the same reason).
+3. **Celery / recalculation and Monte Carlo.** The scheduler is the heavy part. A full CPM recalculation runs on every change, costs about 1 ms per task, and holds about 30 KB of memory per task — a program with cross-project dependencies counts its whole task total ([#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831)). A portfolio reforecast or a Monte Carlo run is a CPU-bound burst. Scale Celery replicas, and raise `processes.worker.concurrency` to match the pod's CPU limit. The chart pins this at `2` by default precisely so it never falls back to Celery's `cpu_count()` auto-detection, which reads the node's cores rather than the cgroup limit, over-allocates, and gets OOM-killed (the dev compose file caps it at 2 for the same reason).
 4. **Postgres connection ceiling.** `CONN_MAX_AGE=60` and `ATOMIC_REQUESTS=true` mean every request runs inside a transaction and holds a connection. With many API and Celery workers, you approach PostgreSQL's default `max_connections=100` at the 200-user tier — add **PgBouncer** or raise `max_connections` ([#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275)). With four workers, eight concurrent users kept 11 PostgreSQL cores busy, so give the database cores to match the API tier you scale to.
 
 ## Startup budget

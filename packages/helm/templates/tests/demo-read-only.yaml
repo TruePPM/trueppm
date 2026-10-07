@@ -148,7 +148,7 @@ spec:
           # refusal only by 403 AND the JSON code, so a stock HTML 403 would pass (b)
           # and still leave every refusal surface dead (#4053). Assert all three:
           # status, code, and JSON content type.
-          web_host="{{ include "trueppm.fullname" . }}-web:{{ .Values.web.service.port }}"
+          web_host="{{ include "trueppm.fullname" . }}-web:{{ .Values.service.web.port }}"
           edge_code="$(curl -sS -D /tmp/edge.headers -o /tmp/edge.json -w '%{http_code}' \
             -H 'Content-Type: application/json' \
             -H "Authorization: Bearer ${token}" \
