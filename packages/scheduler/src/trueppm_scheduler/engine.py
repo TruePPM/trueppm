@@ -1094,6 +1094,19 @@ def _milestone_free_instants(
     (``link_instants``, :func:`_place_milestone`). Its stretch runs from that link
     instant — the one a predecessor's slip moves — up to the same shown-day bound
     and successor caps, so its predecessors see the slack the direct link gives them.
+
+    A successor that is itself a milestone is reached through the same reading-tie
+    bound :func:`_free_float_days` applies to ordinary work (:func:`_free_start_ref`,
+    #4183) — not just :func:`_milestone_latest` against its raw free instant
+    (#4304). Without it, this bound can overstate how far *this* milestone's own
+    instant may travel: pushing it up to that successor's raw free instant can flip
+    the successor's reading from the end-of-day instant another, unrelated,
+    predecessor already occupies to a start-of-day one at the very same raw
+    instant — and a start-of-day proposal always outranks an end-of-day one at a
+    tie (:func:`_place_milestone`), so the successor's *shown day* moves even
+    though its raw free instant, taken alone, did not. Capping at the tie-adjusted
+    reference keeps this milestone's own stretch inside the range that leaves every
+    live successor's shown position — not just its raw instant — untouched.
     """
     links = link_instants or {}
     free: dict[str, date] = {}
@@ -1102,7 +1115,8 @@ def _milestone_free_instants(
         if early is None:
             continue
         instant, start_display = early
-        link = links.get(node_id, early)[0]
+        own_link = links.get(node_id, early)
+        link = own_link[0]
         cal = cal_for(node_id)
         if not start_display:
             free[node_id] = instant
@@ -1118,8 +1132,15 @@ def _milestone_free_instants(
                 assert succ.early_start is not None and succ.early_finish is not None
                 refs = (succ.early_start, succ.early_finish)
             else:
-                refs = _milestone_refs(succ_free)
                 dep = _milestone_link(dep)
+                succ_cal = cal_for(succ_id)
+                raw_refs = _milestone_refs(succ_free)
+                succ_instant = instants.get(succ_id)
+                assert succ_instant is not None
+                start_ref = _free_start_ref(
+                    (succ_free, succ_instant[1]), dep.dep_type, dep.lag, own_link, succ_cal
+                )
+                refs = (start_ref, raw_refs[1])
             bound = min(bound, _milestone_latest(dep.dep_type, dep.lag, *refs, cal))
         free[node_id] = max(link, bound)
     return free

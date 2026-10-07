@@ -1311,6 +1311,23 @@ def _early_position(t: Task) -> tuple[date | None, date | None, bool]:
         [_dep("A", "M", lag=2), _dep("M", "B")],
     )
 )
+# The #4304 repro: a project-start-floor-waived SF successor (#4218/#4220) whose
+# own free float was computed against a milestone's raw free instant, missing the
+# reading-tie bound a *second* hop of milestones can hit (see
+# test_free_float_through_a_floor_held_milestone_respects_the_downstream_tie's
+# Rust twin for the mechanism).
+@example(
+    _project(
+        [_task("T0", 0), _task("T1", 1), _task("T2", 0), _task("T3", 0), _task("T4", 0)],
+        [
+            _dep("T0", "T1", DependencyType.SF),
+            _dep("T0", "T3", lag=1),
+            _dep("T1", "T2", DependencyType.SS),
+            _dep("T2", "T3", DependencyType.SS, lag=1),
+            _dep("T3", "T4", lag=1),
+        ],
+    )
+)
 def test_free_float_is_the_slip_every_successor_absorbs(p: Project) -> None:
     """Definitional free float (#4180, #4183): slipping a live work task by its free
     float moves no successor's early position, and one more working day moves one.

@@ -1532,6 +1532,93 @@ mod tests {
         assert_eq!(m0.total_float, 2.0 * one_day);
     }
 
+    /// #4304 (Hypothesis fuzz regression): free float through a milestone held up
+    /// only by the project-start floor must account for the reading-tie bound a
+    /// *second* hop of milestones can hit, not just the raw free instant.
+    ///
+    /// `T0(0d, the project-start floor)` is a milestone with two successors:
+    /// `T0 -SF-> T1(1d)` (SF-linked, so T1 is waived off the project-start floor
+    /// and sits before it, #4218/#4220) and `T0 -FS+1d-> T3(0d)`. `T1 -SS-> T2(0d)`
+    /// and `T2 -SS+1d-> T3` complete a second path into `T3`. `T2` is held up by
+    /// the project-start floor alone, so its *link* instant (what `T3` measures
+    /// from) sits below its shown position — and before this fix, `T1`'s free
+    /// float was computed against `T2`'s raw free instant, ignoring that pushing
+    /// `T2`'s link instant up to it flips `T3`'s reading-tie against the
+    /// competing `T0 -FS+1d-> T3` link and moves `T3`'s shown day, even though
+    /// `T2`'s own shown position never moves.
+    #[test]
+    fn test_free_float_through_a_floor_held_milestone_respects_the_downstream_tie() {
+        let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+        let project = Project {
+            id: "p".to_string(),
+            name: "p".to_string(),
+            start_date: d(2026, 1, 5),
+            tasks: vec![
+                make_task("T0", 0),
+                make_task("T1", 1),
+                make_task("T2", 0),
+                make_task("T3", 0),
+                make_task("T4", 0),
+            ],
+            dependencies: vec![
+                Dependency {
+                    dep_type: DependencyType::SF,
+                    ..dep("T0", "T1")
+                },
+                Dependency {
+                    dep_type: DependencyType::FS,
+                    lag: 86400.0,
+                    ..dep("T0", "T3")
+                },
+                Dependency {
+                    dep_type: DependencyType::SS,
+                    ..dep("T1", "T2")
+                },
+                Dependency {
+                    dep_type: DependencyType::SS,
+                    lag: 86400.0,
+                    ..dep("T2", "T3")
+                },
+                Dependency {
+                    dep_type: DependencyType::FS,
+                    lag: 86400.0,
+                    ..dep("T3", "T4")
+                },
+            ],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+
+        let result = schedule_impl(&project).unwrap();
+        let find =
+            |r: &ScheduleResult, id: &str| r.tasks.iter().find(|t| t.id == id).cloned().unwrap();
+        let t1 = find(&result, "T1");
+        assert_eq!(t1.early_start, d(2026, 1, 2));
+        // T1's total float is one day (the gap to Monday), but it has NO free
+        // float: any slip starts to pull T2's link instant up, which overtakes
+        // the competing T0 -FS+1d-> T3 link at T3's reading tie before T1 ever
+        // reaches its total-float bound.
+        assert_eq!(t1.total_float, 86400.0);
+        assert_eq!(t1.free_float, 0.0);
+
+        // Slipping T1 by one working day (to its total float, past its free
+        // float) must move T3 — the thing free float promises will NOT happen
+        // within free float itself.
+        let mut shifted = project.clone();
+        shifted
+            .tasks
+            .iter_mut()
+            .find(|t| t.id == "T1")
+            .unwrap()
+            .planned_start = Some(d(2026, 1, 5));
+        let after = schedule_impl(&shifted).unwrap();
+        assert_eq!(find(&result, "T3").early_start, d(2026, 1, 5));
+        assert_eq!(find(&after, "T3").early_start, d(2026, 1, 6));
+    }
+
     /// #4180: free float into a start-of-day milestone compares its shown position,
     /// not its raw instant. `A(4d) -FS+2d-> M` puts M at Sunday midnight, shown as
     /// the start of Monday; a one-day slip of A lands on Monday midnight, still the
