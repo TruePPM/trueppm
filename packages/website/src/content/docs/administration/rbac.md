@@ -18,6 +18,19 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 
 **One ordinal, named for its container.** The two label columns are not two role models. `ProjectMembership` and `ProgramMembership` share the same five roles and the same ordinals, so a Program Manager and a Project Manager hold the same rank — 300 — and differ only in what they hold it over. Only the top two tiers are renamed; 200, 100, and 1 read identically in both scopes. Program surfaces (`GET /programs/{id}/members/` and the `my_role_label` field on `GET /programs/{id}/`) return the program wording, project surfaces return the project wording, and the numeric `role` field is the same value either way — integrate against the ordinal, never against the label.
 
+### What a program role does not reach
+
+A program role is authority over the program's own surfaces: its roster, its backlog,
+its ceremonies, its settings, and the program-scoped webhooks it registers. It is not a
+read grant on the content of the member projects. Reading a project's tasks, attachments,
+time entries or change history takes a `ProjectMembership` on that project, whatever the
+program role.
+
+The program export (JSON seed and async bundle) and program-scoped webhook deliveries
+follow this rule. The narrowing ships in the next release; see
+[Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
+Until then, a Program Admin's program export includes every member project.
+
 ### Why the ordinals jump by 100
 
 The gaps are **reserved slots, not arbitrary numbering**. Ordinals are compared, never

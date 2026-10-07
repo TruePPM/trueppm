@@ -20,7 +20,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProgramMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import (
     Calendar,
@@ -185,6 +185,11 @@ def test_enqueue_dedupes_in_flight(admin_user: Any, program: Program) -> None:
 
 
 def test_run_export_builds_and_stores_archive(populated_program: Program, owner: Any) -> None:
+    # #4310: per-project content is included only for a requester with live project
+    # membership, so the requester must be a member of the member project.
+    ProjectMembership.objects.create(
+        project=populated_program.projects.get(), user=owner, role=Role.ADMIN
+    )
     job = ProgramExportJob.objects.create(program=populated_program, requested_by=owner)
     _run_export(job)
 

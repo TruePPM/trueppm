@@ -845,6 +845,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # it an mcp:read token reads through the parent what a child team closed
             # to agents. No effect on the POST — TokenReadOnlyMethods already refuses
             # a token there — and none on any human.
+            #
+            # Program Admin authority does not extend to a member project's content
+            # (#4310, ADR-0161 amendment): the export body includes only the member
+            # projects the caller holds live ProjectMembership on, enforced in
+            # ``export_program`` and the async bundle builder, not here.
             return [IsAuthenticated(), IsProgramAdmin(), McpProgramExportConsent()]
         if self.action in ("export_jobs", "export_job_detail"):
             # Async program export bundle list / poll (#1958, ADR-0219): Admin+,
@@ -1571,7 +1576,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "A downloadable canonical JSON seed document describing this program "
-                    "and its member projects, delivered as a file attachment. Round-trips "
+                    "and the member projects the caller holds project membership on "
+                    "(member projects the caller cannot read are omitted entirely; "
+                    "program-level blocks are always included). Delivered as a file "
+                    "attachment. Round-trips "
                     "back through the importer. `resources[].email` and `accounts[].email` "
                     "are withheld (key omitted) unless the caller holds workspace Admin+ — "
                     "the endpoint itself stays reachable at program Admin+, which is "
@@ -1598,9 +1606,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 response=ProgramExportJobSerializer,
                 description=(
                     "An async program export job (ADR-0219, #1958). The job builds a "
-                    ".tar.gz containing the canonical JSON seed plus, per member project, "
-                    "MS Project XML, task attachments, time entries, and the audit/change "
-                    "history. Poll GET .../export/jobs/{job_id}/ until status is 'success', "
+                    ".tar.gz containing the canonical JSON seed plus, per member project "
+                    "the requester holds project membership on, MS Project XML, task "
+                    "attachments, time entries, and the audit/change history. Membership "
+                    "is evaluated when the bundle is built. Poll GET .../export/jobs/{job_id}/ "
+                    "until status is 'success', "
                     "then fetch download_url. Admin+ only; an in-flight job is returned "
                     "rather than queuing a duplicate build."
                 ),
@@ -1613,8 +1623,8 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         Both paths are Admin+ (#1957, see get_permissions). The GET path returns the
         canonical JSON seed as a synchronous attachment; the POST path (ADR-0219)
-        enqueues the richer async ``.tar.gz`` bundle across every member project and
-        returns ``202`` with the job row.
+        enqueues the richer async ``.tar.gz`` bundle across every member project the
+        requester holds project membership on (#4310) and returns ``202`` with the job row.
         """
         program = self.get_object()
 

@@ -9799,7 +9799,7 @@
         "/api/v1/programs/{id}/export/": {
             "get": {
                 "operationId": "v1_programs_export_retrieve",
-                "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project and\nreturns ``202`` with the job row.",
+                "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project the\nrequester holds project membership on (#4310) and returns ``202`` with the job row.",
                 "summary": "Export the program as a downloadable JSON seed file",
                 "parameters": [
                     {
@@ -9840,7 +9840,7 @@
                                 }
                             }
                         },
-                        "description": "A downloadable canonical JSON seed document describing this program and its member projects, delivered as a file attachment. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at program Admin+, which is self-grantable by creating a project/program, so the field is gated independently of endpoint access (#3627)."
+                        "description": "A downloadable canonical JSON seed document describing this program and the member projects the caller holds project membership on (member projects the caller cannot read are omitted entirely; program-level blocks are always included). Delivered as a file attachment. Round-trips back through the importer. `resources[].email` and `accounts[].email` are withheld (key omitted) unless the caller holds workspace Admin+ — the endpoint itself stays reachable at program Admin+, which is self-grantable by creating a project/program, so the field is gated independently of endpoint access (#3627)."
                     },
                     "403": {
                         "description": "Not a program Admin — or an agent (`mcp:read`) token where a member project has opted out of agent reads and `TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` is `withhold` (#3014). The body carries the ADR-0809 refusal envelope naming `capability_scope`."
@@ -9865,7 +9865,7 @@
             },
             "post": {
                 "operationId": "v1_programs_export_create",
-                "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project and\nreturns ``202`` with the job row.",
+                "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project the\nrequester holds project membership on (#4310) and returns ``202`` with the job row.",
                 "summary": "Queue a richer asynchronous program export bundle",
                 "parameters": [
                     {
@@ -9902,7 +9902,7 @@
                                 }
                             }
                         },
-                        "description": "An async program export job (ADR-0219, #1958). The job builds a .tar.gz containing the canonical JSON seed plus, per member project, MS Project XML, task attachments, time entries, and the audit/change history. Poll GET .../export/jobs/{job_id}/ until status is 'success', then fetch download_url. Admin+ only; an in-flight job is returned rather than queuing a duplicate build."
+                        "description": "An async program export job (ADR-0219, #1958). The job builds a .tar.gz containing the canonical JSON seed plus, per member project the requester holds project membership on, MS Project XML, task attachments, time entries, and the audit/change history. Membership is evaluated when the bundle is built. Poll GET .../export/jobs/{job_id}/ until status is 'success', then fetch download_url. Admin+ only; an in-flight job is returned rather than queuing a duplicate build."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

@@ -75,6 +75,8 @@ A webhook is scoped to exactly one project **or** one program:
 
 Program-scoped reads require program Viewer+; mutations require Program Manager or above. The two scopes are additive: a project event reaches both its own project webhooks and its program's webhooks.
 
+A program-scoped webhook delivers events from a member project only while the user who created it still holds project membership on that project, checked when each event is dispatched. Removing that membership stops deliveries for the project. A webhook whose creator was deleted delivers no member-project events. This narrowing ships in the next release; see [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
+
 ## Payload format
 
 Each webhook renders its payload in one of two OSS formats, set per subscription via the `format` field:

@@ -55,6 +55,12 @@ includes team-private data raw — story points and committed/completed/capacity
 velocity — so it sits at the same tier as the async export bundle rather than
 being open to every member. The response is a JSON attachment.
 
+A program export includes only the member projects you hold project membership on.
+A Program Admin who is not a member of a project does not receive that project's content.
+This narrowing ships in the next release; see
+[Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
+Until then, the program export includes every member project.
+
 ## Export a project
 
 A single project can be exported the same way, from its own settings.

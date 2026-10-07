@@ -86,6 +86,29 @@ truth.
 
 ---
 
+## Next release: program exports and program webhooks honor project membership
+
+**Behavior change, no migration.** This ships in the next release after `v0.4.0-beta.1`
+and is not in any tag yet. Until you upgrade to it, a program export and the program
+webhooks of a Program Admin reach every member project. After the upgrade:
+
+- **Program export (JSON seed and async bundle).** Only member projects the requesting
+  user holds project membership on are included. A Program Admin who is not a member of a
+  project no longer receives that project's tasks, attachments, time entries, history, or
+  MS Project XML from a program export. Program-level content (roster, program backlog,
+  ceremonies) is still exported. A scheduled or queued bundle is evaluated when it is
+  built, not when it was requested.
+- **Program-scoped webhooks.** A program webhook receives a member project's events only
+  while its creator (`created_by`) holds project membership on that project. Removing the
+  membership stops those deliveries. A webhook whose creator account was deleted, or is
+  deactivated, delivers no member-project events.
+
+**Operator check after the upgrade.** Program webhooks now showing no deliveries for a
+member project usually belong to a creator without membership there. Either add the
+creator to the project, or re-create the subscription under a member account. The
+`manage.py export_program` command is unaffected: it runs as the operator with shell
+access and exports every member project.
+
 ## Upgrading to 0.4
 
 **Migration behavior:** includes destructive ops (see below). Downtime: a
