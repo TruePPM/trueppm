@@ -264,9 +264,16 @@ short enough to be signal. Eight rules:
 6. **Squash to a fresh baseline at each minor-version release with `replaces=`.**
    Migrations *should* accumulate between releases — that is their job. At each
    `0.x → 0.(x+1)` boundary, collapse each app's history with Django's
-   `squashmigrations`, which generates a `0001_squashed_…` migration carrying a
-   `replaces=` list, and put "squash migrations" on the release checklist next to
-   changelog assembly. This is the **non-destructive** approach adopted in #1286: the
+   `squashmigrations --no-optimize`, which generates a `0001_squashed_…` migration
+   carrying a `replaces=` list, and put "squash migrations" on the release checklist
+   next to changelog assembly. **Always pass `--no-optimize`** — without it the
+   optimizer silently drops any `elidable=True` `RunPython`/`RunSQL` operation from
+   the migrations being replaced, which is how the 0.4 squashes of access,
+   notifications, projects, teams, and webhooks lost real data steps (#4320).
+   `packages/api/tests/test_squash_data_op_parity.py` is the automated backstop: it
+   walks the migration graph and fails if a squash ever drops a data op again, so a
+   skipped `--no-optimize` is caught even if this step is forgotten. This is the
+   **non-destructive** approach adopted in #1286: the
    original migrations stay on disk and remain applyable, so fresh installs use the
    collapsed migration while existing local/dev/deployed databases upgrade as a
    **no-op** — no drop, no recreate, no data-migration step. Do **not** hand-write a

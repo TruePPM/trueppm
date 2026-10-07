@@ -8,6 +8,13 @@ held to the same rule.
 
 It walks Django's own ``MigrationLoader`` graph and compares callables by identity, so
 it never imports a migration module by name (CLAUDE.md migration rule 3).
+
+Limitation: this only compares the *set* of restored data ops against the *set* of
+ops the replaced migrations carried — it does not check their relative order within
+a squash. A squash that restores the right ops in the wrong order (the projects
+0015/0019 bug fixed alongside this one) passes here and is only caught by an actual
+fresh-DB ``migrate`` run, such as CI's testdb-dump / ``--create-db`` test runs. Treat
+that as a different, complementary safety net, not a gap this test also closes.
 """
 
 from __future__ import annotations
