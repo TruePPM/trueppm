@@ -1532,7 +1532,7 @@ mod tests {
         assert_eq!(m0.total_float, 2.0 * one_day);
     }
 
-    /// #4304 (Hypothesis fuzz regression): free float through a milestone held up
+    /// #4329 (Hypothesis fuzz regression): free float through a milestone held up
     /// only by the project-start floor must account for the reading-tie bound a
     /// *second* hop of milestones can hit, not just the raw free instant.
     ///

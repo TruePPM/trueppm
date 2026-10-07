@@ -1098,7 +1098,7 @@ def _milestone_free_instants(
     A successor that is itself a milestone is reached through the same reading-tie
     bound :func:`_free_float_days` applies to ordinary work (:func:`_free_start_ref`,
     #4183) — not just :func:`_milestone_latest` against its raw free instant
-    (#4304). Without it, this bound can overstate how far *this* milestone's own
+    (#4329). Without it, this bound can overstate how far *this* milestone's own
     instant may travel: pushing it up to that successor's raw free instant can flip
     the successor's reading from the end-of-day instant another, unrelated,
     predecessor already occupies to a start-of-day one at the very same raw

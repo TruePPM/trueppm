@@ -1311,7 +1311,7 @@ def _early_position(t: Task) -> tuple[date | None, date | None, bool]:
         [_dep("A", "M", lag=2), _dep("M", "B")],
     )
 )
-# The #4304 repro: a project-start-floor-waived SF successor (#4218/#4220) whose
+# The #4329 repro: a project-start-floor-waived SF successor (#4218/#4220) whose
 # own free float was computed against a milestone's raw free instant, missing the
 # reading-tie bound a *second* hop of milestones can hit (see
 # test_free_float_through_a_floor_held_milestone_respects_the_downstream_tie's

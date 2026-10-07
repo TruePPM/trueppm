@@ -38,7 +38,7 @@ use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 ///
 /// A successor that is itself a milestone is reached through the same reading-tie
 /// bound `compute_floats` applies to ordinary work ([`free_start_ref`], #4183) —
-/// not just `milestone_latest` against its raw free instant (#4304). Without it,
+/// not just `milestone_latest` against its raw free instant (#4329). Without it,
 /// this bound can overstate how far *this* milestone's own instant may travel:
 /// pushing it up to that successor's raw free instant can flip the successor's
 /// reading from the end-of-day instant another, unrelated, predecessor already
