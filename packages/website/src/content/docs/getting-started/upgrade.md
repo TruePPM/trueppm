@@ -106,11 +106,13 @@ upgrade:
   membership stops new deliveries. Events already queued, or retrying, are still delivered.
   A webhook whose creator account was deleted, or is deactivated, delivers no member-project
   events. Only the webhook's creator can edit it, and only while they still have membership
-  on its projects. Only the creator can read its delivery log.
+  on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log.
 
 **Operator check after the upgrade.** Program webhooks now showing no deliveries for a
 member project usually belong to a creator without membership there. Either add the
-creator to the project, or re-create the subscription under a member account. The
+creator to the project, or re-create the subscription under a member account. Disabling
+it is not possible while the creator lacks membership, because edits are refused, so
+re-creating it under a member account is the remedy. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 

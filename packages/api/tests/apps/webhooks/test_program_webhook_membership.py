@@ -268,3 +268,98 @@ def test_another_admin_cannot_read_a_members_delivery_log(
     url = f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/deliveries/"
     assert _client_for(program_admin).get(url).status_code == 403
     assert _client_for(member_owner).get(url).status_code == 200
+
+
+def _edit_url(program: Program, hook: Webhook) -> str:
+    return f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/"
+
+
+def test_creator_must_be_a_member_of_every_program_project_to_edit(
+    program: Program, project_p: Project, calendar: Calendar, member_owner: Any
+) -> None:
+    """#4310 (option c): membership on ONE of the program's projects is not enough.
+
+    The edit gate requires the creator to be a live member of every live project in the
+    program. Adding a second project later locks the creator out until they join it.
+    """
+    project_q = Project.objects.create(
+        name="Juno",
+        code="juno-4310",
+        start_date=date(2026, 4, 1),
+        calendar=calendar,
+        program=program,
+    )
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    hook = _program_webhook(program, member_owner)
+    client = _client_for(member_owner)
+
+    refused = client.patch(
+        _edit_url(program, hook), {"url": "https://example.com/new-hook"}, format="json"
+    )
+    assert refused.status_code == 403
+    hook.refresh_from_db()
+    assert hook.url == "https://example.com/hook"
+
+    ProjectMembership.objects.create(project=project_q, user=member_owner, role=Role.MEMBER)
+    allowed = client.patch(
+        _edit_url(program, hook), {"url": "https://example.com/new-hook"}, format="json"
+    )
+    assert allowed.status_code == 200, allowed.content
+    hook.refresh_from_db()
+    assert hook.url == "https://example.com/new-hook"
+
+
+def test_put_by_non_member_on_creatorless_webhook_is_refused(
+    program: Program, project_p: Project, program_admin: Any
+) -> None:
+    """A webhook whose registrant was deleted (created_by NULL) cannot be replaced by an admin."""
+    hook = _program_webhook(program, program_admin)
+    Webhook.objects.filter(pk=hook.pk).update(created_by=None)
+
+    resp = _client_for(program_admin).put(
+        _edit_url(program, hook),
+        {"url": "https://attacker.example.com/collect", "events": ["task.created"]},
+        format="json",
+    )
+
+    assert resp.status_code == 403
+    hook.refresh_from_db()
+    assert hook.url == "https://example.com/hook"
+
+
+def test_put_by_member_creator_with_full_membership_succeeds(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    hook = _program_webhook(program, member_owner)
+
+    resp = _client_for(member_owner).put(
+        _edit_url(program, hook),
+        {"url": "https://example.com/put-hook", "events": ["task.created"]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.content
+    hook.refresh_from_db()
+    assert hook.url == "https://example.com/put-hook"
+
+
+def test_superuser_who_is_not_the_creator_cannot_edit_a_members_webhook(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """Neither a superuser nor a workspace admin is a bypass for the registrant rule."""
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    hook = _program_webhook(program, member_owner)
+    superuser = User.objects.create_user(
+        username="superuser_4310", password="pw", is_superuser=True, is_staff=True
+    )
+
+    resp = _client_for(superuser).patch(
+        _edit_url(program, hook), {"url": "https://attacker.example.com/collect"}, format="json"
+    )
+
+    assert resp.status_code == 403
+    hook.refresh_from_db()
+    assert hook.url == "https://example.com/hook"

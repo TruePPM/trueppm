@@ -161,9 +161,9 @@ already happened (#4310); both now intersect with the caller's live membership.
   Job metadata stays program-scoped.
 - Editing a program webhook is refused (403) unless the requester is its registrant
   (`created_by`) and still holds live membership on every project the program covers.
-  The check runs before validation, so a no-op PATCH is refused too. Its delivery log is
-  readable only by the registrant, because it replays past payloads from every member
-  project.
+  The check runs before validation, so a no-op PATCH is refused too. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Its
+  delivery log is readable only by the registrant, because it replays past payloads from
+  every member project.
 - Program-scoped webhook dispatch keeps a program webhook for an event on project P only
   when its registrant (`Webhook.created_by`) holds live membership on P, checked at
   dispatch time. A NULL or deactivated registrant fails closed. Project-scoped webhooks
