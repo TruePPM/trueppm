@@ -7,6 +7,8 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+from trueppm_api.apps.webhooks.backfill import backfill_sequence_numbers, reverse_backfill
+
 
 class Migration(migrations.Migration):
     replaces = [
@@ -184,6 +186,10 @@ class Migration(migrations.Migration):
             model_name="webhook",
             name="delivery_sequence",
             field=models.BigIntegerField(default=0, editable=False),
+        ),
+        migrations.RunPython(
+            code=backfill_sequence_numbers,
+            reverse_code=reverse_backfill,
         ),
         migrations.AddField(
             model_name="webhook",

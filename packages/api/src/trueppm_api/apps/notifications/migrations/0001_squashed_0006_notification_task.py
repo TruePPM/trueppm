@@ -8,6 +8,7 @@ from django.conf import settings
 from django.db import migrations, models
 
 import trueppm_api.apps.notifications.models
+from trueppm_api.apps.notifications.backfill import _clean_matrix
 
 
 class Migration(migrations.Migration):
@@ -264,6 +265,10 @@ class Migration(migrations.Migration):
                     )
                 ],
             },
+        ),
+        migrations.RunPython(
+            code=_clean_matrix,
+            reverse_code=migrations.RunPython.noop,
         ),
         migrations.AddField(
             model_name="notification",
