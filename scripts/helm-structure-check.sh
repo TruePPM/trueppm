@@ -965,11 +965,28 @@ done
 #        operator who believes they set it; the closed schema is what turns that
 #        into a named error at `helm upgrade` time. If one of these renders, the
 #        key was re-added to the schema and two keys now claim the same knob.
-for old_key in 'web.replicaCount=2' 'web.service.type=NodePort' 'web.service.port=80' \
+#
+#        Every value below RENDERS on a chart that still accepts the old key (a
+#        ClusterIP web Service trips no exposure guard), so the ONLY thing that
+#        can refuse it is the schema — and the refusal must name the property,
+#        or a failure from some unrelated guard would pass this check. The
+#        refused property is the root itself for a removed root (api,
+#        celeryWorker) and the child for a key removed from web:. Matched
+#        case-insensitively because the wording differs by Helm version: 3.14
+#        prints "(root): Additional property celeryWorker is not allowed",
+#        newer releases "at '': additional properties 'celeryWorker' not allowed".
+for old_key in 'web.replicaCount=2' 'web.service.type=ClusterIP' 'web.service.port=80' \
                'api.workers=2' 'celeryWorker.concurrency=2' \
                'celeryWorker.maxTasksPerChild=10' 'celeryWorker.extraArgs={--queues=x}'; do
-  if helm template trueppm "$CHART" --set image.tag=latest --set "$old_key" >/dev/null 2>&1; then
-    fail "the pre-ADR-1248 key '${old_key%%=*}' rendered successfully — it moved to a concern-first map in 0.4.0 and the schema must refuse it (#4299)"
+  old_path="${old_key%%=*}"
+  case "$old_path" in
+    web.*) refused_prop="$(cut -d. -f2 <<<"$old_path")" ;;
+    *)     refused_prop="${old_path%%.*}" ;;
+  esac
+  if old_err="$(helm template trueppm "$CHART" --set image.tag=latest --set "$old_key" 2>&1 >/dev/null)"; then
+    fail "the pre-ADR-1248 key '${old_path}' rendered successfully — it moved to a concern-first map in 0.4.0 and the schema must refuse it (#4299)"
+  elif ! grep -qiE "additional propert(y|ies) '?${refused_prop}'? (is )?not allowed" <<<"$old_err"; then
+    fail "the pre-ADR-1248 key '${old_path}' was refused, but not by the schema naming '${refused_prop}' — some other guard failed the render, so this check proves nothing about the schema (#4299). Output: $(head -5 <<<"$old_err")"
   fi
 done
 #    (b) A values file in the shape 0.3 SHIPPED must still render: ADR-1248 only
@@ -2292,7 +2309,7 @@ echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op
 echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays quiet once they are configured"
 echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
-echo "  - layout (ADR-1248): the 7 moved pre-0.4.0 component-first keys are refused; a 0.3-shaped values file renders api=worker=web=2; replicas.web and service.web.* are wired"
+echo "  - layout (ADR-1248): the 7 moved pre-0.4.0 component-first keys are refused by the schema, which names each one; a 0.3-shaped values file renders api=worker=web=2; replicas.web and service.web.* are wired"
 echo "  - both api probes send Host: $noing_host with no Ingress, $ing_host with one (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"

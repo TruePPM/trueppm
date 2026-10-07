@@ -364,9 +364,20 @@ later rename would break `helm upgrade` for everyone who had set them
 
 The defaults and the behavior do not change, only where the key lives. If your
 values file or `--set` flags still use an old key, the render refuses and names
-it, for example `at '': additional properties 'celeryWorker' not allowed` or
-`at '/web': additional properties 'replicaCount' not allowed`. Nothing is
-silently dropped. Rename the key and run the upgrade again. As a YAML diff:
+it. The wording depends on your Helm version:
+
+```
+# Helm 3.14 and similar
+(root): Additional property celeryWorker is not allowed
+web: Additional property replicaCount is not allowed
+
+# Newer Helm releases
+- at '': additional properties 'celeryWorker' not allowed
+- at '/web': additional properties 'replicaCount' not allowed
+```
+
+Nothing is silently dropped. Rename the key and run the upgrade again. As a
+YAML diff:
 
 ```yaml
 # Before (0.4.0-beta.6 and earlier)        # After

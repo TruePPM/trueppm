@@ -124,7 +124,7 @@ Chart defaults, and what each tier costs you when it goes away.
 
 | Tier | Chart default | Minimum safe | What sets it | Losing one pod | Losing the node |
 |---|---|---|---|---|---|
-| **API** | `replicaCount: 1` | **2** | `replicaCount`, or `autoscaling.enabled` with `autoscaling.api.minReplicas: 2`. Guard voluntary evictions with `podDisruptionBudget.enabled`. | At 1: total API outage until the pod reschedules. At ≥2: in-flight requests fail, clients retry, WebSockets reconnect. | The chart ships **no** `affinity` or `topologySpreadConstraints` values, so two replicas may both be scheduled on one node. See rung 4. |
+| **API** | `replicaCount: 1` | **2** | `replicaCount`, or `autoscaling.enabled` with `autoscaling.api.minReplicas: 2`. Guard voluntary evictions with `podDisruptionBudget.enabled`. | At 1: total API outage until the pod reschedules. At ≥2: in-flight requests fail, clients retry, WebSockets reconnect. | `topologySpreadConstraints` is empty by default, so two replicas may both be scheduled on one node. `values-prod.yaml` sets a hostname spread; see rung 4. |
 | **Web (nginx SPA)** | `replicas.web: ""` (follows `replicaCount`) | **2** | `replicaCount`, or `replicas.web` to scale it independently. Guard voluntary evictions with `podDisruptionBudget.enabled`, which covers this tier too. | The browser gets nothing at `/` — a blank page or a 502 — while `/api` and `/ws` keep working. | Same as above. |
 | **Celery worker** | `replicaCount: 1` *(the same key as the API — there is no separate worker replica key yet)* | **2** | `replicaCount`; tune throughput with `processes.worker.concurrency` rather than replicas alone. | Nothing is lost. `acks_late` + `reject_on_worker_lost` redeliver the in-flight task; the 30-second drains re-dispatch orphaned outbox rows. Work is **delayed**. | Same, at the cost of one drain cycle. |
 | **Celery beat** | `replicas: 1`, **hardcoded**, `strategy: Recreate` | **1 — by design** | Nothing. Two beats would double-fire every periodic task. | Every periodic tick stops: no drains, no retention purge, no heartbeat. Nothing is lost; everything waits. Detect it with `/api/v1/health/beat/`. | Same. A PDB would only block node drains, which is why beat is excluded from `pdb.yaml`. |
@@ -236,6 +236,10 @@ podDisruptionBudget:
     maxUnavailable: 1
   web:
     maxUnavailable: 1
+topologySpreadConstraints:   # one entry covers api, worker, beat, and web
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
 ```
 
 Three things to know before you rely on this:
@@ -247,13 +251,16 @@ Three things to know before you rely on this:
 - **The web tier needs two replicas too.** With one web pod, a node drain
   takes the UI offline while the API stays up, which reads to users as a total
   outage. It follows `replicaCount` unless you set `replicas.web`.
-- **The chart exposes no scheduling constraints.** There are no `affinity`,
-  `nodeSelector`, `tolerations`, or `topologySpreadConstraints` values, so nothing
-  stops both API replicas from landing on the same node — which is the exact
-  failure the second replica was bought to survive. Until the chart grows the
-  keys, apply a spread constraint out of band (a post-render `kustomize` layer, or
-  a cluster-wide default via a scheduling policy), and verify with
-  `kubectl get pods -o wide` that the replicas really are on different nodes.
+- **Spread the replicas, or the second one buys nothing.** The chart's
+  `topologySpreadConstraints` default is empty, so nothing stops both API
+  replicas from landing on the same node, which is the exact failure the second
+  replica was bought to survive. Set the constraint shown above (it is what
+  `values-prod.yaml` ships). Leave `labelSelector` out and the chart scopes it to
+  each tier on its own. `ScheduleAnyway` keeps a single-node cluster schedulable;
+  switch to `DoNotSchedule` once you have the nodes. `affinity`, `nodeSelector`,
+  and `tolerations` are available for the cases a spread cannot express. Verify
+  with `kubectl get pods -o wide` that the replicas really are on different
+  nodes.
 
 **The trade-off.**
 
@@ -425,9 +432,8 @@ Be explicit about the gaps, so nobody plans around a capability that is not ther
   verification — is advanced HA and stays Enterprise (`enterprise#20`). The line:
   surviving a pod or node loss inside one cluster is OSS; surviving the loss of the
   cluster or the region is Enterprise.
-- **No scheduling constraints in the chart.** No `affinity`, `nodeSelector`,
-  `tolerations`, or `topologySpreadConstraints` values exist today; see rung 4 for
-  the workaround.
+- **No replica spread by default.** `topologySpreadConstraints` ships empty in
+  `values.yaml`. `values-prod.yaml` sets a hostname spread, and rung 4 shows it.
 - **No automatic restore.** `scripts/restore.sh` is a deliberate manual
   operation. Nothing in the chart will ever restore a backup on your behalf.
 
