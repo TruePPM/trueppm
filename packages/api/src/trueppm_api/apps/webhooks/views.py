@@ -18,6 +18,7 @@ from kombu.exceptions import (  # type: ignore[import-untyped]
 )
 from rest_framework import serializers, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.mixins import (
     CreateModelMixin,
     DestroyModelMixin,
@@ -32,6 +33,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.viewsets import GenericViewSet
 
+from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.access.permissions import (
     IsProgramAdmin,
     IsProgramMember,
@@ -201,6 +203,9 @@ class WebhookViewSet(
     def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
         serializer.save()
 
+    def _check_delivery_log_access(self, webhook: Webhook) -> None:
+        """Hook for scope-specific delivery-log access. No extra gate at project scope."""
+
     def get_object(self) -> Webhook:
         obj: Webhook = super().get_object()
         # Object-level permission check against the webhook's scope object —
@@ -310,6 +315,7 @@ class WebhookViewSet(
         for the webhook CRUD list — the delivery log wants a cursor).
         """
         webhook = self.get_object()
+        self._check_delivery_log_access(webhook)
         qs = WebhookDelivery.objects.filter(webhook=webhook)
         paginator = WebhookDeliveryCursorPagination()
         page = paginator.paginate_queryset(qs, request, view=self)
@@ -327,13 +333,50 @@ class WebhookViewSet(
     # and why the id is pinned at all (#2583).
     deliveries=extend_schema(
         summary="List recent webhook deliveries",
-        responses={200: WEBHOOK_DELIVERY_PAGE},
+        responses={
+            200: WEBHOOK_DELIVERY_PAGE,
+            403: OpenApiResponse(
+                description=(
+                    "Not the webhook's creator (#4310). The delivery log replays past "
+                    "payloads from every member project, so it is restricted to the "
+                    "registrant even for another Program Admin."
+                )
+            ),
+        },
         operation_id="v1_programs_webhooks_deliveries_list",
     ),
     create=extend_schema(
         summary="Register a webhook",
         responses={201: WebhookCreateResponseSerializer},
         operation_id="v1_programs_webhooks_create",
+    ),
+    update=extend_schema(
+        summary="Replace a webhook",
+        responses={
+            200: WebhookSerializer,
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(
+                description=(
+                    "Refused (#4310) unless the requester is the webhook's creator AND "
+                    "still holds live ProjectMembership on every project the program "
+                    "covers. Checked before validation, so a no-op update is refused too."
+                )
+            ),
+        },
+    ),
+    partial_update=extend_schema(
+        summary="Update a webhook",
+        responses={
+            200: WebhookSerializer,
+            400: OpenApiResponse(description="Validation error."),
+            403: OpenApiResponse(
+                description=(
+                    "Refused (#4310) unless the requester is the webhook's creator AND "
+                    "still holds live ProjectMembership on every project the program "
+                    "covers. Checked before validation, so a no-op PATCH is refused too."
+                )
+            ),
+        },
     ),
 )
 class ProgramWebhookViewSet(WebhookViewSet):
@@ -342,8 +385,12 @@ class ProgramWebhookViewSet(WebhookViewSet):
     A program-scoped webhook fires for events on any project within the program.
     Inherits the test/deliveries actions and the rendering/dispatch substrate
     from WebhookViewSet; only the scope resolution and RBAC ladder change:
-    list/retrieve require Program Viewer+ (IsProgramMember), mutations require
-    Program Admin+ (IsProgramAdmin).
+    list/retrieve require Program Viewer+ (IsProgramMember). Create requires Program
+    Admin+ (IsProgramAdmin). Update (PUT/PATCH) requires more than that (#4310): the
+    requester must be the webhook'''s registrant (created_by) AND still hold live
+    ProjectMembership on every project the program covers, checked in get_object
+    before validation — refused with 403 otherwise, including a no-op PATCH. The
+    delivery log is likewise restricted to the registrant, not to Admin+ generally.
     """
 
     def get_permissions(self) -> list[BasePermission]:
@@ -367,6 +414,35 @@ class ProgramWebhookViewSet(WebhookViewSet):
             return [IsAuthenticated(), IsProgramAdmin()]
         return [IsAuthenticated(), IsProgramMember()]
 
+    def get_object(self) -> Webhook:
+        obj: Webhook = super().get_object()
+        # #4310 (B2, option c): only the registrant, and only while still a live member
+        # of every project the webhook covers, may change it. Checked before validation
+        # so a no-op PATCH is refused too, and so a non-member cannot re-point the URL
+        # and start receiving a member project's events.
+        if self.action in ("update", "partial_update") and not self._can_edit(obj):
+            raise PermissionDenied("Only the webhook's creator can edit it while a member.")
+        return obj
+
+    def _can_edit(self, webhook: Webhook) -> bool:
+        if webhook.program_id is None:
+            return False
+        if webhook.created_by_id is None or webhook.created_by_id != self.request.user.pk:
+            return False
+        project_ids = set(
+            Project.objects.filter(program_id=webhook.program_id, is_deleted=False).values_list(
+                "pk", flat=True
+            )
+        )
+        if not project_ids:
+            return True
+        live = set(
+            ProjectMembership.live()
+            .filter(user=self.request.user, project_id__in=project_ids)
+            .values_list("project_id", flat=True)
+        )
+        return live == project_ids
+
     def get_queryset(self) -> QuerySet[Webhook]:
         program_pk = self.kwargs["program_pk"]
         return (
@@ -374,6 +450,13 @@ class ProgramWebhookViewSet(WebhookViewSet):
             .select_related("program", "created_by")
             .order_by("-created_at")
         )
+
+    def _check_delivery_log_access(self, webhook: Webhook) -> None:
+        # #4310 (B3): the delivery log replays past event payloads from every member
+        # project, so it is limited to the webhook's registrant. Another Program Admin
+        # gets 403 even though IsProgramAdmin passes. A NULL registrant fails closed.
+        if webhook.created_by_id is None or webhook.created_by_id != self.request.user.pk:
+            raise PermissionDenied("Only the webhook's creator can read its delivery log.")
 
     def perform_create(self, serializer: BaseSerializer[Webhook]) -> None:
         program_pk = self.kwargs["program_pk"]

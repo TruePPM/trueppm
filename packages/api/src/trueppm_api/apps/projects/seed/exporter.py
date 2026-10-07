@@ -220,6 +220,11 @@ def export_program(
 ) -> dict[str, Any]:
     """Serialize ``program`` to a canonical seed document (a ``dict``).
 
+    Only member projects the ``requesting_user`` holds live ``ProjectMembership`` on
+    are included (#4310). Program-level blocks (roster, program backlog, ceremonies)
+    are program-scoped and always included; project content never is unless the
+    caller can read that project.
+
     Args:
         program: the program to export.
         with_events: when ``False`` (default) emit a v1 final-state document,
@@ -240,6 +245,18 @@ def export_program(
     projects = list(
         Project.objects.filter(program=program, is_deleted=False).order_by("code", "name", "pk")
     )
+    # #4310: a Program Admin's authority does not reach a member project's content
+    # unless the caller also holds live ProjectMembership on it. The sentinel is the
+    # trusted operator path (management command, shell access) and exports every
+    # member project; any real caller, including a literal None from a deleted
+    # requester, is intersected with its live project memberships. Filtering here
+    # rather than in the view means the async bundle and any future caller inherit
+    # the same boundary.
+    if requesting_user is not _NO_HTTP_CALLER:
+        from trueppm_api.apps.access.permissions import live_member_project_ids
+
+        readable = live_member_project_ids(requesting_user, [p.pk for p in projects])
+        projects = [p for p in projects if p.pk in readable]
     return _Exporter(
         program=program,
         projects=projects,

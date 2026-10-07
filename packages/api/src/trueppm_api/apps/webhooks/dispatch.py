@@ -70,6 +70,37 @@ def build_delivery_body(
     return {**rendered, "_meta": {"sequence": sequence}}
 
 
+def _drop_program_webhooks_without_member_owner(webhooks: list[Any], project_id: str) -> list[Any]:
+    """Keep program-scoped webhooks only when their owner is a live member of the project (#4310).
+
+    A program-scoped webhook fires for events on every member project, but the
+    program grant is not a read grant on the project: its registrant must hold live
+    ``ProjectMembership`` on the project the event came from. Membership is read
+    here, at dispatch time, so a removed member stops receiving events on the next
+    write rather than when the subscription is edited.
+
+    Fails closed: a webhook whose ``created_by`` is NULL (the registrant was
+    deleted — ``SET_NULL``) or whose registrant is deactivated is dropped. Project-
+    scoped webhooks are untouched — they are scoped to the very project whose event
+    fires, so there is no cross-project grant to re-check.
+
+    One membership query per event, not per webhook: all distinct owners of the
+    program-scoped candidates are resolved together against ``project_id``.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    owner_ids = {w.created_by_id for w in webhooks if w.project_id is None and w.created_by_id}
+    if not owner_ids:
+        readable_owners: set[Any] = set()
+    else:
+        readable_owners = set(
+            ProjectMembership.live()
+            .filter(project_id=project_id, user_id__in=owner_ids, user__is_active=True)
+            .values_list("user_id", flat=True)
+        )
+    return [w for w in webhooks if w.project_id is not None or w.created_by_id in readable_owners]
+
+
 def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
     """Query matching active webhooks and enqueue a delivery task for each.
 
@@ -101,11 +132,14 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     if program_id is not None:
         scope_filter |= Q(program_id=program_id)
 
-    webhooks = Webhook.objects.filter(
-        scope_filter,
-        is_active=True,
-        events__contains=[event_type],
+    webhooks = list(
+        Webhook.objects.filter(
+            scope_filter,
+            is_active=True,
+            events__contains=[event_type],
+        )
     )
+    webhooks = _drop_program_webhooks_without_member_owner(webhooks, project_id)
 
     for webhook in webhooks:
         # Render per-webhook: each subscription may have a different format

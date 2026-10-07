@@ -7,9 +7,20 @@
  */
 
 import { useRef } from 'react';
+import axios from 'axios';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api';
 import type { PaginatedResponse } from '@/api/types';
+
+/**
+ * True for a 403 from the server (#4310): the delivery log is readable only by a
+ * program-scoped webhook's creator, so another admin's read is a permanent refusal,
+ * never a transient one — callers must stop polling and surface it distinctly from
+ * "still pending" rather than treat it as `isError` and retry forever.
+ */
+function isForbidden(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 403;
+}
 
 /** Which scope a webhook/token is managed under. */
 export interface IntegrationScope {
@@ -102,7 +113,7 @@ export function useWebhookDeliveries(
   scope: IntegrationScope | null | undefined,
   webhookId: string | null | undefined,
 ) {
-  return useQuery<ApiWebhookDelivery[], Error>({
+  const query = useQuery<ApiWebhookDelivery[], Error>({
     queryKey: scope ? [...webhooksKey(scope), webhookId, 'deliveries'] : ['webhooks', 'none'],
     queryFn: async () => {
       // Deliveries are cursor-paginated newest-first (issue 1317). Read the first
@@ -114,7 +125,11 @@ export function useWebhookDeliveries(
       return res.data.results;
     },
     enabled: !!scope?.id && !!webhookId,
+    retry: false,
   });
+  // #4310: distinguish "no deliveries yet" (empty array) from "not allowed to see
+  // this webhook's deliveries" (403) — the caller renders these two states differently.
+  return { ...query, forbidden: isForbidden(query.error) };
 }
 
 export function useCreateWebhook(scope: IntegrationScope) {
@@ -207,7 +222,11 @@ export function useWebhookTestResult(
     enabled: !!deliveryId,
     // `null` (row not on the page yet) keeps polling: the 202 and the first read can
     // race, and giving up immediately would report "no result" for a live delivery.
+    // A 403 (#4310: deliveries are creator-only) is terminal — polling it forever is
+    // exactly the hang this comment used to warn about for the no-worker case, except
+    // this one never recovers no matter how long the caller waits.
     refetchInterval: (q) => {
+      if (isForbidden(q.state.error)) return false;
       const row = q.state.data;
       if (row && row.status !== 'pending') return false;
       const elapsed = Date.now() - startedAt.current.at;
@@ -217,12 +236,15 @@ export function useWebhookTestResult(
     retry: false,
   });
 
+  const forbidden = isForbidden(query.error);
   const settled = !!query.data && query.data.status !== 'pending';
   return {
     delivery: query.data ?? null,
     settled,
+    forbidden,
     /** The budget ran out with the delivery still pending — not a result. */
-    timedOut: !!deliveryId && !settled && Date.now() - startedAt.current.at > POLL_BUDGET_MS,
+    timedOut:
+      !!deliveryId && !settled && !forbidden && Date.now() - startedAt.current.at > POLL_BUDGET_MS,
   };
 }
 

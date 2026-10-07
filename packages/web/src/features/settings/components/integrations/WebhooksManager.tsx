@@ -21,6 +21,24 @@ import {
 import { WebhookEditorModal } from './WebhookEditorModal';
 import { Tooltip } from '@/components/Tooltip';
 import { CheckIcon } from '@/components/Icons';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { isSameUser } from '@/lib/userId';
+
+/**
+ * Whether the signed-in user may edit `wh` (#4310). Program-scoped webhook edits are
+ * refused server-side (403) to anyone but the creator with current membership — the
+ * server, not this check, is the gate — so this only avoids offering a control that
+ * is guaranteed to 403. Project-scoped webhooks carry no such server-side rule, so
+ * editing stays open to every admin there, matching the API.
+ */
+function canEditWebhook(
+  scope: IntegrationScope,
+  wh: ApiWebhook,
+  currentUserId: string | undefined,
+): boolean {
+  if (scope.kind !== 'program') return true;
+  return isSameUser(currentUserId, wh.created_by);
+}
 
 export interface WebhooksManagerProps {
   scope: IntegrationScope;
@@ -30,6 +48,7 @@ export interface WebhooksManagerProps {
 export function WebhooksManager({ scope }: WebhooksManagerProps) {
   const { data: webhooks, isLoading, isError, refetch } = useWebhooks(scope);
   const del = useDeleteWebhook(scope);
+  const { user: currentUser } = useCurrentUser();
 
   const [editing, setEditing] = useState<ApiWebhook | null>(null);
   const [creating, setCreating] = useState(false);
@@ -121,7 +140,9 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
                 <FormatPill format={wh.format} />
                 <div className="flex items-center gap-1 shrink-0">
                   <TestButton scope={scope} webhook={wh} />
-                  <RowButton onClick={() => setEditing(wh)}>Edit</RowButton>
+                  {canEditWebhook(scope, wh, currentUser?.id) && (
+                    <RowButton onClick={() => setEditing(wh)}>Edit</RowButton>
+                  )}
                   <RowButton onClick={() => setConfirmDelete(wh)} variant="danger">
                     Delete
                   </RowButton>
@@ -168,6 +189,7 @@ interface TestOutcomeInput {
   isError: boolean;
   polling: boolean;
   timedOut: boolean;
+  forbidden: boolean;
   failed: boolean;
   settled: boolean;
   responseStatus: number | null | undefined;
@@ -196,6 +218,10 @@ function describeTestOutcome(o: TestOutcomeInput): {
     announcement = 'The test is still pending.';
     explanation =
       'The receiver has not answered yet. TruePPM is still retrying — open Edit to see the delivery log.';
+  } else if (o.forbidden) {
+    label = 'Sent';
+    announcement = 'The test was sent, but you do not have access to its delivery log.';
+    explanation = "The test was sent. You don't have access to this webhook's delivery log.";
   } else if (o.failed) {
     const status = o.responseStatus;
     label = status ? `Failed ${status}` : 'Failed';
@@ -254,9 +280,13 @@ function TestButton({ scope, webhook }: { scope: IntegrationScope; webhook: ApiW
   const delivery = deliveryId ? result.delivery : null;
   const settled = !!deliveryId && result.settled;
   const timedOut = !!deliveryId && result.timedOut;
+  // #4310: the delivery log is creator-only. A non-creator's test ping is sent, but
+  // reading the result back 403s — distinct from "still pending" so it does not
+  // read as a hang, and distinct from "failed" since nothing about the test failed.
+  const forbidden = !!deliveryId && result.forbidden;
 
   const failed = settled && delivery?.status === 'failed';
-  const polling = !!deliveryId && !settled && !timedOut;
+  const polling = !!deliveryId && !settled && !timedOut && !forbidden;
   const busy = test.isPending || polling;
 
   const { label, announcement, explanation } = describeTestOutcome({
@@ -264,6 +294,7 @@ function TestButton({ scope, webhook }: { scope: IntegrationScope; webhook: ApiW
     isError: test.isError,
     polling,
     timedOut,
+    forbidden,
     failed,
     settled,
     responseStatus: delivery?.response_status,

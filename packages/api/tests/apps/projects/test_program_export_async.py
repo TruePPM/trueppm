@@ -20,7 +20,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProgramMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import (
     Calendar,
@@ -179,12 +179,32 @@ def test_enqueue_dedupes_in_flight(admin_user: Any, program: Program) -> None:
     assert ProgramExportJob.objects.filter(program=program).count() == 1
 
 
+def test_enqueue_does_not_dedupe_onto_another_requesters_job(
+    admin_user: Any, owner: Any, program: Program
+) -> None:
+    """#4310 (B1): an in-flight bundle belongs to its requester. A second admin gets a
+    job of their own, never the first admin's in-flight job."""
+    other_job = _client(owner).post(_export_url(program))
+    assert other_job.status_code == 202
+
+    mine = _client(admin_user).post(_export_url(program))
+
+    assert mine.status_code == 202
+    assert mine.data["id"] != other_job.data["id"]
+    assert ProgramExportJob.objects.get(pk=mine.data["id"]).requested_by_id == admin_user.pk
+
+
 # ---------------------------------------------------------------------------
 # Build task
 # ---------------------------------------------------------------------------
 
 
 def test_run_export_builds_and_stores_archive(populated_program: Program, owner: Any) -> None:
+    # #4310: per-project content is included only for a requester with live project
+    # membership, so the requester must be a member of the member project.
+    ProjectMembership.objects.create(
+        project=populated_program.projects.get(), user=owner, role=Role.ADMIN
+    )
     job = ProgramExportJob.objects.create(program=populated_program, requested_by=owner)
     _run_export(job)
 

@@ -1182,6 +1182,31 @@ def effective_project_role(request: Request, project_id: Any) -> int | None:
     return _membership_role(request, project_id)
 
 
+def live_member_project_ids(user: Any, project_ids: list[Any]) -> set[Any]:
+    """Return the subset of ``project_ids`` on which ``user`` holds live project membership.
+
+    The non-request twin of :func:`_membership_role`, for code that builds project
+    content outside a view: the async program export bundle and the program-webhook
+    dispatch fan-out (#4310). Project read authority is ``ProjectMembership`` and
+    nothing else — a Program Admin's program membership does not reach a member
+    project's content, so the program-side grant must not be used here.
+
+    Mirrors ``_membership_role`` exactly: the membership floor is
+    :meth:`ProjectMembership.live`, and there is no superuser or workspace-admin
+    bypass (project read has none). A ``None``, anonymous, or deactivated user
+    yields an empty set — fail closed, never an over-permissive result. The check
+    is evaluated on each call, so a membership revoked after a request was made
+    stops counting once the work that depends on it actually runs.
+    """
+    if not project_ids or user is None or not getattr(user, "is_active", False):
+        return set()
+    return set(
+        ProjectMembership.live()
+        .filter(user=user, project_id__in=project_ids)
+        .values_list("project_id", flat=True)
+    )
+
+
 def effective_program_role(request: Request, program_id: Any) -> int | None:
     """Public, request-cached lookup of the caller's role ordinal on a program.
 

@@ -6577,8 +6577,11 @@ def enqueue_program_export(*, program: Any, requested_by: Any) -> Any:
     """
     from trueppm_api.apps.projects.models import ExportJobStatus, ProgramExportJob
 
+    # #4310 (B1): de-dupe per requester. An in-flight bundle holds member-project
+    # content, so another admin must never be handed someone else's job.
     existing = ProgramExportJob.objects.filter(
         program=program,
+        requested_by=requested_by,
         status__in=[ExportJobStatus.PENDING, ExportJobStatus.RUNNING],
     ).first()
     if existing is not None:

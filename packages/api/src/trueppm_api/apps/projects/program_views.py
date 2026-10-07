@@ -845,6 +845,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # it an mcp:read token reads through the parent what a child team closed
             # to agents. No effect on the POST — TokenReadOnlyMethods already refuses
             # a token there — and none on any human.
+            #
+            # Program Admin authority does not extend to a member project's content
+            # (#4310, ADR-0161 amendment): the export body includes only the member
+            # projects the caller holds live ProjectMembership on, enforced in
+            # ``export_program`` and the async bundle builder, not here.
             return [IsAuthenticated(), IsProgramAdmin(), McpProgramExportConsent()]
         if self.action in ("export_jobs", "export_job_detail"):
             # Async program export bundle list / poll (#1958, ADR-0219): Admin+,
@@ -1571,7 +1576,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "A downloadable canonical JSON seed document describing this program "
-                    "and its member projects, delivered as a file attachment. Round-trips "
+                    "and the member projects the caller holds project membership on "
+                    "(member projects the caller cannot read are omitted entirely; "
+                    "program-level blocks are always included). Delivered as a file "
+                    "attachment. Round-trips "
                     "back through the importer. `resources[].email` and `accounts[].email` "
                     "are withheld (key omitted) unless the caller holds workspace Admin+ — "
                     "the endpoint itself stays reachable at program Admin+, which is "
@@ -1598,9 +1606,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 response=ProgramExportJobSerializer,
                 description=(
                     "An async program export job (ADR-0219, #1958). The job builds a "
-                    ".tar.gz containing the canonical JSON seed plus, per member project, "
-                    "MS Project XML, task attachments, time entries, and the audit/change "
-                    "history. Poll GET .../export/jobs/{job_id}/ until status is 'success', "
+                    ".tar.gz containing the canonical JSON seed plus, per member project "
+                    "the requester holds project membership on, MS Project XML, task "
+                    "attachments, time entries, and the audit/change history. Membership "
+                    "is evaluated when the bundle is built. Poll GET .../export/jobs/{job_id}/ "
+                    "until status is 'success', "
                     "then fetch download_url. Admin+ only; an in-flight job is returned "
                     "rather than queuing a duplicate build."
                 ),
@@ -1613,8 +1623,8 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         Both paths are Admin+ (#1957, see get_permissions). The GET path returns the
         canonical JSON seed as a synchronous attachment; the POST path (ADR-0219)
-        enqueues the richer async ``.tar.gz`` bundle across every member project and
-        returns ``202`` with the job row.
+        enqueues the richer async ``.tar.gz`` bundle across every member project the
+        requester holds project membership on (#4310) and returns ``202`` with the job row.
         """
         program = self.get_object()
 
@@ -1622,7 +1632,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             from trueppm_api.apps.projects.services import enqueue_program_export
 
             job = enqueue_program_export(program=program, requested_by=request.user)
-            return Response(ProgramExportJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+            return Response(
+                ProgramExportJobSerializer(job, context={"request": request}).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
 
         from trueppm_api.apps.projects.seed.exporter import dump_seed, export_program
 
@@ -1660,7 +1673,9 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         jobs = ProgramExportJob.objects.filter(program=program)
         paginator = pagination.PageNumberPagination()
         page = paginator.paginate_queryset(jobs, request, view=self)
-        data = ProgramExportJobSerializer(page if page is not None else jobs, many=True).data
+        data = ProgramExportJobSerializer(
+            page if page is not None else jobs, many=True, context={"request": request}
+        ).data
         return paginator.get_paginated_response(data)
 
     @extend_schema(
@@ -1683,7 +1698,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         """
         program = self.get_object()
         job = get_object_or_404(ProgramExportJob, pk=job_id, program=program)
-        return Response(ProgramExportJobSerializer(job).data)
+        return Response(ProgramExportJobSerializer(job, context={"request": request}).data)
 
     @extend_schema(
         summary="Download a completed async program export bundle",
@@ -1706,6 +1721,16 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "carries the ADR-0809 refusal envelope naming `capability_scope`."
                 )
             ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "No job with this id in this program, OR the job belongs to a different "
+                    "admin's export request (#4310). A bundle can be downloaded only by the "
+                    "admin who requested it — another Program Admin's request for the same "
+                    "job id gets the same 404 an unrelated program would, not a 403, so the "
+                    "two cases are indistinguishable from outside."
+                ),
+            ),
         },
     )
     @action(
@@ -1721,7 +1746,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         Authenticated — the archive contains the whole program including its audit
         history, so it is never served from a raw, unauthenticated storage URL.
         ``409`` if not ready, ``410 Gone`` once the link has expired. The job is
-        program-scoped so a ``job_id`` from another program 404s (IDOR guard).
+        program-scoped so a ``job_id`` from another program 404s (IDOR guard). It is
+        also requester-scoped (#4310): a ``job_id`` belonging to another admin's export
+        request 404s the same way, not 403 — the lookup filters on ``requested_by``
+        alongside ``program``, so the two refusals are indistinguishable from outside.
 
         **ADR-0678 agent opt-out — settled in #3014.** The mixin's ``Program`` branch
         governs this route on ``program.mcp_enabled`` alone, so a child project's
@@ -1736,7 +1764,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         is nothing left to narrow.
         """
         program = self.get_object()
-        job = get_object_or_404(ProgramExportJob, pk=job_id, program=program)
+        # #4310 (B1): the archive holds member-project content, so it is served only to
+        # the admin who requested it. Metadata (detail/list) stays program-scoped.
+        job = get_object_or_404(
+            ProgramExportJob, pk=job_id, program=program, requested_by=request.user
+        )
         return stream_export_job_or_error(
             job,
             success_status=ExportJobStatus.SUCCESS,
@@ -1797,10 +1829,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         """Cross-project resource allocation for the within-program contention view (#1149).
 
         The program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):
-        returns each resource with their task spans across **every member project of this
-        program**, each span tagged with its source project, so the client can show who is
-        over-allocated across sibling projects in overlapping windows (the contention the
-        GA-launch sample program deliberately creates).
+        returns each resource with their task spans across the member projects of this
+        program **the caller holds live ProjectMembership on** (#4310), each span tagged
+        with its source project, so the client can show who is over-allocated across
+        sibling projects in overlapping windows (the contention the GA-launch sample
+        program deliberately creates). A member project the caller cannot read
+        contributes no spans, the same scoping ``task_search`` applies.
 
         This is OSS, within-program **visibility** only — it surfaces contention data but
         does not level resources or cross a program boundary. Cross-program leveling and the
@@ -1862,6 +1896,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         if _excluded is not None:
             member_qs = member_qs.exclude(pk__in=_excluded)
         member_project_ids = list(member_qs.values_list("id", flat=True))
+        # #4310 (round 2, B1): IsProgramScheduler is a PROGRAM gate. Project read is
+        # ProjectMembership-gated regardless of program role, the same predicate
+        # task_search applies — without this, a Program Admin/Scheduler with no
+        # membership on a member project read its task names, dates and status here.
+        from trueppm_api.apps.access.permissions import live_member_project_ids
+
+        _readable = live_member_project_ids(request.user, member_project_ids)
+        member_project_ids = [pid for pid in member_project_ids if pid in _readable]
 
         # --- Resolve window bounds across all member projects ---
         base_tasks = Task.objects.filter(project_id__in=member_project_ids, is_deleted=False)

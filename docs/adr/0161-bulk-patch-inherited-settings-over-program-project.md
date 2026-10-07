@@ -128,3 +128,68 @@ Response: `{ "updated": [{ "id", "server_version" }, ...], "fields": [...] }`.
    `server_version` again, which is the correct "a write happened" signal).
 8. Dead-letter / failure handling: **N/A** — any per-row validation failure raises inside
    the atomic block and rolls the whole batch back (400); nothing is partially applied.
+
+## Amendment (2026-10-06, #4310): program authority does not reach member-project content
+
+**Decision: NARROW.** A Program Admin (program `ADMIN` or above, ADR-0161's program-side
+grant) does not acquire read access to the *content* of a member project on which the
+caller holds no live `ProjectMembership`. Program membership grants authority over the
+program's own surfaces (roster, program backlog, ceremonies, program settings, program
+webhooks as registrant). It does not grant the tasks, attachments, time entries, change
+history or MS Project XML of a member project.
+
+**Why.** `ProjectMembership` is the sole project-read boundary: `_membership_role` in
+`apps/access/permissions.py` is what `IsProjectMember` and every project object check
+consult, and project read has no superuser or workspace-admin bypass. A program-side
+grant that reached project content through the program's bulk exports or its webhook
+fan-out would be a second, weaker project-read path that the project endpoints do not
+honor. The program export bundle and program-scoped webhooks are the two places this
+already happened (#4310); both now intersect with the caller's live membership.
+
+**How it is enforced.**
+
+- `export_program` (sync seed, `GET /programs/{id}/export/`) includes only member
+  projects the `requesting_user` holds live membership on. The management command
+  (`manage.py export_program`) passes no requester and remains the trusted operator path,
+  as it already is for email redaction. A `None` requester (deleted account) and a
+  deactivated requester fail closed.
+- `build_and_store_program_archive` (async bundle) captures the requester at enqueue time
+  (`ProgramExportJob.requested_by`) but evaluates membership when the bundle is built, so
+  a membership revoked while the job waited is not used.
+- The async bundle's download and its in-flight de-dupe are per requester: only the admin
+  who requested a bundle can download it, and another admin's request never returns it.
+  Job metadata stays program-scoped.
+- Editing a program webhook is refused (403) unless the requester is its registrant
+  (`created_by`) and still holds live membership on every project the program covers.
+  The check runs before validation, so a no-op PATCH is refused too. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Its
+  delivery log is readable only by the registrant, because it replays past payloads from
+  every member project.
+- Program-scoped webhook dispatch keeps a program webhook for an event on project P only
+  when its registrant (`Webhook.created_by`) holds live membership on P, checked at
+  dispatch time. A NULL or deactivated registrant fails closed. Project-scoped webhooks
+  are unchanged: they are scoped to the project whose event fires.
+- `GET /programs/{id}/resource-contention/` (round 2, #4310): the contention scope was
+  every visible member project with no membership intersection, so a Program Scheduler or
+  Admin with no `ProjectMembership` on a member project read that project's task ids,
+  names, statuses and dates. It now intersects the scope with the caller's live
+  membership, the same predicate `task_search` already applied.
+
+**Alternatives considered.**
+
+- *Broaden:* Program Admin reads every member project's content. Rejected: it makes
+  "Program Admin" a read grant over projects the admin was never added to, and it is the
+  reverse of the boundary #3439 drew for the program `projects` action.
+- *Narrow the export only:* leave webhooks broad. Rejected: a removed member would keep
+  receiving live events from a project they can no longer read, and the webhook is the
+  same leak on a different channel.
+
+**Consequences.**
+
+- A Program Admin who is not a member of a project gets a program export without that
+  project. Operators who relied on the broader export must add the admin to the project
+  or export the project itself.
+- Program webhooks whose registrant has no membership on a member project stop receiving
+  that project's events. Their deliveries are dropped at dispatch, not queued.
+- #2066 (PRIVATE project visibility) builds on this: a PRIVATE project's content is
+  readable only through `ProjectMembership`, which this amendment makes the single rule
+  for the program-side surfaces too.

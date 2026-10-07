@@ -86,6 +86,37 @@ truth.
 
 ---
 
+<!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
+## Next release: program exports and program webhooks honor project membership
+
+**Behavior change, no migration.** Upgrading from `0.4.0-beta.6` or earlier: this change
+ships in the next release and is not in any tag yet. Until you upgrade to it, a program
+export and the program webhooks of a Program Admin reach every member project. After the
+upgrade:
+
+- **Program export (JSON seed and async bundle).** Only member projects the requesting
+  user holds project membership on are included. A Program Admin who is not a member of a
+  project no longer receives that project's tasks, attachments, time entries, history, or
+  MS Project XML from a program export. Program-level content (roster, program backlog,
+  ceremonies) is still exported. A scheduled or queued bundle is evaluated when it is
+  built, not when it was requested. A bundle can be downloaded only by the admin who
+  requested it, and an admin's export request no longer returns another admin's job that
+  is still in flight.
+- **Program-scoped webhooks.** A program webhook receives a member project's events only
+  while its creator (`created_by`) holds project membership on that project. Removing the
+  membership stops new deliveries. Events already queued, or retrying, are still delivered.
+  A webhook whose creator account was deleted, or is deactivated, delivers no member-project
+  events. Only the webhook's creator can edit it, and only while they still have membership
+  on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log.
+
+**Operator check after the upgrade.** Program webhooks now showing no deliveries for a
+member project usually belong to a creator without membership there. Either add the
+creator to the project, or re-create the subscription under a member account. Disabling
+it is not possible while the creator lacks membership, because edits are refused, so
+re-creating it under a member account is the remedy. The
+`manage.py export_program` command is unaffected: it runs as the operator with shell
+access and exports every member project.
+
 ## Upgrading to 0.4
 
 **Migration behavior:** includes destructive ops (see below). Downtime: a
