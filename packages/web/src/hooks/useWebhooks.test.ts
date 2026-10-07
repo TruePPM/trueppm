@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { AxiosError, type AxiosResponse } from 'axios';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -64,6 +65,13 @@ function paginated<T>(results: T[]) {
   return { data: { count: results.length, next: null, previous: null, results } };
 }
 
+/** A 403 rejection shaped like the one `apiClient` throws (#4310). */
+function forbiddenError(): Error {
+  const err = new AxiosError('Request failed with status code 403');
+  err.response = { status: 403, data: { detail: 'forbidden' } } as AxiosResponse;
+  return err;
+}
+
 let qc: QueryClient;
 function wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client: qc }, children);
@@ -103,6 +111,14 @@ describe('useWebhooks / useWebhookDeliveries', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(getMock).toHaveBeenCalledWith('/projects/p1/webhooks/wh1/deliveries/');
     expect(result.current.data).toHaveLength(1);
+  });
+
+  it('reports forbidden, distinct from empty, on a 403 (#4310)', async () => {
+    getMock.mockRejectedValue(forbiddenError());
+    const { result } = renderHook(() => useWebhookDeliveries(PROJECT, 'wh1'), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.forbidden).toBe(true);
+    expect(result.current.data).toBeUndefined();
   });
 });
 
@@ -162,7 +178,12 @@ describe('webhook mutations', () => {
 describe('useWebhookTestResult', () => {
   it('does nothing without a delivery id', () => {
     const { result } = renderHook(() => useWebhookTestResult(PROJECT, 'wh1', null), { wrapper });
-    expect(result.current).toEqual({ delivery: null, settled: false, timedOut: false });
+    expect(result.current).toEqual({
+      delivery: null,
+      settled: false,
+      timedOut: false,
+      forbidden: false,
+    });
     expect(getMock).not.toHaveBeenCalled();
   });
 
@@ -207,5 +228,14 @@ describe('useWebhookTestResult', () => {
     // A new delivery id restarts the budget.
     rerender({ id: 'd2' });
     expect(result.current.timedOut).toBe(false);
+  });
+
+  it('stops polling and reports forbidden on a 403, never a timeout (#4310)', async () => {
+    getMock.mockRejectedValue(forbiddenError());
+    const { result } = renderHook(() => useWebhookTestResult(PROJECT, 'wh1', 'd1'), { wrapper });
+    await waitFor(() => expect(result.current.forbidden).toBe(true));
+    expect(result.current.settled).toBe(false);
+    expect(result.current.timedOut).toBe(false);
+    expect(getMock).toHaveBeenCalledTimes(1); // retry: false, and the poll must not re-fire.
   });
 });

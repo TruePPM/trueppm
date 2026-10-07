@@ -596,7 +596,7 @@ function SlackExample() {
 }
 
 function RecentDeliveries({ scope, webhookId }: { scope: IntegrationScope; webhookId: string }) {
-  const { data: deliveries, isLoading } = useWebhookDeliveries(scope, webhookId);
+  const { data: deliveries, isLoading, isError, forbidden } = useWebhookDeliveries(scope, webhookId);
   return (
     <div>
       <div className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-2">
@@ -607,6 +607,17 @@ function RecentDeliveries({ scope, webhookId }: { scope: IntegrationScope; webho
           className="h-16 bg-neutral-surface-sunken rounded motion-safe:animate-pulse"
           aria-busy="true"
         />
+      ) : forbidden ? (
+        // #4310: the delivery log replays past payloads, so it is readable only by
+        // the webhook's creator. A 403 here is a permanent access boundary, never
+        // "no deliveries yet" — those two must read as different states.
+        <p className="text-[12px] text-neutral-text-secondary">
+          You don&apos;t have access to this webhook&apos;s delivery log.
+        </p>
+      ) : isError ? (
+        // A non-403 failure (network blip, 5xx) is not "no deliveries yet" either —
+        // retries are off, so surface it rather than quietly claiming there's nothing.
+        <p className="text-[12px] text-neutral-text-secondary">Couldn&apos;t load deliveries.</p>
       ) : !deliveries || deliveries.length === 0 ? (
         <p className="text-[12px] text-neutral-text-secondary">No deliveries yet.</p>
       ) : (

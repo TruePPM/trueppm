@@ -10,10 +10,10 @@ pinned singleton, so any PDB on it would only block voluntary node drains.
 
 The web tier was missing until #3188 — the only tier a browser actually loads
 had no budget, while the two it never talks to directly did. Combined with
-web.replicaCount shipping as a truthy `1` (so its documented fallback to the
-top-level replicaCount could never fire), a values-prod deploy rendered api=2,
-worker=2, web=1, PDBs=0: an unprotected singleton in front of a redundant
-backend.
+web.replicaCount (now replicas.web) shipping as a truthy `1` (so its documented
+fallback to the top-level replicaCount could never fire), a values-prod deploy
+rendered api=2, worker=2, web=1, PDBs=0: an unprotected singleton in front of a
+redundant backend.
 
 A PDB alone is still not redundancy. Without topologySpreadConstraints (see
 values.yaml) both replicas can land on one node, and a node failure takes the

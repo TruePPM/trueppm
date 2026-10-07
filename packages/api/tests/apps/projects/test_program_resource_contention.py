@@ -24,7 +24,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProgramMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Program, Project, Task, TaskStatus
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
@@ -82,6 +82,14 @@ def _scheduled_task(project: Project, name: str, start: date, finish: date) -> T
 def _auth_client(role: int, program: Program) -> APIClient:
     user = User.objects.create_user(username=f"u{role}_{program.pk}", password="pw")
     ProgramMembership.objects.create(program=program, user=user, role=role)
+    # #4310 (round 2): project read is ProjectMembership-gated, so this generic helper
+    # grants membership on every one of the program's CURRENT live projects — these
+    # tests exercise contention aggregation, not the membership boundary itself (that
+    # has its own tests below), so a program-role-only caller must still see everything.
+    for project_id in Project.objects.filter(program=program, is_deleted=False).values_list(
+        "pk", flat=True
+    ):
+        ProjectMembership.objects.create(project_id=project_id, user=user, role=role)
     c = APIClient()
     c.force_authenticate(user=user)
     return c
@@ -557,3 +565,49 @@ def test_scheduler_never_receives_resource_email(
     for row in rows:
         assert "email" not in row
     assert "janus@trueppm.demo" not in resp.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Project-membership boundary (#4310, round 2 — B1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_admin_without_membership_on_a_project_gets_no_spans_from_it(
+    program: Program, project_a: Project, project_b: Project, janus: Resource
+) -> None:
+    """A program role (even Admin) is not a project-read grant (ADR-0161 amendment)."""
+    t_a = _scheduled_task(project_a, "In scope", date(2026, 7, 6), date(2026, 7, 10))
+    t_b = _scheduled_task(project_b, "Out of reach", date(2026, 7, 6), date(2026, 7, 10))
+    TaskResource.objects.create(task=t_a, resource=janus, units=Decimal("1.00"))
+    TaskResource.objects.create(task=t_b, resource=janus, units=Decimal("1.00"))
+
+    user = User.objects.create_user(username=f"admin_{program.pk}", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=project_a, user=user, role=Role.ADMIN)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    resp = client.get(_url(program), {"start": "2026-07-06", "end": "2026-07-31"})
+
+    assert resp.status_code == 200
+    tasks = resp.json()["resources"][0]["tasks"]
+    names = {t["name"] for t in tasks}
+    assert names == {"In scope"}
+
+
+@pytest.mark.django_db
+def test_member_with_membership_on_both_projects_sees_both_spans(
+    program: Program, project_a: Project, project_b: Project, janus: Resource
+) -> None:
+    t_a = _scheduled_task(project_a, "In scope", date(2026, 7, 6), date(2026, 7, 10))
+    t_b = _scheduled_task(project_b, "Also in scope", date(2026, 7, 6), date(2026, 7, 10))
+    TaskResource.objects.create(task=t_a, resource=janus, units=Decimal("1.00"))
+    TaskResource.objects.create(task=t_b, resource=janus, units=Decimal("1.00"))
+    client = _auth_client(Role.ADMIN, program)
+
+    resp = client.get(_url(program), {"start": "2026-07-06", "end": "2026-07-31"})
+
+    assert resp.status_code == 200
+    names = {t["name"] for t in resp.json()["resources"][0]["tasks"]}
+    assert names == {"In scope", "Also in scope"}

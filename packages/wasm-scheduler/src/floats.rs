@@ -35,6 +35,17 @@ use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
 /// A milestone held up by the project-start floor alone (#4225) is shown at the
 /// floor but measured from at its earlier link instant; its stretch runs from that
 /// link instant, so its predecessors see the slack the direct link gives them.
+///
+/// A successor that is itself a milestone is reached through the same reading-tie
+/// bound `compute_floats` applies to ordinary work ([`free_start_ref`], #4183) —
+/// not just `milestone_latest` against its raw free instant (#4329). Without it,
+/// this bound can overstate how far *this* milestone's own instant may travel:
+/// pushing it up to that successor's raw free instant can flip the successor's
+/// reading from the end-of-day instant another, unrelated, predecessor already
+/// occupies to a start-of-day one at the very same raw instant — and a
+/// start-of-day proposal always outranks an end-of-day one at a tie
+/// (`place_milestone`), so the successor's *shown day* moves even though its raw
+/// free instant, taken alone, did not. Mirrors the Python `_milestone_free_instants`.
 fn milestone_free_instants(
     tasks: &[Task],
     topo_order: &[NodeIndex],
@@ -50,7 +61,8 @@ fn milestone_free_instants(
             continue;
         };
         let (instant, start_display) = early;
-        let link = milestones.links[i].unwrap_or(early).0;
+        let own_link_instant = milestones.links[i].unwrap_or(early);
+        let link = own_link_instant.0;
         if !start_display {
             free[i] = Some(instant);
             continue;
@@ -67,8 +79,17 @@ fn milestone_free_instants(
             // FF into a milestone is FS (#4272).
             let (start_ref, finish_ref, seen) = match free[s] {
                 Some(x) => {
-                    let (a, b) = milestone_refs(x)?;
-                    (a, b, milestone_link(dep.dep_type))
+                    let seen = milestone_link(dep.dep_type);
+                    let (_, b) = milestone_refs(x)?;
+                    let succ_shown = milestones.shown[s]
+                        .ok_or_else(|| "free instant implies a shown instant".to_string())?;
+                    let start_ref = free_start_ref(
+                        (x, succ_shown.1),
+                        (seen, dep.lag_days()),
+                        Some(own_link_instant),
+                        cals.for_node(s),
+                    )?;
+                    (start_ref, b, seen)
                 }
                 None => (
                     succ.early_start.unwrap(),

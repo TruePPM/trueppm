@@ -324,6 +324,7 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
     memory stays one row plus the gzip window even for a program with many large
     projects.
     """
+    from trueppm_api.apps.access.permissions import live_member_project_ids
     from trueppm_api.apps.msproject.exporter import export_project_xml
     from trueppm_api.apps.projects.models import ProgramExportJob, Project, Task
     from trueppm_api.apps.projects.seed.exporter import dump_seed, export_program
@@ -335,6 +336,12 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
     projects = list(
         Project.objects.filter(program=program, is_deleted=False).order_by("code", "name", "pk")
     )
+    # #4310: the requester is captured at enqueue time (job.requested_by) but their
+    # live membership is evaluated HERE, when the bundle is built, so a member removed
+    # while the job waited in the queue is not included. A deleted requester (None)
+    # yields no projects — fail closed.
+    readable = live_member_project_ids(job.requested_by, [p.pk for p in projects])
+    projects = [p for p in projects if p.pk in readable]
 
     counts: dict[str, int] = {}
     with tempfile.NamedTemporaryFile(suffix=".tar.gz") as tmp:

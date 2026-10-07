@@ -342,13 +342,16 @@ def program(user: object) -> Program:
     return program
 
 
-def _make_program_webhook(program: Program, *, url: str = "https://example.com/p") -> Webhook:
+def _make_program_webhook(
+    program: Program, *, url: str = "https://example.com/p", created_by: object | None = None
+) -> Webhook:
     return Webhook.objects.create(
         program=program,
         url=url,
         secret="s3cret",
         events=[WebhookEventType.TASK_CREATED.value],
         is_active=True,
+        created_by=created_by,
     )
 
 
@@ -424,10 +427,12 @@ class TestProgramIntegrationsSummary:
         membership: ProjectMembership,
     ) -> None:
         # Connect the project to the program; a program-scoped webhook should
-        # fire when dispatch_webhooks is called for the project.
+        # fire when dispatch_webhooks is called for the project. The registrant
+        # must hold live ProjectMembership on the project the event comes from
+        # (#4310) — `membership` grants `user` that membership.
         project.program = program
         project.save(update_fields=["program"])
-        wh = _make_program_webhook(program)
+        wh = _make_program_webhook(program, created_by=user)
 
         from unittest.mock import patch
 

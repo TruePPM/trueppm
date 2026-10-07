@@ -91,10 +91,21 @@ def test_explicit_none_requesting_user_is_redacted(program: Program) -> None:
     Distinct from the omitted-kwarg case above: `_NO_HTTP_CALLER` (the default)
     means "no HTTP request in play at all"; `None` means "there was a request
     lineage and its user is gone" and must not silently upgrade to full access.
+
+    #4310 changed what `None` means for project *content*: a `None` requester now
+    also has no live `ProjectMembership` anywhere, so every member project is
+    excluded from the export, and `doc["resources"]` is correspondingly absent. An
+    `all(...)` over that empty list would pass whether or not redaction actually
+    ran, so the resource-email assertion this test used to make is dropped — it is
+    no longer exercising anything. The program roster (`accounts`), by contrast, is
+    program-scoped and unaffected by the project exclusion, so it stays the right
+    place to assert the email redaction invariant for this caller.
     """
     doc = export_program(program, requesting_user=None)
-    assert all(e is None for e in _resource_emails(doc))
-    assert all(e is None for e in _account_emails(doc))
+    assert doc.get("projects") == []
+    account_emails = _account_emails(doc)
+    assert len(account_emails) > 0, "program roster must be non-empty for this to test anything"
+    assert all(e is None for e in account_emails)
 
 
 def test_project_owner_without_workspace_admin_is_redacted(project: Project, owner: Any) -> None:

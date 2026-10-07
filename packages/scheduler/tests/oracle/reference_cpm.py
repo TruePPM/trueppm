@@ -12,13 +12,17 @@ evidence of correctness rather than of parity.
 without ever looking at engine behavior" — a handful of rules were
 underspecified or contradicted by the docs, and for those the choice below was
 calibrated against what the engines actually do, not derived from prose alone:
-the SF zero-lag anchor and the SF-only milestone floor (both land on the
-documented rules, #4145 and #4218, once read against engine output), the
-zero-lag FF finish instant (:func:`finish_meeting`), and the lead (negative
-lag) snap direction — see the note on that bullet below. The lead snap
-direction was the one place the docs disagreed with both engines (#4274); the
-docs were wrong and have been corrected to match the engines, which is what
-this module already modeled. Every other rule is read from the docs alone.
+the SF-only milestone floor (lands on the documented rule, #4218, once read
+against engine output), the zero-lag FF finish instant
+(:func:`finish_meeting`), and the lead (negative lag) snap direction — see the
+note on that bullet below. The lead snap direction was the one place the docs
+disagreed with both engines (#4274); the docs were wrong and have been
+corrected to match the engines, which is what this module already modeled.
+The SF zero-lag anchor (#4145) was calibrated the same way until #4322, which
+checked it against a real MS-Project-saved schedule
+(``tests/fixtures/msproject/link_types_2013.py``) and found it matches; it is
+no longer a calibrated-only rule, though the SF-only milestone floor still is.
+Every other rule is read from the docs alone.
 
 It deliberately imports nothing from ``trueppm_scheduler``: its input is plain
 data (:class:`RefProject`) and its output is plain data (:class:`RefTask`).

@@ -86,6 +86,37 @@ truth.
 
 ---
 
+<!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
+## Next release: program exports and program webhooks honor project membership
+
+**Behavior change, no migration.** Upgrading from `0.4.0-beta.6` or earlier: this change
+ships in the next release and is not in any tag yet. Until you upgrade to it, a program
+export and the program webhooks of a Program Admin reach every member project. After the
+upgrade:
+
+- **Program export (JSON seed and async bundle).** Only member projects the requesting
+  user holds project membership on are included. A Program Admin who is not a member of a
+  project no longer receives that project's tasks, attachments, time entries, history, or
+  MS Project XML from a program export. Program-level content (roster, program backlog,
+  ceremonies) is still exported. A scheduled or queued bundle is evaluated when it is
+  built, not when it was requested. A bundle can be downloaded only by the admin who
+  requested it, and an admin's export request no longer returns another admin's job that
+  is still in flight.
+- **Program-scoped webhooks.** A program webhook receives a member project's events only
+  while its creator (`created_by`) holds project membership on that project. Removing the
+  membership stops new deliveries. Events already queued, or retrying, are still delivered.
+  A webhook whose creator account was deleted, or is deactivated, delivers no member-project
+  events. Only the webhook's creator can edit it, and only while they still have membership
+  on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log.
+
+**Operator check after the upgrade.** Program webhooks now showing no deliveries for a
+member project usually belong to a creator without membership there. Either add the
+creator to the project, or re-create the subscription under a member account. Disabling
+it is not possible while the creator lacks membership, because edits are refused, so
+re-creating it under a member account is the remedy. The
+`manage.py export_program` command is unaffected: it runs as the operator with shell
+access and exports every member project.
+
 ## Upgrading to 0.4
 
 **Migration behavior:** includes destructive ops (see below). Downtime: a
@@ -292,7 +323,7 @@ installs and later upgrades skip it, because it compares against a policy that
 must already exist for there to be a "transition" at all. A **separate** check
 fires on a fresh install too, for the two paths that bypass any in-cluster
 ingress controller entirely: `demo.enabled` (the documented Cloudflare Tunnel
-exposure) and `web.service.type: LoadBalancer`/`NodePort`. Neither has a prior
+exposure) and `service.web.type: LoadBalancer`/`NodePort`. Neither has a prior
 policy to compare against, so the render simply refuses while the selector is
 still the default — see [Public read-only demo
 mode](/administration/helm-values/#public-read-only-demo-mode). A cloud load
@@ -342,6 +373,63 @@ Three more things to check for this upgrade:
 - **GitOps.** Tools that render the chart with `helm template` and apply the
   result themselves, such as Argo CD, never run this check. Set the selector
   before you sync.
+
+### Helm: seven values keys moved into the concern-first maps
+
+Upgrading the Helm chart from `0.4.0-beta.6` or earlier moves seven values keys
+that 0.4 prereleases introduced. The chart lays out its values concern first, then
+tier (`resources.api`, `probes.worker`, `lifecycle.web`), and these seven went the
+other way. They move before 0.4.0, because the schema rejects unknown keys and any
+later rename would break `helm upgrade` for everyone who had set them
+([ADR-1248](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1248-helm-values-are-concern-first-keyed-by-tier.md)).
+
+| Old key (0.4 prereleases) | New key |
+|---|---|
+| `web.replicaCount` | `replicas.web` |
+| `web.service.type` | `service.web.type` |
+| `web.service.port` | `service.web.port` |
+| `api.workers` | `processes.api.workers` |
+| `celeryWorker.concurrency` | `processes.worker.concurrency` |
+| `celeryWorker.maxTasksPerChild` | `processes.worker.maxTasksPerChild` |
+| `celeryWorker.extraArgs` | `processes.worker.extraArgs` |
+
+The defaults and the behavior do not change, only where the key lives. If your
+values file or `--set` flags still use an old key, the render refuses and names
+it. The wording depends on your Helm version:
+
+```
+# Helm 3.14 and similar
+(root): Additional property celeryWorker is not allowed
+web: Additional property replicaCount is not allowed
+
+# Newer Helm releases
+- at '': additional properties 'celeryWorker' not allowed
+- at '/web': additional properties 'replicaCount' not allowed
+```
+
+Nothing is silently dropped. Rename the key and run the upgrade again. As a
+YAML diff:
+
+```yaml
+# Before (0.4.0-beta.6 and earlier)        # After
+api:                                       processes:
+  workers: 4                                 api:
+celeryWorker:                                  workers: 4
+  concurrency: 4                             worker:
+web:                                           concurrency: 4
+  replicaCount: 2                          replicas:
+  service:                                   web: 2
+    type: LoadBalancer                     service:
+                                             web:
+                                               type: LoadBalancer
+```
+
+Every 0.3 key keeps its name and meaning. The top-level `replicaCount` still
+sets the API and worker replicas, `service.type`/`service.port` still describe
+the API Service, and a values file written for 0.3 renders unchanged. Keys that
+exist only for the web tier's nginx stay under `web:`: `web.enabled`,
+`web.containerPort`, `web.maxBodySize`, `web.adminAccess.*`, and
+`web.securityHeaders.*`. The `api:` and `celeryWorker:` roots no longer exist.
 
 ### Milestone date shift after recalculation
 

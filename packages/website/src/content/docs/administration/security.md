@@ -408,7 +408,7 @@ the operator-facing highlights:
   selector until you confirm it; see [Upgrading to
   0.4](/getting-started/upgrade/#helm-the-api-and-web-pods-get-a-default-deny-ingress-networkpolicy).
   The same refusal also fires on a **fresh install** with no chart-rendered
-  Ingress when `demo.enabled` is true or `web.service.type` is
+  Ingress when `demo.enabled` is true or `service.web.type` is
   `LoadBalancer`/`NodePort` — a tunnel (demo mode's documented Cloudflare
   Tunnel path) and a LoadBalancer/NodePort Service both bypass any in-cluster
   ingress controller entirely, so the default selector is wrong for them

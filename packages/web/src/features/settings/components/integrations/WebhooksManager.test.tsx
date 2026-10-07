@@ -12,7 +12,9 @@ const testResult = vi.fn(() => ({
   delivery: null as unknown,
   settled: false,
   timedOut: false,
+  forbidden: false,
 }));
+const currentUser = vi.fn(() => ({ user: { id: '1' }, isLoading: false }));
 
 vi.mock('@/hooks/useWebhooks', () => ({
   useWebhooks: () => useWebhooks() as unknown,
@@ -24,6 +26,11 @@ vi.mock('@/hooks/useWebhooks', () => ({
     isError: false,
   }),
   useWebhookTestResult: () => testResult(),
+}));
+
+// #4310: the Edit action is gated on being the webhook's creator at program scope.
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => currentUser(),
 }));
 
 // The editor modal has its own tests; here it's a marker so we can assert it opens.
@@ -59,7 +66,9 @@ beforeEach(() => {
   testMutate.mockReset();
   testReset.mockReset();
   testResult.mockReset();
-  testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false });
+  testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false, forbidden: false });
+  currentUser.mockReset();
+  currentUser.mockReturnValue({ user: { id: '1' }, isLoading: false });
 });
 
 describe('WebhooksManager', () => {
@@ -107,6 +116,7 @@ describe('WebhooksManager', () => {
       delivery: { id: 'd1', status: 'failed', response_status: 400 } as unknown,
       settled: true,
       timedOut: false,
+      forbidden: false,
     });
     render(<WebhooksManager scope={SCOPE} />);
 
@@ -130,6 +140,7 @@ describe('WebhooksManager', () => {
       delivery: { id: 'd1', status: 'success', response_status: 200 } as unknown,
       settled: true,
       timedOut: false,
+      forbidden: false,
     });
     render(<WebhooksManager scope={SCOPE} />);
 
@@ -149,7 +160,7 @@ describe('WebhooksManager', () => {
     // removed from the focusability tree, so the browser blurs it and the keyboard
     // user is thrown off the row for the whole poll.
     useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
-    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false });
+    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false, forbidden: false });
     render(<WebhooksManager scope={SCOPE} />);
 
     const button = screen.getByRole('button', { name: 'Test' });
@@ -171,7 +182,7 @@ describe('WebhooksManager', () => {
 
   it('reports a still-pending test rather than polling forever', () => {
     useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
-    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: true });
+    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: true, forbidden: false });
     render(<WebhooksManager scope={SCOPE} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Test' }));
@@ -228,5 +239,54 @@ describe('WebhooksManager', () => {
     expect(
       screen.getByText(/Program webhooks let external systems receive real-time events/i),
     ).toBeInTheDocument();
+  });
+
+  it('shows Edit on a project-scoped webhook regardless of creator (#4310)', () => {
+    useWebhooks.mockReturnValue({
+      data: [{ ...WEBHOOK, created_by: 999 }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(<WebhooksManager scope={SCOPE} />);
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it('hides Edit on a program-scoped webhook for a non-creator admin (#4310)', () => {
+    useWebhooks.mockReturnValue({
+      data: [{ ...WEBHOOK, program: 'prog-1', project: null, created_by: 999 }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(<WebhooksManager scope={{ kind: 'program', id: 'prog-1' }} />);
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    // Delete stays available — this is an edit gate, not a visibility gate.
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  });
+
+  it('shows Edit on a program-scoped webhook for its creator (#4310)', () => {
+    currentUser.mockReturnValue({ user: { id: '7' }, isLoading: false });
+    useWebhooks.mockReturnValue({
+      data: [{ ...WEBHOOK, program: 'prog-1', project: null, created_by: 7 }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(<WebhooksManager scope={{ kind: 'program', id: 'prog-1' }} />);
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+
+  it("surfaces a 'Sent' outcome, not a hang, when the test result is forbidden (#4310)", () => {
+    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false, forbidden: true });
+    useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
+    render(<WebhooksManager scope={SCOPE} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    const [, callbacks] = testMutate.mock.calls[0] as [
+      string,
+      { onSuccess: (d: { delivery_id: string }) => void },
+    ];
+    act(() => callbacks.onSuccess({ delivery_id: 'd-1' }));
+    expect(screen.getByRole('button', { name: /Sent/ })).toBeInTheDocument();
   });
 });

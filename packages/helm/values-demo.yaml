@@ -235,9 +235,10 @@ envFrom:
 # demo with no write path enqueues almost nothing.
 #
 # 3, not the inherited default of 1 (#4226): the shipped image runs one uvicorn
-# process per pod (`api.workers: 1`, values.yaml), and that chart's own comment on
-# `api.workers` says request throughput "does not scale with the pod's CPU limit at
-# all, only with replicaCount" — and to prefer replicas over multi-worker pods on
+# process per pod (`processes.api.workers: 1`, values.yaml), and that chart's own
+# comment on `processes.api.workers` says request throughput "does not scale
+# with the pod's CPU limit at all, only with replicaCount" — and to prefer
+# replicas over multi-worker pods on
 # Kubernetes. This also scales celery-worker (harmless; it was already comfortably
 # under its own resource limits) — celery-beat stays a fixed singleton regardless,
 # it does not key off `replicaCount`. Deliberately conservative: the only measured

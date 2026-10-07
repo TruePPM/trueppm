@@ -53,9 +53,9 @@ spec:
           # mean "no workers", it means "fall back to the default" — i.e. exactly
           # the cpu_count() behavior this flag exists to prevent. Failing the
           # render is the only way that footgun stays unreachable.
-          {{- $concurrency := int (required "celeryWorker.concurrency must be set (Celery's cpu_count() default OOMKills the worker on multi-core nodes)" .Values.celeryWorker.concurrency) }}
+          {{- $concurrency := int (required "processes.worker.concurrency must be set (Celery's cpu_count() default OOMKills the worker on multi-core nodes)" .Values.processes.worker.concurrency) }}
           {{- if lt $concurrency 1 }}
-            {{- fail (printf "celeryWorker.concurrency must be >= 1, got %d — 0 makes Celery fall back to cpu_count(), which is the OOMKill this setting prevents (#2571)" $concurrency) }}
+            {{- fail (printf "processes.worker.concurrency must be >= 1, got %d — 0 makes Celery fall back to cpu_count(), which is the OOMKill this setting prevents (#2571)" $concurrency) }}
           {{- end }}
           command:
             - celery
@@ -64,17 +64,17 @@ spec:
             - worker
             - --loglevel=info
             - --concurrency={{ $concurrency }}
-            {{- with .Values.celeryWorker.maxTasksPerChild }}
+            {{- with .Values.processes.worker.maxTasksPerChild }}
             {{- /* Validated, not interpolated raw: a string value carrying a
                    newline would otherwise inject extra argv entries into the
                    command list, and a bare `| int` would silently coerce any
                    non-numeric value to 0 rather than saying so. */}}
             {{- if not (regexMatch "^[0-9]+$" (toString .)) }}
-              {{- fail (printf "celeryWorker.maxTasksPerChild must be a non-negative integer, got %q" (toString .)) }}
+              {{- fail (printf "processes.worker.maxTasksPerChild must be a non-negative integer, got %q" (toString .)) }}
             {{- end }}
             - --max-tasks-per-child={{ . | int }}
             {{- end }}
-            {{- range .Values.celeryWorker.extraArgs }}
+            {{- range .Values.processes.worker.extraArgs }}
             - {{ . | quote }}
             {{- end }}
           {{- with .Values.envFrom }}
