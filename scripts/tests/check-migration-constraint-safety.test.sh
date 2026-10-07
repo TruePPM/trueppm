@@ -279,9 +279,13 @@ check "a comment missing the colon form is not the marker" "$rc"
 python3 "$GATE" >"$TMP/real" 2>&1 \
   && check "the committed tree passes the gate" 0 \
   || { cat "$TMP/real"; check "the committed tree passes the gate" 1; }
-grep -q "75 checked" "$TMP/real" \
-  && check "all 75 AddConstraint sites are accounted for" 0 \
-  || check "all 75 AddConstraint sites are accounted for" 1
+# The count is pinned on purpose: a site the scanner silently stops seeing would
+# otherwise still read as "clean". It moves with the migration tree — a release
+# squash adds its own AddConstraint copies (#4303 took it 75 -> 83) — and
+# scripts:test runs on schedule only, so bump it in the same MR that adds sites.
+grep -q "83 checked" "$TMP/real" \
+  && check "all 83 AddConstraint sites are accounted for" 0 \
+  || check "all 83 AddConstraint sites are accounted for" 1
 
 echo
 if [[ "$fail" -gt 0 ]]; then
