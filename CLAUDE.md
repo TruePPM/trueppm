@@ -239,7 +239,8 @@ short enough to be signal. Eight rules:
    single branch (add field → migrate → rename → migrate → add index → migrate =
    three migrations for one change). Finish the model design first, then generate
    one migration. If a branch still ends up with several WIP migrations, squash them
-   to one before the MR: `python manage.py squashmigrations <app> <start> <end>`.
+   to one before the MR: `python manage.py squashmigrations --no-optimize <app> <start> <end>`
+   — see rule 6 for why `--no-optimize` is never optional.
 2. **Prefer `Meta.indexes` / `Meta.constraints` over `RunSQL`.** Anything declared
    in model `Meta` is regenerated automatically by `makemigrations` and therefore
    survives a squash; raw `RunSQL` lives outside model state and is silently dropped

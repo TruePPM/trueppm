@@ -15,6 +15,17 @@ Django's migration loader (never imported by module name, CLAUDE.md migration
 rule 3) and invoked against the live app registry — the same shape
 ``test_matrix_cleanup_upgrade.py`` uses to test a migration's data step without
 asserting on migration *file names*.
+
+What this proves, precisely: that migration 0004's ``RunPython`` step exists in
+the migration graph and is exercised, and that removing the step (or the
+migration) breaks this test — which is this file's real value, since it is the
+one thing standing between a future edit and silently dropping the backfill
+again. It does **not** prove the callable has, via 0004's own declared
+dependencies, the frozen historical model fields it reads available at that
+point in the graph — these tests call ``create_default_teams`` against the
+current global app registry (``django.apps.apps``), not the historical model
+state Django's own migration executor would freeze and pass a real
+``RunPython`` at that position.
 """
 
 from __future__ import annotations
