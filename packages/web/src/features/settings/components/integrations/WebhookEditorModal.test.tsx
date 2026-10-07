@@ -18,9 +18,15 @@ const h = vi.hoisted(() => ({
   createPending: false,
   updatePending: false,
   deliveries: vi.fn(
-    (): { data: unknown[] | undefined; isLoading: boolean; forbidden?: boolean } => ({
+    (): {
+      data: unknown[] | undefined;
+      isLoading: boolean;
+      isError?: boolean;
+      forbidden?: boolean;
+    } => ({
       data: [],
       isLoading: false,
+      isError: false,
       forbidden: false,
     }),
   ),
@@ -497,6 +503,15 @@ describe('WebhookEditorModal — delivery log', () => {
     expect(
       screen.getByText("You don't have access to this webhook's delivery log."),
     ).toBeInTheDocument();
+    expect(screen.queryByText('No deliveries yet.')).not.toBeInTheDocument();
+  });
+
+  it('shows a load-failure state on a non-403 error, not "No deliveries yet"', () => {
+    h.deliveries.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+    render(
+      <WebhookEditorModal scope={SCOPE} webhook={makeWebhook()} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(screen.getByText("Couldn't load deliveries.")).toBeInTheDocument();
     expect(screen.queryByText('No deliveries yet.')).not.toBeInTheDocument();
   });
 

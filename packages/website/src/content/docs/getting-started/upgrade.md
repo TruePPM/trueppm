@@ -86,7 +86,7 @@ truth.
 
 ---
 
-<!-- TODO(#4310): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
+<!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
 ## Next release: program exports and program webhooks honor project membership
 
 **Behavior change, no migration.** Upgrading from `0.4.0-beta.6` or earlier: this change

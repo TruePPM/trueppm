@@ -26,7 +26,7 @@ read grant on the content of the member projects. Reading a project's tasks, att
 time entries or change history takes a `ProjectMembership` on that project, whatever the
 program role.
 
-<!-- TODO(#4310): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
+<!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
 The program export (JSON seed and async bundle) and program-scoped webhook deliveries
 follow this rule. The narrowing ships in the next release; see
 [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
