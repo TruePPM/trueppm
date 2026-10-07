@@ -384,6 +384,8 @@ class ProgramWebhookViewSet(WebhookViewSet):
         return obj
 
     def _can_edit(self, webhook: Webhook) -> bool:
+        if webhook.program_id is None:
+            return False
         if webhook.created_by_id is None or webhook.created_by_id != self.request.user.pk:
             return False
         project_ids = set(
