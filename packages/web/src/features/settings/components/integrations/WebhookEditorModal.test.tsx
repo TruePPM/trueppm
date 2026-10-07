@@ -17,7 +17,13 @@ const h = vi.hoisted(() => ({
   updateMutate: vi.fn(),
   createPending: false,
   updatePending: false,
-  deliveries: vi.fn(() => ({ data: [] as unknown[] | undefined, isLoading: false })),
+  deliveries: vi.fn(
+    (): { data: unknown[] | undefined; isLoading: boolean; forbidden?: boolean } => ({
+      data: [],
+      isLoading: false,
+      forbidden: false,
+    }),
+  ),
 }));
 
 vi.mock('@/hooks/useWebhooks', () => ({
@@ -481,6 +487,17 @@ describe('WebhookEditorModal — delivery log', () => {
       <WebhookEditorModal scope={SCOPE} webhook={makeWebhook()} onClose={vi.fn()} onSaved={vi.fn()} />,
     );
     expect(screen.getByText('No deliveries yet.')).toBeInTheDocument();
+  });
+
+  it('shows a distinct access-denied state on a 403, not "No deliveries yet" (#4310)', () => {
+    h.deliveries.mockReturnValue({ data: undefined, isLoading: false, forbidden: true });
+    render(
+      <WebhookEditorModal scope={SCOPE} webhook={makeWebhook()} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(
+      screen.getByText("You don't have access to this webhook's delivery log."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No deliveries yet.')).not.toBeInTheDocument();
   });
 
   it('renders failed and pending deliveries, falling back to the status word', () => {
