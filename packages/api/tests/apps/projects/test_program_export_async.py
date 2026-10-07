@@ -179,6 +179,21 @@ def test_enqueue_dedupes_in_flight(admin_user: Any, program: Program) -> None:
     assert ProgramExportJob.objects.filter(program=program).count() == 1
 
 
+def test_enqueue_does_not_dedupe_onto_another_requesters_job(
+    admin_user: Any, owner: Any, program: Program
+) -> None:
+    """#4310 (B1): an in-flight bundle belongs to its requester. A second admin gets a
+    job of their own, never the first admin's in-flight job."""
+    other_job = _client(owner).post(_export_url(program))
+    assert other_job.status_code == 202
+
+    mine = _client(admin_user).post(_export_url(program))
+
+    assert mine.status_code == 202
+    assert mine.data["id"] != other_job.data["id"]
+    assert ProgramExportJob.objects.get(pk=mine.data["id"]).requested_by_id == admin_user.pk
+
+
 # ---------------------------------------------------------------------------
 # Build task
 # ---------------------------------------------------------------------------

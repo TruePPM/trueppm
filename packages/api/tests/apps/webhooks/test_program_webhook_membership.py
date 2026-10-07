@@ -16,6 +16,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Program, Project
@@ -175,3 +176,47 @@ def test_dispatch_resolves_owner_membership_in_one_query_per_event(
     ]
     assert len(membership_queries) == 1, membership_queries
     assert WebhookDelivery.objects.count() == 3
+
+
+def _client_for(user: Any) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=user)
+    return c
+
+
+def test_non_member_admin_cannot_re_point_a_members_webhook(
+    program: Program, project_p: Project, member_owner: Any, program_admin: Any
+) -> None:
+    """#4310 (B2): a PATCH re-stamps the registrant, so the editor is checked for membership.
+
+    Without the re-stamp, the member's webhook would keep their membership and the
+    admin's new URL would receive P's events.
+    """
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    hook = _program_webhook(program, member_owner)
+
+    resp = _client_for(program_admin).patch(
+        f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/",
+        {"url": "https://attacker.example.com/collect"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+
+    hook.refresh_from_db()
+    assert hook.created_by_id == program_admin.pk
+    assert _dispatch(project_p) == 0
+    assert WebhookDelivery.objects.count() == 0
+
+
+def test_another_admin_cannot_read_a_members_delivery_log(
+    program: Program, project_p: Project, member_owner: Any, program_admin: Any
+) -> None:
+    """#4310 (B3): the delivery log replays past payloads, so it is the registrant's only."""
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
+    hook = _program_webhook(program, member_owner)
+    assert _dispatch(project_p) == 1
+
+    url = f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/deliveries/"
+    assert _client_for(program_admin).get(url).status_code == 403
+    assert _client_for(member_owner).get(url).status_code == 200

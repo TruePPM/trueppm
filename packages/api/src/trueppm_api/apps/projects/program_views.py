@@ -1746,7 +1746,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         is nothing left to narrow.
         """
         program = self.get_object()
-        job = get_object_or_404(ProgramExportJob, pk=job_id, program=program)
+        # #4310 (B1): the archive holds member-project content, so it is served only to
+        # the admin who requested it. Metadata (detail/list) stays program-scoped.
+        job = get_object_or_404(
+            ProgramExportJob, pk=job_id, program=program, requested_by=request.user
+        )
         return stream_export_job_or_error(
             job,
             success_status=ExportJobStatus.SUCCESS,

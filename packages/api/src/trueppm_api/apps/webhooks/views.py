@@ -18,6 +18,7 @@ from kombu.exceptions import (  # type: ignore[import-untyped]
 )
 from rest_framework import serializers, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.mixins import (
     CreateModelMixin,
     DestroyModelMixin,
@@ -201,6 +202,9 @@ class WebhookViewSet(
     def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
         serializer.save()
 
+    def _check_delivery_log_access(self, webhook: Webhook) -> None:
+        """Hook for scope-specific delivery-log access. No extra gate at project scope."""
+
     def get_object(self) -> Webhook:
         obj: Webhook = super().get_object()
         # Object-level permission check against the webhook's scope object —
@@ -310,6 +314,7 @@ class WebhookViewSet(
         for the webhook CRUD list — the delivery log wants a cursor).
         """
         webhook = self.get_object()
+        self._check_delivery_log_access(webhook)
         qs = WebhookDelivery.objects.filter(webhook=webhook)
         paginator = WebhookDeliveryCursorPagination()
         page = paginator.paginate_queryset(qs, request, view=self)
@@ -374,6 +379,20 @@ class ProgramWebhookViewSet(WebhookViewSet):
             .select_related("program", "created_by")
             .order_by("-created_at")
         )
+
+    def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
+        # #4310 (B2): an edit re-points the subscription, so the editor becomes its
+        # registrant. Without re-stamping, a non-member admin could change url/secret
+        # on a member's webhook and receive that member's project events. Dispatch
+        # matches on created_by, so the new owner is the one checked.
+        serializer.save(created_by=self.request.user)
+
+    def _check_delivery_log_access(self, webhook: Webhook) -> None:
+        # #4310 (B3): the delivery log replays past event payloads from every member
+        # project, so it is limited to the webhook's registrant. Another Program Admin
+        # gets 403 even though IsProgramAdmin passes. A NULL registrant fails closed.
+        if webhook.created_by_id is None or webhook.created_by_id != self.request.user.pk:
+            raise PermissionDenied("Only the webhook's creator can read its delivery log.")
 
     def perform_create(self, serializer: BaseSerializer[Webhook]) -> None:
         program_pk = self.kwargs["program_pk"]

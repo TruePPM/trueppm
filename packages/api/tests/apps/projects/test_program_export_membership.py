@@ -245,3 +245,34 @@ def test_async_bundle_with_deleted_requester_fails_closed(
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
         manifest = json.loads(tar.extractfile("manifest.json").read())  # type: ignore[union-attr]
     assert manifest["project_ids"] == []
+
+
+# ---------------------------------------------------------------------------
+# Another admin's bundle: download and de-dupe (#4310, B1)
+# ---------------------------------------------------------------------------
+
+
+def test_admin_without_membership_cannot_download_another_members_job(
+    admin_user: Any, owner: Any, program: Program, project_p: Project
+) -> None:
+    """The bundle holds P's content; only the requester may download it."""
+    _grant_membership(project_p, owner)
+    job = ProgramExportJob.objects.create(program=program, requested_by=owner)
+    _run_export(job)
+
+    resp = _client(admin_user).get(f"/api/v1/programs/{program.pk}/export/jobs/{job.pk}/download/")
+
+    assert resp.status_code == 404
+
+
+def test_admin_without_membership_cannot_receive_another_members_in_flight_job(
+    admin_user: Any, owner: Any, program: Program, project_p: Project
+) -> None:
+    _grant_membership(project_p, owner)
+    in_flight = ProgramExportJob.objects.create(program=program, requested_by=owner)
+
+    resp = _client(admin_user).post(f"/api/v1/programs/{program.pk}/export/")
+
+    assert resp.status_code == 202
+    assert resp.data["id"] != str(in_flight.pk)
+    assert ProgramExportJob.objects.get(pk=resp.data["id"]).requested_by_id == admin_user.pk

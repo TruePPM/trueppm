@@ -156,6 +156,12 @@ already happened (#4310); both now intersect with the caller's live membership.
 - `build_and_store_program_archive` (async bundle) captures the requester at enqueue time
   (`ProgramExportJob.requested_by`) but evaluates membership when the bundle is built, so
   a membership revoked while the job waited is not used.
+- The async bundle's download and its in-flight de-dupe are per requester: only the admin
+  who requested a bundle can download it, and another admin's request never returns it.
+  Job metadata stays program-scoped.
+- Editing a program webhook re-stamps its registrant to the editor, so the membership
+  check applies to whoever last changed the subscription. Its delivery log is readable
+  only by that registrant, because it replays past payloads from every member project.
 - Program-scoped webhook dispatch keeps a program webhook for an event on project P only
   when its registrant (`Webhook.created_by`) holds live membership on P, checked at
   dispatch time. A NULL or deactivated registrant fails closed. Project-scoped webhooks

@@ -57,6 +57,8 @@ being open to every member. The response is a JSON attachment.
 
 A program export includes only the member projects you hold project membership on.
 A Program Admin who is not a member of a project does not receive that project's content.
+A backlog item that was pulled into a project you cannot read exports with status `archived`
+and no `pulled_to` reference, because its target task is withheld.
 This narrowing ships in the next release; see
 [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
 Until then, the program export includes every member project.
