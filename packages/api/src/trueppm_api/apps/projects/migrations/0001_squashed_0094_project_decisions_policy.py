@@ -764,10 +764,6 @@ class Migration(migrations.Migration):
             name="short_id",
             field=models.CharField(blank=True, editable=False, max_length=8),
         ),
-        migrations.RunPython(
-            code=_backfill_wbs_paths,
-            reverse_code=_original("projects", "0019_backfill_wbs_paths", "_noop"),
-        ),
         migrations.CreateModel(
             name="HistoricalTask",
             fields=[
@@ -870,6 +866,10 @@ class Migration(migrations.Migration):
         migrations.RunPython(
             code=_original("projects", "0015_backfill_short_ids", "backfill_short_ids"),
             reverse_code=_original("projects", "0015_backfill_short_ids", "reverse_backfill"),
+        ),
+        migrations.RunPython(
+            code=_backfill_wbs_paths,
+            reverse_code=_original("projects", "0019_backfill_wbs_paths", "_noop"),
         ),
         migrations.CreateModel(
             name="HistoricalRisk",
