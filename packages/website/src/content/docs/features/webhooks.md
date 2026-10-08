@@ -76,7 +76,9 @@ A webhook is scoped to exactly one project **or** one program:
 Program-scoped reads require program Viewer+; mutations require Program Manager or above. The two scopes are additive: a project event reaches both its own project webhooks and its program's webhooks.
 
 <!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
-A program-scoped webhook delivers events from a member project only while the user who created it still holds project membership on that project, checked when each event is dispatched. Removing that membership stops new deliveries for the project. Events already queued, or retrying after a failed attempt, are still delivered. A webhook whose creator was deleted delivers no member-project events. Only the webhook's creator can edit it, and only while they still have membership on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log. This narrowing ships in the next release; see [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
+A program-scoped webhook delivers events from a member project only while the user who created it still holds project membership on that project, checked when each event is dispatched. Removing that membership stops new deliveries for the project. Events already queued, or retrying after a failed attempt, are still delivered. A webhook whose creator was deleted delivers no member-project events. Only the webhook's creator can edit it, and only while they still have membership on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log. This narrowing ships in the next release; see [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-and-project-webhooks-honor-project-membership).
+
+A project-scoped webhook gets the identical dispatch-time check against its own project: it delivers only while its creator still holds project membership there, checked on each event. Removing that membership, deleting the creator's account, or deactivating it stops new deliveries; already-queued or retrying deliveries are unaffected. Editing a project webhook, deleting it, and reading its delivery log already require Project Manager or above on the project and re-check the *caller's* current membership on every request, so those abilities were never stale — only the asynchronous dispatch path needed this fix. This narrowing ships in the next release; see [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-and-project-webhooks-honor-project-membership).
 
 ## Payload format
 
@@ -356,6 +358,12 @@ This is also how you find out what a **test ping** actually did. `POST
 .../webhooks/{id}/test/` answers `202` with a `delivery_id` — that acknowledges the
 *enqueue*, not the receiver's answer. Read the matching delivery record back to see
 the `status` and `response_status` your endpoint returned.
+
+A test ping is gated on the **caller's** current Admin role, not the webhook's
+registrant's membership, so a current Admin's test ping still succeeds — and shows
+up in the log — against a dormant webhook whose registrant has lost project
+membership and so is no longer receiving real events. A successful test is not
+proof the webhook is live.
 
 The delivery log grows without bound, so it is **cursor**-paginated rather than
 page-numbered: the envelope is `{next, previous, results}` with **no `count`**.

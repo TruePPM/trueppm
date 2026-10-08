@@ -17,6 +17,7 @@ from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project
 from trueppm_api.apps.webhooks.backfill import backfill_sequence_numbers, reverse_backfill
 from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
@@ -46,6 +47,11 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.fixture
 def webhook(project: Project, user: object) -> Webhook:
+    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    # get_or_create: must not downgrade a role another fixture already granted.
+    ProjectMembership.objects.get_or_create(
+        project=project, user=user, defaults={"role": Role.MEMBER}
+    )
     return Webhook.objects.create(
         project=project,
         url="https://example.com/hook",
@@ -244,6 +250,10 @@ def test_dispatch_injects_sequence_into_slack_body(project: Project, user: objec
     from trueppm_api.apps.webhooks import tasks as wh_tasks
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
+    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    ProjectMembership.objects.get_or_create(
+        project=project, user=user, defaults={"role": Role.MEMBER}
+    )
     slack_hook = Webhook.objects.create(
         project=project,
         url="https://hooks.slack.com/services/T/B/x",
@@ -270,11 +280,23 @@ def test_body_sequence_does_not_leak_across_subscriptions(project: Project, user
     from trueppm_api.apps.webhooks import tasks as wh_tasks
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
+    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    ProjectMembership.objects.get_or_create(
+        project=project, user=user, defaults={"role": Role.MEMBER}
+    )
     hook_a = Webhook.objects.create(
-        project=project, url="https://a.example/h", secret="s", events=["task.created"]
+        project=project,
+        url="https://a.example/h",
+        secret="s",
+        events=["task.created"],
+        created_by=user,
     )
     hook_b = Webhook.objects.create(
-        project=project, url="https://b.example/h", secret="s", events=["task.created"]
+        project=project,
+        url="https://b.example/h",
+        secret="s",
+        events=["task.created"],
+        created_by=user,
     )
 
     with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
@@ -346,9 +368,12 @@ def test_deliveries_endpoint_exposes_sequence(
     """The delivery inspection endpoint returns sequence_number for consumers."""
     from rest_framework.test import APIClient
 
-    from trueppm_api.apps.access.models import ProjectMembership, Role
-
-    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    # The `webhook` fixture already grants `user` a MEMBER row (#4325); the
+    # deliveries action needs Admin, so upgrade it rather than create a second
+    # row for (project, user), which would trip the uniqueness constraint.
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
     _make_delivery(webhook)
     client = APIClient()
     client.force_authenticate(user=user)

@@ -87,11 +87,12 @@ truth.
 ---
 
 <!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
-## Next release: program exports and program webhooks honor project membership
+## Next release: program exports and program and project webhooks honor project membership
 
 **Behavior change, no migration.** Upgrading from `0.4.0-beta.6` or earlier: this change
 ships in the next release and is not in any tag yet. Until you upgrade to it, a program
-export and the program webhooks of a Program Admin reach every member project. After the
+export and the program webhooks of a Program Admin reach every member project, and a
+project webhook keeps delivering after its creator loses access to that project. After the
 upgrade:
 
 - **Program export (JSON seed and async bundle).** Only member projects the requesting
@@ -108,12 +109,26 @@ upgrade:
   A webhook whose creator account was deleted, or is deactivated, delivers no member-project
   events. Only the webhook's creator can edit it, and only while they still have membership
   on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log.
+- **Project-scoped webhooks.** A project webhook receives that project's events only while
+  its creator holds project membership there, checked on the same schedule as program
+  webhooks above. Removing the creator's membership, or deleting or deactivating their
+  account, stops new deliveries; events already queued, or retrying, are still delivered.
+  Editing a project webhook, deleting it, and reading its delivery log were not affected —
+  those already require Project Manager or above and re-check the *caller's* current
+  membership on every request, so a removed creator already lost those abilities today.
 
 **Operator check after the upgrade.** Program webhooks now showing no deliveries for a
 member project usually belong to a creator without membership there. Either add the
 creator to the project, or re-create the subscription under a member account. Disabling
 it is not possible while the creator lacks membership, because edits are refused, so
-re-creating it under a member account is the remedy. The
+re-creating it under a member account is the remedy. A project webhook showing no
+deliveries belongs to a creator removed from that project; re-add them or re-create the
+subscription under a current member — a project webhook's edit/delete is never refused by
+this change, so disabling it directly is also an option. A **test ping** is not a
+reliable health check here: it is gated on the caller's own current role, not the
+registrant's membership, so a current Admin's test ping still succeeds against a
+dormant webhook and shows up in the delivery log looking healthy while real events
+are silently dropped. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 

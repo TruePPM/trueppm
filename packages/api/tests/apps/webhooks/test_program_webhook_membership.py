@@ -3,7 +3,8 @@
 A program-scoped webhook fires for events on every member project. The program
 grant is not a read grant on the project, so the webhook's registrant
 (``created_by``) must hold live ``ProjectMembership`` on the project the event came
-from. Project-scoped webhooks are unchanged.
+from. Project-scoped webhooks get the identical check against their own project
+(#4325) — see ``test_project_webhook_membership.py``.
 """
 
 from __future__ import annotations
@@ -139,10 +140,15 @@ def test_program_webhook_with_deactivated_owner_fails_closed(
     assert _dispatch(project_p) == 0
 
 
-def test_project_webhook_is_not_gated_by_creator_membership(
+def test_project_webhook_also_requires_live_creator_membership(
     project_p: Project, program_admin: Any
 ) -> None:
-    """Pins scope: the membership re-check is for program-scoped rows only."""
+    """#4325: project-scoped webhooks get the same live-membership check.
+
+    ``program_admin`` holds a Program Admin grant but no ``ProjectMembership`` on
+    ``project_p`` — a project-scoped webhook they registered must not deliver.
+    Full project-scoped coverage lives in ``test_project_webhook_membership.py``.
+    """
     Webhook.objects.create(
         project=project_p,
         url="https://example.com/hook",
@@ -151,7 +157,7 @@ def test_project_webhook_is_not_gated_by_creator_membership(
         created_by=program_admin,
     )
 
-    assert _dispatch(project_p) == 1
+    assert _dispatch(project_p) == 0
 
 
 def test_dispatch_resolves_owner_membership_in_one_query_per_event(
