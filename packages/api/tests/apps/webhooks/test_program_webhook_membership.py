@@ -189,6 +189,25 @@ def test_program_webhook_owned_by_project_admin_without_program_membership_does_
     assert WebhookDelivery.objects.count() == 0
 
 
+def test_program_webhook_owned_by_project_admin_and_program_scheduler_does_not_fire(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """#4330 (program axis): pins the PROGRAM-role floor at exactly
+    ``Role.ADMIN``, not ``Role.SCHEDULER`` or lower — the program-axis twin of
+    ``test_program_webhook_owned_by_mere_scheduler_does_not_fire`` above, which
+    only pins the PROJECT-role floor. Without this case, a filter accidentally
+    written as ``role__gte=Role.SCHEDULER`` on the new ProgramMembership check
+    in ``_drop_program_webhooks_without_live_program_admin_owner`` would pass
+    every other test in this file, since all of them use Role.ADMIN or
+    Role.OWNER on the program side."""
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.SCHEDULER)
+    _program_webhook(program, member_owner)
+
+    assert _dispatch(project_p) == 0
+    assert WebhookDelivery.objects.count() == 0
+
+
 def test_program_webhook_stops_firing_when_owner_membership_revoked(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
@@ -267,8 +286,14 @@ def test_program_webhook_stops_firing_when_owner_demoted_to_program_viewer(
 def test_program_webhook_with_deleted_owner_fails_closed(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
-    """``created_by`` is SET_NULL on user delete — a NULL owner must not deliver."""
+    """``created_by`` is SET_NULL on user delete — a NULL owner must not deliver.
+
+    Grants a qualifying ProgramMembership too, for the same isolation reason as
+    the deactivated-owner test below: so this proves the NULL-creator guard,
+    not an incidentally-missing program grant that would also yield 0 alone.
+    """
     ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
     _program_webhook(program, member_owner)
     Webhook.objects.update(created_by=None)
 
@@ -278,7 +303,11 @@ def test_program_webhook_with_deleted_owner_fails_closed(
 def test_program_webhook_with_deactivated_owner_fails_closed(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
+    """Grants a qualifying ProgramMembership too (not just ProjectMembership) so
+    this isolates what it claims to: the deactivation check, not an
+    incidentally-missing program grant that would also yield 0 on its own."""
     ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
     _program_webhook(program, member_owner)
     member_owner.is_active = False
     member_owner.save(update_fields=["is_active"])
@@ -309,7 +338,9 @@ def test_project_webhook_also_requires_live_creator_membership(
 def test_dispatch_resolves_owner_membership_in_one_query_per_event(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
-    """Several program webhooks cost one membership query per event, not one each."""
+    """Several program webhooks cost one membership query per event, not one each —
+    on BOTH membership tables the #4330 program-role check now touches, not only
+    the pre-existing ProjectMembership one."""
     ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
     for i in range(3):
@@ -327,8 +358,33 @@ def test_dispatch_resolves_owner_membership_in_one_query_per_event(
     membership_queries = [
         q["sql"] for q in ctx.captured_queries if '"access_project_membership"' in q["sql"]
     ]
+    program_membership_queries = [
+        q["sql"] for q in ctx.captured_queries if '"access_program_membership"' in q["sql"]
+    ]
     assert len(membership_queries) == 1, membership_queries
+    assert len(program_membership_queries) == 1, program_membership_queries
     assert WebhookDelivery.objects.count() == 3
+
+
+def test_dispatch_skips_program_membership_query_when_no_program_webhook_survives(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """#4330: the program-role query is skipped entirely — zero extra queries,
+    not merely a cheap no-op — when no program-scoped webhook survives the
+    project-role filter. Here the registrant has no qualifying project role at
+    all, so ``_drop_webhooks_without_live_member_owner`` drops the webhook
+    before ``_drop_program_webhooks_without_live_program_admin_owner`` ever
+    runs."""
+    ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
+    _program_webhook(program, member_owner)
+
+    with CaptureQueriesContext(connection) as ctx:
+        assert _dispatch(project_p) == 0
+
+    program_membership_queries = [
+        q["sql"] for q in ctx.captured_queries if '"access_program_membership"' in q["sql"]
+    ]
+    assert program_membership_queries == [], program_membership_queries
 
 
 def _client_for(user: Any) -> APIClient:

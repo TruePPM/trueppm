@@ -260,15 +260,29 @@ check is now required too. Each is one membership query per event; the program-r
 query runs, and costs anything, only when at least one program-scoped webhook survives
 the project-role filter first.
 
-**Why edit access needed no equivalent fix, and still does not.** Editing a
-project-scoped webhook already requires `IsProjectAdmin`, which re-checks the *caller's*
-live role on every request — unaffected by, and already consistent with, this
-amendment. Editing a program-scoped webhook, however, continues to require only live
-membership **at any role** on every project the program covers (`_can_edit`), not Admin
-on either axis — that gate was deliberately left alone, since #4330 scoped its fix to
-dispatch only. The asymmetry this leaves: a program webhook's creator can still disable
-or re-point it themselves after a demotion that has already silenced its deliveries,
-exactly as they could before this amendment.
+**Why edit/delete access needed no equivalent fix, and what it actually requires.**
+Editing a project-scoped webhook already requires `IsProjectAdmin`, which re-checks the
+*caller's* live role on every request — unaffected by, and already consistent with,
+this amendment. A program-scoped webhook's edit and delete gates were left alone, since
+#4330 scoped its fix to dispatch only, but they are not uniformly a bare
+membership-presence check: `ProgramWebhookViewSet.get_permissions` requires
+`IsProgramAdmin` (the *caller's* current program role, ``>= Role.ADMIN``) for `update`,
+`partial_update`, AND `destroy` alike. `update`/`partial_update` additionally run
+`_can_edit` in `get_object` — creator match, plus live `ProjectMembership` at **any**
+role (presence only) on every project the program covers. `destroy` runs no such
+check: any current Program Admin can delete the webhook, not only its creator.
+
+The asymmetry this leaves is the opposite of what an earlier draft of this amendment
+claimed: a demotion below Program Manager on the **program** axis removes the creator's
+own ability to edit *or* delete the webhook at the same moment it stops their dispatch,
+because both actions require `IsProgramAdmin` and nobody else can ever satisfy
+`_can_edit`'s creator check — only a different Program Admin deleting the subscription,
+or restoring the creator's program role, is left. A demotion below Project Manager on
+the **firing project** alone, with the program role intact, blocks neither edit nor
+delete — `_can_edit`'s project leg checks presence, not role, and `destroy` does not
+consult project membership at all — it only stops that project's deliveries. A full
+**removal** from a covered project blocks editing via the presence check but still not
+deleting, since delete never checks project membership.
 
 **Consequences.**
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 import redis as redis_lib
 from kombu.exceptions import (  # type: ignore[import-untyped]
@@ -136,7 +137,7 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
 
 
 def _drop_program_webhooks_without_live_program_admin_owner(
-    webhooks: list[Any], program_id: Any
+    webhooks: list[Any], program_id: UUID | None
 ) -> list[Any]:
     """Keep a program-scoped webhook only when its registrant also holds a live
     Admin+ ``ProgramMembership`` on the program itself (#4330).
