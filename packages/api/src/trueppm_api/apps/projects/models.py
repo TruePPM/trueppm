@@ -7065,7 +7065,9 @@ class ApiToken(VersionedModel):
     (GitGuardian, GitHub) but is *not* stored — only the random portion counts.
 
     **Scope**: exactly one of ``project`` or ``program`` is set. A program-scoped
-    token authorizes inbound writes into any project within that program; the
+    token authorizes inbound writes into a project within that program only
+    when the token's minter also holds a live ``ProjectMembership`` on that
+    specific project, checked at request time (``IsTokenForProject``); the
     caller specifies the target project on each request via the URL. The DB
     constraint enforces the XOR — neither both-set nor both-null is a valid row.
 

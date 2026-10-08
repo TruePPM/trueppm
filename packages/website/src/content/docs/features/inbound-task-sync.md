@@ -39,7 +39,10 @@ flow back to the external source. Designate one source of truth for status
 
 Tokens can be minted and revoked from the **Integrations** settings page at both
 project scope (**Project → Settings → Integrations**) and program scope
-(**Program → Settings → Integrations**), or via the API as shown below.
+(**Program → Settings → Integrations**), or via the API as shown below. A
+program-scoped token can push into a given project in its program only while
+the person who minted it is still a member of that project — minting the token
+at program scope is not by itself enough to reach every project in the program.
 
 ```bash
 curl -X POST "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \

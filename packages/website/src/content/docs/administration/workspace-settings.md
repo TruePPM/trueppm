@@ -285,7 +285,13 @@ Project- and program-scoped API tokens are org assets rather than personal
 credentials. They are neither revoked nor rejected, and keep authenticating even
 when the member who minted them is deactivated — a token's authority comes from
 its own project or program scope, not from that person's account, so off-boarding
-one person never breaks a team's CI integration.
+one person never breaks a team's CI integration. A program-scoped token's reach
+over a specific project is still bounded by its minter's project membership: it
+can only write into a project within its program while the minter holds a live
+membership on that project. Deactivating the minter's account does not revoke
+that membership, so a program token's write access is unaffected by
+off-boarding — it changes only if the minter's membership on that project is
+separately removed.
 
 #### Off-boarding also stops outbound mail
 

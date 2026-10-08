@@ -1867,8 +1867,28 @@ class IsTokenForProject(BasePermission):
 
     A project-scoped token (``token.project_id`` set) authorizes writes only to
     its bound project. A program-scoped token (``token.program_id`` set) authorizes
-    writes to any project within that program — the URL project is checked
-    against the program's ``projects.filter(pk=...).exists()`` membership.
+    writes to a project within that program only when BOTH hold:
+      1. the project is a live member of the token's program
+         (``projects.filter(pk=...).exists()``), and
+      2. the token's minter (``token.created_by``) holds a live
+         ``ProjectMembership`` on that same project (#4324).
+
+    Before #4324, (1) alone was sufficient: a program-scoped token admitted any
+    project in its program regardless of whether the human who minted it could
+    ever read or write that project. A Program Admin mints a program-scoped
+    token by virtue of program-level authority, which says nothing about
+    project-level membership — so that token let its minter write into (and
+    flip acceptance criteria on) a sibling project they were never added to, the
+    same write-path ProjectMembership bypass #4310 closed on the read side. (2)
+    reuses the #4310 ``task_search`` predicate: a plain ``ProjectMembership``
+    existence check, any role, ``is_deleted=False``.
+
+    The membership check runs at REQUEST time, not mint time, so revoking the
+    minter's ProjectMembership on a project takes an already-minted token's
+    authority over that project away immediately — the same "live, not
+    historical" rule #4310 established for reads. A project-scoped token is
+    unaffected: it is bound to exactly one project by its own FK and was never
+    the vector this issue describes.
 
     Raises AuthenticationFailed (401, not PermissionDenied/403) on mismatch
     so callers cannot enumerate whether the URL project exists — a project_id
@@ -1879,7 +1899,8 @@ class IsTokenForProject(BasePermission):
     (i.e. JWT/Session requests) so the class is safely composable without
     side-effects on non-token views.
 
-    Used on: TaskSyncView (token-authenticated inbound sync endpoint).
+    Used on: TaskSyncView, AcceptanceResultIngestView (token-authenticated
+    inbound write endpoints).
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
@@ -1911,6 +1932,7 @@ class IsTokenForProject(BasePermission):
         # authorizes writes into a project that has been removed from the
         # program after the token was minted.
         if token.program_id is not None:
+            from trueppm_api.apps.access.models import ProjectMembership
             from trueppm_api.apps.projects.models import Project
 
             if not Project.objects.filter(
@@ -1918,6 +1940,29 @@ class IsTokenForProject(BasePermission):
                 program_id=token.program_id,
                 is_deleted=False,
             ).exists():
+                raise AuthenticationFailed("Token does not authorize this project.")
+
+            # #4324: program-level authority (being able to mint a program token
+            # at all) is not project-level authority. Intersect with the
+            # minter's own, LIVE ProjectMembership on this specific project —
+            # the same existence predicate #4310 applies to reads — so a
+            # Program Admin with no membership on this project cannot use a
+            # program-scoped token to write into it, and a membership revoked
+            # after mint stops authorizing writes on the very next request.
+            # ``created_by`` is SET_NULL on minter deletion; a null minter has
+            # no membership to check and is correctly refused here too (in
+            # practice IsAuthenticated already blocks that case first, since
+            # ProjectApiTokenAuthentication resolves request.user to
+            # AnonymousUser when both owner and created_by are null).
+            minter_id = token.created_by_id
+            if (
+                minter_id is None
+                or not ProjectMembership.objects.filter(
+                    project_id=url_project_id,
+                    user_id=minter_id,
+                    is_deleted=False,
+                ).exists()
+            ):
                 raise AuthenticationFailed("Token does not authorize this project.")
             return True
 

@@ -85,7 +85,7 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
 
       <p className="px-4 pt-3 text-[12px] text-neutral-text-secondary">
         {scope.kind === 'program'
-          ? 'Program API tokens authenticate scripts and integrations that read or modify any project in this program via the REST API.'
+          ? "Program API tokens authenticate scripts and integrations that read or modify a project in this program via the REST API, limited to projects the token's creator is a member of."
           : 'API tokens authenticate scripts and integrations that read or modify this project’s data via the REST API.'}
       </p>
 

@@ -91,7 +91,8 @@ truth.
 
 **Behavior change, no migration.** Upgrading from `0.4.0-beta.6` or earlier: this change
 ships in the next release and is not in any tag yet. Until you upgrade to it, a program
-export and the program webhooks of a Program Admin reach every member project, and a
+export, the program webhooks of a Program Admin, and a program-scoped API token all reach
+every member project regardless of the minting admin's own project membership, and a
 project webhook keeps delivering after its creator loses access to that project. After the
 upgrade:
 
@@ -109,6 +110,13 @@ upgrade:
   A webhook whose creator account was deleted, or is deactivated, delivers no member-project
   events. Only the webhook's creator can edit it, and only while they still have membership
   on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log.
+- **Program-scoped API tokens (task-sync and acceptance-results).** These two write
+  endpoints — inbound task-sync and CI acceptance-result ingest — now also require the
+  token's minter (`created_by`) to hold project membership on the target project, checked
+  on every request, not just at mint time. Revoking the minter's membership stops the
+  token from writing into that project on the very next request, with no re-mint needed. A
+  token whose minter was deleted (and so carries no `created_by`) can no longer write into
+  any project through this path.
 - **Project-scoped webhooks.** A project webhook receives that project's events only while
   its creator holds project membership there, checked on the same schedule as program
   webhooks above. Removing the creator's membership, or deleting or deactivating their
@@ -128,7 +136,9 @@ this change, so disabling it directly is also an option. A **test ping** is not 
 reliable health check here: it is gated on the caller's own current role, not the
 registrant's membership, so a current Admin's test ping still succeeds against a
 dormant webhook and shows up in the delivery log looking healthy while real events
-are silently dropped. The
+are silently dropped. A program-scoped integration token that starts returning `401` on
+task-sync or acceptance-results usually means its minter lost project membership; add
+them back or re-mint the token under a member account. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 
