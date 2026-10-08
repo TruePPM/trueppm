@@ -2632,7 +2632,11 @@ def _free_float_days(
     task_calendars: dict[str, Calendar] | None,
     free_instants: dict[str, date],
 ) -> int:
-    """Working days this task can slip before it moves any live successor's early date.
+    """Working days this task can slip before it moves any live successor in working time.
+
+    A successor's early start is read at the working day it sits at, so a verbatim
+    non-working ``actual_start`` (a Saturday) counts as the Monday after it (#4332);
+    every other early date already is a working day.
 
     Appends to ``driving_edges`` as a side output: a link whose relationship free
     float is zero is the one pinning the successor's early date (#2095). The forward
