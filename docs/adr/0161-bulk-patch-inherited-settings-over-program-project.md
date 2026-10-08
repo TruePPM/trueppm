@@ -166,8 +166,10 @@ already happened (#4310); both now intersect with the caller's live membership.
   every member project.
 - Program-scoped webhook dispatch keeps a program webhook for an event on project P only
   when its registrant (`Webhook.created_by`) holds live membership on P, checked at
-  dispatch time. A NULL or deactivated registrant fails closed. Project-scoped webhooks
-  are unchanged: they are scoped to the project whose event fires.
+  dispatch time. A NULL or deactivated registrant fails closed. (See the #4325 amendment
+  below: the "project-scoped webhooks are unchanged" reasoning originally written here
+  did not hold for a project-scoped webhook's *own* registrant losing membership on that
+  same project — only for the cross-project program grant this amendment is about.)
 - `GET /programs/{id}/resource-contention/` (round 2, #4310): the contention scope was
   every visible member project with no membership intersection, so a Program Scheduler or
   Admin with no `ProjectMembership` on a member project read that project's task ids,
@@ -193,3 +195,42 @@ already happened (#4310); both now intersect with the caller's live membership.
 - #2066 (PRIVATE project visibility) builds on this: a PRIVATE project's content is
   readable only through `ProjectMembership`, which this amendment makes the single rule
   for the program-side surfaces too.
+
+## Amendment (2026-10-07, #4325): the live-membership dispatch check also covers project-scoped webhooks
+
+**Decision: EXTEND.** The #4310 amendment above narrowed program-scoped webhook dispatch
+to a registrant with live `ProjectMembership` on the firing project, and left the
+project-scoped branch of `dispatch_webhooks` untouched on the stated reasoning that a
+project-scoped webhook "is scoped to the very project whose event fires, so there is no
+cross-project grant to re-check." That reasoning is correct about the *program* grant —
+a project-scoped webhook never had one — but it did not address the registrant's own
+membership on that same project being revoked after the webhook was created. A project
+webhook kept delivering indefinitely to a creator who had since lost access to the
+project the webhook was scoped to.
+
+**How it is enforced.** `dispatch_webhooks` applies the identical live-membership
+predicate to both branches now (`_drop_webhooks_without_live_member_owner` in
+`apps/webhooks/dispatch.py`, generalized from the #4310 program-only helper): a webhook's
+registrant must hold live `ProjectMembership` on the project the event fires on,
+regardless of whether the webhook is itself project- or program-scoped. For a
+project-scoped webhook that project is always the one it is scoped to, so no separate
+query shape was needed — the fix widened the existing owner set rather than adding a
+second check. A NULL or deactivated registrant fails closed, matching #4310.
+
+**Why edit/delete/delivery-log access needed no equivalent fix.** Unlike dispatch
+(an async path with no per-request caller to check), a project webhook's `update`,
+`destroy`, and `deliveries` actions already run `IsProjectAdmin`, which re-reads the
+*requesting caller's* live membership on every request (`_membership_role` only honours
+non-soft-deleted rows). A creator who loses project membership already lost those
+abilities before this amendment; only the async dispatch path was reading a stale
+assumption. This is also why project-scoped webhooks never needed the program-scoped
+rule's registrant-only restriction on the delivery log: any current project Admin, not
+only the creator, can already read it, which carries no cross-project disclosure risk
+because the log never contains another project's data.
+
+**Consequences.**
+
+- A project webhook whose creator has lost membership on its project stops receiving
+  events at the next dispatch, the same as a program webhook today.
+- No new query shape: the single per-event membership query already described above
+  now also covers project-scoped candidates, at no added query count.

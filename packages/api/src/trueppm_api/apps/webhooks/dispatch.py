@@ -70,35 +70,44 @@ def build_delivery_body(
     return {**rendered, "_meta": {"sequence": sequence}}
 
 
-def _drop_program_webhooks_without_member_owner(webhooks: list[Any], project_id: str) -> list[Any]:
-    """Keep program-scoped webhooks only when their owner is a live member of the project (#4310).
+def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: str) -> list[Any]:
+    """Keep a webhook only when its registrant is a live member of the firing project.
 
-    A program-scoped webhook fires for events on every member project, but the
-    program grant is not a read grant on the project: its registrant must hold live
-    ``ProjectMembership`` on the project the event came from. Membership is read
-    here, at dispatch time, so a removed member stops receiving events on the next
-    write rather than when the subscription is edited.
+    Originally written for program-scoped webhooks (#4310): a program-scoped
+    webhook fires for events on every member project, but the program grant is
+    not a read grant on the project, so its registrant must hold live
+    ``ProjectMembership`` on the project the event came from. #4325 extends the
+    identical check to project-scoped webhooks — the ADR-0161 amendment's "project-
+    scoped webhooks are unchanged" reasoning was never actually true for a
+    project-scoped webhook's own registrant losing membership on that very
+    project, only for the cross-project *program* grant the amendment was about.
+    A project-scoped webhook's only possible firing project is the one it is
+    scoped to, so the same ``project_id`` the caller passes in is also the right
+    membership check for it — no separate query shape needed.
+
+    Membership is read here, at dispatch time, so a removed member stops
+    receiving events on the next write rather than when the subscription is
+    edited.
 
     Fails closed: a webhook whose ``created_by`` is NULL (the registrant was
-    deleted — ``SET_NULL``) or whose registrant is deactivated is dropped. Project-
-    scoped webhooks are untouched — they are scoped to the very project whose event
-    fires, so there is no cross-project grant to re-check.
+    deleted — ``SET_NULL``) or whose registrant is deactivated is dropped.
 
-    One membership query per event, not per webhook: all distinct owners of the
-    program-scoped candidates are resolved together against ``project_id``.
+    One membership query per event, not per webhook: all distinct registrants
+    of the candidate webhooks (project- and program-scoped alike) are resolved
+    together against ``project_id``.
     """
     from trueppm_api.apps.access.models import ProjectMembership
 
-    owner_ids = {w.created_by_id for w in webhooks if w.project_id is None and w.created_by_id}
+    owner_ids = {w.created_by_id for w in webhooks if w.created_by_id}
     if not owner_ids:
-        readable_owners: set[Any] = set()
+        live_owners: set[Any] = set()
     else:
-        readable_owners = set(
+        live_owners = set(
             ProjectMembership.live()
             .filter(project_id=project_id, user_id__in=owner_ids, user__is_active=True)
             .values_list("user_id", flat=True)
         )
-    return [w for w in webhooks if w.project_id is not None or w.created_by_id in readable_owners]
+    return [w for w in webhooks if w.created_by_id in live_owners]
 
 
 def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -112,6 +121,9 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     program-scoped webhooks (events on any project within the program that
     owns this project) per ADR-0076. The two queries are combined with a
     single ``Q`` union so the database performs the OR in one round-trip.
+    Either scope is then dropped if its registrant lacks live membership on
+    this project (#4310, #4325) — see
+    ``_drop_webhooks_without_live_member_owner``.
     """
     from django.db.models import Q
 
@@ -139,7 +151,7 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
             events__contains=[event_type],
         )
     )
-    webhooks = _drop_program_webhooks_without_member_owner(webhooks, project_id)
+    webhooks = _drop_webhooks_without_live_member_owner(webhooks, project_id)
 
     for webhook in webhooks:
         # Render per-webhook: each subscription may have a different format

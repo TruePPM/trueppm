@@ -353,6 +353,8 @@ def test_dispatch_renders_per_webhook_format(project: Project, user: object) -> 
     A slack webhook and a generic webhook on the same event get differently
     rendered delivery payloads — the rendered dict is frozen onto each row.
     """
+    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
     slack_hook = Webhook.objects.create(
         project=project,
         url="https://hooks.slack.com/services/x",
@@ -394,6 +396,8 @@ def test_dispatch_renders_per_webhook_format(project: Project, user: object) -> 
 @pytest.mark.django_db
 def test_dispatch_unknown_format_degrades_to_raw(project: Project, user: object) -> None:
     """An un-registered format degrades to the raw payload rather than 500ing."""
+    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
     hook = Webhook.objects.create(
         project=project,
         url="https://example.com/hook",

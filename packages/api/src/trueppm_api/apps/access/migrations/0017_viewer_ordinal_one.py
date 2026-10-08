@@ -30,9 +30,20 @@ Migration safety:
   merging permission tiers is the worse failure. The same guard runs in reverse against
   a pre-existing 0.
 - Reversible: 1 → 0 restores the prior scheme exactly.
-- ``elidable=True`` — a fresh install created from a squashed history has no ordinal-0
-  rows to move, so the backfill is safe to drop in a squash (see the CLAUDE.md
-  migration-discipline rules).
+- ``elidable=True`` marks this safe for the squash *optimizer* to drop — but "safe to
+  drop" depends on this migration's *originals* having already shipped and run in an
+  earlier release before the squash that replaces them is generated. That was true
+  here only because access 0001-0016 released before this migration's squash existed.
+  It is NOT a general property of squashed data ops: #4320 found that the access 0.4
+  squash (``0013_squashed_0019_release_0_4``) is itself unreleased, so a real 0.3→0.4
+  upgrade runs the squash directly against populated tables, never the originals —
+  the exact opposite of "a fresh install has no ordinal-0 rows to move." The squash
+  therefore restores this RunPython explicitly (``access/migrations/
+  0013_squashed_0019_release_0_4.py``) rather than relying on elision; see the
+  corrected CLAUDE.md migration-discipline rules and
+  ``tests/apps/access/test_viewer_ordinal_upgrade.py``. When in doubt whether a
+  squash's originals already shipped, don't mark the op elidable, or verify
+  explicitly the way this fix had to.
 """
 
 from __future__ import annotations

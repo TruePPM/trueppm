@@ -87,12 +87,13 @@ truth.
 ---
 
 <!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
-## Next release: program exports and program webhooks honor project membership
+## Next release: program exports and program and project webhooks honor project membership
 
 **Behavior change, no migration.** Upgrading from `0.4.0-beta.6` or earlier: this change
 ships in the next release and is not in any tag yet. Until you upgrade to it, a program
 export, the program webhooks of a Program Admin, and a program-scoped API token all reach
-every member project regardless of the minting admin's own project membership. After the
+every member project regardless of the minting admin's own project membership, and a
+project webhook keeps delivering after its creator loses access to that project. After the
 upgrade:
 
 - **Program export (JSON seed and async bundle).** Only member projects the requesting
@@ -116,14 +117,28 @@ upgrade:
   token from writing into that project on the very next request, with no re-mint needed. A
   token whose minter was deleted (and so carries no `created_by`) can no longer write into
   any project through this path.
+- **Project-scoped webhooks.** A project webhook receives that project's events only while
+  its creator holds project membership there, checked on the same schedule as program
+  webhooks above. Removing the creator's membership, or deleting or deactivating their
+  account, stops new deliveries; events already queued, or retrying, are still delivered.
+  Editing a project webhook, deleting it, and reading its delivery log were not affected —
+  those already require Project Manager or above and re-check the *caller's* current
+  membership on every request, so a removed creator already lost those abilities today.
 
 **Operator check after the upgrade.** Program webhooks now showing no deliveries for a
 member project usually belong to a creator without membership there. Either add the
 creator to the project, or re-create the subscription under a member account. Disabling
 it is not possible while the creator lacks membership, because edits are refused, so
-re-creating it under a member account is the remedy. A program-scoped integration token
-that starts returning `401` on task-sync or acceptance-results usually means its minter
-lost project membership; add them back or re-mint the token under a member account. The
+re-creating it under a member account is the remedy. A project webhook showing no
+deliveries belongs to a creator removed from that project; re-add them or re-create the
+subscription under a current member — a project webhook's edit/delete is never refused by
+this change, so disabling it directly is also an option. A **test ping** is not a
+reliable health check here: it is gated on the caller's own current role, not the
+registrant's membership, so a current Admin's test ping still succeeds against a
+dormant webhook and shows up in the delivery log looking healthy while real events
+are silently dropped. A program-scoped integration token that starts returning `401` on
+task-sync or acceptance-results usually means its minter lost project membership; add
+them back or re-mint the token under a member account. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 
