@@ -160,6 +160,42 @@ def test_dispatch_resolves_project_webhook_membership_in_one_query_per_event(
     assert WebhookDelivery.objects.count() == 3
 
 
+def test_mixed_live_and_revoked_registrants_only_the_live_one_fires(
+    project: Project, creator: Any, other_admin: Any
+) -> None:
+    """Two project webhooks on the same project, one owned by a live member and one
+    by a registrant whose membership was revoked: only the live-owned one dispatches.
+    The earlier single-registrant tests above cannot show this — the membership
+    query resolves the whole batch of candidate webhooks together (#4325's
+    one-query guarantee), so a bug that dropped the wrong row, or none at all,
+    would not be visible without both outcomes present in the same dispatch."""
+    live_membership = ProjectMembership.objects.create(
+        project=project, user=other_admin, role=Role.ADMIN
+    )
+    revoked_membership = ProjectMembership.objects.create(
+        project=project, user=creator, role=Role.ADMIN
+    )
+    live_hook = _project_webhook(project, other_admin)
+    revoked_hook = _project_webhook(project, creator)
+
+    revoked_membership.is_deleted = True
+    revoked_membership.save(update_fields=["is_deleted"])
+
+    with patch.object(wh_tasks, "deliver_webhook") as mock_task:
+        mock_task.delay = MagicMock()
+        dispatch_webhooks(str(project.pk), "task.created", {"id": "t1"})
+        assert mock_task.delay.call_count == 1
+
+    deliveries = list(WebhookDelivery.objects.all())
+    assert len(deliveries) == 1
+    assert deliveries[0].webhook_id == live_hook.pk
+    assert not WebhookDelivery.objects.filter(webhook_id=revoked_hook.pk).exists()
+
+    # Sanity: `live_membership` is still live and was never the subject of the
+    # revocation above — guards against a copy/paste bug picking the wrong var.
+    assert ProjectMembership.objects.get(pk=live_membership.pk).is_deleted is False
+
+
 def _client_for(user: Any) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=user)
@@ -169,8 +205,8 @@ def _client_for(user: Any) -> APIClient:
 def test_removed_creator_loses_edit_and_delivery_log_access(
     project: Project, creator: Any, other_admin: Any
 ) -> None:
-    """Sibling-surface check: edit and the delivery log already re-check the
-    CALLER's live membership on every request via ``IsProjectAdmin`` — unlike
+    """Sibling-surface check: edit, delete, and the delivery log already re-check
+    the CALLER's live membership on every request via ``IsProjectAdmin`` — unlike
     dispatch, there was no stale-assumption gap here. Documented, not patched.
     """
     ProjectMembership.objects.create(project=project, user=creator, role=Role.ADMIN)
@@ -186,6 +222,13 @@ def test_removed_creator_loses_edit_and_delivery_log_access(
     refused = client.patch(url, {"url": "https://example.com/newer-hook"}, format="json")
     assert refused.status_code == 403
     assert client.get(f"{url}deliveries/").status_code == 403
+
+    # The delete route is re-checked per request exactly like edit — not just
+    # asserted in a docstring. The webhook must still exist afterward (the
+    # refusal did not partially apply) for the still-live Admin check below.
+    destroy_refused = client.delete(url)
+    assert destroy_refused.status_code == 403
+    assert Webhook.objects.filter(pk=hook.pk).exists()
 
     # A different, still-live project Admin is unaffected — project-scoped admin
     # authority is not restricted to the registrant (contrast with the

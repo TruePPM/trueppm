@@ -124,7 +124,11 @@ it is not possible while the creator lacks membership, because edits are refused
 re-creating it under a member account is the remedy. A project webhook showing no
 deliveries belongs to a creator removed from that project; re-add them or re-create the
 subscription under a current member — a project webhook's edit/delete is never refused by
-this change, so disabling it directly is also an option. The
+this change, so disabling it directly is also an option. A **test ping** is not a
+reliable health check here: it is gated on the caller's own current role, not the
+registrant's membership, so a current Admin's test ping still succeeds against a
+dormant webhook and shows up in the delivery log looking healthy while real events
+are silently dropped. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 

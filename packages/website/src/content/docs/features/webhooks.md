@@ -359,6 +359,12 @@ This is also how you find out what a **test ping** actually did. `POST
 *enqueue*, not the receiver's answer. Read the matching delivery record back to see
 the `status` and `response_status` your endpoint returned.
 
+A test ping is gated on the **caller's** current Admin role, not the webhook's
+registrant's membership, so a current Admin's test ping still succeeds — and shows
+up in the log — against a dormant webhook whose registrant has lost project
+membership and so is no longer receiving real events. A successful test is not
+proof the webhook is live.
+
 The delivery log grows without bound, so it is **cursor**-paginated rather than
 page-numbered: the envelope is `{next, previous, results}` with **no `count`**.
 Follow `next` until it is `null`. See [Pagination](/api/reference/#pagination).
