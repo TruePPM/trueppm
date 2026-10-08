@@ -5,6 +5,14 @@ grant is not a read grant on the project, so the webhook's registrant
 (``created_by``) must hold live ``ProjectMembership`` on the project the event came
 from. Project-scoped webhooks get the identical check against their own project
 (#4325) — see ``test_project_webhook_membership.py``.
+
+#4330 adds a role floor on top of that same membership: live membership used to
+be enough at any role, but the delivery-log read endpoint has always been
+Admin-only, so a registrant demoted to Viewer or Member (not removed) kept
+receiving the same payloads via dispatch that they could no longer read back
+through the delivery log. Dispatch now requires ``role >= Role.ADMIN`` on that
+live membership — see the "role floor" tests below, and
+``_drop_webhooks_without_live_member_owner`` in ``dispatch.py``.
 """
 
 from __future__ import annotations
@@ -92,14 +100,42 @@ def test_program_webhook_owned_by_non_member_admin_does_not_fire(
     assert WebhookDelivery.objects.count() == 0
 
 
-def test_program_webhook_owned_by_member_fires(
+def test_program_webhook_owned_by_admin_fires(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
-    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    """#4330: Admin is the floor, so an Admin registrant still fires."""
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     _program_webhook(program, member_owner)
 
     assert _dispatch(project_p) == 1
     assert WebhookDelivery.objects.count() == 1
+
+
+def test_program_webhook_owned_by_owner_fires(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """#4330: Owner is above the Admin floor, so an Owner registrant fires too."""
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.OWNER)
+    _program_webhook(program, member_owner)
+
+    assert _dispatch(project_p) == 1
+    assert WebhookDelivery.objects.count() == 1
+
+
+def test_program_webhook_owned_by_mere_member_does_not_fire(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """#4330: live membership below Admin (Member here) is no longer enough.
+
+    Before #4330 this registrant fired (any live membership qualified) — the
+    delivery-log read endpoint has always been Admin-only, so dispatch must now
+    match it.
+    """
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    _program_webhook(program, member_owner)
+
+    assert _dispatch(project_p) == 0
+    assert WebhookDelivery.objects.count() == 0
 
 
 def test_program_webhook_stops_firing_when_owner_membership_revoked(
@@ -107,7 +143,7 @@ def test_program_webhook_stops_firing_when_owner_membership_revoked(
 ) -> None:
     """Membership is read live at dispatch: soft-deleting it stops delivery."""
     membership = ProjectMembership.objects.create(
-        project=project_p, user=member_owner, role=Role.MEMBER
+        project=project_p, user=member_owner, role=Role.ADMIN
     )
     _program_webhook(program, member_owner)
     assert _dispatch(project_p) == 1
@@ -118,11 +154,47 @@ def test_program_webhook_stops_firing_when_owner_membership_revoked(
     assert _dispatch(project_p) == 0
 
 
+def test_program_webhook_stops_firing_when_owner_demoted_to_viewer(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """#4330: a demotion (still a LIVE member, just a lower role) must also stop
+    delivery — not only a full removal. This is the exact gap #4330 reports: a
+    webhook creator demoted from Admin to Viewer kept receiving full event
+    payloads via dispatch even though the delivery-log endpoint would now
+    refuse them."""
+    membership = ProjectMembership.objects.create(
+        project=project_p, user=member_owner, role=Role.ADMIN
+    )
+    _program_webhook(program, member_owner)
+    assert _dispatch(project_p) == 1
+
+    membership.role = Role.VIEWER
+    membership.save(update_fields=["role"])
+
+    assert _dispatch(project_p) == 0
+
+
+def test_program_webhook_stops_firing_when_owner_demoted_to_member(
+    program: Program, project_p: Project, member_owner: Any
+) -> None:
+    """#4330: same demotion gap, landing one band higher (Admin -> Member)."""
+    membership = ProjectMembership.objects.create(
+        project=project_p, user=member_owner, role=Role.ADMIN
+    )
+    _program_webhook(program, member_owner)
+    assert _dispatch(project_p) == 1
+
+    membership.role = Role.MEMBER
+    membership.save(update_fields=["role"])
+
+    assert _dispatch(project_p) == 0
+
+
 def test_program_webhook_with_deleted_owner_fails_closed(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
     """``created_by`` is SET_NULL on user delete — a NULL owner must not deliver."""
-    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     _program_webhook(program, member_owner)
     Webhook.objects.update(created_by=None)
 
@@ -132,7 +204,7 @@ def test_program_webhook_with_deleted_owner_fails_closed(
 def test_program_webhook_with_deactivated_owner_fails_closed(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
-    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     _program_webhook(program, member_owner)
     member_owner.is_active = False
     member_owner.save(update_fields=["is_active"])
@@ -164,7 +236,7 @@ def test_dispatch_resolves_owner_membership_in_one_query_per_event(
     program: Program, project_p: Project, member_owner: Any
 ) -> None:
     """Several program webhooks cost one membership query per event, not one each."""
-    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     for i in range(3):
         Webhook.objects.create(
             program=program,
@@ -194,7 +266,7 @@ def test_non_member_admin_cannot_re_point_a_members_webhook(
     program: Program, project_p: Project, member_owner: Any, program_admin: Any
 ) -> None:
     """#4310 (B2, option c): a non-member admin's PATCH is refused, so the URL is unchanged."""
-    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     hook = _program_webhook(program, member_owner)
 
     resp = _client_for(program_admin).patch(
@@ -219,7 +291,7 @@ def test_non_member_admin_empty_patch_then_delivery_log_leaks_nothing(
     Previously an empty PATCH re-stamped created_by, and the delivery log then
     returned every stored past payload of P. Both steps are refused now.
     """
-    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     hook = _program_webhook(program, member_owner)
     with patch.object(wh_tasks, "deliver_webhook") as mock_task:
         mock_task.delay = MagicMock()
@@ -266,7 +338,7 @@ def test_another_admin_cannot_read_a_members_delivery_log(
     program: Program, project_p: Project, member_owner: Any, program_admin: Any
 ) -> None:
     """#4310 (B3): the delivery log replays past payloads, so it is the registrant's only."""
-    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project_p, user=member_owner, role=Role.ADMIN)
     ProgramMembership.objects.create(program=program, user=member_owner, role=Role.ADMIN)
     hook = _program_webhook(program, member_owner)
     assert _dispatch(project_p) == 1

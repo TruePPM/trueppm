@@ -71,7 +71,7 @@ def build_delivery_body(
 
 
 def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: str) -> list[Any]:
-    """Keep a webhook only when its registrant is a live member of the firing project.
+    """Keep a webhook only when its registrant is a live Admin+ member of the firing project.
 
     Originally written for program-scoped webhooks (#4310): a program-scoped
     webhook fires for events on every member project, but the program grant is
@@ -85,9 +85,24 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
     scoped to, so the same ``project_id`` the caller passes in is also the right
     membership check for it — no separate query shape needed.
 
-    Membership is read here, at dispatch time, so a removed member stops
-    receiving events on the next write rather than when the subscription is
-    edited.
+    #4330 adds a role floor on top of that same ``ProjectMembership`` row:
+    membership alone (any role) used to be enough to keep receiving events, but
+    the delivery-log read endpoint (``ProjectWebhookViewSet.get_permissions``)
+    has always been Admin-only — payloads are documented information disclosure
+    beyond plain project membership (#903). A registrant demoted to Viewer or
+    Member (not removed) kept receiving the same payloads via dispatch that they
+    could no longer read back through the delivery log, which is the gap #4330
+    closes: dispatch now requires ``role >= Role.ADMIN`` on that live
+    membership, matching the read gate exactly so the two cannot drift again.
+    This applies identically to program-scoped webhooks because the membership
+    source here is always the firing project, never the program — a program
+    Admin with no (or sub-Admin) membership on a specific member project was
+    already excluded before #4330, and is now excluded on the same project-role
+    terms as a project-scoped registrant.
+
+    Membership is read here, at dispatch time, so a removed member, or one
+    demoted below Admin, stops receiving events on the next write rather than
+    when the subscription is edited.
 
     Fails closed: a webhook whose ``created_by`` is NULL (the registrant was
     deleted — ``SET_NULL``) or whose registrant is deactivated is dropped.
@@ -96,7 +111,7 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
     of the candidate webhooks (project- and program-scoped alike) are resolved
     together against ``project_id``.
     """
-    from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.access.models import ProjectMembership, Role
 
     owner_ids = {w.created_by_id for w in webhooks if w.created_by_id}
     if not owner_ids:
@@ -104,7 +119,12 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
     else:
         live_owners = set(
             ProjectMembership.live()
-            .filter(project_id=project_id, user_id__in=owner_ids, user__is_active=True)
+            .filter(
+                project_id=project_id,
+                user_id__in=owner_ids,
+                user__is_active=True,
+                role__gte=Role.ADMIN,
+            )
             .values_list("user_id", flat=True)
         )
     return [w for w in webhooks if w.created_by_id in live_owners]
@@ -121,8 +141,8 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     program-scoped webhooks (events on any project within the program that
     owns this project) per ADR-0076. The two queries are combined with a
     single ``Q`` union so the database performs the OR in one round-trip.
-    Either scope is then dropped if its registrant lacks live membership on
-    this project (#4310, #4325) — see
+    Either scope is then dropped if its registrant lacks a live Admin+
+    membership on this project (#4310, #4325, #4330) — see
     ``_drop_webhooks_without_live_member_owner``.
     """
     from django.db.models import Q

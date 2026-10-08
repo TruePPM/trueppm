@@ -47,10 +47,10 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.fixture
 def webhook(project: Project, user: object) -> Webhook:
-    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    # dispatch_webhooks (#4325, #4330) only delivers to a live Admin+ registrant.
     # get_or_create: must not downgrade a role another fixture already granted.
     ProjectMembership.objects.get_or_create(
-        project=project, user=user, defaults={"role": Role.MEMBER}
+        project=project, user=user, defaults={"role": Role.ADMIN}
     )
     return Webhook.objects.create(
         project=project,
@@ -250,9 +250,9 @@ def test_dispatch_injects_sequence_into_slack_body(project: Project, user: objec
     from trueppm_api.apps.webhooks import tasks as wh_tasks
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
-    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    # dispatch_webhooks (#4325, #4330) only delivers to a live Admin+ registrant.
     ProjectMembership.objects.get_or_create(
-        project=project, user=user, defaults={"role": Role.MEMBER}
+        project=project, user=user, defaults={"role": Role.ADMIN}
     )
     slack_hook = Webhook.objects.create(
         project=project,
@@ -280,9 +280,9 @@ def test_body_sequence_does_not_leak_across_subscriptions(project: Project, user
     from trueppm_api.apps.webhooks import tasks as wh_tasks
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
-    # dispatch_webhooks (#4325) only delivers to a live registrant's webhook.
+    # dispatch_webhooks (#4325, #4330) only delivers to a live Admin+ registrant.
     ProjectMembership.objects.get_or_create(
-        project=project, user=user, defaults={"role": Role.MEMBER}
+        project=project, user=user, defaults={"role": Role.ADMIN}
     )
     hook_a = Webhook.objects.create(
         project=project,
