@@ -134,6 +134,18 @@ def test_project_webhook_owned_by_viewer_does_not_fire(project: Project, creator
     assert WebhookDelivery.objects.count() == 0
 
 
+def test_project_webhook_owned_by_scheduler_does_not_fire(project: Project, creator: Any) -> None:
+    """#4330: Scheduler (ordinal 200) is the band directly below Admin (300) —
+    pins the floor at exactly ``Role.ADMIN``, not ``Role.SCHEDULER`` or lower.
+    Without this case, a filter accidentally written as
+    ``role__gte=Role.SCHEDULER`` would pass every other test in this file."""
+    ProjectMembership.objects.create(project=project, user=creator, role=Role.SCHEDULER)
+    _project_webhook(project, creator)
+
+    assert _dispatch(project) == 0
+    assert WebhookDelivery.objects.count() == 0
+
+
 def test_project_webhook_stops_firing_when_creator_membership_revoked(
     project: Project, creator: Any
 ) -> None:
