@@ -12,8 +12,10 @@ idempotent re-report (unchanged, no restamp); cross-project criterion → unknow
 (untouched); wrong-project token → 401; program-scoped token may ingest when its
 minter is also a project member; program-scoped token's minter WITHOUT project
 membership is rejected and a membership revoked after mint is checked at request
-time (#4324); batch cap; duplicate criterion id; empty results; no auto-transition
-to READY.
+time (#4324); a program-scoped token's minter who holds a live but Viewer-only
+ProjectMembership is also rejected, Member+ is required, and a demotion below
+Member is checked at request time (#4331); batch cap; duplicate criterion id;
+empty results; no auto-transition to READY.
 """
 
 from __future__ import annotations
@@ -369,6 +371,107 @@ def test_program_token_revoked_membership_is_checked_at_request_time(
     # Revoke the minter's membership (soft-delete) — no re-mint, same raw token.
     membership.is_deleted = True
     membership.save(update_fields=["is_deleted"])
+
+    resp = _bearer(raw).post(
+        _url(project),
+        {"results": [{"criterion_id": str(c2.pk), "passed": True}]},
+        format="json",
+    )
+    assert resp.status_code == 401
+    c2.refresh_from_db()
+    assert c2.met is False
+
+
+# ---------------------------------------------------------------------------
+# Program-scoped token write-path role floor (#4331)
+# ---------------------------------------------------------------------------
+#
+# #4324 closed "no membership at all" but left a narrower gap: a Program
+# Admin who holds a live, Viewer-only ProjectMembership on the target
+# project — a real member, just not write-capable through the UI — could
+# still mint a program-scoped token and flip acceptance criteria a Viewer can
+# never flip through the UI. The maintainer decision on #4331 (2026-10-08) is
+# to require Member+ on the minter's live ProjectMembership, fail closed.
+
+
+@pytest.mark.django_db
+def test_program_token_viewer_minter_is_401(calendar: Calendar, minter: Any) -> None:
+    """#4331: the minter holds a LIVE ProjectMembership on the target project
+    (the #4324 check alone would pass), but it is Viewer-only. The write must
+    be refused with a 401 and the criterion left untouched."""
+    program = Program.objects.create(name="Artemis")
+    project = Project.objects.create(
+        name="InProgram", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    ProjectMembership.objects.create(project=project, user=minter, role=Role.VIEWER)
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    _, raw = _mint_program_token(program, minter)
+    resp = _bearer(raw).post(
+        _url(project),
+        {"results": [{"criterion_id": str(c1.pk), "passed": True}]},
+        format="json",
+    )
+    assert resp.status_code == 401
+    c1.refresh_from_db()
+    assert c1.met is False
+
+
+@pytest.mark.django_db
+def test_program_token_member_minter_can_ingest(calendar: Calendar, minter: Any) -> None:
+    """#4331: Member (the floor, not just Admin/Owner) is write-capable — the
+    role check is a floor (>= Role.MEMBER), not an Admin-only gate."""
+    program = Program.objects.create(name="Artemis")
+    project = Project.objects.create(
+        name="InProgram", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    ProjectMembership.objects.create(project=project, user=minter, role=Role.MEMBER)
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    _, raw = _mint_program_token(program, minter)
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+        resp = _bearer(raw).post(
+            _url(project),
+            {"results": [{"criterion_id": str(c1.pk), "passed": True}]},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    c1.refresh_from_db()
+    assert c1.met is True
+
+
+@pytest.mark.django_db
+def test_program_token_demoted_to_viewer_checked_at_request_time(
+    calendar: Calendar, minter: Any
+) -> None:
+    """#4331: the role check runs at request time, like the #4324 existence
+    check it extends. A minter demoted from Member to Viewer after the token
+    was minted must lose write authority on the very next request — no
+    re-mint involved."""
+    program = Program.objects.create(name="Artemis")
+    project = Project.objects.create(
+        name="InProgram", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    membership = ProjectMembership.objects.create(project=project, user=minter, role=Role.MEMBER)
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    c2 = _criterion(story, pos=1)
+    _, raw = _mint_program_token(program, minter)
+
+    # Member: the token works.
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+        resp = _bearer(raw).post(
+            _url(project),
+            {"results": [{"criterion_id": str(c1.pk), "passed": True}]},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    c1.refresh_from_db()
+    assert c1.met is True
+
+    # Demote to Viewer — same raw token, no re-mint.
+    membership.role = Role.VIEWER
+    membership.save(update_fields=["role"])
 
     resp = _bearer(raw).post(
         _url(project),

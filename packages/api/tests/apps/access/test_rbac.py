@@ -2398,6 +2398,75 @@ class TestIsTokenForProjectScopes:
         with pytest.raises(AuthenticationFailed):
             IsTokenForProject().has_permission(req, view)
 
+    def test_program_token_viewer_minter_is_rejected(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4331: the minter holds a LIVE ProjectMembership on the project (the
+        #4324 existence check alone would pass this), but it is Viewer-only —
+        not write-capable in the UI. The write floor is Member+."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        member_project = Project.objects.create(
+            name="In program, minter is Viewer",
+            start_date=date(2026, 1, 1),
+            calendar=calendar,
+            program=program,
+        )
+        ProjectMembership.objects.create(project=member_project, user=user, role=Role.VIEWER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(member_project.pk)}
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_program_token_member_minter_is_authorized(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4331: Member (the floor, not just Admin/Owner) is write-capable."""
+        member_project = Project.objects.create(
+            name="In program, minter is Member",
+            start_date=date(2026, 1, 1),
+            calendar=calendar,
+            program=program,
+        )
+        ProjectMembership.objects.create(project=member_project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(member_project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+    def test_program_token_demoted_to_viewer_is_checked_at_request_time(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4331: the role check runs at request (has_permission) time, like the
+        #4324 existence check it extends — a minter demoted from Member to
+        Viewer after the token was minted must be denied on the very next
+        request through the same, already-minted token."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        member_project = Project.objects.create(
+            name="In program, minter demoted",
+            start_date=date(2026, 1, 1),
+            calendar=calendar,
+            program=program,
+        )
+        membership = ProjectMembership.objects.create(
+            project=member_project, user=user, role=Role.MEMBER
+        )
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(member_project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+        membership.role = Role.VIEWER
+        membership.save(update_fields=["role"])
+
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
 
 # ---------------------------------------------------------------------------
 # MCP token guards — read-only methods and owner-scoped tokens

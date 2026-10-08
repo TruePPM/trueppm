@@ -32,6 +32,19 @@ acceptance-result ingest) follow this rule too — see
 [Upgrading to 0.4](/getting-started/upgrade/#program-exports-and-program-and-project-webhooks-honor-project-membership)
 for what changed from earlier betas.
 
+**Not yet released:** the two token write endpoints will enforce this rule more tightly
+than "a member". Once it ships, a write will be accepted only when the token's minter
+holds a live `ProjectMembership` on the specific target project *and* that membership's
+role is Member or above. A minter who is a live member of the project but Viewer-only
+will not be able to use a program-scoped token to create or update tasks, or to flip
+acceptance criteria — the same write floor the UI itself enforces for a Viewer. Until
+this lands, a Viewer-minted program token keeps full write authority on both endpoints.
+Both the membership and the role will be checked at request time, not mint time, so
+revoking the minter's membership, or demoting it below Member, will invalidate an
+already-minted token's write authority on the very next request. This change is scoped
+to the program-scoped branch only — it does not add any equivalent live re-check for a
+project-scoped token's minter.
+
 ### Why the ordinals jump by 100
 
 The gaps are **reserved slots, not arbitrary numbering**. Ordinals are compared, never
