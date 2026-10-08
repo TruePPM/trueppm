@@ -294,7 +294,17 @@ pub fn compute_floats(
             // (#4180) is the baseline both the slack and the driving-edge check use.
             let raw_refs = match free_instants[s] {
                 Some(x) => milestone_refs(x)?,
-                None => (succ.early_start.unwrap(), succ.early_finish.unwrap()),
+                // A work successor is read at the working day its start sits at
+                // (#4332): only a live task's verbatim `actual_start` can put an
+                // early start on a non-working day, a Saturday start is the same
+                // working-time position as the Monday after it (total float counts
+                // zero days between them), and inverting from the raw Saturday
+                // reported a predecessor imposing the Friday before as the driver.
+                // Mirrors the Python `_free_float_days`.
+                None => (
+                    next_working_day(succ.early_start.unwrap(), cals.for_node(s))?,
+                    succ.early_finish.unwrap(),
+                ),
             };
             // A tie that flips the milestone's reading moves it (#4183), layered on
             // top of that free instant. The two adjustments never both act on the

@@ -2667,10 +2667,25 @@ def _free_float_days(
         own = instants.get(node_id)
         own_instant = None if own is None else own[0]
         own_link = links.get(node_id, own)
+        succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
         if succ_free is None:
-            refs = raw_refs = (succ.early_start, succ.early_finish)
+            # A work successor is measured from the working day its start sits at,
+            # not the raw date (#4332). The only early start that can fall on a
+            # non-working day is a live task's verbatim ``actual_start`` (ADR-0132
+            # §2), and a Saturday start is the same working-time position as the
+            # Monday after it — total float already counts it that way, giving
+            # zero working days from Saturday to Monday. Inverting from the raw
+            # Saturday instead retreated an SS link to the Friday before, so a
+            # predecessor whose link imposes Friday read zero slack and was
+            # reported as the driver, although its slip to Monday leaves the
+            # successor's working-time start and its finish where they are — the
+            # actual start is what holds the task, and the predecessor kept the
+            # day of total float that proved it. Every inversion in
+            # :func:`_link_slack` assumes a working-day reference, as the late
+            # dates the backward pass feeds the same formulas always are; the
+            # snap is the identity for every other successor.
+            refs = raw_refs = (_next_working_day(succ.early_start, succ_cal), succ.early_finish)
         else:
-            succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
             # The free-float instant a lagged milestone successor is measured at
             # (#4180) is the baseline both the slack and the driving-edge check use.
             raw_refs = _milestone_refs(succ_free)

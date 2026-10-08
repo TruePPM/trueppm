@@ -743,3 +743,89 @@ def test_float_inversion_check_flags_a_zero_lag_work_successor() -> None:
         ],
     )
     assert _float_inversions(project, broken) == [("A", "B")]
+
+
+def _saturday_actual_start_project(actual_start: date | None = date(2027, 1, 30)) -> Project:
+    """The #4332 fuzz counterexample: ``t0 -SS-> t2`` where ``t2`` started on a Saturday.
+
+    Nightly ``scheduler:fuzz-deep`` (pipeline 2926636310) shrank to this. ``t2``'s
+    recorded ``actual_start`` is the Saturday after the Friday status date, kept
+    verbatim (ADR-0132 §2), so it holds ``t2``'s early start; ``t0``'s SS link only
+    imposes the Friday. ``t3`` closes the network on the Monday, which leaves
+    ``t0`` one working day of total float and ``t2`` none. ``actual_start=None``
+    gives the same network with ``t2`` placed by its links alone.
+    """
+
+    def task(tid: str, days: int, start: date | None = None) -> Task:
+        return Task(id=tid, name=tid, duration=timedelta(days=days), actual_start=start)
+
+    def link(pred: str, succ: str, kind: DependencyType) -> Dependency:
+        return Dependency(predecessor_id=pred, successor_id=succ, dep_type=kind)
+
+    fs, ss, ff = DependencyType.FS, DependencyType.SS, DependencyType.FF
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[task("t0", 1), task("t1", 0), task("t2", 1, actual_start), task("t3", 0)],
+        dependencies=[
+            link("t0", "t1", fs),
+            link("t0", "t3", fs),
+            link("t1", "t2", ff),
+            link("t0", "t2", ss),
+            link("t1", "t3", fs),
+            link("t2", "t3", fs),
+        ],
+        calendar=Calendar(working_days=0b0011111),
+        status_date=date(2027, 1, 29),
+    )
+
+
+def test_ss_link_into_a_saturday_actual_start_is_not_driving() -> None:
+    """A predecessor whose link imposes the Friday does not drive a Saturday start (#4332).
+
+    ``t2``'s Saturday start is the same working-time position as the Monday after
+    it — the engine counts zero days of float between them. ``t0`` slipping from
+    Friday to Monday therefore moves neither ``t2``'s working-time start nor its
+    finish, and ``t0`` keeps the day of total float that says so. Before the fix
+    the free-float inversion retreated from the raw Saturday to the Friday,
+    read zero slack, and reported ``t0 -> t2`` as driving: the one edge where the
+    property above saw a predecessor out-float the successor it drives.
+    """
+    project = _saturday_actual_start_project()
+    result = schedule(project)
+    tasks = {t.id: t for t in result.tasks}
+
+    assert tasks["t2"].early_start == date(2027, 1, 30)  # verbatim Saturday actual
+    assert tasks["t0"].total_float == timedelta(days=1)
+    assert tasks["t2"].total_float == timedelta(0)
+    assert DrivingEdge("t0", "t2", "SS") not in result.driving_edges
+    assert result.driving_edges == [
+        DrivingEdge("t0", "t1", "FS"),
+        DrivingEdge("t2", "t3", "FS"),
+    ]
+    assert _float_inversions(project, result) == []
+
+    # Slipping t0 its one day of float leaves t2's finish, and the project's, alone.
+    slipped = dataclasses.replace(
+        project,
+        tasks=[
+            dataclasses.replace(t, planned_start=date(2027, 2, 1)) if t.id == "t0" else t
+            for t in project.tasks
+        ],
+    )
+    slipped_tasks = {t.id: t for t in schedule(slipped).tasks}
+    assert slipped_tasks["t2"].early_finish == tasks["t2"].early_finish
+    assert schedule(slipped).project_finish == result.project_finish
+
+
+def test_ss_link_still_drives_a_work_successor_it_places() -> None:
+    """Control for the #4332 snap: without the actual, ``t0``'s SS link places ``t2``.
+
+    The snap to the working day only changes a non-working early start; a
+    successor the link actually sets keeps the link as its driver.
+    """
+    result = schedule(_saturday_actual_start_project(actual_start=None))
+    tasks = {t.id: t for t in result.tasks}
+    assert tasks["t2"].early_start == tasks["t0"].early_start
+    assert DrivingEdge("t0", "t2", "SS") in result.driving_edges
