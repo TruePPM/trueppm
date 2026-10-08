@@ -5,7 +5,7 @@
   "tasks": [
     {"id": "A", "name": "Predecessor on the project's first working day", "duration": 259200.0},
     {"id": "B", "name": "SF-only, lag 0: finishes the Friday before the project opens", "duration": 86400.0},
-    {"id": "C", "name": "SF-only, +2d lag across the weekend, longer than the gap", "duration": 432000.0},
+    {"id": "C", "name": "SF-only, +2d lag from the Monday start: finishes Tuesday (#4333)", "duration": 432000.0},
     {"id": "D", "name": "SF-only from a pre-start predecessor", "duration": 172800.0},
     {"id": "G", "name": "SF-only milestone", "duration": 0.0},
     {"id": "I", "name": "SF-only from two predecessors: the latest bound wins", "duration": 259200.0}

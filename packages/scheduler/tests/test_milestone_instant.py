@@ -1649,16 +1649,23 @@ class TestLaggedFinishLinkIntoAMilestone:
 
     @pytest.mark.parametrize("lag", range(-4, 8))
     def test_sf_into_a_milestone_is_its_anchor_instant_plus_the_lag(self, lag: int) -> None:
-        """``S(2d) -SF(l)-> M`` from ``S`` starting Monday 01-12 anchors on the close
-        of Friday 01-09 — the instant ``A(5d)`` finishes at — so it schedules exactly
-        as ``A -FS(l)-> M``. Before #4272 a lag across the weekend snapped forward."""
+        """``S(2d) -SF(l)-> M`` from ``S`` starting Monday 01-12 anchors, with no lag
+        or a lead, on the close of Friday 01-09 — the instant ``A(5d)`` finishes at —
+        so it schedules exactly as ``A -FS(l)-> M``. Before #4272 a lag across the
+        weekend snapped forward.
+
+        A positive lag counts from ``S``'s start instant itself, Monday 00:00
+        (#4333), two calendar days after ``A``'s finish instant, so it schedules as
+        ``A -FS(l+2)-> M``. Counting it from Friday's close let the weekend absorb
+        up to two days of the lag."""
+        fs_lag = lag if lag <= 0 else lag + 2
         sf = _project(
             [_task("A", 5), _task("S", 2), _task("M", 0), _task("C", 1)],
             [_dep("A", "S"), _dep("S", "M", DependencyType.SF, lag), _dep("M", "C")],
         )
         fs = _project(
             [_task("A", 5), _task("S", 2), _task("M", 0), _task("C", 1)],
-            [_dep("A", "S"), _dep("A", "M", DependencyType.FS, lag), _dep("M", "C")],
+            [_dep("A", "S"), _dep("A", "M", DependencyType.FS, fs_lag), _dep("M", "C")],
         )
         sf_by_id, fs_by_id = _by_id(sf), _by_id(fs)
         for tid in ("M", "C"):

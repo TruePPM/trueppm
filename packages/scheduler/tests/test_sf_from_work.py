@@ -265,35 +265,54 @@ def test_sf_backward_pass_late_start_is_the_latest_start_that_holds_the_finish()
 # ---------------------------------------------------------------------------
 
 
-def test_monte_carlo_matches_cpm_for_sf_from_work_at_the_index_start() -> None:
+@pytest.mark.parametrize(
+    ("lag", "c_dur", "b_finish", "finish"),
+    [
+        # Zero lag anchors on offset k - 1 (#4145): for k = 0 that is Fri 02-27,
+        # outside the index, resolved against the calendar. B finishes there and C
+        # (FS, 10d) carries it to the finish: Mon 03-02..Fri 03-13.
+        (0, 10, date(2026, 2, 27), date(2026, 3, 13)),
+        # A positive lag anchors on the day before the start itself (#4333), Sun
+        # 03-01: + 6 calendar days = Sat 03-07, snapped to Mon 03-09 — past A's own
+        # Wed 03-04 finish, so the SF bound is the project finish.
+        (6, 0, date(2026, 3, 9), date(2026, 3, 9)),
+    ],
+)
+def test_monte_carlo_matches_cpm_for_sf_from_work_at_the_index_start(
+    lag: int, c_dur: int, b_finish: date, finish: date
+) -> None:
     """Zero-variance Monte Carlo must reproduce the CPM finish for an SF-from-work edge.
 
     The vectorised simulation resolves an ordinary predecessor's SF bound from a
     lag-delta array indexed by the predecessor's working-day *start* offset
-    (``engine._build_lag_delta``). Under #4145 the anchor is offset ``k - 1``, so
-    ``k = 0`` — a predecessor starting on the project's first working day — reaches an
-    anchor that is *outside* the working-day index and has to be resolved against the
-    calendar itself. Here A starts on the index's first day and the lag is large
-    enough that the bound lands inside the index, so a wrong ``k = 0`` cell moves the
-    simulated finish off CPM: anchor Fri 02-27 + 6 calendar days = Thu 03-05, one
-    working day past A's own finish.
+    (``engine._build_lag_delta``). Under #4145 the zero-lag anchor is offset
+    ``k - 1``, so ``k = 0`` — a predecessor starting on the project's first working
+    day — reaches an anchor that is *outside* the working-day index and has to be
+    resolved against the calendar itself; a positive lag anchors on the calendar day
+    before ``k`` (#4333). A starts on the index's first day in both cases, so a
+    wrong ``k = 0`` cell moves the simulated finish off CPM.
     """
+    tasks = [
+        Task(id="A", name="A", duration=timedelta(days=3)),
+        Task(id="B", name="B", duration=timedelta(days=2)),
+    ]
+    deps = [Dependency("A", "B", dep_type=DependencyType.SF, lag=timedelta(days=lag))]
+    if c_dur:
+        tasks.append(Task(id="C", name="C", duration=timedelta(days=c_dur)))
+        deps.append(Dependency("B", "C"))
     project = Project(
         id="sf-mc",
         name="sf-mc",
         start_date=PROJECT_START,
         calendar=Calendar(),
-        tasks=[
-            Task(id="A", name="A", duration=timedelta(days=3)),
-            Task(id="B", name="B", duration=timedelta(days=2)),
-        ],
-        dependencies=[Dependency("A", "B", dep_type=DependencyType.SF, lag=timedelta(days=6))],
+        tasks=tasks,
+        dependencies=deps,
     )
     result = schedule(project)
     by = {t.id: t for t in result.tasks}
     assert by["A"].early_finish == date(2026, 3, 4)  # Wed
-    assert by["B"].early_finish == date(2026, 3, 5)  # Thu — the SF bound, not A's finish
-    assert result.project_finish == date(2026, 3, 5)
+    assert by["B"].early_finish == b_finish
+    assert result.project_finish == finish
 
     mc = monte_carlo(project, runs=32, seed=1, max_runs=None, max_tasks=None)
     assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
@@ -358,11 +377,12 @@ def test_the_result_project_start_follows_the_earliest_task() -> None:
 def test_sf_lag_that_lands_inside_the_project_still_pulls_the_start_before_it() -> None:
     """The bound can be after the project start while the task still starts before it.
 
-    Fri 02-27 + 3 calendar days = Mon 03-02, so B (5d) must finish Mon 03-02 and
-    starts Tue 02-24. Before #4218 B sat on Mon 03-02..Fri 03-06: it satisfied the
-    finish bound, but three days late against the SF placement MS Project gives it.
+    A positive lag counts from the day A's start instant closes, Sun 03-01 (#4333):
+    + 1 calendar day = Mon 03-02, so B (5d) must finish Mon 03-02 and starts Tue
+    02-24. Before #4218 B sat on Mon 03-02..Fri 03-06: it satisfied the finish
+    bound, but three days late against the SF placement MS Project gives it.
     """
-    by = _sf(3, b_dur=5)
+    by = _sf(1, b_dur=5)
     assert by["B"].early_finish == PROJECT_START
     assert by["B"].early_start == date(2026, 2, 24)
 
@@ -413,7 +433,7 @@ def test_a_data_date_before_the_project_start_floors_there_not_at_the_start() ->
     """
     result = _schedule(
         [Task(id="A", name="A", duration=_days(3)), Task(id="B", name="B", duration=_days(5))],
-        [_sf_dep("A", "B", 3)],
+        [_sf_dep("A", "B", 1)],
         status_date=date(2026, 2, 25),
     )
     b = {t.id: t for t in result.tasks}["B"]
@@ -831,3 +851,218 @@ def test_monte_carlo_matches_cpm_before_the_project_start(status_date: date | No
         assert by["B"].early_start == date(2026, 2, 23)
         assert by["D"].early_start == date(2026, 2, 17)
         assert result.project_finish == date(2026, 3, 17)
+
+
+# ---------------------------------------------------------------------------
+# #4333 — a positive SF lag counts from the start instant, not a pre-snapped day
+# ---------------------------------------------------------------------------
+
+
+def _pair(start: date, lag: int, *, milestone: bool = False) -> Project:
+    """T1 -SF(lag)-> T2(1d), both from the project start; T1 is 1d or a milestone."""
+    return Project(
+        id="sf-4333",
+        name="sf-4333",
+        start_date=start,
+        calendar=Calendar(),
+        tasks=[
+            Task(id="11", name="T1", duration=_days(0 if milestone else 1)),
+            Task(id="12", name="T2", duration=_days(1)),
+        ],
+        dependencies=[_sf_dep("11", "12", lag)],
+    )
+
+
+def test_the_4333_repro_finishes_on_tuesday_as_ms_project_does() -> None:
+    """The issue's repro, checked against MPXJ's task-links-project2016 files.
+
+    T1 starts Mon 2016-02-08. With +2d the successor finishes Tue 02-09: the lag
+    counts from the day T1's start instant closes, Sun 02-07. Pre-snapping that
+    anchor to Fri 02-05 put the lag on Sunday, snapped it to Monday, and finished
+    T2 on Monday 02-08 — the whole lag absorbed by the weekend.
+    """
+    by = {t.id: t for t in schedule(_pair(date(2016, 2, 8), 2)).tasks}
+    assert by["12"].early_start == by["12"].early_finish == date(2016, 2, 9)
+
+
+@pytest.mark.parametrize(
+    ("start", "expected"),
+    [
+        # Monday: the zero-lag anchor is the Friday before, the positive-lag one
+        # Sunday. -2..+6 → Wed, Thu, Fri, Mon, Tue, Wed, Thu, Fri, then Sat → Mon.
+        (
+            date(2026, 3, 2),
+            ["02-25", "02-26", "02-27", "03-02", "03-03", "03-04", "03-05", "03-06", "03-09"],
+        ),
+        # Wednesday and Thursday already matched MS Project and must not move:
+        # their zero-lag anchor is the calendar day before the start anyway.
+        (
+            date(2026, 3, 4),
+            ["03-02", "03-02", "03-03", "03-04", "03-05", "03-06", "03-09", "03-09", "03-09"],
+        ),
+        (
+            date(2026, 3, 5),
+            ["03-02", "03-03", "03-04", "03-05", "03-06", "03-09", "03-09", "03-09", "03-10"],
+        ),
+    ],
+)
+@pytest.mark.parametrize("milestone", [False, True])
+def test_sf_finish_is_monotone_in_the_lag_on_every_start_day(
+    start: date, expected: list[str], milestone: bool
+) -> None:
+    """A work predecessor and a start-of-day milestone predecessor agree (#4145), the
+    finish never moves earlier as the lag grows, and only the Monday row changed."""
+    finishes = []
+    for lag, want in zip(range(-2, 7), expected, strict=True):
+        by = {t.id: t for t in schedule(_pair(start, lag, milestone=milestone)).tasks}
+        finish = by["12"].early_finish
+        assert finish is not None
+        assert finish.isoformat()[5:] == want, f"lag {lag}"
+        finishes.append(finish)
+    assert finishes == sorted(finishes)
+
+
+def _add_working_days(day: date, n: int) -> date:
+    """``day`` moved ``n`` Mon-Fri working days later (``day`` is a working day)."""
+    while n > 0:
+        day += _days(1)
+        if day.weekday() < 5:
+            n -= 1
+    return day
+
+
+@pytest.mark.parametrize(
+    ("lag", "t2_snet", "float_days"),
+    [
+        (1, None, 0),
+        (2, None, 0),
+        (3, None, 0),
+        (5, None, 0),
+        # Sun 03-01 + 6 = Sat and + 7 = Sun, both shown Monday: two and one working
+        # days of slip reach the same Monday.
+        (6, None, 2),
+        (7, None, 1),
+        # The discriminating cases: T2 is held to W by an SNET so that W + 1 - lag
+        # is Sat 03-07. The latest start is Fri 03-06 (Thu + lag lands on the
+        # weekend, still shown W); a Monday start (Sun + lag) passes W. The
+        # pre-#4333 inverse, ``next_wd(prev_wd(W - lag))``, said Monday and
+        # reported five working days of float, not four.
+        (3, date(2026, 3, 9), 4),
+        (4, date(2026, 3, 10), 4),
+    ],
+)
+@pytest.mark.parametrize("milestone", [False, True])
+@pytest.mark.parametrize("pole", [False, True])
+def test_the_backward_pass_and_free_float_invert_the_new_anchor(
+    lag: int, t2_snet: date | None, float_days: int, milestone: bool, pole: bool
+) -> None:
+    """Float is the forward rule's inverse, checked differentially (#4333).
+
+    ``T1 -SF(lag)-> T2`` from Monday. Without a pole T2 sets the project finish and
+    T1's *total* float is the slip it can take before that finish moves; with a
+    long parallel pole Z the project finish is out of reach and T1's *free* float
+    is the slip it can take before T2's early finish moves. Either way, an SNET
+    that slips T1 by exactly its float leaves the measured date alone and one more
+    working day moves it. The float itself is also pinned, and the SNET-held rows
+    are the ones where the new inverse (``prev_wd(W + 1 - lag)``) and the pre-#4333
+    one disagree: ``W + 1 - lag`` falls on a Saturday. On the other rows both
+    inverses give the same date, so those rows alone would not tell them apart.
+    """
+
+    def build(slip: int | None) -> tuple[dict[str, Task], date]:
+        project = _pair(PROJECT_START, lag, milestone=milestone)
+        project.tasks[1].planned_start = t2_snet
+        if slip is not None:
+            project.tasks[0].planned_start = _add_working_days(PROJECT_START, slip)
+        if pole:
+            project.tasks.append(Task(id="Z", name="Z", duration=_days(30)))
+        result = schedule(project)
+        by = {t.id: t for t in result.tasks}
+        measured = by["12"].early_finish if pole else result.project_finish
+        assert measured is not None
+        return by, measured
+
+    base, measured = build(None)
+    t1 = base["11"]
+    slack = (t1.free_float if pole else t1.total_float).days
+    # A milestone T1 may sit as late as Sat 03-07 00:00, the end of Friday: five
+    # working days after Monday's start, one more than work, which has to *start*
+    # by Friday. An SNET can only place it at the start of a day, so its
+    # differential slip stops at Friday's start, one day short of the float.
+    instant_extra = 1 if milestone and t2_snet is not None else 0
+    if pole or t2_snet is not None:
+        assert slack == float_days + instant_extra
+    slip = slack - instant_extra
+    assert build(slip)[1] == measured, "slipping T1 by its float moved the date"
+    assert build(slip + 1)[1] > measured, "T1's float is not the latest slip"
+
+
+def test_a_milestone_predecessors_late_instant_is_the_raw_inverse() -> None:
+    """``P -FS+1d-> M -SF+3d-> T``, T held to Mon 03-09 by an SNET (#4333).
+
+    M's latest instant is ``W + 1 - lag`` = Sat 03-07 00:00, the end of Friday. Its
+    float is the same whether that is read as Saturday or Monday midnight, but P
+    measures a calendar-day lag back from it, so the raw instant matters: P may
+    finish Thursday (Fri 00:00 + 1 = Sat 00:00), and a Friday finish puts M at
+    Sunday midnight, whose SF anchor Sat + 3 = Tue moves T. Inverting through the
+    pre-#4333 finish-anchored branch gave Monday midnight and a Friday late finish.
+    """
+
+    def build(p_snet: date | None) -> ScheduleResult:
+        return _schedule(
+            [
+                Task(id="P", name="P", duration=_days(1), planned_start=p_snet),
+                Task(id="M", name="M", duration=_days(0)),
+                Task(id="T", name="T", duration=_days(1), planned_start=date(2026, 3, 9)),
+            ],
+            [
+                Dependency("P", "M", dep_type=DependencyType.FS, lag=_days(1)),
+                _sf_dep("M", "T", 3),
+            ],
+        )
+
+    base = build(None)
+    p = {t.id: t for t in base.tasks}["P"]
+    assert p.late_finish == date(2026, 3, 5)  # Thu
+    assert p.total_float == _days(3)
+    t_finish = {t.id: t for t in base.tasks}["T"].early_finish
+    assert t_finish == date(2026, 3, 9)
+    held = {t.id: t for t in build(date(2026, 3, 5)).tasks}["T"]
+    moved = {t.id: t for t in build(date(2026, 3, 6)).tasks}["T"]
+    assert held.early_finish == t_finish
+    assert moved.early_finish is not None and moved.early_finish > t_finish
+
+
+@pytest.mark.parametrize("milestone", [False, True])
+def test_sf_into_a_milestone_counts_a_positive_lag_from_the_start(milestone: bool) -> None:
+    """``T1 -SF+2d-> M -FS-> T3``: M is T1's start instant plus two days, Wed
+    03-04 00:00 (the end of Tuesday), so T3 starts Wednesday — where a 1-day
+    successor of the same link finishes Tuesday."""
+    project = _pair(PROJECT_START, 2, milestone=milestone)
+    project.tasks[1].duration = _days(0)
+    project.tasks.append(Task(id="13", name="T3", duration=_days(1)))
+    project.dependencies.append(Dependency("12", "13"))
+    by = {t.id: t for t in schedule(project).tasks}
+    assert by["12"].early_start == date(2026, 3, 3)
+    assert by["12"].milestone_at_day_end
+    assert by["13"].early_start == date(2026, 3, 4)
+
+
+@pytest.mark.parametrize("milestone", [False, True])
+@pytest.mark.parametrize("into_milestone", [False, True])
+@pytest.mark.parametrize("lag", [1, 2, 3, 6])
+def test_monte_carlo_matches_cpm_for_a_positive_sf_lag_from_a_monday(
+    lag: int, milestone: bool, into_milestone: bool
+) -> None:
+    """Zero-variance Monte Carlo reproduces the new anchor on every path: the lag
+    delta table (work), the per-run instant (milestone predecessor), and the
+    vectorised milestone placement (into a milestone). A long FS tail after the
+    successor makes its date the project finish."""
+    project = _pair(PROJECT_START, lag, milestone=milestone)
+    if into_milestone:
+        project.tasks[1].duration = _days(0)
+    project.tasks.append(Task(id="13", name="T3", duration=_days(10)))
+    project.dependencies.append(Dependency("12", "13"))
+    result = schedule(project)
+    mc = monte_carlo(project, runs=16, seed=5, max_runs=None, max_tasks=None)
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish

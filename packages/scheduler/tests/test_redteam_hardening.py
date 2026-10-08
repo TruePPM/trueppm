@@ -694,11 +694,12 @@ _ABSORBED_LAG_CASES = [
     # itself, and A's first slip moves the anchor Fri -> Mon, across the weekend, so
     # no lag can absorb it. (The previous row, (2, 3, 5), only had float because the
     # project-start floor held B's finish past the bound — the #4218 bug.) A is held
-    # to Thu 03-05 instead: anchor Wed 03-04 + 3cd = Sat, snapped to Mon 03-09; a
-    # slip of 1 or 2 working days moves the anchor to Thu/Fri, landing Sun/Mon, both
-    # Mon 03-09; a third moves B. A (1d) finishing Thu against a Mon finish also has
-    # exactly 2 working days of total float.
-    (DependencyType.SF, 1, 3, 2, date(2026, 3, 5)),
+    # to Wed 03-04 instead. A positive SF lag counts from the day before A's start
+    # (#4333): Tue 03-03 + 4cd = Sat, snapped to Mon 03-09; a slip of 1 or 2 working
+    # days moves the anchor to Wed/Thu, landing Sun/Mon, both Mon 03-09; a third
+    # starts A on Mon 03-09, anchor Sun 03-08, and moves B. A (1d) finishing Wed
+    # against a Mon finish also has exactly 2 working days of total float.
+    (DependencyType.SF, 1, 4, 2, date(2026, 3, 4)),
 ]
 
 

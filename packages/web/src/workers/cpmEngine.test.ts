@@ -845,9 +845,11 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     expect(c(run('FF'))).toEqual(c(run('FS')));
   });
 
-  it('proposes the raw anchor instant plus the lag for SF into a milestone (#4272)', () => {
-    // S starts Mon 01-12, so its SF anchor is the close of Fri 01-09; +1 day is
-    // Sunday midnight, the start of Monday — not the end of Monday.
+  it('proposes the raw start instant plus the lag for SF into a milestone (#4272, #4333)', () => {
+    // S starts Mon 01-12. A positive SF lag counts from that start instant itself
+    // (#4333): +1 day is Tuesday midnight, the end of Monday, so C starts Tuesday.
+    // Counting it from the close of Fri 01-09 put M at Sunday midnight and let the
+    // weekend absorb the lag.
     const tasks: CpmTask[] = [
       task('S', '2026-01-12', '2026-01-13'),
       milestone('M', '2026-01-12'),
@@ -861,8 +863,35 @@ describe('runCpmForwardPass — zero-duration milestones are instants (#4079)', 
     );
     const m = results.find((r) => r.taskId === 'M')!;
     expect(m.earlyStart).toBe('2026-01-12');
-    expect(m.milestoneAtDayEnd).toBe(false);
-    expect(results.find((r) => r.taskId === 'C')!.earlyStart).toBe('2026-01-12');
+    expect(m.milestoneAtDayEnd).toBe(true);
+    expect(results.find((r) => r.taskId === 'C')!.earlyStart).toBe('2026-01-13');
+  });
+
+  it('does not let a weekend absorb a positive SF lag from a Monday start (#4333)', () => {
+    // A is dragged to Mon 01-12. A positive SF lag counts from the day A's start
+    // instant closes (Sun 01-11), so +2 finishes B on Tue 01-13, as MS Project does.
+    // Pre-snapping the anchor to Fri 01-09 put the lag on Sunday and snapped it
+    // forward to Monday. Zero lag still finishes B the working day before A starts.
+    const tasks: CpmTask[] = [
+      task('A', '2026-01-05', '2026-01-05'),
+      task('B', '2026-01-05', '2026-01-05'),
+    ];
+    const finishB = (lag: number) =>
+      runCpmForwardPass(tasks, [edge('A', 'B', 'SF', lag)], 'A', '2026-01-12').results.find(
+        (r) => r.taskId === 'B',
+      )!.earlyFinish;
+    expect(finishB(0)).toBe('2026-01-09');
+    expect(finishB(1)).toBe('2026-01-12');
+    expect(finishB(2)).toBe('2026-01-13');
+    expect(finishB(3)).toBe('2026-01-14');
+  });
+
+  it('counts a positive SF lag out of a start-of-day milestone from its instant (#4333)', () => {
+    // M is dropped on Mon 01-12, the start of that day. M -SF+2-> T finishes T on
+    // Tue 01-13; anchoring on the close of Friday let the weekend absorb the lag.
+    const tasks: CpmTask[] = [milestone('M', '2026-01-05'), task('T', '2026-01-05', '2026-01-05')];
+    const { results } = runCpmForwardPass(tasks, [edge('M', 'T', 'SF', 2)], 'M', '2026-01-12');
+    expect(results.find((r) => r.taskId === 'T')!.earlyFinish).toBe('2026-01-13');
   });
 
   it("anchors an FF out of a start-of-day milestone on that milestone's instant (#4273)", () => {

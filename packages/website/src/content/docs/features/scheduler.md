@@ -50,7 +50,10 @@ its last working day. An `SF` link with zero lag therefore lets the successor
 finish at the *start* of the predecessor's first day, which puts the
 successor's last working day on the working day **before** the predecessor
 starts. This is the MS Project and Primavera P6 reading, and it is the same for
-a task predecessor and a milestone predecessor.
+a task predecessor and a milestone predecessor. A positive lag counts from the
+predecessor's start itself, not from that earlier working day, so a weekend just
+before the start does not absorb it: a predecessor starting Monday with `SF+2d`
+finishes its successor on Tuesday, as MS Project does.
 
 #### Lag is in calendar days, durations are in working days
 

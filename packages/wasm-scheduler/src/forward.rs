@@ -58,6 +58,11 @@ pub(crate) fn start_anchored(dep_type: DependencyType) -> bool {
 /// start instant: MS Project and P6 finish an SF successor at the start of its
 /// predecessor's start day, so its last working day is the day before — which is
 /// also where a zero-duration milestone standing at that same midnight puts it.
+/// It therefore takes the FF-out-of-a-milestone positive-lag branch below too
+/// (#4333), for work and milestones alike: a positive lag counts from
+/// `start - 1`, so a predecessor starting Monday anchors on Sunday and
+/// `-SF+2d->` finishes its successor on Tuesday, as MS Project does. Pre-snapping
+/// that anchor to Friday let the weekend absorb the lag.
 ///
 /// FF out of a milestone (#4273) measures from the instant itself, the point FS
 /// measures from. With no lag there is no date to snap, so the successor only has
@@ -82,10 +87,12 @@ pub(crate) fn edge_anchor(
             DependencyType::FS => checked_offset_days(finish, 1),
             DependencyType::FF => Ok(finish),
             DependencyType::SS => Ok(start),
+            DependencyType::SF if lag_days > 0 => checked_offset_days(start, -1),
             DependencyType::SF => prev_working_day(checked_offset_days(start, -1)?, pred_cal),
         },
         Some(x) if start_anchored(dep_type) => Ok(x),
-        Some(x) if dep_type == DependencyType::FF && lag_days > 0 => checked_offset_days(x, -1),
+        // FF or SF with a positive lag (#4273, #4333).
+        Some(x) if lag_days > 0 => checked_offset_days(x, -1),
         Some(x) => prev_working_day(checked_offset_days(x, -1)?, pred_cal),
     }
 }
@@ -131,10 +138,12 @@ pub(crate) fn milestone_proposal(
         finish,
         pred_instant.map(|i| i.0),
         pred_cal,
-        0,
+        lag_days,
     )?;
     if dep_type == DependencyType::SF {
-        // The close of the anchor day, which is the working day before the start.
+        // The close of the anchor day: the working day before the start, or with a
+        // positive lag the day the start instant closes, so the proposal is the
+        // start instant plus the lag (#4333).
         let raw = checked_offset_days(anchor, 1 + lag_days)?;
         return Ok((raw, start_reading(raw, false, cal)?));
     }
@@ -852,11 +861,15 @@ mod tests {
 
     /// #4272: SF into a milestone is its anchor instant — the close of the working
     /// day before the predecessor starts — plus the lag. `S` starts Mon 01-12, so
-    /// it anchors where `A(5d)` finishes, and schedules `M` as `A -FS(l)-> M` does.
+    /// with no lag or a lead it anchors where `A(5d)` finishes, and schedules `M`
+    /// as `A -FS(l)-> M` does. A positive lag counts from `S`'s start instant
+    /// itself (#4333), two calendar days after `A`'s finish instant, so it
+    /// schedules as `A -FS(l+2)-> M`.
     #[test]
     fn lagged_sf_into_a_milestone_is_its_anchor_instant_plus_the_lag() {
         let tasks = [("A", 5), ("S", 2), ("M", 0), ("C", 1)];
         for lag in -4..8 {
+            let fs_lag = if lag > 0 { lag + 2 } else { lag };
             let sf = [
                 ("A", "S", "FS", 0),
                 ("S", "M", "SF", lag),
@@ -864,7 +877,7 @@ mod tests {
             ];
             let fs = [
                 ("A", "S", "FS", 0),
-                ("A", "M", "FS", lag),
+                ("A", "M", "FS", fs_lag),
                 ("M", "C", "FS", 0),
             ];
             for id in ["M", "C"] {
@@ -943,6 +956,49 @@ mod tests {
                 );
             }
             previous = Some(w.early_finish);
+        }
+    }
+
+    /// #4333: a positive SF lag counts from the day the predecessor's start
+    /// instant closes, not from the working day before it, so a weekend between
+    /// the two cannot absorb the lag. `W` starts Mon 2026-01-05 (the project
+    /// start) and `W -SF+2d-> X(1d)` finishes `X` on Tue 01-06, as MS Project
+    /// does; pre-snapping the anchor to Fri 01-02 put the lag on Sunday and
+    /// finished `X` on Monday. The same holds out of a milestone `M` at the start
+    /// of Monday. The finish is monotone in the lag, and the backward pass
+    /// inverts the same rule: a driving link that lands on a working day leaves
+    /// `W`/`M` zero float.
+    #[test]
+    fn a_positive_sf_lag_is_not_absorbed_by_a_weekend() {
+        let expected = [
+            (-2, (2025, 12, 31)),
+            (-1, (2026, 1, 1)),
+            (0, (2026, 1, 2)),
+            (1, (2026, 1, 5)),
+            (2, (2026, 1, 6)),
+            (3, (2026, 1, 7)),
+            (5, (2026, 1, 9)),
+            (6, (2026, 1, 12)),
+        ];
+        for pred in [("W", 1), ("M", 0)] {
+            let tasks = [pred, ("X", 1)];
+            let mut previous = None;
+            for (lag, (y, m, day)) in expected {
+                let deps = [(pred.0, "X", "SF", lag)];
+                let x = schedule_one(&tasks, &deps, "X");
+                let want = NaiveDate::from_ymd_opt(y, m, day).unwrap();
+                assert_eq!(x.early_finish, want, "{} lag {lag}", pred.0);
+                if let Some(p) = previous {
+                    assert!(x.early_finish >= p, "{} lag {lag}", pred.0);
+                }
+                previous = Some(x.early_finish);
+                // Lag 6 lands on Saturday, so the weekend legitimately gives the
+                // predecessor slack (a calendar-day lag, #2534) — not a 4333 case.
+                if (1..=5).contains(&lag) {
+                    let p = schedule_one(&tasks, &deps, pred.0);
+                    assert_eq!(p.total_float, 0.0, "{} lag {lag}", pred.0);
+                }
+            }
         }
     }
 

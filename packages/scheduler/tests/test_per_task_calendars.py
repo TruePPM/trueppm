@@ -251,15 +251,16 @@ def test_ff_lag_snaps_on_successor_calendar() -> None:
 
 
 def test_sf_lag_snaps_on_successor_calendar() -> None:
-    # SF anchors on the working day BEFORE pred.ES, on the PREDECESSOR's calendar
-    # (#4145) — so the predecessor is held on Mon-Fri in both arms and only the
-    # successor's calendar is flipped. Anchor = prev_wd(Sun 01-04, Mon-Fri) =
-    # Fri 01-02; + 8 cal days = Sat 01-10.
+    # A positive SF lag counts from the day pred's start instant closes, pred.ES - 1
+    # (#4333) — Sun 01-04, with no snap on either calendar; zero lag and leads
+    # anchor on the working day before pred.ES on the PREDECESSOR's calendar
+    # (#4145). The predecessor is held on Mon-Fri in both arms and only the
+    # successor's calendar is flipped. Sun 01-04 + 6 cal days = Sat 01-10.
     # 7-day successor finishes Sat 01-10; Mon-Fri successor snaps to Mon 01-12.
-    assert _xcal(DependencyType.SF, 8, succ_seven=True, pred_seven=False)[
+    assert _xcal(DependencyType.SF, 6, succ_seven=True, pred_seven=False)[
         "succ"
     ].early_finish == date(2026, 1, 10)
-    assert _xcal(DependencyType.SF, 8, succ_seven=False, pred_seven=False)[
+    assert _xcal(DependencyType.SF, 6, succ_seven=False, pred_seven=False)[
         "succ"
     ].early_finish == date(2026, 1, 12)
 

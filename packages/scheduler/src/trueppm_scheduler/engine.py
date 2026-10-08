@@ -27,9 +27,9 @@ engine now follows the MS Project / Primavera P6 convention:
   plus the lag, never snapped to a working day. A milestone's start and finish are
   one instant, so FF into it is the same link as FS (:func:`_milestone_link`) and
   ``A -FF+1d-> M`` lands ``M`` exactly where ``A -FS+1d-> M`` does (#4272).
-* Links **out of** a milestone measure from the instant (FS/SS, and an FF with a
-  positive lag, #4273) or the last working day before it (SF, and an FF with no
-  lag or a lead, so an FF finish is monotone in its lag). The instant
+* Links **out of** a milestone measure from the instant (FS/SS, and an FF or SF
+  with a positive lag, #4273, #4333) or the last working day before it (an FF or
+  SF with no lag or a lead, so a finish is monotone in its lag). The instant
   is never rounded to a working day, so calendar-day lags compose through it:
   ``A -FS(l1)-> M -FS(l2)-> B`` schedules exactly as ``A -FS(l1+l2)-> B`` unless
   ``l2`` is negative or a hard floor holds ``M``. The project-start floor does not
@@ -56,6 +56,12 @@ the same rule the milestone branch above applies to an instant, so an SF link fr
 opening midnight now schedule identically — before #4145 the two disagreed by one
 working day, and the work branch scheduled one day later than the source plan an MS
 Project import came from.
+
+A *positive* SF lag counts from the start instant itself — from ``start - 1``, the
+day it closes — not from that pre-snapped working day (#4333). Otherwise a
+predecessor starting on Monday anchored on Friday, ``Friday + 2d`` landed on Sunday,
+and the snap to Monday absorbed the lag: ``-SF+2d->`` finished the successor on
+Monday, where MS Project finishes it on Tuesday.
 
 An SF-linked task may start before the project start (#4218, #4220)
 --------------------------------------------------------------------
@@ -897,12 +903,14 @@ def _edge_anchor(
     successor's calendar; only the anchor depends on the dependency type and on
     whether the predecessor is a milestone. For ordinary work (``instant`` is
     ``None``) FS measures from the day after the inclusive finish, SS from the
-    start, FF from the finish, and SF from the last working day *before* the start.
+    start, FF from the finish, and SF from the last working day *before* the start
+    (from ``start - 1`` with a positive lag, #4333).
 
     A milestone is one instant, so its start and its finish are the same point:
     FS and SS measure from the instant itself, SF from the last working day
-    before it. This is what lets a milestone sit on its driving predecessor's
-    finish without delaying anything behind it.
+    before it (from ``instant - 1`` with a positive lag). This is what lets a
+    milestone sit on its driving predecessor's finish without delaying anything
+    behind it.
 
     FF out of a milestone (#4273) is a finish link measured from the instant
     itself, the same point FS measures from. With no lag there is no date to snap,
@@ -929,6 +937,15 @@ def _edge_anchor(
     is the day before — exactly where a zero-duration milestone standing at that
     same midnight puts it. Anchoring on the start day itself (the pre-#4145
     behavior) scheduled the successor one working day later than either.
+
+    That makes SF the FF-out-of-a-milestone rule above, whether the predecessor is
+    work or a milestone, and it takes the same positive-lag branch (#4333): a lag
+    counts forward from the day the start instant closes, ``start - 1``, not from
+    the last working day before it. A predecessor starting on Monday anchors on
+    Sunday, so ``-SF+2d->`` finishes its successor on Tuesday, as MS Project does;
+    pre-snapping to Friday (the pre-#4333 rule) put the lag on Sunday, snapped it
+    forward to Monday, and let the weekend absorb it. Zero lag and leads keep the
+    last working day before the start, so the finish stays monotone in the lag.
     """
     if instant is None:
         if dep_type == DependencyType.FS:
@@ -940,10 +957,11 @@ def _edge_anchor(
         # SF: the predecessor's start instant is the midnight its start day opens
         # on, so fall through to the finish-anchored rule below with that instant.
         instant = start
-    elif dep_type == DependencyType.FF and lag > timedelta(0):
-        return _safe_offset(instant, -_ONE_DAY)
     if dep_type in _START_ANCHORED:
         return instant
+    if lag > timedelta(0):
+        # FF out of a milestone, or SF from anything (#4273, #4333).
+        return _safe_offset(instant, -_ONE_DAY)
     return _prev_working_day(_safe_offset(instant, -_ONE_DAY), pred_cal)
 
 
@@ -960,6 +978,17 @@ def _milestone_link(dep: Dependency) -> Dependency:
     if dep.dep_type == DependencyType.FF:
         return replace(dep, dep_type=DependencyType.FS)
     return dep
+
+
+def _sf_from_start(dep: Dependency) -> bool:
+    """Whether ``dep`` is an SF link that counts its lag from the raw start (#4333).
+
+    A positive SF lag anchors on ``start - 1`` itself (:func:`_edge_anchor`), so a
+    Monte Carlo reader must measure it from a predecessor's verbatim non-working
+    ``actual_start`` the way it does an SS link (#4175); SF with no lag or a lead
+    anchors on the working day before the start, which that snap cannot move.
+    """
+    return dep.dep_type == DependencyType.SF and dep.lag > timedelta(0)
 
 
 def _milestone_proposal(
@@ -992,9 +1021,11 @@ def _milestone_proposal(
     if dep_type == DependencyType.FF:
         dep_type = DependencyType.FS  # one link into a milestone (_milestone_link)
     instant = None if pred_instant is None else pred_instant[0]
-    anchor = _edge_anchor(dep_type, start, finish, instant, pred_cal)
+    anchor = _edge_anchor(dep_type, start, finish, instant, pred_cal, lag)
     if dep_type == DependencyType.SF:
-        # The close of the anchor day, which is the working day before the start.
+        # The close of the anchor day: the working day before the start, or with a
+        # positive lag the day the start instant closes, so the proposal is the
+        # start instant plus the lag (#4333).
         raw = _safe_offset(_safe_offset(anchor, _ONE_DAY), lag)
         return raw, _start_reading(raw, False, cal)
     raw = _safe_offset(anchor, lag)
@@ -1161,15 +1192,15 @@ def _milestone_latest(
     ``prev_wd(X - 1)``, which stays at or before ``W`` for every ``X`` up to the
     first working day after ``W``.
 
-    An FF with a positive lag measures from ``X - 1`` itself (#4273), so its
-    inverse is the raw ``W + 1 - lag``; an FF lead measures from ``prev_wd(X - 1)``
-    like zero lag and inverts through the finish-anchored branch. FF reaches this
-    only from a successor with work: into a milestone it is FS
-    (:func:`_milestone_link`), and the caller converts it.
+    An FF or SF with a positive lag measures from ``X - 1`` itself (#4273, #4333),
+    so its inverse is the raw ``W + 1 - lag``; a lead measures from
+    ``prev_wd(X - 1)`` like zero lag and inverts through the finish-anchored
+    branch. FF reaches this only from a successor with work: into a milestone it is
+    FS (:func:`_milestone_link`), and the caller converts it.
     """
     if dep_type in _START_ANCHORED:
         return _safe_offset(start_ref, -lag)
-    if dep_type == DependencyType.FF and lag > timedelta(0):
+    if lag > timedelta(0):
         return _safe_offset(finish_ref, _ONE_DAY - lag)
     last = _prev_working_day(_safe_offset(finish_ref, -lag), node_cal)
     return _scan_for_working_day(last, node_cal, forward=True)
@@ -1188,7 +1219,15 @@ def _sf_latest_start(succ_finish: date, lag: timedelta, node_cal: Calendar) -> d
     This is deliberately the same expression as :func:`_milestone_latest`'s
     finish-anchored branch: a start instant and a milestone instant invert
     identically, which is the consistency #4145 restored.
+
+    A positive lag measures from ``start - 1`` itself (#4333), so the forward bound
+    is ``next_wd(start - 1 + lag) <= W``, which holds exactly when
+    ``start <= W + 1 - lag``; the latest start is the last working day at or
+    before that — :func:`_milestone_latest`'s positive-lag branch, snapped to a day
+    this task can start on.
     """
+    if lag > timedelta(0):
+        return _prev_working_day(_safe_offset(succ_finish, _ONE_DAY - lag), node_cal)
     last = _prev_working_day(_safe_offset(succ_finish, -lag), node_cal)
     return _scan_for_working_day(last, node_cal, forward=True)
 
@@ -2381,7 +2420,7 @@ def _append_successor_constraint(
         # Predecessor must start no later than the first working day after the
         # successor's late finish minus lag: its SF anchor is the working day
         # *before* its start, so it may start one working day beyond that bound
-        # (#4145).
+        # (#4145). A positive lag anchors on ``start - 1`` itself (#4333).
         ls_constraints.append(_sf_latest_start(succ_finish, lag, node_cal))
 
 
@@ -2765,7 +2804,8 @@ def _link_slack(
         latest = _retreat_calendar_days(succ_finish, lag, node_cal)
         return _wd_span(task.early_finish, latest, node_cal, wd_counter, calendar)
     # SF: the successor's finish is bounded by the working day before this task's
-    # start, so the latest start is one working day past the retreated bound (#4145).
+    # start, so the latest start is one working day past the retreated bound (#4145);
+    # with a positive lag, by the day before it (#4333, :func:`_sf_latest_start`).
     latest = _sf_latest_start(succ_finish, lag, node_cal)
     return _wd_span(task.early_start, latest, node_cal, wd_counter, calendar)
 
@@ -4585,8 +4625,10 @@ def _build_lag_delta(
     SF also anchors on wd_index[k-1] (#4145), but unlike FS/FF its k is an
     inclusive *start* offset, so k=0 is reachable: a predecessor starting on the
     index's first working day anchors on the working day before the index begins,
-    which ``pred_prev_ord`` supplies as an ordinal. FS/FF cannot reach k=0 — their
-    k is an exclusive-EF offset, which is at least 1 for any task with duration.
+    which ``pred_prev_ord`` supplies as an ordinal. A positive SF lag anchors on
+    the calendar day before wd_index[k] instead (#4333, :func:`_edge_anchor`).
+    FS/FF cannot reach k=0 — their k is an exclusive-EF offset, which is at least
+    1 for any task with duration.
 
     Per-task calendars (ADR-0120 D3, #1385): the anchor is read in the
     *predecessor's* working-day space (``wd_ord_pred``) and the snap lands in the
@@ -4622,8 +4664,13 @@ def _build_lag_delta(
         # anchor; SF does not, and dropping it finished SF successors one working
         # day early (#824).
         anchor_ords = np.empty(index_size, dtype=np.int64)
-        anchor_ords[0] = pred_prev_ord
-        anchor_ords[1:] = wd_ord_pred[:-1]
+        if lag_days > 0:
+            # A positive lag counts from the day the start instant closes,
+            # ``start - 1`` itself, not the working day before it (#4333).
+            anchor_ords[:] = wd_ord_pred - 1
+        else:
+            anchor_ords[0] = pred_prev_ord
+            anchor_ords[1:] = wd_ord_pred[:-1]
         arr[:] = (
             _snapped_offsets(wd_ord_succ, last_off_succ, anchor_ords, lag_days) + 1.0 - k_arange
         )
@@ -4974,9 +5021,11 @@ def _mc_es_floors(
     instead of Sunday re-lands across a weekend, and a chain of them carried a 2-3
     working-day gap to the finish. :func:`_mc_verbatim_actuals` now hands both the
     verbatim date, per run where it binds, the way #2461 did for completed tasks.
-    (SF needs nothing: its anchor is the working day *before* the start, which the
-    snap cannot move.) ``tests/test_monte_carlo_live_actual_start.py`` holds the
-    equality over that space.
+    (SF with no lag or a lead needs nothing: its anchor is the working day *before*
+    the start, which the snap cannot move. A positive SF lag counts from
+    ``start - 1`` itself, #4333, so it reads the verbatim date as SS does.)
+    ``tests/test_monte_carlo_live_actual_start.py`` holds the equality over that
+    space.
 
     All three are ES lower bounds on the same task, so they merge here and the forward
     pass reads a single number.
@@ -5108,6 +5157,8 @@ def _mc_verbatim_actuals(
     full weekend apart, so the one-day snap was amplified downstream — 2-3 working
     days on a fully deterministic project. This map lets those two readers resolve
     the anchor from the verbatim date instead, the way #2461 did for completed tasks.
+    An SF successor with a positive lag is a third reader of the same kind: its lag
+    counts from ``start - 1`` (#4333, :func:`_sf_from_start`).
 
     A working-day actual is left out: its snap is the identity and nothing diverges.
     ``other_floor`` mirrors :func:`_mc_es_floors`, project-start floor included for
@@ -5472,8 +5523,9 @@ def _mc_milestone_bounds(
     the shown one (#4225). A non-working actual therefore proposes its own midnight,
     not the snapped working day the offset floor holds: ``schedule()`` places the
     milestone on Sunday 00:00, and a calendar-day lag measured from Monday instead
-    lands a weekend later. ``verbatim_start`` likewise gives an SS link from live
-    work whose non-working actual binds its start the raw date to measure from.
+    lands a weekend later. ``verbatim_start`` likewise gives an SS link, or an SF
+    link with a positive lag (#4333), from live work whose non-working actual binds
+    its start the raw date to measure from.
     """
     es_mat, ef_mat, instant_mat, start_display_mat = mats
     verbatim_start = verbatim_start or {}
@@ -5505,7 +5557,11 @@ def _mc_milestone_bounds(
                 )
                 offer(instant_mat[:, p] + lag, base_display)
                 continue
-            anchor = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
+            if lag > 0:
+                # A positive SF lag counts from the day the instant closes (#4333).
+                anchor = instant_mat[:, p] - 1
+            else:
+                anchor = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
         elif dep.dep_type == DependencyType.FS:
             offer(index.ordinal_at(p, ef_mat[:, p] - 1.0) + 1 + lag, False)
             continue
@@ -5516,6 +5572,12 @@ def _mc_milestone_bounds(
                 start_ord = np.where(raw >= 0, raw, start_ord)
             offer(start_ord + lag, True)
             continue
+        elif lag > 0:  # SF — the day the start instant closes (#4333)
+            start_ord = index.ordinal_at(p, es_mat[:, p])
+            raw = verbatim_start.get(pred_id)
+            if raw is not None:
+                start_ord = np.where(raw >= 0, raw, start_ord)
+            anchor = start_ord - 1
         else:  # SF — the working day before the predecessor's start (#4145)
             anchor = index.prev_wd_ordinal(p, index.ordinal_at(p, es_mat[:, p]) - 1)
         # SF proposes the raw midnight closing its anchor day, plus the lag (#4272).
@@ -5563,16 +5625,19 @@ def _mc_edge_constraints(
 
     A live milestone predecessor (#4079) is read from its per-run instant —
     ``milestones`` is ``(milestone_ids, instant_mat, index, this_col)``: FS/SS
-    measure from the instant, an FF with a positive lag from the day it closes
-    (#4273), and SF or an FF with no lag or a lead from the last working day before it
-    (:func:`_edge_anchor`), then ``next_wd(anchor + lag)`` on this task's calendar.
+    measure from the instant, an FF or SF with a positive lag from the day it closes
+    (#4273, #4333), and an FF or SF with no lag or a lead from the last working day
+    before it (:func:`_edge_anchor`), then ``next_wd(anchor + lag)`` on this task's
+    calendar.
 
     An SS link from live work whose non-working ``actual_start`` binds its start
     (``verbatim_start``, #4175) is resolved the same way, in date space from the
     verbatim date, in the runs where it binds: the offset anchor holds the snapped
     working day, and a calendar-day lag measured from it can land a weekend later
-    than ``schedule()``'s. SF needs no such branch — its anchor is the working day
-    before the start, which the snap cannot move.
+    than ``schedule()``'s. A positive SF lag also counts from the start (from the
+    day before it, #4333) and is resolved the same way; SF with no lag or a lead
+    needs no such branch — its anchor is the working day before the start, which
+    the snap cannot move.
 
     Returns ``(es_constraints, ef_constraints, has_ef_constraint)``.
     """
@@ -5600,9 +5665,9 @@ def _mc_edge_constraints(
             start_anchored = dep.dep_type in _START_ANCHORED
             if start_anchored:
                 anchor_ord = instant_mat[:, p]
-            elif dep.dep_type == DependencyType.FF and dep.lag > timedelta(0):
-                # A positive FF lag counts from the day the instant closes (#4273);
-                # a lead counts back from the zero-lag anchor below.
+            elif dep.lag > timedelta(0):
+                # A positive FF or SF lag counts from the day the instant closes
+                # (#4273, #4333); a lead counts back from the zero-lag anchor below.
                 anchor_ord = instant_mat[:, p] - 1
             else:
                 anchor_ord = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
@@ -5633,6 +5698,11 @@ def _mc_edge_constraints(
         if raw_start is not None and dep.dep_type == DependencyType.SS:
             assert index is not None
             dated = index.next_wd_offset(col, raw_start + dep.lag.days).astype(np.float64)
+            constraint = np.where(raw_start >= 0, dated, constraint)
+        elif raw_start is not None and _sf_from_start(dep):
+            assert index is not None
+            # An inclusive finish day, so +1 to the exclusive EF offset.
+            dated = index.next_wd_offset(col, raw_start - 1 + dep.lag.days) + 1.0
             constraint = np.where(raw_start >= 0, dated, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)

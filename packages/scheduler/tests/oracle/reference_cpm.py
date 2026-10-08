@@ -60,8 +60,10 @@ Documented rules modeled
   last working day); SS on its start (the midnight opening its first working day);
   SF on its start *read as a finish* — the midnight closing the working day
   before it — which is what puts a zero-lag SF successor's last working day on
-  the working day before the predecessor starts (#4145). A milestone anchors on
-  its raw instant (SF: read back to the closing of the last working day).
+  the working day before the predecessor starts (#4145). A positive SF lag counts
+  from the start itself instead, as an FF lag counts from the finish (#4333). A
+  milestone anchors on its raw instant (SF with no lag or a lead: read back to the
+  closing of the last working day).
 * FS/SS constrain the successor's start: it is the first working-day start at or
   after ``anchor + lag``. FF/SF constrain its finish: with a lag, the end of the
   first working day on or after the day ``anchor + lag`` closes; with no lag there
@@ -273,6 +275,12 @@ def link_need(link: RefLink, pred: Span, cal: RefCalendar) -> date:
         anchor = pred_finish
     elif link.kind == "SS":
         anchor = pred_start
+    elif link.lag > 0:
+        # SF with a positive lag counts from the start instant itself (#4333), as
+        # FF does from a finish: the end of the day before ``need`` is snapped by
+        # :func:`finish_meeting`, not pre-snapped here, or a weekend between the
+        # last working day and the start absorbs the lag.
+        anchor = pred_start
     else:  # SF: the predecessor's start, read as the finish of the day before it
         anchor = close_of_previous_working_day(pred_start, cal)
     return anchor + timedelta(days=link.lag)
@@ -295,7 +303,8 @@ def finish_meeting(link: RefLink, need: date, cal: RefCalendar) -> date:
     after non-working time — a milestone at the start of Monday: counted from the
     instant, a one-day lead names Saturday and snaps forward to Monday, *later*
     than zero lag's Friday; counted from Friday it reaches Thursday. For a task
-    with work, and for SF, the anchor already closes a working day, so they agree.
+    with work the anchor already closes a working day, so they agree; an SF lead's
+    anchor is that zero-lag close already (:func:`link_need`).
     """
     if link.lag == 0:
         return close_of_previous_working_day(need, cal)

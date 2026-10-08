@@ -185,14 +185,15 @@ def test_a_floor_beats_a_finish_anchored_link_proposing_the_same_midnight() -> N
 
 
 def test_a_finish_anchored_link_outranks_a_start_link_one_midnight_earlier() -> None:
-    # SF from A (starting Mon) anchors on the close of Fri; +3 lag → Tuesday's
-    # midnight, read as the end of Monday (#4272: the raw instant, never snapped).
+    # SF from A (starting Mon) with a positive lag counts from A's start instant,
+    # Monday's midnight (#4333); +1 lag → Tuesday's midnight, read as the end of
+    # Monday (#4272: the raw instant, never snapped).
     # The FS link from milestone M1 proposes Monday's midnight, the start of Monday.
     # Both display Monday; only the instant comparison picks SF. The SF link binds,
     # so the project-start floor is waived and is not a candidate at all (#4220).
     project = _project(
         [_task("A", 5), _task("M1", 0), _task("M2", 0)],
-        [_dep("A", "M2", DependencyType.SF, 3), _dep("M1", "M2")],
+        [_dep("A", "M2", DependencyType.SF, 1), _dep("M1", "M2")],
     )
     for q in (Quantity.EARLY_START, Quantity.EARLY_FINISH):
         assert _rows(project, "M2", q) == (

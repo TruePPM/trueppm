@@ -66,10 +66,10 @@ def _contribs(project: Project, task_id: str, q: Quantity) -> list[dict[str, obj
 def _fwd(dep_type: DependencyType, lag_days: int = 2) -> Project:
     """P →(dep_type, lag) S — explain S's forward values.
 
-    ``lag_days`` is 2 for FS/SS/FF. SF needs a longer one: its anchor is the working
-    day *before* P's start (#4145) — Fri 2026-02-27, before the project even opens —
-    so a 2-day lag lands under S's own duration-driven finish and the SF term would
-    not bind at all, leaving nothing to assert.
+    ``lag_days`` is 2 for FS/SS/FF. SF needs a longer one: its anchor is the day
+    *before* P's start (#4145, #4333) — Sun 2026-03-01, before the project even
+    opens — so a 2-day lag lands under S's own duration-driven finish and the SF
+    term would not bind at all, leaving nothing to assert.
     """
     return Project(
         id="pr",
@@ -188,15 +188,16 @@ def test_forward_ff_imposes_finish_and_pulls_start_back() -> None:
 
 
 def test_forward_sf_imposes_finish_and_pulls_start_back() -> None:
-    # P starts Mon 03-02, so the SF anchor is Fri 02-27 — the last working day before
-    # it (#4145) — and + lag 6 lands on Thu 03-05 with no snap.
-    p = _fwd(DependencyType.SF, lag_days=6)
+    # P starts Mon 03-02, so a positive SF lag counts from the day that start
+    # instant closes, Sun 03-01 (#4145, #4333), and + lag 4 lands on Thu 03-05 with
+    # no snap.
+    p = _fwd(DependencyType.SF, lag_days=4)
     sf = _c(
         "predecessor_sf",
         source_task_id="P",
         source_task_name="Pred",
         dep_type="SF",
-        lag_days=6,
+        lag_days=4,
         imposed_date="2026-03-05",
         calendar_days_added=0,
     )
@@ -212,7 +213,7 @@ def test_forward_sf_imposes_finish_and_pulls_start_back() -> None:
             source_task_id="P",
             source_task_name="Pred",
             dep_type="SF",
-            lag_days=6,
+            lag_days=4,
             imposed_date="2026-03-04",
             is_binding=True,
         ),
@@ -345,19 +346,19 @@ def test_backward_ff() -> None:
 
 
 def test_backward_sf_pulls_finish_via_late_start_duration() -> None:
-    # The inverse of the forward anchor (#4145): S's late finish Thu 03-05 retreats
-    # 6 calendar days to Fri 02-27, and T may start the first working day AFTER that
-    # — Mon 03-02 — because T's own SF anchor is the working day before its start.
-    p = _bwd(DependencyType.SF, lag_days=6)
+    # The inverse of the forward anchor (#4145, #4333): T's positive SF lag counts
+    # from the day before its start, so S's late finish Thu 03-05 admits a start no
+    # later than 03-05 + 1 - 4 days = Mon 03-02, a working day (no snap).
+    p = _bwd(DependencyType.SF, lag_days=4)
     pf = _c("project_finish", imposed_date="2026-03-05")
     sf = _c(
         "successor_sf",
         source_task_id="S",
         source_task_name="Succ",
         dep_type="SF",
-        lag_days=6,
+        lag_days=4,
         imposed_date="2026-03-02",
-        calendar_days_added=3,
+        calendar_days_added=0,
     )
     assert _contribs(p, "T", Quantity.LATE_START) == [pf, {**sf, "is_binding": True}]
     assert _contribs(p, "T", Quantity.LATE_FINISH) == [
@@ -368,7 +369,7 @@ def test_backward_sf_pulls_finish_via_late_start_duration() -> None:
             source_task_id="S",
             source_task_name="Succ",
             dep_type="SF",
-            lag_days=6,
+            lag_days=4,
             imposed_date="2026-03-03",
             slack_days=2,
             is_binding=True,
