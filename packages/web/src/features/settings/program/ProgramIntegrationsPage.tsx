@@ -27,7 +27,7 @@ export function ProgramIntegrationsPage() {
     <div>
       <SettingsPageTitle
         title="Integrations"
-        subtitle="Program-wide webhooks and tokens fire across every project in this program. Project-scoped integrations live under each project's settings."
+        subtitle="Program-wide webhooks fire across every project in this program; API tokens write only into projects their creator is a member of. Project-scoped integrations live under each project's settings."
       />
 
       <div className="px-6 pb-8 space-y-6">

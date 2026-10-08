@@ -1651,3 +1651,43 @@ def test_program_token_revoked_project_membership_checked_at_request_time(
     )
     assert resp.status_code == 401
     assert not Task.objects.filter(project=program_project, name="Should not land either").exists()
+
+
+@pytest.mark.django_db
+def test_program_token_minter_without_project_membership_cannot_update_existing_task(
+    program: Any, program_project: Project, admin_user: Any, other_user: Any
+) -> None:
+    """#4324: the create-path refusal (above) is not the whole bug — the issue
+    requires that a non-member's program-scoped token can neither CREATE nor
+    UPDATE a task in P. Seed an already-synced task as a live project member,
+    then re-push the identical (project, source, external_id) upsert key with
+    a token minted by a user who holds no ProjectMembership on the project.
+    The write must be refused with a 401 and the seeded task must be left
+    completely unchanged — no name/status mutation via the update branch."""
+    ProjectMembership.objects.create(project=program_project, user=admin_user, role=Role.ADMIN)
+    _seed_token, seed_raw = _mint_program_token(program, admin_user)
+    seed_resp = _bearer(APIClient(), seed_raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-UPD-1", "name": "Original name", "status": "todo"},
+        format="json",
+    )
+    assert seed_resp.status_code == 201, seed_resp.data
+    task = Task.objects.get(project=program_project, name="Original name")
+
+    # `other_user` is never given a ProjectMembership on `program_project`.
+    _outsider_token, outsider_raw = _mint_program_token(program, other_user)
+    update_resp = _bearer(APIClient(), outsider_raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {
+            "source": "jira",
+            "external_id": "PRG-UPD-1",
+            "name": "Hijacked name",
+            "status": "done",
+        },
+        format="json",
+    )
+    assert update_resp.status_code == 401
+
+    task.refresh_from_db()
+    assert task.name == "Original name"
+    assert task.status == TaskStatus.NOT_STARTED
