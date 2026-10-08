@@ -83,6 +83,10 @@ const IN_SCOPE_FIXTURES = [
   // #4323: zero-lag FF and SS from the LinkTypes.mpp known-answer slice, both
   // already-supported link types, one source task, no calendar exceptions.
   'msproject_ff_ss_whole_day',
+  // #4333: a positive SF lag from a Monday start (work and milestone
+  // predecessors, and into a milestone) counts from the start instant, so the
+  // weekend before it cannot absorb the lag. One source task, Mon-Fri.
+  'sf_positive_lag_monday_start',
 ] as const;
 
 /**

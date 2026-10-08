@@ -26,10 +26,10 @@ pub(crate) fn milestone_refs(instant: NaiveDate) -> Result<(NaiveDate, NaiveDate
 }
 
 /// Latest instant a milestone may sit on and still honor one successor link: the
-/// inverse of `forward::edge_anchor` for a milestone predecessor. An FF with a
-/// positive lag measures from `X - 1` itself (#4273), so its inverse is the raw
-/// `finish_ref + 1 - lag`; an FF lead measures from `prev_wd(X - 1)` like zero
-/// lag and inverts through the finish-anchored branch. FF reaches this only from a
+/// inverse of `forward::edge_anchor` for a milestone predecessor. An FF or SF
+/// with a positive lag measures from `X - 1` itself (#4273, #4333), so its
+/// inverse is the raw `finish_ref + 1 - lag`; a lead measures from
+/// `prev_wd(X - 1)` like zero lag and inverts through the finish-anchored branch. FF reaches this only from a
 /// successor with work (into a milestone it is FS, [`milestone_link`]). Mirrors
 /// the Python `_milestone_latest` (#4079).
 pub(crate) fn milestone_latest(
@@ -42,7 +42,7 @@ pub(crate) fn milestone_latest(
     if start_anchored(dep_type) {
         return checked_offset_days(start_ref, -lag_days);
     }
-    if dep_type == DependencyType::FF && lag_days > 0 {
+    if lag_days > 0 {
         return checked_offset_days(finish_ref, 1 - lag_days);
     }
     let last = prev_working_day(checked_offset_days(finish_ref, -lag_days)?, node_cal)?;
@@ -55,13 +55,18 @@ pub(crate) fn milestone_latest(
 /// bound is measured from `prev_wd(start - 1)`, so the largest allowed anchor is
 /// `prev_wd(W - lag)` and the largest start day is the first working day after it.
 /// Deliberately the same expression as [`milestone_latest`]'s finish-anchored
-/// branch — a start instant and a milestone instant invert identically. Mirrors the
-/// Python `_sf_latest_start`.
+/// branch — a start instant and a milestone instant invert identically. A
+/// positive lag measures from `start - 1` itself (#4333), so the latest start is
+/// the last working day at or before `W + 1 - lag`. Mirrors the Python
+/// `_sf_latest_start`.
 pub(crate) fn sf_latest_start(
     succ_finish: NaiveDate,
     lag_days: i64,
     node_cal: &Calendar,
 ) -> Result<NaiveDate, String> {
+    if lag_days > 0 {
+        return prev_working_day(checked_offset_days(succ_finish, 1 - lag_days)?, node_cal);
+    }
     let last = prev_working_day(checked_offset_days(succ_finish, -lag_days)?, node_cal)?;
     next_working_day(checked_offset_days(last, 1)?, node_cal)
 }
@@ -468,7 +473,7 @@ fn successor_constraints(
             DependencyType::SF => {
                 // The predecessor's SF anchor is the working day *before* its
                 // start, so it may start one working day past the retreated
-                // bound (#4145).
+                // bound (#4145); a positive lag anchors on `start - 1` (#4333).
                 ls_constraints.push(sf_latest_start(succ_lf, lag_days, node_cal)?);
             }
         }

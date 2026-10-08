@@ -375,8 +375,9 @@ def _pred_forward_contribution(
     Reproduces the FS/SS/FF/SF anchoring of ``engine._edge_anchor``: FS/FF read
     the predecessor's ``early_finish`` (FS with the extra +1 inclusive→exclusive
     interval day), SS its ``early_start``, and SF the last working day *before*
-    its ``early_start`` on the predecessor's calendar (#4145); then snap
-    ``anchor + lag`` forward to the next working day.
+    its ``early_start`` on the predecessor's calendar (#4145) — the day before it
+    with a positive lag (#4333); then snap ``anchor + lag`` forward to the next
+    working day.
 
     Milestones (#4079): a milestone predecessor anchors on its instant
     (``engine._edge_anchor``), and a milestone *target* is shown on the day of the
@@ -844,7 +845,11 @@ def _backward_successor_terms(
         if dep_type == DependencyType.SF:
             # An SF link anchors on the working day *before* this task's start
             # (#4145), so the latest start it allows is one working day past the
-            # retreated bound — ``engine._sf_latest_start``, not a bare retreat.
+            # retreated bound — ``engine._sf_latest_start``, not a bare retreat. A
+            # positive lag anchors on the day before the start itself (#4333), so
+            # the raw bound is ``W + 1 - lag`` and only the snap back is added.
+            if lag > timedelta(0):
+                raw = _safe_offset(succ_finish, timedelta(days=1) - lag)
             imposed = _sf_latest_start(succ_finish, lag, cal)
         if milestone_day is not None:
             # This task is a milestone (#4079): the bound is on its instant, and

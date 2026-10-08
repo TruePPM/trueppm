@@ -1,0 +1,30 @@
+{
+  "id": "p-sf-positive-lag-monday-start",
+  "name": "A positive SF lag from a Monday start is not absorbed by the weekend before it (#4333)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Lead-in work, finishes Fri 03-06", "duration": 432000.0},
+    {"id": "B", "name": "SF predecessor, starts Mon 03-09 via FS", "duration": 86400.0},
+    {"id": "M", "name": "SF predecessor milestone at the start of Mon 03-09", "duration": 0.0},
+    {"id": "C", "name": "SF+2d from B: finishes Tue 03-10, as MS Project does", "duration": 86400.0},
+    {"id": "D", "name": "SF+3d from B, two days of work", "duration": 172800.0},
+    {"id": "E", "name": "SF+2d from milestone M", "duration": 86400.0},
+    {"id": "N", "name": "SF+2d from B into a milestone", "duration": 0.0},
+    {"id": "F", "name": "FS after milestone N", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS", "lag": 172800.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "SF", "lag": 172800.0},
+    {"predecessor_id": "B", "successor_id": "D", "dep_type": "SF", "lag": 259200.0},
+    {"predecessor_id": "M", "successor_id": "E", "dep_type": "SF", "lag": 172800.0},
+    {"predecessor_id": "B", "successor_id": "N", "dep_type": "SF", "lag": 172800.0},
+    {"predecessor_id": "N", "successor_id": "F", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

@@ -6,7 +6,9 @@ snapped it to the next working day. For a task with remaining work the snap is
 invisible at the finish (#3963), but two readers see the raw date:
 
 * a **live zero-duration milestone**, whose instant *is* the actual (Sunday 00:00),
-* an **SS successor**, which measures its lag from the predecessor's start.
+* an **SS successor**, which measures its lag from the predecessor's start —
+  and an SF successor with a positive lag, which measures it from the day before
+  that start (#4333).
 
 A calendar-day lag from Monday instead of Sunday re-lands across a weekend, so a
 fully deterministic project finished 2-3 working days after its CPM finish — past
@@ -123,6 +125,41 @@ def test_ss_lag_from_weekend_started_work_into_a_milestone_matches_cpm() -> None
         [_dep("W", "M", DependencyType.SS, 1), _dep("M", "X", DependencyType.FS)],
     )
     assert _assert_mc_matches_cpm(project) == date(2026, 3, 31)
+
+
+def test_sf_lag_from_work_started_on_a_weekend_matches_cpm() -> None:
+    """A positive SF lag counts from the day before the verbatim start (#4333).
+
+    W's recorded start is Sat 03-14, so SF+4 anchors on Fri 03-13 and finishes X
+    on Tue 03-17; Y's twenty days then run Wed 03-18..Tue 04-14. Measured from the
+    snapped Monday the anchor was Sunday and X finished Thu 03-19 — two working
+    days late, carried to the finish.
+    """
+    project = _project(
+        [
+            _work("W", 7, percent_complete=10.0, actual_start=date(2026, 3, 14)),
+            _work("X", 1),
+            _work("Y", 20),
+        ],
+        [_dep("W", "X", DependencyType.SF, 4), _dep("X", "Y", DependencyType.FS)],
+    )
+    assert _assert_mc_matches_cpm(project) == date(2026, 4, 14)
+
+
+def test_sf_lag_from_weekend_started_work_into_a_milestone_matches_cpm() -> None:
+    """The milestone branch reads the verbatim start for a positive SF lag too.
+
+    Sat 03-14 + 4 = Wed 03-18 00:00, the end of Tuesday, so Y starts Wed 03-18.
+    """
+    project = _project(
+        [
+            _work("W", 7, percent_complete=10.0, actual_start=date(2026, 3, 14)),
+            _ms("M"),
+            _work("Y", 20),
+        ],
+        [_dep("W", "M", DependencyType.SF, 4), _dep("M", "Y", DependencyType.FS)],
+    )
+    assert _assert_mc_matches_cpm(project) == date(2026, 4, 14)
 
 
 def test_milestone_on_its_weekend_actual_can_be_the_finish() -> None:
