@@ -159,7 +159,13 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         #     kill it. That is #2832.
         #   * A **project/program** token is an ORG asset. Its authority comes from its
         #     own project/program scope plus ``IsTokenForProject``; ``created_by`` is
-        #     history attribution for whoever minted it, not the source of its rights.
+        #     history attribution for whoever minted it, not the source of its rights —
+        #     with one narrowing (#4324): for a PROGRAM-scoped token on a write path,
+        #     ``IsTokenForProject`` also requires ``created_by`` to hold a live
+        #     ``ProjectMembership`` on the URL project. That is a project-membership
+        #     check on the minter, not an account-active check, so it is orthogonal to
+        #     the ``is_active`` guard here — this paragraph's "leave the token alone on
+        #     off-boarding" decision is unchanged.
         #     Rejecting it would kill a team's CI the moment an unrelated colleague is
         #     off-boarded — the very outcome ``revoke_all_personal_access_tokens``'s
         #     ``owner=user`` scoping (and the off-boarding path that calls it) exists to

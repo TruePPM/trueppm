@@ -27,10 +27,14 @@ time entries or change history takes a `ProjectMembership` on that project, what
 program role.
 
 <!-- TODO(#4328): "ships in the next release" has no version anchor, so scripts/remove-ships-in-callouts.sh cannot find it at the next tag. Once a version is cut, replace it with a dated Ships-in-0.X callout (or delete this paragraph if the behavior has already shipped by then), then remove this comment. -->
-The program export (JSON seed and async bundle) and program-scoped webhook deliveries
-follow this rule. The narrowing ships in the next release; see
+The program export (JSON seed and async bundle), program-scoped webhook deliveries, and a
+program-scoped API token's two write endpoints (inbound task-sync and CI
+acceptance-result ingest) all follow this rule. The narrowing ships in the next release;
+see
 [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-webhooks-honor-project-membership).
-Until then, a Program Admin's program export includes every member project.
+Until then, a Program Admin's program export includes every member project, and a
+program-scoped token the admin minted can write into any member project regardless of
+the admin's own project membership.
 
 ### Why the ordinals jump by 100
 

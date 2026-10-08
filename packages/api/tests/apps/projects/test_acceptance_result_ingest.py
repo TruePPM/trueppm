@@ -9,8 +9,11 @@ but never auto-transitions the task to READY.
 
 Covers: happy-path flip + attribution + dor_ready; failing verdict unmarks;
 idempotent re-report (unchanged, no restamp); cross-project criterion → unknown
-(untouched); wrong-project token → 401; program-scoped token may ingest; batch cap;
-duplicate criterion id; empty results; no auto-transition to READY.
+(untouched); wrong-project token → 401; program-scoped token may ingest when its
+minter is also a project member; program-scoped token's minter WITHOUT project
+membership is rejected and a membership revoked after mint is checked at request
+time (#4324); batch cap; duplicate criterion id; empty results; no auto-transition
+to READY.
 """
 
 from __future__ import annotations
@@ -284,10 +287,14 @@ def test_wrong_project_token_is_401(project: Project, other_project: Project, mi
 
 @pytest.mark.django_db
 def test_program_scoped_token_can_ingest(calendar: Calendar, minter: Any) -> None:
+    """A program-scoped token minted by a user who IS also a member of the target
+    project may ingest (#4324: program authority alone is not enough — see the
+    negative counterpart below)."""
     program = Program.objects.create(name="Artemis")
     project = Project.objects.create(
         name="InProgram", start_date=date(2026, 4, 1), calendar=calendar, program=program
     )
+    ProjectMembership.objects.create(project=project, user=minter, role=Role.ADMIN)
     story = _story(project)
     c1 = _criterion(story, pos=0)
     _, raw = _mint_program_token(program, minter)
@@ -302,6 +309,75 @@ def test_program_scoped_token_can_ingest(calendar: Calendar, minter: Any) -> Non
     c1.refresh_from_db()
     assert c1.met is True
     assert c1.met_by_id == minter.pk
+
+
+@pytest.mark.django_db
+def test_program_token_minter_without_project_membership_is_401(
+    calendar: Calendar, minter: Any
+) -> None:
+    """#4324: a program-scoped token's minter not being a member of the TARGET
+    project must not be able to flip its acceptance criteria, even though the
+    project is a live member of the token's program. Program-level authority
+    (minting the token) is not project-level authority."""
+    program = Program.objects.create(name="Artemis")
+    project = Project.objects.create(
+        name="InProgram", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    # Deliberately no ProjectMembership for `minter` on `project`.
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    _, raw = _mint_program_token(program, minter)
+    resp = _bearer(raw).post(
+        _url(project),
+        {"results": [{"criterion_id": str(c1.pk), "passed": True}]},
+        format="json",
+    )
+    assert resp.status_code == 401
+    c1.refresh_from_db()
+    assert c1.met is False
+
+
+@pytest.mark.django_db
+def test_program_token_revoked_membership_is_checked_at_request_time(
+    calendar: Calendar, minter: Any
+) -> None:
+    """#4324: the ProjectMembership check runs at request time, not mint time —
+    revoking the minter's membership after the token was minted must invalidate
+    the already-minted token's authority over that project on the very next
+    request."""
+    program = Program.objects.create(name="Artemis")
+    project = Project.objects.create(
+        name="InProgram", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    membership = ProjectMembership.objects.create(project=project, user=minter, role=Role.ADMIN)
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    c2 = _criterion(story, pos=1)
+    _, raw = _mint_program_token(program, minter)
+
+    # While still a live member, the token works.
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+        resp = _bearer(raw).post(
+            _url(project),
+            {"results": [{"criterion_id": str(c1.pk), "passed": True}]},
+            format="json",
+        )
+    assert resp.status_code == 200, resp.data
+    c1.refresh_from_db()
+    assert c1.met is True
+
+    # Revoke the minter's membership (soft-delete) — no re-mint, same raw token.
+    membership.is_deleted = True
+    membership.save(update_fields=["is_deleted"])
+
+    resp = _bearer(raw).post(
+        _url(project),
+        {"results": [{"criterion_id": str(c2.pk), "passed": True}]},
+        format="json",
+    )
+    assert resp.status_code == 401
+    c2.refresh_from_db()
+    assert c2.met is False
 
 
 # ---------------------------------------------------------------------------

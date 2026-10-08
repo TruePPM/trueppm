@@ -2290,17 +2290,71 @@ class TestIsTokenForProjectScopes:
     def test_program_token_authorizes_a_member_project(
         self, user: object, program: Program, calendar: Calendar
     ) -> None:
+        """The minter must ALSO hold ProjectMembership on the specific project (#4324) —
+        program-level authority (minting the token) is not project-level authority."""
         member_project = Project.objects.create(
             name="In program",
             start_date=date(2026, 1, 1),
             calendar=calendar,
             program=program,
         )
+        ProjectMembership.objects.create(project=member_project, user=user, role=Role.ADMIN)
         req = _make_request(user, method="POST")
         req.auth = _mint_token(user, program=program)
         view = MagicMock()
         view.kwargs = {"project_pk": str(member_project.pk)}
         assert IsTokenForProject().has_permission(req, view) is True
+
+    def test_program_token_rejects_a_member_project_the_minter_has_no_membership_on(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4324: the project IS a live member of the token's program, but the minter
+        (``created_by``) has no ``ProjectMembership`` on it — program authority alone
+        (being able to mint a program-scoped token) must not reach the project."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        member_project = Project.objects.create(
+            name="In program, minter not a member",
+            start_date=date(2026, 1, 1),
+            calendar=calendar,
+            program=program,
+        )
+        # Deliberately no ProjectMembership for `user` on `member_project`.
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(member_project.pk)}
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_program_token_revoked_membership_is_checked_at_request_time(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4324: the ProjectMembership check runs at request (has_permission) time, not
+        mint time — a membership revoked after the token was minted must deny the very
+        next request through the same, already-minted token."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        member_project = Project.objects.create(
+            name="In program, membership revoked",
+            start_date=date(2026, 1, 1),
+            calendar=calendar,
+            program=program,
+        )
+        membership = ProjectMembership.objects.create(
+            project=member_project, user=user, role=Role.ADMIN
+        )
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(member_project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+        membership.is_deleted = True
+        membership.save(update_fields=["is_deleted"])
+
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
 
     def test_program_token_rejects_a_project_outside_the_program(
         self, user: object, program: Program, project: Project

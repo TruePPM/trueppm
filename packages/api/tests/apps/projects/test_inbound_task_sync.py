@@ -15,6 +15,9 @@ Covers:
   - pending-assignee count surfaced on project detail.
   - HistoricalTask row written on the bulk-.update() branch (#1876) and
     surfaced by the task history endpoint.
+  - Program-scoped token write path intersects with the minter's live
+    ProjectMembership on the specific URL project, checked at request time,
+    not just mint time (#4324).
 """
 
 from __future__ import annotations
@@ -1536,3 +1539,115 @@ def test_a_soft_deleted_archived_project_still_answers_404_not_403(
         format="json",
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Program-scoped token write-path ProjectMembership intersection (#4324)
+# ---------------------------------------------------------------------------
+#
+# A program-scoped token admits any project in its program by FK (ADR-0076),
+# but program-level authority (being able to mint the token at all, as a
+# Program Admin) is not project-level authority. IsTokenForProject must also
+# require the token's minter to hold a live ProjectMembership on the specific
+# URL project — the same existence predicate #4310 established for reads,
+# applied here to the task-sync write path and checked at request time so a
+# revoked membership invalidates an already-minted token immediately.
+
+
+def _mint_program_token(program: Any, creator: Any) -> tuple[Any, str]:
+    import secrets
+
+    from trueppm_api.apps.projects.models import ApiToken
+
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    token = ApiToken.objects.create(
+        program=program,
+        name="ci-program-token",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=creator,
+    )
+    return token, raw
+
+
+@pytest.fixture
+def program(db: object) -> Any:
+    from trueppm_api.apps.projects.models import Program
+
+    return Program.objects.create(name="Artemis")
+
+
+@pytest.fixture
+def program_project(calendar: Calendar, program: Any) -> Project:
+    return Project.objects.create(
+        name="InProgram", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+
+
+@pytest.mark.django_db
+def test_program_token_minter_with_project_membership_can_sync(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """A program-scoped token minted by a user who is ALSO a member of the
+    target project may push — the positive counterpart to the test below."""
+    ProjectMembership.objects.create(project=program_project, user=admin_user, role=Role.ADMIN)
+    _token, raw = _mint_program_token(program, admin_user)
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-1", "name": "Issue"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+
+
+@pytest.mark.django_db
+def test_program_token_minter_without_project_membership_is_401(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """#4324: the project IS a live member of the token's program, but the
+    minter has no ProjectMembership on it — the write must be refused with a
+    401 (IDOR-shaped refusal, consistent with every other IsTokenForProject
+    mismatch), and no task may be created."""
+    # Deliberately no ProjectMembership for `admin_user` on `program_project`.
+    _token, raw = _mint_program_token(program, admin_user)
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-2", "name": "Should not land"},
+        format="json",
+    )
+    assert resp.status_code == 401
+    assert not Task.objects.filter(project=program_project, name="Should not land").exists()
+
+
+@pytest.mark.django_db
+def test_program_token_revoked_project_membership_checked_at_request_time(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """#4324: the ProjectMembership check runs at request time, not mint time.
+    Revoking the minter's membership after the token was minted must stop an
+    already-minted program-scoped token from writing into that project on the
+    very next request — no re-mint involved."""
+    membership = ProjectMembership.objects.create(
+        project=program_project, user=admin_user, role=Role.ADMIN
+    )
+    _token, raw = _mint_program_token(program, admin_user)
+
+    # Live member: the token works.
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-3", "name": "Issue"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+
+    # Revoke (soft-delete) the membership — same raw token, no re-mint.
+    membership.is_deleted = True
+    membership.save(update_fields=["is_deleted"])
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-4", "name": "Should not land either"},
+        format="json",
+    )
+    assert resp.status_code == 401
+    assert not Task.objects.filter(project=program_project, name="Should not land either").exists()
