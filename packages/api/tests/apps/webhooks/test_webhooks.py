@@ -46,7 +46,13 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.fixture
 def admin_client(user: object, project: Project) -> APIClient:
-    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    # update_or_create rather than create: the `webhook` fixture below also grants
+    # `user` a (lower) membership so dispatch_webhooks (#4325) sees a live
+    # registrant, and either fixture may resolve first depending on which other
+    # fixtures a given test also requests.
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
     c = APIClient()
     c.force_authenticate(user=user)
     return c
@@ -72,6 +78,14 @@ def member_client(project: Project) -> APIClient:
 
 @pytest.fixture
 def webhook(project: Project, user: object) -> Webhook:
+    # dispatch_webhooks (#4325) only delivers to a live member's webhook — grant
+    # `user` membership so the pre-existing dispatch tests below still exercise a
+    # deliverable webhook. get_or_create (not update_or_create): when `admin_client`
+    # also resolves for this test, it must not downgrade that ADMIN row to MEMBER
+    # regardless of fixture resolution order.
+    ProjectMembership.objects.get_or_create(
+        project=project, user=user, defaults={"role": Role.MEMBER}
+    )
     return Webhook.objects.create(
         project=project,
         url="https://example.com/hook",
