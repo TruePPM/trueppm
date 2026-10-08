@@ -18,6 +18,15 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A predecessor is no longer reported as driving a task that started on a
+  non-working day (#4332).** An in-progress task's recorded `actual_start` is
+  kept verbatim, so it can sit on a Saturday. Free float inverted each link from
+  that raw Saturday, so a start-to-start predecessor whose link reached only the
+  Friday before read zero slack and was listed in `driving_edges`, although the
+  actual start held the task and the predecessor could slip to Monday without
+  moving its work. Free float and `driving_edges` now read such a start at the
+  next working day, the position `total_float` already used. The Rust/WASM
+  engine and `derive_value`'s free-float explanation match.
 - **A link that does not bind a task no longer moves it to the project start
   (#4220).** Since #4218 a task whose links are all SF can be placed before the
   project start, but any FS, SS or FF link on it restored the project-start

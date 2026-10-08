@@ -125,6 +125,13 @@ an FS successor does. Two behaviors are worth knowing:
   that move further downstream. A milestone shown at the end of a day stays
   fixed: `A -FS+1d-> M` (shown on Friday) leaves `A` with no free float, because a
   one-day slip moves `M` to Monday.
+- **A successor that started on a non-working day is measured from the next
+  working day.** A recorded `actual_start` is kept as entered, even on a
+  Saturday, and a Saturday start is the same point in working time as the
+  Monday after it. A predecessor whose link only reaches the Friday before can
+  slip to Monday without moving that successor's work, so it keeps that day of
+  free float and is not reported as the successor's driving link
+  ([#4332](https://gitlab.com/trueppm/trueppm/-/issues/4332)).
 :::
 
 ### Which float answers which question

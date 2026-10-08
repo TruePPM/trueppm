@@ -1,0 +1,26 @@
+{
+  "id": "p-progress-non-working-actual-start-driving-edge",
+  "name": "An SS predecessor imposing the Friday before a live successor's Saturday actual_start does not drive it (#4332)",
+  "start_date": "2026-03-02",
+  "status_date": "2027-01-29",
+  "tasks": [
+    {"id": "t0", "name": "SS predecessor", "duration": 86400.0},
+    {"id": "t1", "name": "FF milestone predecessor", "duration": 0.0},
+    {"id": "t2", "name": "Started on a Saturday", "duration": 86400.0, "actual_start": "2027-01-30"},
+    {"id": "t3", "name": "Finish milestone", "duration": 0.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "t0", "successor_id": "t1", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "t0", "successor_id": "t3", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "t1", "successor_id": "t2", "dep_type": "FF", "lag": 0.0},
+    {"predecessor_id": "t0", "successor_id": "t2", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "t1", "successor_id": "t3", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "t2", "successor_id": "t3", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

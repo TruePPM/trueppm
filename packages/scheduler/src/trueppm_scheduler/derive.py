@@ -1233,7 +1233,12 @@ def _milestone_context(
         assert succ.early_start is not None and succ.early_finish is not None
         early = free_instants.get(succ.id)
         if early is None:
-            return succ.early_start, succ.early_finish
+            # A work successor is measured from the working day its start sits at,
+            # as engine._free_float_days measures it (#4332): a live task's verbatim
+            # non-working ``actual_start`` is the same working-time position as the
+            # next working day, and inverting from the raw date would explain a
+            # zero slack — and a binding link — that the engine no longer reports.
+            return _next_working_day(succ.early_start, cal_of(succ.id)), succ.early_finish
         # The same reading-tie bound engine._free_float_days applies (#4183), on
         # top of the free-float instant a lagged milestone successor is measured
         # at (#4180). The two never both act on the same instant: #4180 only

@@ -145,6 +145,12 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // gap, not for a missing capability.
   progress_non_working_actual_duration_walk: 'adapter: does not thread actuals/status date',
   progress_non_working_milestone_late_window: 'adapter: does not thread actuals/status date',
+  // #4332. Pins the free-float "why" reading a Saturday actual_start correctly
+  // (an SS predecessor's Friday-imposed date does not count as driving it).
+  // Free float itself is outside this suite's scope either way (forward pass
+  // only, per the file header) — excluded for the same actuals/status-date
+  // adapter gap as every other progress_* fixture.
+  progress_non_working_actual_start_driving_edge: 'adapter: does not thread actuals/status date',
   // #4079. Covered on a Mon-Fri week by `milestone_instant_links` (in scope);
   // this one adds a holiday and an SNET milestone for the two server engines.
   milestone_instants_all_link_types: 'engine gap: CalendarException holidays not modeled',
