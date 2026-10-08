@@ -717,3 +717,34 @@ class TestLateWindowFloorDerivation:
         )
         d = derive_value(p, "A", Quantity.LATE_START)
         assert [c.kind for c in d.contributions if c.is_binding] == ["duration_from_late_finish"]
+
+
+def test_free_float_into_a_saturday_actual_start_matches_the_engine() -> None:
+    """The "why" for free float reads a non-working actual start as the engine does (#4332).
+
+    ``w`` started on a Saturday after the Friday status date, kept verbatim, so it
+    holds its own start; ``a``'s SS link only imposes the Friday. The engine reads
+    the Saturday at its working-time position (the Monday) and gives ``a`` a day of
+    free float. A derivation inverting from the raw Saturday explains zero slack on
+    a binding SS link — a value the engine does not compute.
+    """
+    p = make_project(
+        [
+            task("a", "a", 1),
+            task("w", "w", 2, actual_start=date(2027, 1, 30)),
+            task("e", "e", 0),
+        ],
+        dependencies=[
+            Dependency("a", "w", dep_type=DependencyType.SS),
+            Dependency("w", "e"),
+        ],
+        status_date=date(2027, 1, 29),
+    )
+    result = schedule(p)
+    engine_a = {t.id: t for t in result.tasks}["a"]
+    assert engine_a.free_float == timedelta(days=1)
+
+    d = derive_value(p, "a", Quantity.FREE_FLOAT, result=result)
+    assert timedelta(days=d.value) == engine_a.free_float
+    ss = next(c for c in d.contributions if c.source_task_id == "w")
+    assert (ss.imposed_date, ss.slack_days) == (date(2027, 2, 1), 1)

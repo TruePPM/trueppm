@@ -2733,7 +2733,8 @@ def _link_slack(
     working day of slip can jump the imposed date by several working days (or none),
     so the proxy both over- and under-counted the true slack (#1828).
 
-    ``succ_refs`` is the successor's ``(early_start, early_finish)``, or a milestone
+    ``succ_refs`` is a work successor's ``(early_start, early_finish)`` with the start
+    snapped to the working day it sits at (#4332, see :func:`_free_float_days`), or a milestone
     successor's references at its free-float instant (:func:`_milestone_refs` of
     :func:`_milestone_free_instants`); ``instant`` is
     this task's own early instant when it is a milestone (#4079), whose slip is
