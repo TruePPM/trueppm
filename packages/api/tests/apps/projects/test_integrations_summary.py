@@ -429,7 +429,16 @@ class TestProgramIntegrationsSummary:
         # Connect the project to the program; a program-scoped webhook should
         # fire when dispatch_webhooks is called for the project. The registrant
         # must hold live ProjectMembership on the project the event comes from
-        # (#4310) — `membership` grants `user` that membership.
+        # (#4310), at Admin or above (#4330) — mutate the shared `membership`
+        # fixture's role here rather than requesting a different fixture,
+        # since `membership` is also used (at its default Role.MEMBER) by
+        # TestIntegrationsSummary.test_member_can_read to assert the opposite
+        # thing: that plain Member is enough to *read*. `user` is already the
+        # program's Owner via the `program` fixture, which also satisfies the
+        # ProgramMembership role floor dispatch_webhooks now checks for
+        # program-scoped webhooks (#4330).
+        membership.role = Role.ADMIN
+        membership.save(update_fields=["role"])
         project.program = program
         project.save(update_fields=["program"])
         wh = _make_program_webhook(program, created_by=user)

@@ -105,11 +105,40 @@ upgrade:
   requested it, and an admin's export request no longer returns another admin's job that
   is still in flight.
 - **Program-scoped webhooks.** A program webhook receives a member project's events only
-  while its creator (`created_by`) holds project membership on that project. Removing the
-  membership stops new deliveries. Events already queued, or retrying, are still delivered.
-  A webhook whose creator account was deleted, or is deactivated, delivers no member-project
-  events. Only the webhook's creator can edit it, and only while they still have membership
-  on its projects. If the creator lacks membership on any project in the program, including one added later, nobody can edit or disable the webhook; any Program Admin can delete it and re-create it under a member account. Only the creator can read its delivery log.
+  while its creator (`created_by`) holds **Project Manager or above** on the specific
+  project the event fires from — a program grant has never been a project-read grant
+  (#4310) — **and** holds **Program Manager or above** on the program itself (#4330). The
+  second check matches the delivery-log read gate exactly (`IsProgramAdmin` plus the
+  creator-only check), which is keyed on the registrant's *program* role, not their
+  project role; the first check has no equivalent in the read gate and exists purely
+  because dispatch, unlike reading the log, hands a specific member project's data to
+  someone who may hold no role on that project at all. A creator demoted to Resource
+  Manager, Team Member, or Viewer **on the firing project**, or to anything below Program
+  Manager **on the program**, stops receiving events even though they are still a live
+  member in both places — either demotion alone is enough to stop delivery. Removing
+  either membership entirely has the same effect. Events already queued, or retrying, are
+  still delivered. A webhook whose creator account was deleted, or is deactivated,
+  delivers no member-project events. Editing (`PATCH`/`PUT`) requires the caller to
+  currently hold Program Manager or above **and** be the webhook's creator **and** still
+  hold live membership (any role — presence, not role, is what this leg checks) on every
+  project the program covers; deleting requires only that the caller currently hold
+  Program Manager or above, with no creator or project-membership check at all, so any
+  current Program Admin can delete it, not only its creator. The practical consequence: a
+  creator demoted below Program Manager on the program loses the ability to edit **or**
+  delete the webhook themselves — the same demotion that stops dispatch on the program
+  axis also removes their only path to self-service disable it, and only a *different*
+  Program Admin can intervene (by deleting it; nobody but the original creator can ever
+  `PATCH` it, since editing's creator check cannot be satisfied by anyone else). A
+  demotion on the *project* axis alone — the creator stays Program Manager+ but drops
+  below Project Manager on a covered project while remaining a live member there — does
+  not block edit or delete at all, because neither checks project *role*, only project
+  membership *presence* for edit and nothing for delete; it only stops that project's
+  deliveries. Only a **full removal** from a covered project (not a demotion) blocks
+  editing, via the presence check — deleting still works even then, since delete does not
+  consult project membership. If the creator has been fully removed from any project in
+  the program, including one added later, nobody can edit the webhook, but any Program
+  Admin can still delete it and it can be re-created under a qualifying account. Only the
+  creator can read its delivery log.
 - **Program-scoped API tokens (task-sync and acceptance-results).** These two write
   endpoints — inbound task-sync and CI acceptance-result ingest — now also require the
   token's minter (`created_by`) to hold project membership on the target project, checked
@@ -118,23 +147,44 @@ upgrade:
   token whose minter was deleted (and so carries no `created_by`) can no longer write into
   any project through this path.
 - **Project-scoped webhooks.** A project webhook receives that project's events only while
-  its creator holds project membership there, checked on the same schedule as program
-  webhooks above. Removing the creator's membership, or deleting or deactivating their
-  account, stops new deliveries; events already queued, or retrying, are still delivered.
-  Editing a project webhook, deleting it, and reading its delivery log were not affected —
-  those already require Project Manager or above and re-check the *caller's* current
-  membership on every request, so a removed creator already lost those abilities today.
+  its creator holds **Project Manager or above** there, checked on the same schedule as
+  program webhooks above. Removing the creator's membership, demoting it below Project
+  Manager, or deleting or deactivating their account, all stop new deliveries; events
+  already queued, or retrying, are still delivered. Editing a project webhook, deleting
+  it, and reading its delivery log were not affected — those already require Project
+  Manager or above and re-check the *caller's* current membership and role on every
+  request, so a removed or demoted creator already lost those abilities today.
 
 **Operator check after the upgrade.** Program webhooks now showing no deliveries for a
-member project usually belong to a creator without membership there. Either add the
-creator to the project, or re-create the subscription under a member account. Disabling
-it is not possible while the creator lacks membership, because edits are refused, so
-re-creating it under a member account is the remedy. A project webhook showing no
-deliveries belongs to a creator removed from that project; re-add them or re-create the
-subscription under a current member — a project webhook's edit/delete is never refused by
-this change, so disabling it directly is also an option. A **test ping** is not a
+member project usually belong to a creator without membership there, or one demoted
+below Project Manager on that project while remaining a member (Resource Manager, Team
+Member, or Viewer) — or, independently, one demoted below Program Manager on the program
+itself while still Project Manager on every covered project. Either restore the
+creator's role (project-level, program-level, or both, depending on which check failed),
+or re-create the subscription under a current qualifying account. **Whether the creator
+can self-service it depends on which axis demoted them.** If only the *project* role
+dropped (the creator is still Program Manager+), they can still edit or delete the
+webhook themselves — editing's project-membership leg checks live presence, not role,
+so a demotion (as opposed to a full removal) on the project side never blocks it, and
+deleting does not consult project membership at all. If the *program* role dropped below
+Program Manager, the creator loses **both** abilities at once: editing and deleting a
+program-scoped webhook both require the caller to currently hold Program Manager or
+above on the program, with no exception for the webhook's own creator. In that case the
+creator cannot disable it themselves at all — restoring their program role, or having a
+**different** current Program Admin delete the subscription (delete has no creator
+check, unlike edit), is the only remedy; nobody but the original creator can ever edit
+it, since editing's creator check cannot be satisfied by anyone else, demoted or not. A
+full **removal** from a covered project (not merely a demotion) blocks editing via the
+presence check even with Program Manager intact, but a still-Program-Manager creator can
+still delete it in that case too, since delete never checks project membership. A project webhook showing
+no deliveries belongs to a creator removed from that project, or demoted below Project
+Manager on it; re-add or re-promote them, or have a **different, still-qualifying** Project
+Manager/Admin disable or re-create the subscription — unlike the program case, a project
+webhook's own edit/delete already requires Project Manager or above (matching the
+dispatch and delivery-log gates), so a demoted creator loses the ability to disable their
+own stale webhook too, and cannot self-service it back to health. A **test ping** is not a
 reliable health check here: it is gated on the caller's own current role, not the
-registrant's membership, so a current Admin's test ping still succeeds against a
+registrant's membership or role, so a current Admin's test ping still succeeds against a
 dormant webhook and shows up in the delivery log looking healthy while real events
 are silently dropped. A program-scoped integration token that starts returning `401` on
 task-sync or acceptance-results usually means its minter lost project membership; add

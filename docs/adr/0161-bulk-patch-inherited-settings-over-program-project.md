@@ -234,3 +234,66 @@ because the log never contains another project's data.
   events at the next dispatch, the same as a program webhook today.
 - No new query shape: the single per-event membership query already described above
   now also covers project-scoped candidates, at no added query count.
+
+## Amendment (2026-10-08, #4330): a role floor, on both membership axes, matching the Admin-only delivery-log read gates
+
+**Decision: EXTEND.** The #4310/#4325 amendments above gate dispatch on live
+`ProjectMembership` — any role. But `ProjectWebhookViewSet.get_permissions` (project
+scope) and `ProgramWebhookViewSet.get_permissions` / `_check_delivery_log_access`
+(program scope) have always been Admin-only for reading a webhook's delivery log,
+because the payload is documented information disclosure beyond plain membership
+(#903). A registrant demoted — not removed — below that floor kept receiving the exact
+payloads via dispatch that the matching read gate would already refuse them: below
+Project Manager on the firing project for a project-scoped webhook, or below Project
+Manager on the firing project **or** below Program Manager on the program for a
+program-scoped one (the read gate for program-scoped webhooks is keyed on the
+registrant's *program* role, not their project role).
+
+**How it is enforced.** `_drop_webhooks_without_live_member_owner` adds
+`role >= Role.ADMIN` to its existing `ProjectMembership.live()` query, for both scopes.
+A new, program-scoped-only helper, `_drop_program_webhooks_without_live_program_admin_owner`,
+adds a second, independent check: a live `ProgramMembership.live()` row at
+`role >= Role.ADMIN` on the program itself. A program-scoped webhook's dispatch
+eligibility is the AND of both checks — the project-role check from #4310/#4325 is still
+required (a program grant has never been a project-read grant), and the program-role
+check is now required too. Each is one membership query per event; the program-role
+query runs, and costs anything, only when at least one program-scoped webhook survives
+the project-role filter first.
+
+**Why edit/delete access needed no equivalent fix, and what it actually requires.**
+Editing a project-scoped webhook already requires `IsProjectAdmin`, which re-checks the
+*caller's* live role on every request — unaffected by, and already consistent with,
+this amendment. A program-scoped webhook's edit and delete gates were left alone, since
+#4330 scoped its fix to dispatch only, but they are not uniformly a bare
+membership-presence check: `ProgramWebhookViewSet.get_permissions` requires
+`IsProgramAdmin` (the *caller's* current program role, ``>= Role.ADMIN``) for `update`,
+`partial_update`, AND `destroy` alike. `update`/`partial_update` additionally run
+`_can_edit` in `get_object` — creator match, plus live `ProjectMembership` at **any**
+role (presence only) on every project the program covers. `destroy` runs no such
+check: any current Program Admin can delete the webhook, not only its creator.
+
+The asymmetry this leaves is the opposite of what an earlier draft of this amendment
+claimed: a demotion below Program Manager on the **program** axis removes the creator's
+own ability to edit *or* delete the webhook at the same moment it stops their dispatch,
+because both actions require `IsProgramAdmin` and nobody else can ever satisfy
+`_can_edit`'s creator check — only a different Program Admin deleting the subscription,
+or restoring the creator's program role, is left. A demotion below Project Manager on
+the **firing project** alone, with the program role intact, blocks neither edit nor
+delete — `_can_edit`'s project leg checks presence, not role, and `destroy` does not
+consult project membership at all — it only stops that project's deliveries. A full
+**removal** from a covered project blocks editing via the presence check but still not
+deleting, since delete never checks project membership.
+
+**Consequences.**
+
+- A project-scoped webhook's registrant must hold Project Manager or above on the
+  project, not merely be a live member, to keep receiving events — matching
+  `IsProjectAdmin` exactly.
+- A program-scoped webhook's registrant must hold Project Manager or above on the
+  firing project AND Program Manager or above on the program — the second requirement is
+  new, and matches the program-scoped delivery-log read gate exactly; the first
+  continues to have no equivalent in that read gate, because reading the log never
+  depended on the registrant's project-level role.
+- No change to query count in the common case: the new program-role query is skipped
+  entirely (zero extra queries) when no program-scoped webhook survives the existing
+  project-role filter.

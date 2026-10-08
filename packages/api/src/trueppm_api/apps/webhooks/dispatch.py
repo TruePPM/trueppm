@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 import redis as redis_lib
 from kombu.exceptions import (  # type: ignore[import-untyped]
@@ -71,7 +72,7 @@ def build_delivery_body(
 
 
 def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: str) -> list[Any]:
-    """Keep a webhook only when its registrant is a live member of the firing project.
+    """Keep a webhook only when its registrant is a live Admin+ member of the firing project.
 
     Originally written for program-scoped webhooks (#4310): a program-scoped
     webhook fires for events on every member project, but the program grant is
@@ -85,9 +86,29 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
     scoped to, so the same ``project_id`` the caller passes in is also the right
     membership check for it — no separate query shape needed.
 
-    Membership is read here, at dispatch time, so a removed member stops
-    receiving events on the next write rather than when the subscription is
-    edited.
+    #4330 adds a role floor on top of that same ``ProjectMembership`` row:
+    membership alone (any role) used to be enough to keep receiving events, but
+    the delivery-log read endpoint (``ProjectWebhookViewSet.get_permissions``)
+    has always been Admin-only — payloads are documented information disclosure
+    beyond plain project membership (#903). A registrant demoted to Viewer or
+    Member (not removed) kept receiving the same payloads via dispatch that they
+    could no longer read back through the delivery log, which is the gap #4330
+    closes: dispatch now requires ``role >= Role.ADMIN`` on that live
+    membership, matching ``IsProjectAdmin`` (the project-scoped read gate)
+    exactly so the two cannot drift again.
+
+    This project-role check runs identically for program-scoped webhooks,
+    because the membership source here is always the firing project, never the
+    program — a program grant was never a project-read grant (#4310), so a
+    program-scoped registrant has always needed live membership on the
+    specific member project an event comes from, in addition to (not instead
+    of) the program-level check in
+    ``_drop_program_webhooks_without_live_program_admin_owner`` below, which
+    #4330 also adds to close the matching gap on the *program* axis.
+
+    Membership is read here, at dispatch time, so a removed member, or one
+    demoted below Admin, stops receiving events on the next write rather than
+    when the subscription is edited.
 
     Fails closed: a webhook whose ``created_by`` is NULL (the registrant was
     deleted — ``SET_NULL``) or whose registrant is deactivated is dropped.
@@ -96,7 +117,7 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
     of the candidate webhooks (project- and program-scoped alike) are resolved
     together against ``project_id``.
     """
-    from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.access.models import ProjectMembership, Role
 
     owner_ids = {w.created_by_id for w in webhooks if w.created_by_id}
     if not owner_ids:
@@ -104,10 +125,74 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
     else:
         live_owners = set(
             ProjectMembership.live()
-            .filter(project_id=project_id, user_id__in=owner_ids, user__is_active=True)
+            .filter(
+                project_id=project_id,
+                user_id__in=owner_ids,
+                user__is_active=True,
+                role__gte=Role.ADMIN,
+            )
             .values_list("user_id", flat=True)
         )
     return [w for w in webhooks if w.created_by_id in live_owners]
+
+
+def _drop_program_webhooks_without_live_program_admin_owner(
+    webhooks: list[Any], program_id: UUID | None
+) -> list[Any]:
+    """Keep a program-scoped webhook only when its registrant also holds a live
+    Admin+ ``ProgramMembership`` on the program itself (#4330).
+
+    ``_drop_webhooks_without_live_member_owner`` above gates every webhook,
+    project- and program-scoped alike, on the registrant's role on the FIRING
+    PROJECT — necessary because a program grant was never a project-read grant
+    (#4310). But the program-scoped delivery-log read gate
+    (``ProgramWebhookViewSet._check_delivery_log_access`` plus ``IsProgramAdmin``
+    in ``get_permissions``) is keyed on the registrant's *program* role, not
+    their project role: it requires them to still be the webhook's creator AND
+    still hold Program Admin+ on the program. Without this second check, a
+    creator demoted to Program Viewer — while remaining Project Admin on the
+    firing project, which is all the function above verifies — would keep
+    receiving full program-webhook payloads via dispatch that the read gate
+    would already refuse them, the same class of gap #4330 closed on the
+    project axis. A program-scoped webhook's dispatch eligibility is therefore
+    the AND of both functions, not a replacement of one by the other: the
+    project-role check is still required (a program grant alone has never been
+    a project-read grant), and this program-role check is now required too.
+
+    Project-scoped webhooks (``program_id`` is ``None`` on the webhook row) are
+    untouched — they pass straight through regardless of this project's
+    resolved ``program_id``.
+
+    One membership query per event, not per webhook, and skipped entirely
+    (zero extra queries) whenever no program-scoped webhook survives the
+    project-role filter — the common case for a project with no program, or
+    whose program-scoped webhooks already failed that first check. All
+    program-scoped candidates in a single ``dispatch_webhooks`` call share the
+    same ``program_id`` (the queryset that builds ``webhooks`` filters on
+    exactly one project's resolved program), so one lookup against that single
+    ``program_id`` resolves every program-scoped registrant together.
+    """
+    from trueppm_api.apps.access.models import ProgramMembership, Role
+
+    program_webhooks = [w for w in webhooks if w.program_id is not None]
+    if not program_webhooks or program_id is None:
+        return webhooks
+
+    owner_ids = {w.created_by_id for w in program_webhooks if w.created_by_id}
+    if not owner_ids:
+        live_program_admins: set[Any] = set()
+    else:
+        live_program_admins = set(
+            ProgramMembership.live()
+            .filter(
+                program_id=program_id,
+                user_id__in=owner_ids,
+                user__is_active=True,
+                role__gte=Role.ADMIN,
+            )
+            .values_list("user_id", flat=True)
+        )
+    return [w for w in webhooks if w.program_id is None or w.created_by_id in live_program_admins]
 
 
 def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -121,9 +206,12 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     program-scoped webhooks (events on any project within the program that
     owns this project) per ADR-0076. The two queries are combined with a
     single ``Q`` union so the database performs the OR in one round-trip.
-    Either scope is then dropped if its registrant lacks live membership on
-    this project (#4310, #4325) — see
-    ``_drop_webhooks_without_live_member_owner``.
+    Either scope is then dropped if its registrant lacks a live Admin+
+    membership on this project (#4310, #4325, #4330) — see
+    ``_drop_webhooks_without_live_member_owner``. A program-scoped webhook is
+    further dropped if its registrant also lacks a live Admin+ membership on
+    the program itself (#4330) — see
+    ``_drop_program_webhooks_without_live_program_admin_owner``.
     """
     from django.db.models import Q
 
@@ -152,6 +240,7 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         )
     )
     webhooks = _drop_webhooks_without_live_member_owner(webhooks, project_id)
+    webhooks = _drop_program_webhooks_without_live_program_admin_owner(webhooks, program_id)
 
     for webhook in webhooks:
         # Render per-webhook: each subscription may have a different format

@@ -17,6 +17,14 @@ fix: ``IsProjectAdmin`` already re-checks the *caller's* live membership on
 every request (``_membership_role`` in ``apps/access/permissions.py`` only
 honours non-soft-deleted rows), so a removed creator already loses those
 abilities today. Only the async dispatch path read a stale assumption.
+
+#4330 adds a role floor on top of that same live-membership check: a registrant
+demoted from Admin to Member or Viewer (still a LIVE member, not removed) kept
+receiving the same payloads via dispatch that ``IsProjectAdmin`` already refused
+them on the delivery-log endpoint. Dispatch now requires ``role >= Role.ADMIN``
+on the registrant's live ``ProjectMembership``, matching that read gate exactly
+— see the "role floor" tests below, and
+``_drop_webhooks_without_live_member_owner`` in ``dispatch.py``.
 """
 
 from __future__ import annotations
@@ -94,6 +102,50 @@ def test_project_webhook_owned_by_live_member_fires(project: Project, creator: A
     assert WebhookDelivery.objects.count() == 1
 
 
+def test_project_webhook_owned_by_owner_fires(project: Project, creator: Any) -> None:
+    """#4330: Owner is above the Admin floor, so an Owner registrant fires too."""
+    ProjectMembership.objects.create(project=project, user=creator, role=Role.OWNER)
+    _project_webhook(project, creator)
+
+    assert _dispatch(project) == 1
+    assert WebhookDelivery.objects.count() == 1
+
+
+def test_project_webhook_owned_by_mere_member_does_not_fire(project: Project, creator: Any) -> None:
+    """#4330: live membership below Admin (Member here) is no longer enough.
+
+    Before #4330 any live membership qualified — the delivery-log read
+    endpoint (``IsProjectAdmin``) has always been Admin-only, so dispatch must
+    now match it.
+    """
+    ProjectMembership.objects.create(project=project, user=creator, role=Role.MEMBER)
+    _project_webhook(project, creator)
+
+    assert _dispatch(project) == 0
+    assert WebhookDelivery.objects.count() == 0
+
+
+def test_project_webhook_owned_by_viewer_does_not_fire(project: Project, creator: Any) -> None:
+    """#4330: same floor, Viewer this time — the lowest live role."""
+    ProjectMembership.objects.create(project=project, user=creator, role=Role.VIEWER)
+    _project_webhook(project, creator)
+
+    assert _dispatch(project) == 0
+    assert WebhookDelivery.objects.count() == 0
+
+
+def test_project_webhook_owned_by_scheduler_does_not_fire(project: Project, creator: Any) -> None:
+    """#4330: Scheduler (ordinal 200) is the band directly below Admin (300) —
+    pins the floor at exactly ``Role.ADMIN``, not ``Role.SCHEDULER`` or lower.
+    Without this case, a filter accidentally written as
+    ``role__gte=Role.SCHEDULER`` would pass every other test in this file."""
+    ProjectMembership.objects.create(project=project, user=creator, role=Role.SCHEDULER)
+    _project_webhook(project, creator)
+
+    assert _dispatch(project) == 0
+    assert WebhookDelivery.objects.count() == 0
+
+
 def test_project_webhook_stops_firing_when_creator_membership_revoked(
     project: Project, creator: Any
 ) -> None:
@@ -104,6 +156,38 @@ def test_project_webhook_stops_firing_when_creator_membership_revoked(
 
     membership.is_deleted = True
     membership.save(update_fields=["is_deleted"])
+
+    assert _dispatch(project) == 0
+
+
+def test_project_webhook_stops_firing_when_creator_demoted_to_viewer(
+    project: Project, creator: Any
+) -> None:
+    """#4330: a demotion (still a LIVE member, just a lower role) must also stop
+    delivery — not only a full removal. This is the exact gap #4330 reports: a
+    webhook creator demoted from Admin to Viewer kept receiving full event
+    payloads via dispatch even though the delivery-log endpoint would now
+    refuse them."""
+    membership = ProjectMembership.objects.create(project=project, user=creator, role=Role.ADMIN)
+    _project_webhook(project, creator)
+    assert _dispatch(project) == 1
+
+    membership.role = Role.VIEWER
+    membership.save(update_fields=["role"])
+
+    assert _dispatch(project) == 0
+
+
+def test_project_webhook_stops_firing_when_creator_demoted_to_member(
+    project: Project, creator: Any
+) -> None:
+    """#4330: same demotion gap, landing one band higher (Admin -> Member)."""
+    membership = ProjectMembership.objects.create(project=project, user=creator, role=Role.ADMIN)
+    _project_webhook(project, creator)
+    assert _dispatch(project) == 1
+
+    membership.role = Role.MEMBER
+    membership.save(update_fields=["role"])
 
     assert _dispatch(project) == 0
 
