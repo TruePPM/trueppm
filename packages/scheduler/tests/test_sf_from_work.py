@@ -931,11 +931,30 @@ def _add_working_days(day: date, n: int) -> date:
     return day
 
 
-@pytest.mark.parametrize("lag", [1, 2, 3, 5, 6, 7])
+@pytest.mark.parametrize(
+    ("lag", "t2_snet", "float_days"),
+    [
+        (1, None, 0),
+        (2, None, 0),
+        (3, None, 0),
+        (5, None, 0),
+        # Sun 03-01 + 6 = Sat and + 7 = Sun, both shown Monday: two and one working
+        # days of slip reach the same Monday.
+        (6, None, 2),
+        (7, None, 1),
+        # The discriminating cases: T2 is held to W by an SNET so that W + 1 - lag
+        # is Sat 03-07. The latest start is Fri 03-06 (Thu + lag lands on the
+        # weekend, still shown W); a Monday start (Sun + lag) passes W. The
+        # pre-#4333 inverse, ``next_wd(prev_wd(W - lag))``, said Monday and
+        # reported five working days of float, not four.
+        (3, date(2026, 3, 9), 4),
+        (4, date(2026, 3, 10), 4),
+    ],
+)
 @pytest.mark.parametrize("milestone", [False, True])
 @pytest.mark.parametrize("pole", [False, True])
 def test_the_backward_pass_and_free_float_invert_the_new_anchor(
-    lag: int, milestone: bool, pole: bool
+    lag: int, t2_snet: date | None, float_days: int, milestone: bool, pole: bool
 ) -> None:
     """Float is the forward rule's inverse, checked differentially (#4333).
 
@@ -944,12 +963,15 @@ def test_the_backward_pass_and_free_float_invert_the_new_anchor(
     long parallel pole Z the project finish is out of reach and T1's *free* float
     is the slip it can take before T2's early finish moves. Either way, an SNET
     that slips T1 by exactly its float leaves the measured date alone and one more
-    working day moves it — so the inverse cannot pass on a transcribed number.
-    Lags 6 and 7 land on the weekend, which legitimately gives T1 free float.
+    working day moves it. The float itself is also pinned, and the SNET-held rows
+    are the ones where the new inverse (``prev_wd(W + 1 - lag)``) and the pre-#4333
+    one disagree: ``W + 1 - lag`` falls on a Saturday. On the other rows both
+    inverses give the same date, so those rows alone would not tell them apart.
     """
 
     def build(slip: int | None) -> tuple[dict[str, Task], date]:
         project = _pair(PROJECT_START, lag, milestone=milestone)
+        project.tasks[1].planned_start = t2_snet
         if slip is not None:
             project.tasks[0].planned_start = _add_working_days(PROJECT_START, slip)
         if pole:
@@ -963,12 +985,52 @@ def test_the_backward_pass_and_free_float_invert_the_new_anchor(
     base, measured = build(None)
     t1 = base["11"]
     slack = (t1.free_float if pole else t1.total_float).days
-    if pole:
-        # Sun 03-01 + 6 = Sat and + 7 = Sun, both shown Monday: two and one
-        # working days of slip reach the same Monday; any other lag none.
-        assert slack == {6: 2, 7: 1}.get(lag, 0)
-    assert build(slack)[1] == measured, "slipping T1 by its float moved the date"
-    assert build(slack + 1)[1] > measured, "T1's float is not the latest slip"
+    # A milestone T1 may sit as late as Sat 03-07 00:00, the end of Friday: five
+    # working days after Monday's start, one more than work, which has to *start*
+    # by Friday. An SNET can only place it at the start of a day, so its
+    # differential slip stops at Friday's start, one day short of the float.
+    instant_extra = 1 if milestone and t2_snet is not None else 0
+    if pole or t2_snet is not None:
+        assert slack == float_days + instant_extra
+    slip = slack - instant_extra
+    assert build(slip)[1] == measured, "slipping T1 by its float moved the date"
+    assert build(slip + 1)[1] > measured, "T1's float is not the latest slip"
+
+
+def test_a_milestone_predecessors_late_instant_is_the_raw_inverse() -> None:
+    """``P -FS+1d-> M -SF+3d-> T``, T held to Mon 03-09 by an SNET (#4333).
+
+    M's latest instant is ``W + 1 - lag`` = Sat 03-07 00:00, the end of Friday. Its
+    float is the same whether that is read as Saturday or Monday midnight, but P
+    measures a calendar-day lag back from it, so the raw instant matters: P may
+    finish Thursday (Fri 00:00 + 1 = Sat 00:00), and a Friday finish puts M at
+    Sunday midnight, whose SF anchor Sat + 3 = Tue moves T. Inverting through the
+    pre-#4333 finish-anchored branch gave Monday midnight and a Friday late finish.
+    """
+
+    def build(p_snet: date | None) -> ScheduleResult:
+        return _schedule(
+            [
+                Task(id="P", name="P", duration=_days(1), planned_start=p_snet),
+                Task(id="M", name="M", duration=_days(0)),
+                Task(id="T", name="T", duration=_days(1), planned_start=date(2026, 3, 9)),
+            ],
+            [
+                Dependency("P", "M", dep_type=DependencyType.FS, lag=_days(1)),
+                _sf_dep("M", "T", 3),
+            ],
+        )
+
+    base = build(None)
+    p = {t.id: t for t in base.tasks}["P"]
+    assert p.late_finish == date(2026, 3, 5)  # Thu
+    assert p.total_float == _days(3)
+    t_finish = {t.id: t for t in base.tasks}["T"].early_finish
+    assert t_finish == date(2026, 3, 9)
+    held = {t.id: t for t in build(date(2026, 3, 5)).tasks}["T"]
+    moved = {t.id: t for t in build(date(2026, 3, 6)).tasks}["T"]
+    assert held.early_finish == t_finish
+    assert moved.early_finish is not None and moved.early_finish > t_finish
 
 
 @pytest.mark.parametrize("milestone", [False, True])
