@@ -55,18 +55,27 @@ white. No error text. The browser console usually shows a failed request for a
 3. **A CSP or MIME-type mismatch** in front of the SPA — usually an ingress, WAF,
    or CDN adding its own `Content-Security-Policy` on top of the one the web tier
    already sets, so the bundle is blocked. The console names the directive.
-4. **Two releases of the web tier are answering at once.** The console says
-   `Expected a JavaScript-or-Wasm module script but the server responded with a
-   MIME type of "text/html"` or `Refused to apply style … MIME type
+4. **The page and its assets came from two different releases.** The console
+   says `Expected a JavaScript-or-Wasm module script but the server responded
+   with a MIME type of "text/html"` or `Refused to apply style … MIME type
    ('text/html')`. Each release's `index.html` names its own content-hashed
-   `/assets/*` files. When a request for one of those files lands on a replica
-   running the other release, that replica does not have the file. Its SPA
-   fallback answers with `index.html` and a `200` status, and the browser
-   refuses to run it. The symptom persists for as long as both releases stay
-   behind the same Service, for example during a rolling update that stalled
-   partway. Load-balancer luck decides which files fail, so the failing set
-   changes from one reload to the next. Finish the rollout, or roll back, so
-   that every web pod runs the same image.
+   `/assets/*` files. A replica running the other release does not have those
+   files, so its SPA fallback answers with `index.html` and a `200` status, and
+   the browser refuses to run it. Load-balancer luck decides which files fail,
+   so the failing set changes from one reload to the next. Two situations
+   produce it:
+   - **Any rolling upgrade with two or more web replicas.** The chart's
+     production values run two, and the default rolling update keeps old and
+     new pods serving together until it finishes. A healthy rollout produces
+     this too, not only a stalled one. Clients that load the page during that
+     window can blank-screen until they reload after the rollout completes.
+   - **A rollback, or a browser holding an older page.** A client that fetched
+     `index.html` from the new release just before a rollback asks for assets
+     that no remaining pod has. A reload fixes it.
+
+   Finish the rollout or the rollback, confirm that every web pod runs the same
+   image, then reload. Removing this window for good is tracked in
+   [#4341](https://gitlab.com/trueppm/trueppm/-/issues/4341).
 
 **Commands.**
 

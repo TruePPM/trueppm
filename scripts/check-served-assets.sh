@@ -49,13 +49,30 @@ TIMEOUT="${SERVED_ASSETS_TIMEOUT:-20}"
 # the verdict logic is exercised in the job's own image with no server.
 FIXTURE_DIR=""
 FIXTURE_ORIGIN="http://fixture.invalid"
+# Mixed-release fixture (self-test only). When FIXTURE_B_DIR is set, a request
+# counter in FIXTURE_COUNTER picks the "replica": the first FIXTURE_SKEW_AFTER
+# requests all land on build A (FIXTURE_DIR), and every request after that
+# alternates B, A, B, ... — a load balancer that a single pass happened to pin
+# to one replica, and the next pass did not. A file, not a variable: fetch_url
+# runs inside $(...), so a shell counter would never advance.
+FIXTURE_B_DIR=""
+FIXTURE_COUNTER=""
+FIXTURE_SKEW_AFTER=0
 
 # fetch_url <url> <body-file> — writes the body, prints "<status>|<content-type>".
 fetch_url() {
     if [ -n "$FIXTURE_DIR" ]; then
         _p="${1#"$FIXTURE_ORIGIN"}"
         [ -n "$_p" ] && [ "$_p" != "/" ] || _p="/index.html"
-        _f="$FIXTURE_DIR$_p"
+        _root="$FIXTURE_DIR"
+        if [ -n "$FIXTURE_B_DIR" ]; then
+            _n=$(($(cat "$FIXTURE_COUNTER") + 1))
+            echo "$_n" > "$FIXTURE_COUNTER"
+            if [ "$_n" -gt "$FIXTURE_SKEW_AFTER" ] && [ $(((_n - FIXTURE_SKEW_AFTER) % 2)) -eq 1 ]; then
+                _root="$FIXTURE_B_DIR"
+            fi
+        fi
+        _f="$_root$_p"
         case "$_p" in
             # A real `try_files $uri =404` — what a correct /assets/ block does.
             */gone-*) : > "$2"; echo "404|text/html"; return 0 ;;
@@ -70,7 +87,7 @@ fetch_url() {
             esac
         else
             # The SPA fallback this script exists to catch.
-            cp "$FIXTURE_DIR/index.html" "$2"
+            cp "$_root/index.html" "$2"
             echo "200|text/html"
         fi
         return 0
@@ -84,7 +101,10 @@ fetch_url() {
 # hand-written <link rel="preload"> blocks in index.html span several), so the
 # document is flattened and re-split on '<' to give one tag per line.
 extract_refs() {
-    tr '\r\n\t' '   ' < "$1" | tr '<' '\n' | while IFS= read -r tag; do
+    # The trailing `echo` terminates the last tag: flattening removed every
+    # newline, and `read` drops a final line that has none — so a document
+    # ending on an asset tag (no </html> after it) silently lost that asset.
+    { tr '\r\n\t' '   ' < "$1" | tr '<' '\n'; echo; } | while IFS= read -r tag; do
         case "$tag" in
             script\ *)
                 _ref="$(printf '%s\n' "$tag" | sed -n -e "s/.*[[:space:]]src=\"\\([^\"]*\\)\".*/\\1/p" -e "s/.*[[:space:]]src='\\([^']*\\)'.*/\\1/p" | sed -n 1p)"
@@ -290,6 +310,13 @@ self_test() {
     printf '{"detail":"not found"}' > "$FIXTURE_DIR/index.html"
     _case "page referencing no assets" expect-fail "referenced no same-origin"
 
+    # A document that ends on an asset tag (no newline, no </html>) must still
+    # have that last asset checked.
+    healthy_assets
+    rm -f "$FIXTURE_DIR/theme-init.js"
+    printf '%s' '<script type="module" src="/assets/index-AAA.js"></script><link rel="stylesheet" href="/assets/missing-ZZZ.css">' > "$FIXTURE_DIR/index.html"
+    _case "final tag with no trailing newline" expect-fail "missing-ZZZ.css"
+
     # Cross-origin references are skipped, not fetched and not failed.
     healthy_assets
     page "$healthy_tags" '<script src="https://cdn.example.com/x.js"></script>' \
@@ -304,6 +331,44 @@ self_test() {
     rm -f "$FIXTURE_DIR/assets/Toast-BBB.js"
     _case "relative ref falling back to index.html" expect-fail "Toast-BBB.js"
 
+    # THE MECHANISM REPRODUCED FOR #4338 (tracked as #4341): two builds behind
+    # one load balancer. Each build's index.html names only its own hashed
+    # chunk; a request for build B's chunk that lands on build A gets A's SPA
+    # fallback. One pass pinned to build A reads clean — that is the blind spot
+    # SERVED_ASSETS_ROUNDS exists for, so both directions are asserted.
+    FIXTURE_B_DIR="$st_dir/site-b"
+    FIXTURE_COUNTER="$st_dir/counter"
+    for _site in "$FIXTURE_DIR" "$FIXTURE_B_DIR"; do
+        rm -rf "$_site" && mkdir -p "$_site/assets"
+    done
+    echo 'export{}' > "$FIXTURE_DIR/assets/index-OLD.js"
+    echo 'body{}' > "$FIXTURE_DIR/assets/index-OLD.css"
+    printf '%s\n' '<script type="module" src="/assets/index-OLD.js"></script>' \
+        '<link rel="stylesheet" href="/assets/index-OLD.css">' > "$FIXTURE_DIR/index.html"
+    echo 'export{}' > "$FIXTURE_B_DIR/assets/index-NEW.js"
+    echo 'body{}' > "$FIXTURE_B_DIR/assets/index-NEW.css"
+    printf '%s\n' '<script type="module" src="/assets/index-NEW.js"></script>' \
+        '<link rel="stylesheet" href="/assets/index-NEW.css">' > "$FIXTURE_B_DIR/index.html"
+    # One round is index + 2 assets = 3 requests, all on build A.
+    FIXTURE_SKEW_AFTER=3
+
+    echo 0 > "$FIXTURE_COUNTER"
+    SERVED_ASSETS_ROUNDS=1
+    _case "mixed builds, single round pinned to one replica (the blind spot)" expect-pass
+    # Guard the fixture itself: if the pass above checked fewer than both
+    # assets, it pinned nothing and the ROUNDS case below would prove nothing.
+    echo 0 > "$FIXTURE_COUNTER"
+    case "$(run_check "$FIXTURE_ORIGIN" 2>&1)" in
+        *"2 served, 0 failed"*) echo "SELF-TEST OK: mixed-build fixture checks both assets per round." ;;
+        *) echo "SELF-TEST FAILED: mixed-build fixture did not check both assets in one round." >&2; st_rc=1 ;;
+    esac
+
+    echo 0 > "$FIXTURE_COUNTER"
+    SERVED_ASSETS_ROUNDS=3
+    _case "mixed builds caught by SERVED_ASSETS_ROUNDS=3" expect-fail "content-type 'text/html'"
+
+    unset SERVED_ASSETS_ROUNDS
+    FIXTURE_B_DIR=""
     FIXTURE_DIR=""
     rm -rf "$st_dir"
     if [ "$st_rc" -eq 0 ]; then echo "SELF-TEST PASSED"; else echo "SELF-TEST FAILED" >&2; fi
