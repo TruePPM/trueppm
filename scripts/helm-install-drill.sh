@@ -425,6 +425,7 @@ resolve_previous_chart_version() {
   # installs stayed on beta.6, so beta.6 -> HEAD is the real path until beta.8
   # publishes; the highest-version rule below then picks beta.8 on its own and
   # this entry becomes inert (#4346). `-` not `:-`, so a test can set it empty.
+  # TODO(#4347): remove this default after beta.8 is cut, before 0.4.0-rc.1.
   local skip_versions="${SKIP_PREV_CHART_VERSIONS-0.4.0-beta.7}" v
   for v in $skip_versions; do
     versions="$(printf '%s\n' "$versions" | grep -vxF -- "$v" || true)"
@@ -1475,6 +1476,7 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   # the published chart here may predate it, so this leg checks only that the
   # old release serves its own referenced assets (#4346). The post-upgrade
   # check below runs the full script.
+  # TODO(#4347): drop this opt-out after beta.8 is cut, before 0.4.0-rc.1.
   SERVED_ASSETS_MISSING_PROBE=0 \
     check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
   kubectl get pods -o wide
