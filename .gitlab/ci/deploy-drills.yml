@@ -69,14 +69,18 @@ ci:build-deploy-images:
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   # The changes: list is the UNION of every drill that `needs:` this job —
-  # helm:install, compose:prod (#2817), helm:netpol (#2944) AND helm:walkthrough
-  # (#4027). It has to be a superset: a drill scheduled without this job is a
-  # pipeline configuration error that fails the whole pipeline instantly with
-  # zero jobs, not a skipped drill. helm-netpol-drill.sh was missing here until
-  # #2944, so an MR touching only that script scheduled helm:netpol against a
-  # `needs:` that did not exist — the deployment.md path below exists so the
-  # same class of gap cannot recur for helm:walkthrough, which triggers on that
-  # doc changing.
+  # helm:install, compose:prod (#2817), helm:netpol (#2944), helm:walkthrough
+  # (#4027), and now helm:demo / helm:demo-upgrade's shared dependency on
+  # scripts/check-served-assets.sh (#4340). It has to be a superset: a drill
+  # scheduled without this job is a pipeline configuration error that fails
+  # the whole pipeline instantly with zero jobs, not a skipped drill.
+  # helm-netpol-drill.sh was missing here until #2944, so an MR touching only
+  # that script scheduled helm:netpol against a `needs:` that did not exist —
+  # the deployment.md path below exists so the same class of gap cannot
+  # recur for helm:walkthrough, which triggers on that doc changing, and
+  # scripts/check-served-assets.sh is added below for the identical reason:
+  # helm:demo and helm:demo-upgrade both trigger on it (and both `needs:`
+  # this job), so it must be in this superset too.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       allow_failure: true
@@ -85,6 +89,7 @@ ci:build-deploy-images:
         - packages/helm/**/*
         - packages/api/src/trueppm_api/settings/**
         - scripts/helm-install-drill.sh
+        - scripts/check-served-assets.sh
         - scripts/prod-compose-drill.sh
         - scripts/helm-netpol-drill.sh
         - packages/website/src/content/docs/administration/deployment.md
@@ -317,7 +322,11 @@ helm:demo:
   # a case-different path falls to the SPA rather than being proxied. It also
   # re-proves the #4017 per-visitor throttle property: two distinct
   # `X-Forwarded-For` values land in two distinct `share_access` buckets
-  # (DRILL_LEG=demo in the same script — see its header comment). See
+  # (DRILL_LEG=demo in the same script — see its header comment). Also runs
+  # scripts/check-served-assets.sh (#4338/#4340) against the same `/` the
+  # allowlist matrix checks, reached via `kubectl port-forward`: a bare
+  # "GET / -> 200" cannot see a missing/empty referenced asset served as a
+  # clean 200 through the SPA catch-all (#4338's own failure mode). See
   # scripts/helm-install-drill.sh.
   #
   # Trigger: MRs and main pushes that touch the chart, the drill or this
@@ -355,11 +364,83 @@ helm:demo:
       changes:
         - packages/helm/**/*
         - scripts/helm-install-drill.sh
+        - scripts/check-served-assets.sh
         - .gitlab/ci/deploy-drills.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/helm/**/*
         - scripts/helm-install-drill.sh
+        - scripts/check-served-assets.sh
+        - .gitlab/ci/deploy-drills.yml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh
+
+helm:demo-upgrade:
+  # Runtime UPGRADE smoke test of demo mode on a real kind cluster (#4340) —
+  # the combination neither helm:upgrade nor helm:demo covers. helm:upgrade
+  # only ever installs/upgrades with DEFAULT values, so it never fires the
+  # demo-seed Job's post-upgrade hook re-run; helm:demo only ever `helm
+  # install`s from empty, so it never exercises an upgrade at all. #3941
+  # named the re-fire explicitly as an untested risk ("the demo-seed Job
+  # re-fires, and nothing proves that is safe") and it stayed untested long
+  # enough for #4339 to ship in 0.4.0-beta.7 (the seed hook failing a
+  # sprint_finish_after_start CHECK on a real post-upgrade run, leaving that
+  # release `failed`).
+  #
+  # `helm install` the PREVIOUS released chart WITH values-demo.yaml, wait
+  # for its install-time demo-seed hook, check served assets, then `helm
+  # upgrade` the SAME release to the HEAD chart — STILL with
+  # values-demo.yaml — and re-run the identical allowlist/throttle matrix
+  # and served-asset check helm:demo already uses, this time against the
+  # POST-upgrade hook re-fire (DRILL_LEG=demo-upgrade in the same script —
+  # see its header comment). See scripts/helm-install-drill.sh.
+  #
+  # Trigger: main pushes and the nightly schedule ONLY — deliberately not
+  # every MR. Per #3941's own cost note (quoted in helm:upgrade's comment
+  # above, "roughly double helm:install"), this leg pays for an install AND
+  # an upgrade ON TOP OF the demo overlay's own cost (seed hook, probe pod,
+  # allowlist matrix, throttle property, now also a served-asset check) —
+  # strictly more expensive than either helm:upgrade or helm:demo alone, on
+  # a chart-touching MR that already runs both of those plus helm:install
+  # and helm:walkthrough as blocking gates. Main-push coverage still catches
+  # a real regression before it reaches a tag; a nightly infra blip is a
+  # signal, not a hard red (allow_failure on schedule, matching every other
+  # leg in this file). `needs:` the same per-commit image build as the other
+  # legs, so it drills real code.
+  stage: test
+  interruptible: false
+  timeout: 40m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    KIND_VERSION: "0.24.0"
+    KUBECTL_VERSION: "1.31.2"
+    HELM_VERSION: "3.16.3"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    APISERVER_HOST: "docker"
+    DRILL_LEG: "demo-upgrade"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/helm/**/*
+        - scripts/helm-install-drill.sh
+        - scripts/check-served-assets.sh
         - .gitlab/ci/deploy-drills.yml
   before_script:
     - apk add --no-cache bash curl

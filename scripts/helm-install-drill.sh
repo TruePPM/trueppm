@@ -12,7 +12,7 @@
 #   4. the settings.prod boot guards fail CLOSED — a deploy missing SECRET_KEY
 #      does not start (negative probe).
 #
-# DRILL_LEG (#3941) selects which of three legs runs:
+# DRILL_LEG (#3941) selects which of five legs runs:
 #   install (default) — `helm install` the HEAD chart straight from a clean
 #     cluster, as above. This is the leg the `helm:install` CI job runs on
 #     every MR and main push.
@@ -50,6 +50,37 @@
 #     `helm:upgrade` CI job runs this leg on MRs and main pushes that touch
 #     the chart or this script, and nightly (see .gitlab/ci/deploy-drills.yml's
 #     `helm:upgrade` job comment for why MRs pay for it, #4000).
+#   demo-upgrade (#4340) — the combination neither `upgrade` nor `demo` ever
+#     covers: `upgrade` installs/upgrades with DEFAULT values only, so it
+#     never fires the demo-seed Job's post-upgrade hook re-run; `demo` only
+#     ever `helm install`s from empty, so it never exercises an upgrade at
+#     all. #3941 named the re-fire explicitly as an untested risk ("the
+#     demo-seed Job re-fires, and nothing proves that is safe") and it stayed
+#     untested long enough for #4339 to ship in 0.4.0-beta.7 (the seed hook
+#     failing a sprint_finish_after_start CHECK on a real post-upgrade run,
+#     leaving the release "failed"). `helm install`s the PREVIOUS released
+#     chart (same resolve_previous_chart_version() as `upgrade`, below) WITH
+#     values-demo.yaml layered on, waits for its install-time demo-seed hook,
+#     checks served assets against that pre-upgrade state (see
+#     check_served_assets below), then `helm upgrade`s the SAME release to
+#     the HEAD chart, STILL with values-demo.yaml, and re-runs section 10's
+#     allowlist/throttle matrix, this time against the POST-upgrade hook
+#     re-fire rather than only a fresh install. It also asserts every asset
+#     index.html references (script src, link rel=modulepreload, link
+#     rel=stylesheet) answers 2xx with the right content-type, via
+#     scripts/check-served-assets.sh (#4338: a beta.7 web image blank-screened
+#     by serving missing JS chunks and empty CSS through the SPA catch-all's
+#     clean 200 text/html fallback for "/" — a bare "GET / -> 200" check
+#     cannot see that at all). That script is reached through `kubectl
+#     port-forward` rather than the ingress-nginx-namespace probe pod section
+#     8/10 use for a genuine cross-pod request: port-forward tunnels through
+#     the kubelet straight into the pod's network namespace, so it reaches
+#     the web Service without needing the NetworkPolicy-admitted placement a
+#     real pod-to-pod request needs. Per #3941's own cost note this leg is
+#     MORE expensive than either `upgrade` or `demo` alone (it pays for
+#     both), so the `helm:demo-upgrade` CI job runs it on main pushes and
+#     nightly only, not on every MR (see that job's own comment in
+#     .gitlab/ci/deploy-drills.yml).
 #   walkthrough (#4027) — drills administration/deployment.md's "Production
 #     install walkthrough" step for step, the path `helm:install`/`helm:upgrade`/
 #     `helm:demo` never touch: a NAMED namespace (`trueppm`, not `default`),
@@ -256,7 +287,13 @@ WORKER_PING_RETRY_DELAY="${WORKER_PING_RETRY_DELAY:-10}"
 # actually following that redirect back through the same allowlisted nginx.
 # Namespace is the chart's implicit "default" — nothing in this script ever
 # passes -n/--namespace to helm or kubectl.
-if [ "$DRILL_LEG" = "demo" ]; then
+#
+# demo-upgrade (#4340) reuses every variable set here identically: the
+# release name and chart name (trueppm.fullname's only inputs) stay the same
+# across the previous chart and HEAD chart, so the Service name resolved
+# below from the local HEAD checkout is correct for BOTH the pre-upgrade
+# install and the post-upgrade state.
+if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   demo_web_svc="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
     --show-only templates/web/service.yaml \
     | awk '/^  name:/{print $2; exit}')"
@@ -414,10 +451,10 @@ resolve_previous_chart_version() {
   ')"
 
   if [ -z "$PREV_CHART_VERSION" ]; then
-    log "no published chart version at or below HEAD (${head_version}) found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — nothing to upgrade FROM yet; skipping the upgrade leg"
+    log "no published chart version at or below HEAD (${head_version}) found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — nothing to upgrade FROM yet; skipping the ${DRILL_LEG} leg"
     exit 0
   fi
-  log "upgrade leg: previous released chart = ${PREV_CHART_VERSION}, HEAD chart = ${head_version}"
+  log "${DRILL_LEG} leg: previous released chart = ${PREV_CHART_VERSION}, HEAD chart = ${head_version}"
 }
 
 # ---- walkthrough-leg-only: named namespace + managed datastores (#4027) ----
@@ -814,6 +851,107 @@ check_beat_health() {
   log "celery beat pinned singleton Running with 0 restarts: $beat_pod"
 }
 
+# ---- wait for the demo-seed hook (install OR post-upgrade re-fire, #4340) --
+# Factored out of section 10 so the demo-upgrade leg's pre-upgrade phase
+# (section 4) can assert the install-time hook BEFORE upgrading, and section
+# 10 can assert the post-upgrade re-fire with the identical check. Helm
+# always blocks `helm install`/`helm upgrade` on hook completion regardless
+# of --wait (post-install/post-upgrade hooks run synchronously as part of
+# the command), and demo-seed-job.yaml's hook-delete-policy is
+# before-hook-creation — meaning the Job object this resolves to is always
+# the one just (re-)created for THIS install/upgrade, never a stale
+# completed one left over from before. So this `kubectl wait` should never
+# actually block; it is asserted anyway, explicitly, so a future Helm or
+# hook-ordering change that broke either assumption fails HERE, at the point
+# closest to the install/upgrade call that just ran, instead of resurfacing
+# confusingly a few lines down at the allowlist probe.
+wait_for_demo_seed_hook() {
+  local label="$1" demo_seed_job
+  demo_seed_job="$(kubectl get job -l app.kubernetes.io/component=demo-seed -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [ -n "$demo_seed_job" ] || fail "no demo-seed Job found (component=demo-seed) for ${label} — did the chart actually render demo.enabled? (#4018)"
+  kubectl wait --for=condition=complete "job/${demo_seed_job}" --timeout=180s \
+    || fail "demo-seed hook (job/${demo_seed_job}) did not reach Complete for ${label} — see its pod logs above"
+  log "demo-seed hook complete for ${label} — log tail: $(kubectl logs "job/${demo_seed_job}" -c demo-seed 2>&1 | tail -3 || true)"
+}
+
+# ---- served-asset content-type check (#4338, #4340) ------------------------
+# scripts/check-served-assets.sh (#4338) takes one argument, a base URL: it
+# fetches "<base_url>/", parses every asset index.html references (`<script
+# src>`, `<link rel="modulepreload">`, `<link rel="stylesheet">`), and
+# asserts each answers 2xx with the right content-type and a non-empty body.
+#
+# Why this exists alongside the plain "GET / -> 200" check section 10 already
+# runs: the chart's SPA route is a catch-all, so it answers a clean 200
+# text/html for "/" (and for any other unmatched path) regardless of whether
+# the JS chunks and CSS that page actually references exist, are non-empty,
+# or serve the right content-type. #4338 (a beta.7 web image that
+# blank-screened on missing JS chunks / empty CSS served as the SPA fallback)
+# is exactly the failure class a bare "/" check cannot see — only fetching
+# the referenced assets themselves can.
+#
+# Takes an optional 4th argument, the path to fetch under the Service (default
+# "/"). The demo overlay's `location = /` is an EXACT match that `return 302`s
+# to demo.baseUrl (templates/web/configmap.yaml, #3911) — it never reaches the
+# catch-all `location /` that actually serves index.html, and that redirect's
+# target is the in-cluster DNS name section 4's comment set demo.baseUrl to,
+# which this function's `kubectl port-forward` tunnel cannot resolve or reach
+# at all. So a demo-mode caller must pass a path that is NOT the bare origin —
+# one of the demo share links is exactly such a path: it is not matched by any
+# more specific location block, falls through to the SPA catch-all, and is the
+# same index.html (and therefore the same referenced assets) a real visitor
+# lands on after following the "/" redirect.
+#
+# Reached via `kubectl port-forward` rather than the ingress-nginx-namespace
+# probe pod section 8/10 use for a genuine cross-pod request: port-forward
+# tunnels through the kubelet straight into the target pod's network
+# namespace rather than over the pod network the CNI's NetworkPolicy
+# filters, so it reaches the Service without needing that NetworkPolicy-
+# admitted placement at all. This also means it runs from the HOST (this
+# job's own container, which already has curl/bash — see resolve_previous_
+# chart_version's registry reads above), not from inside the cluster, so
+# check-served-assets.sh needs nothing beyond what a plain CI shell ships.
+check_served_assets() {
+  local svc="$1" ns="$2" label="$3" path="${4:-/}"
+  local script="scripts/check-served-assets.sh"
+  local local_port="${SERVED_ASSETS_PORT:-18080}"
+  local pf_log="/tmp/port-forward-served-assets.log"
+  local waited pid rc base_url
+
+  # Fail LOUDLY and immediately if the script is missing rather than
+  # silently skipping the check — this leg exists specifically to close a
+  # coverage gap (#4340), and a missing script must not read as green.
+  [ -x "$script" ] \
+    || fail "${script} not found or not executable (${label}) — this leg must not silently skip the served-asset check"
+
+  log "port-forwarding svc/${svc} (ns ${ns}) -> 127.0.0.1:${local_port} to run ${script} against ${path} (${label})"
+  : >"$pf_log"
+  kubectl port-forward -n "$ns" "svc/${svc}" "${local_port}:80" >"$pf_log" 2>&1 &
+  pid=$!
+  waited=0
+  while ! grep -q "Forwarding from 127.0.0.1" "$pf_log" 2>/dev/null; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      fail "kubectl port-forward for ${label} exited before the tunnel came up: $(cat "$pf_log" 2>/dev/null)"
+    fi
+    waited=$((waited + 1))
+    if [ "$waited" -ge 30 ]; then
+      kill "$pid" >/dev/null 2>&1 || true
+      fail "kubectl port-forward for ${label} never reported ready after 30s: $(cat "$pf_log" 2>/dev/null)"
+    fi
+    sleep 1
+  done
+
+  base_url="http://127.0.0.1:${local_port}${path}"
+  rc=0
+  bash "$script" "$base_url" || rc=$?
+
+  kill "$pid" >/dev/null 2>&1 || true
+  wait "$pid" 2>/dev/null || true
+
+  [ "$rc" -eq 0 ] \
+    || fail "${script} found a served-asset problem for ${label} (${base_url}, svc/${svc}) — see its output above (#4338/#4340)"
+  log "served assets GREEN for ${label} (#4338/#4340)"
+}
+
 # ---- restart + contention evidence ------------------------------------------
 # A rollout that times out with `context deadline exceeded` can leave every pod
 # Running/Ready by the time dump_diagnostics runs, so the not-Ready loop below
@@ -974,7 +1112,9 @@ trap on_exit EXIT
 # Resolve the upgrade-FROM version before spinning up a cluster — a registry
 # read is cheap, a kind cluster is not, and #3941's "nothing published yet"
 # case exits 0 here rather than after paying for a cluster we would never use.
-if [ "$DRILL_LEG" = "upgrade" ]; then
+# demo-upgrade (#4340) shares this exactly: it is the same upgrade-FROM
+# resolution, just with values-demo.yaml layered onto both sides.
+if [ "$DRILL_LEG" = "upgrade" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   resolve_previous_chart_version
 fi
 
@@ -1044,7 +1184,8 @@ for img in "$API_IMAGE" "$WEB_IMAGE"; do
   kind load docker-image "$img" --name "$CLUSTER"
 done
 
-# ---- 2b. preload the PREVIOUS release's images (upgrade leg only, #3941) --
+# ---- 2b. preload the PREVIOUS release's images (upgrade/demo-upgrade legs,
+# #3941/#4340) ----------------------------------------------------------------
 # The previous OCI chart's `image.tag` default is "" (resolves to
 # v<appVersion>, its OWN appVersion baked in at that historical chart
 # version) — so no --set image.tag override is needed on the install-previous
@@ -1053,7 +1194,7 @@ done
 # tags were published to (packages/helm/values.yaml's image.repository
 # default, registry.gitlab.com/trueppm/trueppm/*; the docker login above
 # already covers it).
-if [ "$DRILL_LEG" = "upgrade" ]; then
+if [ "$DRILL_LEG" = "upgrade" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   PREV_API_IMAGE="${IMAGE_REPO}/api:v${PREV_CHART_VERSION}"
   PREV_WEB_IMAGE="${IMAGE_REPO}/web:v${PREV_CHART_VERSION}"
   # resolve_previous_chart_version only proves PREV_CHART_VERSION's CHART is
@@ -1138,8 +1279,10 @@ allowed_hosts="${probe_host},${api_svc},localhost,127.0.0.1"
 # /api/v1/share/... call, so without it here every one of those calls fails
 # get_host()'s check with 400 DisallowedHost before section 10's allowlist
 # matrix ever sees a real response — the two "public projection" checks and
-# both throttle-property checks depend on it.
-if [ "$DRILL_LEG" = "demo" ]; then
+# both throttle-property checks depend on it. demo-upgrade (#4340) needs the
+# identical entry on both the pre-upgrade (previous chart) and post-upgrade
+# (HEAD chart) installs — this Secret is created once, before either.
+if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   allowed_hosts="${allowed_hosts},${demo_web_svc}.default.svc.cluster.local"
 fi
 log "ALLOWED_HOSTS=${allowed_hosts}"
@@ -1291,6 +1434,50 @@ elif [ "$DRILL_LEG" = "demo" ]; then
     "${CELERY_PROBE_OVERRIDES[@]}" \
     --wait --timeout "$INSTALL_TIMEOUT"
   log "demo rollout complete"
+elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
+  # ---- 4d. install the PREVIOUS released chart WITH values-demo.yaml (#4340) -
+  # Same previous-version resolution as the `upgrade` leg's 4a (resolved
+  # above, before section 1 even creates a cluster) and the same
+  # no-CELERY_PROBE_OVERRIDES rule 4a documents: a previously published
+  # chart already passed its OWN release drill against its OWN probe
+  # defaults — reapplying HEAD's tuning to a possibly-different probe schema
+  # would prove nothing about the version actually being installed. No
+  # persistence.media either, for the same reason 4c's demo install skips
+  # it: values-demo.yaml deliberately leaves it off and points MEDIA_ROOT at
+  # the emptyDir every pod already mounts instead.
+  #
+  # This assumes the previous published version already ships demo.enabled
+  # (#4018, shipped well before 0.4.0-beta.7). If a future squash or an
+  # unusually early "previous" version ever predates #4018, values-demo.yaml's
+  # demo.* keys are simply unused by that old chart's templates and this
+  # install silently stops being a demo install rather than failing loudly —
+  # not worth guarding today; revisit if PREV_CHART_VERSION can ever again
+  # resolve to a pre-#4018 release.
+  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} WITH values-demo.yaml (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO})"
+  helm install "$RELEASE" "oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}" --version "$PREV_CHART_VERSION" \
+    "${DEMO_ARGS[@]}" \
+    --wait --timeout "$INSTALL_TIMEOUT"
+  log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
+  wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
+  check_admin_password
+  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+  kubectl get pods -o wide
+
+  # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
+  # values-demo.yaml — the leg #3941 named and nothing has drilled since
+  # (#4339 shipped in 0.4.0-beta.7 while this gap was open). No
+  # NetworkPolicy-transition-guard dance like 4b's: DEMO_ARGS already
+  # carries networkPolicy.ingressControllerConfirmed=true on BOTH the
+  # install above and this upgrade (see DEMO_ARGS' own comment above), so
+  # the #4000 guard never has anything to refuse here — that transition is
+  # the plain `upgrade` leg's job to prove, not this one's.
+  log "helm upgrade ${RELEASE} -> HEAD chart WITH values-demo.yaml (image tag ${RELEASE_IMAGE_TAG})"
+  helm upgrade "$RELEASE" "$CHART" \
+    "${DEMO_ARGS[@]}" \
+    --set image.tag="$RELEASE_IMAGE_TAG" \
+    "${CELERY_PROBE_OVERRIDES[@]}" \
+    --wait --timeout "$INSTALL_TIMEOUT"
+  log "demo-upgrade rollout complete — post-upgrade demo-seed hook re-fire already waited on by helm upgrade itself (asserted again, explicitly, in section 10 below)"
 else
   # ---- 4. install + wait for full rollout ----------------------------------
   # The image is the current commit's code (ci:build-deploy-images, #2284), so the
@@ -1321,14 +1508,15 @@ log "helm test ${RELEASE}"
 helm test "$RELEASE" --timeout 3m
 
 # ---- 6. admin password retrievable from the shared emptyDir ----------------
-# Upgrade leg already ran this (4a-cont., above) against the pre-upgrade pod —
-# the only pod create_admin ever wrote it to. See check_admin_password's
-# header comment for why a post-upgrade pod can never pass this check.
+# Upgrade and demo-upgrade legs already ran this (4a-cont. / 4d, above)
+# against the pre-upgrade pod — the only pod create_admin ever wrote it to.
+# See check_admin_password's header comment for why a post-upgrade pod can
+# never pass this check.
 if [ "$DRILL_LEG" = "walkthrough" ]; then
   # deployment.md's documented per-pod loop, plus the exactly-one-holder
   # assertion — see check_admin_password_documented's own comment.
   check_admin_password_documented
-elif [ "$DRILL_LEG" != "upgrade" ]; then
+elif [ "$DRILL_LEG" != "upgrade" ] && [ "$DRILL_LEG" != "demo-upgrade" ]; then
   check_admin_password
 fi
 
@@ -1439,8 +1627,10 @@ except Exception as e:
 # Section 10 below asserts that same 404 again as part of the wider allowlist
 # matrix; this earlier check still runs unconditionally for every leg because it
 # is proving something narrower and unrelated to the allowlist (#2569 held even
-# before demo mode existed).
-if [ "$DRILL_LEG" = "demo" ]; then
+# before demo mode existed). demo-upgrade (#4340) ends on the SAME HEAD
+# chart + values-demo.yaml combination as the plain demo leg, so it gets the
+# same expectation here.
+if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   expected_admin_code="404"
 else
   expected_admin_code="403"
@@ -1617,24 +1807,28 @@ fi
 
 # ---- 10. demo allowlist matrix + per-visitor throttle property (#4018) -----
 # Everything above this point is generic chart health, shared with the other
-# two legs. This is the runtime surface that ONLY exists under demo.enabled —
-# an allowlist rendered correctly by helm:template still says nothing about
+# legs. This is the runtime surface that ONLY exists under demo.enabled — an
+# allowlist rendered correctly by helm:template still says nothing about
 # what nginx actually returns for a given path, and #4017 (a single shared
 # throttle bucket for the whole internet) is proof: it rendered clean, passed
 # kubeconform, and passed every static grep.
-if [ "$DRILL_LEG" = "demo" ]; then
-  log "waiting for the demo-seed post-install hook to complete"
-  demo_seed_job="$(kubectl get job -l app.kubernetes.io/component=demo-seed -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-  [ -n "$demo_seed_job" ] || fail "no demo-seed Job found (component=demo-seed) — did the chart actually render demo.enabled? (#4018)"
-  # Belt-and-braces: Helm always blocks on a hook's own completion before
-  # `helm install` above can return, regardless of --wait, so this should
-  # never actually wait. Asserted explicitly so a future Helm/hook-ordering
-  # change that broke that assumption fails HERE with a clear message
-  # instead of a confusing 404 a few lines down.
-  kubectl wait --for=condition=complete "job/${demo_seed_job}" --timeout=180s \
-    || fail "demo-seed hook (job/${demo_seed_job}) did not reach Complete — see its pod logs above"
-  seed_log_tail="$(kubectl logs "job/${demo_seed_job}" -c demo-seed 2>&1 | tail -3 || true)"
-  log "demo-seed hook complete — log tail: ${seed_log_tail}"
+#
+# demo-upgrade (#4340) runs this exact section too, after its upgrade — the
+# demo_seed_job this resolves to is the one the post-upgrade hook re-fired
+# (hook-delete-policy: before-hook-creation deleted the pre-upgrade one first,
+# see wait_for_demo_seed_hook's own comment), and the allowlist/throttle
+# matrix below is asserted against the POST-upgrade release, closing the
+# #3941 gap that let #4339 ship untested.
+if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
+  if [ "$DRILL_LEG" = "demo-upgrade" ]; then
+    hook_stage_label="the POST-UPGRADE re-fire (#3941, #4340) — the gap that let #4339 ship untested"
+  else
+    hook_stage_label="the post-install hook"
+  fi
+  log "waiting for the demo-seed hook (${hook_stage_label}) to complete"
+  wait_for_demo_seed_hook "$hook_stage_label"
+
+  check_served_assets "$demo_web_svc" default "demo allowlist — ${hook_stage_label}" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
 
   log "starting an in-cluster probe pod for the demo allowlist matrix (ingress-nginx namespace, admitted by the web-ingress NetworkPolicy — same placement as the admin-probe above)"
   kubectl run demo-probe -n ingress-nginx \
@@ -1844,7 +2038,9 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
 elif [ "$DRILL_LEG" = "walkthrough" ]; then
   log "HELM WALKTHROUGH DRILL GREEN (#4027) — named namespace, values-prod.yaml, managed PostgreSQL (TLS, sslmode=require) + Valkey reached via env.*.secretKeyRef all boot per deployment.md; admin retrievable via the documented kubectl exec command, admin denied at edge, worker+beat pinned/Ready/serving, guards fail closed"
 elif [ "$DRILL_LEG" = "demo" ]; then
-  log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
+  log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, served assets verified (#4338), allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
+elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
+  log "HELM DEMO-UPGRADE DRILL GREEN (#4340) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart still with values-demo.yaml; POST-UPGRADE demo-seed hook re-fire completed and the allowlist/throttle matrix + served-asset check both held against it (closing the #3941 gap that let #4339 ship); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 else
   log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 fi
