@@ -7072,8 +7072,15 @@ class ApiToken(VersionedModel):
     specifies the target project on each request via the URL. A minter who is
     a live member but Viewer-only cannot write through this path. The DB
     constraint enforces the XOR — neither both-set nor both-null is a valid
-    row. A project-scoped token has no equivalent live re-check of its
-    minter's role or membership — see #4334.
+    row. A project-scoped token gets a narrower, asymmetric live recheck
+    (``IsTokenForProject``, #4334): while its minter holds a live
+    ``ProjectMembership`` on the token's own project, write authority narrows
+    to that membership's current role, so a minter demoted to Viewer loses
+    write authority on the next request. A minter removed from the project,
+    or whose account is deleted, is not rechecked at all and the token keeps
+    full write authority — the org-asset, survives-off-boarding contract
+    (see ``workspace-settings.md``) applies only to a removal, not a
+    demotion of a still-live minter.
 
     ``status_map`` is immutable after creation by design: changing it requires
     minting a new token and revoking the old one, so the team can see (via the

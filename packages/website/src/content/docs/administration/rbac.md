@@ -41,9 +41,17 @@ acceptance criteria — the same write floor the UI itself enforces for a Viewer
 this lands, a Viewer-minted program token keeps full write authority on both endpoints.
 Both the membership and the role will be checked at request time, not mint time, so
 revoking the minter's membership, or demoting it below Member, will invalidate an
-already-minted token's write authority on the very next request. This change is scoped
-to the program-scoped branch only — it does not add any equivalent live re-check for a
-project-scoped token's minter.
+already-minted token's write authority on the very next request.
+
+**Also not yet released:** a project-scoped token will get its own, narrower live
+recheck with an org-asset carve-out. While the minter is still a live member of the
+token's own project, write authority will narrow to that membership's current role — a
+minter demoted to Viewer will lose write authority on the next request, the same as the
+program-scoped case above. But a minter who is *removed* from the project, or whose
+account is deleted, will not be rechecked at all, and the token will keep full write
+authority — [project- and program-scoped tokens are org assets](/administration/workspace-settings/#off-boarding-also-revokes-long-lived-credentials)
+that deliberately survive their minter's off-boarding, and this preserves that contract:
+only a demotion of a still-live minter narrows the token, not a removal.
 
 ### Why the ordinals jump by 100
 

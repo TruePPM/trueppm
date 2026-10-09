@@ -590,6 +590,17 @@ changed:
   membership, so a Viewer-minted program token will be refused on both write endpoints.
   Until that lands, a minter who is a live member but Viewer-only can still use a
   program-scoped token to write into the project (#4331).
+- **Project-scoped API tokens (task-sync and acceptance-results).** Today these two
+  write endpoints have no live re-check of their own — a project-scoped token keeps
+  full write authority through its minter being demoted or removed from the project,
+  or even deleted, because project-scoped tokens are documented org assets that
+  survive their minter's off-boarding. **Not yet released:** a narrower live recheck
+  with that same org-asset carve-out preserved. Once it ships, while the minter is
+  still a live member of the token's own project, write authority will narrow to that
+  membership's current role — a minter demoted to Viewer will lose write authority on
+  the token's very next request. A minter *removed* from the project, or whose account
+  is deleted, will not be rechecked at all and the token will keep full write
+  authority, same as today (#4334).
 - **Project-scoped webhooks.** A project webhook receives that project's events only while
   its creator holds **Project Manager or above** there, checked on the same schedule as
   program webhooks above. Removing the creator's membership, demoting it below Project

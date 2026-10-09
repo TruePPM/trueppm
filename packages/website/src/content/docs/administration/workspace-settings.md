@@ -299,6 +299,22 @@ Viewer-only will stop being able to write through either endpoint once this
 ships, and demoting a minter already below Member will have the same effect
 on the next request as removing them.
 
+A project-scoped token's reach is different: it is bound to exactly one
+project by its own FK, so there is no cross-project membership to bound.
+**Also not yet released:** it will get its own, narrower live recheck. While
+its minter is still a live member of the token's own project, write
+authority will narrow to that membership's current role, the same way the
+program-scoped case does — a minter demoted to Viewer will lose write
+authority on the token's very next request. Deactivating the minter's
+account on its own will not trigger this: deactivation does not remove
+their project membership, so a still-live, still-sufficiently-roled
+minter's token is unaffected by their own off-boarding, matching the
+guarantee above. Only a minter *removed* from the project, or whose account
+is deleted outright, will not be rechecked at all — the token keeps full
+write authority in both of those cases, same as today. The org-asset,
+survives-off-boarding guarantee applies to a removal or account deletion,
+never to a demotion of a still-live minter.
+
 #### Off-boarding also stops outbound mail
 
 Deactivation closes the ways a member can *reach in*. TruePPM also stops the ways

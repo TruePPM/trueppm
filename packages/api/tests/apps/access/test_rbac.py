@@ -2467,6 +2467,89 @@ class TestIsTokenForProjectScopes:
         with pytest.raises(AuthenticationFailed):
             IsTokenForProject().has_permission(req, view)
 
+    def test_project_token_viewer_minter_is_rejected(self, user: object, project: Project) -> None:
+        """#4334: a project-scoped token's minter holds a LIVE ProjectMembership on
+        the token's own project (the pre-#4334 code never checked this at all), but
+        it is Viewer-only — not write-capable in the UI. Same Member+ floor as the
+        #4331 program-scoped case."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_project_token_member_minter_is_authorized(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334: Member (the floor, not just Admin/Owner) is write-capable."""
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+    def test_project_token_demoted_to_viewer_is_checked_at_request_time(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334: the role check runs at request (has_permission) time — a minter
+        demoted from Member to Viewer after the token was minted must be denied on
+        the very next request through the same, already-minted token."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        membership = ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+        membership.role = Role.VIEWER
+        membership.save(update_fields=["role"])
+
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_project_token_removed_minter_keeps_write_authority(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334 org-asset carve-out: a minter REMOVED from the project (membership
+        soft-deleted, ``created_by`` still set) is not rechecked at all — unlike the
+        program-scoped case (#4324), which refuses on a removed minter. This is the
+        documented survives-off-boarding contract: only a demotion of a still-live
+        minter narrows the token, not a removal."""
+        membership = ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+        membership.is_deleted = True
+        membership.save(update_fields=["is_deleted"])
+
+        assert IsTokenForProject().has_permission(req, view) is True
+
+    def test_project_token_deleted_minter_keeps_write_authority(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334 org-asset carve-out: a minter whose account was deleted
+        (``created_by`` goes NULL on SET_NULL) is not rechecked at all — the token
+        keeps full write authority, same as before #4334."""
+        ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
+        req = _make_request(user, method="POST")
+        token = _mint_token(user, project=project)
+        token.created_by = None
+        token.save(update_fields=["created_by"])
+        req.auth = token
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
 
 # ---------------------------------------------------------------------------
 # MCP token guards — read-only methods and owner-scoped tokens
