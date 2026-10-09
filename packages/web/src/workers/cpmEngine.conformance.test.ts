@@ -186,6 +186,18 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // #4272. The FF predecessor finishes under a named six-day member calendar,
   // same shape as `per_task_calendar_six_day`.
   milestone_ff_after_six_day_calendar_finish: 'engine gap: per-task calendars not modeled',
+  // #4344. The A->M and B->N chains carry the end-of-day cap being tested, but
+  // each fixture adds a third, unconnected source (Z/W/S7) purely to drive
+  // project_finish onto the shape the cap needs — three source tasks total.
+  milestone_end_of_day_cap_weekend_finish: 'adapter: 3 source tasks',
+  // #4344. Same three-source shape as `milestone_end_of_day_cap_weekend_finish`;
+  // the milestone pair also sits on a named Mon-Thu calendar.
+  milestone_end_of_day_cap_own_calendar:
+    'adapter: 3 source tasks; engine gap: per-task calendars not modeled',
+  // #4344. Same three-source shape; the third source runs under a named
+  // seven-day calendar.
+  milestone_end_of_day_cap_seven_day_sunday_finish:
+    'adapter: 3 source tasks; engine gap: per-task calendars not modeled',
 };
 
 interface FixtureTask {
