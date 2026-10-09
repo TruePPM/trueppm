@@ -875,8 +875,7 @@ wait_for_demo_seed_hook() {
 }
 
 # ---- served-asset content-type check (#4338, #4340) ------------------------
-# scripts/check-served-assets.sh ships on #4338's branch (built in parallel —
-# deliberately NOT recreated here) and takes one argument, a base URL: it
+# scripts/check-served-assets.sh (#4338) takes one argument, a base URL: it
 # fetches "<base_url>/", parses every asset index.html references (`<script
 # src>`, `<link rel="modulepreload">`, `<link rel="stylesheet">`), and
 # asserts each answers 2xx with the right content-type and a non-empty body.
@@ -910,7 +909,7 @@ check_served_assets() {
   # silently skipping the check — this leg exists specifically to close a
   # coverage gap (#4340), and a missing script must not read as green.
   [ -x "$script" ] \
-    || fail "${script} not found or not executable (${label}) — it ships on #4338's branch; this leg must not silently skip the served-asset check"
+    || fail "${script} not found or not executable (${label}) — this leg must not silently skip the served-asset check"
 
   log "port-forwarding svc/${svc} (ns ${ns}) -> 127.0.0.1:${local_port} to run ${script} (${label})"
   : >"$pf_log"
