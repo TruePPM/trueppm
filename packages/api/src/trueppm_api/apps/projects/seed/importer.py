@@ -1003,14 +1003,51 @@ class _SeedImporter:
         a holiday is a fact, never weekend-snapped) and are created idempotently on
         ``(calendar, exc_start, exc_end)``. Calendars are a shared global catalog
         that ``_replace_existing`` does not wipe on a sample reload, so get_or_create
-        keeps a reload from accumulating duplicate PTO rows. Materializing them here
+        keeps a same-day reload from accumulating duplicate PTO rows (a reload on a
+        *different* day is the stale-anchor case below). Materializing them here
         (before the per-project structure pass) means ``_build_working_calendar``
         picks them up, so a PTO range also removes those days from date snapping —
         one source of non-working truth (ADR-0211).
+
+        **Stale anchors are reconciled away (#4339).** The idempotency key is the
+        *resolved* range, and a relative range resolves differently on every import
+        day, so a reload on a later day used to add a second "Clara — PTO" row
+        beside the first instead of matching it. Because the calendar outlives
+        the program teardown, a daily ``demo-reset`` grew each authored range into
+        a wall of stale non-working days — dozens of rows a few days apart — and
+        ``snap_forward`` pushed a sprint's start *and* finish across that wall onto
+        the same working day, tripping ``sprint_finish_after_start``. The CPM run
+        that follows reads the same rows, so every task date drifted too. A row on
+        this calendar carrying a description this payload authors is therefore the
+        same authored exception at an older anchor, and is replaced rather than
+        kept. Only a row matching an authored exception on description *and* span
+        length (an anchor shift moves a range, it never resizes it) counts as
+        stale: the catalog is matched by calendar name, so a user's own calendar
+        can share a sample calendar's name, and a row of theirs that merely
+        shares a description is not the seed's to delete. Rows the payload does
+        not author (or that a later payload dropped) are left alone.
         """
-        for exc in exceptions:
-            start = resolve_date(exc["exc_start"], anchor=self.anchor, snap=False)
-            end = resolve_date(exc["exc_end"], anchor=self.anchor, snap=False)
+        authored = [
+            (
+                resolve_date(exc["exc_start"], anchor=self.anchor, snap=False),
+                resolve_date(exc["exc_end"], anchor=self.anchor, snap=False),
+                exc.get("description", ""),
+            )
+            for exc in exceptions
+        ]
+        current = {(start, end, desc) for start, end, desc in authored}
+        authored_shapes = {(desc, end - start) for start, end, desc in authored if desc}
+        stale_ids = [
+            row.pk
+            for row in CalendarException.objects.filter(
+                calendar=calendar, description__in={desc for desc, _ in authored_shapes}
+            )
+            if (row.description, row.exc_end - row.exc_start) in authored_shapes
+            and (row.exc_start, row.exc_end, row.description) not in current
+        ]
+        if stale_ids:
+            CalendarException.objects.filter(pk__in=stale_ids).delete()
+        for start, end, description in authored:
             # (calendar, exc_start, exc_end) is the intended idempotency key but has
             # no DB uniqueness constraint, so a plain get_or_create raises
             # MultipleObjectsReturned once two identical ranges exist (#2267 class).
@@ -1023,7 +1060,7 @@ class _SeedImporter:
                     calendar=calendar,
                     exc_start=start,
                     exc_end=end,
-                    description=exc.get("description", ""),
+                    description=description,
                 )
 
     def _resolve_resources(self) -> None:
@@ -1413,6 +1450,20 @@ class _SeedImporter:
         for sprint_data in data.get("sprints", []):
             start = self._date(sprint_data["start_date"], slug)
             finish = self._date(sprint_data["finish_date"], slug)
+            # Snapping is monotone, so it can never invert an authored start < finish,
+            # but it can collapse one: when every day from start through finish is
+            # non-working (a short sprint over a weekend, or a long PTO/holiday run)
+            # both ends land on the same next working day, and the
+            # ``sprint_finish_after_start`` CHECK aborts the whole import (#4339).
+            # Keep the sprint at least one working day long by moving the finish to
+            # the first working day after the snapped start, rather than failing a
+            # demo install over an authored window the calendar happened to swallow.
+            # Only a collapse the snap *caused* is repaired: a window authored
+            # inverted or zero-length is an authoring error, and still fails loudly.
+            if finish <= start and self._date(
+                sprint_data["finish_date"], slug, snap=False
+            ) > self._date(sprint_data["start_date"], slug, snap=False):
+                finish = self._wc(slug).snap_forward(start + timedelta(days=1))
             # Under replay the sprint is born PLANNED and walked to its end state
             # by activate/close beats (authored or synthesized); points are
             # snapshotted at those beats. v1 import sets the end state directly.
