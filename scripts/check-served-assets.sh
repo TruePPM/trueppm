@@ -63,12 +63,16 @@
 #         SERVED_ASSETS_MANIFEST  set to 0 to skip the asset-manifest.json pass,
 #                                 for probing a pre-#4341 image with no manifest
 #                                 (default 1)
+#         SERVED_ASSETS_MISSING_PROBE  0 skips the missing-/assets/-path 404 probe
+#                                 (default 1). Only for a tier known to predate
+#                                 #4341, e.g. a drill's previously published chart.
 # Exit:   0 every asset served correctly · 1 at least one asset failed, or the
 #         page referenced none · 2 usage error, or index.html not fetchable
 
 set -eu
 
 TIMEOUT="${SERVED_ASSETS_TIMEOUT:-20}"
+MISSING_PROBE="${SERVED_ASSETS_MISSING_PROBE:-1}"
 
 # The fixture directory, set only by --self-test. When non-empty, fetch_url
 # answers from files on disk with nginx-SPA semantics instead of the network, so
@@ -366,15 +370,21 @@ check_once() {
     # serving the SPA index.html for a missing chunk, which is what turns a
     # rolling-update version skew into a silent blank screen (#4341). Asserted
     # on its own so a tier whose referenced assets all exist still fails.
-    _probe="$_origin/assets/does-not-exist-$$-$(date +%s).js"
-    _meta="$(fetch_url "$_probe" "$_tmp/probe")"
-    _status="${_meta%%|*}"
-    case "$_status" in
-        2??)
-            echo "check-served-assets: FAIL  $_probe returned HTTP $_status — a missing /assets/ file must 404, not fall back to index.html"
-            _bad=$((_bad + 1))
-            ;;
-    esac
+    # Skippable only so an upgrade drill can check the PRE-upgrade release, an
+    # already-published image that predates #4341 and cannot pass it (#4346).
+    if [ "$MISSING_PROBE" != "0" ]; then
+        _probe="$_origin/assets/does-not-exist-$$-$(date +%s).js"
+        _meta="$(fetch_url "$_probe" "$_tmp/probe")"
+        _status="${_meta%%|*}"
+        case "$_status" in
+            2??)
+                echo "check-served-assets: FAIL  $_probe returned HTTP $_status — a missing /assets/ file must 404, not fall back to index.html"
+                _bad=$((_bad + 1))
+                ;;
+        esac
+    else
+        echo "check-served-assets: missing-/assets/ 404 probe SKIPPED (SERVED_ASSETS_MISSING_PROBE=0)"
+    fi
     rm -rf "$_tmp"
 
     echo "check-served-assets: $_ok served, $_bad failed, $_skipped cross-origin skipped ($_base/)"
@@ -491,6 +501,13 @@ self_test() {
     page "$healthy_tags"
     FIXTURE_SPA_FALLBACK=1
     _case "missing /assets/ path answered with the SPA fallback" expect-fail "does-not-exist"
+    # The opt-out skips only that probe: the same pre-#4341 tier passes, and a
+    # genuinely missing referenced chunk on it still fails.
+    MISSING_PROBE=0
+    _case "pre-#4341 tier with the missing-path probe opted out" expect-pass
+    rm -f "$FIXTURE_DIR/assets/Toast-BBB.js"
+    _case "missing chunk still caught with the missing-path probe opted out" expect-fail "Toast-BBB.js"
+    MISSING_PROBE=1
     FIXTURE_SPA_FALLBACK=0
 
     healthy_assets

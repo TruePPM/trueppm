@@ -116,10 +116,24 @@ run_case "cosign sha256-* tags are excluded from the candidate set" \
 check "$RUN_DESC" 0 "$RUN_RC"
 check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.2" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
 
+run_case "the withdrawn 0.4.0-beta.7 is skipped by default: HEAD at beta.7 upgrades from beta.6, the path installs actually take (#4346)" \
+  "0.4.0-beta.5 0.4.0-beta.6 0.4.0-beta.7" "0.4.0-beta.7"
+check "$RUN_DESC" 0 "$RUN_RC"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.6" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+
+run_case "once beta.8 publishes it is picked, so the beta.7 skip goes inert (#4346)" \
+  "0.4.0-beta.6 0.4.0-beta.7 0.4.0-beta.8" "0.4.0-beta.8"
+check "$RUN_DESC" 0 "$RUN_RC"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.8" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
+
 run_case "nothing published at or below HEAD (first-ever release): skips via exit 0, not a fail" \
   "0.4.0-beta.2" "0.4.0-beta.1"
 check "$RUN_DESC — exits 0 (skip), not 1 (fail)" 0 "$RUN_RC"
 check "$RUN_DESC — logs a skip, not a version" yes "$(grep -qi 'nothing to upgrade FROM yet' <<<"$RUN_OUT" && echo yes || echo no)"
+
+SKIP_PREV_CHART_VERSIONS= run_case "an empty SKIP_PREV_CHART_VERSIONS disables the skip" \
+  "0.4.0-beta.6 0.4.0-beta.7" "0.4.0-beta.7"
+check "$RUN_DESC — RESULT" "RESULT=0.4.0-beta.7" "$(printf '%s\n' "$RUN_OUT" | grep '^RESULT=')"
 
 run_case "an unreadable registry (CHART_TAGS unset, bad host) fails rather than silently skipping" \
   "__UNSET__" "0.4.0-beta.3" "127.0.0.1:9"

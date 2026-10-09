@@ -420,6 +420,18 @@ resolve_previous_chart_version() {
   fi
   [ -n "$versions" ] || fail "no chart versions found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — is the registry readable?"
 
+  # Published versions no operator is left running, so upgrading FROM one tests
+  # a path nobody takes. 0.4.0-beta.7 blank-screened every visitor (#4338) and
+  # installs stayed on beta.6, so beta.6 -> HEAD is the real path until beta.8
+  # publishes; the highest-version rule below then picks beta.8 on its own and
+  # this entry becomes inert (#4346). `-` not `:-`, so a test can set it empty.
+  # TODO(#4347): remove this default after beta.8 is cut, before 0.4.0-rc.1.
+  local skip_versions="${SKIP_PREV_CHART_VERSIONS-0.4.0-beta.7}" v
+  for v in $skip_versions; do
+    versions="$(printf '%s\n' "$versions" | grep -vxF -- "$v" || true)"
+  done
+  [ -n "$versions" ] || fail "every published chart version in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} is in SKIP_PREV_CHART_VERSIONS (${skip_versions})"
+
   # Pick the highest published version <= HEAD under SemVer precedence, in
   # POSIX awk rather than `sort -V`: GNU sort -V ranks 0.4.0 BELOW 0.4.0-beta.1
   # (the registry does carry a bare 0.4.0, #3914), and the busybox sort in the
@@ -1470,8 +1482,14 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   check_admin_password
   # manifest_check=0: ${PREV_CHART_VERSION} is a previously published chart,
   # which predates the #4341 asset-manifest.json pass and has no manifest to
-  # find — that is a fact about the release being probed, not a finding.
-  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}" 0
+  # find — that is a fact about the release being probed, not a finding. The
+  # missing-/assets/ 404 probe is likewise a property of HEAD's web image
+  # (#4341); the published chart here may predate it too, so this leg checks
+  # only that the old release serves its own referenced assets (#4346). The
+  # post-upgrade check below runs the full script with both checks enabled.
+  # TODO(#4347): drop this opt-out after beta.8 is cut, before 0.4.0-rc.1.
+  SERVED_ASSETS_MISSING_PROBE=0 \
+    check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}" 0
   kubectl get pods -o wide
 
   # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
