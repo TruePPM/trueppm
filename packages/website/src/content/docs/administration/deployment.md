@@ -770,7 +770,7 @@ generated admin password with `kubectl exec` against the shared password volume
 as described in [Admin password setup](/administration/admin-password/).
 
 An install-and-`helm test` drill runs in CI on every chart change and on a
-nightly schedule, across four legs, each installing a different configuration on
+nightly schedule, across five legs, each installing a different configuration on
 a fresh kind cluster:
 
 | Leg | Configuration | Namespace |
@@ -778,9 +778,14 @@ a fresh kind cluster:
 | `helm:install` | Bundled PostgreSQL/Valkey, chart defaults + `persistence.media` (`ReadWriteOnce`) | `default` |
 | `helm:upgrade` | Installs the previous published chart, then `helm upgrade`s it to HEAD in place | `default` |
 | `helm:demo` | The public read-only demo overlay (`values-demo.yaml`) | `default` |
+| `helm:demo-upgrade` | Installs the previous published chart WITH the demo overlay, then `helm upgrade`s it to HEAD still with the demo overlay — the combination that exercises the demo-seed Job's post-upgrade hook re-fire, which neither `helm:upgrade` nor `helm:demo` alone ever runs | `default` |
 | `helm:walkthrough` | **This page's production walkthrough, followed step for step**: a named `trueppm` namespace, `values-prod.yaml` + the `my-values.yaml` shown above, bundled datastores disabled, and a managed PostgreSQL (TLS on, `sslmode=require`) + Valkey reached the documented `env.*.secretKeyRef` way | `trueppm` |
 
-All four run `helm test`, retrieve the admin password (`helm:walkthrough` via
+`helm:demo-upgrade` is the one leg that does not run on every MR — it pays for
+both an install and an upgrade on top of the demo overlay's own cost, so it
+runs on pushes to `main` and on the nightly schedule only.
+
+All five run `helm test`, retrieve the admin password (`helm:walkthrough` via
 the per-pod loop shown above, asserting exactly one API pod holds the file), assert
 the Celery worker answers a control-plane ping, and check Celery beat is a
 Running, non-restarting singleton. A static gate (`helm:template`) runs
