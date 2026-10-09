@@ -2791,7 +2791,7 @@ wheels = [
 
 [[package]]
 name = "trueppm-api"
-version = "0.4.0b6"
+version = "0.4.0b7"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
@@ -2907,7 +2907,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1.0" },
     { name = "schemathesis", marker = "extra == 'fuzz'", specifier = ">=4.0,<5.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.7,<5.0" },
-    { name = "trueppm-scheduler", specifier = ">=0.4.0b5,<0.5" },
+    { name = "trueppm-scheduler", specifier = ">=0.4.0b6,<0.5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29,<1.0" },
     { name = "whitenoise", specifier = ">=6.0,<7.0" },
 ]
@@ -2915,15 +2915,15 @@ provides-extras = ["c", "binary", "dev", "fuzz"]
 
 [[package]]
 name = "trueppm-scheduler"
-version = "0.4.0b5"
+version = "0.4.0b6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "networkx" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/05/a338e227d1245832533fcaa61ad4ee0c5d144cfd63b1196328ac496cb4be/trueppm_scheduler-0.4.0b5.tar.gz", hash = "sha256:201356dcabac963f52a7ac5aec3454ecd5ffba1b2771df6420ffa6686008d6ce", size = 426729, upload-time = "2026-09-29T04:48:06.109Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/5c/318b4d83fa4082268e4a1f34c16b3a6670cec3e174f8efa8698a8e8039a6/trueppm_scheduler-0.4.0b6.tar.gz", hash = "sha256:a215bb234fba2534163a6ce6fafff4d4cdbffb4b54839e263c4a3c234ffdcebd", size = 428348, upload-time = "2026-09-30T20:21:10.021Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/d8/97f7c5b111447f178c9f67a764dee49adb2ef8271e8d05363cf2d9a537cb/trueppm_scheduler-0.4.0b5-py3-none-any.whl", hash = "sha256:aff13d9458b0213998f68fade8033a0876b9b6428fef0a10cfabfdf4ad40b8c2", size = 153083, upload-time = "2026-09-29T04:48:04.688Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/54/8e6c30e1787d33d3ef185ac4a70f7a64a40d38ef269b7ce7e31e15a13bad/trueppm_scheduler-0.4.0b6-py3-none-any.whl", hash = "sha256:0d1c8127367f42c6cbe61f943b00f392e36561e74a9197a7247c1de7ed41e391", size = 153299, upload-time = "2026-09-30T20:21:08.563Z" },
 ]
 
 [[package]]

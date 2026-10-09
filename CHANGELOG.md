@@ -15,6 +15,222 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-beta.7] — 2026-10-09
+
+TruePPM 0.4.0-beta.7 supersedes 0.4.0-beta.6.
+
+This is a security- and correctness-heavy beta: a round of access-control hardening across webhooks, program-scoped API tokens, and time tracking, four Behavioral changes to reported counts and SPI under the published API stability policy, a breaking field-type fix on `created_by`, a Helm values reorganization, and a cluster of scheduler start-to-finish/milestone fixes now verified for the first time against real MS Project-saved schedules rather than only the engine's own prior output.
+
+**Upgrading from 0.4.0-beta.6 or earlier? Read this first.**
+
+- `created_by` is now an integer user id on share links, external stakeholders, and saved board views (previously a display name or a string id on these three) — clients reading `created_by` on these resources need updating; the display name moved to a new `created_by_name` field (#4290).
+- Four endpoints change their reported counts because phase (WBS grouping) rows are now excluded from task/criticality tallies: the project overview, the program rollup, the TopBar/My Work status summaries, and the MCP `get_schedule_summary` tool. Field names and shapes are unchanged, but the numbers themselves will differ for any project with phase rows (#4242, #4250, #4276). SPI and the baseline-variance KPIs also change for any project whose active baseline predates the CPM engine (#4242). All of these are classed as Behavioral changes under the [API stability policy](https://docs.trueppm.com/api/stability/).
+- Seven Helm values keys from 0.4 prereleases moved into the chart's concern-first layout (`web.replicaCount` → `replicas.web`, `web.service.*` → `service.web.*`, `api.workers` → `processes.api.workers`, `celeryWorker.*` → `processes.worker.*`). A values file still using an old key now fails `helm upgrade` with a schema error naming it, instead of being silently ignored. No 0.3 key changed (#4299).
+- Five more `projects` migrations (`0104`, `0121`, `0128`, `0134`, `0152`) build an index or a CHECK constraint directly against the task table and block reads/writes while they run, alongside the existing `0148` caution — the upgrade guide's lock-window section now lists all of them.
+- Access and teams had a real upgrade-path bug, not just a squash-hygiene one: their squashed migrations had silently dropped data steps that Django's squash optimizer elides — a Viewer role-ordinal backfill, and the default-team backfill. Both are restored, and teams gets a new idempotent backfill migration so every install, fresh or upgraded, gets its default team.
+- Program-scoped webhooks and program/project-scoped API tokens now re-check the caller's or token-minter's live project membership on every dispatch or write, not just at creation time — see the upgrade notes for what to check if you rely on either.
+
+Security: ten fixes this beta. Webhook dispatch and delivery-log access, program-scoped API tokens, and time-tracking write paths now all re-check live project/program membership on every request instead of only at creation time (#4310, #4318, #4324, #4325, #4330). The published `web` Docker image now patches Alpine OS packages at build time, closing a HIGH-severity `tiff` CVE (CVE-2026-4775) that the pinned base image had no way to pick up on its own (#4335). Dependency bumps clear `oauthlib` (removing two previously-suppressed advisories via a `django-allauth` upgrade), `devalue` (7 OSV advisories), and a further round of build-time-only HIGH/CRITICAL transitive advisories: `source-map-js`, `sharp`, `shell-quote`, `smol-toml`, `werkzeug`, `postcss-selector-parser`, `katex`, and `sprintf-js` removed from the mobile tree.
+
+Fixed: a cluster of scheduler correctness fixes to start-to-finish and milestone scheduling — a positive SF lag is no longer absorbed by the weekend before the predecessor's start, an FF/SF link into a milestone no longer pushes it a working day late, an FF link out of a milestone now measures from the milestone itself, a false driving link is no longer reported for a task whose actual start fell on a non-working day, and a stray extra day of free float through an SF-from-milestone chain is corrected — in both the Python engine and its Rust/WASM mirror. Also: Gantt merge-junction rendering at the 5k-task ceiling no longer exceeds the frame budget; a stale "session expired" message no longer appears for a password reset or an admin deactivation; multi-tab sign-in no longer shows a false session-expired dialog when a sibling tab had just rotated the shared refresh cookie; saved board views show Delete to their own creator; the Decisions view's oversight-visibility toggle now syncs live over the socket; two mobile board layout clipping/overflow bugs are fixed; and the MCP `get_schedule_summary` tool description no longer claims a field it doesn't return.
+
+### Added
+- **Nightly mutation testing for the API's resource-utilization engine**: `api:mutation`
+  runs `mutmut` against `apps/projects/utilization.py` — the calendar-aware
+  capacity/utilization computation that has shipped wrong on green test suites before
+  (bare `Task.assignee` reading as zero load; `early_start` misread as a commitment date
+  instead of the remaining-work window) — and publishes its mutation score as a CI
+  artifact. Report-only for now (no floor); a follow-up issue tracks setting one once a
+  baseline window of nightly runs exists.
+- **Scheduler: the start-to-finish anchor rule is now checked against a real MS-Project-saved schedule**: added a reference fixture built from an MS Project 2013 sample file containing a real start-to-finish link, and confirmed the engine reproduces its saved dates exactly. The SF anchor rule (#4145) was previously calibrated only against this engine's own output; it is now verified against external ground truth. Positive lag, a weekend-crossing anchor, and an SF link out of a milestone remain unverified (#4327) (#4322).
+- **Scheduler: known-answer parity tests against real MS Project exports**: two `.mpp` samples (a 29-leaf-task, 10-milestone all-FS chain, and a zero-lag FF/SS pair), extracted via MPXJ, are now checked against `schedule()`'s output at day level. Both matched every Start/Finish date and the milestone-follows-work display rule MS Project itself saved, with no engine changes needed. The FF/SS sample is also checked against the Rust engine through the existing Python/Rust conformance suite.
+
+### Changed
+- **Scheduler: `DrivingEdge` documents when a driving link can carry more float
+  upstream**: a driving edge does not guarantee that the predecessor's total
+  float is at most the successor's. A calendar-day lag spans fewer working days
+  once the predecessor's late date reaches a weekend. A milestone's own float is
+  capped at its early reading (#4183), while its predecessors are measured to the
+  uncapped instant. Float is counted in each task's own working days, so across
+  two calendars the same slack reads as different numbers. Scheduling output is
+  unchanged. The `trueppm-scheduler` invariant suite now checks the identity where
+  it holds, on a zero-lag link into a work task on the same calendar, and pins all
+  three exceptions.
+- **`created_by` is an integer user id on every API schema**: share links and
+  external stakeholders returned the creator's display name in `created_by`,
+  and saved board views returned the creator's id as a string. All three now
+  return the integer user id, and the display name moves to a new
+  `created_by_name` field on share links and external stakeholders. This
+  changes a field's type between 0.4 betas, so API clients that read
+  `created_by` on these resources need updating (#4290).
+- **Helm: seven values keys from 0.4 prereleases moved into the concern-first maps**: the chart's values are now laid out concern first, then tier, everywhere (ADR-1248). `web.replicaCount` is now `replicas.web`, `web.service.type`/`port` is now `service.web.type`/`port`, `api.workers` is now `processes.api.workers`, and `celeryWorker.concurrency`/`maxTasksPerChild`/`extraArgs` are now `processes.worker.*`. Defaults and behavior are unchanged. A values file that still uses an old key fails `helm upgrade` with a schema error naming the key instead of being ignored. No 0.3 key changed, so a 0.3 values file renders as before. The five observability roots stay separate, and the Helm values reference explains why. See the upgrade notes for the full table (#4299).
+
+### Fixed
+- **Gantt merge-junction performance at 5k tasks**: merge-junction trunks and
+  junction dots were painted every frame regardless of whether they were on
+  screen, and the dependency layer walked every merge target in the layout
+  instead of only the visible ones. At the 5k-task ceiling this cost over
+  20 ms of JS per frame — more than the 16.7 ms frame budget — on scroll,
+  hover-chain, and drag-end repaints. The merge trunk and junction dot now
+  get the same off-screen test every feeder already had, and only FS merge
+  targets whose predecessor→target row span overlaps the visible row range
+  (not just a target, or a predecessor, individually near it) are evaluated
+  at all — so a feeder whose two ends sit far outside the visible band on
+  opposite sides, and still visibly crosses it, is not dropped. The same
+  row-span reject now also applies to SS/FF/SF (non-FS) links before they
+  resolve screen coordinates, closing the same gap for that link type.
+- **Scheduler: adding or shortening a link no longer moves a task later, to the project start**: a task placed before the project start by its start-to-finish links went back to the project start as soon as another link became the deciding one, so adding a link, shortening a start-to-finish lag or moving its predecessor earlier could finish work later. A task with a start-to-finish link is now never held back by the project start; a task without one keeps it. The data date, a start-no-earlier-than date and a recorded actual start still hold every task. Whether MS Project schedules mixed links the same way is not yet verified (#4220, #4319).
+- **Scheduler: a milestone held at the project start no longer delays its successors**: when a lead or an SF-only predecessor placed a milestone's links before the project start, its successors measured their lags from the project start instead of from that earlier point. Inserting a milestone into a finish-to-start link could move a downstream task a working day later than the same link without it. The project start now only sets the day a milestone is shown on. The data date, a start-no-earlier-than date and a recorded actual start still hold it and every lag measured from it (#4225).
+- **Schedule commit popover placement**: the drag/resize commit popover on the
+  Schedule canvas could flip to below its anchor task bar even when doing so
+  left it with less room than staying above — the same asymmetric
+  flip-without-space-comparison defect fixed in the Display menu and build-mode
+  row menu (#4228). It now compares available space above and below before
+  flipping, and clamps sensibly within the viewport when neither side fully fits.
+Fixed the read-only demo's Schedule so resizing a task's duration now runs the same live CPM preview dragging a task to a new date already did: the downstream cascade, critical-path highlighting, and milestone-slip announcement update while the resize handle is held, not just the one bar's length. The demo's copy (and the login panel's pitch) now describes both gestures the same way, accurately.
+- **Behavioral change:** SPI no longer uses a pre-CPM baseline for its
+  earned-value calculation. The `spi` value on the project overview and program
+  rollup, and the health band derived from it, change for any project whose
+  active baseline has `has_cpm_dates=False`. The program rollup's
+  `baseline_variance` and `schedule_variance` KPIs change for the same projects.
+  Field names are unchanged. This is classed as a Behavioral change under the
+  [API stability policy](https://docs.trueppm.com/api/stability/). The project
+  overview and program rollup's SPI proxy (`spi_counts_by_project`) now falls
+  through to the no-baseline scoped computation for such a baseline. Its
+  snapshot dates are mostly or entirely null, which previously shrank the
+  earned-value denominator toward zero while the numerator kept counting every
+  real completion project-wide. A project could read on-track, or even SPI above
+  1.0, next to tasks it also reported as late. The program rollup's
+  `baseline_variance` and `schedule_variance` KPIs apply the same exclusion,
+  since both also depend on the active baseline's snapshot dates being real.
+- **Behavioral change:** project overview task counts no longer include phase
+  rows. The values of `total_tasks`, `complete_tasks`, and `critical_task_count`
+  on the project overview endpoint change for any project with phase rows; the
+  field names and shapes are unchanged, so counts compared across the upgrade
+  will drop. This is classed as a Behavioral change under the
+  [API stability policy](https://docs.trueppm.com/api/stability/). Phases are
+  now excluded, matching the existing late-task-count behavior. A phase's status
+  and criticality are rollups of its children, not facts about the phase row
+  itself, so counting the phase alongside its children double-counted their
+  contribution.
+- **Mobile board (rail/snap layout)**: the last card in a status column could sit under the floating "Add task" button once a column scrolled to its end. Each column now reserves safe-area-aware bottom padding, matching the fix already applied to the mobile Queue layout.
+- **`api`/`web` arm64 release publish could miss a fixable OS-package CVE**: `api:publish:arm64`, `web:publish:arm64`, and `ci:arm64-smoke` run on a persistent macOS runner whose Docker build cache could silently reuse a stale `apt-get upgrade` layer from before a Debian security patch existed, even though the sibling amd64 jobs (fresh Docker daemon per job) always picked up the current patch. All four Docker builds that feed a pre-publish Trivy gate on that runner — plus `scripts/release.sh`'s local pre-tag scan, which has the same exposure on a developer's own persistent Docker daemon — now build with `--no-cache` (#4245).
+- **False "Your session expired" on reload with several tabs open**: every tab shares
+  one rotating refresh cookie, and a tab that presented the value a sibling tab had
+  just rotated was refused by the blacklist. That refusal showed the session-expired
+  dialog for a session that was still alive. The web client now serializes token
+  refreshes across tabs with a Web Lock and retries a refused refresh once with the
+  rotated cookie. Server-side rotation and revocation are unchanged: a signed-out or
+  revoked session still ends.
+- **Mobile board (Drawer layout)**: with an explicit Drawer backlog layout preference carried onto a phone, the drawer co-rendered above the snap-scroll board; with enough backlog cards its height alone could push the entire board off-screen with no way to scroll to it. The drawer no longer renders on mobile, matching the existing behavior of the Rail layout — switch to the Queue layout to see and triage Backlog items on a phone.
+- **Behavioral change:** status and health triage counts and the MCP schedule
+  summary no longer include phase rows. The `critical_count` and `at_risk_count`
+  values on the TopBar/StatusBar `status-summary` and My Work `health-summary`
+  endpoints, and the `critical_task_count` value from the `get_schedule_summary`
+  MCP tool, change for any project with phase rows. Field names are unchanged.
+  This is classed as a Behavioral change under the
+  [API stability policy](https://docs.trueppm.com/api/stability/). It is the
+  same fix #4242 applied to the project overview. A phase's `is_critical` and
+  `total_float` are rollups of its children, not facts about the phase row
+  itself, so counting the phase alongside the children whose rollup produced its
+  value double-counted their contribution.
+- **New task-list filter `?is_phase=true/false`**: lets a client select or
+  exclude phase (WBS grouping) rows directly, the same semantics used
+  internally by the triage-count fix above.
+- **Session-ended prompt no longer claims your session "expired" when it didn't**: the modal, read-only banner, status bar connection indicator, and sync-status "Last error" text shown when you're signed out mid-session said "Your session expired" / "Session expired" even when the real cause was a password reset or an admin deactivating your account. The title and banner copy are now cause-agnostic ("You've been signed out"), the sync-status error text now reads "Signed out", and the body explains that the session was ended rather than naming expiry specifically (#4256).
+- **Burn chart baseline overlay no longer misleads for a pre-CPM baseline**: the
+  sprint/project burndown and burnup `baseline_series` overlay is now omitted
+  (same as having no active baseline) when the active baseline was captured
+  before the CPM engine first ran (`has_cpm_dates=False`). Such a baseline's
+  snapshot finish dates are mostly or entirely null, which previously produced
+  a planned curve that never reached zero (burndown) or plateaued below total
+  scope (burnup) for both the task-count and story-point metrics. The field is
+  API-only today: no chart renders `baseline_series` yet (#3246), so nothing on
+  screen changes. Follow-up to the same `has_cpm_dates=True` exclusion #4242
+  applied to the SPI and variance KPIs.
+Resolve the 6 remaining SonarCloud BLOCKER bugs (`python:S5644`) in the scheduler's
+`_place_milestone`, which were still pinning the project's public reliability rating to
+E after #4259's first attempt. SonarPython's dataflow analysis does not carry an
+`assert`'s narrowing across a `nonlocal`-mutated closure even through a rebind to a
+fresh name; the affected lines now carry explicit `# NOSONAR` suppressions, matching
+the project's existing pattern for the same analyzer limitation. No scheduling-behavior
+change.
+Resolve 5 SonarCloud BLOCKER bugs (`python:S5644`) in the scheduler's `_place_milestone`, which were pinning the project's public reliability rating to E. SonarPython's dataflow analysis lost the `assert best is not None` narrowing across a `nonlocal`-mutated closure and didn't narrow a ternary branch; the post-assert code now binds the narrowed value to its own local and uses an explicit `if`/`else` instead. No scheduling-behavior change.
+- **scheduler:** `monte_carlo()` no longer escapes its exception contract with a bare `ValueError: ordinal must be >= 1` when a milestone sits at `date.min`. A lone milestone there now simulates to the same date `schedule()` returns, and linked shapes that run off the front of the date range raise `InvalidScheduleInput` (#4265).
+- **Scheduler: a finish-to-finish or start-to-finish link into a milestone no longer pushes it a working day late**: a milestone has no working day to occupy, but an FF or SF link into one snapped it forward as if it did. With a lag crossing a weekend or holiday the milestone landed a working day after the same finish-to-start link would place it, and moved everything behind it, the project finish included. A zero-lag FF or SF link moved it the same way when the predecessor finishes on a day that is non-working for the milestone: a recorded actual finish on a Saturday, or a predecessor on a different calendar (a six-day week, say). A milestone now sits on the instant the link names, so an FF link into it schedules exactly as FS does, and its successors can start a working day earlier than before. The late dates and float of the tasks feeding it follow the same rule. The browser's drag preview applies it too (#4272).
+- **Scheduler: a finish-to-finish link out of a milestone now measures from the milestone itself**: an FF link out of a milestone at the start of a working day measured from the end of the working day before it, so a weekend could absorb a lag on that link or on a link after the next milestone. A task could start a working day earlier than the same finish-to-start link allows. A positive lag on the link now counts from the milestone's own instant. A lead still counts back from where the link puts its successor with no lag, the end of the working day before the milestone, so a longer lead never finishes the successor later than a shorter one (#4273).
+Scheduler docs now correctly state that a lead snaps forward.
+- **Behavioral change:** program rollup critical/at-risk totals no longer include
+  phase rows. The values of the program rollup's `critical_tasks` and
+  `at_risk_tasks` totals, and of the program directory's per-project
+  `overdue_count` and `at_risk_count`, change for any project with phase rows;
+  field names and shapes are unchanged. The weekly program-health digest's
+  worst-project tie-break and the project attention panel's baseline-drift list
+  also exclude phase rows. This is classed as a Behavioral change under the
+  [API stability policy](https://docs.trueppm.com/api/stability/). It is the
+  same fix #4250 applied to the single-project status/health triage counts. A
+  phase's `is_critical`, `total_float`, and `early_finish` are rollups of its
+  children, not facts about the phase row itself, so counting the phase
+  alongside the children whose rollup produced its value double-counted their
+  contribution.
+- **Scheduler docs: `critical_path` is not a single chain**: the scheduler conventions page and `ScheduleResult.critical_path` now say that the list holds every critical task in topological order, so its last entry can finish before `project_finish`. A milestone held at the project start by a lead, or a calendar-day lag across a weekend, can leave a critical task whose successors all have float. Scheduling output is unchanged. The latest `early_finish` among critical tasks is always `project_finish` (#4281).
+- **Decisions-view oversight visibility now syncs live for the team**: changing
+  the project Decisions view's oversight-visibility consent switch previously
+  saved with no WebSocket broadcast, so a teammate or manager with the Decisions
+  panel open kept rendering a stale posture until their next full refetch. The
+  toggle now broadcasts `decisions_policy_changed`, deferred until the write
+  commits, and the web app invalidates the policy query on receipt, so a
+  Member-or-above peer's oversight-visibility control updates without a manual
+  reload. An oversight reader (below Member) is not connected to the project
+  socket and sees the new posture on their next page load.
+- **Saved board views show Delete to their creator**: the board toolbar never
+  told the saved-view menu who the signed-in user was. Delete appeared only on
+  views with no creator, so you could not delete a view you had saved yourself
+  from the board (#4290).
+Removed the "SPI" claim from `get_schedule_summary`'s MCP tool description — the tool never fetches or returns an `spi` field, so a model reading the published contract was told the field exists and could invent a value instead of citing one.
+- **Upgrade notes for 0.4 task-table locks**: `projects.0104`, `projects.0128`, `projects.0134` and `projects.0152` build indexes on the task table with a plain `CREATE INDEX`, which blocks task writes while each builds. `projects.0121` adds a CHECK constraint on the task table with a plain `ADD CONSTRAINT`, which blocks reads and writes while it validates. The 0.4 upgrade guide now lists all five in its lock-window section, alongside the `projects.0148` caution.
+- **Squashed migrations keep their data steps**: the squashes of the access, notifications, projects, teams, and webhooks apps dropped data migrations that Django's squash optimizer elides, including the notifications cleanup of unknown matrix keys. Each squash now carries every data step of the migrations it replaces. For notifications, projects, and webhooks, a database that upgrades from an earlier state already ran these steps through the retained original migrations, so those restorations are fresh-install self-containment, not an upgrade-path fix. **Access and teams are the exceptions, and each needed a real upgrade-path fix, not just tidying.** Access's 0.4 squash (`0013_squashed_0019_release_0_4`) is in no released tag — `v0.3.0-alpha.3` stops at access 0012 — so a real 0.3→0.4 upgrade runs the squash itself directly against already-populated tables; the restored `viewer_zero_to_one` step is what moves every Viewer's role ordinal from 0 to 1 on that population, across `access.ProjectMembership`/`ProgramMembership`, `projects.Project`/`HistoricalProject.default_member_role`, and `workspace.GroupProject.role`. **Teams has no released unsquashed history at all**: `0001_initial` and the default-team backfill first shipped already combined into the squash (v0.3.0-alpha.1) — so an install upgrading from before teams existed applied only the squash, which until this fix carried no data step at all, and never created its default team or memberships on its own. A new non-elidable migration (`teams/0004_backfill_default_teams_on_upgrade`) re-runs that backfill idempotently for every install, upgraded or fresh, healed or not.
+- **Scheduler free float**: a task reached through an SF link from a milestone
+  could be reported with one extra working day of free float when an
+  intermediate milestone held up only by the project-start floor, and a
+  reading tie against another incoming link further downstream, meant that
+  slip was not actually safe. Early/late dates were never affected — only the
+  free-float value itself. Fixed in both the Python scheduler and its
+  Rust/WASM mirror.
+- **False driving link into a task started on a non-working day**: when an
+  in-progress task's recorded actual start fell on a weekend or other
+  non-working day, a predecessor whose link only reached the working day
+  before it was reported as the driving link (and read zero free float on
+  that link), although the actual start, not that predecessor, was holding
+  the task. Both scheduling engines now measure free float and driving links
+  from the working day such a start sits at — the same reading total float
+  already used — so the schedule view no longer draws that link at driving
+  weight, and the free-float explanation ("why" panel and the derivation
+  endpoint) cites the same slack the engine computes.
+- **Scheduler: a positive start-to-finish lag is no longer absorbed by the weekend before the predecessor's start**: an SF link counted its lag from the end of the working day before the predecessor started, so for a predecessor starting on a Monday a weekend swallowed up to two days of the lag — `SF+2d` finished the successor on Monday, where MS Project finishes it on Tuesday. A positive lag now counts from the predecessor's start itself, for a task predecessor, a milestone predecessor, and an SF link into a milestone; zero lag and leads are unchanged. **Dates move**: an SF successor with a positive lag whose predecessor starts right after non-working time (a Monday, or the day after a holiday) can now finish later — by up to the length of that non-working stretch, two calendar days after a weekend — along with everything driven by it, and its predecessor's late start, total float and free float shrink to match. Monte Carlo, the in-browser drag preview, and the WASM engine follow the same rule (#4333).
+
+### Security
+- **devalue transitive dependency**: pinned `devalue` (pulled in via `astro` in `packages/website`) to `^5.9.4` via `overrides`, resolving 7 OSV advisories at `<=5.9.2` — 4 HIGH (shared-memory/Buffer disclosure, quadratic `uneval` expansion, `stringifyAsync` unhandled rejection), 2 MODERATE, and 1 LOW.
+- **`braces`/`http-cache-semantics` OSV suppressions**: added documented, expiring `[[PackageOverrides]]` entries for `braces@3.0.3` (`packages/web/osv-scanner.toml`, `packages/mobile/osv-scanner.toml`) and `http-cache-semantics@4.2.0` (new `packages/website/osv-scanner.toml`). Both advisories (GHSA-vfj7-8cjw-p6xm, HIGH stack-exhaustion; GHSA-ch52-4w7c-c8xp, HIGH cross-user cache disclosure) have no patched release in any line — npm's `latest` tag for each package is the flagged version itself. Both are reached only at build/test time (tailwindcss's file watcher, the Jest/Metro toolchain, and Astro's static-site build-time remote-image fetcher respectively), never by user or network input.
+- **`oauthlib` 3.3.1 → 4.0.0 (via `django-allauth` 65.18.0 → 65.19.7)**: clears the two previously-suppressed `security:osv` advisories on `packages/api` — GHSA-hj66-6f7g-4r5v (JSONP callback injection in `RevocationEndpoint`) and GHSA-xpv3-w29h-x7cv (PKCE `code_verifier` timing attack). `django-allauth` 65.19.7 is the first release admitting `oauthlib>=4.0.0`, so the two self-expiring `[[IgnoredVulns]]` entries added in #4236 are removed from `packages/api/osv-scanner.toml`.
+- **Program export and program webhooks honor project membership**: a Program Admin without live `ProjectMembership` on a member project no longer receives that project's content from the program export (JSON seed and async bundle) or from program-scoped webhook deliveries. Program webhooks whose creator is deleted or lacks membership on the project stop delivering its events. A program export bundle can be downloaded only by the admin who requested it. Only a program webhook's creator can edit it, and only while they still have membership on its projects. Only the creator can read its delivery log. See the upgrade notes for the operator check.
+- **Time tracking write paths now re-check live access**: logging time on a task,
+  editing or deleting your own time entry, and starting a timer all now enforce
+  the archived-project read-only rule and re-check that you still hold at least
+  Team Member role on the project — not just at the moment the entry or timer was
+  created. A member whose project access was removed or demoted can no longer
+  write against it through these paths.
+- **A running timer whose project becomes archived, or whose membership ends,
+  is discarded rather than logged or left stuck**: stopping it (directly, or as
+  the side effect of starting a new timer elsewhere) answers the same response
+  as "no timer is running" and clears the timer, instead of repeatedly refusing
+  and leaving it running forever with no way to clear it.
+- **Build-time dependency advisories**: bumped transitive dependencies in the `packages/web`, `packages/website`, `packages/mobile`, and `packages/api` lockfiles to patched releases: `source-map-js` 1.2.2 (GHSA-68fv-2mgg-jv7q, HIGH), `sharp` 0.35.5 (GHSA-wq5f-xc86-pv6w, HIGH), `shell-quote` 1.12.0 (GHSA-pqg4-j6r4-53mv, CRITICAL), `smol-toml` 1.9.0 (GHSA-r4xh-jqrq-34v2, MODERATE), `werkzeug` 3.1.9 (GHSA-g6x2-hccm-hh4m, MODERATE), `postcss-selector-parser` 7.1.6 (GHSA-rj75-hqrm-r3gf, MODERATE), `katex` 0.18.10 (GHSA-238p-pmpm-9mq7, LOW), and `sprintf-js` removed from the mobile tree (GHSA-hp3w-g68c-fv3c, MODERATE) by overriding `argparse` to 2.x.
+- **Program-scoped API tokens now honor project membership on task-sync and acceptance-results writes**: pushing an inbound task (`POST /api/v1/projects/{id}/task-sync/`) or reporting a CI acceptance verdict (`POST /api/v1/projects/{id}/acceptance-results/`) with a program-scoped API token now also requires the token's minter to hold live `ProjectMembership` on the target project, checked on every request. Revoking the minter's membership stops an already-minted token from writing into that project immediately, with no re-mint needed. Project-scoped tokens are unaffected.
+- **Project-scoped webhooks honor project membership**: a project webhook now stops delivering once its creator loses live `ProjectMembership` on that project, checked at dispatch time — the same rule #4310 applied to program-scoped webhooks. A webhook whose creator was deleted or deactivated delivers no events. Events already queued, or retrying after a failed attempt, are unaffected. Editing, deleting, and reading a project webhook's delivery log were not affected by this change — those already re-check the caller's current membership on every request.
+- **Webhook dispatch now requires Admin+ on every membership axis it depends on, matching the delivery-log read gates**: a project-scoped webhook's creator demoted to Resource Manager, Team Member, or Viewer on the project — while still a live member — no longer receives event payloads via dispatch, matching the project-scoped delivery log's Admin-only read gate exactly. A program-scoped webhook's creator is now checked on *both* axes: Project Manager or above on the specific project an event fires from (unchanged from #4310/#4325, since a program grant has never been a project-read grant), and, newly, Program Manager or above on the program itself, matching the program-scoped delivery log's Admin-only read gate. Previously any live membership at any role was enough on either axis, which let a demoted creator keep receiving full payloads via dispatch after the matching delivery-log endpoint would already refuse them the same data. Reading a webhook's delivery log already required Admin and is unaffected. Editing or deleting a webhook is unaffected by this change but is not uniformly a bare membership-presence check: a project-scoped webhook's edit/delete already required Admin on the project; a program-scoped webhook's edit and delete both already required Admin on the **program** (`IsProgramAdmin`), so a creator who loses that already lost the ability to edit or delete their own webhook before this change, same as after it — only a demotion on the *project* axis alone (program role intact) still leaves self-service edit/delete available, since that leg only checks membership presence, not role. See the upgrade notes for the operator check.
+- **`web` image now patches Alpine OS packages at build time**: `packages/web/Dockerfile`'s final stage had no equivalent of the `api` image's `apt-get upgrade`, so a CVE fixed by Alpine upstream (`tiff` 4.7.1-r0 → 4.7.2-r0, CVE-2026-4775, HIGH) sat unpatched in the pinned base image with no way to pick it up short of nginx republishing it. The stage now runs `apk upgrade --no-cache` as root before dropping back to the unprivileged user, the same rationale as the api image (#4335).
+
 ## [0.4.0-beta.6] — 2026-09-30
 
 TruePPM 0.4.0-beta.6 supersedes 0.4.0-beta.5.

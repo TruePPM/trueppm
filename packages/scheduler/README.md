@@ -373,7 +373,7 @@ This package is **`Development Status :: 4 - Beta`** as of 0.4.0b1: the public
 API may still change before 1.0. **Pin an exact version** rather than a range:
 
 ```
-trueppm-scheduler==0.4.0b6
+trueppm-scheduler==0.4.0b7
 ```
 
 Beta releases are pre-releases: `pip` installs a pre-release only when you pass
