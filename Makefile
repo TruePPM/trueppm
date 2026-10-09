@@ -606,6 +606,12 @@ sigpipe-readers-check: ## Fail if a shell script pipes into an early-exit reader
 	@bash scripts/check-sigpipe-readers.sh --self-test
 	@bash scripts/check-sigpipe-readers.sh
 
+served-assets-check: ## Self-test the served-asset checker the web image publish runs (#4338)
+	@# The real check needs a booted web image, which pre-push does not build; it
+	@# runs in web:publish and ci:build-deploy-images. This is the repo-only half:
+	@# prove the checker still rejects a chunk served as the SPA index.html fallback.
+	@sh scripts/check-served-assets.sh --self-test
+
 compose-image-pins-check: ## Fail if a third-party image in a shipped compose file has no version tag (#3228)
 	@# `certbot/certbot` shipped untagged in docker-compose.prod.yml — the only
 	@# unpinned image in the production stack, and the one component that owns TLS
@@ -656,6 +662,7 @@ pre-push-checks: helm-metric-names-check
 pre-push-checks: nginx-headers-check
 pre-push-checks: compose-image-pins-check
 pre-push-checks: sigpipe-readers-check
+pre-push-checks: served-assets-check
 pre-push-checks: compose-project-names-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: nul-bytes-check

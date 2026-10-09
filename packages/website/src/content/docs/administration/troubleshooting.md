@@ -55,6 +55,18 @@ white. No error text. The browser console usually shows a failed request for a
 3. **A CSP or MIME-type mismatch** in front of the SPA — usually an ingress, WAF,
    or CDN adding its own `Content-Security-Policy` on top of the one the web tier
    already sets, so the bundle is blocked. The console names the directive.
+4. **Two releases of the web tier are answering at once.** The console says
+   `Expected a JavaScript-or-Wasm module script but the server responded with a
+   MIME type of "text/html"` or `Refused to apply style … MIME type
+   ('text/html')`. Each release's `index.html` names its own content-hashed
+   `/assets/*` files. When a request for one of those files lands on a replica
+   running the other release, that replica does not have the file. Its SPA
+   fallback answers with `index.html` and a `200` status, and the browser
+   refuses to run it. The symptom persists for as long as both releases stay
+   behind the same Service, for example during a rolling update that stalled
+   partway. Load-balancer luck decides which files fail, so the failing set
+   changes from one reload to the next. Finish the rollout, or roll back, so
+   that every web pod runs the same image.
 
 **Commands.**
 
@@ -76,6 +88,21 @@ Then check what the browser is actually being served:
 ```bash
 curl -sI https://trueppm.example.com/ | head -5
 # Expect: HTTP/2 200 and content-type: text/html
+
+# Helm — do all web pods run the same image? More than one line means two
+# releases are serving together (cause 4).
+kubectl get pods -n <ns> -l app.kubernetes.io/instance=<release>,app.kubernetes.io/component=web \
+  -o jsonpath='{range .items[*]}{.spec.containers[0].image}{"\n"}{end}' | sort | uniq -c
+```
+
+From a clone of the repository, `scripts/check-served-assets.sh` fetches every
+script, module preload and stylesheet that `index.html` references. It reports
+each file that does not come back as a non-empty `2xx` with a JavaScript or
+`text/css` content type. To catch the mixed-release case, repeat the check a few
+times, because one pass can land every request on the same replica:
+
+```bash
+SERVED_ASSETS_ROUNDS=5 sh scripts/check-served-assets.sh https://trueppm.example.com
 ```
 
 **Confirm the fix.** Reload with the console open. `GET /` returns `200
