@@ -66,6 +66,15 @@ server {
     root  /usr/share/nginx/html;
     index index.html;
 
+    # Hashed build output must never fall through to the SPA index.html: during a
+    # rolling update a client can ask a pod for a chunk only the other release has,
+    # and a 200 text/html answer blank-screens the app silently. A real 404 lets
+    # the client's chunk-load handler reload (#4341). No add_header here, so the
+    # server-level security headers keep applying.
+    location /assets/ {
+        try_files $uri =404;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }

@@ -8,9 +8,14 @@ import './styles/fonts.css';
 import './styles/globals.css';
 import { App } from './App';
 import { applyFeatureFlagsFromUrl } from './lib/featureFlags';
+import { installChunkReloadHandler } from './lib/chunkReload';
+import { getPendingWriteCount } from './hooks/useSyncStatus';
 import { initWebVitals } from './lib/telemetry';
 
 applyFeatureFlagsFromUrl();
+
+// Deploy version skew (#4341): a missing hashed chunk reloads the page once.
+installChunkReloadHandler({ pendingWriteCount: getPendingWriteCount });
 
 // Opt-in, off-by-default client telemetry (issue #1901). No-op unless the
 // operator configured a collector endpoint (see src/lib/telemetry.ts).
