@@ -420,6 +420,17 @@ resolve_previous_chart_version() {
   fi
   [ -n "$versions" ] || fail "no chart versions found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — is the registry readable?"
 
+  # Published versions no operator is left running, so upgrading FROM one tests
+  # a path nobody takes. 0.4.0-beta.7 blank-screened every visitor (#4338) and
+  # installs stayed on beta.6, so beta.6 -> HEAD is the real path until beta.8
+  # publishes; the highest-version rule below then picks beta.8 on its own and
+  # this entry becomes inert (#4346). `-` not `:-`, so a test can set it empty.
+  local skip_versions="${SKIP_PREV_CHART_VERSIONS-0.4.0-beta.7}" v
+  for v in $skip_versions; do
+    versions="$(printf '%s\n' "$versions" | grep -vxF -- "$v" || true)"
+  done
+  [ -n "$versions" ] || fail "every published chart version in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} is in SKIP_PREV_CHART_VERSIONS (${skip_versions})"
+
   # Pick the highest published version <= HEAD under SemVer precedence, in
   # POSIX awk rather than `sort -V`: GNU sort -V ranks 0.4.0 BELOW 0.4.0-beta.1
   # (the registry does carry a bare 0.4.0, #3914), and the busybox sort in the
