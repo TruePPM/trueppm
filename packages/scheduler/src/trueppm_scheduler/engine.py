@@ -1265,16 +1265,31 @@ def _start_read_cap(
     finishing Friday: finish instant Saturday midnight, ``project_finish``
     Friday), a milestone at Saturday midnight read as end of day is shown Friday,
     but read as start of day it is shown Monday and moves ``project_finish``. So a
-    start-of-day reading is capped at the last working day on or before
+    start-of-day reading is capped at the last working day ``D`` on or before
     ``project_finish``, the latest midnight it still shows by then. With a
     start-of-day finish (``project_finish`` on or after the instant, #4174) the
     cap never binds.
+
+    An end-of-day reading reaches the cap too, when the instant sits just after
+    non-working time and so reads as a day start (:func:`_start_reading`) — e.g.
+    ``project_finish`` a Sunday (a weekend ``actual_finish``) and the instant the
+    Monday midnight after it. Its latest admissible instant is ``D + 1``, the
+    midnight that *closes* ``D``: ``D`` is a working day, so that midnight reads as
+    end of day and is shown on ``D``. Capping it at ``D`` cost every FS/SS
+    predecessor, and the milestone's own float, one working day, and reported a
+    task with one day of float as critical (#4344). A start-of-day reading keeps
+    ``D``: at ``D + 1`` it is shown on the next working day, past the finish.
     """
     if not _start_reading(instant, start_display, cal):
         return instant
     if _next_working_day(instant, cal) <= project_finish:
         return instant
-    return _prev_working_day(project_finish, cal)
+    last_day = _prev_working_day(project_finish, cal)
+    if start_display:
+        return last_day
+    # Here ``instant > last_day + 1``: at ``last_day + 1`` the end-of-day reading
+    # holds (``last_day`` works), so the first branch would have returned.
+    return _safe_offset(last_day, _ONE_DAY)
 
 
 def _link_start_ref(

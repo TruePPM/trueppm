@@ -120,8 +120,13 @@ pub(crate) fn milestone_finish_bound(
 /// finishing Friday: finish instant Saturday midnight, `project_finish` Friday), a
 /// milestone at Saturday midnight read as end of day is shown Friday, but read as
 /// start of day it is shown Monday and moves the finish. A start-of-day reading is
-/// therefore capped at the last working day on or before `project_finish`. With a
-/// start-of-day finish (#4174) the cap never binds. Mirrors the Python
+/// therefore capped at the last working day `D` on or before `project_finish`.
+/// With a start-of-day finish (#4174) the cap never binds.
+///
+/// An end-of-day reading that lands just after non-working time (a Sunday
+/// `project_finish`, the instant the Monday midnight after it) reaches the cap
+/// too; its latest admissible instant is `D + 1`, the midnight closing `D`, which
+/// reads as end of day and is shown on `D` (#4344). Mirrors the Python
 /// `_start_read_cap`.
 fn start_read_cap(
     instant: NaiveDate,
@@ -134,7 +139,11 @@ fn start_read_cap(
     {
         return Ok(instant);
     }
-    prev_working_day(project_finish, cal)
+    let last_day = prev_working_day(project_finish, cal)?;
+    if start_display {
+        return Ok(last_day);
+    }
+    checked_offset_days(last_day, 1)
 }
 
 /// The milestone `start_ref` one FS/SS link into it may use (#4183): capped by
