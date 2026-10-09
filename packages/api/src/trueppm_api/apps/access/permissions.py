@@ -1899,14 +1899,23 @@ class IsTokenForProject(BasePermission):
     immediately — the same "live, not historical" rule #4310 established for
     reads. A project-scoped token is unaffected by (2)/(3): it is bound to
     exactly one project by its own FK and was never the vector this issue
-    describes. (A project-scoped token's own minter must already hold Admin+ to
-    mint it — enforced by ``IsProjectAdmin`` on ``ProjectApiTokenViewSet.create``
-    — but that is a mint-time check only: this class has no live re-check for a
-    project-scoped token at all, so a minter later demoted to Viewer keeps full
-    write authority through an already-minted project token. That gap is
-    different in shape from the one this fixes — there is no existing live
-    check to tighten, a new one would have to be added from scratch — so this
-    is flagged rather than fixed here; see a follow-up issue filed against it.)
+    describes. (A project-scoped token's own minter must already hold
+    Admin+ to mint it — enforced by ``IsProjectAdmin`` on
+    ``ProjectApiTokenViewSet.create`` — but that is a mint-time check
+    only: this class has no live re-check for a project-scoped token at
+    all, so a minter later demoted to Viewer, or removed from the project,
+    keeps full write authority through an already-minted project token.
+    Unlike the program-scoped gap this docstring fixes, closing that one is
+    not a mechanical "add the same check": ``workspace-settings.md``
+    documents project- and program-scoped tokens as *deliberately*
+    surviving their minter's off-boarding, because they are org assets
+    rather than personal credentials, and a live minter-role recheck for
+    project-scoped tokens would partially undo that guarantee (deactivation
+    would stay safe; a same-project demotion would not). Whether that
+    policy should hold for a demoted-but-not-removed minter the way it
+    holds for a deactivated one is a maintainer decision, not an
+    implementation gap — see #4334, filed to make that call before this
+    is fixed.)
 
     Raises AuthenticationFailed (401, not PermissionDenied/403) on mismatch
     so callers cannot enumerate whether the URL project exists — a project_id

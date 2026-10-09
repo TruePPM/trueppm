@@ -285,13 +285,16 @@ Project- and program-scoped API tokens are org assets rather than personal
 credentials. They are neither revoked nor rejected, and keep authenticating even
 when the member who minted them is deactivated — a token's authority comes from
 its own project or program scope, not from that person's account, so off-boarding
-one person never breaks a team's CI integration. A program-scoped token's reach
-over a specific project is still bounded by its minter's project membership: it
-can only write into a project within its program while the minter holds a live
-membership on that project. Deactivating the minter's account does not revoke
-that membership, so a program token's write access is unaffected by
-off-boarding — it changes only if the minter's membership on that project is
-separately removed.
+one person never breaks a team's CI integration. Once the project-membership
+narrowing described in [Upgrading](/getting-started/upgrade/#next-release-program-exports-and-program-and-project-webhooks-honor-project-membership)
+ships, a program-scoped token's reach over a specific project will be bounded by
+its minter's project membership *and* role: its two write endpoints (task-sync
+and acceptance-results) will accept writes only while the minter holds a live
+membership of Member or above on that project. Deactivating the minter's account
+does not revoke that membership or demote its role, so a program token's write
+access will be unaffected by off-boarding on its own — it will change only if
+the minter's membership on that project is separately removed, or their role on
+it is separately demoted below Member.
 
 #### Off-boarding also stops outbound mail
 
