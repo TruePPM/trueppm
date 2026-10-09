@@ -631,6 +631,14 @@ scripts:test:
   #     closed, so a renamed probe key makes `helm install` REFUSE, minutes into
   #     the runtime job, with a message about the values file rather than the
   #     rename.
+  #   - helm-install-drill-worker-restart-message — the celery-worker restart
+  #     check in helm-install-drill.sh (#4342). It used to blame EVERY nonzero
+  #     restart on "likely the OOMKill loop (#2571)" regardless of evidence. Job
+  #     17069534639 hit a host-contention restart (lastState.terminated
+  #     reason=Error, exit=137, zero memory.events oom_kill anywhere on the
+  #     node) and the message still named a closed issue whose fix was present
+  #     on the branch. The test asserts the message names #2571 only when
+  #     reason=OOMKilled, and otherwise reports the real reason/exit instead.
   #   - helm-upgrade-leg-version — which published chart helm:upgrade upgrades
   #     FROM. It existed from #3941 on but was listed in no job, so its first
   #     real use (#4000) found its expectations encoded the wrong rule: "strictly
@@ -705,6 +713,7 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/helm-celery-probe-overrides.test.sh
+        - scripts/tests/helm-install-drill-worker-restart-message.test.sh
         - scripts/tests/helm-upgrade-leg-version.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
@@ -751,6 +760,7 @@ scripts:test:
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
         - scripts/tests/helm-celery-probe-overrides.test.sh
+        - scripts/tests/helm-install-drill-worker-restart-message.test.sh
         - scripts/tests/helm-upgrade-leg-version.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
@@ -776,6 +786,7 @@ scripts:test:
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
     - bash scripts/tests/helm-celery-probe-overrides.test.sh
+    - bash scripts/tests/helm-install-drill-worker-restart-message.test.sh
     - bash scripts/tests/helm-upgrade-leg-version.test.sh
     - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
