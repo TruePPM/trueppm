@@ -1003,14 +1003,67 @@ class _SeedImporter:
         a holiday is a fact, never weekend-snapped) and are created idempotently on
         ``(calendar, exc_start, exc_end)``. Calendars are a shared global catalog
         that ``_replace_existing`` does not wipe on a sample reload, so get_or_create
-        keeps a reload from accumulating duplicate PTO rows. Materializing them here
+        keeps a same-day reload from accumulating duplicate PTO rows (a reload on a
+        *different* day is the stale-anchor case below). Materializing them here
         (before the per-project structure pass) means ``_build_working_calendar``
         picks them up, so a PTO range also removes those days from date snapping —
         one source of non-working truth (ADR-0211).
+
+        **Stale anchors are reconciled away (#4339).** The idempotency key is the
+        *resolved* range, and a relative range resolves differently on every import
+        day, so a reload on a later day used to add a second "Clara — PTO" row
+        beside the first instead of matching it. Because the calendar outlives
+        the program teardown, a daily ``demo-reset`` grew each authored range into
+        a wall of stale non-working days — dozens of rows a few days apart — and
+        ``snap_forward`` pushed a sprint's start *and* finish across that wall onto
+        the same working day, tripping ``sprint_finish_after_start``. The CPM run
+        that follows reads the same rows, so every task date drifted too. A row on
+        this calendar carrying a description this payload authors is therefore the
+        same authored exception at an older anchor, and is replaced rather than
+        kept. Only a row matching an authored exception on description *and* span
+        length (an anchor shift moves a range, it never resizes it) counts as
+        stale. Rows the payload does not author (or that a later payload dropped)
+        are left alone.
+
+        The cleanup deletes rows, so it is fenced twice, because the catalog is
+        matched by calendar *name* and a seed can therefore land on a real
+        calendar that merely shares one:
+
+        - **Bundled samples only** (``is_sample``). A sample's calendar names and
+          descriptions are server-curated; a generic ``import_seed`` payload is
+          caller-authored, and before #4339 a seed could only ever *add* rows to a
+          shared calendar. Letting any authenticated caller delete them by naming
+          a real calendar would widen what the looser import gate can destroy.
+        - **Never a calendar in real use** (:meth:`_calendar_in_real_use`): the
+          workspace default, any program's, any non-sample project's primary
+          calendar or calendar layer, or one a resource with real assignments
+          works on. Those exceptions are someone's actual holidays — the same
+          rule ``reanchor`` follows for not shifting a shared calendar's
+          exceptions. A sample landing there only adds rows, as it always did.
+
+        What remains unprotected is a same-named calendar nothing real uses (see
+        :meth:`_calendar_in_real_use` for the one gap in "uses"). There the guard
+        is the row match itself — same description *and* same span as an
+        exception this pack authors — not the calendar's name; a pack-specific
+        calendar name only makes the collision less likely.
         """
-        for exc in exceptions:
-            start = resolve_date(exc["exc_start"], anchor=self.anchor, snap=False)
-            end = resolve_date(exc["exc_end"], anchor=self.anchor, snap=False)
+        authored = [
+            (
+                resolve_date(exc["exc_start"], anchor=self.anchor, snap=False),
+                resolve_date(exc["exc_end"], anchor=self.anchor, snap=False),
+                exc.get("description", ""),
+            )
+            for exc in exceptions
+        ]
+        if self.is_sample:
+            # Lock the calendar row before deciding. Any concurrent write that points
+            # a project, layer, program, resource or the workspace at this calendar
+            # takes a FOR KEY SHARE lock on it, which conflicts with FOR UPDATE — so
+            # nothing can start using the calendar between the check and the delete.
+            Calendar.objects.select_for_update().filter(pk=calendar.pk).first()
+            if not self._calendar_in_real_use(calendar):
+                self._delete_stale_exceptions(calendar, authored)
+        for start, end, description in authored:
             # (calendar, exc_start, exc_end) is the intended idempotency key but has
             # no DB uniqueness constraint, so a plain get_or_create raises
             # MultipleObjectsReturned once two identical ranges exist (#2267 class).
@@ -1023,8 +1076,56 @@ class _SeedImporter:
                     calendar=calendar,
                     exc_start=start,
                     exc_end=end,
-                    description=exc.get("description", ""),
+                    description=description,
                 )
+
+    @staticmethod
+    def _calendar_in_real_use(calendar: Calendar) -> bool:
+        """Whether anything other than sample data schedules against ``calendar``.
+
+        Runs after ``_replace_existing``, so the sample being reloaded has already
+        been torn down; another user's live *sample* program is not real use (it
+        is the same disposable data, and benefits from the cleanup too). A
+        soft-deleted real project still counts — it can be restored.
+
+        Every reverse relation to ``Calendar`` is consulted except one, on
+        purpose: a ``Resource`` on this calendar with no assignment to real work
+        does not count, so a real person whose calendar shares a sample
+        calendar's name, and who has not been assigned anything yet, is not
+        protected. Counting every resource would disable the cleanup outright —
+        the sample's own persona resources outlive the teardown on these same
+        calendars. ``test_calendar_reverse_relations_are_all_considered`` pins
+        the relation set so a new FK to ``Calendar`` has to be decided here.
+        """
+        from trueppm_api.apps.workspace.models import Workspace
+
+        return (
+            Workspace.objects.filter(calendar=calendar).exists()
+            or calendar.programs.exists()
+            or calendar.projects.filter(is_sample=False).exists()
+            or calendar.applied_to_layers.filter(project__is_sample=False).exists()
+            or TaskResource.objects.filter(
+                resource__calendar=calendar, task__project__is_sample=False
+            ).exists()
+        )
+
+    @staticmethod
+    def _delete_stale_exceptions(
+        calendar: Calendar, authored: list[tuple[date, date, str]]
+    ) -> None:
+        """Delete this seed's own exceptions left behind by an older anchor."""
+        current = set(authored)
+        authored_shapes = {(desc, end - start) for start, end, desc in authored if desc}
+        stale_ids = [
+            row.pk
+            for row in CalendarException.objects.filter(
+                calendar=calendar, description__in={desc for desc, _ in authored_shapes}
+            )
+            if (row.description, row.exc_end - row.exc_start) in authored_shapes
+            and (row.exc_start, row.exc_end, row.description) not in current
+        ]
+        if stale_ids:
+            CalendarException.objects.filter(pk__in=stale_ids).delete()
 
     def _resolve_resources(self) -> None:
         for res in self.payload.get("resources", []):
@@ -1413,6 +1514,21 @@ class _SeedImporter:
         for sprint_data in data.get("sprints", []):
             start = self._date(sprint_data["start_date"], slug)
             finish = self._date(sprint_data["finish_date"], slug)
+            # Snapping is monotone, so it can never invert an authored start < finish,
+            # but it can collapse one: when every day from start through finish is
+            # non-working (a short sprint over a weekend, or a long PTO/holiday run)
+            # both ends land on the same next working day, and the
+            # ``sprint_finish_after_start`` CHECK aborts the whole import (#4339).
+            # Move the finish to the first working day after the snapped start (the
+            # shortest window the CHECK admits: two working days inclusive) rather
+            # than fail the whole import — a demo install, or any user's seed —
+            # over an authored window the calendar happened to swallow.
+            # Only a collapse the snap *caused* is repaired: a window authored
+            # inverted or zero-length is an authoring error, and still fails loudly.
+            if finish <= start and self._date(
+                sprint_data["finish_date"], slug, snap=False
+            ) > self._date(sprint_data["start_date"], slug, snap=False):
+                finish = self._wc(slug).snap_forward(start + timedelta(days=1))
             # Under replay the sprint is born PLANNED and walked to its end state
             # by activate/close beats (authored or synthesized); points are
             # snapshotted at those beats. v1 import sets the end state directly.
