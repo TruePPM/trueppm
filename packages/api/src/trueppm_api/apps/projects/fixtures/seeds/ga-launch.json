@@ -125,7 +125,7 @@
   "calendars": [
     {
       "slug": "standard",
-      "name": "Standard 5-day",
+      "name": "GA Launch Standard (5-day)",
       "working_days": 31,
       "hours_per_day": 8.0,
       "timezone": "UTC",

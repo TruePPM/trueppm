@@ -1022,10 +1022,26 @@ class _SeedImporter:
         same authored exception at an older anchor, and is replaced rather than
         kept. Only a row matching an authored exception on description *and* span
         length (an anchor shift moves a range, it never resizes it) counts as
-        stale: the catalog is matched by calendar name, so a user's own calendar
-        can share a sample calendar's name, and a row of theirs that merely
-        shares a description is not the seed's to delete. Rows the payload does
-        not author (or that a later payload dropped) are left alone.
+        stale. Rows the payload does not author (or that a later payload dropped)
+        are left alone.
+
+        The cleanup deletes rows, so it is fenced twice, because the catalog is
+        matched by calendar *name* and a seed can therefore land on a real
+        calendar that merely shares one:
+
+        - **Bundled samples only** (``is_sample``). A sample's calendar names and
+          descriptions are server-curated; a generic ``import_seed`` payload is
+          caller-authored, and before #4339 a seed could only ever *add* rows to a
+          shared calendar. Letting any authenticated caller delete them by naming
+          a real calendar would widen what the looser import gate can destroy.
+        - **Never a calendar in real use** (:meth:`_calendar_in_real_use`): the
+          workspace default, any program's, any non-sample project's, or one a
+          resource with real assignments works on. Those exceptions are someone's
+          actual holidays — the same rule ``reanchor`` follows for not shifting a
+          shared calendar's exceptions. A sample landing there only adds rows, as
+          it always did. What remains unprotected is a same-named calendar no
+          project, program, workspace or assigned resource uses, which is why
+          every bundled pack gives its calendars a pack-specific name.
         """
         authored = [
             (
@@ -1035,18 +1051,8 @@ class _SeedImporter:
             )
             for exc in exceptions
         ]
-        current = {(start, end, desc) for start, end, desc in authored}
-        authored_shapes = {(desc, end - start) for start, end, desc in authored if desc}
-        stale_ids = [
-            row.pk
-            for row in CalendarException.objects.filter(
-                calendar=calendar, description__in={desc for desc, _ in authored_shapes}
-            )
-            if (row.description, row.exc_end - row.exc_start) in authored_shapes
-            and (row.exc_start, row.exc_end, row.description) not in current
-        ]
-        if stale_ids:
-            CalendarException.objects.filter(pk__in=stale_ids).delete()
+        if self.is_sample and not self._calendar_in_real_use(calendar):
+            self._delete_stale_exceptions(calendar, authored)
         for start, end, description in authored:
             # (calendar, exc_start, exc_end) is the intended idempotency key but has
             # no DB uniqueness constraint, so a plain get_or_create raises
@@ -1062,6 +1068,44 @@ class _SeedImporter:
                     exc_end=end,
                     description=description,
                 )
+
+    @staticmethod
+    def _calendar_in_real_use(calendar: Calendar) -> bool:
+        """Whether anything other than sample data schedules against ``calendar``.
+
+        Runs after ``_replace_existing``, so the sample being reloaded has already
+        been torn down; another user's live *sample* program is not real use (it
+        is the same disposable data, and benefits from the cleanup too). A
+        soft-deleted real project still counts — it can be restored.
+        """
+        from trueppm_api.apps.workspace.models import Workspace
+
+        return (
+            Workspace.objects.filter(calendar=calendar).exists()
+            or calendar.programs.exists()
+            or calendar.projects.filter(is_sample=False).exists()
+            or TaskResource.objects.filter(
+                resource__calendar=calendar, task__project__is_sample=False
+            ).exists()
+        )
+
+    @staticmethod
+    def _delete_stale_exceptions(
+        calendar: Calendar, authored: list[tuple[date, date, str]]
+    ) -> None:
+        """Delete this seed's own exceptions left behind by an older anchor."""
+        current = set(authored)
+        authored_shapes = {(desc, end - start) for start, end, desc in authored if desc}
+        stale_ids = [
+            row.pk
+            for row in CalendarException.objects.filter(
+                calendar=calendar, description__in={desc for desc, _ in authored_shapes}
+            )
+            if (row.description, row.exc_end - row.exc_start) in authored_shapes
+            and (row.exc_start, row.exc_end, row.description) not in current
+        ]
+        if stale_ids:
+            CalendarException.objects.filter(pk__in=stale_ids).delete()
 
     def _resolve_resources(self) -> None:
         for res in self.payload.get("resources", []):
@@ -1455,9 +1499,10 @@ class _SeedImporter:
             # non-working (a short sprint over a weekend, or a long PTO/holiday run)
             # both ends land on the same next working day, and the
             # ``sprint_finish_after_start`` CHECK aborts the whole import (#4339).
-            # Keep the sprint at least one working day long by moving the finish to
-            # the first working day after the snapped start, rather than failing a
-            # demo install over an authored window the calendar happened to swallow.
+            # Move the finish to the first working day after the snapped start (the
+            # shortest window the CHECK admits: two working days inclusive) rather
+            # than fail the whole import — a demo install, or any user's seed —
+            # over an authored window the calendar happened to swallow.
             # Only a collapse the snap *caused* is repaired: a window authored
             # inverted or zero-length is an authoring error, and still fails loudly.
             if finish <= start and self._date(

@@ -1065,7 +1065,7 @@ def _build_ga_launch_v20() -> dict:
         "calendars": [
             {
                 "slug": "standard",
-                "name": "Standard 5-day",
+                "name": "GA Launch Standard (5-day)",
                 "working_days": 31,
                 "hours_per_day": 8.0,
                 "timezone": "UTC",

@@ -102,7 +102,7 @@ Create each as a `User` (`username`, email `<username>@trueppm.demo`, password `
 ### Program
 `Program(name="1.0 GA Launch", code="GALA", methodology=HYBRID, health=AUTO, visibility=WORKSPACE, lead=dana, is… )`. Description: one paragraph stating the outcome (ship TruePPM 1.0 to GA with platform scale, security sign-off, SOC 2 audit-readiness, and a coordinated launch).
 
-Anchor all projects at **`start_date = 2026-07-06` (Monday)**. Shared `Calendar` "Standard 5-day" (`working_days=31` Mon–Fri, `hours_per_day=8`, tz `UTC`) with **one `CalendarException`** (a company holiday, e.g. `2026-09-07` Labor Day) to exercise calendar-aware scheduling/lag.
+Anchor all projects at **`start_date = 2026-07-06` (Monday)**. Shared `Calendar` "GA Launch Standard (5-day)" (`working_days=31` Mon–Fri, `hours_per_day=8`, tz `UTC`) with **one `CalendarException`** (a company holiday, e.g. `2026-09-07` Labor Day) to exercise calendar-aware scheduling/lag.
 
 ### Project A — Platform Hardening & Scale
 `methodology=WATERFALL`, `agile_features=False`, lead `malcolm`, `is_sample=True`.

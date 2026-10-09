@@ -26,10 +26,18 @@ from django.core.management import call_command
 from django.db import IntegrityError
 
 import trueppm_api.apps.projects.seed.importer as importer_module
-from trueppm_api.apps.projects.models import Calendar, CalendarException, Sprint
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    CalendarException,
+    Program,
+    Project,
+    Sprint,
+    Task,
+)
 from trueppm_api.apps.projects.seed import import_seed
 from trueppm_api.apps.projects.seed.reldates import resolve_date
 from trueppm_api.apps.projects.seed.samples import SAMPLES, load_sample
+from trueppm_api.apps.resources.models import Resource, TaskResource
 
 pytestmark = pytest.mark.django_db
 
@@ -101,6 +109,11 @@ def _replay_calendar_phase(sample_key: str, anchor: date, owner: Any) -> None:
     exactly the calendar phase, run once per past anchor — the same
     ``_resolve_calendars`` the full import runs first. A full reload costs ~3 s;
     this is what makes three weeks of history affordable in one test.
+
+    Run with ``is_sample`` off, which skips the stale-exception cleanup: the history
+    is written add-only, exactly as the pre-#4339 importer wrote it on a live
+    instance. So the sweep also proves an already-polluted instance heals on its
+    next reload, not merely that a clean one stays clean.
     """
     import json
 
@@ -234,6 +247,7 @@ def test_reload_replaces_only_the_seed_owned_stale_exception(owner: Any) -> None
         _seed(anchor="2026-10-01", exceptions=pto, sprint=("A+5", "A+19")),
         owner=owner,
         create_users=True,
+        is_sample=True,
     )
     cal = Calendar.objects.get(name="Drift 5-day")
     theirs_unrelated = CalendarException.objects.create(
@@ -250,6 +264,7 @@ def test_reload_replaces_only_the_seed_owned_stale_exception(owner: Any) -> None
         _seed(anchor="2026-10-09", exceptions=pto, sprint=("A+5", "A+19")),
         owner=owner,
         create_users=True,
+        is_sample=True,
         replace=True,
     )
 
@@ -262,7 +277,101 @@ def test_reload_replaces_only_the_seed_owned_stale_exception(owner: Any) -> None
     assert CalendarException.objects.filter(pk=theirs_same_desc.pk).exists()
 
 
-def test_sprint_swallowed_by_non_working_days_keeps_one_working_day(owner: Any) -> None:
+_PTO = [{"exc_start": "A-1", "exc_end": "A+2", "description": "Clara — PTO"}]
+
+
+def _calendar_with_lookalike_row() -> tuple[Calendar, CalendarException]:
+    """A pre-existing calendar holding a row the seed's PTO would call stale.
+
+    Same name the seed resolves to, same description, same 4-day span, at a
+    different date — indistinguishable by content from an older anchor's copy.
+    """
+    cal = Calendar.objects.create(name="Drift 5-day")
+    row = CalendarException.objects.create(
+        calendar=cal,
+        exc_start=date(2026, 11, 2),
+        exc_end=date(2026, 11, 5),
+        description="Clara — PTO",
+    )
+    return cal, row
+
+
+def test_generic_import_never_deletes_from_a_shared_calendar(owner: Any) -> None:
+    """A caller-authored seed can add to a same-named calendar, never delete from it.
+
+    ``import_seed`` is reachable by any authenticated user, and the calendar is
+    matched by name. The cleanup is sample-only so naming a real calendar in a
+    payload cannot remove its holidays.
+    """
+    cal, theirs = _calendar_with_lookalike_row()
+    import_seed(
+        _seed(anchor="2026-10-09", exceptions=_PTO, sprint=("A+5", "A+19")),
+        owner=owner,
+        create_users=True,
+    )
+    assert CalendarException.objects.filter(pk=theirs.pk).exists()
+    assert cal.exceptions.filter(exc_start=date(2026, 10, 8), exc_end=date(2026, 10, 11)).exists()
+
+
+def _use_as_workspace_default(cal: Calendar, owner: Any) -> None:
+    from trueppm_api.apps.workspace.models import Workspace
+
+    ws = Workspace.load()
+    ws.calendar = cal
+    ws.save()
+
+
+def _use_as_program_calendar(cal: Calendar, owner: Any) -> None:
+    Program.objects.create(name="Real program", calendar=cal)
+
+
+def _use_as_real_project_calendar(cal: Calendar, owner: Any) -> None:
+    Project.objects.create(name="Real project", start_date=date(2026, 9, 1), calendar=cal)
+
+
+def _use_as_assigned_resource_calendar(cal: Calendar, owner: Any) -> None:
+    project = Project.objects.create(name="Real project", start_date=date(2026, 9, 1))
+    task = Task.objects.create(project=project, name="Real work", wbs_path="1")
+    resource = Resource.objects.create(name="Real person", calendar=cal)
+    TaskResource.objects.create(task=task, resource=resource, units=1)
+
+
+@pytest.mark.parametrize(
+    "put_in_use",
+    [
+        _use_as_workspace_default,
+        _use_as_program_calendar,
+        _use_as_real_project_calendar,
+        _use_as_assigned_resource_calendar,
+    ],
+    ids=["workspace", "program", "real-project", "assigned-resource"],
+)
+def test_sample_load_spares_a_calendar_in_real_use(owner: Any, put_in_use: Any) -> None:
+    """A sample landing on a real calendar by name only adds rows, as it always did."""
+    cal, theirs = _calendar_with_lookalike_row()
+    put_in_use(cal, owner)
+    import_seed(
+        _seed(anchor="2026-10-09", exceptions=_PTO, sprint=("A+5", "A+19")),
+        owner=owner,
+        create_users=True,
+        is_sample=True,
+    )
+    assert CalendarException.objects.filter(pk=theirs.pk).exists()
+
+
+def test_sample_load_cleans_a_calendar_only_samples_use(owner: Any) -> None:
+    """Control for the test above: the same lookalike row, nothing real using it."""
+    _, theirs = _calendar_with_lookalike_row()
+    import_seed(
+        _seed(anchor="2026-10-09", exceptions=_PTO, sprint=("A+5", "A+19")),
+        owner=owner,
+        create_users=True,
+        is_sample=True,
+    )
+    assert not CalendarException.objects.filter(pk=theirs.pk).exists()
+
+
+def test_sprint_swallowed_by_non_working_days_ends_on_the_next_working_day(owner: Any) -> None:
     """Snapping can collapse an authored start < finish; the importer must not abort.
 
     Anchor 2026-10-09 is a Friday. The sprint runs A+1 (Sat) .. A+4 (Tue) and a
