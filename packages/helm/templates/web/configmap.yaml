@@ -89,6 +89,15 @@ data:
         # Unlike the share-link block below, `/` is NOT redirected here — this
         # mode's whole point is a visitor who lands on the login page and signs
         # in, so the SPA fallback serves it directly.
+        # Hashed build output must never fall through to the SPA index.html: during a
+        # rolling update a client can ask a pod for a chunk only the other release has,
+        # and a 200 text/html answer blank-screens the app silently. A real 404 lets
+        # the client's chunk-load handler reload (#4341). No add_header here, so the
+        # server-level security headers keep applying.
+        location /assets/ {
+            try_files $uri =404;
+        }
+
         location / {
             try_files $uri $uri/ /index.html;
         }
@@ -256,6 +265,15 @@ data:
         # would discard the server-level security headers for this response.
         location = / {
             return 302 {{ trimSuffix "/" .Values.demo.baseUrl }}/share/schedule/{{ .Values.demo.shareToken.schedule }};
+        }
+
+        # Hashed build output must never fall through to the SPA index.html: during a
+        # rolling update a client can ask a pod for a chunk only the other release has,
+        # and a 200 text/html answer blank-screens the app silently. A real 404 lets
+        # the client's chunk-load handler reload (#4341). No add_header here, so the
+        # server-level security headers keep applying.
+        location /assets/ {
+            try_files $uri =404;
         }
 
         location / {
@@ -436,6 +454,15 @@ data:
         }
 
         # SPA fallback — all unmatched routes serve index.html.
+        # Hashed build output must never fall through to the SPA index.html: during a
+        # rolling update a client can ask a pod for a chunk only the other release has,
+        # and a 200 text/html answer blank-screens the app silently. A real 404 lets
+        # the client's chunk-load handler reload (#4341). No add_header here, so the
+        # server-level security headers keep applying.
+        location /assets/ {
+            try_files $uri =404;
+        }
+
         location / {
             try_files $uri $uri/ /index.html;
         }

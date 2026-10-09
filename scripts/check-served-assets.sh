@@ -58,6 +58,9 @@ FIXTURE_ORIGIN="http://fixture.invalid"
 FIXTURE_B_DIR=""
 FIXTURE_COUNTER=""
 FIXTURE_SKEW_AFTER=0
+# Self-test only: when 1, a missing /assets/ path gets the SPA fallback (200
+# text/html) instead of a real 404 — the pre-#4341 nginx behavior.
+FIXTURE_SPA_FALLBACK=0
 
 # fetch_url <url> <body-file> — writes the body, prints "<status>|<content-type>".
 fetch_url() {
@@ -74,6 +77,9 @@ fetch_url() {
         fi
         _f="$_root$_p"
         case "$_p" in
+            /assets/does-not-exist-*)
+                if [ "$FIXTURE_SPA_FALLBACK" -ne 1 ]; then : > "$2"; echo "404|text/html"; return 0; fi
+                ;;
             # A real `try_files $uri =404` — what a correct /assets/ block does.
             */gone-*) : > "$2"; echo "404|text/html"; return 0 ;;
         esac
@@ -205,6 +211,20 @@ check_once() {
             _ok=$((_ok + 1))
         fi
     done < "$_tmp/refs"
+
+    # A path that cannot exist must 404. If the web tier answers it 2xx it is
+    # serving the SPA index.html for a missing chunk, which is what turns a
+    # rolling-update version skew into a silent blank screen (#4341). Asserted
+    # on its own so a tier whose referenced assets all exist still fails.
+    _probe="$_origin/assets/does-not-exist-$$-$(date +%s).js"
+    _meta="$(fetch_url "$_probe" "$_tmp/probe")"
+    _status="${_meta%%|*}"
+    case "$_status" in
+        2??)
+            echo "check-served-assets: FAIL  $_probe returned HTTP $_status — a missing /assets/ file must 404, not fall back to index.html"
+            _bad=$((_bad + 1))
+            ;;
+    esac
     rm -rf "$_tmp"
 
     if [ $((_ok + _bad)) -eq 0 ]; then
@@ -302,6 +322,14 @@ self_test() {
     healthy_assets
     : > "$FIXTURE_DIR/assets/Toast-BBB.js"
     _case "zero-byte chunk" expect-fail "empty body"
+
+    # THE #4341 SHAPE: every referenced asset exists, but the tier answers a
+    # missing /assets/ path with the SPA fallback instead of a 404.
+    healthy_assets
+    page "$healthy_tags"
+    FIXTURE_SPA_FALLBACK=1
+    _case "missing /assets/ path answered with the SPA fallback" expect-fail "does-not-exist"
+    FIXTURE_SPA_FALLBACK=0
 
     healthy_assets
     page '<script type="module" src="/assets/gone-DDD.js"></script>'
