@@ -31,6 +31,7 @@ from trueppm_api.apps.projects.models import (
     CalendarException,
     Program,
     Project,
+    ProjectCalendarLayer,
     Sprint,
     Task,
 )
@@ -336,6 +337,11 @@ def _use_as_assigned_resource_calendar(cal: Calendar, owner: Any) -> None:
     TaskResource.objects.create(task=task, resource=resource, units=1)
 
 
+def _use_as_real_project_calendar_layer(cal: Calendar, owner: Any) -> None:
+    project = Project.objects.create(name="Real project", start_date=date(2026, 9, 1))
+    ProjectCalendarLayer.objects.create(project=project, calendar=cal)
+
+
 @pytest.mark.parametrize(
     "put_in_use",
     [
@@ -343,8 +349,9 @@ def _use_as_assigned_resource_calendar(cal: Calendar, owner: Any) -> None:
         _use_as_program_calendar,
         _use_as_real_project_calendar,
         _use_as_assigned_resource_calendar,
+        _use_as_real_project_calendar_layer,
     ],
-    ids=["workspace", "program", "real-project", "assigned-resource"],
+    ids=["workspace", "program", "real-project", "assigned-resource", "real-layer"],
 )
 def test_sample_load_spares_a_calendar_in_real_use(owner: Any, put_in_use: Any) -> None:
     """A sample landing on a real calendar by name only adds rows, as it always did."""
@@ -357,6 +364,39 @@ def test_sample_load_spares_a_calendar_in_real_use(owner: Any, put_in_use: Any) 
         is_sample=True,
     )
     assert CalendarException.objects.filter(pk=theirs.pk).exists()
+
+
+# Every reverse relation to Calendar, and how ``_calendar_in_real_use`` treats it.
+# A new FK to Calendar fails this test until someone decides whether it is "real
+# use" (and adds a case above) — the layer FK was missed exactly this way.
+_CALENDAR_RELATIONS = {
+    "exceptions": "the rows being reconciled",
+    "workspace": "Workspace.calendar — real use",
+    "programs": "Program.calendar — real use",
+    "projects": "non-sample Project.calendar — real use",
+    "applied_to_layers": "non-sample project layer — real use",
+    "resources": "only with an assignment to non-sample work (documented gap)",
+    # django-simple-history snapshots: a record of past calendar choices, not a
+    # live schedule reading this calendar's exceptions.
+    "historicalprogram": "history snapshot — not use",
+    "historicalproject": "history snapshot — not use",
+    "historicalworkspace": "history snapshot — not use",
+}
+
+
+def test_calendar_reverse_relations_are_all_considered() -> None:
+    # Workspace.calendar is ``related_name="+"`` — hidden, with no accessor — so it
+    # needs include_hidden and is named by model.
+    found = {
+        rel.related_model._meta.model_name if rel.related_name == "+" else rel.get_accessor_name()
+        for rel in Calendar._meta.get_fields(include_hidden=True)
+        if rel.auto_created and not rel.concrete and (rel.one_to_many or rel.one_to_one)
+    }
+    assert found == set(_CALENDAR_RELATIONS), (
+        "Calendar gained or lost a reverse relation; decide in "
+        "_SeedImporter._calendar_in_real_use whether it is real use, then update "
+        f"_CALENDAR_RELATIONS. Found: {sorted(found)}"
+    )
 
 
 def test_sample_load_cleans_a_calendar_only_samples_use(owner: Any) -> None:

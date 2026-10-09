@@ -1035,13 +1035,17 @@ class _SeedImporter:
           shared calendar. Letting any authenticated caller delete them by naming
           a real calendar would widen what the looser import gate can destroy.
         - **Never a calendar in real use** (:meth:`_calendar_in_real_use`): the
-          workspace default, any program's, any non-sample project's, or one a
-          resource with real assignments works on. Those exceptions are someone's
-          actual holidays — the same rule ``reanchor`` follows for not shifting a
-          shared calendar's exceptions. A sample landing there only adds rows, as
-          it always did. What remains unprotected is a same-named calendar no
-          project, program, workspace or assigned resource uses, which is why
-          every bundled pack gives its calendars a pack-specific name.
+          workspace default, any program's, any non-sample project's primary
+          calendar or calendar layer, or one a resource with real assignments
+          works on. Those exceptions are someone's actual holidays — the same
+          rule ``reanchor`` follows for not shifting a shared calendar's
+          exceptions. A sample landing there only adds rows, as it always did.
+
+        What remains unprotected is a same-named calendar nothing real uses (see
+        :meth:`_calendar_in_real_use` for the one gap in "uses"). There the guard
+        is the row match itself — same description *and* same span as an
+        exception this pack authors — not the calendar's name; a pack-specific
+        calendar name only makes the collision less likely.
         """
         authored = [
             (
@@ -1051,8 +1055,14 @@ class _SeedImporter:
             )
             for exc in exceptions
         ]
-        if self.is_sample and not self._calendar_in_real_use(calendar):
-            self._delete_stale_exceptions(calendar, authored)
+        if self.is_sample:
+            # Lock the calendar row before deciding. Any concurrent write that points
+            # a project, layer, program, resource or the workspace at this calendar
+            # takes a FOR KEY SHARE lock on it, which conflicts with FOR UPDATE — so
+            # nothing can start using the calendar between the check and the delete.
+            Calendar.objects.select_for_update().filter(pk=calendar.pk).first()
+            if not self._calendar_in_real_use(calendar):
+                self._delete_stale_exceptions(calendar, authored)
         for start, end, description in authored:
             # (calendar, exc_start, exc_end) is the intended idempotency key but has
             # no DB uniqueness constraint, so a plain get_or_create raises
@@ -1077,6 +1087,15 @@ class _SeedImporter:
         been torn down; another user's live *sample* program is not real use (it
         is the same disposable data, and benefits from the cleanup too). A
         soft-deleted real project still counts — it can be restored.
+
+        Every reverse relation to ``Calendar`` is consulted except one, on
+        purpose: a ``Resource`` on this calendar with no assignment to real work
+        does not count, so a real person whose calendar shares a sample
+        calendar's name, and who has not been assigned anything yet, is not
+        protected. Counting every resource would disable the cleanup outright —
+        the sample's own persona resources outlive the teardown on these same
+        calendars. ``test_calendar_reverse_relations_are_all_considered`` pins
+        the relation set so a new FK to ``Calendar`` has to be decided here.
         """
         from trueppm_api.apps.workspace.models import Workspace
 
@@ -1084,6 +1103,7 @@ class _SeedImporter:
             Workspace.objects.filter(calendar=calendar).exists()
             or calendar.programs.exists()
             or calendar.projects.filter(is_sample=False).exists()
+            or calendar.applied_to_layers.filter(project__is_sample=False).exists()
             or TaskResource.objects.filter(
                 resource__calendar=calendar, task__project__is_sample=False
             ).exists()
