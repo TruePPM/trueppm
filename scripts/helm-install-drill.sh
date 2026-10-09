@@ -1461,9 +1461,31 @@ worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o js
 worker_cmd="$(kubectl get pod "$worker_pod" -o jsonpath='{.spec.containers[0].command}')"
 grep -qE -- '--concurrency=[0-9]+' <<<"$worker_cmd" \
   || fail "running celery-worker has no --concurrency; command was: $worker_cmd"
+# Builds the restart-failure message, discriminating the ACTUAL cause instead
+# of defaulting every nonzero restart count to #2571. That was ONE cause of a
+# celery-worker restart, not the only possible one, and the chart has carried
+# its fix (pinned --concurrency, asserted above) since #2571 closed. kubectl
+# already reports WHY the last restart happened — the same two fields
+# dump_restart_and_contention_evidence prints for every container below — so
+# read them here too rather than guessing (#4342: a kubelet-killed-on-a-
+# failed-probe restart under host contention was reported as "likely OOMKill
+# (#2571)" with the job's own memory.events dump showing zero OOM kills on
+# the node). Pure function of its three args — no kubectl call — so it can be
+# unit-tested without a cluster.
+celery_worker_restart_message() {
+  local restarts="$1" last_reason="$2" last_exit="$3"
+  if [ "$last_reason" = "OOMKilled" ]; then
+    echo "celery-worker restarted ${restarts}x since rollout — OOMKilled (exit=${last_exit:-<unknown>}) — the unpinned prefork pool regression (#2571)"
+  else
+    echo "celery-worker restarted ${restarts}x since rollout — reason=${last_reason:-<unknown>} exit=${last_exit:-<unknown>}, NOT OOMKilled (no memory.events oom_kill, see diagnostics below) — likely a failed probe or host contention, not #2571 (whose fix, a pinned --concurrency, was just asserted above)"
+  fi
+}
 restarts="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].restartCount}')"
-[ "${restarts:-0}" -eq 0 ] \
-  || fail "celery-worker restarted ${restarts}x since rollout — likely the OOMKill loop from an unpinned prefork pool (#2571)"
+if [ "${restarts:-0}" -ne 0 ]; then
+  last_reason="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || true)"
+  last_exit="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].lastState.terminated.exitCode}' 2>/dev/null || true)"
+  fail "$(celery_worker_restart_message "$restarts" "$last_reason" "$last_exit")"
+fi
 worker_ready_condition="$(kubectl get pod "$worker_pod" -o jsonpath='{.status.containerStatuses[0].ready}')"
 [ "$worker_ready_condition" = "true" ] \
   || fail "celery-worker pod is not Ready (${worker_ready_condition:-<empty>}) despite helm install --wait succeeding — inconsistent chart/cluster state"
