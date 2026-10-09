@@ -111,9 +111,11 @@ kubectl get pods -n <ns> -l app.kubernetes.io/instance=<release>,app.kubernetes.
 ```
 
 From a clone of the repository, `scripts/check-served-assets.sh` fetches every
-script, module preload and stylesheet that `index.html` references. It reports
-each file that does not come back as a non-empty `2xx` with a JavaScript or
-`text/css` content type. To catch the mixed-release case, repeat the check a few
+script, module preload and stylesheet that `index.html` references, plus every
+chunk and asset named in the build's `asset-manifest.json` — including a route
+loaded behind a lazy `import()` that `index.html` never mentions. It reports
+each file that does not come back as a non-empty `2xx` with the expected
+content type. To catch the mixed-release case, repeat the check a few
 times, because one pass can land every request on the same replica:
 
 ```bash

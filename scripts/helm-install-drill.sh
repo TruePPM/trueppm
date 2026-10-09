@@ -874,11 +874,15 @@ wait_for_demo_seed_hook() {
   log "demo-seed hook complete for ${label} — log tail: $(kubectl logs "job/${demo_seed_job}" -c demo-seed 2>&1 | tail -3 || true)"
 }
 
-# ---- served-asset content-type check (#4338, #4340) ------------------------
+# ---- served-asset content-type check (#4338, #4340, #4341) -----------------
 # scripts/check-served-assets.sh (#4338) takes one argument, a base URL: it
 # fetches "<base_url>/", parses every asset index.html references (`<script
 # src>`, `<link rel="modulepreload">`, `<link rel="stylesheet">`), and
 # asserts each answers 2xx with the right content-type and a non-empty body.
+# It also fetches "<base_url>/asset-manifest.json" (Vite's build manifest) and
+# checks every chunk and asset IT names too — including a route behind a lazy
+# `import()` that index.html never references at all, which the index-only
+# pass above cannot see (#4341).
 #
 # Why this exists alongside the plain "GET / -> 200" check section 10 already
 # runs: the chart's SPA route is a catch-all, so it answers a clean 200

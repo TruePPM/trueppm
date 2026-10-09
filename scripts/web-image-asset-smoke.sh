@@ -1,7 +1,8 @@
 #!/bin/sh
 # scripts/web-image-asset-smoke.sh — boot a just-built web image and require it
-# to serve every asset its index.html references, BEFORE the image is pushed
-# (#4338).
+# to serve every asset its index.html references AND every chunk its Vite
+# build manifest names — including a lazily-`import()`ed route chunk
+# index.html never mentions at all — BEFORE the image is pushed (#4338, #4341).
 #
 # web:publish used to go build -> Trivy -> SBOM -> push with nothing ever
 # starting the image, so "the image serves a working app" was asserted by no

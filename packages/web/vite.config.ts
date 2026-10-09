@@ -80,6 +80,18 @@ export default defineConfig({
     __BUILD_SHA__: JSON.stringify(buildSha),
     __APP_VERSION__: JSON.stringify(appVersion),
   },
+  build: {
+    // A non-dot path, not Vite's default `.vite/manifest.json` (#4341
+    // residual gap): the manifest is the reference source
+    // scripts/check-served-assets.sh needs to verify a lazily-`import()`ed
+    // route chunk actually shipped in the image, independent of what
+    // index.html happens to reference. A dot-directory risks being excluded
+    // by an operator's own ingress/ nginx config or by a drill that globs
+    // `assets/`; serving it at the dist root under the existing
+    // `location /` SPA block carries no such risk, and every chunk name in
+    // it is already public (it is derivable from the JS bundle itself).
+    manifest: 'asset-manifest.json',
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
