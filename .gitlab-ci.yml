@@ -7108,6 +7108,10 @@ ci:arm64-smoke:
       # --no-cache: same stale-layer exposure as the api build above (#4245).
       docker build --no-cache -t "${GL_WEB}:arm64-smoke" .
       cd "$CI_PROJECT_DIR"
+      # Same asset-serving smoke web:publish:arm64 runs (#4338), so this probe
+      # exercises it before a tag ever does.
+      sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test
+      sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_WEB}:arm64-smoke"
       ARCH="$(docker image inspect "${GL_WEB}:arm64-smoke" --format '{{.Architecture}}')"
       echo "web image architecture: ${ARCH}"
       [ "$ARCH" = "arm64" ] || { echo "ERROR: expected arm64, got ${ARCH}"; exit 1; }
@@ -7184,6 +7188,9 @@ ci:amd64-smoke:
       cd packages/web
       docker build -t "${GL_WEB}:amd64-smoke" .
       cd "$CI_PROJECT_DIR"
+      # Same asset-serving smoke web:publish runs (#4338) — see that job.
+      sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test
+      WEB_SMOKE_HOST=docker sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_WEB}:amd64-smoke"
       ARCH="$(docker image inspect "${GL_WEB}:amd64-smoke" --format '{{.Architecture}}')"
       echo "web image architecture: ${ARCH}"
       [ "$ARCH" = "amd64" ] || { echo "ERROR: expected amd64, got ${ARCH}"; exit 1; }
@@ -7568,6 +7575,15 @@ web:publish:
       docker build \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" \
         .
+      # Boot the image and require it to serve every asset its own index.html
+      # references, BEFORE anything is pushed (#4338). Nothing in this job used
+      # to start the image at all, so "the published image serves a working
+      # app" was asserted by no job. The self-test runs first, in this image:
+      # it proves the checker still fails on the SPA-fallback shape (a missing
+      # chunk answered 200 text/html) before its pass is believed. The daemon is
+      # the dind `docker` service, so the published port lives on that host.
+      sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test || exit 1
+      WEB_SMOKE_HOST=docker sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" || exit 1
       # Scan the built image before publishing (see api:publish for rationale).
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" -o /tmp/web-image-amd64.tar
       trivy image --input /tmp/web-image-amd64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
@@ -7634,6 +7650,10 @@ web:publish:arm64:
       docker build --no-cache \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
         .
+      # Asset-serving smoke before push — see web:publish (#4338). Docker
+      # Desktop is on this host, so the script binds the port to loopback.
+      sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test || exit 1
+      sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" || exit 1
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/web-image-arm64.tar
       trivy image --input /tmp/web-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       # The SBOM must land in the PROJECT-ROOT sbom/ that `artifacts: paths` and

@@ -110,7 +110,24 @@ ci:build-deploy-images:
       changes: *deploy-drill-paths
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes: *dev-demo-drill-paths
+    # The web-image asset smoke below (#4338) is this job's own check, so its
+    # inputs schedule THIS job alone. No drill `needs:` it on these paths, and
+    # a job running without its dependents is fine (the reverse is the
+    # zero-job pipeline error the note above describes).
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: &web-image-smoke-paths
+        - packages/web/nginx.conf
+        - packages/web/.dockerignore
+        # These decide which assets index.html references.
+        - packages/web/vite.config.*
+        - packages/web/index.html
+        - scripts/check-served-assets.sh
+        - scripts/web-image-asset-smoke.sh
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *web-image-smoke-paths
   before_script:
+    # curl: scripts/check-served-assets.sh fetches from the booted web image.
+    - apk add --no-cache curl
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     # Docker Hub base images come through the Dependency Proxy: this dind daemon
     # starts empty, and every self-hosted runner shares one anonymous quota (#4201).
@@ -133,6 +150,12 @@ ci:build-deploy-images:
         --cache-from "${CI_REGISTRY_IMAGE}/web:latest" \
         --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" \
         -t "$WEB_IMAGE" packages/web
+      # Boot the per-commit web image and require it to serve every asset its
+      # own index.html references before it is pushed (#4338) — the same
+      # smoke web:publish runs at a release cut, here on every MR that builds
+      # the image, so the check is proven long before a tag depends on it.
+      sh scripts/check-served-assets.sh --self-test || exit 1
+      WEB_SMOKE_HOST=docker sh scripts/web-image-asset-smoke.sh "$WEB_IMAGE" || exit 1
       docker push "$WEB_IMAGE"
 
 helm:install:
