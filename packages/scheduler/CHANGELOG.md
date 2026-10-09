@@ -16,7 +16,15 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **A weekend project finish no longer costs milestone predecessors a day of
+  float (#4344).** When `project_finish` was a non-working day (a completed task
+  with a Saturday or Sunday `actual_finish`), a milestone reached by a
+  finish-to-start link was capped at the start of the last working day before
+  the finish instead of its end. The milestone and every FS/SS predecessor
+  reported one working day less `total_float`, so a task with one day of float
+  was `is_critical` and listed in `critical_path`.
 
 ## [0.4.0b7] - 2026-10-09
 
