@@ -1460,7 +1460,12 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
   wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
   check_admin_password
-  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+  # The missing-/assets/ 404 probe is a property of HEAD's web image (#4341);
+  # the published chart here may predate it, so this leg checks only that the
+  # old release serves its own referenced assets (#4346). The post-upgrade
+  # check below runs the full script.
+  SERVED_ASSETS_MISSING_PROBE=0 \
+    check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
   kubectl get pods -o wide
 
   # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
