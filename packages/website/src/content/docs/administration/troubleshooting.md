@@ -61,10 +61,11 @@ white. No error text. The browser console usually shows a failed request for a
    ('text/html')`. Each release's `index.html` names its own content-hashed
    `/assets/*` files. A replica running the other release does not have those
    files, so its SPA fallback answers with `index.html` and a `200` status, and
-   the browser refuses to run it. The web tier's `/assets/` location now answers
-   a missing file with a real `404` instead, and the app reloads itself once
+   the browser refuses to run it. Releases after 0.4.0-beta.7 answer a missing
+   `/assets/` file with a real `404` instead, and the app reloads itself once
    when a chunk fails to load (a second failure within 10 seconds, an offline
    browser, or unsynced changes leave the on-screen Reload button to the user).
+   Tags up to and including 0.4.0-beta.7 still return the `200` SPA fallback.
    A reload fetches the current `index.html`, but it can still land on the other
    release until the rollout finishes. Load-balancer luck decides which files fail,
    so the failing set changes from one reload to the next. Two situations

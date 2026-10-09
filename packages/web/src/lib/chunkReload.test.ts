@@ -66,6 +66,19 @@ describe('chunkReload', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
+    it.each([
+      ['queued writes', { pendingWriteCount: () => 1 }],
+      ['offline', { isOnline: () => false }],
+    ])('does not reload or swallow the error with %s', (_name, deps) => {
+      const reload = vi.fn();
+      const teardown = installChunkReloadHandler({ reload, ...deps });
+      const ev = new Event('vite:preloadError', { cancelable: true });
+      window.dispatchEvent(ev);
+      expect(reload).not.toHaveBeenCalled();
+      expect(ev.defaultPrevented).toBe(false);
+      teardown();
+    });
+
     it('reloads on vite:preloadError, suppresses the default, and clears the guard after the window', () => {
       const reload = vi.fn();
       const teardown = installChunkReloadHandler({ reload });

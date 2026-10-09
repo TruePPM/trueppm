@@ -86,9 +86,6 @@ data:
             return 200 "User-agent: *\nDisallow: /\n";
         }
 
-        # Unlike the share-link block below, `/` is NOT redirected here — this
-        # mode's whole point is a visitor who lands on the login page and signs
-        # in, so the SPA fallback serves it directly.
         # Hashed build output must never fall through to the SPA index.html: during a
         # rolling update a client can ask a pod for a chunk only the other release has,
         # and a 200 text/html answer blank-screens the app silently. A real 404 lets
@@ -98,6 +95,9 @@ data:
             try_files $uri =404;
         }
 
+        # Unlike the share-link block below, `/` is NOT redirected here — this
+        # mode's whole point is a visitor who lands on the login page and signs
+        # in, so the SPA fallback serves it directly.
         location / {
             try_files $uri $uri/ /index.html;
         }
@@ -453,7 +453,6 @@ data:
             proxy_redirect off;
         }
 
-        # SPA fallback — all unmatched routes serve index.html.
         # Hashed build output must never fall through to the SPA index.html: during a
         # rolling update a client can ask a pod for a chunk only the other release has,
         # and a 200 text/html answer blank-screens the app silently. A real 404 lets
@@ -463,6 +462,7 @@ data:
             try_files $uri =404;
         }
 
+        # SPA fallback — all unmatched routes serve index.html.
         location / {
             try_files $uri $uri/ /index.html;
         }
