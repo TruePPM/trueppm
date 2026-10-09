@@ -1,0 +1,25 @@
+{
+  "id": "p-milestone-end-of-day-cap-seven-day-sunday-finish",
+  "name": "End-of-day milestone cap when a seven-day-calendar task finishes on a Sunday (#4344)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Work into a milestone", "duration": 172800.0},
+    {"id": "M", "name": "Gate", "duration": 0.0},
+    {"id": "B", "name": "Work held to one day of float", "duration": 172800.0, "planned_start": "2026-03-18"},
+    {"id": "N", "name": "Gate after B", "duration": 0.0},
+    {"id": "S7", "name": "Seven-day work ending Sunday", "duration": 604800.0, "planned_start": "2026-03-16", "calendar_id": "seven"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "N", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "seven": {"working_days": 127, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+  }
+}

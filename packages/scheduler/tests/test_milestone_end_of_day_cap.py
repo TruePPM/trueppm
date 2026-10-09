@@ -192,3 +192,83 @@ def _networks_finishing_on_a_weekend(draw: st.DrawFn) -> Project:
 @given(_networks_finishing_on_a_weekend())
 def test_total_float_is_the_slip_the_weekend_finish_absorbs(p: Project) -> None:
     _assert_slip_oracle(p)
+
+
+def _seven_day_finish(a_planned_start: date | None = None) -> Project:
+    """The issue's per-task-calendar shape: a seven-day task finishing on a Sunday.
+
+    ``S7(7d)`` on a seven-day calendar, started Monday 03-16, ends Sunday 03-22, so
+    ``project_finish`` is a non-working day on the Mon-Fri milestone calendar with
+    no actuals involved.
+    """
+    return Project(
+        "p",
+        "p",
+        MON,
+        [
+            Task("A", "A", timedelta(days=2), planned_start=a_planned_start),
+            Task("M", "M", timedelta(0)),
+            Task(
+                "S7",
+                "S7",
+                timedelta(days=7),
+                planned_start=date(2026, 3, 16),
+                calendar_id="seven",
+            ),
+        ],
+        [Dependency("A", "M")],
+        Calendar(),
+        calendars={"seven": Calendar(working_days=0b1111111)},
+    )
+
+
+def test_seven_day_task_finishing_on_a_sunday() -> None:
+    result = schedule(_seven_day_finish())
+    by = {t.id: t for t in result.tasks}
+    assert result.project_finish == SUNDAY
+    assert by["A"].total_float == timedelta(days=13)
+    assert by["M"].total_float == timedelta(days=13)
+
+    pinned = schedule(_seven_day_finish(date(2026, 3, 18)))
+    by = {t.id: t for t in pinned.tasks}
+    assert by["A"].total_float == timedelta(days=1)
+    assert not by["A"].is_critical
+    assert not by["M"].is_critical
+    _assert_slip_oracle(_seven_day_finish(date(2026, 3, 18)))
+
+
+def _mon_thu_milestone(a_planned_start: date | None = None) -> Project:
+    """The milestone on its own Mon-Thu calendar, against a working-Friday finish.
+
+    ``W(15d)`` ends the project at the end of Friday 03-20. ``D`` is computed on
+    M's calendar, so it is Thursday 03-19; the end-of-day cap is Friday midnight,
+    shown as the end of Thursday. Saturday midnight would read as the start of
+    Monday on M's calendar and move the finish.
+    """
+    return Project(
+        "p",
+        "p",
+        MON,
+        [
+            Task("A", "A", timedelta(days=2), planned_start=a_planned_start),
+            Task("M", "M", timedelta(0), calendar_id="monthu"),
+            Task("W", "W", timedelta(days=15)),
+        ],
+        [Dependency("A", "M")],
+        Calendar(),
+        calendars={"monthu": Calendar(working_days=0b0001111)},
+    )
+
+
+@pytest.mark.parametrize("a_planned_start", [None, date(2026, 3, 17), date(2026, 3, 18)])
+def test_milestone_on_its_own_calendar_slip_oracle(a_planned_start: date | None) -> None:
+    _assert_slip_oracle(_mon_thu_milestone(a_planned_start))
+
+
+def test_milestone_on_its_own_calendar_float_runs_to_friday_midnight() -> None:
+    result = schedule(_mon_thu_milestone())
+    by = {t.id: t for t in result.tasks}
+    assert result.project_finish == date(2026, 3, 20)
+    assert by["A"].total_float == timedelta(days=12)
+    assert by["A"].late_finish == date(2026, 3, 19)
+    assert by["M"].late_start == date(2026, 3, 19)
