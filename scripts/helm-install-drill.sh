@@ -889,6 +889,18 @@ wait_for_demo_seed_hook() {
 # is exactly the failure class a bare "/" check cannot see — only fetching
 # the referenced assets themselves can.
 #
+# Takes an optional 4th argument, the path to fetch under the Service (default
+# "/"). The demo overlay's `location = /` is an EXACT match that `return 302`s
+# to demo.baseUrl (templates/web/configmap.yaml, #3911) — it never reaches the
+# catch-all `location /` that actually serves index.html, and that redirect's
+# target is the in-cluster DNS name section 4's comment set demo.baseUrl to,
+# which this function's `kubectl port-forward` tunnel cannot resolve or reach
+# at all. So a demo-mode caller must pass a path that is NOT the bare origin —
+# one of the demo share links is exactly such a path: it is not matched by any
+# more specific location block, falls through to the SPA catch-all, and is the
+# same index.html (and therefore the same referenced assets) a real visitor
+# lands on after following the "/" redirect.
+#
 # Reached via `kubectl port-forward` rather than the ingress-nginx-namespace
 # probe pod section 8/10 use for a genuine cross-pod request: port-forward
 # tunnels through the kubelet straight into the target pod's network
@@ -899,7 +911,7 @@ wait_for_demo_seed_hook() {
 # chart_version's registry reads above), not from inside the cluster, so
 # check-served-assets.sh needs nothing beyond what a plain CI shell ships.
 check_served_assets() {
-  local svc="$1" ns="$2" label="$3"
+  local svc="$1" ns="$2" label="$3" path="${4:-/}"
   local script="scripts/check-served-assets.sh"
   local local_port="${SERVED_ASSETS_PORT:-18080}"
   local pf_log="/tmp/port-forward-served-assets.log"
@@ -911,7 +923,7 @@ check_served_assets() {
   [ -x "$script" ] \
     || fail "${script} not found or not executable (${label}) — this leg must not silently skip the served-asset check"
 
-  log "port-forwarding svc/${svc} (ns ${ns}) -> 127.0.0.1:${local_port} to run ${script} (${label})"
+  log "port-forwarding svc/${svc} (ns ${ns}) -> 127.0.0.1:${local_port} to run ${script} against ${path} (${label})"
   : >"$pf_log"
   kubectl port-forward -n "$ns" "svc/${svc}" "${local_port}:80" >"$pf_log" 2>&1 &
   pid=$!
@@ -928,7 +940,7 @@ check_served_assets() {
     sleep 1
   done
 
-  base_url="http://127.0.0.1:${local_port}"
+  base_url="http://127.0.0.1:${local_port}${path}"
   rc=0
   bash "$script" "$base_url" || rc=$?
 
@@ -1448,7 +1460,7 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
   wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
   check_admin_password
-  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})"
+  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
   kubectl get pods -o wide
 
   # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
@@ -1816,7 +1828,7 @@ if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   log "waiting for the demo-seed hook (${hook_stage_label}) to complete"
   wait_for_demo_seed_hook "$hook_stage_label"
 
-  check_served_assets "$demo_web_svc" default "demo allowlist GET / — ${hook_stage_label}"
+  check_served_assets "$demo_web_svc" default "demo allowlist — ${hook_stage_label}" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
 
   log "starting an in-cluster probe pod for the demo allowlist matrix (ingress-nginx namespace, admitted by the web-ingress NetworkPolicy — same placement as the admin-probe above)"
   kubectl run demo-probe -n ingress-nginx \
