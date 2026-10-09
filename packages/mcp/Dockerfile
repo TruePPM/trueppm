@@ -27,6 +27,21 @@ ARG DOCKERHUB_PREFIX=docker.io
 
 FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5 AS builder
 
+# `apt-get upgrade` (not just `update`) so this layer carries the Debian
+# security team's latest point-release patches even when the pinned
+# `python:3.11-slim` digest above hasn't been rebuilt since the last CVE
+# disclosure — the same rationale as the api image's equivalent comment
+# (packages/api/Dockerfile), and the same bug class as #4335 (the web
+# image's Alpine base had no upgrade step at all). This image installs no
+# apt packages of its own (pure HTTP client, no build-essential/libpq-dev
+# needed), so there is nothing to `apt-get install` here — just the
+# upgrade and the list cleanup. Build-stage CVEs never ship (this stage is
+# discarded), so this line matters only for the runtime stage below — kept
+# here too so both stages patch identically.
+RUN apt-get update -qq && \
+    apt-get upgrade -y -qq && \
+    rm -rf /var/lib/apt/lists/*
+
 ENV VIRTUAL_ENV=/venv
 RUN python -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
@@ -91,6 +106,16 @@ RUN /venv/bin/python -c "import trueppm_mcp.cli; print('boot smoke: OK')"
 # Stage 2: runtime — lean image with only the venv
 # ---------------------------------------------------------------------------
 FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5 AS runtime
+
+# See the matching comment in the builder stage above — this is the stage
+# that actually ships, so this `upgrade` is the one that matters for a
+# pre-publish Trivy gate (none exists for this image today, but the
+# Dockerfile's own header documents `docker build ... packages/mcp/` as a
+# supported self-host path, so an operator building it locally gets the
+# same patch posture as the api/web images).
+RUN apt-get update -qq && \
+    apt-get upgrade -y -qq && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /venv /venv
 
