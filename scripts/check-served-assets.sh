@@ -35,6 +35,15 @@
 # non-empty + a non-HTML content type, since its real MIME type is not something
 # this script can predict from the manifest alone.
 #
+# SERVED_ASSETS_MANIFEST=0 skips the manifest fetch/verify step entirely,
+# leaving the index.html pass and the missing-path 404 probe in place. This
+# exists for exactly one caller: a drill leg that points this script at a
+# previously-published image predating the manifest feature (#4341) itself —
+# that image never had an asset-manifest.json to find, which is a fact about
+# the fixed point in history being probed, not a regression this script
+# should report (scripts/helm-install-drill.sh's demo-upgrade PRE-upgrade
+# leg). Every other caller leaves it at the default (on).
+#
 # Cross-origin references are skipped and counted, never fetched.
 #
 # Mixed-version serving. A tier where some replicas serve one build and some
@@ -51,6 +60,9 @@
 #         scripts/check-served-assets.sh --self-test
 # Env:    SERVED_ASSETS_ROUNDS    repeat the full check N times (default 1)
 #         SERVED_ASSETS_TIMEOUT   per-request curl --max-time seconds (default 20)
+#         SERVED_ASSETS_MANIFEST  set to 0 to skip the asset-manifest.json pass,
+#                                 for probing a pre-#4341 image with no manifest
+#                                 (default 1)
 # Exit:   0 every asset served correctly · 1 at least one asset failed, or the
 #         page referenced none · 2 usage error, or index.html not fetchable
 
@@ -286,57 +298,67 @@ check_once() {
     # (#4341 residual gap). asset-manifest.json (Vite's build.manifest) is an
     # independent reference source that names every chunk and asset the build
     # produced, so fetch it and verify everything it names too.
-    _manifest_url="$_origin/asset-manifest.json"
-    _manifest_file="$_tmp/manifest.json"
-    _manifest_bad=0
-    _meta="$(fetch_url "$_manifest_url" "$_manifest_file")"
-    _status="${_meta%%|*}"
-    _manifest_ctype="${_meta#*|}"
-    case "$_status" in
-        2??) ;;
-        *)
-            echo "check-served-assets: FAIL  $_manifest_url returned HTTP ${_status:-000} — cannot verify lazily-imported chunks (#4341)"
-            _bad=$((_bad + 1))
-            _manifest_bad=1
-            ;;
-    esac
-    if [ "$_manifest_bad" -eq 0 ]; then
-        _manifest_lc="$(printf '%s' "$_manifest_ctype" | tr '[:upper:]' '[:lower:]')"
-        case "$_manifest_lc" in
-            *text/html*)
-                echo "check-served-assets: FAIL  $_manifest_url served as text/html (the SPA fallback) — the build manifest is missing from this image (#4341)"
+    #
+    # Skipped under SERVED_ASSETS_MANIFEST=0, for a caller deliberately probing
+    # a previously-published image that predates this manifest feature — such
+    # an image has no asset-manifest.json by construction, which is a fact
+    # about the point in history being probed, not a finding about today's code.
+    # Read fresh here, like run_check's own SERVED_ASSETS_ROUNDS, so --self-test
+    # can toggle it per case without re-execing the script.
+    _manifest_check="${SERVED_ASSETS_MANIFEST:-1}"
+    if [ "$_manifest_check" = "1" ]; then
+        _manifest_url="$_origin/asset-manifest.json"
+        _manifest_file="$_tmp/manifest.json"
+        _manifest_bad=0
+        _meta="$(fetch_url "$_manifest_url" "$_manifest_file")"
+        _status="${_meta%%|*}"
+        _manifest_ctype="${_meta#*|}"
+        case "$_status" in
+            2??) ;;
+            *)
+                echo "check-served-assets: FAIL  $_manifest_url returned HTTP ${_status:-000} — cannot verify lazily-imported chunks (#4341)"
                 _bad=$((_bad + 1))
                 _manifest_bad=1
                 ;;
         esac
-    fi
-    if [ "$_manifest_bad" -eq 0 ]; then
-        _manifest_first="$(sed -n '1s/^[[:space:]]*//p' "$_manifest_file" | cut -c1)"
-        if [ "$_manifest_first" != "{" ]; then
-            echo "check-served-assets: FAIL  $_manifest_url did not parse as a JSON object — cannot verify lazily-imported chunks (#4341)"
-            _bad=$((_bad + 1))
-            _manifest_bad=1
+        if [ "$_manifest_bad" -eq 0 ]; then
+            _manifest_lc="$(printf '%s' "$_manifest_ctype" | tr '[:upper:]' '[:lower:]')"
+            case "$_manifest_lc" in
+                *text/html*)
+                    echo "check-served-assets: FAIL  $_manifest_url served as text/html (the SPA fallback) — the build manifest is missing from this image (#4341)"
+                    _bad=$((_bad + 1))
+                    _manifest_bad=1
+                    ;;
+            esac
         fi
-    fi
-    if [ "$_manifest_bad" -eq 0 ]; then
-        extract_manifest_refs "$_manifest_file" > "$_tmp/manifest_refs"
-        if [ ! -s "$_tmp/manifest_refs" ]; then
-            echo "check-served-assets: FAIL  $_manifest_url named no assets — refusing to pass vacuously (#4341)"
-            _bad=$((_bad + 1))
-        else
-            while read -r _mref; do
-                [ -n "$_mref" ] || continue
-                _murl="$_origin/$_mref"
-                if grep -qxF -- "$_murl" "$_tmp/checked_urls" 2> /dev/null; then
-                    continue
-                fi
-                case "$_mref" in
-                    *.js | *.mjs) _mkind="js" ;;
-                    *.css) _mkind="css" ;;
-                    *) _mkind="any" ;;
-                esac
-                verify_asset "$_mkind" "$_murl"
-            done < "$_tmp/manifest_refs"
+        if [ "$_manifest_bad" -eq 0 ]; then
+            _manifest_first="$(sed -n '1s/^[[:space:]]*//p' "$_manifest_file" | cut -c1)"
+            if [ "$_manifest_first" != "{" ]; then
+                echo "check-served-assets: FAIL  $_manifest_url did not parse as a JSON object — cannot verify lazily-imported chunks (#4341)"
+                _bad=$((_bad + 1))
+                _manifest_bad=1
+            fi
+        fi
+        if [ "$_manifest_bad" -eq 0 ]; then
+            extract_manifest_refs "$_manifest_file" > "$_tmp/manifest_refs"
+            if [ ! -s "$_tmp/manifest_refs" ]; then
+                echo "check-served-assets: FAIL  $_manifest_url named no assets — refusing to pass vacuously (#4341)"
+                _bad=$((_bad + 1))
+            else
+                while read -r _mref; do
+                    [ -n "$_mref" ] || continue
+                    _murl="$_origin/$_mref"
+                    if grep -qxF -- "$_murl" "$_tmp/checked_urls" 2> /dev/null; then
+                        continue
+                    fi
+                    case "$_mref" in
+                        *.js | *.mjs) _mkind="js" ;;
+                        *.css) _mkind="css" ;;
+                        *) _mkind="any" ;;
+                    esac
+                    verify_asset "$_mkind" "$_murl"
+                done < "$_tmp/manifest_refs"
+            fi
         fi
     fi
 
@@ -524,6 +546,19 @@ self_test() {
     page "$healthy_tags"
     printf '{}' > "$FIXTURE_DIR/asset-manifest.json"
     _case "asset-manifest.json names zero assets" expect-fail "named no assets"
+
+    # (d) SERVED_ASSETS_MANIFEST=0 skips the manifest pass entirely — for a
+    # caller probing a previously-published image predating this feature
+    # (helm-install-drill.sh's demo-upgrade PRE-upgrade leg, #4341). Reuse the
+    # exact "manifest missing" fixture from (b): with the toggle on this fails;
+    # with it off the same fixture must pass, proving the step is genuinely
+    # skipped and not merely downgraded to a warning.
+    healthy_assets
+    page "$healthy_tags"
+    rm -f "$FIXTURE_DIR/asset-manifest.json"
+    SERVED_ASSETS_MANIFEST=0
+    _case "SERVED_ASSETS_MANIFEST=0 skips the manifest pass" expect-pass
+    unset SERVED_ASSETS_MANIFEST
 
     # A page with nothing to check is not a pass (e.g. a JSON error body).
     page ''

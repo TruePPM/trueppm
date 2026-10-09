@@ -914,8 +914,12 @@ wait_for_demo_seed_hook() {
 # job's own container, which already has curl/bash — see resolve_previous_
 # chart_version's registry reads above), not from inside the cluster, so
 # check-served-assets.sh needs nothing beyond what a plain CI shell ships.
+# $5 (manifest_check, default 1): pass 0 for a release installed from a
+# PREVIOUS published chart — it predates check-served-assets.sh's #4341
+# asset-manifest.json pass and never had one to find, which is a fact about
+# the fixed point in history being probed, not a regression in HEAD's code.
 check_served_assets() {
-  local svc="$1" ns="$2" label="$3" path="${4:-/}"
+  local svc="$1" ns="$2" label="$3" path="${4:-/}" manifest_check="${5:-1}"
   local script="scripts/check-served-assets.sh"
   local local_port="${SERVED_ASSETS_PORT:-18080}"
   local pf_log="/tmp/port-forward-served-assets.log"
@@ -946,7 +950,7 @@ check_served_assets() {
 
   base_url="http://127.0.0.1:${local_port}${path}"
   rc=0
-  bash "$script" "$base_url" || rc=$?
+  SERVED_ASSETS_MANIFEST="$manifest_check" bash "$script" "$base_url" || rc=$?
 
   kill "$pid" >/dev/null 2>&1 || true
   wait "$pid" 2>/dev/null || true
@@ -1464,7 +1468,10 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
   wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
   check_admin_password
-  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+  # manifest_check=0: ${PREV_CHART_VERSION} is a previously published chart,
+  # which predates the #4341 asset-manifest.json pass and has no manifest to
+  # find — that is a fact about the release being probed, not a finding.
+  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}" 0
   kubectl get pods -o wide
 
   # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
