@@ -171,6 +171,13 @@ time one on a restored copy of your database before you upgrade, and schedule
 the upgrade for a quiet period when task traffic is low.
 :::
 
+**Blank pages during a rolling upgrade of the web tier.** With two or more web
+replicas, old and new web pods serve together until the rollout finishes. A
+browser that loads the page from one release and requests its assets from the
+other can show a blank page until it reloads. See cause 4 under
+[The browser shows a blank page](/administration/troubleshooting/#the-browser-shows-a-blank-page);
+removing the window is tracked in [#4341](https://gitlab.com/trueppm/trueppm/-/issues/4341).
+
 **Known transient-500 windows on multi-replica installs.** Three of the five
 migrations drop a column or table outright, with no intervening
 `null=True`-then-remove deprecation release, so an old pod's code still names

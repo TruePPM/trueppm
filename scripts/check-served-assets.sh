@@ -217,6 +217,14 @@ check_once() {
 
 run_check() {
     _rounds="${SERVED_ASSETS_ROUNDS:-1}"
+    # 0, a negative number, or a non-number would skip the loop entirely and
+    # return 0 having fetched nothing — a vacuous pass. Refuse it as a usage error.
+    case "$_rounds" in
+        "" | *[!0-9]* | 0 | 0*)
+            echo "check-served-assets: SERVED_ASSETS_ROUNDS must be a positive integer, got '${SERVED_ASSETS_ROUNDS:-}'" >&2
+            return 2
+            ;;
+    esac
     _i=1
     _rc=0
     while [ "$_i" -le "$_rounds" ]; do
@@ -369,6 +377,17 @@ self_test() {
 
     unset SERVED_ASSETS_ROUNDS
     FIXTURE_B_DIR=""
+    FIXTURE_COUNTER=""
+
+    # A bad round count must not skip the check and pass. Use a page whose only
+    # asset is broken, so a vacuous zero-round "pass" is distinguishable.
+    healthy_assets
+    page '<script type="module" src="/assets/gone-FFF.js"></script>'
+    for st_bad in 0 -1 abc 07; do
+        SERVED_ASSETS_ROUNDS="$st_bad"
+        _case "SERVED_ASSETS_ROUNDS=$st_bad" expect-fail "must be a positive integer"
+    done
+    unset SERVED_ASSETS_ROUNDS
     FIXTURE_DIR=""
     rm -rf "$st_dir"
     if [ "$st_rc" -eq 0 ]; then echo "SELF-TEST PASSED"; else echo "SELF-TEST FAILED" >&2; fi

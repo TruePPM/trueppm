@@ -118,6 +118,9 @@ ci:build-deploy-images:
       changes: &web-image-smoke-paths
         - packages/web/nginx.conf
         - packages/web/.dockerignore
+        # These decide which assets index.html references.
+        - packages/web/vite.config.*
+        - packages/web/index.html
         - scripts/check-served-assets.sh
         - scripts/web-image-asset-smoke.sh
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
