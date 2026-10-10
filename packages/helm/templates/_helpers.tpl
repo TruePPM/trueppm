@@ -165,18 +165,29 @@ the rendered manifest.
   value: {{ .protocol | default "grpc" | quote }}
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | default "trueppm-api" | quote }}
-{{/* No `| default true` on these three — values.yaml already ships a concrete
-     default (true) for each, so the merged value is never actually unset,
-     and Sprig's `default` treats false as unset too. That clobbered an
-     explicit `enabled: false` / `tracesEnabled: false` / `metricsEnabled:
-     false` — the documented master kill switch and per-signal toggles —
-     back to "true" whenever an endpoint was also set (#4351). */}}
+{{/* A `kindIs "invalid"` presence guard replaces `| default true` on these
+     three (#4351): Sprig's `default` treats false as unset too, which
+     clobbered an explicit `enabled: false` / `tracesEnabled: false` /
+     `metricsEnabled: false` — the documented master kill switch and
+     per-signal toggles — back to "true" whenever an endpoint was also set.
+     Bare dot-access after dropping `| default` would reopen a different
+     hole: the chart's documented null-to-delete override idiom
+     (docs/administration/openshift.md) deletes a key set to `null` from the
+     merged map, and dot-accessing a deleted key renders an empty string, not
+     "true"/"false". The guard below renders true for both "never set" and
+     "explicitly nulled", and the explicit value otherwise. */}}
+{{- $otlpEnabled := true }}
+{{- if not (kindIs "invalid" .enabled) }}{{- $otlpEnabled = .enabled }}{{- end }}
+{{- $otlpTracesEnabled := true }}
+{{- if not (kindIs "invalid" .tracesEnabled) }}{{- $otlpTracesEnabled = .tracesEnabled }}{{- end }}
+{{- $otlpMetricsEnabled := true }}
+{{- if not (kindIs "invalid" .metricsEnabled) }}{{- $otlpMetricsEnabled = .metricsEnabled }}{{- end }}
 - name: TRUEPPM_OTEL_ENABLED
-  value: {{ .enabled | quote }}
+  value: {{ $otlpEnabled | quote }}
 - name: TRUEPPM_OTEL_TRACES_ENABLED
-  value: {{ .tracesEnabled | quote }}
+  value: {{ $otlpTracesEnabled | quote }}
 - name: TRUEPPM_OTEL_METRICS_ENABLED
-  value: {{ .metricsEnabled | quote }}
+  value: {{ $otlpMetricsEnabled | quote }}
 {{- if .tracesSampler }}
 - name: OTEL_TRACES_SAMPLER
   value: {{ .tracesSampler | quote }}

@@ -19,11 +19,18 @@ A PDB alone is still not redundancy. Without topologySpreadConstraints (see
 values.yaml) both replicas can land on one node, and a node failure takes the
 whole tier without the budget ever being consulted.
 
-maxUnavailable renders the merged value directly, with no `| default` — values.yaml
-already ships a concrete default (1) for all three tiers, so the only effect a
-template-level `| default 1` had was clobbering an explicit `maxUnavailable: 0`
-(the same posture the bundled postgresql/valkey subcharts use) back up to 1,
-since Sprig's `default` treats 0 as unset too (#4351).
+maxUnavailable uses a `kindIs "invalid"` presence guard instead of `| default 1`
+(#4351): Sprig's `default` treats 0 as unset too, which clobbered an explicit
+`maxUnavailable: 0` (the same posture the bundled postgresql/valkey subcharts
+use) back up to 1. A bare `| default`-less dot-access would reopen a DIFFERENT
+hole — the documented null-to-delete override idiom (an operator setting
+`maxUnavailable: null` to drop the key, per
+docs/administration/openshift.md) deletes it from the merged map entirely,
+and dot-accessing a deleted key renders nothing (`maxUnavailable: `), not the
+chart's documented default of 1. The guard below renders 1 for both "never
+set" (values.yaml's own default) and "explicitly nulled", renders the
+explicit value otherwise (including 0), and matches the `actorAttributes`
+pattern already used elsewhere in this chart.
 */}}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -33,7 +40,11 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
-  maxUnavailable: {{ .Values.podDisruptionBudget.api.maxUnavailable }}
+  {{- $apiMaxUnavailable := 1 }}
+  {{- if not (kindIs "invalid" .Values.podDisruptionBudget.api.maxUnavailable) }}
+  {{- $apiMaxUnavailable = .Values.podDisruptionBudget.api.maxUnavailable }}
+  {{- end }}
+  maxUnavailable: {{ $apiMaxUnavailable }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
@@ -47,7 +58,11 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: celery-worker
 spec:
-  maxUnavailable: {{ .Values.podDisruptionBudget.worker.maxUnavailable }}
+  {{- $workerMaxUnavailable := 1 }}
+  {{- if not (kindIs "invalid" .Values.podDisruptionBudget.worker.maxUnavailable) }}
+  {{- $workerMaxUnavailable = .Values.podDisruptionBudget.worker.maxUnavailable }}
+  {{- end }}
+  maxUnavailable: {{ $workerMaxUnavailable }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
@@ -62,7 +77,11 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
-  maxUnavailable: {{ .Values.podDisruptionBudget.web.maxUnavailable }}
+  {{- $webMaxUnavailable := 1 }}
+  {{- if not (kindIs "invalid" .Values.podDisruptionBudget.web.maxUnavailable) }}
+  {{- $webMaxUnavailable = .Values.podDisruptionBudget.web.maxUnavailable }}
+  {{- end }}
+  maxUnavailable: {{ $webMaxUnavailable }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}

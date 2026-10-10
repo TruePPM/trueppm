@@ -89,20 +89,35 @@ spec:
             httpGet:
               path: /
               port: http
-            # No `| default 5` on initialDelaySeconds (#4351): 0 is a valid,
-            # legitimate Kubernetes setting (probe immediately) and values.yaml
-            # already carries the concrete default. periodSeconds keeps its
-            # `| default` — the Kubernetes API requires it >= 1, so 0 is invalid
-            # regardless.
-            initialDelaySeconds: {{ .Values.probes.web.readinessInitialDelaySeconds }}
+            # A `kindIs "invalid"` presence guard replaces `| default 5` on
+            # initialDelaySeconds (#4351): 0 is a valid, legitimate Kubernetes
+            # setting (probe immediately), so plain `| default` would have
+            # clobbered it. Bare dot-access after dropping `| default` would
+            # reopen a different hole: the chart's documented null-to-delete
+            # override idiom (docs/administration/openshift.md) deletes a key
+            # set to `null` from the merged map, and an empty
+            # initialDelaySeconds likely fails admission. periodSeconds keeps
+            # its `| default` — the Kubernetes API requires it >= 1, so 0 is
+            # invalid regardless and there is no null-to-delete hole to worry
+            # about.
+            {{- $webReadinessInitialDelay := 5 }}
+            {{- if not (kindIs "invalid" .Values.probes.web.readinessInitialDelaySeconds) }}
+            {{- $webReadinessInitialDelay = .Values.probes.web.readinessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $webReadinessInitialDelay }}
             periodSeconds: {{ .Values.probes.web.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
               path: /
               port: http
-            # See the readiness probe above for why initialDelaySeconds has no
-            # `| default` while periodSeconds keeps one (#4351).
-            initialDelaySeconds: {{ .Values.probes.web.livenessInitialDelaySeconds }}
+            # See the readiness probe above for why initialDelaySeconds uses a
+            # presence guard instead of `| default` while periodSeconds keeps
+            # one (#4351).
+            {{- $webLivenessInitialDelay := 10 }}
+            {{- if not (kindIs "invalid" .Values.probes.web.livenessInitialDelaySeconds) }}
+            {{- $webLivenessInitialDelay = .Values.probes.web.livenessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $webLivenessInitialDelay }}
             periodSeconds: {{ .Values.probes.web.livenessPeriodSeconds | default 30 }}
           {{- include "trueppm.preStop" (dict "root" $ "tier" "web") | nindent 10 }}
           resources:

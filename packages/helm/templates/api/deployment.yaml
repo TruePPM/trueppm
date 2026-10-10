@@ -326,13 +326,22 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
-            # No `| default 10` on initialDelaySeconds (#4351): 0 is a valid,
-            # legitimate Kubernetes setting (probe immediately — the chart's own
-            # probes.worker.startup block already ships 0 for the same field) and
-            # values.yaml already carries the concrete default. periodSeconds
-            # keeps its `| default` — the Kubernetes API requires it >= 1, so 0
-            # is invalid regardless.
-            initialDelaySeconds: {{ .Values.probes.api.readinessInitialDelaySeconds }}
+            # A `kindIs "invalid"` presence guard replaces `| default 10` on
+            # initialDelaySeconds (#4351): 0 is a valid, legitimate Kubernetes
+            # setting (probe immediately — the chart's own probes.worker.startup
+            # block already ships 0 for the same field), so plain `| default`
+            # would have clobbered it. Bare dot-access after dropping `| default`
+            # would reopen a different hole: the chart's documented
+            # null-to-delete override idiom (docs/administration/openshift.md)
+            # deletes a key set to `null` from the merged map, and an empty
+            # initialDelaySeconds likely fails admission. periodSeconds keeps its
+            # `| default` — the Kubernetes API requires it >= 1, so 0 is invalid
+            # regardless and there is no null-to-delete hole to worry about.
+            {{- $apiReadinessInitialDelay := 10 }}
+            {{- if not (kindIs "invalid" .Values.probes.api.readinessInitialDelaySeconds) }}
+            {{- $apiReadinessInitialDelay = .Values.probes.api.readinessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $apiReadinessInitialDelay }}
             periodSeconds: {{ .Values.probes.api.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
@@ -343,9 +352,14 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
-            # See the readiness probe above for why initialDelaySeconds has no
-            # `| default` while periodSeconds keeps one (#4351).
-            initialDelaySeconds: {{ .Values.probes.api.livenessInitialDelaySeconds }}
+            # See the readiness probe above for why initialDelaySeconds uses a
+            # presence guard instead of `| default` while periodSeconds keeps
+            # one (#4351).
+            {{- $apiLivenessInitialDelay := 30 }}
+            {{- if not (kindIs "invalid" .Values.probes.api.livenessInitialDelaySeconds) }}
+            {{- $apiLivenessInitialDelay = .Values.probes.api.livenessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $apiLivenessInitialDelay }}
             periodSeconds: {{ .Values.probes.api.livenessPeriodSeconds | default 30 }}
           resources:
             {{- toYaml .Values.resources.api | nindent 12 }}

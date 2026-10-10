@@ -1112,6 +1112,89 @@ reset_backoff="$(helm template trueppm "$CHART" "${demo_backoff_args[@]}" --show
 [ "$reset_backoff" = "0" ] \
   || fail "demo.backoffLimit=0 rendered backoffLimit=$reset_backoff in the demo-reset CronJob, want 0 — clobbered back to the chart default 2 (#4351)"
 
+# M+2. Two more instances of the same #4351 clobber found during the sweep:
+#      alerts.thresholds.outboxDepth/outboxOldestAgeSeconds are legitimate
+#      zero-tolerance alert thresholds, and the four probe
+#      initialDelaySeconds fields (api/web readiness/liveness) legitimately
+#      allow 0 ("probe immediately").
+outbox_zero="$(helm template trueppm "$CHART" --set image.tag=latest --set alerts.enabled=true \
+  --set alerts.thresholds.outboxDepth=0 --set alerts.thresholds.outboxOldestAgeSeconds=0 \
+  --show-only templates/prometheusrule.yaml)"
+grep -q 'trueppm_outbox_depth) > 0$' <<<"$outbox_zero" \
+  || fail "alerts.thresholds.outboxDepth=0 did not render '> 0' in TruePPMOutboxDepthRising — clobbered back to the chart default 500 (#4351)"
+grep -q 'trueppm_outbox_oldest_age_seconds) > 0$' <<<"$outbox_zero" \
+  || fail "alerts.thresholds.outboxOldestAgeSeconds=0 did not render '> 0' in TruePPMOutboxOldestAgeRising — clobbered back to the chart default 900 (#4351)"
+
+probe_zero_api="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set probes.api.readinessInitialDelaySeconds=0 --set probes.api.livenessInitialDelaySeconds=0 \
+  --show-only templates/api/deployment.yaml \
+  | yq '[.spec.template.spec.containers[0].readinessProbe.initialDelaySeconds, .spec.template.spec.containers[0].livenessProbe.initialDelaySeconds] | join(",")')"
+[ "$probe_zero_api" = "0,0" ] \
+  || fail "probes.api.{readiness,liveness}InitialDelaySeconds=0 rendered $probe_zero_api, want 0,0 — clobbered back to the chart defaults 10/30 (#4351)"
+probe_zero_web="$(helm template trueppm "$CHART" --set image.tag=latest --set web.enabled=true \
+  --set probes.web.readinessInitialDelaySeconds=0 --set probes.web.livenessInitialDelaySeconds=0 \
+  --show-only templates/web/deployment.yaml \
+  | yq '[.spec.template.spec.containers[0].readinessProbe.initialDelaySeconds, .spec.template.spec.containers[0].livenessProbe.initialDelaySeconds] | join(",")')"
+[ "$probe_zero_web" = "0,0" ] \
+  || fail "probes.web.{readiness,liveness}InitialDelaySeconds=0 rendered $probe_zero_web, want 0,0 — clobbered back to the chart defaults 5/10 (#4351)"
+
+# M+3. The null-to-delete override idiom (docs/administration/openshift.md:
+#      setting a key to `null` deletes it from the merged map, rather than
+#      leaving the chart default in place) is a DIFFERENT failure mode from
+#      the 0/false clobber above, and round-1 fixes for #4351 regressed it on
+#      9 of the 10 non-replicas.web sites by replacing `| default` with bare
+#      dot-access instead of a presence guard. Each of these must render the
+#      chart's documented default — not an empty/invalid value — when the key
+#      is explicitly nulled.
+null_render="$(helm template trueppm "$CHART" --set image.tag=latest --set replicaCount=5 \
+  --set replicas.web=null --set podDisruptionBudget.enabled=true \
+  --set podDisruptionBudget.api.maxUnavailable=null \
+  --set podDisruptionBudget.worker.maxUnavailable=null \
+  --set podDisruptionBudget.web.maxUnavailable=null)"
+null_web_replicas="$(yq eval 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.replicas' - <<<"$null_render" | grep -v '^---$' | grep -v '^$')"
+[ "$null_web_replicas" = "5" ] \
+  || fail "replicas.web=null with replicaCount=5 rendered web replicas=$null_web_replicas, want 5 — a nulled key must fall back to replicaCount, not render empty (#4351)"
+for tier in api celery-worker web; do
+  # `|| true` on this one, unlike its 0-case sibling above: an unfixed template
+  # renders maxUnavailable genuinely EMPTY here (not "0"), so the grep -v
+  # pipeline can legitimately match zero lines and exit non-zero under
+  # set -o pipefail — without `|| true` that would abort the whole script via
+  # set -e before the `fail` below ever got a chance to report it.
+  got="$( (yq eval "select(.kind == \"PodDisruptionBudget\" and .metadata.name == \"trueppm-${tier}\") | .spec.maxUnavailable" - <<<"$null_render" | grep -v '^---$' | grep -v '^$') || true)"
+  [ "$got" = "1" ] \
+    || fail "podDisruptionBudget.${tier}.maxUnavailable=null rendered maxUnavailable='$got', want 1 (the chart default) — a nulled key must not render empty (#4351)"
+done
+otlp_null="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set observability.otlp.endpoint=http://otel-collector:4317 \
+  --set observability.otlp.enabled=null --set observability.otlp.tracesEnabled=null \
+  --set observability.otlp.metricsEnabled=null --show-only templates/api/deployment.yaml \
+  | yq '.spec.template.spec.containers[0].env[] | select(.name == "TRUEPPM_OTEL_ENABLED" or .name == "TRUEPPM_OTEL_TRACES_ENABLED" or .name == "TRUEPPM_OTEL_METRICS_ENABLED") | .value')"
+[ "$(sort -u <<<"$otlp_null")" = "true" ] \
+  || fail "observability.otlp.{enabled,tracesEnabled,metricsEnabled}=null rendered $(tr '\n' ',' <<<"$otlp_null"), want all \"true\" (the chart default) — a nulled key must not render empty (#4351)"
+seed_backoff_null="$(helm template trueppm "$CHART" "${demo_backoff_args[@]}" --set demo.backoffLimit=null \
+  --show-only templates/demo-seed-job.yaml | yq 'select(.kind == "Job") | .spec.backoffLimit')"
+[ "$seed_backoff_null" = "2" ] \
+  || fail "demo.backoffLimit=null rendered backoffLimit=$seed_backoff_null in the demo-seed Job, want 2 (the chart default) — a nulled key must not fall through to Kubernetes' own default (#4351)"
+outbox_null="$(helm template trueppm "$CHART" --set image.tag=latest --set alerts.enabled=true \
+  --set alerts.thresholds.outboxDepth=null --set alerts.thresholds.outboxOldestAgeSeconds=null \
+  --show-only templates/prometheusrule.yaml)"
+grep -q 'trueppm_outbox_depth) > 500$' <<<"$outbox_null" \
+  || fail "alerts.thresholds.outboxDepth=null did not render '> 500' (the chart default) — a nulled key must not render an empty, invalid PromQL expression (#4351)"
+grep -q 'trueppm_outbox_oldest_age_seconds) > 900$' <<<"$outbox_null" \
+  || fail "alerts.thresholds.outboxOldestAgeSeconds=null did not render '> 900' (the chart default) — a nulled key must not render an empty, invalid PromQL expression (#4351)"
+probe_null_api="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set probes.api.readinessInitialDelaySeconds=null --set probes.api.livenessInitialDelaySeconds=null \
+  --show-only templates/api/deployment.yaml \
+  | yq '[.spec.template.spec.containers[0].readinessProbe.initialDelaySeconds, .spec.template.spec.containers[0].livenessProbe.initialDelaySeconds] | join(",")')"
+[ "$probe_null_api" = "10,30" ] \
+  || fail "probes.api.{readiness,liveness}InitialDelaySeconds=null rendered $probe_null_api, want 10,30 (the chart defaults) — a nulled key must not render empty (#4351)"
+probe_null_web="$(helm template trueppm "$CHART" --set image.tag=latest --set web.enabled=true \
+  --set probes.web.readinessInitialDelaySeconds=null --set probes.web.livenessInitialDelaySeconds=null \
+  --show-only templates/web/deployment.yaml \
+  | yq '[.spec.template.spec.containers[0].readinessProbe.initialDelaySeconds, .spec.template.spec.containers[0].livenessProbe.initialDelaySeconds] | join(",")')"
+[ "$probe_null_web" = "5,10" ] \
+  || fail "probes.web.{readiness,liveness}InitialDelaySeconds=null rendered $probe_null_web, want 5,10 (the chart defaults) — a nulled key must not render empty (#4351)"
+
 # N. Probe Host header (#3183, #3237). kubelet dials a probe by POD IP, so with
 #    no Host header Django validates `<podIP>:8000` against ALLOWED_HOSTS in
 #    get_host() — before any view, and out of reach of SECURE_REDIRECT_EXEMPT —
@@ -2385,6 +2468,7 @@ echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays 
 echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
 echo "  - layout (ADR-1248): the 7 moved pre-0.4.0 component-first keys are refused by the schema, which names each one; a 0.3-shaped values file renders api=worker=web=2; replicas.web and service.web.* are wired"
+echo "  - explicit falsy overrides (#4351): replicas.web/podDisruptionBudget.*.maxUnavailable/demo.backoffLimit=0, observability.otlp.*=false, and alerts.thresholds.outbox*/probe initialDelaySeconds=0 all render 0/false, not the chart default; the SAME 10 keys set to null still render the chart default, not empty/invalid output"
 echo "  - both api probes send Host: $noing_host with no Ingress, $ing_host with one (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"

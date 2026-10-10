@@ -58,28 +58,44 @@ spec:
           # PostgreSQL backlog and re-emits it as its own series) — max by, never
           # sum by, or the alert fires at N times the real depth (#4186).
           #
-          # No `| default 500` on the threshold (#4351): values.yaml already ships
-          # 500 as the concrete default, and Sprig's `default` treats 0 as unset
-          # too — clobbering an explicit zero-tolerance `outboxDepth: 0` (alert on
-          # any sustained backlog at all; the `for:` window already filters a
-          # transient one) back up to 500.
-          expr: max by (trueppm_outbox_name) (trueppm_outbox_depth) > {{ .Values.alerts.thresholds.outboxDepth }}
+          # A `kindIs "invalid"` presence guard replaces `| default 500` (#4351):
+          # Sprig's `default` treats 0 as unset too, which clobbered an explicit
+          # zero-tolerance `outboxDepth: 0` (alert on any sustained backlog at
+          # all; the `for:` window already filters a transient one) back up to
+          # 500. Bare dot-access after dropping `| default` would reopen a
+          # different hole: the chart's documented null-to-delete override idiom
+          # (docs/administration/openshift.md) deletes a key set to `null` from
+          # the merged map, and an empty threshold renders a syntactically
+          # invalid PromQL expression (`> ` with nothing after it), which
+          # Prometheus rejects at rule-load time.
+          {{- $outboxDepth := 500 }}
+          {{- if not (kindIs "invalid" .Values.alerts.thresholds.outboxDepth) }}
+          {{- $outboxDepth = .Values.alerts.thresholds.outboxDepth }}
+          {{- end }}
+          expr: max by (trueppm_outbox_name) (trueppm_outbox_depth) > {{ $outboxDepth }}
           for: {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "TruePPM outbox backlog is high ({{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }})"
-            description: "The {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox has held more than {{ .Values.alerts.thresholds.outboxDepth }} not-done rows for over {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" }} — the drain is falling behind."
+            description: "The {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox has held more than {{ $outboxDepth }} not-done rows for over {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" }} — the drain is falling behind."
         - alert: TruePPMOutboxOldestAgeRising
-          # Same reasoning as outboxDepth above: no `| default 900` (#4351), so an
-          # explicit zero-tolerance `outboxOldestAgeSeconds: 0` is not clobbered.
-          expr: max by (trueppm_outbox_name) (trueppm_outbox_oldest_age_seconds) > {{ .Values.alerts.thresholds.outboxOldestAgeSeconds }}
+          # Same reasoning as outboxDepth above, including the null-to-delete
+          # hole (#4351): a presence guard replaces `| default 900`, so an
+          # explicit zero-tolerance `outboxOldestAgeSeconds: 0` is not
+          # clobbered, and an explicit `null` still renders 900, not an empty,
+          # invalid PromQL expression.
+          {{- $outboxOldestAgeSeconds := 900 }}
+          {{- if not (kindIs "invalid" .Values.alerts.thresholds.outboxOldestAgeSeconds) }}
+          {{- $outboxOldestAgeSeconds = .Values.alerts.thresholds.outboxOldestAgeSeconds }}
+          {{- end }}
+          expr: max by (trueppm_outbox_name) (trueppm_outbox_oldest_age_seconds) > {{ $outboxOldestAgeSeconds }}
           for: {{ .Values.alerts.thresholds.outboxOldestAgeFor | default "10m" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "TruePPM outbox oldest row is aging ({{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }})"
-            description: "The oldest not-done row in the {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox is older than {{ .Values.alerts.thresholds.outboxOldestAgeSeconds }}s — the async drain has likely stalled."
+            description: "The oldest not-done row in the {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox is older than {{ $outboxOldestAgeSeconds }}s — the async drain has likely stalled."
         - alert: TruePPMDeadLetterPresent
           # trueppm_task_dead_letter_parked is NOT an OTLP metric — it is served as
           # Prometheus text exposition by /api/v1/health/dead-letter/, so it needs its
