@@ -41,9 +41,23 @@ acceptance criteria — the same write floor the UI itself enforces for a Viewer
 this lands, a Viewer-minted program token keeps full write authority on both endpoints.
 Both the membership and the role will be checked at request time, not mint time, so
 revoking the minter's membership, or demoting it below Member, will invalidate an
-already-minted token's write authority on the very next request. This change is scoped
-to the program-scoped branch only — it does not add any equivalent live re-check for a
-project-scoped token's minter.
+already-minted token's write authority on the very next request.
+
+**Also not yet released:** a project-scoped token will get its own request-time check.
+On every write, TruePPM will look at the minter's *last recorded role* on the token's
+project, whether or not the minter is still a member, and require Member or above:
+
+- A minter demoted to Viewer will lose write authority on the token's next request, the
+  same as the program-scoped case above.
+- A minter *removed* from the project while still Member or above will keep a working token.
+  [Project- and program-scoped tokens are org assets](/administration/workspace-settings/#off-boarding-also-revokes-long-lived-credentials)
+  that deliberately survive their minter's off-boarding.
+- A minter demoted below Member and *then* removed will stay refused, including a minter
+  who removes themselves. Leaving the project will not undo a demotion.
+
+A token whose minter's account has been **deleted** is a separate case, and it does not
+change in this release: those two write endpoints already refuse it, because a deleted
+minter leaves the token with no user to act as.
 
 ### Why the ordinals jump by 100
 

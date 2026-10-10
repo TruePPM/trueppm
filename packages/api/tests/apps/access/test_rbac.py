@@ -2268,6 +2268,9 @@ def _mint_token(user: object, **kwargs: Any) -> Any:
 @pytest.mark.django_db
 class TestIsTokenForProjectScopes:
     def test_project_token_authorizes_its_own_project(self, user: object, project: Project) -> None:
+        # Minting requires Admin+ on the project (IsProjectAdmin); since #4334 the
+        # minter's membership row is read, so the fixture has to have one.
+        ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
         req = _make_request(user, method="POST")
         req.auth = _mint_token(user, project=project)
         view = MagicMock()
@@ -2466,6 +2469,133 @@ class TestIsTokenForProjectScopes:
 
         with pytest.raises(AuthenticationFailed):
             IsTokenForProject().has_permission(req, view)
+
+    def test_project_token_viewer_minter_is_rejected(self, user: object, project: Project) -> None:
+        """#4334: a project-scoped token's minter holds a LIVE ProjectMembership on
+        the token's own project (the pre-#4334 code never checked this at all), but
+        it is Viewer-only — not write-capable in the UI. Same Member+ floor as the
+        #4331 program-scoped case."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_project_token_member_minter_is_authorized(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334: Member (the floor, not just Admin/Owner) is write-capable."""
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+    def test_project_token_demoted_to_viewer_is_checked_at_request_time(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334: the role check runs at request (has_permission) time — a minter
+        demoted from Member to Viewer after the token was minted must be denied on
+        the very next request through the same, already-minted token."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        membership = ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+        membership.role = Role.VIEWER
+        membership.save(update_fields=["role"])
+
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_project_token_removed_in_good_standing_keeps_write_authority(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334 org-asset carve-out: a minter REMOVED from the project while still
+        Member+ (membership soft-deleted via ``soft_delete()``, ``created_by`` still
+        set) keeps a working token — unlike the program-scoped case (#4324), which
+        refuses on a removed minter. The floor reads the last recorded role, which
+        removal leaves intact."""
+        membership = ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+        membership.soft_delete()
+        membership.refresh_from_db()
+        assert membership.is_deleted is True
+        assert membership.role == Role.MEMBER  # removal keeps the role
+
+        assert IsTokenForProject().has_permission(req, view) is True
+
+    def test_project_token_demoted_then_removed_minter_is_rejected(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334 (B2): removal must not undo a demotion. A minter demoted to Viewer
+        and then removed (e.g. by self-removal) has a soft-deleted row whose last
+        recorded role is Viewer — below the floor, so the token stays refused."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        membership = ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+        membership.soft_delete()
+
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_project_token_minter_with_no_membership_row_is_rejected(
+        self, user: object, project: Project
+    ) -> None:
+        """#4334: no ProjectMembership row at all for (minter, project) is
+        inconsistent data (minting requires live Admin+). Fail closed."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project)
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_project_token_deleted_minter_permission_class_has_nothing_to_check(
+        self, user: object, project: Project
+    ) -> None:
+        """A minter whose account was deleted (``created_by`` NULL on SET_NULL)
+        gives ``IsTokenForProject`` nothing to check, so the class returns True.
+
+        This exercises the permission class IN ISOLATION. It does not mean the
+        token keeps working: end to end, ``ProjectApiTokenAuthentication``
+        resolves ``request.user`` to ``AnonymousUser`` and the ``IsAuthenticated``
+        listed before this class refuses the request — pre-existing behavior, not
+        part of #4334. See
+        ``test_project_token_deleted_minter_is_refused_at_endpoint`` in
+        ``test_acceptance_result_ingest.py`` for the end-to-end path."""
+        ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
+        req = _make_request(user, method="POST")
+        token = _mint_token(user, project=project)
+        token.created_by = None
+        token.save(update_fields=["created_by"])
+        req.auth = token
+        view = MagicMock()
+        view.kwargs = {"pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
 
 
 # ---------------------------------------------------------------------------

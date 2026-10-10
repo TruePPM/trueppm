@@ -1866,7 +1866,9 @@ class IsTokenForProject(BasePermission):
     """Verify that request.auth (an ApiToken) is authorized for the URL project.
 
     A project-scoped token (``token.project_id`` set) authorizes writes only to
-    its bound project. A program-scoped token (``token.program_id`` set) authorizes
+    its bound project, narrowed by a request-time floor on its minter's
+    last recorded role there (#4334) — see below. A program-scoped token
+    (``token.program_id`` set) authorizes
     writes to a project within that program only when ALL of the following hold:
       1. the project is a live member of the token's program
          (``projects.filter(pk=...).exists()``),
@@ -1897,25 +1899,36 @@ class IsTokenForProject(BasePermission):
     revoking — or demoting below Member — the minter's ProjectMembership on a
     project takes an already-minted token's authority over that project away
     immediately — the same "live, not historical" rule #4310 established for
-    reads. A project-scoped token is unaffected by (2)/(3): it is bound to
-    exactly one project by its own FK and was never the vector this issue
-    describes. (A project-scoped token's own minter must already hold
-    Admin+ to mint it — enforced by ``IsProjectAdmin`` on
-    ``ProjectApiTokenViewSet.create`` — but that is a mint-time check
-    only: this class has no live re-check for a project-scoped token at
-    all, so a minter later demoted to Viewer, or removed from the project,
-    keeps full write authority through an already-minted project token.
-    Unlike the program-scoped gap this docstring fixes, closing that one is
-    not a mechanical "add the same check": ``workspace-settings.md``
-    documents project- and program-scoped tokens as *deliberately*
-    surviving their minter's off-boarding, because they are org assets
-    rather than personal credentials, and a live minter-role recheck for
-    project-scoped tokens would partially undo that guarantee (deactivation
-    would stay safe; a same-project demotion would not). Whether that
-    policy should hold for a demoted-but-not-removed minter the way it
-    holds for a deactivated one is a maintainer decision, not an
-    implementation gap — see #4334, filed to make that call before this
-    is fixed.)
+    reads.
+
+    A project-scoped token (bound to exactly one project by its own FK) gets a
+    different recheck (#4334) with an **org-asset carve-out**: while the minter
+    (``created_by``) is non-null, the class reads the minter's most recent
+    ``ProjectMembership`` row on the token's own project *whether or not it is
+    soft-deleted* and applies the same ``role >= Role.MEMBER`` floor to that
+    row's role. Removal soft-deletes the row and leaves ``role`` intact, so:
+
+      * a live minter demoted to Viewer loses write authority on the very next
+        request, same as the program-scoped case above;
+      * a minter **removed** from the project while still Member+ keeps a
+        working token — the org-asset, survives-off-boarding contract
+        ``workspace-settings.md`` documents;
+      * a minter demoted below Member and **then** removed (including by
+        self-removal, which any member may do) stays refused — removal cannot
+        undo a demotion, because the floor reads the last recorded role, not
+        merely whether a live row exists;
+      * no row at all (inconsistent data) is refused: no record, no authority.
+
+    A minter whose account is **deleted** (``created_by`` goes NULL on
+    ``SET_NULL``) is a separate, pre-existing case this class does not decide:
+    it has nothing to check and returns True, but the token is still refused
+    end-to-end, because ``ProjectApiTokenAuthentication`` resolves
+    ``request.user`` to ``AnonymousUser`` and both token views list
+    ``IsAuthenticated`` before this class. (A project-scoped token's own
+    minter must already hold Admin+ to mint it — enforced by
+    ``IsProjectAdmin`` on ``ProjectApiTokenViewSet.create`` — but that is a
+    mint-time check only; this recheck is what keeps a later demotion from
+    being ignored.)
 
     Raises AuthenticationFailed (401, not PermissionDenied/403) on mismatch
     so callers cannot enumerate whether the URL project exists — a project_id
@@ -1947,10 +1960,42 @@ class IsTokenForProject(BasePermission):
         except (TypeError, ValueError, AttributeError):
             raise AuthenticationFailed("Invalid project id.") from None
 
-        # Project-scoped: direct FK match.
+        # Project-scoped: direct FK match, plus a minter-role floor on the
+        # minter's MOST RECENT ProjectMembership row for this project,
+        # deliberately read WITHOUT an ``is_deleted`` filter (#4334).
         if token.project_id is not None:
+            from trueppm_api.apps.access.minter_role import last_recorded_project_role
+
             if token.project_id != url_project_id:
                 raise AuthenticationFailed("Token does not belong to this project.")
+            minter_id = token.created_by_id
+            if minter_id is not None:
+                # Why the soft-deleted row is read too: removal is a soft
+                # delete that keeps ``role`` intact, so the row still records
+                # the minter's last role. Floor THAT role, live or revoked.
+                # Reading only live rows (the first #4334 cut) made removal an
+                # unconditional pass, so a minter demoted to Viewer could
+                # self-remove (DELETE .../members/<own pk>/, allowed to any
+                # member) and get the token's write authority back. With the
+                # last role floored, a minter removed in good standing
+                # (Member+) keeps a working token — the org-asset,
+                # survives-off-boarding contract — while a demoted minter
+                # stays refused whether or not they are later removed. The
+                # unfloored read lives in its own module so the live-floor
+                # gate's module allowlist covers only it.
+                minter_role = last_recorded_project_role(url_project_id, minter_id)
+                # No row at all: minting requires a live Admin+ membership
+                # (IsProjectAdmin), and memberships are only hard-deleted by
+                # the user CASCADE (which also nulls created_by) or by the
+                # seed/reset tooling — so this is inconsistent data. Fail
+                # closed: no record of a role is no authority.
+                if minter_role is None or minter_role < Role.MEMBER:
+                    raise AuthenticationFailed("Token does not authorize this project.")
+            # created_by NULL (minter's account deleted, SET_NULL): nothing to
+            # check here. That token is NOT usable on the write endpoints,
+            # though — ProjectApiTokenAuthentication resolves request.user to
+            # AnonymousUser and the IsAuthenticated listed before this class
+            # refuses it (pre-existing behavior, not part of #4334).
             return True
 
         # Program-scoped: project must be a member of the token's program.

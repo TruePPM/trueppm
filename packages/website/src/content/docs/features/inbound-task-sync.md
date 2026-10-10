@@ -50,6 +50,18 @@ above — a minter who is a live member but Viewer-only will not be enough,
 and demoting a minter below Member will stop an already-minted token the same
 way a membership removal does.
 
+**Not yet released:** a project-scoped token will also be checked against its
+minter on every request, in a different way. TruePPM will look at the minter's
+*last recorded role* on the token's project, whether or not they are still a
+member, and require Member or above. A minter demoted to Viewer will stop the
+token on its next request. A minter removed from the project while still
+Member or above will **not** stop it — project tokens are team assets that
+outlive one person's off-boarding. A minter demoted below Member and then
+removed, including one who removes themselves, will still stop it. Separately,
+and already true today: if the minter's account is deleted outright, the token
+stops working on both endpoints, so deactivate rather than delete a member
+whose integration tokens should keep running.
+
 ```bash
 curl -X POST "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \
   -H "Authorization: Bearer ${YOUR_JWT}" \

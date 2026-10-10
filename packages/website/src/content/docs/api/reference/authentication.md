@@ -151,6 +151,16 @@ task-sync with their normal credentials, so every inbound push is attributable
 to a minted token. A token whose project does not match the URL returns `401`
 (not `403`) so callers cannot enumerate project existence.
 
+The token's minter is also checked on every request, and a failure there returns
+the same `401` — `{"detail": "Token does not authorize this project."}`. A
+program-scoped token's minter must hold a live membership on the target project.
+**Not yet released:** that membership will also have to be Member or above, and
+a project-scoped token will be checked too — its minter's last recorded role on
+the project, live or removed, must be Member or above. A minter demoted to
+Viewer, or demoted and then removed, gets a `401`; a minter removed in good
+standing does not. A token whose minter's account has been deleted is refused
+with a `403` today, because it authenticates as no user; that does not change.
+
 **A push into an archived project is refused with a `403`, and writes nothing** —
 no task, no external-link row, no audit entry. Archiving makes a plan read-only,
 and that is a property of the plan rather than of the caller, so the refusal
