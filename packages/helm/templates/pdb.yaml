@@ -19,18 +19,21 @@ A PDB alone is still not redundancy. Without topologySpreadConstraints (see
 values.yaml) both replicas can land on one node, and a node failure takes the
 whole tier without the budget ever being consulted.
 
-maxUnavailable uses a `kindIs "invalid"` presence guard instead of `| default 1`
-(#4351): Sprig's `default` treats 0 as unset too, which clobbered an explicit
-`maxUnavailable: 0` (the same posture the bundled postgresql/valkey subcharts
-use) back up to 1. A bare `| default`-less dot-access would reopen a DIFFERENT
-hole — the documented null-to-delete override idiom (an operator setting
-`maxUnavailable: null` to drop the key, per
-packages/website/src/content/docs/administration/openshift.md) deletes it from the merged map entirely,
-and dot-accessing a deleted key renders nothing (`maxUnavailable: `), not the
-chart's documented default of 1. The guard below renders 1 for both "never
-set" (values.yaml's own default) and "explicitly nulled", renders the
-explicit value otherwise (including 0), and matches the `actorAttributes`
-pattern already used elsewhere in this chart.
+maxUnavailable uses a presence guard instead of `| default 1` (#4351): Sprig's
+`default` treats 0 as unset too, which clobbered an explicit `maxUnavailable: 0`
+(the same posture the bundled postgresql/valkey subcharts use) back up to 1. A
+bare `| default`-less dot-access would reopen a DIFFERENT hole — the documented
+null-to-delete override idiom (an operator setting `maxUnavailable: null` to
+drop the key, per
+packages/website/src/content/docs/administration/openshift.md) deletes it
+from the merged map entirely, and dot-accessing a deleted key renders nothing
+(`maxUnavailable: `), not the chart's documented default of 1. The guard
+treats three inputs as "not set" — `kindIs "invalid"` (absent or explicit
+null) AND an empty string (this chart's OTHER unset sentinel, the same one
+`replicas.web` ships as its own default in values.yaml) — and renders the
+explicit value otherwise, including 0. This matches the `actorAttributes`
+pattern already used elsewhere in this chart, extended with the same
+empty-string check `replicas.web`'s own guard uses.
 */}}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -41,8 +44,9 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   {{- $apiMaxUnavailable := 1 }}
-  {{- if not (kindIs "invalid" .Values.podDisruptionBudget.api.maxUnavailable) }}
-  {{- $apiMaxUnavailable = .Values.podDisruptionBudget.api.maxUnavailable }}
+  {{- $apiMaxUnavailableSet := .Values.podDisruptionBudget.api.maxUnavailable }}
+  {{- if not (or (kindIs "invalid" $apiMaxUnavailableSet) (and (kindIs "string" $apiMaxUnavailableSet) (eq $apiMaxUnavailableSet ""))) }}
+  {{- $apiMaxUnavailable = $apiMaxUnavailableSet }}
   {{- end }}
   maxUnavailable: {{ $apiMaxUnavailable }}
   selector:
@@ -59,8 +63,9 @@ metadata:
     app.kubernetes.io/component: celery-worker
 spec:
   {{- $workerMaxUnavailable := 1 }}
-  {{- if not (kindIs "invalid" .Values.podDisruptionBudget.worker.maxUnavailable) }}
-  {{- $workerMaxUnavailable = .Values.podDisruptionBudget.worker.maxUnavailable }}
+  {{- $workerMaxUnavailableSet := .Values.podDisruptionBudget.worker.maxUnavailable }}
+  {{- if not (or (kindIs "invalid" $workerMaxUnavailableSet) (and (kindIs "string" $workerMaxUnavailableSet) (eq $workerMaxUnavailableSet ""))) }}
+  {{- $workerMaxUnavailable = $workerMaxUnavailableSet }}
   {{- end }}
   maxUnavailable: {{ $workerMaxUnavailable }}
   selector:
@@ -78,8 +83,9 @@ metadata:
     app.kubernetes.io/component: web
 spec:
   {{- $webMaxUnavailable := 1 }}
-  {{- if not (kindIs "invalid" .Values.podDisruptionBudget.web.maxUnavailable) }}
-  {{- $webMaxUnavailable = .Values.podDisruptionBudget.web.maxUnavailable }}
+  {{- $webMaxUnavailableSet := .Values.podDisruptionBudget.web.maxUnavailable }}
+  {{- if not (or (kindIs "invalid" $webMaxUnavailableSet) (and (kindIs "string" $webMaxUnavailableSet) (eq $webMaxUnavailableSet ""))) }}
+  {{- $webMaxUnavailable = $webMaxUnavailableSet }}
   {{- end }}
   maxUnavailable: {{ $webMaxUnavailable }}
   selector:

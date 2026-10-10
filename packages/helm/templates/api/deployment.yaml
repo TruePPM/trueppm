@@ -167,8 +167,13 @@ spec:
           # address or port out from under the readiness/liveness probes
           # above, which target containerPort 8000 by name.
           {{- /* `| default 1` here is reasoned safe (#4351 sweep): 0 would be
-                 clobbered the same way, but 0 workers is invalid regardless —
-                 the fail guard right below already rejects it explicitly. */}}
+                 clobbered the same way, but values.schema.json's
+                 `minimum: 1` on processes.api.workers rejects 0 before this
+                 template ever runs, so there is no explicit 0 to clobber.
+                 (The `fail` guard right below catches a non-integer or
+                 negative value that somehow got past the schema — it never
+                 sees a literal 0, since `| default 1` has already rewritten
+                 it to 1 by the time the guard runs.) */}}
           {{- $apiWorkers := int (.Values.processes.api.workers | default 1) }}
           {{- if lt $apiWorkers 1 }}
             {{- fail (printf "processes.api.workers must be >= 1, got %d — uvicorn requires at least one worker process (#3833)" $apiWorkers) }}

@@ -1138,14 +1138,25 @@ probe_zero_web="$(helm template trueppm "$CHART" --set image.tag=latest --set we
 [ "$probe_zero_web" = "0,0" ] \
   || fail "probes.web.{readiness,liveness}InitialDelaySeconds=0 rendered $probe_zero_web, want 0,0 — clobbered back to the chart defaults 5/10 (#4351)"
 
+# A third: alerts.thresholds.volumeAvailablePercent=0 is the only way to
+# disable TruePPMVolumeFillingUp specifically (the comparison becomes
+# unsatisfiable), and unlike outboxDepth this field carries no schema
+# minimum, so the guard — not the schema — is what has to honor it.
+volume_zero="$(helm template trueppm "$CHART" --set image.tag=latest --set alerts.enabled=true \
+  --set alerts.thresholds.volumeAvailablePercent=0 --show-only templates/prometheusrule.yaml)"
+grep -qE '^\s*< 0$' <<<"$volume_zero" \
+  || fail "alerts.thresholds.volumeAvailablePercent=0 did not render '< 0' in TruePPMVolumeFillingUp — clobbered back to the chart default 15 (#4351)"
+volume_null="$(helm template trueppm "$CHART" --set image.tag=latest --set alerts.enabled=true \
+  --set alerts.thresholds.volumeAvailablePercent=null --show-only templates/prometheusrule.yaml)"
+grep -qE '^\s*< 15$' <<<"$volume_null" \
+  || fail "alerts.thresholds.volumeAvailablePercent=null did not render '< 15' (the chart default) — a nulled key must not render empty (#4351)"
+
 # M+3. The null-to-delete override idiom (packages/website/src/content/docs/administration/openshift.md:
 #      setting a key to `null` deletes it from the merged map, rather than
 #      leaving the chart default in place) is a DIFFERENT failure mode from
-#      the 0/false clobber above, and round-1 fixes for #4351 regressed it on
-#      9 of the 10 non-replicas.web sites by replacing `| default` with bare
-#      dot-access instead of a presence guard. Each of these must render the
+#      the 0/false clobber above: each of the same keys must render the
 #      chart's documented default — not an empty/invalid value — when the key
-#      is explicitly nulled.
+#      is explicitly nulled, not just when it is 0/false or left unset.
 null_render="$(helm template trueppm "$CHART" --set image.tag=latest --set replicaCount=5 \
   --set replicas.web=null --set podDisruptionBudget.enabled=true \
   --set podDisruptionBudget.api.maxUnavailable=null \
@@ -1175,6 +1186,10 @@ seed_backoff_null="$(helm template trueppm "$CHART" "${demo_backoff_args[@]}" --
   --show-only templates/demo-seed-job.yaml | yq 'select(.kind == "Job") | .spec.backoffLimit')"
 [ "$seed_backoff_null" = "2" ] \
   || fail "demo.backoffLimit=null rendered backoffLimit=$seed_backoff_null in the demo-seed Job, want 2 (the chart default) — a nulled key must not fall through to Kubernetes' own default (#4351)"
+reset_backoff_null="$(helm template trueppm "$CHART" "${demo_backoff_args[@]}" --set demo.backoffLimit=null \
+  --show-only templates/demo-reset-cronjob.yaml | yq 'select(.kind == "CronJob") | .spec.jobTemplate.spec.backoffLimit')"
+[ "$reset_backoff_null" = "2" ] \
+  || fail "demo.backoffLimit=null rendered backoffLimit=$reset_backoff_null in the demo-reset CronJob, want 2 (the chart default) — a nulled key must not fall through to Kubernetes' own default (#4351)"
 outbox_null="$(helm template trueppm "$CHART" --set image.tag=latest --set alerts.enabled=true \
   --set alerts.thresholds.outboxDepth=null --set alerts.thresholds.outboxOldestAgeSeconds=null \
   --show-only templates/prometheusrule.yaml)"
@@ -1194,6 +1209,22 @@ probe_null_web="$(helm template trueppm "$CHART" --set image.tag=latest --set we
   | yq '[.spec.template.spec.containers[0].readinessProbe.initialDelaySeconds, .spec.template.spec.containers[0].livenessProbe.initialDelaySeconds] | join(",")')"
 [ "$probe_null_web" = "5,10" ] \
   || fail "probes.web.{readiness,liveness}InitialDelaySeconds=null rendered $probe_null_web, want 5,10 (the chart defaults) — a nulled key must not render empty (#4351)"
+
+# M+4. podDisruptionBudget.*.maxUnavailable is typed ["integer","string"] in
+#      values.schema.json, and an empty string is this chart's OTHER "unset"
+#      sentinel — the same one replicas.web ships as ITS OWN default in
+#      values.yaml. A `kindIs "invalid"` guard alone treats "" as a real,
+#      present value and renders it verbatim (empty), not the chart default.
+empty_render="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set podDisruptionBudget.enabled=true \
+  --set podDisruptionBudget.api.maxUnavailable="" \
+  --set podDisruptionBudget.worker.maxUnavailable="" \
+  --set podDisruptionBudget.web.maxUnavailable="")"
+for tier in api celery-worker web; do
+  got="$( (yq eval "select(.kind == \"PodDisruptionBudget\" and .metadata.name == \"trueppm-${tier}\") | .spec.maxUnavailable" - <<<"$empty_render" | grep -v '^---$' | grep -v '^$') || true)"
+  [ "$got" = "1" ] \
+    || fail "podDisruptionBudget.${tier}.maxUnavailable='' rendered maxUnavailable='$got', want 1 (the chart default) — an empty string is this chart's other unset sentinel and must not render empty (#4351)"
+done
 
 # N. Probe Host header (#3183, #3237). kubelet dials a probe by POD IP, so with
 #    no Host header Django validates `<podIP>:8000` against ALLOWED_HOSTS in
@@ -2468,7 +2499,7 @@ echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays 
 echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
 echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"
 echo "  - layout (ADR-1248): the 7 moved pre-0.4.0 component-first keys are refused by the schema, which names each one; a 0.3-shaped values file renders api=worker=web=2; replicas.web and service.web.* are wired"
-echo "  - explicit falsy overrides (#4351): replicas.web/podDisruptionBudget.*.maxUnavailable/demo.backoffLimit=0, observability.otlp.*=false, and alerts.thresholds.outbox*/probe initialDelaySeconds=0 all render 0/false, not the chart default; the SAME 10 keys set to null still render the chart default, not empty/invalid output"
+echo "  - explicit falsy overrides (#4351): replicas.web/podDisruptionBudget.*.maxUnavailable/demo.backoffLimit=0, observability.otlp.*=false, and alerts.thresholds.outbox*/probe initialDelaySeconds=0 all render 0/false, not the chart default (14 keys, demo.backoffLimit checked on both the seed Job and reset CronJob); the SAME 14 keys set to null still render the chart default, not empty/invalid output; podDisruptionBudget.*.maxUnavailable='' (this chart's other unset sentinel) also still renders the chart default"
 echo "  - both api probes send Host: $noing_host with no Ingress, $ing_host with one (kubelet would otherwise send the pod IP and Django would 400 it)"
 echo "  - collectstatic runs and shares STATIC_ROOT ($static_root) with the api container"
 echo "  - media claim: all $media_checked settings-importing containers agree on mount and TRUEPPM_MEDIA_ROOT; RWO above one replica is refused"

@@ -186,8 +186,9 @@ spec:
           # `| default 93600` is reasoned safe (#4351 sweep): unlike outboxDepth
           # above, 0 here is not a usable "zero tolerance" setting — it would
           # make this alert fire permanently from the very first successful run
-          # onward, not track a real degrading signal, so it is not a value an
-          # operator would deliberately set.
+          # onward, not track a real degrading signal. values.schema.json's
+          # `exclusiveMinimum: 0` on this field makes that true by construction,
+          # not just by convention: 0 is rejected before this template ever runs.
           expr: >-
             time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
             > {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 93600 }}
@@ -230,7 +231,8 @@ spec:
           # forever while no backup is taken. Alert on the absence of a recent
           # success, not on the presence of a failure.
           # Same reasoning as TruePPMDemoResetStale above (#4351) — 0 degenerates
-          # this alert to permanently-firing rather than expressing a tolerance.
+          # this alert to permanently-firing rather than expressing a tolerance,
+          # and values.schema.json's `exclusiveMinimum: 0` rejects it outright.
           expr: >-
             time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-backup"})
             > {{ .Values.alerts.thresholds.backup.staleAfterSeconds | default 172800 }}
@@ -270,17 +272,26 @@ spec:
           # backups, media. A full PostgreSQL PVC is silent until it is an
           # outage, and a full backup PVC turns every subsequent run into a
           # failure the JobFailed rule reports only after the fact.
-          # `| default 15` is reasoned safe (#4351 sweep): the comparison is
-          # `< threshold`, so 0 would make the condition unsatisfiable (nothing
-          # is ever less than 0%) — not a tolerance an operator could want,
-          # unlike outboxDepth's `>` comparison above.
+          # A `kindIs "invalid"` presence guard replaces `| default 15` (#4351):
+          # the comparison is `< threshold`, so an explicit `volumeAvailablePercent: 0`
+          # makes the condition unsatisfiable (nothing is ever less than 0%) —
+          # which is a legitimate value here, not a degenerate one: it is the
+          # only way to disable THIS rule specifically while leaving every
+          # other alerts.thresholds.* rule and the alerts.enabled master switch
+          # untouched. values.schema.json has no minimum on this field, so 0
+          # is not schema-rejected the way staleAfterSeconds above is — the
+          # guard, not the schema, is what has to honor it.
+          {{- $volumeAvailablePercent := 15 }}
+          {{- if not (kindIs "invalid" .Values.alerts.thresholds.volumeAvailablePercent) }}
+          {{- $volumeAvailablePercent = .Values.alerts.thresholds.volumeAvailablePercent }}
+          {{- end }}
           expr: >-
             kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes * 100
-            < {{ .Values.alerts.thresholds.volumeAvailablePercent | default 15 }}
+            < {{ $volumeAvailablePercent }}
           for: {{ .Values.alerts.thresholds.volumeAvailableFor | default "15m" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "PersistentVolume {{ "{{" }} $labels.persistentvolumeclaim {{ "}}" }} is filling up"
-            description: "{{ "{{" }} $labels.persistentvolumeclaim {{ "}}" }} has less than {{ .Values.alerts.thresholds.volumeAvailablePercent | default 15 }}% free for over {{ .Values.alerts.thresholds.volumeAvailableFor | default "15m" }}. Expand the claim before it fills."
+            description: "{{ "{{" }} $labels.persistentvolumeclaim {{ "}}" }} has less than {{ $volumeAvailablePercent }}% free for over {{ .Values.alerts.thresholds.volumeAvailableFor | default "15m" }}. Expand the claim before it fills."
 {{- end }}

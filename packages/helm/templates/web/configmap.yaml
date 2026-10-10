@@ -61,9 +61,8 @@ data:
   default.conf: |
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
-             valid container port (see templates/web/deployment.yaml for the
-             full reasoning), so there is no legitimate explicit value for it
-             to clobber. */}}
+             valid container port, so there is no legitimate explicit value
+             for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;
@@ -217,9 +216,8 @@ data:
   default.conf: |
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
-             valid container port (see templates/web/deployment.yaml for the
-             full reasoning), so there is no legitimate explicit value for it
-             to clobber. */}}
+             valid container port, so there is no legitimate explicit value
+             for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;
@@ -349,9 +347,8 @@ data:
     {{- end }}
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
-             valid container port (see templates/web/deployment.yaml for the
-             full reasoning), so there is no legitimate explicit value for it
-             to clobber. */}}
+             valid container port, so there is no legitimate explicit value
+             for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;
