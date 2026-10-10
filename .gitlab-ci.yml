@@ -715,6 +715,8 @@ scripts:test:
         - scripts/tests/helm-celery-probe-overrides.test.sh
         - scripts/tests/helm-install-drill-worker-restart-message.test.sh
         - scripts/tests/helm-upgrade-leg-version.test.sh
+        - scripts/resolve-prev-web-image.sh
+        - scripts/tests/resolve-prev-web-image.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
@@ -762,6 +764,8 @@ scripts:test:
         - scripts/tests/helm-celery-probe-overrides.test.sh
         - scripts/tests/helm-install-drill-worker-restart-message.test.sh
         - scripts/tests/helm-upgrade-leg-version.test.sh
+        - scripts/resolve-prev-web-image.sh
+        - scripts/tests/resolve-prev-web-image.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
@@ -788,6 +792,7 @@ scripts:test:
     - bash scripts/tests/helm-celery-probe-overrides.test.sh
     - bash scripts/tests/helm-install-drill-worker-restart-message.test.sh
     - bash scripts/tests/helm-upgrade-leg-version.test.sh
+    - bash scripts/tests/resolve-prev-web-image.test.sh
     - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
@@ -7115,14 +7120,19 @@ ci:arm64-smoke:
       # nginx.conf and package-lock.json from the package dir, not the repo
       # root, so a root-context build fails on a missing /nginx.conf.
       echo "--- web: arm64 build (packages/web context, matching web:publish) ---"
+      # Prior-release assets on THIS runner's BuildKit (ADR-1249): the arm64
+      # leg is the only one that builds on Docker Desktop, so this is where its
+      # RUN --mount=from path is proven before a tag needs it.
+      WEB_VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' packages/web/package.json)"
+      PREV_WEB_IMAGE="$(sh "$CI_PROJECT_DIR"/scripts/resolve-prev-web-image.sh --at-or-below "$WEB_VERSION")"
       cd packages/web
       # --no-cache: same stale-layer exposure as the api build above (#4245).
-      docker build --no-cache -t "${GL_WEB}:arm64-smoke" .
+      docker build --no-cache --build-arg PREV_WEB_IMAGE="$PREV_WEB_IMAGE" -t "${GL_WEB}:arm64-smoke" .
       cd "$CI_PROJECT_DIR"
       # Same asset-serving smoke web:publish:arm64 runs (#4338), so this probe
       # exercises it before a tag ever does.
       sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test
-      sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_WEB}:arm64-smoke"
+      WEB_SMOKE_PRIOR_IMAGE="$PREV_WEB_IMAGE" sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_WEB}:arm64-smoke"
       ARCH="$(docker image inspect "${GL_WEB}:arm64-smoke" --format '{{.Architecture}}')"
       echo "web image architecture: ${ARCH}"
       [ "$ARCH" = "arm64" ] || { echo "ERROR: expected arm64, got ${ARCH}"; exit 1; }
@@ -7196,12 +7206,14 @@ ci:amd64-smoke:
       set -euo pipefail
       . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
       GL_WEB="${CI_REGISTRY_IMAGE}/web"
+      WEB_VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' packages/web/package.json)"
+      PREV_WEB_IMAGE="$(sh "$CI_PROJECT_DIR"/scripts/resolve-prev-web-image.sh --at-or-below "$WEB_VERSION")"
       cd packages/web
-      docker build -t "${GL_WEB}:amd64-smoke" .
+      docker build --build-arg PREV_WEB_IMAGE="$PREV_WEB_IMAGE" -t "${GL_WEB}:amd64-smoke" .
       cd "$CI_PROJECT_DIR"
-      # Same asset-serving smoke web:publish runs (#4338) — see that job.
+      # Same asset-serving smoke web:publish runs (#4338, ADR-1249) — see that job.
       sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test
-      WEB_SMOKE_HOST=docker sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_WEB}:amd64-smoke"
+      WEB_SMOKE_HOST=docker WEB_SMOKE_PRIOR_IMAGE="$PREV_WEB_IMAGE" sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_WEB}:amd64-smoke"
       ARCH="$(docker image inspect "${GL_WEB}:amd64-smoke" --format '{{.Architecture}}')"
       echo "web image architecture: ${ARCH}"
       [ "$ARCH" = "amd64" ] || { echo "ERROR: expected amd64, got ${ARCH}"; exit 1; }
@@ -7582,8 +7594,17 @@ web:publish:
       # to nothing in any registry — leaving the document unable to say what
       # it is an SBOM OF.
       GH_IMAGE_NAME="ghcr.io/${GHCR_USER}/web"
+      # The previous release whose hashed assets this image also serves, so a
+      # tab opened before the upgrade keeps working (ADR-1249). By digest, so a
+      # re-pushed tag cannot change what this build copies. `--below`: never
+      # this tag itself, which a re-run may find already published. Proven on
+      # every image-building MR by ci:build-deploy-images, which runs the same
+      # resolver, build arg and prior-asset smoke.
+      PREV_WEB_IMAGE="$(sh "$CI_PROJECT_DIR"/scripts/resolve-prev-web-image.sh --below "$VERSION")" || exit 1
+      echo "PREV_WEB_IMAGE=${PREV_WEB_IMAGE:-<none>}"
       cd packages/web
       docker build \
+        --build-arg PREV_WEB_IMAGE="$PREV_WEB_IMAGE" \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" \
         .
       # Boot the image and require it to serve every asset its own index.html
@@ -7593,8 +7614,11 @@ web:publish:
       # it proves the checker still fails on the SPA-fallback shape (a missing
       # chunk answered 200 text/html) before its pass is believed. The daemon is
       # the dind `docker` service, so the published port lives on that host.
+      # WEB_SMOKE_PRIOR_IMAGE: every asset of the prior release must be served
+      # by this image too (ADR-1249).
       sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test || exit 1
-      WEB_SMOKE_HOST=docker sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" || exit 1
+      WEB_SMOKE_HOST=docker WEB_SMOKE_PRIOR_IMAGE="$PREV_WEB_IMAGE" \
+        sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" || exit 1
       # Scan the built image before publishing (see api:publish for rationale).
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-amd64" -o /tmp/web-image-amd64.tar
       trivy image --input /tmp/web-image-amd64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
@@ -7654,17 +7678,24 @@ web:publish:arm64:
       # to nothing in any registry — leaving the document unable to say what
       # it is an SBOM OF.
       GH_IMAGE_NAME="ghcr.io/${GHCR_USER}/web"
+      # Prior-release assets (ADR-1249) — see web:publish. The digest is the
+      # multi-arch index, so both legs resolve the same value and each build
+      # takes its own platform from it.
+      PREV_WEB_IMAGE="$(sh "$CI_PROJECT_DIR"/scripts/resolve-prev-web-image.sh --below "$VERSION")" || exit 1
+      echo "PREV_WEB_IMAGE=${PREV_WEB_IMAGE:-<none>}"
       cd packages/web
       # --no-cache: see api:publish:arm64's comment (#4245) — this runner is
       # the same persistent shell executor, so it has the same stale-layer
       # exposure on any OS-package CVE patched since the last release.
       docker build --no-cache \
+        --build-arg PREV_WEB_IMAGE="$PREV_WEB_IMAGE" \
         -t "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" \
         .
-      # Asset-serving smoke before push — see web:publish (#4338). Docker
-      # Desktop is on this host, so the script binds the port to loopback.
+      # Asset-serving smoke before push — see web:publish (#4338, ADR-1249).
+      # Docker Desktop is on this host, so the script binds the port to loopback.
       sh "$CI_PROJECT_DIR"/scripts/check-served-assets.sh --self-test || exit 1
-      sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" || exit 1
+      WEB_SMOKE_PRIOR_IMAGE="$PREV_WEB_IMAGE" \
+        sh "$CI_PROJECT_DIR"/scripts/web-image-asset-smoke.sh "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" || exit 1
       docker save "${GL_IMAGE}:${CI_COMMIT_TAG}-arm64" -o /tmp/web-image-arm64.tar
       trivy image --input /tmp/web-image-arm64.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       # The SBOM must land in the PROJECT-ROOT sbom/ that `artifacts: paths` and

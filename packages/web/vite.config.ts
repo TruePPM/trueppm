@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import type { PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -16,7 +16,9 @@ const buildSha = (() => {
 
 const appVersion = (() => {
   try {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8')) as { version: string };
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8')) as {
+      version: string;
+    };
     return pkg.version;
   } catch {
     return '0.0.0';
@@ -74,8 +76,40 @@ const coveragePlugins: PluginOption[] = coverage
     ]
   : [];
 
+// Writes dist/asset-files.json: every file the build put under assets/, read
+// back from disk after the bundle is written (ADR-1249, #4341). Vite's
+// asset-manifest.json is not a complete list: it omits the CPM worker chunk
+// that `new Worker(new URL(...))` emits. The next release's image copies this
+// release's assets by THIS list, and the prior-release check verifies by it, so
+// a file missing from it would be dropped one upgrade later.
+function assetFilesList(): PluginOption {
+  let outDir = 'dist';
+  return {
+    name: 'trueppm:asset-files',
+    apply: 'build',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    closeBundle() {
+      const files = (
+        readdirSync(resolve(outDir, 'assets'), {
+          recursive: true,
+          withFileTypes: true,
+        }) as import('node:fs').Dirent[]
+      )
+        .filter((d) => d.isFile())
+        .map(
+          (d) =>
+            `assets/${resolve(d.parentPath, d.name).slice(resolve(outDir, 'assets').length + 1)}`,
+        )
+        .sort();
+      writeFileSync(resolve(outDir, 'asset-files.json'), `${JSON.stringify({ files }, null, 1)}\n`);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), ...coveragePlugins],
+  plugins: [react(), ...coveragePlugins, assetFilesList()],
   define: {
     __BUILD_SHA__: JSON.stringify(buildSha),
     __APP_VERSION__: JSON.stringify(appVersion),
