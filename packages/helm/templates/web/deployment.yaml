@@ -7,12 +7,22 @@ metadata:
     {{- include "trueppm.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
 spec:
-  # `default` treats 0 and "" as unset, so this fallback only works because
-  # replicas.web ships EMPTY. Its predecessor (web.replicaCount, renamed by
-  # ADR-1248) shipped as 1 — truthy — so the fallback could never fire and the
-  # tier every user actually loads was a singleton under values-prod.yaml's
+  # Sprig's `default` treats 0 as unset too, which clobbered an explicit
+  # `replicas.web: 0` (scale the web tier to zero) back up to replicaCount
+  # (#4351). replicas.web's unset sentinel is specifically the empty string
+  # "" (see values.yaml) — never nil, since the schema also allows null — so
+  # the presence check below distinguishes "not set, follow replicaCount"
+  # from "set to a real integer, including 0" by kind/emptiness rather than
+  # by truthiness. Its predecessor (web.replicaCount, renamed by ADR-1248)
+  # shipped as 1 — truthy — so the fallback could never fire and the tier
+  # every user actually loads was a singleton under values-prod.yaml's
   # replicaCount: 2 (#3188).
-  replicas: {{ .Values.replicas.web | default .Values.replicaCount }}
+  {{- $webReplicas := .Values.replicas.web }}
+  {{- if or (kindIs "invalid" $webReplicas) (and (kindIs "string" $webReplicas) (eq $webReplicas "")) }}
+  replicas: {{ .Values.replicaCount }}
+  {{- else }}
+  replicas: {{ $webReplicas }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
@@ -59,6 +69,9 @@ spec:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
+              # `| default 8080` is reasoned safe (#4351 sweep): 0 is not a valid
+              # container port, so there is no legitimate explicit value for it
+              # to clobber.
               containerPort: {{ .Values.web.containerPort | default 8080 }}
               protocol: TCP
           volumeMounts:
@@ -76,13 +89,35 @@ spec:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: {{ .Values.probes.web.readinessInitialDelaySeconds | default 5 }}
+            # A `kindIs "invalid"` presence guard replaces `| default 5` on
+            # initialDelaySeconds (#4351): 0 is a valid, legitimate Kubernetes
+            # setting (probe immediately), so plain `| default` would have
+            # clobbered it. Bare dot-access after dropping `| default` would
+            # reopen a different hole: the chart's documented null-to-delete
+            # override idiom (packages/website/src/content/docs/administration/openshift.md) deletes a key
+            # set to `null` from the merged map, and an empty
+            # initialDelaySeconds likely fails admission. periodSeconds keeps
+            # its `| default` — the Kubernetes API requires it >= 1, so 0 is
+            # invalid regardless and there is no null-to-delete hole to worry
+            # about.
+            {{- $webReadinessInitialDelay := 5 }}
+            {{- if not (kindIs "invalid" .Values.probes.web.readinessInitialDelaySeconds) }}
+            {{- $webReadinessInitialDelay = .Values.probes.web.readinessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $webReadinessInitialDelay }}
             periodSeconds: {{ .Values.probes.web.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: {{ .Values.probes.web.livenessInitialDelaySeconds | default 10 }}
+            # See the readiness probe above for why initialDelaySeconds uses a
+            # presence guard instead of `| default` while periodSeconds keeps
+            # one (#4351).
+            {{- $webLivenessInitialDelay := 10 }}
+            {{- if not (kindIs "invalid" .Values.probes.web.livenessInitialDelaySeconds) }}
+            {{- $webLivenessInitialDelay = .Values.probes.web.livenessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $webLivenessInitialDelay }}
             periodSeconds: {{ .Values.probes.web.livenessPeriodSeconds | default 30 }}
           {{- include "trueppm.preStop" (dict "root" $ "tier" "web") | nindent 10 }}
           resources:

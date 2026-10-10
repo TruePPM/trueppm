@@ -166,6 +166,14 @@ spec:
           # this only ADDS a worker count, it must never change the bind
           # address or port out from under the readiness/liveness probes
           # above, which target containerPort 8000 by name.
+          {{- /* `| default 1` here is reasoned safe (#4351 sweep): 0 would be
+                 clobbered the same way, but values.schema.json's
+                 `minimum: 1` on processes.api.workers rejects 0 before this
+                 template ever runs, so there is no explicit 0 to clobber.
+                 (The `fail` guard right below catches a non-integer or
+                 negative value that somehow got past the schema — it never
+                 sees a literal 0, since `| default 1` has already rewritten
+                 it to 1 by the time the guard runs.) */}}
           {{- $apiWorkers := int (.Values.processes.api.workers | default 1) }}
           {{- if lt $apiWorkers 1 }}
             {{- fail (printf "processes.api.workers must be >= 1, got %d — uvicorn requires at least one worker process (#3833)" $apiWorkers) }}
@@ -301,6 +309,9 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
+            # periodSeconds/failureThreshold `| default` are reasoned safe (#4351
+            # sweep): the Kubernetes API requires both >= 1, so 0 is invalid
+            # regardless of whether `default` would clobber it.
             periodSeconds: {{ .Values.probes.api.startupPeriodSeconds | default 5 }}
             failureThreshold: {{ .Values.probes.api.startupFailureThreshold | default 30 }}
           {{- end }}
@@ -320,7 +331,22 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
-            initialDelaySeconds: {{ .Values.probes.api.readinessInitialDelaySeconds | default 10 }}
+            # A `kindIs "invalid"` presence guard replaces `| default 10` on
+            # initialDelaySeconds (#4351): 0 is a valid, legitimate Kubernetes
+            # setting (probe immediately — the chart's own probes.worker.startup
+            # block already ships 0 for the same field), so plain `| default`
+            # would have clobbered it. Bare dot-access after dropping `| default`
+            # would reopen a different hole: the chart's documented
+            # null-to-delete override idiom (packages/website/src/content/docs/administration/openshift.md)
+            # deletes a key set to `null` from the merged map, and an empty
+            # initialDelaySeconds likely fails admission. periodSeconds keeps its
+            # `| default` — the Kubernetes API requires it >= 1, so 0 is invalid
+            # regardless and there is no null-to-delete hole to worry about.
+            {{- $apiReadinessInitialDelay := 10 }}
+            {{- if not (kindIs "invalid" .Values.probes.api.readinessInitialDelaySeconds) }}
+            {{- $apiReadinessInitialDelay = .Values.probes.api.readinessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $apiReadinessInitialDelay }}
             periodSeconds: {{ .Values.probes.api.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
@@ -331,7 +357,14 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
-            initialDelaySeconds: {{ .Values.probes.api.livenessInitialDelaySeconds | default 30 }}
+            # See the readiness probe above for why initialDelaySeconds uses a
+            # presence guard instead of `| default` while periodSeconds keeps
+            # one (#4351).
+            {{- $apiLivenessInitialDelay := 30 }}
+            {{- if not (kindIs "invalid" .Values.probes.api.livenessInitialDelaySeconds) }}
+            {{- $apiLivenessInitialDelay = .Values.probes.api.livenessInitialDelaySeconds }}
+            {{- end }}
+            initialDelaySeconds: {{ $apiLivenessInitialDelay }}
             periodSeconds: {{ .Values.probes.api.livenessPeriodSeconds | default 30 }}
           resources:
             {{- toYaml .Values.resources.api | nindent 12 }}

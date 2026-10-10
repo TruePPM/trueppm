@@ -20,6 +20,10 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: {{ include "trueppm.fullname" . }}-api
+  # The three `| default` on this tier are reasoned safe (#4351 sweep): the
+  # autoscaling/v2 API requires minReplicas/maxReplicas >= 1 and
+  # targetCPUUtilizationPercentage > 0, so 0 is invalid regardless of whether
+  # `default` would clobber it.
   minReplicas: {{ .Values.autoscaling.api.minReplicas | default 2 }}
   maxReplicas: {{ .Values.autoscaling.api.maxReplicas | default 6 }}
   metrics:
@@ -51,6 +55,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: {{ include "trueppm.fullname" . }}-celery-worker
+  # Same reasoning as the api tier's HPA above (#4351).
   minReplicas: {{ .Values.autoscaling.worker.minReplicas | default 2 }}
   maxReplicas: {{ .Values.autoscaling.worker.maxReplicas | default 6 }}
   metrics:

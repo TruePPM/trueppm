@@ -60,6 +60,9 @@ data:
 */}}
   default.conf: |
     server {
+        {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
+             valid container port, so there is no legitimate explicit value
+             for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;
@@ -212,6 +215,9 @@ data:
 */}}
   default.conf: |
     server {
+        {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
+             valid container port, so there is no legitimate explicit value
+             for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;
@@ -340,6 +346,9 @@ data:
     limit_req_zone $binary_remote_addr zone=admin_login:1m rate={{ .Values.web.adminAccess.rateLimit.rate }};
     {{- end }}
     server {
+        {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
+             valid container port, so there is no legitimate explicit value
+             for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
         root /usr/share/nginx/html;

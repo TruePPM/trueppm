@@ -59,7 +59,20 @@ metadata:
     helm.sh/hook-weight: "0"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
-  backoffLimit: {{ .Values.demo.backoffLimit | default 2 }}
+  # A `kindIs "invalid"` presence guard replaces `| default 2` (#4351): Sprig's
+  # `default` treats 0 as unset too, which clobbered an explicit
+  # `backoffLimit: 0` (fail the Job on the very first attempt) back to 2. Bare
+  # dot-access after dropping `| default` would reopen a different hole: the
+  # chart's documented null-to-delete override idiom
+  # (packages/website/src/content/docs/administration/openshift.md) deletes a key set to `null` from the
+  # merged map, and an empty backoffLimit falls through to Kubernetes' own
+  # built-in default (6), not this chart's documented default (2). The guard
+  # below renders 2 for both "never set" and "explicitly nulled".
+  {{- $demoBackoffLimit := 2 }}
+  {{- if not (kindIs "invalid" .Values.demo.backoffLimit) }}
+  {{- $demoBackoffLimit = .Values.demo.backoffLimit }}
+  {{- end }}
+  backoffLimit: {{ $demoBackoffLimit }}
   template:
     metadata:
       labels:
