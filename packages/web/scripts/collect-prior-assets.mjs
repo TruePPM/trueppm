@@ -6,13 +6,16 @@
  * stage, against the prior image's filesystem bind-mounted read-only. Nothing
  * from the prior image is executed: this script only reads its files.
  *
- * Which files: the ones the prior image's OWN `asset-manifest.json` names.
- * Copying its whole `assets/` instead would carry N-2, N-3, ... forward
- * forever, because every image built this way already holds its predecessor's
- * files too. An image built before ADR-1249 has no manifest (0.4.0-beta.6 and
- * beta.7 predate !2965). For that case only, its whole `assets/` is taken,
- * which is still exactly one release: such an image only ever held its own
- * build.
+ * Which files: the ones the prior image's OWN `asset-files.json` lists (written
+ * by the `trueppm:asset-files` plugin in vite.config.ts: every file the build
+ * put under `assets/`). Copying its whole `assets/` instead would carry N-2,
+ * N-3, ... forward forever, because every image built this way already holds
+ * its predecessor's files too. Vite's `asset-manifest.json` is not used here:
+ * it omits the CPM worker chunk, which would then be dropped one upgrade
+ * later. An image without `asset-files.json` was built before ADR-1249 (0.4.0-
+ * beta.6 and beta.7, or any image from before this list existed); for that
+ * case only, its whole `assets/` is taken, which is still exactly one release,
+ * because such an image never inherited anything and holds only its own build.
  *
  * Every selected name must be a plain relative path under `assets/` and a
  * regular file (not a symlink, not a directory). Anything else throws, so a
@@ -39,11 +42,12 @@ export function isSafeAssetPath(p) {
 }
 
 /**
- * Collects every string beginning `assets/` anywhere in a Vite manifest. Matching
- * the value rather than specific keys (`file`, `css`, `assets`) survives a
- * manifest-shape change, the same choice scripts/check-served-assets.sh makes.
+ * Collects every string beginning `assets/` anywhere in a parsed JSON document
+ * (`asset-files.json`'s `files`, or a Vite manifest). Matching the value rather
+ * than specific keys survives a shape change, the same choice
+ * scripts/check-served-assets.sh makes.
  *
- * @param {unknown} manifest Parsed `asset-manifest.json`.
+ * @param {unknown} manifest Parsed JSON.
  * @returns {string[]} Deduplicated paths, in first-seen order.
  */
 export function manifestAssetPaths(manifest) {
@@ -66,7 +70,7 @@ export function manifestAssetPaths(manifest) {
  * @param {string} opts.htmlRoot The prior image's nginx html root.
  * @param {string} opts.dest Staging directory; `assets/` is created inside it.
  * @param {string} opts.label Name of the prior image, for messages.
- * @returns {{count: number, source: 'manifest' | 'directory'}}
+ * @returns {{count: number, source: 'list' | 'directory'}}
  */
 export function collectPriorAssets({ htmlRoot, dest, label }) {
   const assetsDir = path.join(htmlRoot, 'assets');
@@ -78,12 +82,12 @@ export function collectPriorAssets({ htmlRoot, dest, label }) {
   // the prior assets/. Every source must resolve inside it.
   const assetsReal = fs.realpathSync(assetsDir);
 
-  const manifestFile = path.join(htmlRoot, 'asset-manifest.json');
+  const listFile = path.join(htmlRoot, 'asset-files.json');
   let names;
   let source;
-  if (fs.existsSync(manifestFile)) {
-    names = manifestAssetPaths(JSON.parse(fs.readFileSync(manifestFile, 'utf8')));
-    source = 'manifest';
+  if (fs.existsSync(listFile)) {
+    names = manifestAssetPaths(JSON.parse(fs.readFileSync(listFile, 'utf8')));
+    source = 'list';
   } else {
     names = fs.readdirSync(assetsDir).map((f) => `assets/${f}`);
     source = 'directory';
@@ -120,9 +124,9 @@ function main() {
   try {
     const { count, source } = collectPriorAssets({ htmlRoot, dest, label });
     const how =
-      source === 'manifest'
-        ? 'named by its asset-manifest.json'
-        : 'its whole assets/ (no asset-manifest.json: built before ADR-1249)';
+      source === 'list'
+        ? 'listed by its asset-files.json'
+        : 'its whole assets/ (no asset-files.json: built before ADR-1249)';
     console.log(`prior-assets: kept ${count} files from ${label}, ${how}`);
     return 0;
   } catch (err) {

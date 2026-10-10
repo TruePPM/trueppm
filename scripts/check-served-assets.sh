@@ -49,10 +49,13 @@
 # hashed chunks; the web image carries them so the request is served. Set
 # SERVED_ASSETS_PRIOR_DIR to a local copy of the previous release's html root
 # and every file it names must also be served by THIS tier, with the same
-# per-type checks as above. What it names: the files in its
-# asset-manifest.json; or, for a release built before that manifest existed
-# (0.4.0-beta.6 and beta.7), the files under its assets/ (names are all that
-# is read, so empty placeholder files are fine). A directory with neither, or
+# per-type checks as above. What it names: the files in its asset-files.json
+# (every file that build put under assets/, from vite.config.ts); or, for a
+# release built before that list existed (0.4.0-beta.6 and beta.7), the files
+# under its assets/ (names are all that is read, so empty placeholder files are
+# fine). Its asset-manifest.json is deliberately NOT the reference: Vite's
+# manifest omits the CPM worker chunk, so a tab open before the upgrade would
+# lose its worker unseen. A directory with neither, or
 # SERVED_ASSETS_PRIOR_DIR set but empty (no prior release resolved), logs the
 # pass as SKIPPED with the reason, never as passed. SERVED_ASSETS_PRIOR_REQUIRED=1
 # turns that skip into a FAIL, for a caller that knows a prior release exists.
@@ -320,6 +323,9 @@ check_once() {
     # (#4341 residual gap). asset-manifest.json (Vite's build.manifest) is an
     # independent reference source that names every chunk and asset the build
     # produced, so fetch it and verify everything it names too.
+    # Known blind spot: Vite's manifest omits the `new Worker(new URL(...))`
+    # chunk (cpmWorker-*.js), so this pass does not see it. asset-files.json
+    # (vite.config.ts) does list it, and the prior-release pass below reads that.
     #
     # Skipped under SERVED_ASSETS_MANIFEST=0, for a caller deliberately probing
     # a previously-published image that predates this manifest feature — such
@@ -393,15 +399,15 @@ check_once() {
         : > "$_tmp/prior_refs"
         if [ -z "$_prior_dir" ]; then
             _prior_skip="no prior release supplied (SERVED_ASSETS_PRIOR_DIR is empty)"
-        elif [ -f "$_prior_dir/asset-manifest.json" ]; then
-            extract_manifest_refs "$_prior_dir/asset-manifest.json" > "$_tmp/prior_refs"
-            _prior_src="its asset-manifest.json"
+        elif [ -f "$_prior_dir/asset-files.json" ]; then
+            extract_manifest_refs "$_prior_dir/asset-files.json" > "$_tmp/prior_refs"
+            _prior_src="its asset-files.json"
         elif [ -d "$_prior_dir/assets" ]; then
             (cd "$_prior_dir" && find assets -type f) | sort -u > "$_tmp/prior_refs"
-            _prior_src="its assets/ listing (no asset-manifest.json: built before ADR-1249)"
-            [ -s "$_tmp/prior_refs" ] || _prior_skip="$_prior_dir/assets is empty and there is no asset-manifest.json"
+            _prior_src="its assets/ listing (no asset-files.json: built before ADR-1249)"
+            [ -s "$_tmp/prior_refs" ] || _prior_skip="$_prior_dir/assets is empty and there is no asset-files.json"
         else
-            _prior_skip="$_prior_dir has no asset-manifest.json and no assets/"
+            _prior_skip="$_prior_dir has no asset-files.json and no assets/"
         fi
         if [ -z "$_prior_skip" ] && [ ! -s "$_tmp/prior_refs" ]; then
             echo "check-served-assets: FAIL  prior-release $_prior_src named no assets — refusing to pass vacuously (ADR-1249)"
@@ -652,8 +658,12 @@ self_test() {
     # index.html is gone (the image ships only its own). PRIOR is a local copy
     # of that release's html root, as a caller would extract it.
     st_prior="$st_dir/prior"
+    # asset-files.json lists the worker chunk; the Vite manifest beside it
+    # does not, exactly as a real build emits them. The pass must use the list.
     prior_manifest() {
         rm -rf "$st_prior" && mkdir -p "$st_prior"
+        printf '%s' '{"files":["assets/Font-OLD4.woff2","assets/Lazy-OLD3.js","assets/cpmWorker-OLD5.js","assets/index-OLD1.js","assets/index-OLD2.css"]}' \
+            > "$st_prior/asset-files.json"
         printf '%s' '{"src/main.tsx":{"file":"assets/index-OLD1.js","css":["assets/index-OLD2.css"]},"src/Lazy.tsx":{"file":"assets/Lazy-OLD3.js","assets":["assets/Font-OLD4.woff2"]}}' \
             > "$st_prior/asset-manifest.json"
     }
@@ -664,24 +674,30 @@ self_test() {
         echo 'body{}' > "$FIXTURE_DIR/assets/index-OLD2.css"
         echo 'export{}' > "$FIXTURE_DIR/assets/Lazy-OLD3.js"
         echo 'woff' > "$FIXTURE_DIR/assets/Font-OLD4.woff2"
+        echo 'export{}' > "$FIXTURE_DIR/assets/cpmWorker-OLD5.js"
     }
 
-    # The prior manifest's whole set is served -> PASS, and it really checked
-    # all four (a pass that checked nothing would read the same).
+    # The prior list's whole set is served -> PASS, and it really checked all
+    # five (a pass that checked nothing would read the same).
     prior_served
     prior_manifest
     SERVED_ASSETS_PRIOR_DIR="$st_prior"
-    _case "prior-release manifest set fully served" expect-pass
+    _case "prior-release asset-files.json set fully served" expect-pass
     case "$(run_check "$FIXTURE_ORIGIN" 2>&1)" in
-        *"prior-release pass: 4 files named by its asset-manifest.json, 0 not served"*)
-            echo "SELF-TEST OK: prior-release pass checked all four prior files." ;;
-        *) echo "SELF-TEST FAILED: prior-release pass did not report checking all four prior files." >&2; st_rc=1 ;;
+        *"prior-release pass: 5 files named by its asset-files.json, 0 not served"*)
+            echo "SELF-TEST OK: prior-release pass checked all five prior files." ;;
+        *) echo "SELF-TEST FAILED: prior-release pass did not report checking all five prior files." >&2; st_rc=1 ;;
     esac
 
     # THE ADR-1249 SHAPE: a lazy chunk of the previous release, named only by
-    # ITS manifest, is not in the new image -> the old tab's next route blanks.
+    # ITS list, is not in the new image -> the old tab's next route blanks.
     rm -f "$FIXTURE_DIR/assets/Lazy-OLD3.js"
-    _case "prior-release manifest names a file the new image lacks" expect-fail "Lazy-OLD3.js"
+    _case "prior-release asset-files.json names a file the new image lacks" expect-fail "Lazy-OLD3.js"
+    # The worker chunk: absent from the prior Vite manifest, so only a pass
+    # reading asset-files.json can see it is gone.
+    prior_served
+    rm -f "$FIXTURE_DIR/assets/cpmWorker-OLD5.js"
+    _case "prior-release worker chunk (unlisted by the Vite manifest) not served" expect-fail "cpmWorker-OLD5.js"
 
     # A prior release built before asset-manifest.json existed: its assets/
     # listing is the reference instead (0.4.0-beta.6 -> first ADR-1249 image).
@@ -710,12 +726,12 @@ self_test() {
         unset SERVED_ASSETS_PRIOR_REQUIRED
     done
 
-    # A prior manifest naming nothing is a FAIL, not a skip.
+    # A prior list naming nothing is a FAIL, not a skip.
     prior_served
     rm -rf "$st_prior" && mkdir -p "$st_prior"
-    printf '{}' > "$st_prior/asset-manifest.json"
+    printf '{"files":[]}' > "$st_prior/asset-files.json"
     SERVED_ASSETS_PRIOR_DIR="$st_prior"
-    _case "prior-release manifest names zero assets" expect-fail "named no assets"
+    _case "prior-release asset-files.json names zero assets" expect-fail "named no assets"
     unset SERVED_ASSETS_PRIOR_DIR
 
     # A page with nothing to check is not a pass (e.g. a JSON error body).

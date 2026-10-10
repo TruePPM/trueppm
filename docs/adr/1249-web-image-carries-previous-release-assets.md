@@ -109,7 +109,12 @@ before it.**
 - **Risks:**
   - *Supply chain:* the serve stage copies files from a prior published image. It is our
     own ghcr image pinned by digest, and the copy is limited to manifest-named files
-    under `assets/`. Nothing executable runs from it at build time.
+    under `assets/`. Nothing executable runs from it at build time. Its cosign
+    signature is deliberately not verified before the copy: it is our own ghcr
+    image, pulled by an immutable digest the resolver read from that same
+    registry, and only static files under `assets/` are taken from it, so a
+    signature check would add a tool to the build job without changing what can
+    reach the image.
   - *Stale-chunk semantics:* an N tab running N's JS against an N+1 API is the API
     compatibility question, and it exists today. This ADR stops it surfacing as a missing
     chunk, and does not make it worse.
@@ -181,8 +186,9 @@ before it.**
    is the last cut release.
 2. **Releases before `asset-manifest.json` (step 2).** The manifest arrived
    with !2965, after beta.7, so the first image built under this ADR has no
-   prior manifest to copy by. When the prior image has no
-   `asset-manifest.json`, its whole `assets/` directory is copied. That is
+   prior manifest to copy by. When the prior image has no file list (as
+   implemented, `asset-files.json`; see the clarification below on why not the
+   manifest), its whole `assets/` directory is copied. That is
    still one release: an image built before this ADR only ever held its own
    build. The prior-release gate (step 4) takes the same fallback, checking the
    prior image's `assets/` listing; with nothing to check it logs SKIPPED with
@@ -212,6 +218,16 @@ before it.**
   once, which only brings the existing reload forward; the retry is never
   worse than not retrying, but the "probability ≥ ½ per attempt" in step 5
   holds only where the browser refetches.
+- *The reference list is `asset-files.json`, not the Vite manifest (amends
+  steps 2 and 4).* Vite's `asset-manifest.json` omits the CPM worker chunk that
+  `new Worker(new URL(...))` emits, so copying by it would drop the worker one
+  upgrade after the first ADR-1249 image, and a gate checking by it would not
+  notice. A build plugin (`trueppm:asset-files` in `packages/web/vite.config.ts`)
+  writes `asset-files.json`, every file the build wrote under `assets/`, read
+  back from disk. The copy and the prior-release gate both use it. An image
+  without it was built before ADR-1249 and holds only its own build, so the
+  whole-`assets/` fallback in amendment 2 keys on that file's absence, not the
+  manifest's. Found by the completeness check at acceptance.
 - *Previous-line fallback test.* The test-plan note that the previous-line
   fallback is untested is resolved: `scripts/tests/resolve-prev-web-image.test.sh`
   exercises it directly (first 0.5 image → last 0.4.x; 1.3.0 → 1.2.x), so no

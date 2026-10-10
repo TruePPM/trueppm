@@ -979,19 +979,21 @@ check_served_assets() {
 # post-upgrade check_served_assets requires HEAD to serve every one of them.
 #
 # Read from the running pod rather than over HTTP, because the previous release
-# may predate asset-manifest.json (0.4.0-beta.6 does): then its assets/ listing
+# may predate asset-files.json (0.4.0-beta.6 does): then its assets/ listing
 # is the reference, which only the filesystem can give. Names are all
 # check-served-assets.sh reads, so the listing becomes empty placeholder files.
 capture_prior_web_assets() {
   local svc="$1" out="$2" listing p
   rm -rf "$out"
   mkdir -p "$out"
-  if kubectl exec "svc/${svc}" -- cat /usr/share/nginx/html/asset-manifest.json >"$out/asset-manifest.json" 2>/dev/null \
-      && [ -s "$out/asset-manifest.json" ]; then
-    log "pre-upgrade release names its assets in asset-manifest.json — captured for the post-upgrade ADR-1249 check"
+  # asset-files.json, not asset-manifest.json: Vite's manifest omits the CPM
+  # worker chunk (see check-served-assets.sh's prior-release pass).
+  if kubectl exec "svc/${svc}" -- cat /usr/share/nginx/html/asset-files.json >"$out/asset-files.json" 2>/dev/null \
+      && [ -s "$out/asset-files.json" ]; then
+    log "pre-upgrade release lists its assets in asset-files.json — captured for the post-upgrade ADR-1249 check"
     return 0
   fi
-  rm -f "$out/asset-manifest.json"
+  rm -f "$out/asset-files.json"
   listing="$(kubectl exec "svc/${svc}" -- sh -c 'cd /usr/share/nginx/html && find assets -type f')" \
     || fail "could not list the pre-upgrade web pod's assets/ (svc/${svc}) for the ADR-1249 check"
   [ -n "$listing" ] || fail "the pre-upgrade web pod (svc/${svc}) has an empty assets/ — nothing to carry forward (ADR-1249)"
@@ -1004,7 +1006,7 @@ capture_prior_web_assets() {
     mkdir -p "$out/$(dirname "$p")"
     : >"$out/$p"
   done <<<"$listing"
-  log "pre-upgrade release has no asset-manifest.json (built before ADR-1249) — captured its assets/ listing ($(printf '%s\n' "$listing" | wc -l | tr -d ' ') files)"
+  log "pre-upgrade release has no asset-files.json (built before ADR-1249) — captured its assets/ listing ($(printf '%s\n' "$listing" | wc -l | tr -d ' ') files)"
 }
 
 # ---- restart + contention evidence ------------------------------------------

@@ -69,24 +69,41 @@ describe('manifestAssetPaths', () => {
 });
 
 describe('collectPriorAssets', () => {
-  it('copies only the files the prior manifest names, not inherited N-2 files', () => {
+  it('copies only the files the prior asset-files.json lists, not inherited N-2 files', () => {
     write('assets/index-N1.js');
     write('assets/Lazy-N1.js');
     write('assets/index-N2.js'); // carried by the prior image from ITS predecessor
     write(
-      'asset-manifest.json',
-      JSON.stringify({ m: { file: 'assets/index-N1.js' }, l: { file: 'assets/Lazy-N1.js' } }),
+      'asset-files.json',
+      JSON.stringify({ files: ['assets/Lazy-N1.js', 'assets/index-N1.js'] }),
     );
     expect(collectPriorAssets({ htmlRoot: root, dest, label: 'prev' })).toEqual({
       count: 2,
-      source: 'manifest',
+      source: 'list',
     });
     expect(staged()).toEqual(['Lazy-N1.js', 'index-N1.js']);
   });
 
-  it('falls back to the whole assets/ when the prior image predates the manifest', () => {
+  it('keeps the worker chunk the Vite manifest omits', () => {
+    write('assets/index-N1.js');
+    write('assets/cpmWorker-N1.js');
+    // Vite's manifest never names the `new Worker(new URL(...))` chunk.
+    write(
+      'asset-manifest.json',
+      JSON.stringify({ 'src/main.tsx': { file: 'assets/index-N1.js' } }),
+    );
+    write(
+      'asset-files.json',
+      JSON.stringify({ files: ['assets/cpmWorker-N1.js', 'assets/index-N1.js'] }),
+    );
+    collectPriorAssets({ htmlRoot: root, dest, label: 'prev' });
+    expect(staged()).toEqual(['cpmWorker-N1.js', 'index-N1.js']);
+  });
+
+  it('falls back to the whole assets/ when the prior image predates ADR-1249', () => {
     write('assets/index-B6.js');
     write('assets/index-B6.css');
+    // beta.6 shape: no asset-files.json (and, there, no manifest either).
     expect(collectPriorAssets({ htmlRoot: root, dest, label: 'beta.6' })).toEqual({
       count: 2,
       source: 'directory',
@@ -97,16 +114,16 @@ describe('collectPriorAssets', () => {
   it('never writes outside assets/: index.html and other root files stay behind', () => {
     write('index.html', '<html>');
     write('assets/index-A.js');
-    write('asset-manifest.json', JSON.stringify({ m: { file: 'assets/index-A.js' } }));
+    write('asset-files.json', JSON.stringify({ m: { file: 'assets/index-A.js' } }));
     collectPriorAssets({ htmlRoot: root, dest, label: 'prev' });
     expect(fs.readdirSync(dest)).toEqual(['assets']);
   });
 
-  it('rejects a manifest entry that traverses out of assets/, copying nothing', () => {
+  it('rejects a listed entry that traverses out of assets/, copying nothing', () => {
     write('assets/index-A.js');
     write('secret.txt');
     write(
-      'asset-manifest.json',
+      'asset-files.json',
       JSON.stringify({ m: { file: 'assets/index-A.js', css: ['assets/../secret.txt'] } }),
     );
     expect(() => collectPriorAssets({ htmlRoot: root, dest, label: 'prev' })).toThrow(
@@ -126,7 +143,7 @@ describe('collectPriorAssets', () => {
   it('rejects a file reached through a symlinked directory', () => {
     write('elsewhere/secret.js');
     fs.symlinkSync(path.join(root, 'elsewhere'), path.join(root, 'assets', 'sub'));
-    write('asset-manifest.json', JSON.stringify({ m: { file: 'assets/sub/secret.js' } }));
+    write('asset-files.json', JSON.stringify({ m: { file: 'assets/sub/secret.js' } }));
     expect(() => collectPriorAssets({ htmlRoot: root, dest, label: 'prev' })).toThrow(
       /resolves outside its assets/,
     );
@@ -141,15 +158,15 @@ describe('collectPriorAssets', () => {
     );
   });
 
-  it('fails when the manifest names a file the image does not contain', () => {
-    write('asset-manifest.json', JSON.stringify({ m: { file: 'assets/gone-Z.js' } }));
+  it('fails when asset-files.json lists a file the image does not contain', () => {
+    write('asset-files.json', JSON.stringify({ m: { file: 'assets/gone-Z.js' } }));
     expect(() => collectPriorAssets({ htmlRoot: root, dest, label: 'prev' })).toThrow(
       /does not contain it/,
     );
   });
 
   it('fails rather than passing vacuously when nothing is named', () => {
-    write('asset-manifest.json', '{}');
+    write('asset-files.json', '{}');
     expect(() => collectPriorAssets({ htmlRoot: root, dest, label: 'prev' })).toThrow(
       /names no prior assets/,
     );

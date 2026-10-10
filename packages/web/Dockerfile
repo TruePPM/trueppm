@@ -41,9 +41,9 @@ RUN npm run build
 FROM ${PREV_WEB_IMAGE:-scratch} AS prev
 
 # Picks WHICH prior files to keep (scripts/collect-prior-assets.mjs: only the
-# files the prior image's own asset-manifest.json names, or its whole assets/
-# when it predates the manifest; every name checked to be a regular file under
-# assets/). A throwaway stage, so nothing of the prior image reaches the final
+# files the prior image's own asset-files.json lists, or its whole assets/ when
+# it was built before ADR-1249 and so holds only its own build; every name
+# checked to be a regular file under assets/). A throwaway stage, so nothing of the prior image reaches the final
 # one except those plain files. The prior filesystem is only bind-mounted and
 # read: nothing from it executes. Node is the JSON parser, from the same pinned
 # image the builder stage already pulled.
@@ -75,7 +75,7 @@ RUN apk upgrade --no-cache
 
 # Prior release's assets first, then this build on top. Content-hashed names
 # mean a file in both is byte-identical, so the order only matters for the
-# root files (index.html, asset-manifest.json), which come from this build
+# root files (index.html, asset-manifest.json, asset-files.json), which come from this build
 # alone: the prior stage writes nothing outside assets/.
 COPY --from=prev-assets /prev-assets/ /usr/share/nginx/html/
 COPY --from=builder /app/dist /usr/share/nginx/html
