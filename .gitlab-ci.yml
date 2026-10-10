@@ -3302,7 +3302,11 @@ helm:template:
               --set 'envFrom[0].secretRef.name=trueppm-env' --set "$bad" 2>&1); then
           echo "ROLLOUT REGRESSION (#4354): --set $bad rendered — the closed schema should have refused it"; exit 1
         fi
-        echo "$out" | grep -q 'additional properties\|value must be one of' \
+        # Helm 3.14.0 (pinned above) renders "Additional property X is not allowed" /
+        # "rollout.api.strategy must be one of the following: ...", not the "additional
+        # properties 'X' not allowed" / "value must be one of ..." wording of newer Helm —
+        # match the stem case-insensitively so the check survives either.
+        echo "$out" | grep -qi 'additional propert\|must be one of' \
           || { echo "ROLLOUT TEST INVALID: --set $bad failed, but not from a schema validation error:"; echo "$out"; exit 1; }
       done
 
