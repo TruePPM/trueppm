@@ -936,6 +936,39 @@ Nothing to configure. If a migration legitimately runs longer than ten minutes,
 raise the wait with `--lock-timeout` in the init container's command, or scale
 the API to one replica for that upgrade.
 
+### Demo-mode upgrades: `--wait` and the seed hook timeout
+
+Demo mode (`demo.enabled`) adds a `post-install,post-upgrade` hook Job that
+runs the same `migrate_locked` wait described above before re-seeding the
+sample project and share links. Helm does **not** wait for the api
+Deployment to become `Ready` before firing that hook, so on every demo
+install or upgrade the hook's own `migrate` initContainer can genuinely
+contend for the advisory lock against the api Deployment's init container —
+and `migrate_locked`'s default wait for that lock is up to ten minutes,
+longer than Helm's own default `--timeout` of five minutes.
+
+Always run demo installs and upgrades with an explicit wait and a longer
+timeout:
+
+```bash
+helm upgrade trueppm ./packages/helm -f packages/helm/values-demo.yaml \
+  --wait --timeout 15m
+```
+
+Without `--wait`, Helm does not block on the hook at all, so a slow seed
+races the Deployments silently. With the default `--timeout`, a lock wait
+anywhere near ten minutes can outlast Helm's patience — but by then the api,
+web, and worker Deployments have **already been applied**, so Helm marks the
+release `failed` while the pods are already serving the new version; the
+hook Job itself keeps running and is only cleaned up by the next upgrade's
+`before-hook-creation` policy.
+
+**Do not add `--atomic`** for a demo-mode upgrade. `--atomic` turns a hook
+failure into an automatic rollback, which — per the [Helm
+rollback](#helm-rollback) skew window below, stacked on top of the stall this
+section describes — leaves the deployment in a worse, harder-to-diagnose
+state than a `failed` release that a human then re-runs.
+
 ### Helm rollback
 
 ```bash

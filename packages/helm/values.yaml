@@ -1919,6 +1919,20 @@ demo:
   # report success. The failed Job is retained (hook-delete-policy is
   # before-hook-creation, not hook-succeeded) so `kubectl logs` shows the traceback.
   backoffLimit: 2
+  # Kills a hung install/upgrade hook (#4355). Without this the Job had no upper
+  # bound: migrate_locked's own --lock-timeout (600s/10m default, see
+  # migrate_locked.py) can make the migrate initContainer alone run close to ten
+  # minutes if it loses the advisory-lock race against the api Deployment's own
+  # migrate initContainer, and Helm's default --timeout is only 5m — so the
+  # release could already be marked `failed` (Deployments rolled, hook still
+  # running) long before this deadline would fire. The ordering that must hold:
+  # migrate_locked's lock-timeout (600s) < this value < the documented
+  # `helm upgrade --wait --timeout 15m` (see
+  # getting-started/upgrade.md#demo-mode-upgrades-wait-and-the-seed-hook). Keep
+  # it below the Helm timeout so the Job's own deadline fires first and names a
+  # cause (`DeadlineExceeded` with a traceback in `kubectl logs`), instead of
+  # Helm's generic client-side timeout doing it with none.
+  activeDeadlineSeconds: 720
   # Short-lived seeding Job. Sized for the seed transaction, not for serving.
   resources:
     requests:
