@@ -1964,7 +1964,7 @@ class IsTokenForProject(BasePermission):
         # minter's MOST RECENT ProjectMembership row for this project,
         # deliberately read WITHOUT an ``is_deleted`` filter (#4334).
         if token.project_id is not None:
-            from trueppm_api.apps.access.models import ProjectMembership
+            from trueppm_api.apps.access.minter_role import last_recorded_project_role
 
             if token.project_id != url_project_id:
                 raise AuthenticationFailed("Token does not belong to this project.")
@@ -1980,19 +1980,10 @@ class IsTokenForProject(BasePermission):
                 # last role floored, a minter removed in good standing
                 # (Member+) keeps a working token — the org-asset,
                 # survives-off-boarding contract — while a demoted minter
-                # stays refused whether or not they are later removed.
-                # (project, user) is unique unconditionally — a re-add revives
-                # the same row — so there is at most one row; the ordering is
-                # only so "most recent" stays true if that ever changes.
-                minter_role = (
-                    ProjectMembership.objects.filter(
-                        project_id=url_project_id,
-                        user_id=minter_id,
-                    )
-                    .order_by("-server_version")
-                    .values_list("role", flat=True)
-                    .first()
-                )
+                # stays refused whether or not they are later removed. The
+                # unfloored read lives in its own module so the live-floor
+                # gate's module allowlist covers only it.
+                minter_role = last_recorded_project_role(url_project_id, minter_id)
                 # No row at all: minting requires a live Admin+ membership
                 # (IsProjectAdmin), and memberships are only hard-deleted by
                 # the user CASCADE (which also nulls created_by) or by the

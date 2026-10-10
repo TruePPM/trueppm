@@ -127,6 +127,12 @@ ALLOWLIST: dict[str, str] = {
         "could never be re-added: the write serializer's `user` field is its own IDOR "
         "gate and bounds the choices (#3410)"
     ),
+    "trueppm_api/apps/access/minter_role.py": (
+        "a project-scoped API token's minter is floored on their LAST RECORDED role, "
+        "live or revoked: flooring the read made removal an unconditional pass, so a "
+        "minter demoted to Viewer could self-remove and regain write authority (#4334). "
+        "The module holds that one read and nothing else"
+    ),
     "trueppm_api/apps/sync/views.py": (
         "the sync delta ships TOMBSTONES by protocol so an offline client can learn the "
         "membership went away; a floored stream would leave the row on the device forever"
@@ -331,7 +337,7 @@ def run(pairs: list[tuple[Path, str]]) -> int:
             "  * reading through ProjectMembership.live() / ProgramMembership.live(), or an\n"
             "    inline is_deleted=False if the call site needs to compose differently; or\n"
             "  * adding the module to ALLOWLIST in this script with the reason a floor would\n"
-            "    be WRONG there — not merely inconvenient. Four modules qualify today.\n"
+            "    be WRONG there — not merely inconvenient. Five modules qualify today.\n"
             "\nWrites, `select_for_update` lock acquisitions and migrations are already exempt\n"
             "by rule; you should not need an allowlist entry for one."
         )
