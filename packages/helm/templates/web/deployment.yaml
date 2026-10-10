@@ -90,7 +90,23 @@ spec:
               readOnly: true
           readinessProbe:
             httpGet:
-              path: /
+              # /asset-manifest.json, not / (#4359). The SPA fallback
+              # (`try_files $uri $uri/ /index.html;`) answers EVERY path with
+              # index.html as long as nginx itself is up, so `/` proves
+              # nothing about the bundle this pod actually serves, or about a
+              # typo'd proxy_pass upstream name elsewhere in the mounted
+              # config — a pod with a working shell and a broken deploy still
+              # reports Ready. asset-manifest.json is build-specific: it is
+              # Vite's build manifest, written at the html root only by THIS
+              # image's own build (the ADR-1249/#4341 prior-release-assets
+              # stage copies a previous release's files forward into
+              # assets/, never to the html root), and the chart's web
+              # ConfigMap (configmap.yaml) adds a dedicated
+              # `location = /asset-manifest.json { try_files $uri =404; }` in
+              # every branch so a missing file 404s instead of silently
+              # falling back to index.html — the same failure mode this
+              # probe exists to catch.
+              path: /asset-manifest.json
               port: http
             # A `kindIs "invalid"` presence guard replaces `| default 5` on
             # initialDelaySeconds (#4351): 0 is a valid, legitimate Kubernetes
@@ -111,6 +127,13 @@ spec:
             periodSeconds: {{ .Values.probes.web.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
+              # Deliberately still `/`, unlike the readiness probe above
+              # (#4359): liveness exists to catch a WEDGED process, and a
+              # missing or corrupt bundle is a static condition no restart
+              # can fix. Pointing liveness at the same build-specific check
+              # would crash-loop a pod with a genuinely broken image forever
+              # instead of leaving it NotReady — the correct terminal state
+              # for that failure, and the one readiness already produces.
               path: /
               port: http
             # See the readiness probe above for why initialDelaySeconds uses a

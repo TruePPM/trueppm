@@ -73,6 +73,29 @@ FROM ${DOCKERHUB_PREFIX}/nginxinc/nginx-unprivileged:alpine@sha256:b9241c6e7b8e9
 USER root
 RUN apk upgrade --no-cache
 
+# worker_shutdown_timeout (#4359): a MAIN-context nginx directive, so it
+# cannot live in the chart-mounted/compose-mounted default.conf (included
+# inside this file's `http {}` block — setting it there is a hard config
+# error). It is inserted here, into the base image's own /etc/nginx/nginx.conf,
+# with sed rather than a wholesale COPY-replacement, so this stays a one-line
+# diff against the vendor's file instead of a config this project must keep
+# in sync with nginx-unprivileged's own upstream changes (mime types, log
+# format, temp paths, ...).
+#
+# Why it is needed at all: every server block proxies /ws/ with
+# proxy_read_timeout 86400s (see configmap.yaml and nginx.conf), and the base
+# image inherits nginx-unprivileged's `STOPSIGNAL SIGQUIT` — a graceful
+# shutdown that, with no bound, waits for open connections to close on their
+# own. A terminating pod with live WebSocket viewers would therefore hold
+# those sockets open until Kubernetes' termination grace period (30s for the
+# web tier, minus the 5s preStop sleep that runs before SIGQUIT is even sent
+# — see values.yaml's lifecycle.web) ran out and SIGKILLed the process,
+# costing ~30s per rollout step and handing connected clients an abrupt close
+# code 1006 instead of a clean 1012 (Service Restart). 20s leaves a 5s margin
+# inside that 25s post-preStop budget for nginx to actually begin shutting
+# down workers.
+RUN sed -i '1i worker_shutdown_timeout 20s;' /etc/nginx/nginx.conf
+
 # Prior release's assets first, then this build on top. Content-hashed names
 # mean a file in both is byte-identical, so the order only matters for the
 # root files (index.html, asset-manifest.json, asset-files.json), which come from this build

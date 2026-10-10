@@ -327,6 +327,26 @@ cm_mount="$(echo "$WEB_DEP" | yq '.spec.template.spec.containers[0].volumeMounts
 [ "$cm_mount" = "default.conf" ] \
   || fail "web deployment does not mount the nginx ConfigMap over /etc/nginx/conf.d/default.conf"
 
+# 4a. Web readiness probe path must not be `/` (#4359). The SPA fallback
+#     location (asserted at 4b below to carry security headers) answers
+#     EVERY unmatched path with index.html as long as nginx is up at all, so
+#     a probe against `/` only ever proves "nginx is running" — never that
+#     this pod serves a working bundle, or that the proxy_pass upstream
+#     asserted above actually resolves. Whatever path the probe does use must
+#     have its OWN location in the ConfigMap that does not fall back to
+#     index.html on a miss, or a missing/corrupt build would 200 the probe
+#     exactly the way `/` always does.
+web_ready_path="$(echo "$WEB_DEP" | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.path')"
+[ -n "$web_ready_path" ] && [ "$web_ready_path" != "null" ] \
+  || fail "web readinessProbe.httpGet.path did not render (#4359)"
+[ "$web_ready_path" != "/" ] \
+  || fail "web readinessProbe.httpGet.path is '/' — the SPA fallback answers it with index.html on any pod that has nginx up, so it proves nothing about the bundle this pod actually serves (#4359)"
+grep -qF "location = ${web_ready_path} {" <<<"$web_upstream" \
+  || fail "web nginx ConfigMap has no dedicated 'location = ${web_ready_path}' for the readiness probe path — without one the request falls through to the SPA fallback and would 200 even with the file missing (#4359)"
+sentinel_body="$(grep -A2 -F "location = ${web_ready_path} {" <<<"$web_upstream")"
+grep -q 'try_files $uri =404;' <<<"$sentinel_body" \
+  || fail "web nginx ConfigMap's '${web_ready_path}' location does not '=404' on a miss — a missing file would fall back to index.html and the readiness probe would pass on a broken bundle again (#4359)"
+
 # 4b. The SPA document must ship security response headers ON A DEFAULT INSTALL
 #     (#2849). Django's XFrameOptions / SECURE_CONTENT_TYPE_NOSNIFF / CSP
 #     middleware only decorate responses DJANGO produces; index.html and every
@@ -2533,3 +2553,4 @@ echo "  - demo/LoadBalancer/NodePort web exposure with no Ingress and the defaul
 echo "  - web pod template carries checksum/nginx-conf, and it changes when the nginx config does, so a config-only upgrade rolls the web pod (#4047)"
 echo "  - interactive demo edge: the fenced /api/ 403 routes to an internal @demo_read_only location returning the middleware JSON body; share-link and production ConfigMaps carry none of it (#4053)"
 echo "  - values-prod.yaml's Ingress overlay routes /api and /ws to the api Service and / to the web Service, so the SPA stays reachable once the overlay replaces values.yaml's default host list (#4349)"
+echo "  - web readinessProbe.httpGet.path is not '/' (the SPA fallback answers it unconditionally), and the ConfigMap gives that path its own non-SPA-falling-back, '=404'-on-a-miss location (#4359)"

@@ -313,7 +313,7 @@ the values reference; that page is the troubleshooting guide.
 | `probes.worker.readiness.*` | initial delay `15`, every `15`s, `failureThreshold: 3`, `staleSeconds: 30` | **No longer `celery inspect ping`** (0.4, #3236, #3346) — it stats the heartbeat file above and fails once it is older than `staleSeconds`. The file is refreshed by Celery's own `heartbeat_sent` signal on a fixed ~2s timer, independent of task load, so — unlike the pre-0.4 ping-based check — this probe cannot be starved by a busy worker. |
 | `probes.beat.liveness.*` | initial delay `30`, ping every `60`s, `failureThreshold: 5` | Beat's ping targets broker reachability (the fleet, not its own node); the generous threshold avoids restarts on a brief worker blip. Beat renders a liveness probe only, so there is no `probes.beat.readiness`. |
 | `probes.worker.*` / `probes.beat.*` flat keys | _(empty)_ | Shared override applied across that component's probes — see [Tuning celery probes apart](#tuning-celery-probes-apart). |
-| `probes.web.readiness*/liveness*Seconds` | 5/10, 10/30 | **Added in 0.4.** Initial-delay and period tuning for the web (nginx) tier's `GET /` probes — previously hardcoded in the chart. No startup key: the container serves a pre-built static bundle, so there is no boot-time dependency for a startup probe to cover. |
+| `probes.web.readiness*/liveness*Seconds` | 5/10, 10/30 | **Added in 0.4.** Initial-delay and period tuning for the web (nginx) tier's probes — previously hardcoded in the chart. No startup key: the container serves a pre-built static bundle, so there is no boot-time dependency for a startup probe to cover. The *path* is not a value — readiness checks `GET /asset-manifest.json` (a build-specific file, so a broken bundle or a misconfigured proxy upstream cannot report Ready — see [web (nginx)](/administration/probes/#web-nginx)), while liveness stays on `GET /` (#4359). |
 
 ### Tuning celery probes apart
 
@@ -465,6 +465,22 @@ collaboration sockets.
 | `lifecycle.beat.terminationGracePeriodSeconds` | `30` | Beat holds no request; it just writes its schedule shelve. |
 | `lifecycle.web.terminationGracePeriodSeconds` | `30` | nginx finishes in-flight responses. |
 | `lifecycle.web.preStopSleepSeconds` | `5` | Same endpoint-deregistration race as the API. |
+
+**The web tier also bakes a fixed `worker_shutdown_timeout 20s;` into the
+image's nginx.conf (#4359), not a chart value.** Every web nginx config
+proxies `/ws/` with `proxy_read_timeout 86400s`, and the base image
+(`nginx-unprivileged`) stops on `SIGQUIT` — a graceful shutdown that, with no
+bound, waits for open connections to close on their own. Without this
+directive a terminating pod with live WebSocket viewers held those sockets
+open until the full termination grace ran out and Kubernetes SIGKILLed it:
+~30s added to every web rollout step, and connected clients saw an abrupt
+close code `1006` instead of a clean `1012` (Service Restart). 20s leaves a
+5s margin inside the 25s that remains after `lifecycle.web.preStopSleepSeconds`
+(5s) is subtracted from `lifecycle.web.terminationGracePeriodSeconds` (30s).
+`worker_shutdown_timeout` is a main-context nginx directive — it cannot live in
+the chart-mounted or Compose-mounted `default.conf`, which is included inside
+nginx's `http {}` block — so it is set once, in the image, and applies
+identically under Helm and both Docker Compose stacks.
 
 Related: `CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"]` is now bounded
 at 900s in `settings/base.py`. Tasks carry `acks_late=True`, so a killed worker
