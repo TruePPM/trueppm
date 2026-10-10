@@ -357,6 +357,33 @@ persistence:
 `env.CSRF_TRUSTED_ORIGINS` empty. Set them in `my-values.yaml` too, alongside the
 `env:` keys above; see [Ingress and edge TLS](#ingress-and-edge-tls).
 
+`ingress.hosts` is a **list**, and Helm replaces a list wholesale rather than
+merging it — setting only `ingress.hosts[0].host` in `my-values.yaml` drops the
+`/api`, `/ws`, and `/` paths that `values-prod.yaml` ships, not just the host
+(`templates/ingress.yaml` renders zero paths for a host with none). Repeat the
+whole block, with `service:` keys, instead of overriding the host alone:
+
+```yaml
+ingress:
+  className: nginx
+  hosts:
+    - host: trueppm.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /ws
+          pathType: Prefix
+          service: api
+        - path: /
+          pathType: Prefix
+          service: web
+  tls:
+    - secretName: trueppm-tls
+      hosts:
+        - trueppm.example.com
+```
+
 **Evaluating on a cluster with no managed database?** Skip `values-prod.yaml`
 and the two datastore Secrets, and use a values file that holds only the
 `envFrom:` and `persistence:` blocks above, with `accessMode: ReadWriteOnce`
