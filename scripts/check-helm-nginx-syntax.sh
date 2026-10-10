@@ -18,8 +18,9 @@
 # such context on its own. The web image's own base,
 # nginxinc/nginx-unprivileged:alpine (pinned to the same digest
 # packages/web/Dockerfile's serve stage uses, so this tests the nginx the
-# project actually ships), already supplies both: drop the rendered text at
-# /etc/nginx/conf.d/default.conf and its stock nginx.conf includes it.
+# project actually ships), already supplies both: pipe the rendered text onto
+# /etc/nginx/conf.d/default.conf over stdin (see check_syntax(), never a bind
+# mount) and its stock nginx.conf includes it.
 #
 # `nginx -t` does not only parse syntax, though — for a `proxy_pass` whose
 # target is a LITERAL hostname (not a variable), nginx resolves that hostname
@@ -93,21 +94,34 @@ render_default_conf() {
 # $violations counter on a syntax failure; a docker invocation failure (the
 # daemon rejecting the run itself, not nginx rejecting the config) is a setup
 # error and propagates as exit 2.
+#
+# Hands the config to the container over STDIN (`docker run -i ... sh -c 'cat
+# > ... && nginx -t'`), never via a bind mount. A bind mount's source path is
+# resolved by the DAEMON, and this job's `docker:27-dind` service is a
+# separate container from the job's own filesystem — unless the runner
+# happens to share the builds volume with it (not guaranteed; see
+# scripts/prod-compose-drill.sh's `daemon_shares_checkout`), a `-v
+# $tmp/default.conf:...` source does not exist on the daemon side, and Docker
+# silently substitutes an empty DIRECTORY at the mount target instead of
+# failing. That directory makes nginx's `include .../*.conf` glob match
+# nothing, which is indistinguishable from "no custom server block" and
+# passes `nginx -t` regardless of what $conf_text actually said — this is
+# exactly how the first version of this script's own self-test shipped
+# vacuous (#4356 fix-up): a deliberately broken fixture reported successful
+# because neither fixture's content ever reached the container. Piping over
+# stdin needs no shared filesystem, so it is correct under any runner
+# topology.
 check_syntax() {
   local label="$1" conf_text="$2"
-  local tmp out rc
-  tmp="$(mktemp -d)"
-  printf '%s\n' "$conf_text" >"$tmp/default.conf"
+  local out rc
 
   set +e
-  out="$(docker run --rm \
+  out="$(printf '%s\n' "$conf_text" | docker run --rm -i \
     --add-host api:127.0.0.1 \
     --add-host trueppm-api:127.0.0.1 \
-    -v "$tmp/default.conf:/etc/nginx/conf.d/default.conf:ro" \
-    "$NGINX_IMAGE" nginx -t 2>&1)"
+    "$NGINX_IMAGE" sh -c 'cat > /etc/nginx/conf.d/default.conf && nginx -t' 2>&1)"
   rc=$?
   set -e
-  rm -rf "$tmp"
 
   # The entrypoint's own startup script runs first and can itself fail to
   # launch (image pull auth, daemon unreachable) before ever invoking nginx -t.
