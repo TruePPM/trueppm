@@ -34,6 +34,17 @@ EXEMPT: dict[tuple[str, str, str], str] = {
         "creates (the 0001 squash goes straight to the month/day pair), so the op has no "
         "input in the squash state"
     ),
+    (
+        "projects",
+        "0090_historicaltask_proj_histdate_index",
+        "repair_invalid_concurrent_index_op.<locals>._forward",
+    ): (
+        "repairs an INVALID index left by an interrupted CONCURRENTLY build (#4357) — "
+        "the squash's copy of this index build (see its own comment) is a plain, fully "
+        "atomic CREATE INDEX that only ever runs on a fresh install, where an "
+        "interrupted build rolls back entirely rather than leaving an INVALID index, so "
+        "the repair has nothing to do there and is correctly absent"
+    ),
 }
 
 
