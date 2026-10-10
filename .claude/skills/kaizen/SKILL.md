@@ -203,7 +203,7 @@ import json, re, sys
 from collections import defaultdict
 stats = defaultdict(lambda: {'ran': 0, 'found': 0, 'findings': 0, 'na': 0, 'skipped': 0})
 for mr in json.load(sys.stdin):
-    for name, outcome in re.findall(r'^\s*[-*]\s*gate:\s*([a-z-]+)\s*[—-]\s*(.+)$',
+    for name, outcome in re.findall(r'^\s*[-*]\s*gate:\s*([a-z][a-z/-]*)\s+[—-]\s*(.+)$',
                                     mr.get('description') or '', re.M):
         o = outcome.strip().lower()
         if name == 'completeness-check' and 'round 2' in o:

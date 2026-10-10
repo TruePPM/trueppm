@@ -170,6 +170,17 @@ Rules:
   Do not invent a `completeness-check-r2` name — it resolves to no skill and would be a
   phantom gate. `/kaizen` splits the two rounds by the marker. Format and counting rules
   live in `.claude/skills/completeness-check/SKILL.md` § Recording it.
+- **A gate's named sub-mode goes in the gate name itself, as `<gate>/<mode>`, never a
+  parenthetical.** The fix-diff re-check (`.claude/skills/completeness-check/SKILL.md`
+  § Fix-diff re-check) is the current example:
+  `- gate: completeness-check/fix-diff — <N> findings`. `/kaizen`'s `gate:` regex
+  (`.claude/skills/kaizen/SKILL.md`) requires at least one whitespace character before the
+  dash and accepts `/` and `-` inside the name; a label written as
+  `completeness-check (fix-diff) — 9 findings` does not parse as a second gate at all —
+  the parenthesis breaks the match on the internal hyphen of "completeness-check" and the
+  whole line is silently dropped from the yield table. Always use `/<mode>`, never
+  `(<mode>)`. Round 2 and the fix-diff re-check are mutually exclusive per that skill's
+  § After round 1 — a branch carries at most one of the two extra lines beyond round 1's.
 - **`n/a` and `skipped` are different.** `n/a` means the fast-path table or the gate's own
   scope excludes this diff (no models changed → `migration-check — n/a`). `skipped` means
   the gate applied and was deliberately not run — only ever at the user's request, and

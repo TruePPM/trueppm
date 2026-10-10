@@ -190,7 +190,7 @@ this branch — which is the gap that prompted writing this step down at all.
 For each issue, once its Step 5 agent reports, first check the exemption
 `completeness-check/SKILL.md` already states — **dependency bumps, CI-config-only
 and chore branches with no behavior change** are exempt from items 1–6 only. An
-exempt branch still resumes the Step 5 agent for items 7–10, because the push and
+exempt branch still resumes the Step 5 agent for items 7–11, because the push and
 MR happen regardless of the audit. Otherwise run items 1–6 first:
 
 1. Spawn **one fresh `general-purpose` agent**. Give it the worktree path, the
@@ -207,10 +207,10 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    - **`sonnet`** otherwise.
 2. Read its `BLOCKERS` / `GAPS` / `CLEAN` report.
 3. Clean → record `gate: completeness-check — 0 findings (<model>)`, resume the
-   Step 5 agent by `SendMessage` to do items 7–10 below, and stop — you do not
+   Step 5 agent by `SendMessage` to do items 7–11 below, and stop — you do not
    push or open the MR yourself. If that `SendMessage` is refused, use the same
    fallback as item 4: brief a fresh agent with the worktree, the issue, and the
-   push/MR steps, and have it do items 7–10.
+   push/MR steps, and have it do items 7–11.
 4. Findings → hand them to the **same Step 5 agent** (`SendMessage` — it is
    stalled, not gone) to fix, with the exact BLOCKER/GAP text. It fixes, re-runs
    the affected tests with negative controls, and reports back. If that
@@ -218,29 +218,38 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    as injection), do not retry it — brief a **fresh** agent instead with the
    worktree path, the findings, and the original issue context, and have it make
    the fix as a new commit. **That replacement agent, not you, then also carries
-   items 7–10** — it is now the one with the worktree and the context to push and
+   items 7–11** — it is now the one with the worktree and the context to push and
    open the MR; do not let the original agent's refusal become the orchestrator's
    job by default.
-5. Re-check and trigger round 2 **per `completeness-check`'s own rule in its
-   SKILL.md** — this step defers to that rule rather than restating it, so look
-   there, not here, for the current trigger and shape. A narrow re-check after a
-   fix commit is a **fresh, non-author agent** spawned by you, with the model rules
-   in that SKILL's § How to run; it is required on every executable fix commit,
-   not only when a trigger fires.
-6. Record every round on the ledger exactly as `completeness-check`'s own SKILL.md
-   "Recording it" section specifies — as of this writing that means: round 2 (if
-   triggered) gets its own line marked `round 2`; a narrow re-check's findings are
-   folded into round 1's count, not given a separate line. Do not invent a marker
-   that file doesn't define.
+5. After the fix commit lands, decide the next step **per `completeness-check`'s
+   own `§ After round 1` table in its SKILL.md** — this step defers to that table
+   rather than restating it, so look there, not here, for the current composition:
+   round 2 (full), the fix-diff re-check (narrow), or nothing. Either re-check, if
+   selected, is a **fresh, non-author agent** spawned by you, with the model rules
+   in that SKILL's § How to run.
+6. Record whichever ran on the ledger exactly as `completeness-check`'s own
+   SKILL.md "Recording it" section specifies — as of this writing that means:
+   round 2 (if triggered) gets its own line marked `round 2`; the fix-diff
+   re-check (if triggered) gets its own line under the gate name
+   `completeness-check/fix-diff`; if `§ After round 1` selected neither, record
+   only round 1's line. Do not invent a marker that file doesn't define.
 
 Only once this clears does the Step 5 agent, resumed, finish the branch:
 
-7. Push the branch.
-8. **Open the MR itself**, reproducing the `/mr` skill's format by running
+7. **Stale-base check, before pushing.** `git fetch origin`, then confirm the
+   worktree's branch is still based on current `origin/main`
+   (`git merge-base --is-ancestor origin/main HEAD` or inspect
+   `git log origin/main..HEAD`). If `origin/main` has moved since the worktree
+   was created, rebase onto it and re-run the affected tests — this is what
+   catches a merged-tree collision (a migration number, an ADR number, a rule
+   number) that opened up while the branch, the gate batch, and the
+   completeness-check round were all running against an older base.
+8. Push the branch.
+9. **Open the MR itself**, reproducing the `/mr` skill's format by running
    `glab mr create` directly. `/mr` is `disable-model-invocation` — an agent
    cannot call it and must not try. `.claude/skills/mr/SKILL.md` is the canonical
    format for both paths.
-9. Include `Closes #NNN` in the MR description, a `## Gates` section with one
+10. Include `Closes #NNN` in the MR description, a `## Gates` section with one
    `gate: <name> — <N> findings` line per gate run, including every
    completeness-check line from this step (`0 findings` is a real outcome; never
    omit a zero, never conflate `n/a` with `skipped`), and the `## Requirements`
@@ -249,7 +258,7 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    CLEAN, so build the table yourself from the issue's acceptance criteria, using
    the auditor's CLEAN section as the evidence for each MET row, and hand the
    table to this agent — it has no other way to see the criteria.
-10. **Never merge.** Hand back the MR URL and stop.
+11. **Never merge.** Hand back the MR URL and stop.
 
 The agent reports back: MR URL, the full gate ledger, the commit SHA, and
 anything it deliberately left undone.
@@ -280,9 +289,10 @@ An agent that produced no commit costs the same as one that shipped. Re-brief it
 with what was missing, or take the issue over yourself; do not report it as done.
 
 Also check the MR description's `## Gates` section actually carries a
-`completeness-check` line, and a `round 2` line if round 2 ran. Unless the branch
-is exempt, its absence means Step 6 was skipped under time pressure, not that the
-branch had nothing to find.
+`completeness-check` line, and — per `§ After round 1` — a `round 2` line if round 2
+ran, or a `completeness-check/fix-diff` line if the fix-diff re-check ran (never
+both). Unless the branch is exempt, its absence means Step 6 was skipped under
+time pressure, not that the branch had nothing to find.
 
 ## Step 8 — Report
 
