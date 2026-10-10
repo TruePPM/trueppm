@@ -585,7 +585,11 @@ changed:
   on every request, not just at mint time. Revoking the minter's membership stops the
   token from writing into that project on the very next request, with no re-mint needed. A
   token whose minter was deleted (and so carries no `created_by`) can no longer write into
-  any project through this path.
+  any project through this path. **Not yet released:** a further role floor on top of this
+  membership check — the minter will also need to hold Member or above, not merely live
+  membership, so a Viewer-minted program token will be refused on both write endpoints.
+  Until that lands, a minter who is a live member but Viewer-only can still use a
+  program-scoped token to write into the project (#4331).
 - **Project-scoped webhooks.** A project webhook receives that project's events only while
   its creator holds **Project Manager or above** there, checked on the same schedule as
   program webhooks above. Removing the creator's membership, demoting it below Project

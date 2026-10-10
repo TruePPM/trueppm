@@ -41,8 +41,14 @@ Tokens can be minted and revoked from the **Integrations** settings page at both
 project scope (**Project → Settings → Integrations**) and program scope
 (**Program → Settings → Integrations**), or via the API as shown below. A
 program-scoped token can push into a given project in its program only while
-the person who minted it is still a member of that project — minting the token
-at program scope is not by itself enough to reach every project in the program.
+the person who minted it is still a member of that project — minting the
+token at program scope is not by itself enough to reach every project in the
+program. This is checked at request time: revoking the minter's membership
+stops an already-minted token from writing into that project on the very next
+request. **Not yet released:** that membership will also have to be Member or
+above — a minter who is a live member but Viewer-only will not be enough,
+and demoting a minter below Member will stop an already-minted token the same
+way a membership removal does.
 
 ```bash
 curl -X POST "https://your-trueppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \

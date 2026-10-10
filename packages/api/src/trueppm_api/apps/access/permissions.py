@@ -1867,11 +1867,12 @@ class IsTokenForProject(BasePermission):
 
     A project-scoped token (``token.project_id`` set) authorizes writes only to
     its bound project. A program-scoped token (``token.program_id`` set) authorizes
-    writes to a project within that program only when BOTH hold:
+    writes to a project within that program only when ALL of the following hold:
       1. the project is a live member of the token's program
-         (``projects.filter(pk=...).exists()``), and
+         (``projects.filter(pk=...).exists()``),
       2. the token's minter (``token.created_by``) holds a live
-         ``ProjectMembership`` on that same project (#4324).
+         ``ProjectMembership`` on that same project (#4324), and
+      3. that live membership's role is Member (``Role.MEMBER``) or above (#4331).
 
     Before #4324, (1) alone was sufficient: a program-scoped token admitted any
     project in its program regardless of whether the human who minted it could
@@ -1880,15 +1881,41 @@ class IsTokenForProject(BasePermission):
     project-level membership — so that token let its minter write into (and
     flip acceptance criteria on) a sibling project they were never added to, the
     same write-path ProjectMembership bypass #4310 closed on the read side. (2)
-    reuses the #4310 ``task_search`` predicate: a plain ``ProjectMembership``
-    existence check, any role, ``is_deleted=False``.
+    reused the #4310 ``task_search`` predicate: a plain ``ProjectMembership``
+    existence check, any role, ``is_deleted=False`` — which closed the "never a
+    member at all" gap but left a narrower one open: a Program Admin who holds a
+    live but Viewer-only ProjectMembership on the target project (a real member,
+    just not write-capable in the UI) could still mint a program token and push
+    writes a Viewer can never make through the UI. (3) closes that: writes behind
+    this class additionally require the minter's role to clear the same
+    ``role >= Role.MEMBER`` floor every other write gate in this module applies
+    (e.g. ``can_user_log_time``, ``IsProgramEditor``) — a role high enough to read
+    is not high enough to write, by the same contract as every UI-reachable write
+    path.
 
-    The membership check runs at REQUEST time, not mint time, so revoking the
-    minter's ProjectMembership on a project takes an already-minted token's
-    authority over that project away immediately — the same "live, not
-    historical" rule #4310 established for reads. A project-scoped token is
-    unaffected: it is bound to exactly one project by its own FK and was never
-    the vector this issue describes.
+    The membership and role checks both run at REQUEST time, not mint time, so
+    revoking — or demoting below Member — the minter's ProjectMembership on a
+    project takes an already-minted token's authority over that project away
+    immediately — the same "live, not historical" rule #4310 established for
+    reads. A project-scoped token is unaffected by (2)/(3): it is bound to
+    exactly one project by its own FK and was never the vector this issue
+    describes. (A project-scoped token's own minter must already hold
+    Admin+ to mint it — enforced by ``IsProjectAdmin`` on
+    ``ProjectApiTokenViewSet.create`` — but that is a mint-time check
+    only: this class has no live re-check for a project-scoped token at
+    all, so a minter later demoted to Viewer, or removed from the project,
+    keeps full write authority through an already-minted project token.
+    Unlike the program-scoped gap this docstring fixes, closing that one is
+    not a mechanical "add the same check": ``workspace-settings.md``
+    documents project- and program-scoped tokens as *deliberately*
+    surviving their minter's off-boarding, because they are org assets
+    rather than personal credentials, and a live minter-role recheck for
+    project-scoped tokens would partially undo that guarantee (deactivation
+    would stay safe; a same-project demotion would not). Whether that
+    policy should hold for a demoted-but-not-removed minter the way it
+    holds for a deactivated one is a maintainer decision, not an
+    implementation gap — see #4334, filed to make that call before this
+    is fixed.)
 
     Raises AuthenticationFailed (401, not PermissionDenied/403) on mismatch
     so callers cannot enumerate whether the URL project exists — a project_id
@@ -1954,15 +1981,31 @@ class IsTokenForProject(BasePermission):
             # practice IsAuthenticated already blocks that case first, since
             # ProjectApiTokenAuthentication resolves request.user to
             # AnonymousUser when both owner and created_by are null).
+            #
+            # #4331: existence alone is not enough — it admits a Viewer-only
+            # minter, who is a live member but not write-capable in the UI.
+            # Fetch the role (rather than ``.exists()``) and additionally
+            # require ``role >= Role.MEMBER``, the same write floor
+            # ``can_user_log_time``/``IsProgramEditor`` apply elsewhere in this
+            # module. This endpoint class only ever guards write actions
+            # (TaskSyncView.post, AcceptanceResultIngestView.post — see the
+            # class docstring); there is no read path to preserve here, but
+            # the check is still written as "refuse below Member", not "require
+            # above Viewer", so it reads as a floor on write authority rather
+            # than a ban on a specific role.
             minter_id = token.created_by_id
-            if (
-                minter_id is None
-                or not ProjectMembership.objects.filter(
+            minter_role = (
+                None
+                if minter_id is None
+                else ProjectMembership.objects.filter(
                     project_id=url_project_id,
                     user_id=minter_id,
                     is_deleted=False,
-                ).exists()
-            ):
+                )
+                .values_list("role", flat=True)
+                .first()
+            )
+            if minter_role is None or minter_role < Role.MEMBER:
                 raise AuthenticationFailed("Token does not authorize this project.")
             return True
 

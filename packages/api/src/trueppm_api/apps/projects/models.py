@@ -7067,9 +7067,13 @@ class ApiToken(VersionedModel):
     **Scope**: exactly one of ``project`` or ``program`` is set. A program-scoped
     token authorizes inbound writes into a project within that program only
     when the token's minter also holds a live ``ProjectMembership`` on that
-    specific project, checked at request time (``IsTokenForProject``); the
-    caller specifies the target project on each request via the URL. The DB
-    constraint enforces the XOR — neither both-set nor both-null is a valid row.
+    specific project AND that membership's role is Member or above (#4324,
+    #4331), checked at request time (``IsTokenForProject``); the caller
+    specifies the target project on each request via the URL. A minter who is
+    a live member but Viewer-only cannot write through this path. The DB
+    constraint enforces the XOR — neither both-set nor both-null is a valid
+    row. A project-scoped token has no equivalent live re-check of its
+    minter's role or membership — see #4334.
 
     ``status_map`` is immutable after creation by design: changing it requires
     minting a new token and revoking the old one, so the team can see (via the

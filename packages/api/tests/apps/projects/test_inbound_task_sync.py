@@ -18,6 +18,9 @@ Covers:
   - Program-scoped token write path intersects with the minter's live
     ProjectMembership on the specific URL project, checked at request time,
     not just mint time (#4324).
+  - Program-scoped token write path requires the minter's live
+    ProjectMembership to be Member or above — Viewer-only is refused, and a
+    demotion below Member is checked at request time (#4331).
 """
 
 from __future__ import annotations
@@ -1691,3 +1694,84 @@ def test_program_token_minter_without_project_membership_cannot_update_existing_
     task.refresh_from_db()
     assert task.name == "Original name"
     assert task.status == TaskStatus.NOT_STARTED
+
+
+# ---------------------------------------------------------------------------
+# Program-scoped token write-path role floor (#4331)
+# ---------------------------------------------------------------------------
+#
+# #4324 closed "no membership at all" but left a narrower gap: a Program
+# Admin who holds a live, Viewer-only ProjectMembership on the target
+# project — a real member, just not write-capable through the UI — could
+# still mint a program-scoped token and push writes a Viewer can never make.
+# The maintainer decision on #4331 (2026-10-08) is to require Member+ on the
+# minter's live ProjectMembership for this write path, fail closed.
+
+
+@pytest.mark.django_db
+def test_program_token_viewer_minter_is_401(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """#4331: the minter holds a LIVE ProjectMembership on the target project
+    (the #4324 check alone would pass), but it is Viewer-only — not
+    write-capable in the UI. The write must be refused with a 401, matching
+    every other IsTokenForProject mismatch, and no task may be created."""
+    ProjectMembership.objects.create(project=program_project, user=admin_user, role=Role.VIEWER)
+    _token, raw = _mint_program_token(program, admin_user)
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-5", "name": "Should not land"},
+        format="json",
+    )
+    assert resp.status_code == 401
+    assert not Task.objects.filter(project=program_project, name="Should not land").exists()
+
+
+@pytest.mark.django_db
+def test_program_token_member_minter_can_sync(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """#4331: Member (the floor, not just Admin/Owner) is write-capable — the
+    role check is a floor (>= Role.MEMBER), not an Admin-only gate."""
+    ProjectMembership.objects.create(project=program_project, user=admin_user, role=Role.MEMBER)
+    _token, raw = _mint_program_token(program, admin_user)
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-6", "name": "Issue"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+
+
+@pytest.mark.django_db
+def test_program_token_demoted_to_viewer_checked_at_request_time(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """#4331: the role check runs at request time, like the #4324 existence
+    check it extends. A minter demoted from Member to Viewer after the token
+    was minted must lose write authority on the very next request — no
+    re-mint involved."""
+    membership = ProjectMembership.objects.create(
+        project=program_project, user=admin_user, role=Role.MEMBER
+    )
+    _token, raw = _mint_program_token(program, admin_user)
+
+    # Member: the token works.
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-7", "name": "Issue"},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+
+    # Demote to Viewer — same raw token, no re-mint.
+    membership.role = Role.VIEWER
+    membership.save(update_fields=["role"])
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "PRG-8", "name": "Should not land either"},
+        format="json",
+    )
+    assert resp.status_code == 401
+    assert not Task.objects.filter(project=program_project, name="Should not land either").exists()
