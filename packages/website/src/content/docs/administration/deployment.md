@@ -552,8 +552,16 @@ React SPA). Both `Service`s stay `ClusterIP`; the `Ingress` is the sole
 externally-facing object and the TLS termination point. When the web tier is
 disabled (`web.enabled=false`), a `service: web` path falls back to the API.
 
-The default `ingress.hosts` already encodes the `/api`, `/ws` → API and `/` → web
-split, so a typical install only overrides the host, class, and TLS Secret. Because
+Both `values.yaml`'s default `ingress.hosts` and `values-prod.yaml`'s own
+`ingress.hosts` already encode the `/api`, `/ws` → API and `/` → web split, so a
+typical install only overrides the host, class, and TLS Secret. This is not
+automatic when you supply your own `ingress.hosts` instead: Helm deep-merges
+**maps** across `-f` files, but a **list** value such as `ingress.hosts` is
+replaced wholesale, not merged, so layering a values file (or a `--set-json`)
+that defines its own `hosts` discards the whole three-path split, not just the
+host — repeat all three paths and their `service:` keys in your override, or
+the overlay you supply will route everything, including `/`, to whichever
+`service:` a path with none of its own defaults to (`api`). Because
 `values-prod.yaml` disables the bundled datastores, the command also has to
 supply `env.DATABASE_URL` and `env.REDIS_URL`, or the render fails. The
 placeholders below stand in for the URLs (or the `secretKeyRef` form from the

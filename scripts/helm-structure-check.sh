@@ -1124,6 +1124,37 @@ live_host="$(echo "$DEP" | yq '.spec.template.spec.containers[0].livenessProbe.h
 [ "$(probe_host trueppm --set ingress.enabled=true --set probes.api.hostHeader=probe.example.test)" = "probe.example.test" ] \
   || fail "probes.api.hostHeader override did not beat the ingress host (#3237)"
 
+# 4349. values-prod.yaml's shipped Ingress overlay must reach the web Service
+#       (#4349). A values FILE passed with `-f` deep-merges maps but REPLACES
+#       lists outright, so layering values-prod.yaml on values.yaml does not
+#       keep the default `ingress.hosts` three-path split (/api, /ws -> api;
+#       / -> web) — it discards that list and renders prod's own `hosts`
+#       instead. The overlay used to ship a single bare `/` path with no
+#       `service:` key, which templates/ingress.yaml defaults to `api`, so
+#       EVERY request — including the SPA's own `/` — went to the Django API
+#       Service. The web Service rendered but was never reachable through the
+#       Ingress, and a browser visit 404'd on Django having no `/` route.
+prod_ingress_paths() { # [extra helm args...] -> "<path> <service>" per rendered path
+  helm template trueppm "$CHART" -f "$CHART/values-prod.yaml" \
+    --set image.tag=latest --set networkPolicy.ingressControllerConfirmed=true \
+    --set 'ingress.hosts[0].host=trueppm.example.com' --set ingress.className=nginx \
+    --set 'ingress.tls[0].secretName=trueppm-tls' \
+    --set 'ingress.tls[0].hosts[0]=trueppm.example.com' \
+    --set "env.DATABASE_URL=postgres://u:${PG_SENTINEL}@db.example.com:5432/trueppm?sslmode=require" \
+    --set "env.REDIS_URL=redis://:${RD_SENTINEL}@cache.example.com:6379" \
+    "$@" --show-only templates/ingress.yaml \
+    | yq '.spec.rules[0].http.paths[] | .path + " " + .backend.service.name'
+}
+prod_paths="$(prod_ingress_paths)"
+[ -n "$prod_paths" ] \
+  || fail "values-prod.yaml rendered no Ingress paths at all (#4349)"
+grep -q "^/ trueppm-web\$" <<<"$prod_paths" \
+  || fail "values-prod.yaml's rendered Ingress has no path routed to the web Service (trueppm-web) — the SPA is unreachable through the prod overlay's Ingress, every request lands on the API (#4349). Rendered paths: $(echo "$prod_paths" | tr '\n' ';')"
+grep -q "^/api trueppm-api\$" <<<"$prod_paths" \
+  || fail "values-prod.yaml's rendered Ingress does not route /api to the api Service (#4349). Rendered paths: $(echo "$prod_paths" | tr '\n' ';')"
+grep -q "^/ws trueppm-api\$" <<<"$prod_paths" \
+  || fail "values-prod.yaml's rendered Ingress does not route /ws to the api Service (#4349). Rendered paths: $(echo "$prod_paths" | tr '\n' ';')"
+
 # N+1. collectstatic (#3183). The image does not bake collectstatic output
 #      (packages/api/Dockerfile:103 — it "writes here at startup"), the api
 #      container serves /static/ through WhiteNoise from STATIC_ROOT, and the
@@ -2328,3 +2359,4 @@ echo "  - app-tier ingress NetworkPolicy: an upgrade that first introduces it re
 echo "  - demo/LoadBalancer/NodePort web exposure with no Ingress and the default ingressControllerSelector refuses on install AND upgrade, names the tunnel or the service type, and is satisfied by ingressControllerConfirmed=true or a non-default selector (ipBlock included); a stock default install and an Ingress-fronted demo are untouched; the API (not web) Service LoadBalancer case still raises the #3908 message (#4003)"
 echo "  - web pod template carries checksum/nginx-conf, and it changes when the nginx config does, so a config-only upgrade rolls the web pod (#4047)"
 echo "  - interactive demo edge: the fenced /api/ 403 routes to an internal @demo_read_only location returning the middleware JSON body; share-link and production ConfigMaps carry none of it (#4053)"
+echo "  - values-prod.yaml's Ingress overlay routes /api and /ws to the api Service and / to the web Service, so the SPA stays reachable once the overlay replaces values.yaml's default host list (#4349)"
