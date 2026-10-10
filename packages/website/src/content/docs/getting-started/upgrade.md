@@ -190,6 +190,19 @@ working on any number of web replicas. The limits:
   not retry while the browser is offline.
 - **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
   blank page until it reloads.
+- **Upgrading from 0.4.0-beta.7, specifically.** This one hop is not covered
+  by either mitigation above, even on a release that ships both: a beta.7 web
+  pod predates the nginx rule that answers a missing hashed asset with a
+  clean `404` and the client-side `vite:preloadError` reload handler, so
+  during the rollout it answers a request for the new release's chunk with
+  its SPA fallback page instead — and a browser that already has the new
+  `index.html` gets no clean error to retry on. If your web tier runs more
+  than one replica, scale it to 1 before starting an upgrade **from**
+  0.4.0-beta.7 (`helm upgrade … --set replicas.web=1` with your other `-f`/
+  `--set` flags unchanged, or `kubectl scale deployment/<release>-trueppm-web
+  --replicas=1`), wait for the rollout to finish, then scale back up. Every
+  later `beta.N` → `beta.(N+1)` hop is covered automatically once both tags
+  carry the fix; this is the one upgrade where it is not.
 
 See cause 4 under
 [The browser shows a blank page](/administration/troubleshooting/#the-browser-shows-a-blank-page)
