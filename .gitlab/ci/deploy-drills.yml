@@ -206,7 +206,17 @@ helm:install:
   timeout: 25m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+    # The runner host's dockerd defaults new containers to a 1024-nofile soft
+    # ulimit (docker.service's LimitNOFILESoft); kind never raises it, so the
+    # node container running kube-apiserver+etcd+containerd+kubelet+kube-proxy
+    # shares one 1024-fd budget and kube-proxy crash-loops under load
+    # ("too many open files", #4363). --default-ulimit targets the INNER
+    # dockerd this service runs — the one that actually creates the kind node
+    # container — which is the only lever reachable from this repo: GitLab's
+    # services: schema has no ulimit: field, and this service container's own
+    # ulimit is a runner-level (config.toml) setting.
+    - name: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+      command: ["--default-ulimit", "nofile=1048576:1048576"]
   needs:
     - job: ci:build-deploy-images
       artifacts: false
@@ -278,7 +288,10 @@ helm:upgrade:
   timeout: 40m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+    # kind node container's nofile ulimit override — see helm:install above
+    # for the full rationale (#4363).
+    - name: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+      command: ["--default-ulimit", "nofile=1048576:1048576"]
   needs:
     - job: ci:build-deploy-images
       artifacts: false
@@ -361,7 +374,10 @@ helm:demo:
   timeout: 25m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+    # kind node container's nofile ulimit override — see helm:install above
+    # for the full rationale (#4363).
+    - name: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+      command: ["--default-ulimit", "nofile=1048576:1048576"]
   needs:
     - job: ci:build-deploy-images
       artifacts: false
@@ -437,7 +453,10 @@ helm:demo-upgrade:
   timeout: 40m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+    # kind node container's nofile ulimit override — see helm:install above
+    # for the full rationale (#4363).
+    - name: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+      command: ["--default-ulimit", "nofile=1048576:1048576"]
   needs:
     - job: ci:build-deploy-images
       artifacts: false
@@ -511,7 +530,10 @@ helm:walkthrough:
   timeout: 25m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+    # kind node container's nofile ulimit override — see helm:install above
+    # for the full rationale (#4363).
+    - name: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+      command: ["--default-ulimit", "nofile=1048576:1048576"]
   needs:
     - job: ci:build-deploy-images
       artifacts: false
@@ -783,7 +805,10 @@ helm:netpol:
   timeout: 30m
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
-    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+    # kind node container's nofile ulimit override — see helm:install above
+    # for the full rationale (#4363).
+    - name: docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+      command: ["--default-ulimit", "nofile=1048576:1048576"]
   needs:
     - job: ci:build-deploy-images
       artifacts: false
