@@ -352,6 +352,11 @@ persistence:
     enabled: true
 ```
 
+:::note[Rotating a value in `trueppm-env` later?]
+Updating this Secret in place does not restart any pod — see
+[Restarting pods after rotating the Secret](/administration/security/#restarting-pods-after-rotating-the-secret).
+:::
+
 `values-prod.yaml` also enables the Ingress and leaves its host, the public URLs
 (`env.TRUEPPM_FRONTEND_BASE_URL`, `env.TRUEPPM_PUBLIC_API_BASE_URL`), and
 `env.CSRF_TRUSTED_ORIGINS` empty. Set them in `my-values.yaml` too, alongside the

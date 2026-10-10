@@ -277,6 +277,51 @@ in that list is enabled by default.
 Never commit secrets to version control. Use environment variables, Docker secrets, or a secrets manager (Vault, AWS Secrets Manager, etc.).
 :::
 
+### Restarting pods after rotating the Secret
+
+On Kubernetes, `SECRET_KEY`, `JWT_SIGNING_KEY`, `INTEGRATION_ENCRYPTION_KEY`,
+and any other application-level key arrive via the `envFrom` Secret
+referenced in [the production install walkthrough](/administration/deployment/#production-install-walkthrough)
+(conventionally named `trueppm-env`). `DATABASE_URL` and `REDIS_URL` are a
+separate case: the chart always sets them as an explicit `env:` entry — a
+`secretKeyRef` against whichever Secret you pointed `env.DATABASE_URL` /
+`env.REDIS_URL` at (`trueppm-db` / `trueppm-cache` in the walkthrough), never
+through `envFrom` — because an explicit `env:` key wins over an `envFrom` key
+of the same name, so routing them through `trueppm-env` would silently not
+take effect. Rotating either kind the same way — updating the Secret's data
+in place via `kubectl apply`, an External Secrets refresh, a Vault Agent
+template render — does **not** restart anything: the Deployment's pod
+template is unchanged either way, so Kubernetes has nothing to notice and old
+pods keep the old value indefinitely. Only the chart's `web` tier carries a
+pod-template checksum annotation, and that one guards its nginx ConfigMap,
+not either of these Secrets.
+
+After rotating `SECRET_KEY`, `JWT_SIGNING_KEY`, `INTEGRATION_ENCRYPTION_KEY`,
+`DATABASE_URL`, `REDIS_URL`, or any other key delivered either way, restart
+the three Deployments that read them and otherwise never pick up the new
+value on their own:
+
+```bash
+kubectl rollout restart deployment/trueppm-api \
+  deployment/trueppm-celery-worker deployment/trueppm-celery-beat \
+  -n trueppm
+```
+
+(Replace `trueppm` with your release name and namespace if you installed
+under different ones.) The `migrate` init container that bootstraps the `api`
+pod reads the same values, so restarting that Deployment also re-runs it
+against whichever one you rotated.
+
+If you run the chart's demo mode (`demo.enabled: true`), the demo-reset
+CronJob and demo-seed Job read the same values too, but need no restart:
+Kubernetes starts a fresh pod for each of their runs, so the next scheduled
+reset or seed already uses the rotated value.
+
+A chart-rendered checksum annotation that rolls these Deployments
+automatically on every Secret change — the same mechanism the `web` tier's
+nginx ConfigMap already has — is tracked in
+[#3405](https://gitlab.com/trueppm/trueppm/-/issues/3405).
+
 ### Verifying before deploy
 
 Django's deploy check enforces the key rules at boot, so you can prove a
@@ -311,12 +356,16 @@ two so that:
 
 **To force every user to sign in again** (after a suspected token leak or an
 admin offboarding), rotate the JWT signing key: set `JWT_SIGNING_KEY` to a fresh
-value and restart the API and Celery workers. Every outstanding access and
-refresh token immediately fails signature verification; the web app treats the
-next call as a `401`, attempts one (also-failing) refresh, and routes users to
-the sign-in screen. No data is lost. If you have not set a separate
-`JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also rotates
-session/CSRF signing.
+value and, on Kubernetes,
+[restart the api, celery-worker, and celery-beat Deployments](#restarting-pods-after-rotating-the-secret)
+(`docker compose up -d` on the Compose deploy — `docker compose restart`
+recreates nothing and keeps serving the **old** key from the running
+container, silently defeating this rotation). Every outstanding
+access and refresh token immediately fails signature verification; the web app
+treats the next call as a `401`, attempts one (also-failing) refresh, and
+routes users to the sign-in screen. No data is lost. If you have not set a
+separate `JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also
+rotates session/CSRF signing.
 
 :::danger[Key rotation does not revoke API tokens]
 Rotating the signing key cuts **sessions and JWTs only**. An
