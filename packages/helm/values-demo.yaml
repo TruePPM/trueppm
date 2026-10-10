@@ -147,9 +147,9 @@ env:
   TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED: "true"
   # Asserted for the same reason, and with more force: when rate limiting is off
   # every named throttle scope's rate becomes None, which removes the share_access
-  # throttle — the only bound on the sole public endpoint. A demo pins one replica
-  # at a 1-CPU limit with autoscaling and the PDB disabled, so there is no headroom
-  # to absorb an unthrottled crawler.
+  # throttle — the only bound on the sole public endpoint. A demo pins each api
+  # replica (3, see `replicaCount` below) to a 1-CPU limit with autoscaling and
+  # the PDB disabled, so there is no headroom to absorb an unthrottled crawler.
   TRUEPPM_RATE_LIMIT_ENABLED: "true"
   # The Secret below opts in to local attachment storage, and settings.prod then
   # refuses to boot unless MEDIA_ROOT is writable — on every pod that imports
@@ -246,11 +246,33 @@ envFrom:
 # concurrent Schedule-opens 22.5s→7.3s) is for the multi-process-per-pod shape, not
 # replicas — replicas are "expected to behave the same but have not been [measured]"
 # per that same comment, so 3 is a deliberately modest first step, not a number
-# read off that benchmark. Each replica adds one more persistent PostgreSQL
-# connection (`CONN_MAX_AGE=600` in `trueppm_api.settings.prod`); well under the
-# stock `max_connections=100` at this count, but don't push it further without
-# checking that math again.
+# read off that benchmark. Each uvicorn/celery process holds one persistent
+# PostgreSQL connection (`CONN_MAX_AGE=600` in `trueppm_api.settings.prod`), and
+# connections multiply by process count, not pod count: api is 3 replicas ×
+# `processes.api.workers` 1 = 3, celery-worker is 3 replicas ×
+# `processes.worker.concurrency` 2 = 6, plus celery-beat's fixed singleton = 1 —
+# about 10 total, well under the stock `max_connections=100` at this count, but
+# don't push it further without recomputing that math (the web tier below is
+# pinned to a single nginx replica and holds no database connection at all).
 replicaCount: 3
+
+# Web tier: pinned to 1, overriding the fleet-wide replicaCount above (#4348).
+# nginx serves a static, pre-built SPA bundle — no uvicorn worker pool, no
+# per-process state — so extra web pods buy this tier nothing the way extra
+# api/worker replicas buy uvicorn/Celery throughput (see the replicaCount
+# comment above). Every extra web pod is also one more pod that can be running
+# the OTHER release's assets mid-rollout: with >=2 web replicas, Kubernetes'
+# RollingUpdate keeps old and new pods serving together for the duration of
+# the rollout, and a browser that fetches a new chunk from a pod still on the
+# old release gets a 404 (or, pre-#4341-fix releases, a false-200 SPA
+# fallback) instead of the file — the exact blank-screen window #4341 is
+# about (see "Blank pages during an upgrade of the web tier" in
+# /getting-started/upgrade/ for the operator-facing mitigation, including the
+# one-time beta.7 -> beta.8 case the fix itself does not cover). A single web
+# pod means every request is answered by the same release for the whole
+# rollout, so the window does not open at all.
+replicas:
+  web: 1
 
 resources:
   api:
