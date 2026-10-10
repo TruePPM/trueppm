@@ -162,8 +162,10 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         #     history attribution for whoever minted it, not the source of its rights —
         #     with one narrowing (#4324): for a PROGRAM-scoped token on a write path,
         #     ``IsTokenForProject`` also requires ``created_by`` to hold a live
-        #     ``ProjectMembership`` on the URL project. That is a project-membership
-        #     check on the minter, not an account-active check, so it is orthogonal to
+        #     ``ProjectMembership`` on the URL project — and (#4334) for a
+        #     PROJECT-scoped token, a Member+ floor on the minter's last recorded
+        #     role on that project, live or removed. Those are project-membership
+        #     checks on the minter, not account-active checks, so they are orthogonal to
         #     the ``is_active`` guard here — this paragraph's "leave the token alone on
         #     off-boarding" decision is unchanged.
         #     Rejecting it would kill a team's CI the moment an unrelated colleague is

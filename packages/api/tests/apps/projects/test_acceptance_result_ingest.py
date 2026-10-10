@@ -14,7 +14,10 @@ minter is also a project member; program-scoped token's minter WITHOUT project
 membership is rejected and a membership revoked after mint is checked at request
 time (#4324); a program-scoped token's minter who holds a live but Viewer-only
 ProjectMembership is also rejected, Member+ is required, and a demotion below
-Member is checked at request time (#4331); batch cap; duplicate criterion id;
+Member is checked at request time (#4331); a project-scoped token's minter is
+floored on their last recorded role — demotion refuses, removal in good standing
+does not, and removal (incl. self-removal) cannot undo a demotion; a deleted
+minter's token is refused by IsAuthenticated (#4334); batch cap; duplicate criterion id;
 empty results; no auto-transition to READY.
 """
 
@@ -481,6 +484,125 @@ def test_program_token_demoted_to_viewer_checked_at_request_time(
     assert resp.status_code == 401
     c2.refresh_from_db()
     assert c2.met is False
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped token minter-role floor (#4334) — end to end
+# ---------------------------------------------------------------------------
+#
+# The project-scoped branch floors the role on the minter's MOST RECENT
+# ProjectMembership row for the token's project, live or soft-deleted. These go
+# through the real endpoint (authenticator + full permission chain), not the
+# permission class in isolation, so they also pin what IsAuthenticated decides.
+
+
+def _post_one(raw: str, project: Project, criterion: AcceptanceCriterion) -> Any:
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+        return _bearer(raw).post(
+            _url(project),
+            {"results": [{"criterion_id": str(criterion.pk), "passed": True}]},
+            format="json",
+        )
+
+
+def _as(user: Any) -> APIClient:
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+@pytest.mark.django_db
+def test_project_token_demoted_minter_is_401_at_endpoint(project: Project, minter: Any) -> None:
+    """#4334: a project-token minter demoted to Viewer is refused on the next
+    request through the same, already-minted token."""
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    c2 = _criterion(story, pos=1)
+    _, raw = _mint_token(project, minter)
+
+    resp = _post_one(raw, project, c1)
+    assert resp.status_code == 200, resp.data
+
+    ProjectMembership.objects.filter(project=project, user=minter).update(role=Role.VIEWER)
+
+    resp = _post_one(raw, project, c2)
+    assert resp.status_code == 401
+    c2.refresh_from_db()
+    assert c2.met is False
+
+
+@pytest.mark.django_db
+def test_project_token_minter_removed_in_good_standing_keeps_working(
+    project: Project, minter: Any
+) -> None:
+    """#4334 org-asset carve-out: an Owner removes the (Admin) minter through the
+    real members endpoint. Their last recorded role is still Admin, so the token
+    keeps write authority — it survives its minter's off-boarding."""
+    owner = User.objects.create_user(username="owner", email="o@example.com", password="pw")
+    ProjectMembership.objects.create(project=project, user=owner, role=Role.OWNER)
+    membership = ProjectMembership.objects.get(project=project, user=minter)
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    _, raw = _mint_token(project, minter)
+
+    resp = _as(owner).delete(f"/api/v1/projects/{project.pk}/members/{membership.pk}/")
+    assert resp.status_code == 204
+    membership.refresh_from_db()
+    assert membership.is_deleted is True
+
+    resp = _post_one(raw, project, c1)
+    assert resp.status_code == 200, resp.data
+    c1.refresh_from_db()
+    assert c1.met is True
+
+
+@pytest.mark.django_db
+def test_project_token_demoted_minter_cannot_self_remove_to_regain_write(
+    project: Project, minter: Any
+) -> None:
+    """#4334 (B2): demoted minter -> 401; minter self-removes through the real
+    members endpoint (204, any member may) -> the same token must STILL be 401.
+    Before the most-recent-row floor, self-removal turned the demotion back into
+    full write authority."""
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    _, raw = _mint_token(project, minter)
+    membership = ProjectMembership.objects.get(project=project, user=minter)
+    membership.role = Role.VIEWER
+    membership.save(update_fields=["role"])
+
+    assert _post_one(raw, project, c1).status_code == 401
+
+    resp = _as(minter).delete(f"/api/v1/projects/{project.pk}/members/{membership.pk}/")
+    assert resp.status_code == 204
+    membership.refresh_from_db()
+    assert membership.is_deleted is True
+    assert membership.role == Role.VIEWER
+
+    resp = _post_one(raw, project, c1)
+    assert resp.status_code == 401
+    c1.refresh_from_db()
+    assert c1.met is False
+
+
+@pytest.mark.django_db
+def test_project_token_deleted_minter_is_refused_at_endpoint(project: Project, minter: Any) -> None:
+    """A minter whose account is deleted leaves ``created_by`` NULL. The token
+    authenticates as AnonymousUser and IsAuthenticated (ahead of
+    IsTokenForProject) refuses it — pre-existing behavior, not #4334's recheck.
+    Pins that the token does NOT keep working."""
+    story = _story(project)
+    c1 = _criterion(story, pos=0)
+    token, raw = _mint_token(project, minter)
+
+    minter.delete()
+    token.refresh_from_db()
+    assert token.created_by_id is None
+
+    resp = _post_one(raw, project, c1)
+    assert resp.status_code == 403
+    c1.refresh_from_db()
+    assert c1.met is False
 
 
 # ---------------------------------------------------------------------------

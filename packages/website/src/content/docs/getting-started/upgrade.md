@@ -591,16 +591,17 @@ changed:
   Until that lands, a minter who is a live member but Viewer-only can still use a
   program-scoped token to write into the project (#4331).
 - **Project-scoped API tokens (task-sync and acceptance-results).** Today these two
-  write endpoints have no live re-check of their own — a project-scoped token keeps
-  full write authority through its minter being demoted or removed from the project,
-  or even deleted, because project-scoped tokens are documented org assets that
-  survive their minter's off-boarding. **Not yet released:** a narrower live recheck
-  with that same org-asset carve-out preserved. Once it ships, while the minter is
-  still a live member of the token's own project, write authority will narrow to that
-  membership's current role — a minter demoted to Viewer will lose write authority on
-  the token's very next request. A minter *removed* from the project, or whose account
-  is deleted, will not be rechecked at all and the token will keep full write
-  authority, same as today (#4334).
+  write endpoints do not re-check a project-scoped token's minter — the token keeps full
+  write authority after its minter is demoted or removed from the project, because
+  project-scoped tokens are documented org assets that survive their minter's
+  off-boarding. (A token whose minter's account was *deleted* is a different case: both
+  endpoints already refuse it, because it is left with no user to act as. That does not
+  change.) **Not yet released:** a request-time floor on the minter's *last recorded
+  role* on the token's project, live or removed. Once it ships, a minter demoted to
+  Viewer will lose write authority on the token's very next request. A minter removed
+  from the project while still Member or above keeps a working token, so the org-asset
+  guarantee holds for a removal in good standing. A minter demoted below Member and then
+  removed, including one who removes themselves, stays refused (#4334).
 - **Project-scoped webhooks.** A project webhook receives that project's events only while
   its creator holds **Project Manager or above** there, checked on the same schedule as
   program webhooks above. Removing the creator's membership, demoting it below Project
