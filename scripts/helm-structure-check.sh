@@ -1068,6 +1068,50 @@ web_svc="$(yq eval 'select(.kind == "Service" and .metadata.name == "trueppm-web
 [ "$web_svc" = "NodePort:8081" ] \
   || fail "service.web.type/port did not reach the web Service (got '$web_svc', want NodePort:8081) — the moved keys are not wired (ADR-1248)"
 
+# M+1. Sprig's `| default` treats 0 and false as unset, which clobbered four
+#      documented, legitimate falsy settings back to their non-zero/non-false
+#      chart defaults (#4351): replicas.web=0, podDisruptionBudget.*.maxUnavailable=0,
+#      observability.otlp.{enabled,tracesEnabled,metricsEnabled}=false, and
+#      demo.backoffLimit=0. Each assertion here is a negative control written
+#      to fail on the unfixed templates (confirmed by hand before the fix
+#      landed) and to catch a regression of the same clobber.
+falsy_render="$(helm template trueppm "$CHART" --set image.tag=latest --set replicaCount=5 \
+  --set replicas.web=0 --set podDisruptionBudget.enabled=true \
+  --set podDisruptionBudget.api.maxUnavailable=0 \
+  --set podDisruptionBudget.worker.maxUnavailable=0 \
+  --set podDisruptionBudget.web.maxUnavailable=0)"
+falsy_web_replicas="$(yq eval 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.replicas' - <<<"$falsy_render" | grep -v '^---$' | grep -v '^$')"
+[ "$falsy_web_replicas" = "0" ] \
+  || fail "replicas.web=0 with replicaCount=5 rendered web replicas=$falsy_web_replicas, want 0 — Sprig's \`default\` treats 0 as unset and clobbered the explicit scale-to-zero (#4351)"
+for tier in api celery-worker web; do
+  got="$(yq eval "select(.kind == \"PodDisruptionBudget\" and .metadata.name == \"trueppm-${tier}\") | .spec.maxUnavailable" - <<<"$falsy_render" | grep -v '^---$' | grep -v '^$')"
+  [ "$got" = "0" ] \
+    || fail "podDisruptionBudget.${tier}.maxUnavailable=0 rendered maxUnavailable=$got, want 0 — clobbered back to the chart default (#4351)"
+done
+
+otlp_disabled="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set observability.otlp.endpoint=http://otel-collector:4317 \
+  --set observability.otlp.enabled=false --set observability.otlp.tracesEnabled=false \
+  --set observability.otlp.metricsEnabled=false --show-only templates/api/deployment.yaml \
+  | yq '.spec.template.spec.containers[0].env[] | select(.name == "TRUEPPM_OTEL_ENABLED" or .name == "TRUEPPM_OTEL_TRACES_ENABLED" or .name == "TRUEPPM_OTEL_METRICS_ENABLED") | .value')"
+[ "$(sort -u <<<"$otlp_disabled")" = "false" ] \
+  || fail "observability.otlp.{enabled,tracesEnabled,metricsEnabled}=false rendered $(tr '\n' ',' <<<"$otlp_disabled"), want all \"false\" — clobbered back to the chart default true (#4351)"
+
+demo_backoff_args=(--set image.tag=latest --set demo.enabled=true \
+  --set networkPolicy.enabled=false --set demo.baseUrl=https://demo.example.com \
+  --set demo.reset.enabled=true \
+  --set demo.shareToken.schedule=aaaaaaaaaaaaaaaaaaaaaaaa \
+  --set demo.shareToken.board=bbbbbbbbbbbbbbbbbbbbbbbb \
+  --set demo.backoffLimit=0)
+seed_backoff="$(helm template trueppm "$CHART" "${demo_backoff_args[@]}" --show-only templates/demo-seed-job.yaml \
+  | yq 'select(.kind == "Job") | .spec.backoffLimit')"
+[ "$seed_backoff" = "0" ] \
+  || fail "demo.backoffLimit=0 rendered backoffLimit=$seed_backoff in the demo-seed Job, want 0 — clobbered back to the chart default 2 (#4351)"
+reset_backoff="$(helm template trueppm "$CHART" "${demo_backoff_args[@]}" --show-only templates/demo-reset-cronjob.yaml \
+  | yq 'select(.kind == "CronJob") | .spec.jobTemplate.spec.backoffLimit')"
+[ "$reset_backoff" = "0" ] \
+  || fail "demo.backoffLimit=0 rendered backoffLimit=$reset_backoff in the demo-reset CronJob, want 0 — clobbered back to the chart default 2 (#4351)"
+
 # N. Probe Host header (#3183, #3237). kubelet dials a probe by POD IP, so with
 #    no Host header Django validates `<podIP>:8000` against ALLOWED_HOSTS in
 #    get_host() — before any view, and out of reach of SECURE_REDIRECT_EXEMPT —

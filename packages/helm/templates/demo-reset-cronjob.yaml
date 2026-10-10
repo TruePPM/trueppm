@@ -53,7 +53,8 @@ spec:
   failedJobsHistoryLimit: {{ .Values.demo.reset.failedJobsHistoryLimit }}
   jobTemplate:
     spec:
-      backoffLimit: {{ .Values.demo.backoffLimit | default 2 }}
+      # See templates/demo-seed-job.yaml for why this has no `| default 2` (#4351).
+      backoffLimit: {{ .Values.demo.backoffLimit }}
       activeDeadlineSeconds: {{ .Values.demo.reset.activeDeadlineSeconds }}
       template:
         metadata:

@@ -165,12 +165,18 @@ the rendered manifest.
   value: {{ .protocol | default "grpc" | quote }}
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | default "trueppm-api" | quote }}
+{{/* No `| default true` on these three — values.yaml already ships a concrete
+     default (true) for each, so the merged value is never actually unset,
+     and Sprig's `default` treats false as unset too. That clobbered an
+     explicit `enabled: false` / `tracesEnabled: false` / `metricsEnabled:
+     false` — the documented master kill switch and per-signal toggles —
+     back to "true" whenever an endpoint was also set (#4351). */}}
 - name: TRUEPPM_OTEL_ENABLED
-  value: {{ .enabled | default true | quote }}
+  value: {{ .enabled | quote }}
 - name: TRUEPPM_OTEL_TRACES_ENABLED
-  value: {{ .tracesEnabled | default true | quote }}
+  value: {{ .tracesEnabled | quote }}
 - name: TRUEPPM_OTEL_METRICS_ENABLED
-  value: {{ .metricsEnabled | default true | quote }}
+  value: {{ .metricsEnabled | quote }}
 {{- if .tracesSampler }}
 - name: OTEL_TRACES_SAMPLER
   value: {{ .tracesSampler | quote }}
@@ -854,6 +860,9 @@ plaintext into a Deployment manifest.
   value: {{ .Values.valkey.sentinel.nodes | quote }}
 - name: TRUEPPM_VALKEY_MASTER_NAME
   value: {{ .Values.valkey.sentinel.masterName | quote }}
+{{/* `| default false` is reasoned safe (#4351 sweep): values.yaml's own
+     default for this flag is already false, so clobbering an explicit
+     `tls: false` back to false changes nothing. */}}
 - name: TRUEPPM_VALKEY_USE_TLS
   value: {{ .Values.valkey.sentinel.tls | default false | quote }}
 {{- if .Values.valkey.sentinel.password }}

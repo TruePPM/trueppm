@@ -166,6 +166,9 @@ spec:
           # this only ADDS a worker count, it must never change the bind
           # address or port out from under the readiness/liveness probes
           # above, which target containerPort 8000 by name.
+          {{- /* `| default 1` here is reasoned safe (#4351 sweep): 0 would be
+                 clobbered the same way, but 0 workers is invalid regardless —
+                 the fail guard right below already rejects it explicitly. */}}
           {{- $apiWorkers := int (.Values.processes.api.workers | default 1) }}
           {{- if lt $apiWorkers 1 }}
             {{- fail (printf "processes.api.workers must be >= 1, got %d — uvicorn requires at least one worker process (#3833)" $apiWorkers) }}
@@ -301,6 +304,9 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
+            # periodSeconds/failureThreshold `| default` are reasoned safe (#4351
+            # sweep): the Kubernetes API requires both >= 1, so 0 is invalid
+            # regardless of whether `default` would clobber it.
             periodSeconds: {{ .Values.probes.api.startupPeriodSeconds | default 5 }}
             failureThreshold: {{ .Values.probes.api.startupFailureThreshold | default 30 }}
           {{- end }}
@@ -320,7 +326,13 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
-            initialDelaySeconds: {{ .Values.probes.api.readinessInitialDelaySeconds | default 10 }}
+            # No `| default 10` on initialDelaySeconds (#4351): 0 is a valid,
+            # legitimate Kubernetes setting (probe immediately — the chart's own
+            # probes.worker.startup block already ships 0 for the same field) and
+            # values.yaml already carries the concrete default. periodSeconds
+            # keeps its `| default` — the Kubernetes API requires it >= 1, so 0
+            # is invalid regardless.
+            initialDelaySeconds: {{ .Values.probes.api.readinessInitialDelaySeconds }}
             periodSeconds: {{ .Values.probes.api.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
@@ -331,7 +343,9 @@ spec:
                 - name: Host
                   value: {{ . | quote }}
               {{- end }}
-            initialDelaySeconds: {{ .Values.probes.api.livenessInitialDelaySeconds | default 30 }}
+            # See the readiness probe above for why initialDelaySeconds has no
+            # `| default` while periodSeconds keeps one (#4351).
+            initialDelaySeconds: {{ .Values.probes.api.livenessInitialDelaySeconds }}
             periodSeconds: {{ .Values.probes.api.livenessPeriodSeconds | default 30 }}
           resources:
             {{- toYaml .Values.resources.api | nindent 12 }}

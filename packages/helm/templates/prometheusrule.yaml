@@ -57,27 +57,38 @@ spec:
           # trueppm_outbox_depth is cluster-wide (every process reads the same
           # PostgreSQL backlog and re-emits it as its own series) — max by, never
           # sum by, or the alert fires at N times the real depth (#4186).
-          expr: max by (trueppm_outbox_name) (trueppm_outbox_depth) > {{ .Values.alerts.thresholds.outboxDepth | default 500 }}
+          #
+          # No `| default 500` on the threshold (#4351): values.yaml already ships
+          # 500 as the concrete default, and Sprig's `default` treats 0 as unset
+          # too — clobbering an explicit zero-tolerance `outboxDepth: 0` (alert on
+          # any sustained backlog at all; the `for:` window already filters a
+          # transient one) back up to 500.
+          expr: max by (trueppm_outbox_name) (trueppm_outbox_depth) > {{ .Values.alerts.thresholds.outboxDepth }}
           for: {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "TruePPM outbox backlog is high ({{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }})"
-            description: "The {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox has held more than {{ .Values.alerts.thresholds.outboxDepth | default 500 }} not-done rows for over {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" }} — the drain is falling behind."
+            description: "The {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox has held more than {{ .Values.alerts.thresholds.outboxDepth }} not-done rows for over {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" }} — the drain is falling behind."
         - alert: TruePPMOutboxOldestAgeRising
-          expr: max by (trueppm_outbox_name) (trueppm_outbox_oldest_age_seconds) > {{ .Values.alerts.thresholds.outboxOldestAgeSeconds | default 900 }}
+          # Same reasoning as outboxDepth above: no `| default 900` (#4351), so an
+          # explicit zero-tolerance `outboxOldestAgeSeconds: 0` is not clobbered.
+          expr: max by (trueppm_outbox_name) (trueppm_outbox_oldest_age_seconds) > {{ .Values.alerts.thresholds.outboxOldestAgeSeconds }}
           for: {{ .Values.alerts.thresholds.outboxOldestAgeFor | default "10m" | quote }}
           labels:
             severity: warning
           annotations:
             summary: "TruePPM outbox oldest row is aging ({{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }})"
-            description: "The oldest not-done row in the {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox is older than {{ .Values.alerts.thresholds.outboxOldestAgeSeconds | default 900 }}s — the async drain has likely stalled."
+            description: "The oldest not-done row in the {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox is older than {{ .Values.alerts.thresholds.outboxOldestAgeSeconds }}s — the async drain has likely stalled."
         - alert: TruePPMDeadLetterPresent
           # trueppm_task_dead_letter_parked is NOT an OTLP metric — it is served as
           # Prometheus text exposition by /api/v1/health/dead-letter/, so it needs its
           # own scrape job against that endpoint. The name is pinned by
           # `_DEAD_LETTER_METRIC` in apps/observability/views.py and kept in sync with
           # this expr by scripts/check-helm-metric-names.py (#2805).
+          # `| default 0` is reasoned safe (#4351 sweep): values.yaml's own
+          # default for this threshold is already 0, so clobbering an explicit
+          # 0 back to 0 changes nothing.
           expr: sum(trueppm_task_dead_letter_parked) > {{ .Values.alerts.thresholds.deadLetter | default 0 }}
           for: {{ .Values.alerts.thresholds.deadLetterFor | default "5m" | quote }}
           labels:
@@ -106,6 +117,7 @@ spec:
           # relay is refusing everything. Failures alongside deliveries are a
           # narrower problem (one bad recipient) and are deliberately NOT alerted
           # here — that is what the System Health card's warn state is for.
+          # `| default 0` reasoned safe — same as deadLetter above (#4351).
           expr: max(trueppm_email_sends_failed_recent) > {{ .Values.alerts.thresholds.emailFailed | default 0 }} and max(trueppm_email_sends_delivered_recent) == 0
           for: {{ .Values.alerts.thresholds.emailFailedFor | default "10m" | quote }}
           labels:
@@ -118,6 +130,7 @@ spec:
           # the two above — this fires when sends are not even being attempted
           # (worker gone, or a transport that cannot be built, which deliberately
           # leaves rows pending instead of burning their retries).
+          # `| default 0` reasoned safe — same as deadLetter above (#4351).
           expr: max(trueppm_email_queue_aging) > {{ .Values.alerts.thresholds.emailQueueAging | default 0 }}
           for: {{ .Values.alerts.thresholds.emailQueueAgingFor | default "15m" | quote }}
           labels:
@@ -154,6 +167,11 @@ spec:
           # The complement of the rule above: a CronJob that is suspended or never
           # triggers produces no failed Job, so alert on the absence of a recent
           # success, not only on the presence of a failure.
+          # `| default 93600` is reasoned safe (#4351 sweep): unlike outboxDepth
+          # above, 0 here is not a usable "zero tolerance" setting — it would
+          # make this alert fire permanently from the very first successful run
+          # onward, not track a real degrading signal, so it is not a value an
+          # operator would deliberately set.
           expr: >-
             time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-demo-reset"})
             > {{ .Values.alerts.thresholds.demoReset.staleAfterSeconds | default 93600 }}
@@ -195,6 +213,8 @@ spec:
           # triggering produces no failed Job at all, so JobFailed stays quiet
           # forever while no backup is taken. Alert on the absence of a recent
           # success, not on the presence of a failure.
+          # Same reasoning as TruePPMDemoResetStale above (#4351) — 0 degenerates
+          # this alert to permanently-firing rather than expressing a tolerance.
           expr: >-
             time() - max(kube_cronjob_status_last_successful_time{cronjob=~"{{ include "trueppm.fullname" . }}-backup"})
             > {{ .Values.alerts.thresholds.backup.staleAfterSeconds | default 172800 }}
@@ -234,6 +254,10 @@ spec:
           # backups, media. A full PostgreSQL PVC is silent until it is an
           # outage, and a full backup PVC turns every subsequent run into a
           # failure the JobFailed rule reports only after the fact.
+          # `| default 15` is reasoned safe (#4351 sweep): the comparison is
+          # `< threshold`, so 0 would make the condition unsatisfiable (nothing
+          # is ever less than 0%) — not a tolerance an operator could want,
+          # unlike outboxDepth's `>` comparison above.
           expr: >-
             kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes * 100
             < {{ .Values.alerts.thresholds.volumeAvailablePercent | default 15 }}
