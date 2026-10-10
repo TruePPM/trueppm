@@ -153,12 +153,27 @@ ingress:
   enabled: true
   # REQUIRED. An empty className renders an Ingress no controller claims.
   className: ""
-  # REQUIRED. Leaving the placeholder here routes nothing.
+  # REQUIRED. Leaving `host` empty here renders an Ingress rule for the empty
+  # string, which no DNS name or client Host header matches — it routes
+  # nothing until you fill it in. The paths below are already correct: they
+  # mirror values.yaml's own default split so a prod install does not lose it
+  # (a list value is REPLACED, not merged, when this file is layered as an
+  # overlay — see the warning at the top of this file). Previously this
+  # overlay shipped a single bare `/` path with no `service:` key, which
+  # templates/ingress.yaml defaults to `api` — every request, including `/`,
+  # went to the Django API Service and the web SPA was unreachable (#4349).
   hosts:
     - host: ""
       paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /ws
+          pathType: Prefix
+          service: api
         - path: /
           pathType: Prefix
+          service: web
   # REQUIRED. An empty list renders an HTTP-only Ingress. Never front production
   # with one.
   tls: []
