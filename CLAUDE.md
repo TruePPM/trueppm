@@ -368,7 +368,7 @@ rolling-update version-skew investigation.
 - **Scope is sequential only.** The guarantee covers X.Y → X.(Y+1). It does **not**
   cover skipping a minor in one step (X.Y → X.(Y+2) or further) — that is not a
   supported upgrade path. Document this explicitly in
-  `docs/getting-started/upgrade.md` once GA planning starts, the same way Kubernetes
+  `packages/website/src/content/docs/getting-started/upgrade.md` once GA planning starts, the same way Kubernetes
   documents its own version-skew policy rather than leaving it implied.
 - **Pre-GA (current state: alpha/beta) this is not a hard requirement.** ADR-1249
   (the web image retains the immediately previous published release's hashed assets)
