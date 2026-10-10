@@ -357,6 +357,34 @@ destructive delete-and-regenerate approach, which *would* have required every
 operator and developer to drop their local DB, was evaluated and **rejected** in
 #1286 in favor of `replaces=`.
 
+## Upgrade compatibility
+
+**Once TruePPM reaches GA (1.0), every supported upgrade path — one minor version at
+a time (1.2→1.3, 1.3→1.4, …) — must complete without blank-screening a client that is
+still holding the previous minor's web assets.** This is a hard release-gate
+requirement at GA, not a best-effort. Set 2026-10-10 against #4341's web
+rolling-update version-skew investigation.
+
+- **Scope is sequential only.** The guarantee covers X.Y → X.(Y+1). It does **not**
+  cover skipping a minor in one step (X.Y → X.(Y+2) or further) — that is not a
+  supported upgrade path. Document this explicitly in
+  `docs/getting-started/upgrade.md` once GA planning starts, the same way Kubernetes
+  documents its own version-skew policy rather than leaving it implied.
+- **Pre-GA (current state: alpha/beta) this is not a hard requirement.** ADR-1249
+  (the web image retains the immediately previous published release's hashed assets)
+  ships the mechanism now because it is good practice and cheap, but a
+  beta.6→beta.8 jump that skips beta.7 is not held to this bar before 1.0.
+- **Mechanism**: ADR-1249. The web image publish step resolves the previous image to
+  bake assets from as the latest tag in the current `major.minor` line if one exists,
+  else the latest published tag of the immediately previous line — the fallback is
+  what makes a minor-to-minor jump covered, not just a beta/rc bump within one line.
+- **Not yet enforced by a gate.** As of ADR-1249, the Helm demo-upgrade drill only
+  exercises a same-line jump (`0.4.0-beta.6`→`0.4.0-beta.7`). Before the first GA
+  release, add a drill leg or test that exercises the previous-line fallback
+  directly, and make verifying this guarantee part of `/pre-release full` for every
+  GA and later minor release. Until that gate exists, treat this section as a
+  manual checklist item at each GA-and-later release, not a proven property.
+
 ## Documentation Discipline
 
 ### Code documentation
