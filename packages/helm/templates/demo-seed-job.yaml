@@ -25,6 +25,16 @@ Three details that are load-bearing and must not be "simplified" away:
      links. Pinned tokens recreate them at identical URLs; unpinned ones would
      silently change the public URL on every upgrade. Hence the hard `fail` below
      rather than a generated fallback.
+
+  4. `spec.activeDeadlineSeconds` (#4355) bounds the whole Job, not just the
+     migrate step. Without it, a hung advisory-lock wait in the `migrate`
+     initContainer (up to migrate_locked's own --lock-timeout, 600s/10m by
+     default) could run past Helm's default --timeout (5m) while the api/web/
+     worker Deployments have ALREADY been applied — Helm then marks the release
+     `failed` with the pods already on the new version, and the orphaned Job
+     keeps running until the next upgrade's before-hook-creation deletes it. See
+     getting-started/upgrade.md's "Demo-mode upgrades" section for the
+     recommended `helm upgrade --wait --timeout 15m`.
 */}}
 {{- if not .Values.demo.baseUrl }}
 {{- fail "demo.enabled is true but demo.baseUrl is empty. Set it to the public origin serving this instance (e.g. https://demo.example.com) — it is used to print the share URLs and cannot be guessed from inside the cluster." }}
@@ -60,6 +70,10 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: {{ .Values.demo.backoffLimit | default 2 }}
+  # See values.yaml's demo.activeDeadlineSeconds comment for the ordering this
+  # number depends on (#4355): migrate_locked's lock-timeout < this value <
+  # the documented `helm upgrade --wait --timeout`.
+  activeDeadlineSeconds: {{ .Values.demo.activeDeadlineSeconds }}
   template:
     metadata:
       labels:

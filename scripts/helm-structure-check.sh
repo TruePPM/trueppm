@@ -1656,6 +1656,19 @@ want_cmd="sh -c python manage.py load_sample_project && python manage.py create_
   || fail "demo-seed install hook command is not exactly the shared seed. got: '$(cmd_of "$job")'"
 [ "$rc_cmd" = "$(cmd_of "$job")" ] \
   || fail "demo-reset runs a different command from the install hook. reset: '$rc_cmd' / hook: '$(cmd_of "$job")'"
+
+# N+7.c2 — the install hook's own activeDeadlineSeconds (#4355). Without this a
+#          hung migrate-lock wait could outlast Helm's default --timeout while the
+#          Deployments have already rolled, so the release reports `failed` with
+#          the pods already on the new version and the hook Job orphaned. Must
+#          exceed migrate_locked's own --lock-timeout default (600s/10m) or the
+#          Job would be killed mid-lock-wait on every ordinary contended run.
+job_deadline="$(yq '.spec.activeDeadlineSeconds' <<<"$job")"
+[ "${job_deadline:-null}" != "null" ] && [ "$job_deadline" -gt 0 ] 2>/dev/null \
+  || fail "demo-seed install hook has no activeDeadlineSeconds — a hung hook would run past Helm's --timeout with the Deployments already rolled (#4355)"
+[ "$job_deadline" -gt 600 ] \
+  || fail "demo-seed activeDeadlineSeconds ($job_deadline) does not exceed migrate_locked's default --lock-timeout (600s) — an ordinary lock-contended run would be killed before the lock wait even finishes (#4355)"
+
 env_of() { yq "$2 | [.[].name] | sort | join(\",\")" <<<"$1"; }
 [ "$(env_of "$rc" '.spec.jobTemplate.spec.template.spec.containers[0].env')" = "$(env_of "$job" '.spec.template.spec.containers[0].env')" ] \
   || fail "demo-reset and the install hook seed container have different env names — the reset would seed with different tokens or connection settings"
@@ -2349,6 +2362,7 @@ echo "  - placement: $place_checked previously-rejected keys accepted; $place_wo
 echo "  - celery probes: worker liveness ${cp_live_i}/${cp_live_p}x${cp_live_f} (detection ${cp_detect}s >= ${cp_grace}s grace, still 'inspect ping') and readiness ${cp_ready_i}/${cp_ready_p} (heartbeat-file freshness, #3346) are tuned apart; startup is the heartbeat-file existence check; kubelet timeout scales with the ping budget on liveness; flat keys still drive all three probes; beat is liveness-only"
 echo "  - processes.api.workers=1 by default (image CMD behavior preserved), processes.api.workers=4 renders --workers 4 without disturbing --host/--port, and 0 is refused (#3833)"
 echo "  - demo reset: CronJob absent unless demo.enabled AND demo.reset.enabled; Forbid + deadlines + demo-seed label; same command and env as the install hook; schedule validated; three alerts follow the switch"
+echo "  - demo-seed install hook has an activeDeadlineSeconds exceeding migrate_locked's default --lock-timeout (600s), so a hung hook fails fast with a named cause instead of outlasting Helm's own --timeout after the Deployments have already rolled (#4355)"
 echo "  - interactive demo edge hardening: method fence + auth carve-outs + /admin/ /ws/ 404 only under demo.interactive; share-link demo's block stays byte-identical; api/celery-worker egress-demo NetworkPolicy scoped to DNS+datastores only; media-path and managed-datastore guards refuse to render; TRUEPPM_DEMO_READ_ONLY reaches all $demo_ro_checked settings.prod-importing containers, not just api"
 echo "  - podSecurityContext.fsGroup=1000 on all $fsg_checked workloads plus the helm test pod (PVC writable under a root:root CSI volume); fsGroup: null still removes it for OpenShift"
 echo "  - no Deployment/Job/CronJob container invokes bare 'manage.py migrate' — every migrate call goes through migrate_locked (#3188, #3933)"
