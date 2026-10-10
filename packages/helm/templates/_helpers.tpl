@@ -172,7 +172,7 @@ the rendered manifest.
      per-signal toggles — back to "true" whenever an endpoint was also set.
      Bare dot-access after dropping `| default` would reopen a different
      hole: the chart's documented null-to-delete override idiom
-     (docs/administration/openshift.md) deletes a key set to `null` from the
+     (packages/website/src/content/docs/administration/openshift.md) deletes a key set to `null` from the
      merged map, and dot-accessing a deleted key renders an empty string, not
      "true"/"false". The guard below renders true for both "never set" and
      "explicitly nulled", and the explicit value otherwise. */}}

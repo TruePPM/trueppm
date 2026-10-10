@@ -94,7 +94,7 @@ spec:
             # setting (probe immediately), so plain `| default` would have
             # clobbered it. Bare dot-access after dropping `| default` would
             # reopen a different hole: the chart's documented null-to-delete
-            # override idiom (docs/administration/openshift.md) deletes a key
+            # override idiom (packages/website/src/content/docs/administration/openshift.md) deletes a key
             # set to `null` from the merged map, and an empty
             # initialDelaySeconds likely fails admission. periodSeconds keeps
             # its `| default` — the Kubernetes API requires it >= 1, so 0 is

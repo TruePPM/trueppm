@@ -25,7 +25,7 @@ maxUnavailable uses a `kindIs "invalid"` presence guard instead of `| default 1`
 use) back up to 1. A bare `| default`-less dot-access would reopen a DIFFERENT
 hole — the documented null-to-delete override idiom (an operator setting
 `maxUnavailable: null` to drop the key, per
-docs/administration/openshift.md) deletes it from the merged map entirely,
+packages/website/src/content/docs/administration/openshift.md) deletes it from the merged map entirely,
 and dot-accessing a deleted key renders nothing (`maxUnavailable: `), not the
 chart's documented default of 1. The guard below renders 1 for both "never
 set" (values.yaml's own default) and "explicitly nulled", renders the

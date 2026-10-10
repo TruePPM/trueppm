@@ -1138,7 +1138,7 @@ probe_zero_web="$(helm template trueppm "$CHART" --set image.tag=latest --set we
 [ "$probe_zero_web" = "0,0" ] \
   || fail "probes.web.{readiness,liveness}InitialDelaySeconds=0 rendered $probe_zero_web, want 0,0 — clobbered back to the chart defaults 5/10 (#4351)"
 
-# M+3. The null-to-delete override idiom (docs/administration/openshift.md:
+# M+3. The null-to-delete override idiom (packages/website/src/content/docs/administration/openshift.md:
 #      setting a key to `null` deletes it from the merged map, rather than
 #      leaving the chart default in place) is a DIFFERENT failure mode from
 #      the 0/false clobber above, and round-1 fixes for #4351 regressed it on

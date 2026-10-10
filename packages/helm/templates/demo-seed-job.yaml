@@ -64,7 +64,7 @@ spec:
   # `backoffLimit: 0` (fail the Job on the very first attempt) back to 2. Bare
   # dot-access after dropping `| default` would reopen a different hole: the
   # chart's documented null-to-delete override idiom
-  # (docs/administration/openshift.md) deletes a key set to `null` from the
+  # (packages/website/src/content/docs/administration/openshift.md) deletes a key set to `null` from the
   # merged map, and an empty backoffLimit falls through to Kubernetes' own
   # built-in default (6), not this chart's documented default (2). The guard
   # below renders 2 for both "never set" and "explicitly nulled".
