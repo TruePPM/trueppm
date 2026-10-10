@@ -600,6 +600,16 @@
         }
       }
     },
+    "rollout": {
+      "description": "Per-tier Deployment rollout knobs (#4354): strategy, surge/unavailable budget, minReadySeconds, progressDeadlineSeconds. Every field defaults to empty/null and renders nothing until set, so a stock install stays byte-identical to Kubernetes' own Deployment defaults. Celery Beat carries no entry here: it is a pinned singleton that already ships a fixed `strategy: Recreate` in its own template, and a settable knob would let an operator flip it to RollingUpdate, which double-fires every periodic task while two Beats briefly overlap.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "api": { "$ref": "#/definitions/rolloutTier" },
+        "worker": { "$ref": "#/definitions/rolloutTier" },
+        "web": { "$ref": "#/definitions/rolloutTier" }
+      }
+    },
     "probes": {
       "type": "object",
       "additionalProperties": false,
@@ -1394,6 +1404,31 @@
     }
   },
   "definitions": {
+    "rolloutTier": {
+      "description": "Deployment rollout knobs for ONE tier (#4354). strategy is restricted to the two Kubernetes Deployment strategy types plus \"\" (unset, meaning follow the Kubernetes default). maxSurge/maxUnavailable accept an int or a percent string, matching podDisruptionBudget.<tier>.maxUnavailable's own shape, and only apply to RollingUpdate — the chart template fails the render if either is set alongside strategy: Recreate, since Kubernetes has no surge/unavailable concept for a tear-down-then-start-up rollout.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["", "RollingUpdate", "Recreate"]
+        },
+        "maxSurge": {
+          "type": ["integer", "string"]
+        },
+        "maxUnavailable": {
+          "type": ["integer", "string"]
+        },
+        "minReadySeconds": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "progressDeadlineSeconds": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        }
+      }
+    },
     "celeryProbeTimings": {
       "description": "Timings for ONE celery-worker/beat exec probe (ping or heartbeat-file, see trueppm.celeryProbe). Every key is nullable: null means fall back to the component's flat (shared) key, then to the chart built-in.",
       "type": "object",

@@ -757,6 +757,61 @@ lifecycle:
     terminationGracePeriodSeconds: 30
     preStopSleepSeconds: 5
 
+# ---------------------------------------------------------------------------
+# Rollout strategy (#4354)
+# ---------------------------------------------------------------------------
+# Every key below ships empty/null and renders NOTHING until an operator sets
+# it, so a stock install stays byte-identical to pre-#4354 output: api, worker
+# and web still take Kubernetes' own Deployment defaults (RollingUpdate
+# 25%/25%, minReadySeconds 0, progressDeadlineSeconds 600) because the chart
+# asserts nothing about them unless asked to. Before this, an operator who
+# wanted the web tier on Recreate (a brief 502 instead of a mixed-asset blank
+# screen during a rolling update, ADR-1249/#4341) or a minReadySeconds long
+# enough to let a CDN drain had no supported way to say so — the closed
+# schema refused the key outright and a post-render patch was the only path.
+#
+# Celery Beat is NOT one of the tiers below. It is a pinned singleton
+# (replicas: 1, not operator-settable) that already ships `strategy:
+# Recreate` directly in templates/celery-beat/deployment.yaml — two Beats
+# overlapping for even a moment double-fires every periodic task, so giving
+# it a `rollout.beat.strategy` knob would let an operator reintroduce exactly
+# that by setting it to RollingUpdate. There is nothing else to tune on a
+# strategy that never surges: minReadySeconds/progressDeadlineSeconds would
+# only govern how fast the one replacement pod is accepted, which the
+# existing lifecycle.beat block already covers via terminationGrace/preStop.
+# https://docs.trueppm.com/administration/helm-values/#rollout-strategy
+rollout:
+  api:
+    # "" (default) omits the `strategy:` block entirely — Kubernetes applies
+    # its own RollingUpdate default. Set to "RollingUpdate" or "Recreate" to
+    # render the block explicitly. Recreate cannot be combined with maxSurge
+    # or maxUnavailable (Kubernetes has no surge/unavailable concept for a
+    # tear-down-then-start-up rollout); the chart fails the render rather
+    # than let that combination reach the API server.
+    strategy: ""
+    # Int or percent string (e.g. "25%"). Empty follows Kubernetes' own
+    # RollingUpdate default (25%) rather than the chart restating it, so
+    # changing the cluster default would not need a chart release to match.
+    maxSurge: ""
+    maxUnavailable: ""
+    # null omits the field (Kubernetes default: 0). Explicit 0 is a real,
+    # distinct setting (probe the new pod ready immediately) and renders.
+    minReadySeconds: null
+    # null omits the field (Kubernetes default: 600s).
+    progressDeadlineSeconds: null
+  worker:
+    strategy: ""
+    maxSurge: ""
+    maxUnavailable: ""
+    minReadySeconds: null
+    progressDeadlineSeconds: null
+  web:
+    strategy: ""
+    maxSurge: ""
+    maxUnavailable: ""
+    minReadySeconds: null
+    progressDeadlineSeconds: null
+
 # Health probes (#1904, #1894). The API uses HTTP probes; the Celery worker and
 # beat use a `celery inspect ping` exec probe (a control-plane round-trip catches a
 # wedged event loop that a bare process-alive check would miss). Every field is

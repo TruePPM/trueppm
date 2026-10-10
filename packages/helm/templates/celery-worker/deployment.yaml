@@ -12,6 +12,9 @@ spec:
   {{- if not (and .Values.autoscaling.enabled .Values.autoscaling.worker.enabled) }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  {{- with (include "trueppm.rollout" (dict "root" $ "tier" "worker")) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
