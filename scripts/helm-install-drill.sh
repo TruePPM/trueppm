@@ -63,17 +63,21 @@
 #     failing a sprint_finish_after_start CHECK on a real post-upgrade run,
 #     leaving the release "failed"). `helm install`s the PREVIOUS released
 #     chart (same resolve_previous_chart_version() as `upgrade`, below) WITH
-#     values-demo.yaml layered on, waits for its install-time demo-seed hook,
-#     checks served assets against that pre-upgrade state (see
-#     check_served_assets below), then `helm upgrade`s the SAME release to
-#     the HEAD chart, STILL with values-demo.yaml, and re-runs section 10's
-#     allowlist/throttle matrix, this time against the POST-upgrade hook
-#     re-fire rather than only a fresh install. It also asserts every asset
-#     index.html references (script src, link rel=modulepreload, link
-#     rel=stylesheet) answers 2xx with the right content-type, via
-#     scripts/check-served-assets.sh (#4338: a beta.7 web image blank-screened
-#     by serving missing JS chunks and empty CSS through the SPA catch-all's
-#     clean 200 text/html fallback for "/" — a bare "GET / -> 200" check
+#     THAT RELEASE'S OWN values-demo.yaml layered on — not HEAD's (#4365:
+#     HEAD's file can declare a key the old release's values.schema.json has
+#     never seen, which is a real operator upgrade modeled wrong, not a drill
+#     bug) — waits for its install-time demo-seed hook, checks served assets
+#     against that pre-upgrade state (see check_served_assets below), then
+#     `helm upgrade`s the SAME release to the HEAD chart, NOW with HEAD's own
+#     values-demo.yaml (the file every real upgrade lands on), and re-runs
+#     section 10's allowlist/throttle matrix, this time against the
+#     POST-upgrade hook re-fire rather than only a fresh install. It also
+#     asserts every asset index.html references (script src, link
+#     rel=modulepreload, link rel=stylesheet) answers 2xx with the right
+#     content-type, via scripts/check-served-assets.sh (#4338: a beta.7 web
+#     image blank-screened by serving missing JS chunks and empty CSS through
+#     the SPA catch-all's clean 200 text/html fallback for "/" — a bare
+#     "GET / -> 200" check
 #     cannot see that at all). That script is reached through `kubectl
 #     port-forward` rather than the ingress-nginx-namespace probe pod section
 #     8/10 use for a genuine cross-pod request: port-forward tunnels through
@@ -296,6 +300,22 @@ WORKER_PING_RETRY_DELAY="${WORKER_PING_RETRY_DELAY:-10}"
 # across the previous chart and HEAD chart, so the Service name resolved
 # below from the local HEAD checkout is correct for BOTH the pre-upgrade
 # install and the post-upgrade state.
+#
+# DEMO_SET_ARGS/DEMO_ARGS are split in two (#4365). DEMO_SET_ARGS is just the
+# --set overrides above — safe to layer onto ANY chart version, previous
+# release or HEAD, because they fill keys values-demo.yaml has declared
+# since #4018 and the schema has never moved underneath them. DEMO_ARGS adds
+# `-f "${CHART}/values-demo.yaml"` on top, which is HEAD's checkout — correct
+# for every install/upgrade of the HEAD chart (demo leg 4c, demo-upgrade's
+# post-upgrade half 4e), but wrong for demo-upgrade's PRE-upgrade install of
+# the previous chart (4d): HEAD's values-demo.yaml can declare a key (e.g.
+# #4348's top-level `replicas`) the previous release's values.schema.json
+# has never seen, and `additionalProperties` rejects it outright — the drill
+# would then be modeling an upgrade no real operator performs (OLD chart +
+# NEW values) instead of the real one (OLD chart + THAT RELEASE'S OWN
+# values, upgraded to NEW chart + NEW values). 4d therefore pulls the
+# previous chart's own values-demo.yaml and combines it with DEMO_SET_ARGS
+# instead of using DEMO_ARGS — see that install call's own comment.
 if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   demo_web_svc="$(helm template "$RELEASE" "$CHART" --set image.tag="$RELEASE_IMAGE_TAG" \
     --show-only templates/web/service.yaml \
@@ -304,8 +324,7 @@ if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   DEMO_BASE_URL="http://${demo_web_svc}.default.svc.cluster.local"
   DEMO_SCHEDULE_TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '=+/')"
   DEMO_BOARD_TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '=+/')"
-  DEMO_ARGS=(
-    -f "${CHART}/values-demo.yaml"
+  DEMO_SET_ARGS=(
     --set "demo.baseUrl=${DEMO_BASE_URL}"
     --set "demo.shareToken.schedule=${DEMO_SCHEDULE_TOKEN}"
     --set "demo.shareToken.board=${DEMO_BOARD_TOKEN}"
@@ -319,6 +338,10 @@ if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
     # confirming the default is what makes the peer under test match the
     # probe's real placement.
     --set networkPolicy.ingressControllerConfirmed=true
+  )
+  DEMO_ARGS=(
+    -f "${CHART}/values-demo.yaml"
+    "${DEMO_SET_ARGS[@]}"
   )
 fi
 
@@ -1173,7 +1196,9 @@ trap on_exit EXIT
 # read is cheap, a kind cluster is not, and #3941's "nothing published yet"
 # case exits 0 here rather than after paying for a cluster we would never use.
 # demo-upgrade (#4340) shares this exactly: it is the same upgrade-FROM
-# resolution, just with values-demo.yaml layered onto both sides.
+# resolution, just with a values-demo.yaml overlay on each side — the
+# previous chart's OWN copy pre-upgrade, HEAD's copy post-upgrade (#4365;
+# see DEMO_ARGS/DEMO_SET_ARGS's own comment above for why those differ).
 if [ "$DRILL_LEG" = "upgrade" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   resolve_previous_chart_version
 fi
@@ -1515,7 +1540,8 @@ elif [ "$DRILL_LEG" = "demo" ]; then
     --wait --timeout "$INSTALL_TIMEOUT"
   log "demo rollout complete"
 elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
-  # ---- 4d. install the PREVIOUS released chart WITH values-demo.yaml (#4340) -
+  # ---- 4d. install the PREVIOUS released chart WITH THAT RELEASE'S OWN
+  # values-demo.yaml (#4340, #4365) -----------------------------------------
   # Same previous-version resolution as the `upgrade` leg's 4a (resolved
   # above, before section 1 even creates a cluster) and the same
   # no-CELERY_PROBE_OVERRIDES rule 4a documents: a previously published
@@ -1526,16 +1552,40 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   # it: values-demo.yaml deliberately leaves it off and points MEDIA_ROOT at
   # the emptyDir every pod already mounts instead.
   #
+  # #4365: this install must NOT use DEMO_ARGS (HEAD's -f plus the --set
+  # overrides) — only the --set overrides (DEMO_SET_ARGS). HEAD's
+  # values-demo.yaml can set a key the previous release's
+  # values.schema.json has never declared (#4348's top-level `replicas`,
+  # caught live on main by b27be031: `additional property replicas is not
+  # allowed`), so layering it onto the OLD chart models an upgrade no real
+  # operator performs. The previous release's OWN values-demo.yaml is the
+  # file that chart actually ships with, so pull it from the same published
+  # artifact being installed rather than trust a second, independent
+  # resolution of "the previous version" to agree with PREV_CHART_VERSION.
+  # `helm pull --untar` (not a bare OCI manifest fetch) is what makes the
+  # chart's files reachable at all in this job image — there is no git here
+  # (the docker:27 before_script installs only bash/curl/kind/kubectl/helm),
+  # and a shallow GIT_DEPTH clone would not reach an old release tag's
+  # commit regardless. Nothing in .helmignore (there is none) excludes
+  # values-demo.yaml from the packaged chart, so every published version
+  # since #4018 carries its own copy to pull.
+  PREV_CHART_DIR="$(mktemp -d)"
+  log "pulling previous chart ${PREV_CHART_VERSION} to extract its OWN values-demo.yaml (#4365)"
+  helm pull "oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}" --version "$PREV_CHART_VERSION" \
+    --untar --untardir "$PREV_CHART_DIR" \
+    || fail "could not pull previous chart ${PREV_CHART_VERSION} to read its values-demo.yaml"
+  PREV_VALUES_DEMO="${PREV_CHART_DIR}/trueppm/values-demo.yaml"
+  [ -f "$PREV_VALUES_DEMO" ] \
+    || fail "previous chart ${PREV_CHART_VERSION} has no values-demo.yaml at ${PREV_VALUES_DEMO} — predates #4018, or the chart's internal layout changed"
+  #
   # This assumes the previous published version already ships demo.enabled
   # (#4018, shipped well before 0.4.0-beta.7). If a future squash or an
-  # unusually early "previous" version ever predates #4018, values-demo.yaml's
-  # demo.* keys are simply unused by that old chart's templates and this
-  # install silently stops being a demo install rather than failing loudly —
-  # not worth guarding today; revisit if PREV_CHART_VERSION can ever again
-  # resolve to a pre-#4018 release.
-  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} WITH values-demo.yaml (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO})"
+  # unusually early "previous" version ever predates #4018, the fail above
+  # catches it loudly instead of silently stopping being a demo install.
+  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} WITH ITS OWN values-demo.yaml (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO})"
   helm install "$RELEASE" "oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}" --version "$PREV_CHART_VERSION" \
-    "${DEMO_ARGS[@]}" \
+    -f "$PREV_VALUES_DEMO" \
+    "${DEMO_SET_ARGS[@]}" \
     --wait --timeout "$INSTALL_TIMEOUT"
   log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
   wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
@@ -1554,14 +1604,17 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   capture_prior_web_assets "$demo_web_svc" "$PRIOR_WEB_ASSETS_DIR"
   kubectl get pods -o wide
 
-  # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
-  # values-demo.yaml — the leg #3941 named and nothing has drilled since
-  # (#4339 shipped in 0.4.0-beta.7 while this gap was open). No
-  # NetworkPolicy-transition-guard dance like 4b's: DEMO_ARGS already
-  # carries networkPolicy.ingressControllerConfirmed=true on BOTH the
-  # install above and this upgrade (see DEMO_ARGS' own comment above), so
-  # the #4000 guard never has anything to refuse here — that transition is
-  # the plain `upgrade` leg's job to prove, not this one's.
+  # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, NOW with HEAD's own
+  # values-demo.yaml (DEMO_ARGS, not DEMO_SET_ARGS — the real upgrade lands
+  # on HEAD's file, #4365) — the leg #3941 named and nothing has drilled
+  # since (#4339 shipped in 0.4.0-beta.7 while this gap was open). No
+  # NetworkPolicy-transition-guard dance like 4b's: DEMO_SET_ARGS already
+  # carried networkPolicy.ingressControllerConfirmed=true on the install
+  # above (via the previous chart's own values file + DEMO_SET_ARGS, 4d)
+  # and DEMO_ARGS carries it again here (see DEMO_ARGS/DEMO_SET_ARGS' own
+  # comment above), so the #4000 guard never has anything to refuse here —
+  # that transition is the plain `upgrade` leg's job to prove, not this
+  # one's.
   #
   # #4353: closes the two gaps #4340 left open even after adding this leg.
   # (1) `--wait` on this upgrade meant the post-upgrade demo-seed hook only
@@ -1638,7 +1691,7 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   rollout_probe_pid=$!
   log "mid-rollout asset probe loop started (pid ${rollout_probe_pid}) — polling ${probe_url} roughly every second via rollout-asset-probe"
 
-  log "helm upgrade ${RELEASE} -> HEAD chart WITH values-demo.yaml, WITHOUT --wait (#4353) — the rollout and the mid-rollout probe above now genuinely overlap; helm still blocks here on the post-upgrade demo-seed hook (always synchronous — see wait_for_demo_seed_hook), exactly as a real operator's own upgrade would"
+  log "helm upgrade ${RELEASE} -> HEAD chart WITH HEAD's own values-demo.yaml (image tag ${RELEASE_IMAGE_TAG}), WITHOUT --wait (#4353) — the rollout and the mid-rollout probe above now genuinely overlap; helm still blocks here on the post-upgrade demo-seed hook (always synchronous — see wait_for_demo_seed_hook), exactly as a real operator's own upgrade would"
   helm upgrade "$RELEASE" "$CHART" \
     "${DEMO_ARGS[@]}" \
     --set image.tag="$RELEASE_IMAGE_TAG" \
