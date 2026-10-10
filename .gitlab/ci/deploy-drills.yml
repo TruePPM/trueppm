@@ -428,13 +428,16 @@ helm:demo-upgrade:
   # sprint_finish_after_start CHECK on a real post-upgrade run, leaving that
   # release `failed`).
   #
-  # `helm install` the PREVIOUS released chart WITH values-demo.yaml, wait
-  # for its install-time demo-seed hook, check served assets, then `helm
-  # upgrade` the SAME release to the HEAD chart — STILL with
-  # values-demo.yaml — and re-run the identical allowlist/throttle matrix
-  # and served-asset check helm:demo already uses, this time against the
-  # POST-upgrade hook re-fire (DRILL_LEG=demo-upgrade in the same script —
-  # see its header comment). See scripts/helm-install-drill.sh.
+  # `helm install` the PREVIOUS released chart WITH THAT RELEASE'S OWN
+  # values-demo.yaml (pulled from the same published OCI artifact being
+  # installed, not HEAD's checkout — #4365: the two schemas can disagree),
+  # wait for its install-time demo-seed hook, check served assets, then
+  # `helm upgrade` the SAME release to the HEAD chart — NOW with HEAD's own
+  # values-demo.yaml, the file a real upgrade actually lands on — and
+  # re-run the identical allowlist/throttle matrix and served-asset check
+  # helm:demo already uses, this time against the POST-upgrade hook
+  # re-fire (DRILL_LEG=demo-upgrade in the same script — see its header
+  # comment). See scripts/helm-install-drill.sh.
   #
   # Trigger: main pushes and the nightly schedule ONLY — deliberately not
   # every MR. Per #3941's own cost note (quoted in helm:upgrade's comment
