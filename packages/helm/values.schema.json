@@ -1088,7 +1088,8 @@
                   "type": "string"
                 },
                 "staleAfterSeconds": {
-                  "type": "integer"
+                  "type": "integer",
+                  "exclusiveMinimum": 0
                 },
                 "staleFor": {
                   "type": "string"
@@ -1106,7 +1107,8 @@
                   "type": "string"
                 },
                 "staleAfterSeconds": {
-                  "type": "integer"
+                  "type": "integer",
+                  "exclusiveMinimum": 0
                 },
                 "staleFor": {
                   "type": "string"
