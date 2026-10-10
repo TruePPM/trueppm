@@ -69,13 +69,52 @@ server {
     root  /usr/share/nginx/html;
     index index.html;
 
+    # Caching (#4350). Hashed filenames make these two cases opposite: a hit is
+    # safe to cache forever (a new build ships under a new hash), while a miss
+    # must never be cached — a CDN that cached a transient 404 for a chunk a
+    # rolling pod has not finished serving yet would keep returning it long
+    # after every pod has the file, turning a few-second skew window into
+    # minutes to hours. `add_header` is replace-not-merge per location
+    # (#2849), so every location below that introduces one repeats the full
+    # security-header set rather than silently dropping it.
+    #
     # Hashed build output must never fall through to the SPA index.html: during a
     # rolling update a client can ask a pod for a chunk only the other release has,
     # and a 200 text/html answer blank-screens the app silently. A real 404 lets
-    # the client's chunk-load handler reload (#4341). No add_header here, so the
-    # server-level security headers keep applying.
+    # the client's chunk-load handler reload (#4341).
     location /assets/ {
-        try_files $uri =404;
+        try_files $uri @assets_404;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header X-Frame-Options           "DENY" always;
+        add_header X-Content-Type-Options    "nosniff" always;
+        add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'" always;
+    }
+
+    # Named target of the try_files fallback above — never reached directly.
+    # `no-store` so a CDN never caches a transient miss during a rollout.
+    location @assets_404 {
+        add_header Cache-Control "no-store" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header X-Frame-Options           "DENY" always;
+        add_header X-Content-Type-Options    "nosniff" always;
+        add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'" always;
+        return 404;
+    }
+
+    # The SPA shell. `no-cache` (NOT no-store): always revalidate with the
+    # origin, but the conditional request is cheap because nginx still emits
+    # ETag/Last-Modified — a heuristically-fresh cached shell is exactly what
+    # names a chunk no pod has any more (#4341, #4350).
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+        add_header X-Frame-Options           "DENY" always;
+        add_header X-Content-Type-Options    "nosniff" always;
+        add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'" always;
     }
 
     location / {
