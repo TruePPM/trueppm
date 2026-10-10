@@ -1,7 +1,11 @@
 # ADR-1249: The web image carries the previous release's hashed assets
 
 ## Status
-Proposed
+Accepted (2026-10-10)
+
+Accepted by the project owner ("fix at the ADR level") with two corrections,
+recorded in the Amendments section at the end. Decision steps 2 and 3 and the
+Implementation Notes test plan are read through those amendments.
 
 ## Context
 
@@ -136,7 +140,8 @@ before it.**
   the same-line resolution path but not the previous-line fallback. **Before GA**, add a
   drill leg (or a unit test against the resolution script) that exercises the
   previous-line fallback directly — the GA requirement depends on that path and it is
-  currently untested. Tracked as a follow-up, not implemented in this ADR.
+  currently untested. (Resolved at acceptance for the resolution logic: see
+  Amendments.)
 
 ### Durable Execution
 1. Broker-down behaviour: N/A. Build-time and static-serving change, no async dispatch.
@@ -153,7 +158,62 @@ before it.**
    file it names is not served.
 
 ### On Acceptance
-- [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 1249`
-- [ ] Any issue carrying pre-ADR scope rewritten (title and body), led by a dated
-      correction note. Record the count, including zero.
+- [x] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 1249` (2026-10-10: 1175
+      open issues scanned, 0 written before acceptance).
+- [x] Any issue carrying pre-ADR scope rewritten (title and body), led by a dated
+      correction note. Count: 0.
+
+## Amendments (2026-10-10, at acceptance)
+
+1. **Withdrawn releases are skipped (step 3).** 0.4.0-beta.7 blank-screened
+   every visitor and installs were rolled back to 0.4.0-beta.6. Read literally,
+   step 3 would have beta.8 carry beta.7's assets, which no open tab holds. The
+   resolver (`scripts/resolve-prev-web-image.sh`) drops every version in
+   `SKIP_PREV_WEB_VERSIONS` (default `0.4.0-beta.7`) before picking, the same
+   list and default as `SKIP_PREV_CHART_VERSIONS` in the Helm drill (#4346), so
+   the demo-upgrade drill's pre-upgrade release and the image's inherited
+   assets are the same release. The rule is otherwise unchanged: the highest
+   published SemVer tag below HEAD, which is the same-line tag when one exists
+   and the previous line's last tag otherwise. Two modes: `--below <tag>` for
+   the publish jobs (an image never inherits from itself, even on a re-run), and
+   `--at-or-below <package.json version>` for per-commit builds, whose version
+   is the last cut release.
+2. **Releases before `asset-manifest.json` (step 2).** The manifest arrived
+   with !2965, after beta.7, so the first image built under this ADR has no
+   prior manifest to copy by. When the prior image has no
+   `asset-manifest.json`, its whole `assets/` directory is copied. That is
+   still one release: an image built before this ADR only ever held its own
+   build. The prior-release gate (step 4) takes the same fallback, checking the
+   prior image's `assets/` listing; with nothing to check it logs SKIPPED with
+   the reason and never reports a pass, and callers that know a prior release
+   exists set `SERVED_ASSETS_PRIOR_REQUIRED=1` to make that a failure.
+
+**Further clarifications from implementation.**
+
+- *Resolution failure vs. nothing to resolve.* Durable Execution item 8 says a
+  resolution failure produces a "no prior assets" build. Implemented, that
+  applies only when nothing is published below HEAD. An unreadable registry
+  fails the job: building without prior assets because a network call failed
+  would ship the blank screen this ADR removes, and nothing downstream would
+  notice.
+- *Path safety.* Every name taken from the prior image (manifest entry or
+  directory listing) must be a normalized relative path under `assets/` with no
+  `.`/`..` or empty segments, and a regular file, not a symlink. Anything else
+  fails the build (`packages/web/scripts/collect-prior-assets.mjs`). The prior
+  image is bind-mounted read-only in a throwaway stage; nothing from it runs.
+- *MR coverage.* The publish jobs run only on a tag, from the tag's own CI
+  file. `ci:build-deploy-images` runs the same resolver, build arg, and
+  prior-asset smoke on every MR that builds the web image, so the path is
+  proven before a release cut depends on it.
+- *Forward-direction retry (step 5).* The retry wraps every route `lazy()`
+  import and does not run while `navigator.onLine === false`. A browser that
+  caches a failed module fetch for the page's lifetime fails each retry at
+  once, which only brings the existing reload forward; the retry is never
+  worse than not retrying, but the "probability ≥ ½ per attempt" in step 5
+  holds only where the browser refetches.
+- *Previous-line fallback test.* The test-plan note that the previous-line
+  fallback is untested is resolved: `scripts/tests/resolve-prev-web-image.test.sh`
+  exercises it directly (first 0.5 image → last 0.4.x; 1.3.0 → 1.2.x), so no
+  separate follow-up issue is needed for the resolution logic. Proving it
+  against a real minor-to-minor upgrade drill is still a GA checklist item.

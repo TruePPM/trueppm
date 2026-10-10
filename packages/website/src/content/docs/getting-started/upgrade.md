@@ -171,12 +171,29 @@ time one on a restored copy of your database before you upgrade, and schedule
 the upgrade for a quiet period when task traffic is low.
 :::
 
-**Blank pages during a rolling upgrade of the web tier.** With two or more web
-replicas, old and new web pods serve together until the rollout finishes. A
-browser that loads the page from one release and requests its assets from the
-other can show a blank page until it reloads. See cause 4 under
-[The browser shows a blank page](/administration/troubleshooting/#the-browser-shows-a-blank-page);
-removing the window is tracked in [#4341](https://gitlab.com/trueppm/trueppm/-/issues/4341).
+**Blank pages during an upgrade of the web tier.** Each release's `index.html`
+names that release's content-hashed `/assets/` files, so a browser tab opened
+before an upgrade asks the new pods for the old release's files the next time
+it opens a page it has not loaded yet. Releases after 0.4.0-beta.7 keep the
+previous release's `/assets/` files in the web image, so those tabs keep
+working on any number of web replicas. The limits:
+
+- **One release back.** Covered: an upgrade from the immediately previous
+  published release, not counting a withdrawn one. 0.4.0-beta.7 was withdrawn,
+  so an upgrade from 0.4.0-beta.6 is covered. Not covered: an upgrade that
+  skips a release. Tabs opened before it reload once, automatically, when they
+  next need a file.
+- **During the rollout, the other direction.** With two or more web replicas,
+  old and new pods serve together until the rollout finishes, and a browser
+  that got the new `index.html` can ask an old pod for a new file. The app
+  retries that file twice, over about two seconds, before it reloads, and does
+  not retry while the browser is offline.
+- **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
+  blank page until it reloads.
+
+See cause 4 under
+[The browser shows a blank page](/administration/troubleshooting/#the-browser-shows-a-blank-page)
+and [#4341](https://gitlab.com/trueppm/trueppm/-/issues/4341).
 
 **Known transient-500 windows on multi-replica installs.** Three of the five
 migrations drop a column or table outright, with no intervening

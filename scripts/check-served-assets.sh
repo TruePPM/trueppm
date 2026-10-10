@@ -44,6 +44,20 @@
 # should report (scripts/helm-install-drill.sh's demo-upgrade PRE-upgrade
 # leg). Every other caller leaves it at the default (on).
 #
+# Prior-release pass (ADR-1249). A tab opened before an upgrade still holds the
+# PREVIOUS release's index.html and asks the new tier for that release's
+# hashed chunks; the web image carries them so the request is served. Set
+# SERVED_ASSETS_PRIOR_DIR to a local copy of the previous release's html root
+# and every file it names must also be served by THIS tier, with the same
+# per-type checks as above. What it names: the files in its
+# asset-manifest.json; or, for a release built before that manifest existed
+# (0.4.0-beta.6 and beta.7), the files under its assets/ (names are all that
+# is read, so empty placeholder files are fine). A directory with neither, or
+# SERVED_ASSETS_PRIOR_DIR set but empty (no prior release resolved), logs the
+# pass as SKIPPED with the reason, never as passed. SERVED_ASSETS_PRIOR_REQUIRED=1
+# turns that skip into a FAIL, for a caller that knows a prior release exists.
+# Unset, the pass does not run and prints nothing.
+#
 # Cross-origin references are skipped and counted, never fetched.
 #
 # Mixed-version serving. A tier where some replicas serve one build and some
@@ -66,6 +80,10 @@
 #         SERVED_ASSETS_MISSING_PROBE  0 skips the missing-/assets/-path 404 probe
 #                                 (default 1). Only for a tier known to predate
 #                                 #4341, e.g. a drill's previously published chart.
+#         SERVED_ASSETS_PRIOR_DIR the previous release's html root; enables the
+#                                 prior-release pass (ADR-1249)
+#         SERVED_ASSETS_PRIOR_REQUIRED  1 fails, rather than skips, a prior-release
+#                                 pass with nothing to check (default 0)
 # Exit:   0 every asset served correctly · 1 at least one asset failed, or the
 #         page referenced none · 2 usage error, or index.html not fetchable
 
@@ -366,6 +384,58 @@ check_once() {
         fi
     fi
 
+    # Prior-release pass (ADR-1249) — see the header. Read fresh per call, like
+    # SERVED_ASSETS_MANIFEST above, so --self-test can toggle it per case.
+    if [ "${SERVED_ASSETS_PRIOR_DIR+set}" = set ]; then
+        _prior_dir="$SERVED_ASSETS_PRIOR_DIR"
+        _prior_src=""
+        _prior_skip=""
+        : > "$_tmp/prior_refs"
+        if [ -z "$_prior_dir" ]; then
+            _prior_skip="no prior release supplied (SERVED_ASSETS_PRIOR_DIR is empty)"
+        elif [ -f "$_prior_dir/asset-manifest.json" ]; then
+            extract_manifest_refs "$_prior_dir/asset-manifest.json" > "$_tmp/prior_refs"
+            _prior_src="its asset-manifest.json"
+        elif [ -d "$_prior_dir/assets" ]; then
+            (cd "$_prior_dir" && find assets -type f) | sort -u > "$_tmp/prior_refs"
+            _prior_src="its assets/ listing (no asset-manifest.json: built before ADR-1249)"
+            [ -s "$_tmp/prior_refs" ] || _prior_skip="$_prior_dir/assets is empty and there is no asset-manifest.json"
+        else
+            _prior_skip="$_prior_dir has no asset-manifest.json and no assets/"
+        fi
+        if [ -z "$_prior_skip" ] && [ ! -s "$_tmp/prior_refs" ]; then
+            echo "check-served-assets: FAIL  prior-release $_prior_src named no assets — refusing to pass vacuously (ADR-1249)"
+            _bad=$((_bad + 1))
+        elif [ -n "$_prior_skip" ]; then
+            if [ "${SERVED_ASSETS_PRIOR_REQUIRED:-0}" = "1" ]; then
+                echo "check-served-assets: FAIL  prior-release pass required but nothing to check — $_prior_skip (ADR-1249)"
+                _bad=$((_bad + 1))
+            else
+                echo "check-served-assets: prior-release pass SKIPPED — $_prior_skip (ADR-1249)"
+            fi
+        else
+            _prior_bad_before=$_bad
+            _prior_n=0
+            while read -r _pref; do
+                [ -n "$_pref" ] || continue
+                _prior_n=$((_prior_n + 1))
+                _purl="$_origin/$_pref"
+                # Already fetched by a pass above: this release still ships the
+                # file, and it was verified there.
+                if grep -qxF -- "$_purl" "$_tmp/checked_urls" 2> /dev/null; then
+                    continue
+                fi
+                case "$_pref" in
+                    *.js | *.mjs) _pkind="js" ;;
+                    *.css) _pkind="css" ;;
+                    *) _pkind="any" ;;
+                esac
+                verify_asset "$_pkind" "$_purl"
+            done < "$_tmp/prior_refs"
+            echo "check-served-assets: prior-release pass: $_prior_n files named by $_prior_src, $((_bad - _prior_bad_before)) not served (ADR-1249)"
+        fi
+    fi
+
     # A path that cannot exist must 404. If the web tier answers it 2xx it is
     # serving the SPA index.html for a missing chunk, which is what turns a
     # rolling-update version skew into a silent blank screen (#4341). Asserted
@@ -576,6 +646,77 @@ self_test() {
     SERVED_ASSETS_MANIFEST=0
     _case "SERVED_ASSETS_MANIFEST=0 skips the manifest pass" expect-pass
     unset SERVED_ASSETS_MANIFEST
+
+    # ── ADR-1249 prior-release pass ─────────────────────────────────────────
+    # The previous release's files sit beside this build's in assets/; its
+    # index.html is gone (the image ships only its own). PRIOR is a local copy
+    # of that release's html root, as a caller would extract it.
+    st_prior="$st_dir/prior"
+    prior_manifest() {
+        rm -rf "$st_prior" && mkdir -p "$st_prior"
+        printf '%s' '{"src/main.tsx":{"file":"assets/index-OLD1.js","css":["assets/index-OLD2.css"]},"src/Lazy.tsx":{"file":"assets/Lazy-OLD3.js","assets":["assets/Font-OLD4.woff2"]}}' \
+            > "$st_prior/asset-manifest.json"
+    }
+    prior_served() {
+        healthy_assets
+        page "$healthy_tags"
+        echo 'export{}' > "$FIXTURE_DIR/assets/index-OLD1.js"
+        echo 'body{}' > "$FIXTURE_DIR/assets/index-OLD2.css"
+        echo 'export{}' > "$FIXTURE_DIR/assets/Lazy-OLD3.js"
+        echo 'woff' > "$FIXTURE_DIR/assets/Font-OLD4.woff2"
+    }
+
+    # The prior manifest's whole set is served -> PASS, and it really checked
+    # all four (a pass that checked nothing would read the same).
+    prior_served
+    prior_manifest
+    SERVED_ASSETS_PRIOR_DIR="$st_prior"
+    _case "prior-release manifest set fully served" expect-pass
+    case "$(run_check "$FIXTURE_ORIGIN" 2>&1)" in
+        *"prior-release pass: 4 files named by its asset-manifest.json, 0 not served"*)
+            echo "SELF-TEST OK: prior-release pass checked all four prior files." ;;
+        *) echo "SELF-TEST FAILED: prior-release pass did not report checking all four prior files." >&2; st_rc=1 ;;
+    esac
+
+    # THE ADR-1249 SHAPE: a lazy chunk of the previous release, named only by
+    # ITS manifest, is not in the new image -> the old tab's next route blanks.
+    rm -f "$FIXTURE_DIR/assets/Lazy-OLD3.js"
+    _case "prior-release manifest names a file the new image lacks" expect-fail "Lazy-OLD3.js"
+
+    # A prior release built before asset-manifest.json existed: its assets/
+    # listing is the reference instead (0.4.0-beta.6 -> first ADR-1249 image).
+    prior_served
+    rm -rf "$st_prior" && mkdir -p "$st_prior/assets"
+    : > "$st_prior/assets/index-OLD1.js"
+    : > "$st_prior/assets/index-OLD2.css"
+    _case "pre-manifest prior release, assets/ listing fully served" expect-pass
+    : > "$st_prior/assets/Gone-OLD9.js"
+    _case "pre-manifest prior release, listed file not served" expect-fail "Gone-OLD9.js"
+
+    # No prior manifest supplied -> SKIPPED with a reason, never reported as a
+    # pass of the prior check (the run's own verdict is the other passes').
+    prior_served
+    for st_prior_case in "" "$st_dir/prior-empty"; do
+        rm -rf "$st_dir/prior-empty" && mkdir -p "$st_dir/prior-empty"
+        SERVED_ASSETS_PRIOR_DIR="$st_prior_case"
+        st_out="$(run_check "$FIXTURE_ORIGIN" 2>&1)" && st_r=0 || st_r=$?
+        case "$st_r:$st_out" in
+            *"prior-release pass: "*) echo "SELF-TEST FAILED: prior dir '$st_prior_case' with nothing to check was reported as checked:" >&2; echo "$st_out" >&2; st_rc=1 ;;
+            0:*"prior-release pass SKIPPED — "?*) echo "SELF-TEST OK: prior dir '$st_prior_case' with nothing to check is SKIPPED with a reason." ;;
+            *) echo "SELF-TEST FAILED: prior dir '$st_prior_case' with nothing to check was not logged as SKIPPED:" >&2; echo "$st_out" >&2; st_rc=1 ;;
+        esac
+        SERVED_ASSETS_PRIOR_REQUIRED=1
+        _case "prior-release pass required, nothing to check (dir '$st_prior_case')" expect-fail "prior-release pass required"
+        unset SERVED_ASSETS_PRIOR_REQUIRED
+    done
+
+    # A prior manifest naming nothing is a FAIL, not a skip.
+    prior_served
+    rm -rf "$st_prior" && mkdir -p "$st_prior"
+    printf '{}' > "$st_prior/asset-manifest.json"
+    SERVED_ASSETS_PRIOR_DIR="$st_prior"
+    _case "prior-release manifest names zero assets" expect-fail "named no assets"
+    unset SERVED_ASSETS_PRIOR_DIR
 
     # A page with nothing to check is not a pass (e.g. a JSON error body).
     page ''

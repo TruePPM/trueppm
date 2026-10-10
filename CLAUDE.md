@@ -378,12 +378,16 @@ rolling-update version-skew investigation.
   bake assets from as the latest tag in the current `major.minor` line if one exists,
   else the latest published tag of the immediately previous line — the fallback is
   what makes a minor-to-minor jump covered, not just a beta/rc bump within one line.
-- **Not yet enforced by a gate.** As of ADR-1249, the Helm demo-upgrade drill only
-  exercises a same-line jump (`0.4.0-beta.6`→`0.4.0-beta.7`). Before the first GA
-  release, add a drill leg or test that exercises the previous-line fallback
-  directly, and make verifying this guarantee part of `/pre-release full` for every
-  GA and later minor release. Until that gate exists, treat this section as a
-  manual checklist item at each GA-and-later release, not a proven property.
+- **Withdrawn releases do not count.** `scripts/resolve-prev-web-image.sh` drops
+  `SKIP_PREV_WEB_VERSIONS` (default `0.4.0-beta.7`) before picking, in lockstep with
+  the Helm drill's `SKIP_PREV_CHART_VERSIONS`. Change the two together.
+- **Partly enforced.** The resolver's previous-line fallback is unit-tested
+  (`scripts/tests/resolve-prev-web-image.test.sh`), `ci:build-deploy-images` builds
+  every MR's web image with the prior release's assets and requires them served,
+  and the Helm demo-upgrade drill asserts HEAD serves the pre-upgrade release's
+  assets. No drill yet runs a real minor-to-minor upgrade (the demo-upgrade drill
+  is same-line). Before the first GA release, add one, and make verifying this
+  guarantee part of `/pre-release full` for every GA and later minor release.
 
 ## Documentation Discipline
 

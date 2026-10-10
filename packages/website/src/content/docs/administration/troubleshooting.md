@@ -66,21 +66,36 @@ white. No error text. The browser console usually shows a failed request for a
    when a chunk fails to load (a second failure within 10 seconds, an offline
    browser, or unsynced changes leave the on-screen Reload button to the user).
    Tags up to and including 0.4.0-beta.7 still return the `200` SPA fallback.
+   Releases after 0.4.0-beta.7 also keep the previous release's `/assets/`
+   files in the web image, so a tab opened before an upgrade keeps loading its
+   own chunks from the new pods. That reaches back one release: the
+   immediately previous published release, not counting a withdrawn one.
+   0.4.0-beta.7 was withdrawn, so the first image built this way carries
+   0.4.0-beta.6's files. A tab opened before an upgrade that skips a release
+   falls back to the one automatic reload. During the rollout itself, a client
+   that got the new `index.html` can still ask an old pod for a new chunk; the
+   app retries that chunk twice, over about two seconds, which normally reaches
+   a new pod, and only then reloads. It does not retry while the browser is
+   offline.
    A reload fetches the current `index.html`, but it can still land on the other
    release until the rollout finishes. Load-balancer luck decides which files fail,
    so the failing set changes from one reload to the next. Two situations
    produce it:
-   - **Any rolling upgrade with two or more web replicas.** The chart's
-     production values run two, and the default rolling update keeps old and
-     new pods serving together until it finishes. A healthy rollout produces
-     this too, not only a stalled one. Clients that load the page during that
-     window can blank-screen until they reload after the rollout completes.
+   - **A rolling upgrade to 0.4.0-beta.7 or earlier with two or more web
+     replicas.** The chart's production values run two, and the default
+     rolling update keeps old and new pods serving together until it finishes.
+     A healthy rollout produces this too, not only a stalled one. Clients that
+     load the page during that window can blank-screen until they reload after
+     the rollout completes.
+   - **An upgrade that skips a release**, on any number of replicas: tabs
+     opened before it ask for files from a release two or more back, which
+     the new image does not keep.
    - **A rollback, or a browser holding an older page.** A client that fetched
      `index.html` from the new release just before a rollback asks for assets
      that no remaining pod has. A reload fixes it.
 
    Finish the rollout or the rollback, confirm that every web pod runs the same
-   image, then reload. Removing this window for good is tracked in
+   image, then reload. The previous-release assets and the chunk retry are
    [#4341](https://gitlab.com/trueppm/trueppm/-/issues/4341).
 
 **Commands.**

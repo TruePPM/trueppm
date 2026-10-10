@@ -128,6 +128,10 @@ ci:build-deploy-images:
         - packages/web/index.html
         - scripts/check-served-assets.sh
         - scripts/web-image-asset-smoke.sh
+        # ADR-1249: which prior release's assets the image carries, and the
+        # build step that copies them.
+        - scripts/resolve-prev-web-image.sh
+        - packages/web/scripts/collect-prior-assets.mjs
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes: *web-image-smoke-paths
   before_script:
@@ -149,18 +153,33 @@ ci:build-deploy-images:
         --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" \
         -t "$API_IMAGE" .
       docker push "$API_IMAGE"
+      # The previous release whose hashed assets the image also carries
+      # (ADR-1249), resolved and built in exactly the way web:publish does.
+      # web:publish runs only on a tag, from the tag's own CI file, so a bug
+      # in this path would otherwise first surface at a release cut. Here it
+      # runs on every MR that builds the image. `--at-or-below` the
+      # package.json version (the last cut release): this commit is the
+      # release that will follow it, and it matches the release the
+      # demo-upgrade drill installs before upgrading to this image.
+      WEB_VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' packages/web/package.json)"
+      PREV_WEB_IMAGE="$(sh scripts/resolve-prev-web-image.sh --at-or-below "$WEB_VERSION")" || exit 1
+      echo "PREV_WEB_IMAGE=${PREV_WEB_IMAGE:-<none>}"
       # web: context = packages/web (mirrors web:publish's `cd packages/web`).
       docker pull "${CI_REGISTRY_IMAGE}/web:latest" || true
       docker build \
         --cache-from "${CI_REGISTRY_IMAGE}/web:latest" \
         --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" \
+        --build-arg PREV_WEB_IMAGE="$PREV_WEB_IMAGE" \
         -t "$WEB_IMAGE" packages/web
       # Boot the per-commit web image and require it to serve every asset its
       # own index.html references before it is pushed (#4338) — the same
       # smoke web:publish runs at a release cut, here on every MR that builds
       # the image, so the check is proven long before a tag depends on it.
+      # WEB_SMOKE_PRIOR_IMAGE adds the ADR-1249 pass: every asset of the prior
+      # release must be served by this image too.
       sh scripts/check-served-assets.sh --self-test || exit 1
-      WEB_SMOKE_HOST=docker sh scripts/web-image-asset-smoke.sh "$WEB_IMAGE" || exit 1
+      WEB_SMOKE_HOST=docker WEB_SMOKE_PRIOR_IMAGE="$PREV_WEB_IMAGE" \
+        sh scripts/web-image-asset-smoke.sh "$WEB_IMAGE" || exit 1
       docker push "$WEB_IMAGE"
 
 helm:install:
@@ -441,6 +460,10 @@ helm:demo-upgrade:
         - packages/helm/**/*
         - scripts/helm-install-drill.sh
         - scripts/check-served-assets.sh
+        # The post-upgrade ADR-1249 check depends on which prior release the
+        # image inherited from; ci:build-deploy-images' main rule covers both.
+        - scripts/resolve-prev-web-image.sh
+        - packages/web/scripts/collect-prior-assets.mjs
         - .gitlab/ci/deploy-drills.yml
   before_script:
     - apk add --no-cache bash curl

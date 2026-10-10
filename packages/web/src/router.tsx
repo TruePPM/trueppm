@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate, Outlet, useNavigate, type RouteObject } from 'react-router';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy as reactLazy, Suspense, useEffect } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -20,6 +20,11 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { RouteLoadingFallback } from '@/components/RouteLoadingFallback';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import type { RouteHandle } from '@/router/routeHandle';
+import { withImportRetry } from '@/lib/chunkReload';
+
+// Every route chunk retries a failed import before the one-time chunk reload
+// (ADR-1249, src/lib/chunkReload.ts).
+const lazy: typeof reactLazy = (load) => reactLazy(withImportRetry(load));
 
 // Route-level code splitting — each chunk is loaded only when the route is
 // first visited, keeping the initial bundle (login + shell) minimal.

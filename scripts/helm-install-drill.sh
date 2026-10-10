@@ -972,6 +972,41 @@ check_served_assets() {
   log "served assets GREEN for ${label} (#4338/#4340)"
 }
 
+# ---- capture the PRE-upgrade release's asset names (ADR-1249) ---------------
+# The HEAD web image carries the previous release's hashed assets so a tab
+# opened before the upgrade keeps working. demo-upgrade proves it end to end:
+# before upgrading, record what the running (previous) release names, then the
+# post-upgrade check_served_assets requires HEAD to serve every one of them.
+#
+# Read from the running pod rather than over HTTP, because the previous release
+# may predate asset-manifest.json (0.4.0-beta.6 does): then its assets/ listing
+# is the reference, which only the filesystem can give. Names are all
+# check-served-assets.sh reads, so the listing becomes empty placeholder files.
+capture_prior_web_assets() {
+  local svc="$1" out="$2" listing p
+  rm -rf "$out"
+  mkdir -p "$out"
+  if kubectl exec "svc/${svc}" -- cat /usr/share/nginx/html/asset-manifest.json >"$out/asset-manifest.json" 2>/dev/null \
+      && [ -s "$out/asset-manifest.json" ]; then
+    log "pre-upgrade release names its assets in asset-manifest.json — captured for the post-upgrade ADR-1249 check"
+    return 0
+  fi
+  rm -f "$out/asset-manifest.json"
+  listing="$(kubectl exec "svc/${svc}" -- sh -c 'cd /usr/share/nginx/html && find assets -type f')" \
+    || fail "could not list the pre-upgrade web pod's assets/ (svc/${svc}) for the ADR-1249 check"
+  [ -n "$listing" ] || fail "the pre-upgrade web pod (svc/${svc}) has an empty assets/ — nothing to carry forward (ADR-1249)"
+  while IFS= read -r p; do
+    case "$p" in
+      assets/*/../* | assets/../* | */.. | "") fail "refusing pre-upgrade asset path '${p}' (ADR-1249)" ;;
+      assets/*) ;;
+      *) fail "unexpected pre-upgrade asset path '${p}' (ADR-1249)" ;;
+    esac
+    mkdir -p "$out/$(dirname "$p")"
+    : >"$out/$p"
+  done <<<"$listing"
+  log "pre-upgrade release has no asset-manifest.json (built before ADR-1249) — captured its assets/ listing ($(printf '%s\n' "$listing" | wc -l | tr -d ' ') files)"
+}
+
 # ---- restart + contention evidence ------------------------------------------
 # A rollout that times out with `context deadline exceeded` can leave every pod
 # Running/Ready by the time dump_diagnostics runs, so the not-Ready loop below
@@ -1490,6 +1525,8 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   # TODO(#4347): drop this opt-out after beta.8 is cut, before 0.4.0-rc.1.
   SERVED_ASSETS_MISSING_PROBE=0 \
     check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}" 0
+  PRIOR_WEB_ASSETS_DIR="$(mktemp -d)"
+  capture_prior_web_assets "$demo_web_svc" "$PRIOR_WEB_ASSETS_DIR"
   kubectl get pods -o wide
 
   # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
@@ -1857,7 +1894,15 @@ if [ "$DRILL_LEG" = "demo" ] || [ "$DRILL_LEG" = "demo-upgrade" ]; then
   log "waiting for the demo-seed hook (${hook_stage_label}) to complete"
   wait_for_demo_seed_hook "$hook_stage_label"
 
-  check_served_assets "$demo_web_svc" default "demo allowlist — ${hook_stage_label}" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+  if [ "$DRILL_LEG" = "demo-upgrade" ]; then
+    # ADR-1249: HEAD must still serve every asset the PRE-upgrade release
+    # named (captured in 4d), or a tab opened before this upgrade blanks on
+    # its next lazy route. REQUIRED: a capture with nothing in it is a fail.
+    SERVED_ASSETS_PRIOR_DIR="$PRIOR_WEB_ASSETS_DIR" SERVED_ASSETS_PRIOR_REQUIRED=1 \
+      check_served_assets "$demo_web_svc" default "demo allowlist — ${hook_stage_label}, plus the pre-upgrade chart ${PREV_CHART_VERSION}'s assets (ADR-1249)" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+  else
+    check_served_assets "$demo_web_svc" default "demo allowlist — ${hook_stage_label}" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+  fi
 
   log "starting an in-cluster probe pod for the demo allowlist matrix (ingress-nginx namespace, admitted by the web-ingress NetworkPolicy — same placement as the admin-probe above)"
   kubectl run demo-probe -n ingress-nginx \
@@ -2069,7 +2114,7 @@ elif [ "$DRILL_LEG" = "walkthrough" ]; then
 elif [ "$DRILL_LEG" = "demo" ]; then
   log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, served assets verified (#4338), allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
 elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
-  log "HELM DEMO-UPGRADE DRILL GREEN (#4340) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart still with values-demo.yaml; POST-UPGRADE demo-seed hook re-fire completed and the allowlist/throttle matrix + served-asset check both held against it (closing the #3941 gap that let #4339 ship); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+  log "HELM DEMO-UPGRADE DRILL GREEN (#4340) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart still with values-demo.yaml; POST-UPGRADE demo-seed hook re-fire completed and the allowlist/throttle matrix + served-asset check both held against it (closing the #3941 gap that let #4339 ship); HEAD still served every asset of the pre-upgrade release (ADR-1249); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 else
   log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 fi

@@ -23,6 +23,15 @@
 # startup — with no `api` in DNS the container exits immediately with "host
 # not found in upstream". Nothing here exercises those routes.
 #
+# Prior-release assets (ADR-1249). WEB_SMOKE_PRIOR_IMAGE names the previous
+# published image the one under test was built FROM (its PREV_WEB_IMAGE build
+# arg). Set, the prior image's asset-manifest.json (or, for an image built
+# before that manifest existed, its assets/ listing) is copied out with
+# `docker create` + `docker cp`, which never starts it, and
+# check-served-assets.sh's prior-release pass then requires every file it
+# names to be served by the NEW image. Set but empty (the resolver found no
+# prior release) logs the pass as SKIPPED. Unset, no prior pass runs.
+#
 # Usage: scripts/web-image-asset-smoke.sh <image-ref>
 # Exit:  0 image served every asset · non-zero otherwise (container logs printed)
 
@@ -54,8 +63,31 @@ else
     esac
 fi
 
-cleanup() { docker rm -f "$NAME" > /dev/null 2>&1 || true; }
+PRIOR_NAME="web-asset-smoke-prior-$$"
+PRIOR_DIR=""
+cleanup() {
+    docker rm -f "$NAME" "$PRIOR_NAME" > /dev/null 2>&1 || true
+    [ -z "$PRIOR_DIR" ] || rm -rf "$PRIOR_DIR"
+}
 trap cleanup EXIT INT TERM
+
+if [ "${WEB_SMOKE_PRIOR_IMAGE+set}" = set ]; then
+    if [ -n "$WEB_SMOKE_PRIOR_IMAGE" ]; then
+        PRIOR_DIR="$(mktemp -d)"
+        docker create --name "$PRIOR_NAME" "$WEB_SMOKE_PRIOR_IMAGE" > /dev/null
+        if docker cp "$PRIOR_NAME:/usr/share/nginx/html/asset-manifest.json" "$PRIOR_DIR/asset-manifest.json" > /dev/null 2>&1; then
+            echo "web-image-asset-smoke: prior release ${WEB_SMOKE_PRIOR_IMAGE}: checking the files its asset-manifest.json names"
+        else
+            docker cp "$PRIOR_NAME:/usr/share/nginx/html/assets" "$PRIOR_DIR/assets" > /dev/null
+            echo "web-image-asset-smoke: prior release ${WEB_SMOKE_PRIOR_IMAGE} has no asset-manifest.json (built before ADR-1249): checking its assets/ listing"
+        fi
+        docker rm -f "$PRIOR_NAME" > /dev/null
+        export SERVED_ASSETS_PRIOR_DIR="$PRIOR_DIR"
+        export SERVED_ASSETS_PRIOR_REQUIRED=1
+    else
+        export SERVED_ASSETS_PRIOR_DIR=""
+    fi
+fi
 
 docker run -d --name "$NAME" --add-host api:127.0.0.1 -p "$PUBLISH" "$IMAGE" > /dev/null
 
