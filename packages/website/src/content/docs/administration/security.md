@@ -277,6 +277,43 @@ in that list is enabled by default.
 Never commit secrets to version control. Use environment variables, Docker secrets, or a secrets manager (Vault, AWS Secrets Manager, etc.).
 :::
 
+### Restarting pods after rotating the Secret
+
+On Kubernetes, every key above arrives via the `envFrom` Secret referenced in
+[the production install walkthrough](/administration/deployment/#production-install-walkthrough)
+(conventionally named `trueppm-env`). Updating that Secret in place — a
+`kubectl apply`, an External Secrets refresh, a Vault Agent template render —
+does **not** restart anything: the Deployment's pod template is unchanged, so
+Kubernetes has nothing to notice and old pods keep the old value indefinitely.
+Only the chart's `web` tier carries a pod-template checksum annotation, and
+that one guards its nginx ConfigMap, not this Secret.
+
+After rotating `SECRET_KEY`, `JWT_SIGNING_KEY`, `DATABASE_URL`,
+`INTEGRATION_ENCRYPTION_KEY`, or any other key the Secret carries, restart the
+three Deployments that read it via `envFrom` and otherwise never pick up the
+new value on their own:
+
+```bash
+kubectl rollout restart deployment/trueppm-api \
+  deployment/trueppm-celery-worker deployment/trueppm-celery-beat \
+  -n trueppm
+```
+
+(Replace `trueppm` with your release name and namespace if you installed
+under different ones.) The `migrate` init container that bootstraps the `api`
+pod reads the same Secret, so restarting that Deployment also re-runs it
+against the new value.
+
+If you run the chart's demo mode (`demo.enabled: true`), the demo-reset
+CronJob and demo-seed Job read the same Secret too, but need no restart:
+Kubernetes starts a fresh pod for each of their runs, so the next scheduled
+reset or seed already uses the rotated value.
+
+A chart-rendered checksum annotation that rolls these Deployments
+automatically on every Secret change — the same mechanism the `web` tier's
+nginx ConfigMap already has — is tracked in
+[#3405](https://gitlab.com/trueppm/trueppm/-/issues/3405).
+
 ### Verifying before deploy
 
 Django's deploy check enforces the key rules at boot, so you can prove a
@@ -311,12 +348,14 @@ two so that:
 
 **To force every user to sign in again** (after a suspected token leak or an
 admin offboarding), rotate the JWT signing key: set `JWT_SIGNING_KEY` to a fresh
-value and restart the API and Celery workers. Every outstanding access and
-refresh token immediately fails signature verification; the web app treats the
-next call as a `401`, attempts one (also-failing) refresh, and routes users to
-the sign-in screen. No data is lost. If you have not set a separate
-`JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also rotates
-session/CSRF signing.
+value and, on Kubernetes,
+[restart the api, celery-worker, and celery-beat Deployments](#restarting-pods-after-rotating-the-secret)
+(a plain `docker compose restart` on the Compose deploy). Every outstanding
+access and refresh token immediately fails signature verification; the web app
+treats the next call as a `401`, attempts one (also-failing) refresh, and
+routes users to the sign-in screen. No data is lost. If you have not set a
+separate `JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also
+rotates session/CSRF signing.
 
 :::danger[Key rotation does not revoke API tokens]
 Rotating the signing key cuts **sessions and JWTs only**. An
