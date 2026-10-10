@@ -187,7 +187,9 @@ working on any number of web replicas. The limits:
   old and new pods serve together until the rollout finishes, and a browser
   that got the new `index.html` can ask an old pod for a new file. The app
   retries that file twice, over about two seconds, before it reloads, and does
-  not retry while the browser is offline.
+  not retry while the browser is offline. The shipped `values-prod.yaml` pins
+  `replicas.web: 1` for this reason (#4348) — the web tier gains no throughput
+  from extra replicas, so this window only applies if you have raised it.
 - **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
   blank page until it reloads.
 - **Upgrading from 0.4.0-beta.7, specifically.** This one hop is not covered
