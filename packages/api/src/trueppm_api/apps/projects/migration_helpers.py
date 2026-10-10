@@ -46,6 +46,11 @@ def repair_invalid_concurrent_index(connection: Any, index_name: str) -> None:
             [index_name],
         )
         if cursor.fetchone() is not None:
+            # `index_name` is always a hardcoded module-level constant from the
+            # calling migration (see repair_invalid_concurrent_index_op below),
+            # never request- or user-derived input — DDL identifiers can't be
+            # bound as query parameters, so quoting is the only option anyway.
+            # nosemgrep: formatted-sql-query,sqlalchemy-execute-raw-query
             cursor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}";')
 
 
