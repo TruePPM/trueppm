@@ -43,7 +43,10 @@
 #     ordering under a rolling update, bundled-datastore password regeneration
 #     on upgrade, post-upgrade hook re-runs (the demo-seed Job), and subchart
 #     field immutability. It never got a runtime drill before #3941 — only
-#     `helm install` from empty ever ran. "Previous released" is resolved
+#     `helm install` from empty ever ran, and until #4353 this leg itself ran
+#     at the chart's single-replica default despite its own comments claiming
+#     otherwise — see section 4's `upgrade` branch for why replicaCount=2 is
+#     now real. "Previous released" is resolved
 #     dynamically against the OCI registry's tag list (see
 #     resolve_previous_chart_version below) rather than a hardcoded version
 #     string, so it keeps tracking the real last tag as releases ship. The
@@ -1358,12 +1361,8 @@ fi
 # readyz leg both resolve — no version-skew overrides. The full chart (secret,
 # migrate->bootstrap init sequence, uvicorn, postgres, valkey, celery, Services)
 # boots and readiness gates on the real deep /readyz check the deploy ships with.
-# persistence.media is enabled deliberately (#3184): the chart's pods run with
-# readOnlyRootFilesystem, so a local-attachment-storage install has nowhere to
-# write without this claim and the boot guard now refuses to start rather than
-# accept uploads it would lose. ReadWriteOnce is correct on this single-node kind
-# cluster — the guard only rejects RWO above one replica, where it would mean an
-# upload accepted by one pod 404s from another.
+# Each branch below states its own persistence.media / replicaCount choice —
+# they are no longer identical (#4353).
 if [ "$DRILL_LEG" = "upgrade" ]; then
   # ---- 4a. install the PREVIOUS released chart from the public OCI registry
   # No CELERY_PROBE_OVERRIDES here on purpose: this chart version already
@@ -1373,35 +1372,58 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
   # nothing about the version actually being installed. No --set image.tag
   # either: this chart version's own default ("" -> v<appVersion>) already
   # resolves to the image just pulled and loaded above.
-  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO})"
+  #
+  # replicaCount=2 (#4353): this leg's whole reason to exist is "migration
+  # ordering + the migrate_locked advisory lock ... under values-prod.yaml's
+  # replicaCount: 2" (see 4b below) — but neither this install nor the
+  # upgrade that follows ever loaded values-prod.yaml or set replicaCount at
+  # all, so every run before #4353 actually exercised the chart's plain
+  # single-replica default. persistence.media is dropped (enabled=false)
+  # rather than switched to ReadWriteMany: trueppm.mediaVolume (_helpers.tpl)
+  # refuses a ReadWriteOnce claim above one replica, kind's local-path
+  # provisioner cannot satisfy ReadWriteMany at all (see
+  # setup_walkthrough_datastores' static-PV comment above for exactly why),
+  # and provisioning a real RWX class (NFS, hostpath-CSI) just for this leg
+  # would add cluster infrastructure this drill does not otherwise need. The
+  # demo leg already answers "how does a multi-replica install keep
+  # readOnlyRootFilesystem pods writable without the media PVC" —
+  # env.TRUEPPM_MEDIA_ROOT=/tmp, pointed at the emptyDir every pod already
+  # mounts (values-demo.yaml's own SECRETS comment) — so this leg reuses that
+  # same answer instead of inventing a second one.
+  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}), replicaCount=2 (#4353)"
   helm install "$RELEASE" "oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}" --version "$PREV_CHART_VERSION" \
-    --set persistence.media.enabled=true \
-    --set persistence.media.accessMode=ReadWriteOnce \
+    --set replicaCount=2 \
+    --set persistence.media.enabled=false \
+    --set 'env.TRUEPPM_MEDIA_ROOT=/tmp' \
     --set 'envFrom[0].secretRef.name=trueppm-env' \
     --wait --timeout "$INSTALL_TIMEOUT"
-  log "previous release ${PREV_CHART_VERSION} rolled out — now helm upgrade -> HEAD chart"
+  log "previous release ${PREV_CHART_VERSION} rolled out at replicaCount=2 — now helm upgrade -> HEAD chart"
   kubectl get pods -o wide
 
   # ---- 4a-cont. admin password, checked against THIS pod before it is gone -
   # This is the only point in the upgrade leg where the check can pass: see
-  # check_admin_password's header comment. `--wait` above already gates on the
-  # pod being Ready, which means its init containers (including create_admin)
-  # already ran to completion.
+  # check_admin_password's header comment. `--wait` above already gates on
+  # both pods being Ready, which means their init containers (including
+  # create_admin) already ran to completion; check_admin_password loops every
+  # api pod and asserts exactly one holder (#4226), so replicaCount=2 here
+  # needs no extra handling.
   check_admin_password
 
   # ---- 4b. upgrade THE SAME RELEASE to the HEAD chart/images ---------------
   # This is the leg #3941 exists for: migration ordering + the migrate_locked
-  # advisory lock under values-prod.yaml's replicaCount: 2, bundled-datastore
-  # password regeneration on upgrade (templates/secret.yaml's lookup-returns-
-  # empty path), post-upgrade hook re-runs (the demo-seed Job re-fires), and
+  # advisory lock under replicaCount=2 (#4353 — see 4a above for why this is
+  # now actually true instead of only claimed), bundled-datastore password
+  # regeneration on upgrade (templates/secret.yaml's lookup-returns-empty
+  # path), post-upgrade hook re-runs (the demo-seed Job re-fires), and
   # PVC/StatefulSet field immutability on the postgresql/valkey subcharts —
   # none of which a from-empty `helm install` can ever exercise. Same release
   # name, same namespace, same secret: a real operator upgrade never
   # recreates either.
   upgrade_args=(
     --set image.tag="$RELEASE_IMAGE_TAG"
-    --set persistence.media.enabled=true
-    --set persistence.media.accessMode=ReadWriteOnce
+    --set replicaCount=2
+    --set persistence.media.enabled=false
+    --set 'env.TRUEPPM_MEDIA_ROOT=/tmp'
     --set 'envFrom[0].secretRef.name=trueppm-env'
     "${CELERY_PROBE_OVERRIDES[@]}"
   )
@@ -1430,8 +1452,9 @@ if [ "$DRILL_LEG" = "upgrade" ]; then
   # nothing.
   helm upgrade "$RELEASE" "$CHART" --dry-run=server \
     --set image.tag="$RELEASE_IMAGE_TAG" \
-    --set persistence.media.enabled=true \
-    --set persistence.media.accessMode=ReadWriteOnce \
+    --set replicaCount=2 \
+    --set persistence.media.enabled=false \
+    --set 'env.TRUEPPM_MEDIA_ROOT=/tmp' \
     --set 'envFrom[0].secretRef.name=trueppm-env' \
     "${CELERY_PROBE_OVERRIDES[@]}" >/dev/null \
     || fail "a second upgrade still tripped the NetworkPolicy transition guard after the policy exists; it must fire only once (#4000)"
@@ -1539,13 +1562,110 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   # install above and this upgrade (see DEMO_ARGS' own comment above), so
   # the #4000 guard never has anything to refuse here — that transition is
   # the plain `upgrade` leg's job to prove, not this one's.
-  log "helm upgrade ${RELEASE} -> HEAD chart WITH values-demo.yaml (image tag ${RELEASE_IMAGE_TAG})"
+  #
+  # #4353: closes the two gaps #4340 left open even after adding this leg.
+  # (1) `--wait` on this upgrade meant the post-upgrade demo-seed hook only
+  # ever ran AFTER the rollout had already finished — Helm always blocks
+  # helm upgrade on hook completion regardless of --wait (see
+  # wait_for_demo_seed_hook's own comment); --wait is what ADDITIONALLY
+  # blocks on the Deployments themselves becoming Ready. Dropping it here
+  # means the hook now fires while the rollout is still in flight, the same
+  # ordering a real operator's plain `helm upgrade` gets. (2)
+  # check_served_assets below only ever ran once before this upgrade and
+  # once after it, never DURING it — the only window a mixed-build nginx
+  # fallback (#4338's actual failure mode) is observable at all. Closed by
+  # polling scripts/check-served-assets.sh, with SERVED_ASSETS_ROUNDS
+  # driving fresh connections so kube-proxy's own per-connection balancing
+  # samples different backend pods, from an IN-CLUSTER pod against the web
+  # Service's ClusterIP DNS name — never `kubectl port-forward`, which
+  # tunnels straight into ONE pod's network namespace and so cannot see
+  # mixed serving no matter how many rounds it runs (check_served_assets'
+  # own header comment explains why port-forward is used for the
+  # before/after checks instead: it needs no NetworkPolicy-admitted
+  # placement, which is exactly the property that makes it useless here).
+  #
+  # ingress-nginx is section 8's namespace below (created there, for every
+  # leg, as the placement every NetworkPolicy-admitted probe pod in this
+  # script uses) — this leg needs a pod in it now, before section 8 ever
+  # runs, so create it here too. Both creates are idempotent (#4353) so
+  # whichever leg/section runs first wins and the other is a no-op.
+  kubectl get namespace ingress-nginx > /dev/null 2>&1 || kubectl create namespace ingress-nginx
+  log "starting an in-cluster probe pod for the mid-rollout served-asset check (ingress-nginx namespace, admitted by the web NetworkPolicy — same placement as admin-probe/demo-probe below, #4353)"
+  kubectl run rollout-asset-probe -n ingress-nginx \
+    --image="$API_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
+    --command -- sleep 3600
+  kubectl wait --for=condition=Ready pod/rollout-asset-probe -n ingress-nginx --timeout=60s \
+    || fail "rollout-asset-probe pod never became Ready (#4353)"
+
+  # TODO(#4347): PREV_CHART_VERSION resolves to a published chart (beta.6 or
+  # beta.7 today, per SKIP_PREV_CHART_VERSIONS above) that predates #4341
+  # (ADR-1249's prior-release asset carryover) and is KNOWN to serve
+  # skewed/missing assets mid-rollout against ITSELF — see this leg's own
+  # SERVED_ASSETS_MISSING_PROBE=0 opt-out a few lines up. That is the
+  # accepted, already-tracked condition #4347 exists to retire, not a HEAD
+  # regression this probe should fail main for. So the mid-rollout probe
+  # below is reported, never fatal, while this default stays 0. Flip it to 1
+  # once resolve_previous_chart_version() picks a chart that already
+  # shipped #4341 (beta.8 or later) — at that point a text/html round really
+  # does mean HEAD regressed.
+  ROLLOUT_ASSET_PROBE_STRICT="${ROLLOUT_ASSET_PROBE_STRICT:-0}"
+
+  rollout_probe_dir="$(mktemp -d)"
+  rollout_probe_log="$rollout_probe_dir/log"
+  rollout_probe_stop="$rollout_probe_dir/stop"
+  : > "$rollout_probe_log"
+  probe_url="${DEMO_BASE_URL}/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+  (
+    while [ ! -e "$rollout_probe_stop" ]; do
+      # `|| rc=$?` (not a bare command) so one failing round reports and the
+      # loop keeps polling instead of `set -e` killing this background
+      # subshell on the very first text/html round it is here to catch.
+      rc=0
+      # SERVED_ASSETS_MANIFEST=0, mirroring this leg's own PRE-upgrade check
+      # above: some rounds land on the still-rolling-out PREV_CHART_VERSION
+      # pod, which (pre-#4341) has no asset-manifest.json at all — a known,
+      # already-reported gap, not the text/html SPA-fallback skew this probe
+      # exists to catch. Leaving it at the default would drown that signal
+      # in manifest-missing noise on every single round. TODO(#4347): drop
+      # this override once PREV_CHART_VERSION ships #4341.
+      kubectl exec -i rollout-asset-probe -n ingress-nginx -- \
+        env SERVED_ASSETS_ROUNDS=1 SERVED_ASSETS_MANIFEST=0 sh -s "$probe_url" \
+        < scripts/check-served-assets.sh >> "$rollout_probe_log" 2>&1 || rc=$?
+      [ "$rc" -eq 0 ] || echo "#4353 ROUND FAILED rc=${rc} at $(date -u +%H:%M:%S)" >> "$rollout_probe_log"
+      sleep 1
+    done
+  ) &
+  rollout_probe_pid=$!
+  log "mid-rollout asset probe loop started (pid ${rollout_probe_pid}) — polling ${probe_url} roughly every second via rollout-asset-probe"
+
+  log "helm upgrade ${RELEASE} -> HEAD chart WITH values-demo.yaml, WITHOUT --wait (#4353) — the rollout and the mid-rollout probe above now genuinely overlap; helm still blocks here on the post-upgrade demo-seed hook (always synchronous — see wait_for_demo_seed_hook), exactly as a real operator's own upgrade would"
   helm upgrade "$RELEASE" "$CHART" \
     "${DEMO_ARGS[@]}" \
     --set image.tag="$RELEASE_IMAGE_TAG" \
     "${CELERY_PROBE_OVERRIDES[@]}" \
-    --wait --timeout "$INSTALL_TIMEOUT"
+    --timeout "$INSTALL_TIMEOUT"
+  log "helm upgrade returned (post-upgrade hook complete) — waiting for every Deployment of this release to finish rolling out, which is what --wait would otherwise have blocked on above"
+  for dep in $(kubectl get deployment -l "app.kubernetes.io/instance=${RELEASE}" -o name); do
+    kubectl rollout status "$dep" --timeout="$INSTALL_TIMEOUT" \
+      || fail "rollout of ${dep} did not complete after the demo-upgrade leg's no-wait helm upgrade (#4353)"
+  done
   log "demo-upgrade rollout complete — post-upgrade demo-seed hook re-fire already waited on by helm upgrade itself (asserted again, explicitly, in section 10 below)"
+
+  : > "$rollout_probe_stop"
+  wait "$rollout_probe_pid" 2>/dev/null || true
+  rollout_probe_failures="$(grep -c '^#4353 ROUND FAILED' "$rollout_probe_log" || true)"
+  if [ "${rollout_probe_failures:-0}" -gt 0 ]; then
+    if [ "$ROLLOUT_ASSET_PROBE_STRICT" = "1" ]; then
+      fail "mid-rollout served-asset probe caught ${rollout_probe_failures} failing round(s) during the demo-upgrade rollout (#4353). Probe log:
+$(cat "$rollout_probe_log")"
+    else
+      log "WARNING (reported, not fatal — TODO(#4347)): mid-rollout served-asset probe caught ${rollout_probe_failures} failing round(s) during the demo-upgrade rollout. EXPECTED while PREV_CHART_VERSION (${PREV_CHART_VERSION}) predates #4341 — set ROLLOUT_ASSET_PROBE_STRICT=1 once it no longer does. Probe log:
+$(cat "$rollout_probe_log")"
+    fi
+  else
+    log "mid-rollout served-asset probe: 0 failing rounds (#4353)"
+  fi
+  rm -rf "$rollout_probe_dir"
 else
   # ---- 4. install + wait for full rollout ----------------------------------
   # The image is the current commit's code (ci:build-deploy-images, #2284), so the
@@ -1671,7 +1791,10 @@ log "probing /admin/ through the web tier — must be denied"
 web_svc="$(kubectl get svc -l app.kubernetes.io/component=web -o jsonpath='{.items[0].metadata.name}')"
 [ -n "$web_svc" ] || fail "no web Service found (component=web)"
 web_ns="$(kubectl get svc -l app.kubernetes.io/component=web -o jsonpath='{.items[0].metadata.namespace}')"
-kubectl create namespace ingress-nginx
+# Idempotent (#4353): the demo-upgrade leg's mid-rollout asset probe now
+# creates this same namespace earlier, before this section ever runs, so it
+# may already exist by the time execution reaches here.
+kubectl get namespace ingress-nginx > /dev/null 2>&1 || kubectl create namespace ingress-nginx
 # URLError (DNS/connection) is caught separately from HTTPError so a
 # connectivity failure reports as a distinct sentinel rather than an unhandled
 # traceback that `set -e` would turn into an opaque red with no message.
@@ -2110,13 +2233,13 @@ PYEOF
 fi
 
 if [ "$DRILL_LEG" = "upgrade" ]; then
-  log "HELM UPGRADE DRILL GREEN — ${PREV_CHART_VERSION} -> HEAD upgraded cleanly; admin retrievable (pre-upgrade pod, #3964), NetworkPolicy transition guard refused then passed (#4000), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+  log "HELM UPGRADE DRILL GREEN — ${PREV_CHART_VERSION} -> HEAD upgraded cleanly at replicaCount=2 (#4353); admin retrievable (pre-upgrade pod, #3964), NetworkPolicy transition guard refused then passed (#4000), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 elif [ "$DRILL_LEG" = "walkthrough" ]; then
   log "HELM WALKTHROUGH DRILL GREEN (#4027) — named namespace, values-prod.yaml, managed PostgreSQL (TLS, sslmode=require) + Valkey reached via env.*.secretKeyRef all boot per deployment.md; admin retrievable via the documented kubectl exec command, admin denied at edge, worker+beat pinned/Ready/serving, guards fail closed"
 elif [ "$DRILL_LEG" = "demo" ]; then
   log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, served assets verified (#4338), allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
 elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
-  log "HELM DEMO-UPGRADE DRILL GREEN (#4340) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart still with values-demo.yaml; POST-UPGRADE demo-seed hook re-fire completed and the allowlist/throttle matrix + served-asset check both held against it (closing the #3941 gap that let #4339 ship); HEAD still served every asset of the pre-upgrade release (ADR-1249); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+  log "HELM DEMO-UPGRADE DRILL GREEN (#4340, #4353) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml at replicaCount=3, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart WITHOUT --wait, overlapping the post-upgrade demo-seed hook re-fire with an in-cluster mid-rollout served-asset probe (${rollout_probe_failures:-0} failing round(s), $( [ "$ROLLOUT_ASSET_PROBE_STRICT" = "1" ] && echo "STRICT" || echo "reported-only, TODO(#4347)" )); then kubectl rollout status confirmed every Deployment and the allowlist/throttle matrix + final served-asset check both held against the fully-upgraded release (closing the #3941 gap that let #4339 ship); HEAD still served every asset of the pre-upgrade release (ADR-1249); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 else
   log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 fi

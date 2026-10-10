@@ -259,7 +259,9 @@ helm:upgrade:
   # self-hosters actually walk on every release — beta.1 -> beta.2 -> beta.3,
   # three cuts in six days at the time this job was added — and that path has
   # its own failure modes: migration ordering + the migrate_locked advisory
-  # lock under values-prod.yaml's replicaCount: 2, bundled-datastore password
+  # lock under replicaCount=2 (a direct --set, not values-prod.yaml — #4353
+  # fixed this leg running at the chart's single-replica default despite this
+  # comment's own long-standing claim otherwise), bundled-datastore password
   # regeneration on upgrade (templates/secret.yaml's lookup-returns-empty
   # path), post-upgrade hook re-runs (the demo-seed Job re-firing), and
   # PVC/StatefulSet field immutability on the postgresql/valkey subcharts.
@@ -428,13 +430,18 @@ helm:demo-upgrade:
   # sprint_finish_after_start CHECK on a real post-upgrade run, leaving that
   # release `failed`).
   #
-  # `helm install` the PREVIOUS released chart WITH values-demo.yaml, wait
-  # for its install-time demo-seed hook, check served assets, then `helm
-  # upgrade` the SAME release to the HEAD chart — STILL with
-  # values-demo.yaml — and re-run the identical allowlist/throttle matrix
-  # and served-asset check helm:demo already uses, this time against the
-  # POST-upgrade hook re-fire (DRILL_LEG=demo-upgrade in the same script —
-  # see its header comment). See scripts/helm-install-drill.sh.
+  # `helm install` the PREVIOUS released chart WITH values-demo.yaml (at
+  # replicaCount=3), wait for its install-time demo-seed hook, check served
+  # assets, then `helm upgrade` the SAME release to the HEAD chart — STILL
+  # with values-demo.yaml, and WITHOUT --wait (#4353) so the post-upgrade
+  # hook re-fire genuinely overlaps the rolling-update skew window the way a
+  # real operator's own `helm upgrade` does — polling an in-cluster probe
+  # pod against the web Service's ClusterIP for mixed (old-build/new-build)
+  # asset serving during that window, then re-running the identical
+  # allowlist/throttle matrix and served-asset check helm:demo already uses
+  # once the rollout completes, against the POST-upgrade hook re-fire
+  # (DRILL_LEG=demo-upgrade in the same script — see its header comment).
+  # See scripts/helm-install-drill.sh.
   #
   # Trigger: main pushes and the nightly schedule ONLY — deliberately not
   # every MR. Per #3941's own cost note (quoted in helm:upgrade's comment

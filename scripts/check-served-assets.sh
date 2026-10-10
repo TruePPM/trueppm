@@ -67,16 +67,26 @@
 # another (a stuck or in-flight rolling update) passes or fails this check by
 # load-balancer luck. SERVED_ASSETS_ROUNDS=N repeats the whole check N times —
 # index.html included, since the index can come from either build — which turns
-# that luck into a probability a drill can drive toward certainty.
+# that luck into a probability a drill can drive toward certainty. Driven for
+# real against a live Service (not FIXTURE_DIR), each round is a fresh
+# connection that kube-proxy can route to a different backend pod, so this is
+# also what scripts/helm-install-drill.sh's demo-upgrade leg uses, from an
+# in-cluster pod, to observe a rolling update mid-flight (#4353).
 #
-# Portability. POSIX sh + curl + tr/sed/grep/sort/wc only, no GNU-only flags:
-# it runs in docker:27 (BusyBox), on the macOS arm64 shell runner (BSD tools),
-# and inside the Helm drill environment.
+# Portability. POSIX sh + tr/sed/grep/sort/wc only, no GNU-only flags: it runs
+# in docker:27 (BusyBox), on the macOS arm64 shell runner (BSD tools), inside
+# the Helm drill environment's own job container, AND inside the chart's API
+# image via `kubectl exec` (#4353) — which has no curl, only the python3 every
+# container here already needs to boot Django. fetch_url therefore prefers
+# curl when present and falls back to python3's urllib otherwise; see
+# SERVED_ASSETS_FETCHER below to force one or the other.
 #
 # Usage:  scripts/check-served-assets.sh <base_url>
 #         scripts/check-served-assets.sh --self-test
 # Env:    SERVED_ASSETS_ROUNDS    repeat the full check N times (default 1)
-#         SERVED_ASSETS_TIMEOUT   per-request curl --max-time seconds (default 20)
+#         SERVED_ASSETS_TIMEOUT   per-request timeout in seconds, curl
+#                                 --max-time or the python3 fallback's
+#                                 urlopen(timeout=) (default 20)
 #         SERVED_ASSETS_MANIFEST  set to 0 to skip the asset-manifest.json pass,
 #                                 for probing a pre-#4341 image with no manifest
 #                                 (default 1)
@@ -87,6 +97,13 @@
 #                                 prior-release pass (ADR-1249)
 #         SERVED_ASSETS_PRIOR_REQUIRED  1 fails, rather than skips, a prior-release
 #                                 pass with nothing to check (default 0)
+#         SERVED_ASSETS_FETCHER   "curl" or "python3" to force that HTTP client
+#                                 in fetch_url instead of the curl-else-python3
+#                                 auto-detect (default unset = auto). Exists so
+#                                 --self-test can exercise both backends
+#                                 deterministically regardless of which the
+#                                 calling environment happens to have; a real
+#                                 caller should leave it unset.
 # Exit:   0 every asset served correctly · 1 at least one asset failed, or the
 #         page referenced none · 2 usage error, or index.html not fetchable
 
@@ -157,8 +174,56 @@ fetch_url() {
         fi
         return 0
     fi
-    # -w after the body is written; a transport failure prints status 000.
-    curl -sS --max-time "$TIMEOUT" -o "$2" -w '%{http_code}|%{content_type}' "$1" 2>/dev/null || true
+    # Read fresh, like SERVED_ASSETS_MANIFEST/_ROUNDS above, so --self-test can
+    # force each backend in turn without re-execing the script (#4353).
+    case "${SERVED_ASSETS_FETCHER:-auto}" in
+        curl) curl -sS --max-time "$TIMEOUT" -o "$2" -w '%{http_code}|%{content_type}' "$1" 2>/dev/null || true ;;
+        python3) _fetch_url_python3 "$1" "$2" ;;
+        *)
+            # -w after the body is written; a transport failure prints status 000.
+            if command -v curl > /dev/null 2>&1; then
+                curl -sS --max-time "$TIMEOUT" -o "$2" -w '%{http_code}|%{content_type}' "$1" 2>/dev/null || true
+            else
+                _fetch_url_python3 "$1" "$2"
+            fi
+            ;;
+    esac
+}
+
+# _fetch_url_python3 <url> <body-file> — fetch_url's curl-less fallback
+# (#4353): the chart's API image has no curl, only the python3 every
+# container already needs to boot Django, and that is the only image
+# available to an in-cluster probe pod (no new registry to pull one with
+# curl just for this). Mirrors curl's own `-o body -w
+# '%{http_code}|%{content_type}'` contract exactly: write the body to $2
+# (empty on a transport failure, same as curl's -o on a failed connection)
+# and print "status|content-type" with no trailing newline, including on an
+# HTTP error status — urllib raises HTTPError for 4xx/5xx where curl just
+# returns the code, so it is caught and read like any other response rather
+# than treated as a transport failure. A genuine transport failure (DNS,
+# refused, timeout) reports as "000|", matching curl's own documented
+# convention one line above.
+_fetch_url_python3() {
+    python3 - "$1" "$2" "$TIMEOUT" <<'PYEOF' 2>/dev/null
+import sys
+import urllib.error
+import urllib.request
+
+url, outfile, timeout = sys.argv[1], sys.argv[2], float(sys.argv[3])
+try:
+    try:
+        resp = urllib.request.urlopen(url, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        resp = e
+    body = resp.read()
+    status = resp.status if hasattr(resp, "status") else resp.code
+    content_type = resp.headers.get("Content-Type", "")
+except Exception:
+    body, status, content_type = b"", "000", ""
+with open(outfile, "wb") as f:
+    f.write(body)
+sys.stdout.write("%s|%s" % (status, content_type))
+PYEOF
 }
 
 # extract_refs <html-file> — prints "<kind> <ref>" per referenced asset, where
@@ -817,6 +882,61 @@ self_test() {
     done
     unset SERVED_ASSETS_ROUNDS
     FIXTURE_DIR=""
+
+    # ---- live fetch-backend parity (#4353) ---------------------------------
+    # Everything above runs through FIXTURE_DIR, which short-circuits fetch_url
+    # before either backend is ever reached — it proves the verdict logic, not
+    # the dispatch. The in-cluster probe pod this script is now driven from
+    # (scripts/helm-install-drill.sh's demo-upgrade mid-rollout check) has
+    # python3 but no curl, so a REAL loopback server is used here to prove
+    # SERVED_ASSETS_FETCHER=python3 fetches correctly, and that forcing
+    # SERVED_ASSETS_FETCHER=curl still does too (the dispatch itself, not just
+    # one branch of it).
+    if command -v python3 > /dev/null 2>&1; then
+        live_dir="$(mktemp -d)"
+        mkdir -p "$live_dir/assets"
+        printf '%s\n' '<script type="module" src="/assets/app.js"></script>' \
+            '<link rel="stylesheet" href="/assets/app.css">' > "$live_dir/index.html"
+        echo 'export{}' > "$live_dir/assets/app.js"
+        echo 'body{}' > "$live_dir/assets/app.css"
+        live_port=18199
+        ( cd "$live_dir" && exec python3 -m http.server "$live_port" --bind 127.0.0.1 ) > /dev/null 2>&1 &
+        live_pid=$!
+        # No fractional sleep (BusyBox's sleep is integer-only, per this
+        # script's own portability rule) — a few 1s retries is plenty for a
+        # stdlib HTTP server's own startup.
+        live_up=0
+        live_i=0
+        while [ "$live_i" -lt 5 ]; do
+            if python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${live_port}/', timeout=1)" > /dev/null 2>&1; then
+                live_up=1
+                break
+            fi
+            live_i=$((live_i + 1))
+            sleep 1
+        done
+        if [ "$live_up" -eq 1 ]; then
+            case "$(SERVED_ASSETS_FETCHER=python3 SERVED_ASSETS_MANIFEST=0 run_check "http://127.0.0.1:${live_port}" 2>&1)" in
+                *"2 served, 0 failed"*) echo "SELF-TEST OK: SERVED_ASSETS_FETCHER=python3 fetches a real server correctly (#4353)." ;;
+                *) echo "SELF-TEST FAILED: SERVED_ASSETS_FETCHER=python3 did not pass against a real local server (#4353)." >&2; st_rc=1 ;;
+            esac
+            if command -v curl > /dev/null 2>&1; then
+                case "$(SERVED_ASSETS_FETCHER=curl SERVED_ASSETS_MANIFEST=0 run_check "http://127.0.0.1:${live_port}" 2>&1)" in
+                    *"2 served, 0 failed"*) echo "SELF-TEST OK: SERVED_ASSETS_FETCHER=curl still fetches a real server correctly." ;;
+                    *) echo "SELF-TEST FAILED: SERVED_ASSETS_FETCHER=curl did not pass against a real local server." >&2; st_rc=1 ;;
+                esac
+            fi
+        else
+            echo "SELF-TEST FAILED: the loopback python3 -m http.server fixture for the #4353 fetch-backend parity test never came up." >&2
+            st_rc=1
+        fi
+        kill "$live_pid" > /dev/null 2>&1 || true
+        wait "$live_pid" 2>/dev/null || true
+        rm -rf "$live_dir"
+    else
+        echo "SELF-TEST SKIPPED: no python3 on this host — cannot verify the #4353 curl-less fetch fallback itself (the dispatch logic still ran above, against FIXTURE_DIR, for every other case)." >&2
+    fi
+
     rm -rf "$st_dir"
     if [ "$st_rc" -eq 0 ]; then echo "SELF-TEST PASSED"; else echo "SELF-TEST FAILED" >&2; fi
     return "$st_rc"
@@ -829,5 +949,15 @@ case "${1:-}" in
         exit 2
         ;;
 esac
-command -v curl > /dev/null 2>&1 || { echo "check-served-assets: curl is required" >&2; exit 2; }
+# fetch_url auto-detects curl-else-python3 unless SERVED_ASSETS_FETCHER pins
+# one of them (#4353) — fail fast, before any request, naming the one tool
+# that is actually missing rather than a generic requirement.
+case "${SERVED_ASSETS_FETCHER:-auto}" in
+    curl) command -v curl > /dev/null 2>&1 || { echo "check-served-assets: curl is required (SERVED_ASSETS_FETCHER=curl)" >&2; exit 2; } ;;
+    python3) command -v python3 > /dev/null 2>&1 || { echo "check-served-assets: python3 is required (SERVED_ASSETS_FETCHER=python3)" >&2; exit 2; } ;;
+    *)
+        command -v curl > /dev/null 2>&1 || command -v python3 > /dev/null 2>&1 \
+            || { echo "check-served-assets: curl or python3 is required" >&2; exit 2; }
+        ;;
+esac
 run_check "$1"
