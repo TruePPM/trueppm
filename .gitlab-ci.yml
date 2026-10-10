@@ -7109,7 +7109,7 @@ ci:arm64-smoke:
       trivy image --input /tmp/api-arm64-smoke.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
       syft "docker-archive:/tmp/api-arm64-smoke.tar" \
-        --source-name "ghcr.io/${GHCR_USER}/api" --source-version "smoke-arm64" \
+        --source-name "ghcr.io/${GHCR_USER:-}/api" --source-version "smoke-arm64" \
         -o "cyclonedx-json=sbom/api-smoke-arm64.cdx.json"
       . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
       push_with_retry "${GL_API}:arm64-smoke"
@@ -7140,7 +7140,7 @@ ci:arm64-smoke:
       trivy image --input /tmp/web-arm64-smoke.tar --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
       mkdir -p sbom
       syft "docker-archive:/tmp/web-arm64-smoke.tar" \
-        --source-name "ghcr.io/${GHCR_USER}/web" --source-version "smoke-arm64" \
+        --source-name "ghcr.io/${GHCR_USER:-}/web" --source-version "smoke-arm64" \
         -o "cyclonedx-json=sbom/web-smoke-arm64.cdx.json"
       # This is the push that failed on the first run (job 16659791908) with
       # "blob unknown to registry" after a cross-repo "Mounted from
@@ -7199,7 +7199,7 @@ ci:amd64-smoke:
       mkdir -p sbom
       docker save "${GL_API}:amd64-smoke" -o /tmp/api-amd64-smoke.tar
       syft "docker-archive:/tmp/api-amd64-smoke.tar" \
-        --source-name "ghcr.io/${GHCR_USER}/api" --source-version "smoke-amd64" \
+        --source-name "ghcr.io/${GHCR_USER:-}/api" --source-version "smoke-amd64" \
         -o "cyclonedx-json=sbom/api-smoke-amd64.cdx.json"
       push_with_retry "${GL_API}:amd64-smoke"
     - |
@@ -7220,7 +7220,7 @@ ci:amd64-smoke:
       mkdir -p sbom
       docker save "${GL_WEB}:amd64-smoke" -o /tmp/web-amd64-smoke.tar
       syft "docker-archive:/tmp/web-amd64-smoke.tar" \
-        --source-name "ghcr.io/${GHCR_USER}/web" --source-version "smoke-amd64" \
+        --source-name "ghcr.io/${GHCR_USER:-}/web" --source-version "smoke-amd64" \
         -o "cyclonedx-json=sbom/web-smoke-amd64.cdx.json"
       push_with_retry "${GL_WEB}:amd64-smoke"
     - |
