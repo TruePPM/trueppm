@@ -3235,6 +3235,76 @@ helm:template:
       # emission gate on /edition/ stops it being *served*, not stored.
       grep -qE 'TRUEPPM_DEMO_(READ_ONLY|LOGIN_HINT)' /tmp/rendered.yaml \
         && { echo "LEAK: a TRUEPPM_DEMO_* variable rendered into a non-demo release (#3932, #3926)"; exit 1; } || true
+    # ── Rollout strategy knobs (#4354) ────────────────────────────────────────
+    # The default render (/tmp/rendered.yaml, no rollout.* override) must carry
+    # no strategy/minReadySeconds/progressDeadlineSeconds on any of the three
+    # tunable Deployments — the whole point of the knob is that an unset default
+    # stays byte-identical to the chart before #4354 existed, and Kubernetes'
+    # own Deployment defaults apply untouched.
+    - |
+      for comp in api celery-worker web; do
+        extra=$(yq ea "select(.kind == \"Deployment\" and .metadata.name == \"trueppm-${comp}\") | (.spec.strategy // \"\"), (.spec.minReadySeconds // \"\"), (.spec.progressDeadlineSeconds // \"\")" /tmp/rendered.yaml | grep -vE '^---$|^$' || true)
+        [ -z "$extra" ] \
+          || { echo "ROLLOUT REGRESSION (#4354): trueppm-${comp} renders a strategy/minReadySeconds/progressDeadlineSeconds field with no rollout.* override set: $extra"; exit 1; }
+      done
+    # Each knob renders when set — one assertion per tier so a future refactor
+    # that silently drops a tier's include is caught by name, not papered over
+    # by testing only one of the three.
+    - |
+      helm template trueppm packages/helm --set image.tag=latest \
+        --set 'envFrom[0].secretRef.name=trueppm-env' \
+        --set rollout.api.strategy=Recreate \
+        --set rollout.worker.strategy=RollingUpdate \
+        --set rollout.worker.maxSurge=2 \
+        --set rollout.worker.maxUnavailable=0 \
+        --set rollout.web.minReadySeconds=0 \
+        --set rollout.web.progressDeadlineSeconds=120 > /tmp/rendered-rollout.yaml
+      kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-rollout.yaml
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-api") | .spec.strategy.type' /tmp/rendered-rollout.yaml | grep -qx Recreate \
+        || { echo "ROLLOUT REGRESSION (#4354): rollout.api.strategy=Recreate did not render"; exit 1; }
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-worker") | .spec.strategy.rollingUpdate.maxSurge' /tmp/rendered-rollout.yaml | grep -qx 2 \
+        || { echo "ROLLOUT REGRESSION (#4354): rollout.worker.maxSurge did not render"; exit 1; }
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-worker") | .spec.strategy.rollingUpdate.maxUnavailable' /tmp/rendered-rollout.yaml | grep -qx 0 \
+        || { echo "ROLLOUT REGRESSION (#4354): rollout.worker.maxUnavailable=0 did not render (a '| default'-style guard would clobber an explicit 0)"; exit 1; }
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.minReadySeconds' /tmp/rendered-rollout.yaml | grep -qx 0 \
+        || { echo "ROLLOUT REGRESSION (#4354): rollout.web.minReadySeconds=0 did not render"; exit 1; }
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.progressDeadlineSeconds' /tmp/rendered-rollout.yaml | grep -qx 120 \
+        || { echo "ROLLOUT REGRESSION (#4354): rollout.web.progressDeadlineSeconds did not render"; exit 1; }
+      # Beat stays pinned Recreate with no operator-settable knob (#4354) — assert
+      # the shipped singleton strategy is untouched by any of the overrides above.
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-beat") | .spec.strategy.type' /tmp/rendered-rollout.yaml | grep -qx Recreate \
+        || { echo "ROLLOUT REGRESSION: celery-beat's own fixed Recreate strategy changed"; exit 1; }
+    # strategy: Recreate cannot carry maxSurge/maxUnavailable — Kubernetes has no
+    # surge/unavailable concept for a tear-down-then-start-up rollout. The chart
+    # must fail the render, not silently drop one half of the combination.
+    - |
+      if out=$(helm template trueppm packages/helm --set image.tag=latest \
+            --set 'envFrom[0].secretRef.name=trueppm-env' \
+            --set rollout.api.strategy=Recreate --set rollout.api.maxSurge=1 2>&1); then
+        echo "ROLLOUT REGRESSION (#4354): rollout.api.strategy=Recreate + maxSurge rendered"; exit 1
+      fi
+      echo "$out" | grep -q 'cannot carry maxSurge/maxUnavailable' \
+        || { echo "ROLLOUT TEST INVALID: render failed but not from the #4354 Recreate guard:"; echo "$out"; exit 1; }
+    - |
+      if out=$(helm template trueppm packages/helm --set image.tag=latest \
+            --set 'envFrom[0].secretRef.name=trueppm-env' \
+            --set rollout.web.strategy=Recreate --set rollout.web.maxUnavailable=1 2>&1); then
+        echo "ROLLOUT REGRESSION (#4354): rollout.web.strategy=Recreate + maxUnavailable rendered"; exit 1
+      fi
+      echo "$out" | grep -q 'cannot carry maxSurge/maxUnavailable' \
+        || { echo "ROLLOUT TEST INVALID: render failed but not from the #4354 Recreate guard:"; echo "$out"; exit 1; }
+    # The closed schema must still refuse what it always refused: an unknown key
+    # under a tier, an unknown tier (beat has none — it stays a fixed singleton),
+    # and a strategy value outside the enum.
+    - |
+      for bad in rollout.api.bogusKey=1 rollout.beat.strategy=Recreate rollout.api.strategy=OnDelete; do
+        if out=$(helm template trueppm packages/helm --set image.tag=latest \
+              --set 'envFrom[0].secretRef.name=trueppm-env' --set "$bad" 2>&1); then
+          echo "ROLLOUT REGRESSION (#4354): --set $bad rendered — the closed schema should have refused it"; exit 1
+        fi
+        echo "$out" | grep -q 'additional properties\|value must be one of' \
+          || { echo "ROLLOUT TEST INVALID: --set $bad failed, but not from a schema validation error:"; echo "$out"; exit 1; }
+      done
 
 mcp:lint:
   extends: .fast-job

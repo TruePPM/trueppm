@@ -317,6 +317,66 @@ lifecycle:
 {{- end }}
 {{- end -}}
 
+{{/*
+Deployment rollout knobs (#4354). Usage, at the Deployment spec level (same
+indent as `replicas:`/`selector:`, NOT the pod spec):
+  {{- include "trueppm.rollout" (dict "root" . "tier" "api") | nindent 2 }}
+
+Every field is emitted only when the operator sets it, so the default render
+(every rollout.<tier>.* field at its values.yaml default of ""/null) stays
+byte-identical to a chart that renders no `strategy:`, `minReadySeconds:` or
+`progressDeadlineSeconds:` at all — Kubernetes applies its own Deployment
+defaults (RollingUpdate 25%/25%, minReadySeconds 0, progressDeadlineSeconds
+600) exactly as it did before this knob existed.
+
+minReadySeconds/progressDeadlineSeconds use the `kindIs "invalid"` presence
+guard (#4351 sweep), not `| default` or `with`: explicit 0 is a real,
+distinct minReadySeconds setting (accept a replacement pod the instant it
+reports ready) and must render rather than being treated as unset.
+
+strategy: Recreate cannot carry maxSurge/maxUnavailable — Kubernetes has no
+surge/unavailable concept for a tear-down-then-start-up rollout, and silently
+dropping them would leave an operator believing a budget applies that does
+not. The render fails instead. maxSurge/maxUnavailable follow the same
+int-or-percent-string, empty-string-means-unset shape as
+podDisruptionBudget.<tier>.maxUnavailable (see templates/pdb.yaml) rather
+than falling back to a chart-asserted default — an unset value should track
+whatever Kubernetes' own RollingUpdate default is, not freeze today's 25%.
+*/}}
+{{- define "trueppm.rollout" -}}
+{{- $tier := index .root.Values.rollout .tier -}}
+{{- $strategy := $tier.strategy | default "" -}}
+{{- $surgeSet := $tier.maxSurge -}}
+{{- $unavailSet := $tier.maxUnavailable -}}
+{{- $hasSurge := not (or (kindIs "invalid" $surgeSet) (and (kindIs "string" $surgeSet) (eq $surgeSet ""))) -}}
+{{- $hasUnavail := not (or (kindIs "invalid" $unavailSet) (and (kindIs "string" $unavailSet) (eq $unavailSet ""))) -}}
+{{- if eq $strategy "Recreate" }}
+{{- if or $hasSurge $hasUnavail }}
+{{- fail (printf "rollout.%s.strategy is Recreate, which cannot carry maxSurge/maxUnavailable (RollingUpdate-only fields, #4354) — unset them or set rollout.%s.strategy to RollingUpdate instead" .tier .tier) }}
+{{- end }}
+strategy:
+  type: Recreate
+{{- else if or (eq $strategy "RollingUpdate") $hasSurge $hasUnavail }}
+strategy:
+  type: RollingUpdate
+  {{- if or $hasSurge $hasUnavail }}
+  rollingUpdate:
+    {{- if $hasSurge }}
+    maxSurge: {{ $surgeSet }}
+    {{- end }}
+    {{- if $hasUnavail }}
+    maxUnavailable: {{ $unavailSet }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- if not (kindIs "invalid" $tier.minReadySeconds) }}
+minReadySeconds: {{ $tier.minReadySeconds }}
+{{- end }}
+{{- if not (kindIs "invalid" $tier.progressDeadlineSeconds) }}
+progressDeadlineSeconds: {{ $tier.progressDeadlineSeconds }}
+{{- end }}
+{{- end -}}
+
 {{- define "trueppm.podPlacement" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
