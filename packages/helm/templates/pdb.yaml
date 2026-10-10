@@ -3,10 +3,11 @@
 PodDisruptionBudgets for the API, Celery worker, and web tiers (#1904, #3188).
 All express the budget as maxUnavailable so a single-replica install stays
 drain-able (a minAvailable PDB would wedge node drains when replicaCount is 1);
-the protection only becomes meaningful once replicaCount >= 2, which is the
-production posture (values-prod sets replicaCount: 2). Off by default — enable
-alongside a multi-replica deployment. Beat is deliberately excluded: it is a
-pinned singleton, so any PDB on it would only block voluntary node drains.
+the protection only becomes meaningful once a tier runs >= 2 pods, which is
+the production posture for api/worker (values-prod sets replicaCount: 2). Off
+by default — enable alongside a multi-replica deployment. Beat is
+deliberately excluded: it is a pinned singleton, so any PDB on it would only
+block voluntary node drains.
 
 The web tier was missing until #3188 — the only tier a browser actually loads
 had no budget, while the two it never talks to directly did. Combined with
@@ -14,6 +15,14 @@ web.replicaCount (now replicas.web) shipping as a truthy `1` (so its documented
 fallback to the top-level replicaCount could never fire), a values-prod deploy
 rendered api=2, worker=2, web=1, PDBs=0: an unprotected singleton in front of a
 redundant backend.
+
+That history is why the web tier still gets a PDB block even though #4348
+pins `replicas.web: 1` in both values-demo.yaml and values-prod.yaml: a
+maxUnavailable PDB against one desired replica permits full disruption, so
+the budget is a no-op for web under either shipped overlay. It stays wired
+for the operator who raises replicas.web above 1, where it becomes
+meaningful again, and for parity with api/worker rather than special-casing
+the one tier currently pinned to a single pod.
 
 A PDB alone is still not redundancy. Without topologySpreadConstraints (see
 values.yaml) both replicas can land on one node, and a node failure takes the
