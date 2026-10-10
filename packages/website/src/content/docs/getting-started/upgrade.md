@@ -985,7 +985,7 @@ a stable split state that `--wait` will time out on.** Resolve it deliberately:
    ```bash
    kubectl exec -n trueppm deploy/trueppm-api -- \
      curl -s localhost:8000/api/v1/readyz
-   # → {"status": "not_ready", "checks": {...}, "migration_state": "ahead"}
+   # → {"status": "fail", "checks": {...}, "migration_state": "ahead"}
    ```
 3. **Additive-only:** re-open the gate and let the stalled rollout complete.
    `helm rollback` takes no `--set`, so apply the override with `helm upgrade`
