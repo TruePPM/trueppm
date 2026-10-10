@@ -816,9 +816,9 @@ a fresh kind cluster:
 | Leg | Configuration | Namespace |
 |-----|---------------|-----------|
 | `helm:install` | Bundled PostgreSQL/Valkey, chart defaults + `persistence.media` (`ReadWriteOnce`) | `default` |
-| `helm:upgrade` | Installs the previous published chart, then `helm upgrade`s it to HEAD in place | `default` |
+| `helm:upgrade` | Installs the previous published chart at `replicaCount=2`, then `helm upgrade`s it to HEAD in place — the migration-ordering / advisory-lock path a single replica can never exercise | `default` |
 | `helm:demo` | The public read-only demo overlay (`values-demo.yaml`) | `default` |
-| `helm:demo-upgrade` | Installs the previous published chart WITH the demo overlay, then `helm upgrade`s it to HEAD still with the demo overlay — the combination that exercises the demo-seed Job's post-upgrade hook re-fire, which neither `helm:upgrade` nor `helm:demo` alone ever runs | `default` |
+| `helm:demo-upgrade` | Installs the previous published chart WITH the demo overlay (`replicaCount=3`), then `helm upgrade`s it to HEAD still with the demo overlay, without `--wait` — the combination that exercises the demo-seed Job's post-upgrade hook re-fire *concurrently* with the rolling-update version-skew window, which neither `helm:upgrade` nor `helm:demo` alone ever runs, polling an in-cluster probe pod against the web Service for mixed old-build/new-build asset serving during that window | `default` |
 | `helm:walkthrough` | **This page's production walkthrough, followed step for step**: a named `trueppm` namespace, `values-prod.yaml` + the `my-values.yaml` shown above, bundled datastores disabled, and a managed PostgreSQL (TLS on, `sslmode=require`) + Valkey reached the documented `env.*.secretKeyRef` way | `trueppm` |
 
 `helm:demo-upgrade` is the one leg that does not run on every MR — it pays for

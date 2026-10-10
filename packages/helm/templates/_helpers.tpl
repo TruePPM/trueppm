@@ -317,6 +317,66 @@ lifecycle:
 {{- end }}
 {{- end -}}
 
+{{/*
+Deployment rollout knobs (#4354). Usage, at the Deployment spec level (same
+indent as `replicas:`/`selector:`, NOT the pod spec):
+  {{- include "trueppm.rollout" (dict "root" . "tier" "api") | nindent 2 }}
+
+Every field is emitted only when the operator sets it, so the default render
+(every rollout.<tier>.* field at its values.yaml default of ""/null) stays
+byte-identical to a chart that renders no `strategy:`, `minReadySeconds:` or
+`progressDeadlineSeconds:` at all — Kubernetes applies its own Deployment
+defaults (RollingUpdate 25%/25%, minReadySeconds 0, progressDeadlineSeconds
+600) exactly as it did before this knob existed.
+
+minReadySeconds/progressDeadlineSeconds use the `kindIs "invalid"` presence
+guard (#4351 sweep), not `| default` or `with`: explicit 0 is a real,
+distinct minReadySeconds setting (accept a replacement pod the instant it
+reports ready) and must render rather than being treated as unset.
+
+strategy: Recreate cannot carry maxSurge/maxUnavailable — Kubernetes has no
+surge/unavailable concept for a tear-down-then-start-up rollout, and silently
+dropping them would leave an operator believing a budget applies that does
+not. The render fails instead. maxSurge/maxUnavailable follow the same
+int-or-percent-string, empty-string-means-unset shape as
+podDisruptionBudget.<tier>.maxUnavailable (see templates/pdb.yaml) rather
+than falling back to a chart-asserted default — an unset value should track
+whatever Kubernetes' own RollingUpdate default is, not freeze today's 25%.
+*/}}
+{{- define "trueppm.rollout" -}}
+{{- $tier := index .root.Values.rollout .tier -}}
+{{- $strategy := $tier.strategy | default "" -}}
+{{- $surgeSet := $tier.maxSurge -}}
+{{- $unavailSet := $tier.maxUnavailable -}}
+{{- $hasSurge := not (or (kindIs "invalid" $surgeSet) (and (kindIs "string" $surgeSet) (eq $surgeSet ""))) -}}
+{{- $hasUnavail := not (or (kindIs "invalid" $unavailSet) (and (kindIs "string" $unavailSet) (eq $unavailSet ""))) -}}
+{{- if eq $strategy "Recreate" }}
+{{- if or $hasSurge $hasUnavail }}
+{{- fail (printf "rollout.%s.strategy is Recreate, which cannot carry maxSurge/maxUnavailable (RollingUpdate-only fields, #4354) — unset them or set rollout.%s.strategy to RollingUpdate instead" .tier .tier) }}
+{{- end }}
+strategy:
+  type: Recreate
+{{- else if or (eq $strategy "RollingUpdate") $hasSurge $hasUnavail }}
+strategy:
+  type: RollingUpdate
+  {{- if or $hasSurge $hasUnavail }}
+  rollingUpdate:
+    {{- if $hasSurge }}
+    maxSurge: {{ $surgeSet }}
+    {{- end }}
+    {{- if $hasUnavail }}
+    maxUnavailable: {{ $unavailSet }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- if not (kindIs "invalid" $tier.minReadySeconds) }}
+minReadySeconds: {{ $tier.minReadySeconds }}
+{{- end }}
+{{- if not (kindIs "invalid" $tier.progressDeadlineSeconds) }}
+progressDeadlineSeconds: {{ $tier.progressDeadlineSeconds }}
+{{- end }}
+{{- end -}}
+
 {{- define "trueppm.podPlacement" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
@@ -1471,5 +1531,41 @@ Confirmed remains the "I have reviewed this and it is fine" escape hatch.
 {{- if or (eq $webType "LoadBalancer") (eq $webType "NodePort") -}}
 {{- fail (printf "\n\nnetworkPolicy.enabled is true, no Ingress is rendered (ingress.enabled=false), service.web.type is %s, and networkPolicy.ingressControllerSelector is still the chart default (a namespace called ingress-nginx). A %s web Service is reached directly from client or node IPs, not from a pod in an ingress controller's namespace, so the default peer admits none of that traffic: the web pod stays Ready while every external request is silently dropped. Choose one:\n\n  - add an ipBlock/source-range peer naming the load balancer's or node's addresses (rendered verbatim into the same policy the ingress-controller peer uses):\n      --set-json 'networkPolicy.ingressControllerSelector={\"namespaceSelector\":null,\"podSelector\":null,\"ipBlock\":{\"cidr\":\"<your-source-cidr>\"}}'\n  - confirm the default is deliberate (e.g. a service mesh or an external firewall already restricts this Service):\n      --set networkPolicy.ingressControllerConfirmed=true\n  - add the policy later:\n      --set networkPolicy.enabled=false\n\nSee https://docs.trueppm.com/administration/helm-values/#network-and-pod-security (#4003).\n" $webType $webType) -}}
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Security response header `add_header` lines for the production web nginx
+server block (#2849, #4350), factored out of templates/web/configmap.yaml's
+production branch so the Cache-Control locations #4350 added — the SPA shell
+exact-match, the hashed-assets hit, and its 404 named location — can repeat
+the SAME conditional header set rather than hand-duplicating the five
+`with`-blocks three more times. nginx's `add_header` is replace-not-merge per
+location: a location that sets its own Cache-Control silently drops every
+server-level header unless it repeats them (the trap #2849's /assets/ block
+sidestepped by adding no `add_header` there at all — the moment a location
+DOES need one, this is what fills in the rest).
+
+Emits bare, unindented `add_header` lines (or nothing, per header, when that
+knob is empty) — the caller supplies indentation with `nindent`. Takes the
+chart root context (pass `$`, not `.`, from inside a `with`/`range`).
+*/}}
+{{- define "trueppm.webSecurityHeaderAddLines" -}}
+{{- if .Values.web.securityHeaders.enabled -}}
+{{- with .Values.web.securityHeaders.frameOptions -}}
+add_header X-Frame-Options        "{{ . }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.contentTypeOptions -}}
+add_header X-Content-Type-Options "{{ . }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.referrerPolicy -}}
+add_header Referrer-Policy        "{{ . }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.contentSecurityPolicy -}}
+add_header Content-Security-Policy "{{ . | trim | replace "\n" " " }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.strictTransportSecurity -}}
+add_header Strict-Transport-Security "{{ . }}" always;
+{{ end -}}
 {{- end -}}
 {{- end -}}

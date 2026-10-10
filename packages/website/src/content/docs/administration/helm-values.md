@@ -472,6 +472,39 @@ does not *lose* work — but Kombu's Redis default hid the unacked message for
 **3600s** first, so a worker killed during a rolling upgrade left that task
 invisible for up to an hour with nothing to say why.
 
+## Rollout strategy
+
+`rollout.<tier>` (api, worker, web) exposes the Deployment-level knobs the
+closed schema used to refuse outright: `strategy`, `maxSurge`,
+`maxUnavailable`, `minReadySeconds`, and `progressDeadlineSeconds`. Every
+field ships empty or `null` and renders nothing until set, so a stock install
+stays byte-identical: all three tiers still take Kubernetes' own Deployment
+defaults (RollingUpdate 25%/25%, `minReadySeconds: 0`,
+`progressDeadlineSeconds: 600`) exactly as before this knob existed.
+
+| Key | Default | What it does |
+|---|---|---|
+| `rollout.api.strategy` | `""` | `""` follows the Kubernetes default (RollingUpdate). Set to `"RollingUpdate"` or `"Recreate"` to render the block explicitly. |
+| `rollout.api.maxSurge` | `""` | Int or percent string (e.g. `"25%"`). Only meaningful under RollingUpdate. Empty tracks whatever Kubernetes' own default is rather than the chart restating it. |
+| `rollout.api.maxUnavailable` | `""` | Same shape as `maxSurge`. |
+| `rollout.api.minReadySeconds` | `null` | `null` omits the field (Kubernetes default `0`). An explicit `0` is a distinct, real setting — accept a replacement pod the instant it reports ready — and renders rather than being treated as unset. |
+| `rollout.api.progressDeadlineSeconds` | `null` | `null` omits the field (Kubernetes default `600`). |
+| `rollout.worker.*` | same shape | Same five keys, independent of the api tier. |
+| `rollout.web.*` | same shape | Same five keys. Set `strategy: Recreate` here to trade a brief 502 for the mixed-asset blank screen a RollingUpdate can show mid-rollout before #4341's prior-release-asset retention closes that window entirely. |
+
+`strategy: Recreate` cannot carry `maxSurge`/`maxUnavailable` — Kubernetes
+has no surge/unavailable concept for a tear-down-then-start-up rollout, and
+the chart fails the render rather than silently drop one half of an
+inconsistent combination.
+
+Celery Beat has no `rollout.beat` entry. It is a pinned singleton that
+already ships a fixed `strategy: Recreate` directly in its own Deployment
+template — a settable knob would let an operator flip it to RollingUpdate,
+which briefly runs two Beats and double-fires every periodic task. Its
+existing `lifecycle.beat.*` knobs (above) already cover how fast the single
+replacement pod is accepted; there is nothing else on a strategy that never
+surges to tune.
+
 ### Startup probe
 
 | Key | Default | What it does |

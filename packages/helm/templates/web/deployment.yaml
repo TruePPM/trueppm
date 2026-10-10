@@ -23,6 +23,9 @@ spec:
   {{- else }}
   replicas: {{ $webReplicas }}
   {{- end }}
+  {{- with (include "trueppm.rollout" (dict "root" $ "tier" "web")) }}
+  {{- . | nindent 2 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
