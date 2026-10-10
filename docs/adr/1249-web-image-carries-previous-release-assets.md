@@ -108,8 +108,8 @@ before it.**
   then fall back to the latest published tag of the previous line, else none.
 - **Risks:**
   - *Supply chain:* the serve stage copies files from a prior published image. It is our
-    own ghcr image pinned by digest, and the copy is limited to manifest-named files
-    under `assets/`. Nothing executable runs from it at build time. Its cosign
+    own ghcr image pinned by digest, and the copy is limited to the files the prior
+    image's `asset-files.json` lists under `assets/` (see Amendments). Nothing executable runs from it at build time. Its cosign
     signature is deliberately not verified before the copy: it is our own ghcr
     image, pulled by an immutable digest the resolver read from that same
     registry, and only static files under `assets/` are taken from it, so a
