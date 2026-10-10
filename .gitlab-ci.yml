@@ -7226,17 +7226,24 @@ ci:amd64-smoke:
     - |
       set -euo pipefail
       . "$CI_PROJECT_DIR/scripts/docker-push-retry.sh"
+      # GHCR scratch push. Mirrors ci:arm64-smoke's identical block (#4361):
+      # ci:manifest-probe consumes this tag for its GHCR-side assembly, but
+      # this job must still pass on its own when GHCR creds are absent,
+      # exactly like ci:arm64-smoke already does.
       if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
-        echo "ERROR: GHCR_USER/GHCR_TOKEN absent — ci:manifest-probe needs the GHCR"
-        echo "arch legs to assemble against, and cosign signs the GHCR index only."
-        echo "They are Masked + Protected: run this on a PROTECTED ref."
-        exit 1
+        echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping the GHCR scratch push."
+        echo "They are Masked + Protected, so an UNPROTECTED branch does not receive"
+        echo "them. This is the same class of failure api:publish documents inline"
+        echo "(missing at the 0.4.0-beta.1 cut because v* was not a Protected Tag)."
+        echo "The GitLab-registry pushes above still prove build + scan + SBOM on amd64."
+        exit 0
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       for pkg in api web; do
         docker tag "${CI_REGISTRY_IMAGE}/${pkg}:amd64-smoke" "ghcr.io/${GHCR_USER}/${pkg}:amd64-smoke"
         push_with_retry "ghcr.io/${GHCR_USER}/${pkg}:amd64-smoke"
       done
+      echo "Scratch tags only. :latest was NOT touched."
   artifacts:
     name: "amd64-smoke-sbom"
     paths:
@@ -7260,6 +7267,15 @@ ci:manifest-probe:
   # attest but never verify, so the property they exist to guarantee — that a
   # puller resolving either platform can verify the index — is currently
   # unchecked. If this passes, the same two lines belong in the real jobs.
+  #
+  # Unlike ci:arm64-smoke/ci:amd64-smoke, this job has no GitLab-registry-only
+  # fallback — every block below is GHCR assembly/sign/verify, which is the
+  # entire point of the probe. So when GHCR_USER/GHCR_TOKEN are absent (an
+  # UNPROTECTED ref; same class as api:publish's inline note) each block
+  # short-circuits with the same guard and the job passes trivially (#4361):
+  # the arch legs' own jobs already proved build + scan + SBOM on both
+  # platforms against the GitLab registry, so there is nothing left this
+  # probe can prove without GHCR creds.
   extends: .docker-publish-base
   rules:
     - if: '$MANIFEST_PROBE == "1"'
@@ -7272,12 +7288,17 @@ ci:manifest-probe:
     - |
       set -euo pipefail
       if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
-        echo "ERROR: GHCR_USER/GHCR_TOKEN absent — run this on a PROTECTED ref."
-        exit 1
+        echo "NOTE: GHCR_USER/GHCR_TOKEN absent — skipping ci:manifest-probe."
+        echo "They are Masked + Protected, so an UNPROTECTED branch does not"
+        echo "receive them (same class as ci:arm64-smoke's own GHCR-push note)."
+        exit 0
       fi
       echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
     - |
       set -euo pipefail
+      if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
+        exit 0
+      fi
       # Mirrors api:publish:manifest's two create/push pairs, on both
       # registries, under scratch names.
       # `docker buildx imagetools create` rather than `docker manifest
@@ -7302,6 +7323,9 @@ ci:manifest-probe:
       done
     - |
       set -euo pipefail
+      if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
+        exit 0
+      fi
       # Sign + attest ONLY the multi-arch index, exactly as the real jobs do.
       # Mirrors the real jobs (#3995): SIGN the index — publisher identity for
       # whatever a consumer pulls by tag — but ATTEST each architecture's SBOM
@@ -7330,6 +7354,9 @@ ci:manifest-probe:
       done
     - |
       set -euo pipefail
+      if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
+        exit 0
+      fi
       # THE CHECK THE REAL JOBS DO NOT DO. A signature nothing validates is a
       # false assurance; this is what proves the index signing actually works
       # for a puller on either platform.
@@ -7374,6 +7401,10 @@ ci:manifest-probe:
       echo "VERIFIED: both packages, index signature valid and each platform digest carries ITS OWN SBOM."
     - |
       set -euo pipefail
+      if [ -z "${GHCR_USER:-}" ] || [ -z "${GHCR_TOKEN:-}" ]; then
+        echo "MANIFEST PROBE SKIPPED — GHCR_USER/GHCR_TOKEN absent on this ref."
+        exit 0
+      fi
       # Prove the assembled list really carries both platforms.
       docker manifest inspect "ghcr.io/${GHCR_USER}/api:multiarch-smoke" \
         | grep -E '"architecture"' | sort -u
