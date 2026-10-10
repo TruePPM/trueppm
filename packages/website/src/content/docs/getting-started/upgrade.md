@@ -922,10 +922,101 @@ the API to one replica for that upgrade.
 ### Helm rollback
 
 ```bash
-helm rollback trueppm -n trueppm
+helm rollback trueppm -n trueppm --wait --timeout 10m
 ```
 
-This restores the previous chart revision. If the migration applied schema changes, restore from backup and trigger a fresh `migrate` run.
+Always pass `--wait`. Without it, `helm rollback` patches the three Deployments
+and returns **exit 0** immediately — before the web rollout finishes, before the
+api tier's readiness probe has run even once, and well before any of the
+sequence below is visible. A bare `helm rollback` exiting 0 is not evidence the
+rollback finished; `--wait` makes the command itself fail (timeout or error)
+when a target Deployment never becomes ready, instead of reporting success on a
+rollback that is still stuck.
+
+**Across a release that added migrations, the three tiers do not roll back
+together — read this before you run it:**
+
+- **Web rolls back immediately.** The web tier's readiness probe only checks `/`
+  (`packages/helm/templates/web/deployment.yaml`); it does not gate on the api's
+  version. At `replicaCount` >= 2 the rollback is an ordinary rolling update in
+  reverse, so old- and new-release web pods serve together for the few seconds
+  the rollout takes — the same mixed-asset mechanism as a forward upgrade (see
+  [cause 4](/administration/troubleshooting/#the-browser-shows-a-blank-page) and
+  [#4341](https://gitlab.com/trueppm/trueppm/-/issues/4341)), just now serving
+  the **older** bundle once it settles.
+- **The api tier stalls, by design, and stays on the newer version.** Each
+  rolled-back api pod still runs the `migrate` init container
+  (`migrate_locked`) first. Because the init container's migration graph is the
+  *old* image's — it has no record of migrations the newer release added — it
+  finds nothing to apply and exits 0; this is not a crash loop. The api
+  container then starts and `/api/v1/readyz` reports
+  `"migration_state": "ahead"` (the database records migrations this image
+  does not ship) and gates the pod `Ready: false`, because
+  `TRUEPPM_READYZ_ALLOW_DB_AHEAD` defaults to `false`
+  (`packages/api/src/trueppm_api/settings/base.py`). The chart sets no explicit
+  `strategy:` on the api Deployment, so Kubernetes' default RollingUpdate
+  (25%/25%, rounded) gives `maxUnavailable: 0` at the 2–3 replica posture
+  `values-prod.yaml` ships — the rollout cannot scale down the still-`Ready`
+  newer-version pods until the rolled-back replacement passes readiness, which
+  it never does. The api tier is therefore left running the **newer** version
+  indefinitely, with the rolled-back replica stuck `NotReady` beside it; the
+  Deployment's `progressDeadlineSeconds` (the chart does not override it, so
+  Kubernetes' default of 600 s applies) only flips the `Progressing` condition
+  to `False` after ten minutes — it does not stop anything or roll back
+  further on its own.
+- **The worker has no migration gate at all and rolls back immediately.** The
+  Celery worker's readiness probe is a heartbeat-freshness check
+  (`packages/helm/templates/celery-worker/deployment.yaml`,
+  `trueppm.celeryProbe` with `mode: heartbeat-fresh`) — it never reads
+  `migration_state`. The rolled-back worker starts consuming tasks against the
+  newer schema with nothing holding it back, which is the least visible leg of
+  the split: nothing reports it as degraded.
+
+**The result is `web` on the old release, `api` on the new one, and `worker` on
+the old one running against the new schema — not a transient skew window, but
+a stable split state that `--wait` will time out on.** Resolve it deliberately:
+
+1. **Classify the release's migrations** using the [migration
+   reversibility](#migration-reversibility--read-this-first) rule above, from
+   its [operational change note](#per-release-operational-change-notes).
+2. **Confirm the api pod is gated on `ahead`, not `behind`**, before touching
+   the override — `kubectl logs` on the stuck pod shows the one-time
+   `TRUEPPM_READYZ_ALLOW_DB_AHEAD` WARNING, or query the probe directly:
+   ```bash
+   kubectl exec -n trueppm deploy/trueppm-api -- \
+     curl -s localhost:8000/api/v1/readyz
+   # → {"status": "not_ready", "checks": {...}, "migration_state": "ahead"}
+   ```
+3. **Additive-only:** re-open the gate and let the stalled rollout complete.
+   `helm rollback` takes no `--set`, so apply the override with `helm upgrade`
+   against the **same, explicit previous chart version** — an unpinned
+   `--reuse-values` can silently resolve back to the newest chart and undo the
+   rollback instead of completing it:
+   ```bash
+   helm upgrade trueppm oci://ghcr.io/trueppm/charts/trueppm \
+     --version <previous-chart-version> -n trueppm \
+     --reuse-values --set env.TRUEPPM_READYZ_ALLOW_DB_AHEAD=true \
+     --wait --timeout 10m
+   ```
+   Once the api tier is healthy and you are ready to roll forward again, remove
+   the override (`--set env.TRUEPPM_READYZ_ALLOW_DB_AHEAD=false`, or drop the
+   key and `helm upgrade --reuse-values`) — leaving it set hides the next
+   rollback's drift behind the same green `status`/`checks` it hides this one
+   behind.
+4. **Destructive or transforming:** do not set the override — forcing the api
+   pod ready only makes it serve code that no longer matches the schema it
+   just rejected. Follow [migration reversibility](#migration-reversibility--read-this-first)
+   above: restore the pre-upgrade backup, then roll the image back onto the
+   restored schema. Scale the worker to zero replicas first (`kubectl scale
+   deployment/trueppm-celery-worker --replicas=0 -n trueppm`) — it has no gate
+   of its own and will otherwise keep consuming tasks against the schema you
+   are about to replace underneath it.
+5. **Verify the fleet agrees on one version** before calling the rollback
+   done — nothing in `kubectl get pods` summarizes the split for you today, so
+   check the image tag per tier directly:
+   ```bash
+   kubectl get pods -n trueppm -o jsonpath='{range .items[*]}{.metadata.labels.app\.kubernetes\.io\/component}{"\t"}{.spec.containers[0].image}{"\n"}{end}' | sort -u
+   ```
 
 ---
 
