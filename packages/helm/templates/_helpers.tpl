@@ -1453,3 +1453,39 @@ Confirmed remains the "I have reviewed this and it is fine" escape hatch.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Security response header `add_header` lines for the production web nginx
+server block (#2849, #4350), factored out of templates/web/configmap.yaml's
+production branch so the Cache-Control locations #4350 added — the SPA shell
+exact-match, the hashed-assets hit, and its 404 named location — can repeat
+the SAME conditional header set rather than hand-duplicating the five
+`with`-blocks three more times. nginx's `add_header` is replace-not-merge per
+location: a location that sets its own Cache-Control silently drops every
+server-level header unless it repeats them (the trap #2849's /assets/ block
+sidestepped by adding no `add_header` there at all — the moment a location
+DOES need one, this is what fills in the rest).
+
+Emits bare, unindented `add_header` lines (or nothing, per header, when that
+knob is empty) — the caller supplies indentation with `nindent`. Takes the
+chart root context (pass `$`, not `.`, from inside a `with`/`range`).
+*/}}
+{{- define "trueppm.webSecurityHeaderAddLines" -}}
+{{- if .Values.web.securityHeaders.enabled -}}
+{{- with .Values.web.securityHeaders.frameOptions -}}
+add_header X-Frame-Options        "{{ . }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.contentTypeOptions -}}
+add_header X-Content-Type-Options "{{ . }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.referrerPolicy -}}
+add_header Referrer-Policy        "{{ . }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.contentSecurityPolicy -}}
+add_header Content-Security-Policy "{{ . | trim | replace "\n" " " }}" always;
+{{ end -}}
+{{- with .Values.web.securityHeaders.strictTransportSecurity -}}
+add_header Strict-Transport-Security "{{ . }}" always;
+{{ end -}}
+{{- end -}}
+{{- end -}}

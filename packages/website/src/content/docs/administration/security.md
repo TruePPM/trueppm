@@ -164,6 +164,23 @@ those headers become yours to set — nothing in the application can add them.
 `scripts/check-nginx-security-headers.sh` (CI job `nginx:headers`) asserts the
 shipped configs never drift apart on this baseline.
 
+### Caching the shell and the hashed assets
+
+The same nginx tier also sets the `Cache-Control` policy for the SPA, because a
+rolling upgrade is a brief window where old and new pods serve different
+builds. Every shipped path answers:
+
+| Response | `Cache-Control` | Why |
+|---|---|---|
+| `index.html` (direct and the SPA fallback) | `no-cache` | Always revalidate with the origin — cheap, because nginx still sends `ETag`. A browser's heuristic freshness on an uncached shell can otherwise keep serving a pre-upgrade `index.html` that names chunks no pod has any more. |
+| `/assets/*` hit | `public, max-age=31536000, immutable` | Every build ships its JS/CSS under a new content hash, so a cached hit is never stale — it is a different URL next release. |
+| `/assets/*` miss | `no-store` | A transient 404 for a chunk a still-rolling pod has not finished serving yet must never be cached by a CDN or browser — see [the blank-page rollout behavior](/administration/troubleshooting/#the-browser-shows-a-blank-page). |
+
+If you front the web tier with a CDN (Cloudflare or similar), confirm it
+honors origin `Cache-Control` rather than applying its own extension-based
+defaults, or a 404 on `/assets/*` can be cached at the edge for everyone
+behind that PoP, well past the window described above.
+
 ## HTTPS
 
 TruePPM does not terminate TLS itself — the API container speaks plain HTTP on

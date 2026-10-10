@@ -47,6 +47,23 @@
 #      pairs a `deny all` with a `limit_req`. An /admin/ proxy with neither is
 #      an unthrottled credential-guessing surface against the superuser the
 #      bootstrap step guarantees exists (#2569).
+#   D. Caching parity (#4350). Hashed filenames make the hit and miss cases
+#      opposite: a hit is safe to cache forever (a new build ships under a new
+#      hash), while a miss must never be cached by any CDN in the path — a
+#      transient 404 for a chunk a rolling pod has not finished serving yet,
+#      cached for the CDN's default TTL, would outlive the rollout itself.
+#      Checked PER LOCATION, not just "present somewhere in the block" like A
+#      above — this is exactly where nginx's replace-not-merge `add_header`
+#      drops the server-level security headers, so each location asserted
+#      here must carry the full A-set header baseline (and HSTS, where TLS
+#      terminates) AS WELL AS its Cache-Control:
+#        - `location = /index.html` (the SPA shell, reached directly and via
+#          every `try_files … /index.html` fallback): `Cache-Control: no-cache`
+#        - `location /assets/` (hashed build output, a cache hit):
+#          `Cache-Control: public, max-age=31536000, immutable`
+#        - the named location `/assets/`'s `try_files` falls back to on a
+#          miss (never a bare `=404` — nginx cannot attach a header to that):
+#          `Cache-Control: no-store`, and it must still `return 404`.
 #
 # The Helm renders are included by shelling out to `helm template`. If helm is
 # not on PATH the static configs are still checked and the Helm halves are
@@ -134,6 +151,48 @@ location_body() {
   '
 }
 
+# (D, #4350) Assert a single Cache-Control line in a location body matches the
+# required policy. $4 is a grep -E pattern for the VALUE (not just presence) —
+# the whole point of invariant D is that the wrong policy on the wrong location
+# (e.g. `immutable` on the shell, or `no-cache` on a hashed asset) is exactly as
+# wrong as no policy at all.
+assert_cache_control() {
+  local label="$1" idx="$2" where="$3" body="$4" want_pattern="$5"
+  local cc
+  cc="$(grep -E 'add_header[ \t]+Cache-Control' <<<"$body" || true)"
+  if [ -z "$cc" ]; then
+    viol "$label" "SPA server block #$idx's \`$where\` sets no Cache-Control (#4350)."
+    return
+  fi
+  grep -q 'always' <<<"$cc" \
+    || viol "$label" "SPA server block #$idx's \`$where\` sets Cache-Control without \`always\` — nginx then omits it on a non-2xx/3xx response."
+  grep -qE "$want_pattern" <<<"$cc" \
+    || viol "$label" "SPA server block #$idx's \`$where\` Cache-Control does not match the required policy (want: $want_pattern) (#4350)."
+}
+
+# (D, #4350) Re-assert the invariant-A header baseline INSIDE a location body.
+# `add_header` is replace-not-merge per location (#2849): the moment a location
+# sets its own Cache-Control it silently drops every server-level header unless
+# it repeats them, so this must be checked location-by-location, not just
+# "somewhere in the server block" the way invariant A's own checks run. $4
+# (has_tls) additionally requires Strict-Transport-Security when the server
+# block terminates TLS, for the same replace-not-merge reason.
+assert_location_header_set() {
+  local label="$1" idx="$2" where="$3" body="$4" has_tls="$5"
+  grep -qE 'add_header[ \t]+X-Frame-Options[ \t]+"?DENY"?[ \t]+always' <<<"$body" \
+    || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops X-Frame-Options — add_header is replace-not-merge per location (#2849, #4350)."
+  grep -qE 'add_header[ \t]+X-Content-Type-Options[ \t]+"?nosniff"?[ \t]+always' <<<"$body" \
+    || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops X-Content-Type-Options (#2849, #4350)."
+  grep -qE 'add_header[ \t]+Referrer-Policy[ \t]+"?(no-referrer|same-origin|strict-origin|origin|strict-origin-when-cross-origin)"?[ \t]+always' <<<"$body" \
+    || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops (or weakens) Referrer-Policy (#2849, #4350)."
+  grep -qE 'add_header[ \t]+Content-Security-Policy' <<<"$body" \
+    || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops Content-Security-Policy (#2849, #4350)."
+  if [ "$has_tls" = "1" ]; then
+    grep -qE 'add_header[ \t]+Strict-Transport-Security' <<<"$body" \
+      || viol "$label" "SPA server block #$idx's \`$where\` terminates TLS but its own add_header drops Strict-Transport-Security (#2849, #4350)."
+  fi
+}
+
 # ── Per-config assertions ────────────────────────────────────────────────────
 # Every assertion feeds grep with a here-string, never `printf "$x" | grep -q`.
 # Under `set -o pipefail` the pipe form reports a PRESENT line as missing: grep
@@ -207,9 +266,49 @@ check_config() {
     fi
 
     # (B) HSTS only where TLS actually terminates.
+    local has_tls=0
     if grep -qE '(^|[ \t{])listen[ \t].*ssl' <<<"$body"; then
+      has_tls=1
       grep -qE 'add_header[ \t]+Strict-Transport-Security' <<<"$body" \
         || viol "$label" "SPA server block #$idx terminates TLS but sets no Strict-Transport-Security."
+    fi
+
+    # (D, #4350) Caching parity, checked per location — see the header comment.
+    local idxhtml assets fallback assets404
+    idxhtml="$(printf '%s\n' "$body" | location_body "/index.html" || true)"
+    if [ -z "$idxhtml" ]; then
+      viol "$label" "SPA server block #$idx has no \`location = /index.html\` — the shell has no Cache-Control override, so a browser applies heuristic freshness and can keep serving a pre-upgrade shell after a rollout ends (#4350)."
+    else
+      assert_cache_control "$label" "$idx" "location = /index.html" "$idxhtml" 'no-cache'
+      assert_location_header_set "$label" "$idx" "location = /index.html" "$idxhtml" "$has_tls"
+    fi
+
+    assets="$(printf '%s\n' "$body" | location_body "/assets/" || true)"
+    if [ -z "$assets" ]; then
+      viol "$label" "SPA server block #$idx has no \`location /assets/\` — hashed build output has no explicit caching policy (#4350)."
+    else
+      assert_cache_control "$label" "$idx" "location /assets/" "$assets" 'public.*max-age=31536000.*immutable'
+      assert_location_header_set "$label" "$idx" "location /assets/" "$assets" "$has_tls"
+
+      # The try_files fallback target names the location that must carry
+      # `no-store` — nginx cannot attach a header to a bare `=404` error code,
+      # so that shape is itself a violation, not just a missing-fallback one.
+      fallback="$(awk '/try_files[ \t]/ { for (i = 1; i <= NF; i++) f = $i; sub(/;$/, "", f); print f; exit }' <<<"$assets")"
+      if [ -z "$fallback" ]; then
+        viol "$label" "SPA server block #$idx's \`location /assets/\` has no \`try_files\` fallback — the hashed-asset 404 contract (#4341) depends on it."
+      elif [ "$fallback" = "=404" ]; then
+        viol "$label" "SPA server block #$idx's \`location /assets/\` falls back to a bare \`=404\` — nginx cannot attach a \`no-store\` Cache-Control to that, so a CDN can cache a transient miss during a rollout (#4350). Fall back to a named location instead."
+      else
+        assets404="$(printf '%s\n' "$body" | location_body "$fallback" || true)"
+        if [ -z "$assets404" ]; then
+          viol "$label" "SPA server block #$idx's \`location /assets/\` falls back to \`$fallback\`, which is not defined as its own location in this server block."
+        else
+          assert_cache_control "$label" "$idx" "location $fallback" "$assets404" 'no-store'
+          assert_location_header_set "$label" "$idx" "location $fallback" "$assets404" "$has_tls"
+          grep -qE '(^|[ \t{])return[ \t]+404' <<<"$assets404" \
+            || viol "$label" "SPA server block #$idx's \`$fallback\` does not \`return 404\` — the hashed-asset miss contract (#4341) depends on it answering a real 404."
+        fi
+      fi
     fi
   done
   return 0
@@ -363,6 +462,18 @@ self_test() {
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
 
+  # (D, #4350) The three Cache-Control-bearing locations every SPA server
+  # block now needs. $1 is the header-line block to repeat in each —
+  # add_header is replace-not-merge per location, so a fixture that gets this
+  # right has to look exactly like the real configs do.
+  cache_locations() {
+    local headers="$1"
+    # shellcheck disable=SC2016  # $uri is nginx syntax, not a shell expansion.
+    printf '    location /assets/ {\n        try_files $uri @assets_404;\n        add_header Cache-Control "public, max-age=31536000, immutable" always;\n%s\n    }\n\n    location @assets_404 {\n        add_header Cache-Control "no-store" always;\n%s\n        return 404;\n    }\n\n    location = /index.html {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$headers" "$headers" "$headers"
+  }
+
+  local HSTS_LINE='        add_header Strict-Transport-Security "max-age=63072000" always;'
+
   # GOOD: headers present, /admin/ deny+limit_req, plus a redirect-only listener
   # that legitimately carries no headers.
   cat >"$tmp/good.conf" <<CONF
@@ -374,6 +485,7 @@ server {
     listen 443 ssl;
     add_header Strict-Transport-Security "max-age=63072000" always;
 $GOOD_HEADERS
+$(cache_locations "$(printf '%s\n%s' "$GOOD_HEADERS" "$HSTS_LINE")")
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ {
         allow 127.0.0.1;
@@ -389,6 +501,7 @@ CONF
 server {
     listen 8080;
 $GOOD_HEADERS
+$(cache_locations "$GOOD_HEADERS")
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
 }
@@ -518,13 +631,130 @@ server {
 CONF
 
   # GOOD: `no-referrer` is the tighter of the two acceptable policies.
+  local NOREFERRER_HEADERS='    add_header X-Frame-Options        "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy        "no-referrer" always;
+    add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
   cat >"$tmp/good_noreferrer.conf" <<CONF
 server {
     listen 8080;
-    add_header X-Frame-Options        "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy        "no-referrer" always;
-    add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'" always;
+$NOREFERRER_HEADERS
+$(cache_locations "$NOREFERRER_HEADERS")
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD (#4350): the SPA shell has no `location = /index.html` at all — a
+  # browser applies heuristic freshness to a shell with no Cache-Control.
+  cat >"$tmp/bad_cache_noindex.conf" <<CONF
+server {
+    listen 8080;
+$GOOD_HEADERS
+    location /assets/ {
+        try_files \$uri @assets_404;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+$GOOD_HEADERS
+    }
+    location @assets_404 {
+        add_header Cache-Control "no-store" always;
+$GOOD_HEADERS
+        return 404;
+    }
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD (#4350): the pre-fix shape — /assets/ falls back to a bare \`=404\`
+  # instead of a named location, so nginx has nowhere to attach \`no-store\`.
+  cat >"$tmp/bad_cache_bare404.conf" <<CONF
+server {
+    listen 8080;
+$GOOD_HEADERS
+    location /assets/ {
+        try_files \$uri =404;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+$GOOD_HEADERS
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+$GOOD_HEADERS
+    }
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD (#4350): /assets/ sets its own Cache-Control but does not repeat the
+  # security headers — the replace-not-merge trap #2849 warns about, caught
+  # for the first time at the location that actually introduces one.
+  cat >"$tmp/bad_cache_dropped_header.conf" <<CONF
+server {
+    listen 8080;
+$GOOD_HEADERS
+    location /assets/ {
+        try_files \$uri @assets_404;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+    location @assets_404 {
+        add_header Cache-Control "no-store" always;
+$GOOD_HEADERS
+        return 404;
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+$GOOD_HEADERS
+    }
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD (#4350): /assets/ caches with the SHELL's policy instead of its own —
+  # the value matters, not just the header's presence.
+  cat >"$tmp/bad_cache_wrong_value.conf" <<CONF
+server {
+    listen 8080;
+$GOOD_HEADERS
+    location /assets/ {
+        try_files \$uri @assets_404;
+        add_header Cache-Control "no-cache" always;
+$GOOD_HEADERS
+    }
+    location @assets_404 {
+        add_header Cache-Control "no-store" always;
+$GOOD_HEADERS
+        return 404;
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+$GOOD_HEADERS
+    }
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+}
+CONF
+
+  # BAD (#4350): the named 404 fallback carries the headers but no
+  # Cache-Control at all — a CDN is then free to cache the transient miss.
+  cat >"$tmp/bad_cache_404_no_store.conf" <<CONF
+server {
+    listen 8080;
+$GOOD_HEADERS
+    location /assets/ {
+        try_files \$uri @assets_404;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+$GOOD_HEADERS
+    }
+    location @assets_404 {
+$GOOD_HEADERS
+        return 404;
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+$GOOD_HEADERS
+    }
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
 }
@@ -567,6 +797,11 @@ CONF
   probe bad_nohsts.conf    1 "TLS listener without HSTS rejected"
   probe bad_csp.conf       1 "CSP without frame-ancestors rejected"
   probe bad_nextline.conf  1 "brace-on-next-line /admin/ proxy rejected"
+  probe bad_cache_noindex.conf        1 "SPA shell with no \`location = /index.html\` rejected (#4350)"
+  probe bad_cache_bare404.conf        1 "\`/assets/\` falling back to a bare \`=404\` rejected (#4350)"
+  probe bad_cache_dropped_header.conf 1 "\`/assets/\` dropping the security headers when it adds Cache-Control rejected (#4350)"
+  probe bad_cache_wrong_value.conf    1 "\`/assets/\` cached with the shell's no-cache policy instead of immutable rejected (#4350)"
+  probe bad_cache_404_no_store.conf   1 "named 404 fallback with no Cache-Control at all rejected (#4350)"
   probe good_noreferrer.conf        0 "Referrer-Policy: no-referrer accepted"
   probe bad_noreferrer.conf         1 "SPA served with no Referrer-Policy rejected"
   probe bad_referrer_value.conf     1 "Referrer-Policy: unsafe-url rejected"
@@ -583,7 +818,7 @@ CONF
   # assertions lost the same race and reded CI.
   large_conf() {
     # shellcheck disable=SC2016  # $uri is nginx syntax, not a shell expansion.
-    printf 'server {\n    listen 8080;\n%s\n    location / { try_files $uri $uri/ /index.html; }\n    location /admin/ { return 404; }\n' "$1"
+    printf 'server {\n    listen 8080;\n%s\n%s\n    location / { try_files $uri $uri/ /index.html; }\n    location /admin/ { return 404; }\n' "$1" "$(cache_locations "$1")"
     local pad
     for ((pad = 0; pad < 4000; pad++)); do
       printf '    # padding line %05d, long enough to overflow a pipe buffer\n' "$pad"
