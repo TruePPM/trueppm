@@ -47,11 +47,13 @@ What it caught, by class — use these as the checklist, they are the ones that 
   run and their fixes are committed — it runs *after* the parallel gate batch, not in it,
   because it audits the branch those gates' fixes produced. Docs-only branches too — docs
   claims are checked against code, and that is where docs gaps were found.
-- **Again, narrowly, on the commits made in response to it.** A fix for a completeness
-  finding is new code; the round-2 audits above found gaps in round-1 fixes.
-- **Again, in full, when round 1 says the branch is in trouble** — see
-  [Round 2](#round-2--a-second-full-audit-when-round-1-says-the-branch-is-in-trouble).
-  This replaces the narrow re-run for that branch; it covers the fix commits too.
+- **After round 1's fixes are committed, run exactly one of round 2 or the fix-diff
+  re-check — never both, never neither by default.** See
+  [§ After round 1](#-after-round-1--composing-round-2-and-the-fix-diff-re-check) for the
+  composition rule: [Round 2](#round-2--a-second-full-audit-when-round-1-says-the-branch-is-in-trouble)
+  when round 1 found something structural, the
+  [fix-diff re-check](#fix-diff-re-check--narrow-audit-of-the-fix-commits-only) when the
+  fix commit changes executable behavior, otherwise nothing.
 - Exempt: dependency bumps, CI-config-only and chore branches with no behavior change.
 
 ## How to run
@@ -134,7 +136,9 @@ findings? Only `requirement-unclear` would. Tag honestly — a `requirement-miss
 
 The author then fixes every BLOCKER and GAP on the branch (or files an open issue for a
 GAP the user explicitly defers, and says so in the MR), re-runs the affected tests with
-negative controls, and only then pushes — unless round 1 triggers round 2, below.
+negative controls, and only then pushes — unless
+[§ After round 1](#-after-round-1--composing-round-2-and-the-fix-diff-re-check) selects
+round 2 or the fix-diff re-check first.
 
 ## Round 2 — a second full audit when round 1 says the branch is in trouble
 
@@ -168,7 +172,47 @@ branch, rethink the approach, or fix and push with the residual risk stated in t
 This is the same reasoning that makes `/pre-release full` a one-time gate: fresh agents
 always find something adjacent, and an audit loop has no natural end.
 
-Round 2's own fixes still get the narrow re-run.
+Round 2's own fixes still get the fix-diff re-check.
+
+## Fix-diff re-check — narrow audit of the fix commits only
+
+This is the narrow counterpart to round 2: it re-reads only the commits written in
+response to round 1, not the whole branch. It is what the global `~/.claude/CLAUDE.md`
+names `completeness-check/fix-diff`, and it exists for the common case where round 1's
+findings were a `requirement-missed` or a `test-weak`, not a sign that the author's whole
+model of the problem was off — the case round 2 exists for.
+
+**Trigger** — selected by
+[§ After round 1](#-after-round-1--composing-round-2-and-the-fix-diff-re-check) below. In
+short: round 1 reported a BLOCKER, or the fix commit changes executable behavior
+(application code, CI or chart logic, a gate or check script, a migration) — never docs,
+tests, comments, or changelog text alone.
+
+**How:**
+
+- A **fresh** agent — not round 1's auditor, not via `SendMessage` to it, not the author.
+- Scope it to the fix commit(s) only — the diff round 1's findings produced, not the
+  whole branch. Give it round 1's BLOCKER/GAP text so it knows what each fix claims to
+  resolve, and ask it to verify the fix against the code, not just that something changed.
+- Same model tier round 1 used (`opus`/`sonnet`, § How to run).
+- **Once, never a loop.** If it finds another BLOCKER, fix it and stop there — do not
+  spawn a second fix-diff pass on the second fix. A fix-diff loop with no exit is the same
+  failure mode round 2's two-round cap exists to prevent.
+
+## § After round 1 — composing round 2 and the fix-diff re-check
+
+Round 2 and the fix-diff re-check answer different failures in round 1's result, and
+running both (or neither, by default) defeats the point of having two shapes. After
+round 1's fixes are committed, choose exactly one:
+
+| Round 1 result | Action |
+|---|---|
+| A BLOCKER tagged `class-missed` or `collateral` (the fix's scope changed structurally), or **4 or more** BLOCKERS + GAPS in total | **Round 2** — full re-audit (above) |
+| Otherwise: round 1 reported a BLOCKER, **or** the fix commit changes executable behavior (application code, CI or chart logic, a gate or check script, a migration) | **Fix-diff re-check** — narrow re-audit (above) |
+| Otherwise: GAP(s) only, and the fix commit is docs, tests, comments, or changelog text only | **Nothing** — record `n/a` |
+
+The first row that matches wins; do not run round 2 and the fix-diff re-check on the same
+branch for the same round-1 result.
 
 ## Recording it
 
@@ -184,5 +228,13 @@ Round 2's own fixes still get the narrow re-run.
   `- gate: completeness-check — <N> findings (round 2; opus; causes: …; overlap <k>/<N>)`.
   N counts only what round 1 did not already report. Keep the gate name unchanged —
   the ledger parser matches on skill names, and `/kaizen` splits round 2 out by the
-  `round 2` marker. A narrow re-run's findings are added to round 1's count, not given
-  their own line.
+  `round 2` marker.
+- If the fix-diff re-check ran instead, it gets **its own line** with a `/fix-diff`
+  suffix on the gate name, never a parenthetical label — the ledger parser requires
+  whitespace before the dash and drops a parenthesized label silently (see
+  `.claude/skills/kaizen/SKILL.md`'s `gate:` regex):
+  `- gate: completeness-check/fix-diff — <N> findings`. N counts BLOCKERS + GAPS the
+  fix-diff pass found; `n/a` when § After round 1 selected "nothing" (the fix round was
+  docs/tests/comments/changelog only).
+- Round 2 and the fix-diff re-check are mutually exclusive per § After round 1 — a branch
+  carries at most one of the two extra lines, never both, in addition to round 1's line.
