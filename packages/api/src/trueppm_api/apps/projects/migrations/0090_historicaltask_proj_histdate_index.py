@@ -17,11 +17,25 @@ Two constraints shape the mechanism:
   via raw ``RunSQL`` (no ``state_operations``) — Django never needs to reference a pure perf
   index. ``IF NOT EXISTS`` / ``IF EXISTS`` keep both directions idempotent (safe on a reused
   test DB and on re-run). This is the repo's first concurrent-index migration.
+
+A leading ``RunPython`` repairs an INVALID index left by a prior interrupted
+``CONCURRENTLY`` build (``migrate_locked``'s lock-holding pod dying mid-build, #4357)
+before the ``IF NOT EXISTS`` build below would otherwise silently skip rebuilding it.
+Editing this already-applied migration is safe: the repair is a no-op on every
+database where this migration already succeeded cleanly, and only changes behavior on
+a *rerun* of an unapplied copy of this exact migration, which only happens after the
+crash this fixes. The squashed copy of this build in
+``0001_squashed_0094_project_decisions_policy`` does not need the same repair — see
+that squash's comment and ``test_squash_data_op_parity.py``'s ``EXEMPT`` entry: the
+squash runs the plain (non-``CONCURRENTLY``), fully atomic version on a fresh install,
+where an interrupted build rolls back entirely rather than leaving an INVALID index.
 """
 
 from __future__ import annotations
 
 from django.db import migrations
+
+from trueppm_api.apps.projects.migration_helpers import repair_invalid_concurrent_index_op
 
 _INDEX_NAME = "htask_proj_hist_date_idx"
 
@@ -34,6 +48,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        repair_invalid_concurrent_index_op(_INDEX_NAME),
         migrations.RunSQL(
             sql=(
                 f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX_NAME} "

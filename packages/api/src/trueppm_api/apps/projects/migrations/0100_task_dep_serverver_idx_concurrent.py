@@ -26,11 +26,23 @@ the schema on a partial rollback.
 
 ``CREATE INDEX CONCURRENTLY`` cannot run inside a transaction, so
 ``atomic = False`` (mirrors 0090, the repo's first concurrent-index migration).
+
+A leading ``RunPython`` ahead of each build repairs an INVALID index left by a prior
+interrupted ``CONCURRENTLY`` build (``migrate_locked``'s lock-holding pod dying
+mid-build, #4357) before the ``IF NOT EXISTS`` guard would otherwise silently skip
+rebuilding it and record this migration applied anyway. Editing this already-applied
+migration is safe: the repair is a no-op on every database where the original build
+already succeeded, and only changes behavior on a *rerun* of an unapplied copy of this
+exact migration, which only happens after the crash this fixes. Neither index has a
+squashed copy — the next squash leaf (``0106_squashed_0158_release_0_4``) depends on
+this migration rather than replacing it — so no squash exemption is needed.
 """
 
 from __future__ import annotations
 
 from django.db import migrations
+
+from trueppm_api.apps.projects.migration_helpers import repair_invalid_concurrent_index_op
 
 _TASK_IDX = "task_proj_serverver_idx"
 _DEP_IDX = "dep_pred_serverver_idx"
@@ -44,6 +56,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        repair_invalid_concurrent_index_op(_TASK_IDX),
         migrations.RunSQL(
             sql=(
                 f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_TASK_IDX} "
@@ -51,6 +64,7 @@ class Migration(migrations.Migration):
             ),
             reverse_sql=migrations.RunSQL.noop,
         ),
+        repair_invalid_concurrent_index_op(_DEP_IDX),
         migrations.RunSQL(
             sql=(
                 f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_DEP_IDX} "

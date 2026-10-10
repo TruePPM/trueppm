@@ -22,11 +22,23 @@ The remaining changelog sources need no new index: ``HistoricalProject`` is
 filtered by PK and is low-volume; the three policy history tables are singletons
 (a handful of rows per project); ``HistoricalDependency`` is join-scoped and
 bounded by the per-source page limit.
+
+A leading ``RunPython`` ahead of each build repairs an INVALID index left by a prior
+interrupted ``CONCURRENTLY`` build (``migrate_locked``'s lock-holding pod dying
+mid-build, #4357) before the ``IF NOT EXISTS`` guard would otherwise silently skip
+rebuilding it and record this migration applied anyway. Editing this already-applied
+migration is safe: the repair is a no-op on every database where the original build
+already succeeded, and only changes behavior on a *rerun* of an unapplied copy of this
+exact migration, which only happens after the crash this fixes. Neither index has a
+squashed copy — the next squash leaf (``0106_squashed_0158_release_0_4``) depends on
+this migration rather than replacing it — so no squash exemption is needed.
 """
 
 from __future__ import annotations
 
 from django.db import migrations
+
+from trueppm_api.apps.projects.migration_helpers import repair_invalid_concurrent_index_op
 
 _SPRINT_INDEX = "hsprint_proj_hist_date_idx"
 _RISK_INDEX = "hrisk_proj_hist_date_idx"
@@ -45,6 +57,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        repair_invalid_concurrent_index_op(_SPRINT_INDEX),
         migrations.RunSQL(
             sql=(
                 f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_SPRINT_INDEX} "
@@ -52,6 +65,7 @@ class Migration(migrations.Migration):
             ),
             reverse_sql=f"DROP INDEX CONCURRENTLY IF EXISTS {_SPRINT_INDEX};",
         ),
+        repair_invalid_concurrent_index_op(_RISK_INDEX),
         migrations.RunSQL(
             sql=(
                 f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_RISK_INDEX} "

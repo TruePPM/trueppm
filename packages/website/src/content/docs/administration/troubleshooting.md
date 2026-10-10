@@ -513,6 +513,83 @@ docker compose exec api python manage.py showmigrations | grep -v '\[X\]'
 
 ---
 
+## A sync or login query is slow after an upgrade, but migrations show applied
+
+**What you see.** `showmigrations` lists every migration as applied and
+`/api/v1/readyz` reports `"migration_state":"in_sync"`, yet the sync endpoints or
+login got slower after an upgrade that landed at `replicaCount >= 2` — in
+particular if that upgrade's rollout showed init-container restarts on the
+`migrate` step (see [the previous
+section](#a-pod-never-becomes-ready-or-migrations-are-pending)).
+
+**Why.** A handful of migrations build their index with `CREATE INDEX
+CONCURRENTLY` so the build never blocks writes on a live table (see [Concurrent
+migrations at `replicaCount >= 2`](/getting-started/upgrade/#concurrent-migrations-at-replicacount--2)
+for the advisory-lock mechanics `migrate_locked` uses to serialize pods).
+Unlike ordinary DDL, `CREATE INDEX CONCURRENTLY` does not roll back if it is
+interrupted: PostgreSQL leaves the index behind marked **INVALID** — ignored by
+the query planner but still maintained on every write — rather than dropping
+it. If the pod holding the migration lock dies mid-build (OOM, eviction, a node
+drain) *before* that migration finishes and gets recorded applied, the next pod
+to win the lock reruns the same still-unapplied migration — and the old
+(pre-this-fix) version of that migration's `CREATE INDEX CONCURRENTLY IF NOT
+EXISTS` statement saw an index of that name already present (albeit INVALID),
+treated `IF NOT EXISTS` as "nothing to do," and let the migration finish and get
+recorded applied with the index still broken. The current migrations now repair
+this themselves: each one runs a step that drops an INVALID index of its name
+before (re)building it, so a crash-and-retry during the same upgrade attempt
+self-heals on the retry, before the migration is ever recorded applied. What
+this does **not** fix is a database that is *already* stuck from a crash that
+happened before upgrading to a version carrying this fix — there, the migration
+is already recorded applied, so Django will never touch it again, and the
+INVALID index needs the manual rebuild below. Affected indexes:
+`projects.0090` (`htask_proj_hist_date_idx` on `projects_historicaltask`),
+`projects.0100` (`task_proj_serverver_idx` on `projects_task`,
+`dep_pred_serverver_idx` on `projects_dependency`), and `projects.0105`
+(`hsprint_proj_hist_date_idx` on `projects_historicalsprint`,
+`hrisk_proj_hist_date_idx` on `projects_historicalrisk`) — the sync hot-path and
+changelog indexes.
+
+**Commands.**
+
+```bash
+# List every INVALID index in the database — not just the ones named above.
+docker compose exec db psql -U trueppm -d trueppm -c "
+  SELECT c.relname AS index_name, t.relname AS table_name
+  FROM pg_index i
+  JOIN pg_class c ON c.oid = i.indexrelid
+  JOIN pg_class t ON t.oid = i.indrelid
+  WHERE NOT i.indisvalid;
+"
+
+# Kubernetes: run the same query against the bundled Postgres pod.
+kubectl exec -n <ns> <release>-postgresql-0 -- \
+  psql -U trueppm -d trueppm -c "SELECT c.relname, t.relname FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    JOIN pg_class t ON t.oid = i.indrelid WHERE NOT i.indisvalid;"
+```
+
+Rebuild each INVALID index found above by hand — Django will not retry an
+already-applied migration, so this is a direct rebuild, not a `migrate` re-run.
+`DROP`/`CREATE INDEX CONCURRENTLY` cannot run inside a transaction, so issue the
+drop and the create as separate `psql` invocations (each one its own
+autocommit statement), substituting the matching table/columns from the list
+above:
+
+```bash
+docker compose exec db psql -U trueppm -d trueppm \
+  -c 'DROP INDEX CONCURRENTLY IF EXISTS <index_name>;'
+docker compose exec db psql -U trueppm -d trueppm \
+  -c 'CREATE INDEX CONCURRENTLY IF NOT EXISTS <index_name> ON <table> (<columns>);'
+```
+
+**Confirm the fix.** The `pg_index` query above returns zero rows, and
+`EXPLAIN` on the affected query (`project_id, server_version` lookups on
+`projects_task` / `projects_dependency`, or a project's activity/changelog feed)
+shows an Index Scan using the rebuilt index rather than a sequential scan.
+
+---
+
 ## Image pull failure
 
 **What you see.** `ErrImagePull` or `ImagePullBackOff` in `kubectl get pods`, or
