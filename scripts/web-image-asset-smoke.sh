@@ -109,7 +109,7 @@ until curl -fsS --max-time 5 -o /dev/null "${BASE}/" 2> /dev/null; do
 done
 
 if ! sh "$HERE/check-served-assets.sh" "$BASE"; then
-    echo "web-image-asset-smoke: FAIL  ${IMAGE} does not serve its own index.html's assets — NOT pushing." >&2
+    echo "web-image-asset-smoke: FAIL  ${IMAGE} does not serve every asset it must (its own, plus the prior release's when WEB_SMOKE_PRIOR_IMAGE is set) — NOT pushing." >&2
     docker logs "$NAME" 2>&1 | tail -n 40 >&2 || true
     exit 1
 fi

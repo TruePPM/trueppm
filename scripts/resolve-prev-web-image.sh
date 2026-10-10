@@ -70,7 +70,7 @@ case "${1:-}" in
 esac
 head_version="${2:-}"
 head_version="${head_version#v}"
-printf '%s\n' "$head_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' \
+printf '%s\n' "$head_version" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' > /dev/null \
     || die "'${2:-}' is not a SemVer version"
 
 host="${WEB_REGISTRY_HOST:-ghcr.io}"
@@ -164,7 +164,7 @@ else
         | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p')" \
         || die "could not read the manifest digest of ${host}/${repo}:${prev}"
 fi
-printf '%s\n' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' \
+printf '%s\n' "$digest" | grep -E '^sha256:[0-9a-f]{64}$' > /dev/null \
     || die "registry returned no usable digest for ${host}/${repo}:${prev} (got '${digest}')"
 
 log "prior web image = ${host}/${repo}:${prev} (${which}; skipped: ${skip:-none}) -> ${digest}"
