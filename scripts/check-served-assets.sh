@@ -21,6 +21,29 @@
 # also fails — an empty list would otherwise pass vacuously against, say, a JSON
 # error page.
 #
+# index.html only names what it eagerly loads. A route rendered behind a lazy
+# `import()` — and never `modulepreload`d — is never named there, so the checks
+# above cannot see a missing lazy chunk either (#4341 residual gap, filed against
+# #4338). To close that, also fetch <base_url>/asset-manifest.json — Vite's
+# `build.manifest` output (packages/web/vite.config.ts), which lists every chunk
+# and asset the build produced regardless of how it is loaded — and fetch every
+# "assets/…" path named in it (entry `file`, `css[]`, and any other referenced
+# asset), deduplicated against what the index.html pass already fetched. A
+# missing or unparseable manifest, or one naming zero files, is a FAIL, not a
+# vacuous pass: it means this check can no longer see lazy chunks at all. A
+# manifest entry that is neither JS nor CSS (a font, an image) passes on 2xx +
+# non-empty + a non-HTML content type, since its real MIME type is not something
+# this script can predict from the manifest alone.
+#
+# SERVED_ASSETS_MANIFEST=0 skips the manifest fetch/verify step entirely,
+# leaving the index.html pass and the missing-path 404 probe in place. This
+# exists for exactly one caller: a drill leg that points this script at a
+# previously-published image predating the manifest feature (#4341) itself —
+# that image never had an asset-manifest.json to find, which is a fact about
+# the fixed point in history being probed, not a regression this script
+# should report (scripts/helm-install-drill.sh's demo-upgrade PRE-upgrade
+# leg). Every other caller leaves it at the default (on).
+#
 # Cross-origin references are skipped and counted, never fetched.
 #
 # Mixed-version serving. A tier where some replicas serve one build and some
@@ -37,6 +60,9 @@
 #         scripts/check-served-assets.sh --self-test
 # Env:    SERVED_ASSETS_ROUNDS    repeat the full check N times (default 1)
 #         SERVED_ASSETS_TIMEOUT   per-request curl --max-time seconds (default 20)
+#         SERVED_ASSETS_MANIFEST  set to 0 to skip the asset-manifest.json pass,
+#                                 for probing a pre-#4341 image with no manifest
+#                                 (default 1)
 #         SERVED_ASSETS_MISSING_PROBE  0 skips the missing-/assets/-path 404 probe
 #                                 (default 1). Only for a tier known to predate
 #                                 #4341, e.g. a drill's previously published chart.
@@ -93,7 +119,15 @@ fetch_url() {
                 *wrongtype*) echo "200|text/plain" ;;
                 *.js | *.mjs) echo "200|application/javascript" ;;
                 *.css) echo "200|text/css" ;;
-                *) echo "200|text/html" ;;
+                *.json) echo "200|application/json" ;;
+                # A manifest-only asset type (font/image) reached only through
+                # a dynamic import, never modulepreloaded (#4341) — simulated
+                # here as svg. Anything that exists and is none of the above
+                # gets a generic non-HTML type: only a MISSING file (the else
+                # branch below) ever simulates the SPA fallback's text/html.
+                *.svg) echo "200|image/svg+xml" ;;
+                *.html) echo "200|text/html" ;;
+                *) echo "200|application/octet-stream" ;;
             esac
         else
             # The SPA fallback this script exists to catch.
@@ -140,6 +174,75 @@ extract_refs() {
     done
 }
 
+# extract_manifest_refs <manifest-file> — prints one "assets/…" path per line,
+# deduplicated, for every such string anywhere in the manifest JSON (the entry
+# `file`, each `css[]` entry, each `assets[]` entry — and anything else shaped
+# like it, since matching the string rather than a specific key survives a Vite
+# manifest-shape change). No JSON parser is available in the BusyBox/BSD
+# environments this script runs in (#4341), so the document is split on every
+# structural character a JSON object/array/pair can use — '{', '}', '[', ']',
+# ',', ':' — which puts every quoted string on its own line, the same
+# flatten-then-grep technique extract_refs above uses for HTML tags.
+extract_manifest_refs() {
+    tr '{}[],:' '\n\n\n\n\n\n' < "$1" | sed -n 's/^[[:space:]]*"\(assets\/[^"]*\)"[[:space:]]*$/\1/p' | sort -u
+}
+
+# verify_asset <kind> <url> — fetch one asset and record the verdict into the
+# caller's _ok/_bad counters (check_once's locals — this is a helper called
+# only from inside check_once, never standalone, so sharing them is deliberate,
+# not an accident of POSIX sh having no local scoping). Also appends the URL to
+# "$_tmp/checked_urls" so a second reference to the same file — one path can
+# legitimately appear in both index.html and the manifest — is not fetched or
+# reported twice.
+#
+# kind is "js" or "css" (checked against the content type the browser would
+# enforce) or "any" — a manifest asset that is neither, such as a font or an
+# image reached only through a dynamic import, whose real MIME type this
+# script has no way to predict from the manifest alone. "any" passes on 2xx +
+# non-empty + NOT text/html, which still catches the one failure mode that
+# matters: the SPA fallback answering for a file that is not there.
+verify_asset() {
+    _va_kind="$1"
+    _va_url="$2"
+    printf '%s\n' "$_va_url" >> "$_tmp/checked_urls"
+
+    _body="$_tmp/body"
+    _meta="$(fetch_url "$_va_url" "$_body")"
+    _status="${_meta%%|*}"
+    _ctype="${_meta#*|}"
+    _size=0
+    [ -f "$_body" ] && _size="$(wc -c < "$_body" | tr -d ' ')"
+    rm -f "$_body"
+
+    _why=""
+    case "$_status" in
+        2??) ;;
+        *) _why="HTTP ${_status:-000}" ;;
+    esac
+    if [ -z "$_why" ]; then
+        # Lower-case without GNU sed's I flag or bash's ${,,}.
+        _lc="$(printf '%s' "$_ctype" | tr '[:upper:]' '[:lower:]')"
+        case "$_va_kind:$_lc" in
+            js:*javascript*) ;;
+            css:text/css*) ;;
+            any:*text/html*) _why="content-type '${_ctype:-none}', expected a non-HTML asset" ;;
+            any:*) ;;
+            js:*) _why="content-type '${_ctype:-none}', expected JavaScript" ;;
+            css:*) _why="content-type '${_ctype:-none}', expected text/css" ;;
+        esac
+    fi
+    if [ -z "$_why" ] && [ "$_size" -eq 0 ]; then
+        _why="empty body"
+    fi
+
+    if [ -n "$_why" ]; then
+        echo "check-served-assets: FAIL  $_va_url — $_why"
+        _bad=$((_bad + 1))
+    else
+        _ok=$((_ok + 1))
+    fi
+}
+
 # check_once <base_url> — one full pass. Prints failures; returns 0/1/2.
 check_once() {
     _base="${1%/}"
@@ -149,6 +252,7 @@ check_once() {
     _origin="$_scheme://${_rest%%/*}"
     _tmp="$(mktemp -d)"
     _index="$_tmp/index.html"
+    : > "$_tmp/checked_urls"
 
     _meta="$(fetch_url "$_base/" "$_index")"
     _status="${_meta%%|*}"
@@ -181,40 +285,86 @@ check_once() {
             *) _url="$_base/${_ref#./}" ;;
         esac
 
-        _body="$_tmp/body"
-        _meta="$(fetch_url "$_url" "$_body")"
-        _status="${_meta%%|*}"
-        _ctype="${_meta#*|}"
-        _size=0
-        [ -f "$_body" ] && _size="$(wc -c < "$_body" | tr -d ' ')"
-        rm -f "$_body"
+        verify_asset "$_kind" "$_url"
+    done < "$_tmp/refs"
 
-        _why=""
+    # A page that referenced nothing at all (e.g. a JSON error body) is
+    # vacuous regardless of what the manifest later says, so this is checked
+    # — and can return — before the manifest step runs.
+    if [ $((_ok + _bad)) -eq 0 ]; then
+        echo "check-served-assets: FAIL  $_base/ referenced no same-origin script/modulepreload/stylesheet — refusing to pass vacuously"
+        rm -rf "$_tmp"
+        return 1
+    fi
+
+    # index.html only names what it eagerly loads — a route behind a lazy
+    # `import()` that is never modulepreloaded is invisible to the pass above
+    # (#4341 residual gap). asset-manifest.json (Vite's build.manifest) is an
+    # independent reference source that names every chunk and asset the build
+    # produced, so fetch it and verify everything it names too.
+    #
+    # Skipped under SERVED_ASSETS_MANIFEST=0, for a caller deliberately probing
+    # a previously-published image that predates this manifest feature — such
+    # an image has no asset-manifest.json by construction, which is a fact
+    # about the point in history being probed, not a finding about today's code.
+    # Read fresh here, like run_check's own SERVED_ASSETS_ROUNDS, so --self-test
+    # can toggle it per case without re-execing the script.
+    _manifest_check="${SERVED_ASSETS_MANIFEST:-1}"
+    if [ "$_manifest_check" = "1" ]; then
+        _manifest_url="$_origin/asset-manifest.json"
+        _manifest_file="$_tmp/manifest.json"
+        _manifest_bad=0
+        _meta="$(fetch_url "$_manifest_url" "$_manifest_file")"
+        _status="${_meta%%|*}"
+        _manifest_ctype="${_meta#*|}"
         case "$_status" in
             2??) ;;
-            *) _why="HTTP ${_status:-000}" ;;
+            *)
+                echo "check-served-assets: FAIL  $_manifest_url returned HTTP ${_status:-000} — cannot verify lazily-imported chunks (#4341)"
+                _bad=$((_bad + 1))
+                _manifest_bad=1
+                ;;
         esac
-        if [ -z "$_why" ]; then
-            # Lower-case without GNU sed's I flag or bash's ${,,}.
-            _lc="$(printf '%s' "$_ctype" | tr '[:upper:]' '[:lower:]')"
-            case "$_kind:$_lc" in
-                js:*javascript*) ;;
-                css:text/css*) ;;
-                js:*) _why="content-type '${_ctype:-none}', expected JavaScript" ;;
-                css:*) _why="content-type '${_ctype:-none}', expected text/css" ;;
+        if [ "$_manifest_bad" -eq 0 ]; then
+            _manifest_lc="$(printf '%s' "$_manifest_ctype" | tr '[:upper:]' '[:lower:]')"
+            case "$_manifest_lc" in
+                *text/html*)
+                    echo "check-served-assets: FAIL  $_manifest_url served as text/html (the SPA fallback) — the build manifest is missing from this image (#4341)"
+                    _bad=$((_bad + 1))
+                    _manifest_bad=1
+                    ;;
             esac
         fi
-        if [ -z "$_why" ] && [ "$_size" -eq 0 ]; then
-            _why="empty body"
+        if [ "$_manifest_bad" -eq 0 ]; then
+            _manifest_first="$(sed -n '1s/^[[:space:]]*//p' "$_manifest_file" | cut -c1)"
+            if [ "$_manifest_first" != "{" ]; then
+                echo "check-served-assets: FAIL  $_manifest_url did not parse as a JSON object — cannot verify lazily-imported chunks (#4341)"
+                _bad=$((_bad + 1))
+                _manifest_bad=1
+            fi
         fi
-
-        if [ -n "$_why" ]; then
-            echo "check-served-assets: FAIL  $_url — $_why"
-            _bad=$((_bad + 1))
-        else
-            _ok=$((_ok + 1))
+        if [ "$_manifest_bad" -eq 0 ]; then
+            extract_manifest_refs "$_manifest_file" > "$_tmp/manifest_refs"
+            if [ ! -s "$_tmp/manifest_refs" ]; then
+                echo "check-served-assets: FAIL  $_manifest_url named no assets — refusing to pass vacuously (#4341)"
+                _bad=$((_bad + 1))
+            else
+                while read -r _mref; do
+                    [ -n "$_mref" ] || continue
+                    _murl="$_origin/$_mref"
+                    if grep -qxF -- "$_murl" "$_tmp/checked_urls" 2> /dev/null; then
+                        continue
+                    fi
+                    case "$_mref" in
+                        *.js | *.mjs) _mkind="js" ;;
+                        *.css) _mkind="css" ;;
+                        *) _mkind="any" ;;
+                    esac
+                    verify_asset "$_mkind" "$_murl"
+                done < "$_tmp/manifest_refs"
+            fi
         fi
-    done < "$_tmp/refs"
+    fi
 
     # A path that cannot exist must 404. If the web tier answers it 2xx it is
     # serving the SPA index.html for a missing chunk, which is what turns a
@@ -237,10 +387,6 @@ check_once() {
     fi
     rm -rf "$_tmp"
 
-    if [ $((_ok + _bad)) -eq 0 ]; then
-        echo "check-served-assets: FAIL  $_base/ referenced no same-origin script/modulepreload/stylesheet — refusing to pass vacuously"
-        return 1
-    fi
     echo "check-served-assets: $_ok served, $_bad failed, $_skipped cross-origin skipped ($_base/)"
     [ "$_bad" -eq 0 ]
 }
@@ -285,12 +431,28 @@ self_test() {
             echo '</head><body><div id="root"></div></body></html>'
         } > "$FIXTURE_DIR/index.html"
     }
+    # The manifest mirrors Vite's build.manifest shape closely enough to
+    # exercise extract_manifest_refs: an entry keyed by source path ("file" +
+    # "css[]"), a dynamic entry with an "assets[]" (LazyChunk-DDD.js's own
+    # font/image dependency, Icon-EEE.svg — neither referenced by index.html
+    # at all, which is the whole #4341 shape this gate exists to close), and
+    # an unrelated "imports" array of bare chunk names (no "assets/" prefix)
+    # that extract_manifest_refs must NOT mistake for a servable asset.
+    healthy_manifest() {
+        printf '%s' '{"src/main.tsx":{"file":"assets/index-AAA.js","isEntry":true,"css":["assets/index-CCC.css"],"imports":["_chunk-Z.js"]},"src/features/toast/Toast.tsx":{"file":"assets/Toast-BBB.js","isDynamicEntry":true},"src/features/lazy/LazyRoute.tsx":{"file":"assets/LazyChunk-DDD.js","isDynamicEntry":true,"assets":["assets/Icon-EEE.svg"]}}' \
+            > "$FIXTURE_DIR/asset-manifest.json"
+    }
     healthy_assets() {
         rm -rf "$FIXTURE_DIR/assets" && mkdir -p "$FIXTURE_DIR/assets"
         echo 'export{}' > "$FIXTURE_DIR/theme-init.js"
         echo 'export{}' > "$FIXTURE_DIR/assets/index-AAA.js"
         echo 'export{}' > "$FIXTURE_DIR/assets/Toast-BBB.js"
         echo 'body{}' > "$FIXTURE_DIR/assets/index-CCC.css"
+        # Reached ONLY through the manifest — never named by index.html — so a
+        # healthy pass proves extract_manifest_refs is what finds them.
+        echo 'export{}' > "$FIXTURE_DIR/assets/LazyChunk-DDD.js"
+        echo '<svg/>' > "$FIXTURE_DIR/assets/Icon-EEE.svg"
+        healthy_manifest
     }
     healthy_tags='<script type="module" crossorigin src="/assets/index-AAA.js"></script>
 <link rel="modulepreload" crossorigin href="/assets/Toast-BBB.js">
@@ -357,6 +519,64 @@ self_test() {
     page '<script type="module" src="/assets/wrongtype-EEE.js"></script>'
     _case "script served with a non-JavaScript type" expect-fail "expected JavaScript"
 
+    # ── #4341 residual-gap negative controls ────────────────────────────────
+    # These are the shapes the refs-only check above cannot see at all: a
+    # lazy `import()` chunk index.html never names. Each must actually go red
+    # — a check that only ever passes proves nothing.
+
+    # (a) The manifest names a lazy chunk; index.html does not reference it at
+    # all (healthy_tags is AAA/BBB/CCC only); the file is missing from disk.
+    # Without the manifest pass this would be invisible — the whole point of
+    # #4341 — and the run must fail naming it.
+    healthy_assets
+    page "$healthy_tags"
+    rm -f "$FIXTURE_DIR/assets/LazyChunk-DDD.js"
+    _case "manifest-only lazy chunk missing from disk, not referenced by index.html" expect-fail "LazyChunk-DDD.js"
+
+    # (a2) Same shape for a manifest "assets[]" entry (a font/image reached
+    # only through a dynamic import's own asset list).
+    healthy_assets
+    page "$healthy_tags"
+    rm -f "$FIXTURE_DIR/assets/Icon-EEE.svg"
+    _case "manifest assets[] entry missing from disk, not referenced by index.html" expect-fail "Icon-EEE.svg"
+
+    # (b) The manifest itself is gone (an image built before this gate, or
+    # one where build.manifest regressed off) — the SPA fallback answers it
+    # with index.html, 200 text/html. Must fail, not silently skip the check.
+    healthy_assets
+    page "$healthy_tags"
+    rm -f "$FIXTURE_DIR/asset-manifest.json"
+    _case "asset-manifest.json missing entirely" expect-fail "manifest is missing"
+
+    # (b2) The manifest is served but is not JSON at all (a misconfigured
+    # content negotiation, or the SPA fallback under a content type this
+    # script cannot distinguish from JSON by status/size alone).
+    healthy_assets
+    page "$healthy_tags"
+    printf 'not json' > "$FIXTURE_DIR/asset-manifest.json"
+    _case "asset-manifest.json is not valid JSON" expect-fail "did not parse as a JSON object"
+
+    # (c) The manifest parses but names nothing — an empty object would
+    # otherwise pass vacuously, exactly the failure mode the refs-only
+    # vacuous check above already guards against for index.html.
+    healthy_assets
+    page "$healthy_tags"
+    printf '{}' > "$FIXTURE_DIR/asset-manifest.json"
+    _case "asset-manifest.json names zero assets" expect-fail "named no assets"
+
+    # (d) SERVED_ASSETS_MANIFEST=0 skips the manifest pass entirely — for a
+    # caller probing a previously-published image predating this feature
+    # (helm-install-drill.sh's demo-upgrade PRE-upgrade leg, #4341). Reuse the
+    # exact "manifest missing" fixture from (b): with the toggle on this fails;
+    # with it off the same fixture must pass, proving the step is genuinely
+    # skipped and not merely downgraded to a warning.
+    healthy_assets
+    page "$healthy_tags"
+    rm -f "$FIXTURE_DIR/asset-manifest.json"
+    SERVED_ASSETS_MANIFEST=0
+    _case "SERVED_ASSETS_MANIFEST=0 skips the manifest pass" expect-pass
+    unset SERVED_ASSETS_MANIFEST
+
     # A page with nothing to check is not a pass (e.g. a JSON error body).
     page ''
     rm -f "$FIXTURE_DIR/theme-init.js"
@@ -398,12 +618,18 @@ self_test() {
     echo 'body{}' > "$FIXTURE_DIR/assets/index-OLD.css"
     printf '%s\n' '<script type="module" src="/assets/index-OLD.js"></script>' \
         '<link rel="stylesheet" href="/assets/index-OLD.css">' > "$FIXTURE_DIR/index.html"
+    printf '%s' '{"src/main.tsx":{"file":"assets/index-OLD.js","isEntry":true,"css":["assets/index-OLD.css"]}}' \
+        > "$FIXTURE_DIR/asset-manifest.json"
     echo 'export{}' > "$FIXTURE_B_DIR/assets/index-NEW.js"
     echo 'body{}' > "$FIXTURE_B_DIR/assets/index-NEW.css"
     printf '%s\n' '<script type="module" src="/assets/index-NEW.js"></script>' \
         '<link rel="stylesheet" href="/assets/index-NEW.css">' > "$FIXTURE_B_DIR/index.html"
-    # One round is index + 2 assets = 3 requests, all on build A.
-    FIXTURE_SKEW_AFTER=3
+    printf '%s' '{"src/main.tsx":{"file":"assets/index-NEW.js","isEntry":true,"css":["assets/index-NEW.css"]}}' \
+        > "$FIXTURE_B_DIR/asset-manifest.json"
+    # One round is index + css + js + manifest + probe = 5 requests, all on
+    # build A — the manifest here names the same two files index.html already
+    # named, so it is deduplicated and never adds its own extra request.
+    FIXTURE_SKEW_AFTER=5
 
     echo 0 > "$FIXTURE_COUNTER"
     SERVED_ASSETS_ROUNDS=1

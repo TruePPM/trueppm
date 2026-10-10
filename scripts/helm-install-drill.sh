@@ -886,11 +886,15 @@ wait_for_demo_seed_hook() {
   log "demo-seed hook complete for ${label} — log tail: $(kubectl logs "job/${demo_seed_job}" -c demo-seed 2>&1 | tail -3 || true)"
 }
 
-# ---- served-asset content-type check (#4338, #4340) ------------------------
+# ---- served-asset content-type check (#4338, #4340, #4341) -----------------
 # scripts/check-served-assets.sh (#4338) takes one argument, a base URL: it
 # fetches "<base_url>/", parses every asset index.html references (`<script
 # src>`, `<link rel="modulepreload">`, `<link rel="stylesheet">`), and
 # asserts each answers 2xx with the right content-type and a non-empty body.
+# It also fetches "<base_url>/asset-manifest.json" (Vite's build manifest) and
+# checks every chunk and asset IT names too — including a route behind a lazy
+# `import()` that index.html never references at all, which the index-only
+# pass above cannot see (#4341).
 #
 # Why this exists alongside the plain "GET / -> 200" check section 10 already
 # runs: the chart's SPA route is a catch-all, so it answers a clean 200
@@ -922,8 +926,12 @@ wait_for_demo_seed_hook() {
 # job's own container, which already has curl/bash — see resolve_previous_
 # chart_version's registry reads above), not from inside the cluster, so
 # check-served-assets.sh needs nothing beyond what a plain CI shell ships.
+# $5 (manifest_check, default 1): pass 0 for a release installed from a
+# PREVIOUS published chart — it predates check-served-assets.sh's #4341
+# asset-manifest.json pass and never had one to find, which is a fact about
+# the fixed point in history being probed, not a regression in HEAD's code.
 check_served_assets() {
-  local svc="$1" ns="$2" label="$3" path="${4:-/}"
+  local svc="$1" ns="$2" label="$3" path="${4:-/}" manifest_check="${5:-1}"
   local script="scripts/check-served-assets.sh"
   local local_port="${SERVED_ASSETS_PORT:-18080}"
   local pf_log="/tmp/port-forward-served-assets.log"
@@ -954,7 +962,7 @@ check_served_assets() {
 
   base_url="http://127.0.0.1:${local_port}${path}"
   rc=0
-  bash "$script" "$base_url" || rc=$?
+  SERVED_ASSETS_MANIFEST="$manifest_check" bash "$script" "$base_url" || rc=$?
 
   kill "$pid" >/dev/null 2>&1 || true
   wait "$pid" 2>/dev/null || true
@@ -1472,13 +1480,16 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
   wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
   check_admin_password
-  # The missing-/assets/ 404 probe is a property of HEAD's web image (#4341);
-  # the published chart here may predate it, so this leg checks only that the
-  # old release serves its own referenced assets (#4346). The post-upgrade
-  # check below runs the full script.
+  # manifest_check=0: ${PREV_CHART_VERSION} is a previously published chart,
+  # which predates the #4341 asset-manifest.json pass and has no manifest to
+  # find — that is a fact about the release being probed, not a finding. The
+  # missing-/assets/ 404 probe is likewise a property of HEAD's web image
+  # (#4341); the published chart here may predate it too, so this leg checks
+  # only that the old release serves its own referenced assets (#4346). The
+  # post-upgrade check below runs the full script with both checks enabled.
   # TODO(#4347): drop this opt-out after beta.8 is cut, before 0.4.0-rc.1.
   SERVED_ASSETS_MISSING_PROBE=0 \
-    check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
+    check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}" 0
   kubectl get pods -o wide
 
   # ---- 4e. upgrade THE SAME RELEASE to the HEAD chart, STILL with
