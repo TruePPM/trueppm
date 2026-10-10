@@ -1632,22 +1632,35 @@ docs:adr-status:
 
 security:demo-nginx-allowlist:
   extends: .fast-job
-  # Public-demo nginx allowlist gate (#1763). The hosted read-only demo
-  # (try.trueppm.com / docker-compose.demo.yml) bakes a fixed SECRET_KEY that is
-  # safe ONLY because the demo has zero accounts and no authenticated write path —
-  # access is exclusively the anonymous, tokenized, read-only share link. A
-  # blanket `location /api/ { proxy_pass … }` on the demo's nginx template (the
-  # production posture) would expose the full authenticated API to the public
-  # internet, breaking that invariant. This gate fails the pipeline if
-  # nginx/demo.conf.template ever regresses to proxying anything beyond the vetted
-  # allowlist (share endpoints, liveness probe, static, loopback admin). ~1s.
+  # Public-demo nginx allowlist gate (#1763, extended #4356). The hosted
+  # read-only demo (try.trueppm.com / docker-compose.demo.yml) bakes a fixed
+  # SECRET_KEY that is safe ONLY because the demo has zero accounts and no
+  # authenticated write path — access is exclusively the anonymous, tokenized,
+  # read-only share link. A blanket `location /api/ { proxy_pass … }` on the
+  # demo's nginx template (the production posture) would expose the full
+  # authenticated API to the public internet, breaking that invariant. This
+  # gate fails the pipeline if nginx/demo.conf.template ever regresses to
+  # proxying anything beyond the vetted allowlist (share endpoints, liveness
+  # probe, static, loopback admin).
+  #
+  # #4356: the Helm chart's web ConfigMap (packages/helm/templates/web/
+  # configmap.yaml) renders two of its own equivalents of this surface — the
+  # share-link demo and the interactive demo (ADR-1197) — that the gate never
+  # checked: it read only the compose template, so a Go-template edit could
+  # reopen a blanket /api/ proxy in the CHART while this job stayed green.
+  # scripts/check-demo-nginx-allowlist.sh now also renders both branches with
+  # `helm template` and checks each against its own invariants (route
+  # allowlist for the share-link demo, GET/HEAD/OPTIONS method fence for the
+  # interactive demo). helm and yq are both plain `apk` packages, so this job
+  # keeps its existing alpine:3.20 image rather than switching to nginx:headers'
+  # alpine/helm image. ~2s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash grep sed
+    - apk add --no-cache bash grep sed helm yq
   script:
     - bash scripts/check-demo-nginx-allowlist.sh
     - bash scripts/check-demo-nginx-allowlist.sh --self-test
@@ -2604,6 +2617,51 @@ nginx:headers:
     # can still fail. The self-test replays both #2849 shapes as fixtures.
     - bash scripts/check-nginx-security-headers.sh --self-test
     - bash scripts/check-nginx-security-headers.sh
+
+nginx:syntax:
+  extends: .fast-job
+  # `nginx -t` syntax check on the rendered Helm web ConfigMap (#4356).
+  #
+  # nginx:headers (above) and security:demo-nginx-allowlist both parse the TEXT
+  # of the chart's rendered data["default.conf"] with awk — one asserts
+  # security headers, the other an API-route allowlist / method fence. Neither
+  # proves the text PARSES as nginx: `helm lint`, `helm template` and
+  # kubeconform only ever see a YAML string, so a Go-template edit that emits
+  # broken nginx (an unbalanced brace, a directive missing its `;`) is caught
+  # only at pod crash-loop, in a cluster, well after the MR merged.
+  # scripts/check-helm-nginx-syntax.sh closes that gap by running the pinned
+  # nginxinc/nginx-unprivileged image's own `nginx -t` against all three
+  # rendered variants (production, demo share-link, demo interactive) — see
+  # the script's header for why that needs a real container (the ConfigMap's
+  # own comment: its text is meant to be included INTO nginx.conf's `http {}`
+  # block, which a bare fragment does not have on its own) and why
+  # `--add-host` is required (a literal proxy_pass upstream is resolved at
+  # config-TEST time, not only at reload).
+  #
+  # A sibling of nginx:headers rather than an extra step inside it: this is the
+  # one nginx gate that needs a real docker daemon, so it gets the docker:27 +
+  # docker:27-dind image/service pair ci:build-api-image already uses, with
+  # helm + yq added via apk (docker:27 is Alpine-based). Rules are
+  # unconditional for the same reason nginx:headers' are: the drift this gate
+  # catches can be introduced from packages/helm/ alone, and a change-gated job
+  # would miss it. A few seconds of container startup plus three `nginx -t`
+  # calls (~1s each, measured locally).
+  stage: lint
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash helm yq
+  script:
+    # Self-test first: a syntax checker nobody has watched reject broken nginx
+    # is indistinguishable from one that accepts anything (#3195).
+    - bash scripts/check-helm-nginx-syntax.sh --self-test
+    - bash scripts/check-helm-nginx-syntax.sh
 
 scripts:sigpipe-readers:
   extends: .fast-job

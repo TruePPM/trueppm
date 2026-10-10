@@ -141,15 +141,24 @@ the operator, so a loopback allowlist is either useless or accidentally permissi
 depending on proxy configuration. The in-cluster equivalent of compose's SSH tunnel is
 `kubectl port-forward svc/<release>-trueppm-api 8000:8000`.
 
-**CI gate.** `scripts/check-demo-nginx-allowlist.sh` gates the compose template only,
-and the `helm:template` job previously rendered default values exclusively — so demo
-mode would have shipped entirely unvalidated. That job now also renders
-`values-demo.yaml`, runs kubeconform over it, asserts that `/admin/`, `/ws/` and
-`/api/` each return 404 while the share projections stay proxied, and asserts the
-inverse: that no demo artifact leaks into a default render. Consolidating these
-assertions into the shared allowlist script is worthwhile later; the inline form is
-deliberate for now because it also covers the leak direction, which the script does
-not model.
+**CI gate.** `scripts/check-demo-nginx-allowlist.sh` originally gated the compose
+template only, and the `helm:template` job previously rendered default values
+exclusively — so demo mode would have shipped entirely unvalidated. That job now also
+renders `values-demo.yaml`, runs kubeconform over it, asserts that `/admin/`, `/ws/`
+and `/api/` each return 404 while the share projections stay proxied, and asserts the
+inverse: that no demo artifact leaks into a default render. **#4356** closed the
+remaining half of the gap: `scripts/check-demo-nginx-allowlist.sh` now ALSO renders
+`values-demo.yaml` itself (both the share-link branch and, with `demo.interactive=true`,
+the ADR-1197 method-fence branch) and checks each against the same brace-position-
+independent route/fence invariants the compose template gets — the `helm:template`
+job's grep-based checks above are brace-position-*dependent* and cover neither the
+interactive branch nor a syntax guarantee. A sibling script,
+`scripts/check-helm-nginx-syntax.sh` (CI job `nginx:syntax`), additionally runs the
+rendered ConfigMap through a real `nginx -t`, which neither `helm:template` nor the
+allowlist script does. Consolidating `helm:template`'s inline leak-direction and
+injection-safety assertions into the shared allowlist script is still worthwhile
+later; the inline form remains deliberate for now because it also covers the leak
+direction, which the allowlist script does not model.
 
 **Bare origin (#3911).** The block also answers an exact `/` with a `302` to
 `<demo.baseUrl>/share/schedule/<schedule token>`. The demo has no accounts, so the SPA's

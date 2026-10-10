@@ -599,6 +599,16 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
+nginx-syntax-check: ## Run the nginx:syntax CI job locally (#4356)
+	@# nginx:headers and security:demo-nginx-allowlist both parse the rendered
+	@# chart ConfigMap's nginx TEXT; neither proves it parses as nginx. This runs
+	@# the pinned nginx-unprivileged image's own `nginx -t` against all three
+	@# rendered variants (production, demo share-link, demo interactive). Needs
+	@# docker, helm and yq; skipped (loudly) when any is unavailable — CI always
+	@# has all three. A few seconds of container startup plus three `nginx -t`
+	@# calls (~1s each, measured locally).
+	@bash scripts/check-helm-nginx-syntax.sh
+
 sigpipe-readers-check: ## Fail if a shell script pipes into an early-exit reader (grep -q / head) (#3942)
 	@# Under `set -o pipefail` an early-exiting reader SIGPIPEs the writer and a
 	@# present match reads as missing — release.sh's `git tag | grep -qxF "$$TAG"`
@@ -660,6 +670,7 @@ pre-push-checks: boundary-doc-check
 pre-push-checks: demo-readonly-check
 pre-push-checks: helm-metric-names-check
 pre-push-checks: nginx-headers-check
+pre-push-checks: nginx-syntax-check
 pre-push-checks: compose-image-pins-check
 pre-push-checks: sigpipe-readers-check
 pre-push-checks: served-assets-check
