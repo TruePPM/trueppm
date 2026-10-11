@@ -582,25 +582,34 @@ log "celery container restarted: RestartCount ${restarts_before} -> ${restarts_a
 grep -q "self-exiting so \`restart: unless-stopped\` can recover the container" <<<"$(compose logs celery 2>&1)" \
   || fail "celery restarted, but its log carries no worker_selfheal self-exit message — the restart may be unrelated (OOM, crash) rather than the self-heal mechanism (#3936)"
 
-# Snapshot the current (possibly still-stale, pre-restart) DB heartbeat value
-# BEFORE restoring the file, so step 7b below can require a heartbeat strictly
-# newer than this — i.e. one the RECOVERED worker, not the one that died,
-# processed.
+# Snapshot the current (pre-restart) DB heartbeat value so step 7b below can
+# require a heartbeat strictly newer than this — i.e. one the RECOVERED
+# worker, not the one that died, processed.
 heartbeat_baseline="$("${CURL[@]}" -H "Authorization: Bearer ${token}" "${BASE_URL}/api/v1/health/beat/" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("last_heartbeat") or "")' 2>/dev/null || true)"
 
-# `tmpfs: - /tmp` (docker-compose.prod.yml) is the SAME mount across an
-# in-place `restart: unless-stopped` recovery — only recreating the container
-# would reset it — so the chmod above survives the restart: the freshly
-# started worker's own _touch() calls would keep failing forever without
-# this, wedging it in a self-exit loop. Restoring it stands in for whatever
-# clears the ORIGINAL stall in production (broker reachable again, a GC pause
-# ending, CPU throttling lifting) now that the restart itself has been proven.
-log "restoring the heartbeat file's permissions so the recovered worker can write it again"
-compose exec -T celery chmod 600 /tmp/trueppm-celery-worker-heartbeat \
-  || fail "could not restore the heartbeat file's permissions after the restart"
-
-log "waiting up to ${SELFHEAL_WAIT_TIMEOUT}s for the recovered worker's heartbeat to go fresh again"
+# There is nothing to chmod back, and an earlier version of this leg that
+# tried to (`chmod 600` on the same path) failed in CI with ENOENT
+# immediately after RestartCount changed — not "still mode 000", gone
+# entirely. `tmpfs: - /tmp` does NOT survive a container restart (confirmed
+# against that real run, not assumed): Docker tears down and recreates a
+# container's mount namespace — tmpfs's only backing store — on every
+# stop+start, including a restart-policy-triggered one, unlike the
+# disk-backed overlay2 writable layer, which does survive. Nothing in
+# worker_heartbeat.py unlinks the file either: `_touch()` opens
+# `O_CREAT | O_WRONLY` with no `O_TRUNC` (so it would reuse an existing inode
+# if one were there), and `_remove()` only runs from a GRACEFUL
+# `worker_shutting_down` signal, which an `os._exit()` self-heal exit
+# bypasses entirely. So the recovered worker's own `_on_worker_ready` ->
+# `_touch()` call is what creates a brand-new file, mode 0600 from the
+# `os.open()` call itself — this module's own docstring calls that first
+# touch the STARTUP signal precisely because the file does not exist before
+# it fires. The wait below already tolerates "does not exist yet": `find` on
+# a missing path errors to `/dev/null`, so `test -n "$(...)"` is simply false
+# and the loop retries — and this is also where the real cold-start-after-
+# restart latency (broker reconnect, mingle/gossip, then the first ~2s
+# heartbeat_sent tick) gets absorbed, bounded by SELFHEAL_WAIT_TIMEOUT.
+log "waiting up to ${SELFHEAL_WAIT_TIMEOUT}s for the recovered worker to create a fresh heartbeat file"
 deadline=$(( $(date +%s) + SELFHEAL_WAIT_TIMEOUT ))
 # Single-quoted on purpose: `$(find …)` must expand inside the CONTAINER's sh
 # -c, not here (shellcheck SC2016 is wrong for the same reason noted in
@@ -610,7 +619,7 @@ deadline=$(( $(date +%s) + SELFHEAL_WAIT_TIMEOUT ))
 until compose exec -T celery sh -c 'test -n "$(find /tmp/trueppm-celery-worker-heartbeat -newermt "-15 seconds" 2>/dev/null)"'; do
   [ "$(date +%s)" -lt "${deadline}" ] || {
     compose logs --tail=80 celery 2>&1 | sed 's/^/  /' >&2 || true
-    fail "recovered celery worker's heartbeat never went fresh again within ${SELFHEAL_WAIT_TIMEOUT}s"
+    fail "recovered celery worker's heartbeat file never reappeared and went fresh within ${SELFHEAL_WAIT_TIMEOUT}s"
   }
   sleep 3
 done
