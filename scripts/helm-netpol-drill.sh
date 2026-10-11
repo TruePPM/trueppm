@@ -532,7 +532,14 @@ expect_probe DENIED "negative: web-labeled pod denied Valkey (component scoping 
 # invoke the share-link and read-only demo hooks, which exercise the
 # web-ingress policy, not this one.
 log "running 'helm test' against the Calico-enforcing cluster (component:test peer, #4018, #4372)"
-if ! helm test "$RELEASE" --timeout "$INSTALL_TIMEOUT" --logs; then
+# No --logs here: the test Pod's own hook-delete-policy (templates/tests/
+# api-connection.yaml) deletes it immediately on success, so `helm test --logs`
+# always fails to stream logs from a Pod that is already gone — a false
+# negative on the exact path this probe exists to prove passes. The policy
+# only keeps the Pod around on FAILURE, which is also the only time we need
+# the logs, so fetch them there instead.
+if ! helm test "$RELEASE" --timeout "$INSTALL_TIMEOUT"; then
+  kubectl logs "${RELEASE}-test-api-connection" 2>/dev/null || true
   fail "'helm test' failed under enforcement — the api-ingress component:test peer may not be admitting the probe pod (#4018)"
 fi
 log "OK [ALLOWED] helm test connection probe reached the api Service"
