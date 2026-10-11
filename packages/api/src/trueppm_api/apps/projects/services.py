@@ -6524,16 +6524,21 @@ def enqueue_project_export(*, project: Any, requested_by: Any) -> Any:
     and broker errors are swallowed because ``drain_project_exports`` re-dispatches
     stuck ``pending`` rows. ``.delay()`` is only ever called from here and the drain.
 
-    De-dupes in-flight work per project: assembling a full bundle (zip of JSON + XML +
-    attachment blobs + history) is expensive, so if an export for this project is
-    already ``pending``/``running`` the existing job is returned rather than queuing a
-    second build (also bounds an Admin triggering repeated exports). The returned
+    De-dupes in-flight work per ``(project, requested_by)`` (#4370, mirroring #4310's
+    program-grain fix): assembling a full bundle (zip of JSON + XML + attachment blobs
+    + history) is expensive, so if THIS requester already has an export for this
+    project ``pending``/``running`` that job is returned rather than queuing a second
+    build (also bounds an Admin triggering repeated exports). De-duping across
+    requesters would hand a second admin someone else's in-flight job id before #4370;
+    the bundle's content depends on the requester (withheld emails, #3627; blocker
+    text, #4082), so it must never be shared this way. The returned
     ``ProjectExportJob`` row is itself the audit record (``requested_by`` + timestamps).
     """
     from trueppm_api.apps.projects.models import ExportJobStatus, ProjectExportJob
 
     existing = ProjectExportJob.objects.filter(
         project=project,
+        requested_by=requested_by,
         status__in=[ExportJobStatus.PENDING, ExportJobStatus.RUNNING],
     ).first()
     if existing is not None:

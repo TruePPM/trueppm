@@ -1651,7 +1651,9 @@ class ProjectViewSet(
         # POST enqueue. Like the sync export these stay available on archived projects
         # (portability for archival/forensics), so they skip IsProjectNotArchived.
         # Object-level cross-project IDOR (a job_id from another project) is closed in
-        # the action bodies via project-scoped lookups.
+        # the action bodies via project-scoped lookups. They are also requester-scoped
+        # (#4370, mirroring #4310): the lookups filter on requested_by too, so another
+        # project Admin can neither list, poll, nor download a sibling admin's jobs.
         if self.action in ("export_jobs", "export_job_detail", "export_job_download"):
             return [IsAuthenticated(), IsProjectAdmin()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
@@ -3010,11 +3012,19 @@ class ProjectViewSet(
         """List recent async export jobs for this project (#1266, ADR-0219). Admin+.
 
         Page-number envelope so an integrator can tell a truncated list from a complete
-        one. Scoped to the resolved (membership-checked) project, so no cross-project rows
-        leak.
+        one. Scoped to the resolved (membership-checked) project, so no cross-project
+        rows leak — and to the requester (#4370): a job's bundle content depends on who
+        asked for it (withheld emails, #3627; blocker text, #4082), so another project
+        Admin's in-flight or completed jobs never appear in this list either.
         """
+        from django.contrib.auth.models import User
+
         project = self.get_object()
-        jobs = ProjectExportJob.objects.filter(project=project)
+        # IsProjectAdmin already guarantees an authenticated user here, so the cast is
+        # safe and narrows request.user off the AnonymousUser union for the query.
+        jobs = ProjectExportJob.objects.filter(
+            project=project, requested_by=cast(User, request.user)
+        )
         paginator = pagination.PageNumberPagination()
         page = paginator.paginate_queryset(jobs, request, view=self)
         data = ProjectExportJobSerializer(page if page is not None else jobs, many=True).data
@@ -3035,10 +3045,16 @@ class ProjectViewSet(
         """Poll an async export job (#1266, ADR-0219). Admin+.
 
         The job is looked up scoped to the resolved project, so a ``job_id`` belonging
-        to another project 404s rather than leaking (object-level IDOR guard).
+        to another project 404s rather than leaking (object-level IDOR guard). It is
+        also requester-scoped (#4370, mirroring #4310): a ``job_id`` belonging to
+        another project Admin's export request 404s the same way, not 403 — the lookup
+        filters on ``requested_by`` alongside ``project``, so the two refusals are
+        indistinguishable from outside.
         """
         project = self.get_object()
-        job = get_object_or_404(ProjectExportJob, pk=job_id, project=project)
+        job = get_object_or_404(
+            ProjectExportJob, pk=job_id, project=project, requested_by=request.user
+        )
         return Response(ProjectExportJobSerializer(job).data)
 
     @extend_schema(
@@ -3053,6 +3069,17 @@ class ProjectViewSet(
             ),
             410: OpenApiResponse(
                 response=OpenApiTypes.OBJECT, description="Download link has expired."
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "No job with this id on this project, OR the job belongs to a "
+                    "different admin's export request (#4370). A bundle can be "
+                    "downloaded only by the admin who requested it — another project "
+                    "Admin's request for the same job id gets the same 404 an "
+                    "unrelated project would, not a 403, so the two cases are "
+                    "indistinguishable from outside."
+                ),
             ),
         },
     )
@@ -3069,10 +3096,16 @@ class ProjectViewSet(
         Authenticated — the archive contains the whole project including its audit
         history, so it is never served from a raw, unauthenticated storage URL. ``409``
         if not ready, ``410 Gone`` once the link has expired. The job is project-scoped
-        so a ``job_id`` from another project 404s (object-level IDOR guard).
+        so a ``job_id`` from another project 404s (object-level IDOR guard). It is also
+        requester-scoped (#4370, mirroring #4310): a ``job_id`` belonging to another
+        admin's export request 404s the same way, not 403 — the lookup filters on
+        ``requested_by`` alongside ``project``, so the two refusals are
+        indistinguishable from outside.
         """
         project = self.get_object()
-        job = get_object_or_404(ProjectExportJob, pk=job_id, project=project)
+        job = get_object_or_404(
+            ProjectExportJob, pk=job_id, project=project, requested_by=request.user
+        )
         return stream_export_job_or_error(
             job,
             success_status=ExportJobStatus.SUCCESS,

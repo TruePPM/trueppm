@@ -143,6 +143,22 @@ def test_enqueue_dedupes_in_flight(admin_user: Any, project: Project) -> None:
     assert ProjectExportJob.objects.filter(project=project).count() == 1
 
 
+def test_enqueue_does_not_dedupe_onto_another_requesters_job(
+    admin_user: Any, owner: Any, project: Project
+) -> None:
+    """#4370 (mirrors #4310's program-grain fix): an in-flight bundle belongs to its
+    requester. A second admin's POST must get a job of their own, never the first
+    admin's in-flight job — the #4310 fix never reached this project-grain path."""
+    other_job = _client(owner).post(_export_url(project))
+    assert other_job.status_code == 202
+
+    mine = _client(admin_user).post(_export_url(project))
+
+    assert mine.status_code == 202
+    assert mine.data["id"] != other_job.data["id"]
+    assert ProjectExportJob.objects.get(pk=mine.data["id"]).requested_by_id == admin_user.pk
+
+
 # ---------------------------------------------------------------------------
 # Build task
 # ---------------------------------------------------------------------------
@@ -332,6 +348,54 @@ def test_jobs_list_is_project_scoped(project: Project, admin_user: Any, calendar
     resp = _client(admin_user).get(f"{_export_url(project)}jobs/")
     assert resp.status_code == 200
     assert resp.data["count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Requester scoping (#4370 — the #4310 program fix never reached this path)
+# ---------------------------------------------------------------------------
+
+
+def test_other_admins_job_is_not_in_the_list(project: Project, admin_user: Any, owner: Any) -> None:
+    """Both ``admin_user`` and ``owner`` are project Admin+. A's job must not appear
+    in B's list — only the admin who requested a job can see it (#4370)."""
+    admins_job = ProjectExportJob.objects.create(project=project, requested_by=admin_user)
+    owners_job = ProjectExportJob.objects.create(project=project, requested_by=owner)
+
+    resp = _client(owner).get(f"{_export_url(project)}jobs/")
+    assert resp.status_code == 200
+    ids = {row["id"] for row in resp.data["results"]}
+    assert ids == {str(owners_job.id)}
+    assert str(admins_job.id) not in ids
+
+
+def test_other_admin_cannot_poll_job(project: Project, admin_user: Any, owner: Any) -> None:
+    """A job requested by one Admin 404s for another Admin polling it — the same
+    IDOR-shaped refusal as a cross-project job id, not a 403 (#4370)."""
+    job = ProjectExportJob.objects.create(project=project, requested_by=admin_user)
+    resp = _client(owner).get(f"{_export_url(project)}jobs/{job.id}/")
+    assert resp.status_code == 404
+
+
+def test_other_admin_cannot_download_job(project: Project, admin_user: Any, owner: Any) -> None:
+    """A completed job requested by one Admin 404s for another Admin's download —
+    the bundle can carry withheld emails/blocker text scoped to the requester, so a
+    sibling Admin must never be handed it (#4370). The archive file genuinely exists
+    in storage, so a pass here can only be the requester-scoping guard, never the
+    "file not ready"/"no such file" 404 ``stream_export_job_or_error`` also raises."""
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    path = default_storage.save("project-exports/4370-idor.tar.gz", ContentFile(b"x"))
+    job = ProjectExportJob.objects.create(
+        project=project,
+        requested_by=admin_user,
+        status=ExportJobStatus.SUCCESS,
+        file_path=path,
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    resp = _client(owner).get(f"{_export_url(project)}jobs/{job.id}/download/")
+    assert resp.status_code == 404
+    assert default_storage.exists(path)
 
 
 # ---------------------------------------------------------------------------
