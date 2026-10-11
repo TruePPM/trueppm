@@ -1141,6 +1141,61 @@ rows that moved (#4096) must keep that split.
 """
 
 
+def _ids_with_live_child(task_model: Any, candidates: list[Any]) -> set[str]:
+    """Ids of ``candidates`` that have at least one live direct WBS child right now.
+
+    "Direct child" is the same test :func:`build_children_map` used to make these rows
+    summaries at load time, so a row drops out only if its children are gone.
+
+    After re-reading the candidates' current paths: one query per chunk, matched with
+    an ltree ``lquery[]`` (``<path>.*{1}`` per candidate) and scoped by
+    ``project_id`` so the planner reads only the affected projects' rows through the
+    project index. The two obvious alternatives are slower
+    on a 5,100-task project with 300 summaries, measured with ``EXPLAIN ANALYZE``: a
+    correlated ``EXISTS`` with ``wbs_path LIKE parent || '.%'`` casts to text (101 ms),
+    and the same ``EXISTS`` with ltree ``<@`` is decorrelated into a hash semi-join on
+    ``project_id`` that rechecks every pair (30 ms); this form ran in 9 ms. It runs
+    while the write-back holds row locks on every touched row, so it must stay cheap.
+    Paths are bound as parameters; the ltree type already restricts labels to
+    characters that carry no lquery meaning.
+    """
+    from django.db import connections
+
+    # Key on the CURRENT path, not the load-time one on the instance: a row re-pathed
+    # mid-recalc must be judged by the children it has now, at the place it is now.
+    by_key = {
+        (str(project_id), str(wbs_path)): str(pk)
+        for pk, project_id, wbs_path in task_model.objects.filter(
+            pk__in=[t.pk for t in candidates], wbs_path__isnull=False
+        )
+        .order_by()
+        .values_list("pk", "project_id", "wbs_path")
+    }
+    if not by_key:
+        return set()
+    table = connections[task_model.objects.db].ops.quote_name(task_model._meta.db_table)
+    # Static SQL apart from the model's own (quoted) table name; values are bound.
+    # nosemgrep: avoid-raw-sql
+    sql = (
+        f"SELECT DISTINCT project_id::text, subpath(wbs_path, 0, nlevel(wbs_path) - 1)::text "
+        f"FROM {table} WHERE NOT is_deleted AND project_id = ANY(%s::uuid[]) "
+        f"AND wbs_path ? %s::lquery[]"
+    )
+    keys = list(by_key)
+    live: set[str] = set()
+    with connections[task_model.objects.db].cursor() as cursor:
+        for i in range(0, len(keys), _WRITEBACK_BATCH_SIZE):
+            chunk = keys[i : i + _WRITEBACK_BATCH_SIZE]
+            project_ids = sorted({pid for pid, _ in chunk})
+            patterns = [f"{path}.*{{1}}" for _, path in chunk]
+            cursor.execute(sql, [project_ids, patterns])
+            for project_id, parent_path in cursor.fetchall():
+                tid = by_key.get((project_id, parent_path))
+                if tid is not None:
+                    live.add(tid)
+    return live
+
+
 def _bulk_write_cpm_results(
     task_model: Any,
     tasks_to_update: list[Any],
@@ -1157,7 +1212,7 @@ def _bulk_write_cpm_results(
        re-reads below see a committed state no concurrent writer can change before
        this transaction commits.
     2. ``duration`` on summary rows only — the only rows whose duration the recalc
-       computes (#3530) — and only those that STILL have a live descendant now. The
+       computes (#3530) — and only those that STILL have a live child now. The
        summary set was captured at load time; if an accidental container lost its last
        child meanwhile, ``sync_structure_shadow_values`` has already restored its own
        estimate into ``duration`` and saved it, and writing the rolled-up span over
@@ -1170,9 +1225,6 @@ def _bulk_write_cpm_results(
        flicker a just-saved edit back until the next refetch. Skipped for a project
        above ``CPM_DELTA_BROADCAST_CAP``, whose delta ships no rows.
     """
-    from django.db.models import Exists, OuterRef, Value
-    from django.db.models.functions import Concat
-
     task_model.objects.bulk_update(
         tasks_to_update, list(_CPM_WRITE_FIELDS), batch_size=_WRITEBACK_BATCH_SIZE
     )
@@ -1180,17 +1232,7 @@ def _bulk_write_cpm_results(
     candidates = [t for t in tasks_to_update if str(t.id) in summary_durations]
     written_summary_ids: set[str] = set()
     if candidates:
-        live_descendant = task_model.objects.filter(
-            project_id=OuterRef("project_id"),
-            is_deleted=False,
-            wbs_path__startswith=Concat(OuterRef("wbs_path"), Value(".")),
-        )
-        written_summary_ids = {
-            str(pk)
-            for pk in task_model.objects.filter(pk__in=[t.pk for t in candidates])
-            .filter(Exists(live_descendant))
-            .values_list("pk", flat=True)
-        }
+        written_summary_ids = _ids_with_live_child(task_model, candidates)
         summary_rows = [t for t in candidates if str(t.id) in written_summary_ids]
         if summary_rows:
             task_model.objects.bulk_update(
