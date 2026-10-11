@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { modifierKeyLabel, altKeyLabel } from '@/lib/platform';
 import { createPortal } from 'react-dom';
 import { CloseIcon } from '@/components/Icons';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface ShortcutEntry {
   /** Key chip(s) — array because some entries show alternates (e.g. "Enter / F2"). */
@@ -175,16 +176,17 @@ export interface BuildModeCheatsheetProps {
  * pressing `?` again. Focus is trapped inside the modal while open.
  */
 export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  // Close button is first in DOM order, so the trap seats initial focus on
+  // it (Esc + Enter both work immediately) and traps Tab inside the modal.
+  const panelRef = useFocusTrap<HTMLDivElement>(open, onClose);
 
-  // Focus the close button on open so Esc + Enter both work immediately,
-  // and trap Tab so focus does not escape the modal.
+  // `?` toggles the cheatsheet closed again while it is open — a second key
+  // this component owns on top of the trap's Escape handling, not a
+  // replacement for it.
   useEffect(() => {
     if (!open) return;
-    closeBtnRef.current?.focus();
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === '?') {
+      if (e.key === '?') {
         e.preventDefault();
         onClose();
       }
@@ -208,15 +210,15 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
         role="dialog"
         aria-modal="true"
         aria-labelledby="cheatsheet-title"
+        tabIndex={-1}
         className="w-[480px] max-w-[90vw] max-h-[85vh] overflow-y-auto
-          bg-neutral-surface border border-neutral-border rounded-card p-5"
+          bg-neutral-surface border border-neutral-border rounded-card p-5 focus:outline-none"
       >
         <div className="flex items-center justify-between mb-3">
           <h2 id="cheatsheet-title" className="text-[15px] font-semibold text-neutral-text-primary">
             Schedule shortcuts
           </h2>
           <button
-            ref={closeBtnRef}
             type="button"
             onClick={onClose}
             aria-label="Close shortcuts"

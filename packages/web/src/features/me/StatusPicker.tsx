@@ -12,6 +12,7 @@
 import { useEffect, useRef } from 'react';
 import type { TaskStatus } from '@/types';
 import { RadioDotIcon } from '@/components/Icons';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 const OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'NOT_STARTED', label: 'Not started' },
@@ -28,32 +29,24 @@ interface Props {
 }
 
 export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const firstOptionRef = useRef<HTMLButtonElement | null>(null);
-
   // Move keyboard focus into the picker on open so arrow keys work
-  // immediately. Esc closes; pointer-down outside closes.
+  // immediately (the trap seats the first option, which is also the first
+  // focusable in DOM order) and trap Tab inside it. Esc closes.
+  const containerRef = useFocusTrap<HTMLDivElement>(true, onClose);
+
+  // Pointer-down outside closes — distinct from the trap's Tab/Escape
+  // containment, which says nothing about pointer events.
   useEffect(() => {
-    firstOptionRef.current?.focus();
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
     const handlePointerDown = (e: PointerEvent) => {
       const target = e.target as Node | null;
       if (containerRef.current && target && !containerRef.current.contains(target)) {
         onClose();
       }
     };
-    document.addEventListener('keydown', handleKey);
     document.addEventListener('pointerdown', handlePointerDown);
-    return () => {
-      document.removeEventListener('keydown', handleKey);
-      document.removeEventListener('pointerdown', handlePointerDown);
-    };
-  }, [onClose]);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [containerRef, onClose]);
 
   return (
     <div
@@ -61,8 +54,9 @@ export function StatusPicker({ taskName, current, onSelect, onClose }: Props) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="status-picker-title"
+      tabIndex={-1}
       className="absolute z-30 mt-1 w-56 rounded-card border border-neutral-border bg-neutral-surface
-                 focus-within:ring-2 focus-within:ring-brand-primary"
+                 focus-within:ring-2 focus-within:ring-brand-primary focus:outline-none"
     >
       <div
         id="status-picker-title"

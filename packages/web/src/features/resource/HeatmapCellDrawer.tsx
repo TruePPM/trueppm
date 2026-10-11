@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { CloseIcon } from '@/components/Icons';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface Task {
   id: string;
@@ -71,7 +71,6 @@ export function HeatmapCellDrawer({
   utilPct,
   onClose,
 }: Props) {
-  const closeRef = useRef<HTMLButtonElement>(null);
   const headerId = `heatmap-drawer-${resourceId}-${weekLabel}`;
 
   // Fetch tasks for this resource in this week by querying the allocation endpoint
@@ -88,15 +87,9 @@ export function HeatmapCellDrawer({
     enabled: !!projectId && !!resourceId,
   });
 
-  // Trap focus on mount; return focus to trigger on close.
-  useEffect(() => {
-    closeRef.current?.focus();
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose]);
+  // Close button is first in DOM order, so the trap seats initial focus on
+  // it and returns focus to the trigger on close.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   const isOverAllocated = utilPct > 100;
   const weekNum = weekLabel.includes('-W') ? `W${weekLabel.split('-W')[1]}` : weekLabel;
@@ -108,11 +101,13 @@ export function HeatmapCellDrawer({
 
       {/* Drawer panel */}
       <div
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={headerId}
+        tabIndex={-1}
         className={[
-          'fixed z-50 bg-neutral-surface border-neutral-border flex flex-col',
+          'fixed z-50 bg-neutral-surface border-neutral-border flex flex-col focus:outline-none',
           // Desktop: right-side panel; Mobile: bottom sheet
           'inset-y-0 right-0 w-full sm:w-[480px] border-l',
           'md:inset-y-0 md:bottom-auto',
@@ -149,7 +144,6 @@ export function HeatmapCellDrawer({
             </span>
           )}
           <button
-            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close drawer"

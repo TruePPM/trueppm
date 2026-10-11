@@ -79,6 +79,10 @@ export function ScheduleTaskDialog({
     };
   }, []);
 
+  // focus-trap: hand-rolled Tab/Shift+Tab containment, verified correct in
+  // review (#4085) — kept rather than migrated to useFocusTrap because this
+  // dialog predates the hook and its trap already matches the hook's own
+  // wrap behavior exactly; nothing to gain from the churn.
   // Esc closes + returns focus to the trigger (caller owns focus return).
   // Tab/Shift+Tab are trapped inside the dialog.
   useEffect(() => {

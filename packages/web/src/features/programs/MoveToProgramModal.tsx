@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ROLE_ADMIN } from '@/lib/roles';
 
 interface Props {
@@ -25,24 +26,12 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<Element | null>(null);
-
-  useEffect(() => {
-    triggerRef.current = document.activeElement;
-    dialogRef.current?.focus();
-    return () => {
-      if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
-    };
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  // No field is focusable before the radio list loads, so the trap's
+  // container-fallback seat (matching the prior `dialogRef.current?.focus()`)
+  // is exactly right here. `assignProject.isPending` disables the Move
+  // button — pass it as focusKey (rule 362) so a focused-then-disabled Move
+  // re-seats rather than dropping to <body>.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, assignProject.isPending);
 
   // Eligible destinations: open programs the caller administers. The server
   // also requires ADMIN on the project; that check can only fail server-side,
@@ -78,7 +67,7 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
         aria-modal="true"
         aria-labelledby="move-program-heading"
         tabIndex={-1}
-        className="flex w-full max-w-lg flex-col rounded-card border border-neutral-border bg-neutral-surface focus:outline-none"
+        className="flex w-full max-w-lg flex-col rounded-card border border-neutral-border bg-neutral-surface focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <header className="border-b border-neutral-border p-6">
           <h2 id="move-program-heading" className="text-lg font-semibold text-neutral-text-primary">

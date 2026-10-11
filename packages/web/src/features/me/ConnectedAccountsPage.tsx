@@ -12,7 +12,8 @@
  * GitHub section (#569's Project Integrations page deep-links here).
  */
 
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useId, useState } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import {
   type IntegrationCredentialSummary,
   useIntegrationCredentials,
@@ -293,25 +294,14 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
   const descId = useId();
   const formId = useId();
   const upsert = useUpsertIntegrationCredential();
-  const secretRef = useRef<HTMLInputElement>(null);
   const [secret, setSecret] = useState('');
   const [baseUrl, setBaseUrl] = useState(provider.base_url || '');
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    secretRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onDismiss();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onDismiss]);
+  // The secret field is first in DOM order, so the trap seats initial focus
+  // on it. `upsert.isPending` disables the submit button — pass it as
+  // focusKey (rule 362) so a focused-then-disabled submit re-seats rather
+  // than dropping to <body>.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onDismiss, upsert.isPending);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -334,16 +324,21 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
   const verb = mode === 'connect' ? 'Connect' : 'Rotate';
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      aria-describedby={descId}
+      role="presentation"
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onDismiss();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md mx-4 p-5 motion-safe:animate-modal-scale-in">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        tabIndex={-1}
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none"
+      >
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
           {verb} {provider.name}
         </h2>
@@ -357,7 +352,6 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
               Personal access token
             </span>
             <input
-              ref={secretRef}
               type="password"
               required
               autoComplete="new-password"
@@ -436,35 +430,29 @@ function ConfirmAlertDialog({
 }) {
   const titleId = useId();
   const descId = useId();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onDismiss();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onDismiss]);
+  // Cancel is first in DOM order, so the trap seats initial focus on the safe
+  // action. `confirmPending` disables the confirm button — pass it as
+  // focusKey (rule 362) so a focused-then-disabled confirm re-seats rather
+  // than dropping to <body>.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onDismiss, confirmPending);
 
   return (
     <div
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      aria-describedby={descId}
+      role="presentation"
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onDismiss();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
+      <div
+        ref={dialogRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        tabIndex={-1}
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none"
+      >
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
           {title}
         </h2>
@@ -473,7 +461,6 @@ function ConfirmAlertDialog({
         </p>
         <div className="flex justify-end gap-2">
           <button
-            ref={cancelRef}
             type="button"
             onClick={onDismiss}
             className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary focus:outline-none"

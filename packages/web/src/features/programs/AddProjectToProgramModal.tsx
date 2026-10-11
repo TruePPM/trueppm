@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useProjects } from '@/hooks/useProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { Project } from '@/types';
 import {
   MethodologyFilter,
@@ -90,25 +91,11 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const searchRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<Element | null>(null);
-
-  useEffect(() => {
-    triggerRef.current = document.activeElement;
-    searchRef.current?.focus();
-    return () => {
-      if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
-    };
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  // Search input is first in DOM order, so the trap seats initial focus on it
+  // without further wiring. `assignProject.isPending` disables the Add button
+  // — pass it as focusKey (rule 362) so a focused-then-disabled Add re-seats
+  // rather than dropping to <body>.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, assignProject.isPending);
 
   const projects = allProjects ?? [];
   // Exclude projects already in this program (no-op move) — the API silently
@@ -156,7 +143,8 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-project-heading"
-        className="flex w-full max-w-lg flex-col rounded-card border border-neutral-border bg-neutral-surface"
+        tabIndex={-1}
+        className="flex w-full max-w-lg flex-col rounded-card border border-neutral-border bg-neutral-surface focus:outline-none"
       >
         <header className="border-b border-neutral-border p-6">
           <h2 id="add-project-heading" className="text-lg font-semibold text-neutral-text-primary">
@@ -175,7 +163,6 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
           </label>
           <input
             id="project-search"
-            ref={searchRef}
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}

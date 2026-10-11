@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { FormEvent, MouseEvent } from 'react';
 import { formatDrfErrorSummary } from '@/lib/apiError';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { CeremonyCadenceType, CeremonyTemplate } from '@/api/types';
 import {
   useCreateCeremony,
@@ -114,8 +115,6 @@ function buildPayload(state: FormState): CeremonyCreatePayload {
 export function CeremonyModal({ programId, ceremony, onClose, onSaved }: CeremonyModalProps) {
   const [state, setState] = useState<FormState>(() => makeInitial(ceremony));
   const [formError, setFormError] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const nameRef = useRef<HTMLInputElement>(null);
 
   const create = useCreateCeremony(programId);
   const update = useUpdateCeremony(programId);
@@ -125,15 +124,10 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
   const reservedHit = useMemo(() => isReservedScrumName(state.name), [state.name]);
   const nameInvalid = !state.name.trim() || reservedHit;
 
-  // Autofocus the name field on open; trap Escape to close.
-  useEffect(() => {
-    nameRef.current?.focus();
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !isPending) onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [isPending, onClose]);
+  // Name field is first in DOM order, so the trap seats initial focus on it.
+  // `isPending` disables Cancel/Submit — pass it as focusKey (rule 362).
+  // Escape is suppressed while pending, mirroring the prior hand-rolled guard.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, !isPending ? onClose : undefined, isPending);
 
   function update_<K extends keyof FormState>(key: K, value: FormState[K]): void {
     setState((s) => ({ ...s, [key]: value }));
@@ -171,7 +165,8 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
         role="dialog"
         aria-modal="true"
         aria-labelledby="ceremony-modal-title"
-        className="w-full max-w-[520px] rounded-card bg-neutral-surface-raised border border-neutral-border"
+        tabIndex={-1}
+        className="w-full max-w-[520px] rounded-card bg-neutral-surface-raised border border-neutral-border focus:outline-none"
       >
         <header className="px-5 py-3 border-b border-neutral-border/55">
           <h2
@@ -204,7 +199,8 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
               </span>
             </label>
             <input
-              ref={nameRef}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- modal: focus the first input on open per dialog UX convention
+              autoFocus
               id="ceremony-name"
               type="text"
               value={state.name}

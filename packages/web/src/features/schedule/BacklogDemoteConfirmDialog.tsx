@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface Props {
   onConfirm: () => void;
@@ -10,29 +10,21 @@ interface Props {
  * IN_PROGRESS, REVIEW, or COMPLETE requires explicit acknowledgment.
  */
 export function BacklogDemoteConfirmDialog({ onConfirm, onCancel }: Props) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCancel();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Cancel is first in DOM order, so the trap seats initial focus on the safe
+  // action. Escape routes to Cancel.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-neutral-overlay" aria-hidden="true" onClick={onCancel} />
       <div
+        ref={trapRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="demote-title"
         aria-describedby="demote-desc"
-        className="relative z-10 rounded-card bg-neutral-surface border border-neutral-border shadow-none p-6 w-[340px]"
+        tabIndex={-1}
+        className="relative z-10 rounded-card bg-neutral-surface border border-neutral-border shadow-none p-6 w-[340px] focus:outline-none"
       >
         <h2 id="demote-title" className="text-sm font-semibold text-neutral-text-primary mb-2">
           Move to Backlog?
@@ -42,7 +34,6 @@ export function BacklogDemoteConfirmDialog({ onConfirm, onCancel }: Props) {
         </p>
         <div className="flex justify-end gap-2">
           <button
-            ref={cancelRef}
             type="button"
             onClick={onCancel}
             className="border border-neutral-border rounded-control h-8 px-4 text-xs font-medium text-neutral-text-primary

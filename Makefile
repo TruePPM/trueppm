@@ -319,6 +319,14 @@ focus-trap-focuskey-check: ## Fail if a dialog disables its own controls mid-req
 	@bash scripts/check-focus-trap-focuskey.sh --self-test
 	@bash scripts/check-focus-trap-focuskey.sh
 
+aria-modal-focus-trap-check: ## Fail if aria-modal="true"/{true} has no focus trap pairing (#4085, #2193 class, #4125)
+	@# A dialog that declares aria-modal="true" with no useFocusTrap import, no
+	@# `// focus-trap: <reason>` waiver, and no <BottomSheet> shell lets Tab leak
+	@# behind the scrim (WCAG 2.4.3 / 2.1.2). #2193 found ~17 instances by hand;
+	@# #4085 found 14 more with no gate to catch the next one.
+	@bash scripts/check-aria-modal-focus-trap.sh --self-test
+	@bash scripts/check-aria-modal-focus-trap.sh
+
 summary-duration-units-check: ## Fail if a CPM write-back assigns a summary duration from a day count (#3530)
 	@# A calendar-day span written into a field every consumer reads as working
 	@# days — a ~1.4x inflation on every recompute, 49 of 50 summary rows in dev.
@@ -686,6 +694,7 @@ pre-push-checks: dropdown-scroll-check
 pre-push-checks: hover-reveal-focus-check
 pre-push-checks: anchored-popover-check
 pre-push-checks: focus-trap-focuskey-check
+pre-push-checks: aria-modal-focus-trap-check
 pre-push-checks: adr-status-check
 pre-push-checks: version-status-check
 pre-push-checks: config-doc-links-check

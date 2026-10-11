@@ -1,5 +1,5 @@
 /**
- * E2E for the shared `useFocusTrap` migration (#2148 / #2193).
+ * E2E for the shared `useFocusTrap` migration (#2148 / #2193 / #4085).
  *
  * A generation of aria-modal dialogs hand-rolled (or omitted) focus handling, so
  * Tab walked out behind the scrim and focus was never restored to the trigger on
@@ -9,6 +9,12 @@
  * it drives one representative migrated dialog (the ⌘K command palette) end to
  * end and asserts the three things a real trap must do: seat focus inside on
  * open, keep Tab from escaping, and restore focus to the trigger on close.
+ *
+ * #4085 (the #2193 class recurring, 14 fresh instances) adds two more
+ * representative dialogs below, per #2211's keyboard-journey ask: a
+ * single-state confirm (`MoveProgramDialog`, trap container = the scrim) and
+ * a multi-state dialog whose body swaps entirely (`PersonalAccessTokensPage`'s
+ * create → one-time-reveal dialog), covering both of #4085's migration shapes.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll, setupTaskStore } from './fixtures';
@@ -170,6 +176,197 @@ const DEP_PROJECT = {
   program: 'trap-prog-3208',
   program_detail: { id: 'trap-prog-3208', name: 'Trap Program' },
 };
+
+const MOVE_PROGRAM_PROJECT_ID = 'e2e-trap-move-0000-0000-000000004085';
+
+const MOVE_PROGRAM_PROJECT = {
+  id: MOVE_PROGRAM_PROJECT_ID,
+  server_version: 1,
+  name: 'Keyboard Trap Migration',
+  description: '',
+  start_date: '2026-04-01',
+  status_date: null,
+  prioritization_model: 'none',
+  stale_task_threshold_days: 14,
+  end_date_shift_threshold_days: 3,
+  calendar: 'cal-default',
+  calendar_source: 'project',
+  effective_calendar: { id: 'cal-default', name: 'Workspace standard', working_days: 31, hours_per_day: 8 },
+  estimation_mode: 'open',
+  agile_features: false,
+  methodology: 'HYBRID',
+  code: 'TRAP',
+  health: 'ON_TRACK',
+  visibility: 'WORKSPACE',
+  timezone: 'Europe/London',
+  default_view: 'BOARD',
+  public_sharing: null,
+  allow_guests: null,
+  effective_public_sharing: false,
+  effective_allow_guests: true,
+  inherited_public_sharing: false,
+  inherited_allow_guests: true,
+  program: null,
+  program_detail: null,
+};
+
+const MOVE_PROGRAM_PROGRAMS = [
+  { id: 'prog-beacon', name: 'Beacon', my_role: 300, is_closed: false },
+];
+
+/**
+ * Representative dialog #1 of #4085's migration: a confirm-style modal whose
+ * trap container IS the full-viewport scrim (`MoveProgramDialog.tsx`) — the
+ * common idiom rule 419 describes, safe here because Cancel is never
+ * disabled.
+ */
+test.describe('aria-modal pairing migration — settings MoveProgramDialog (#4085, #2211)', () => {
+  test('Tab and Shift+Tab both stay inside the dialog', async ({ page }) => {
+    const pj = (data: unknown) => JSON.stringify(data);
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm-auth',
+        JSON.stringify({
+          state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+          version: 0,
+        }),
+      );
+    });
+    await setupCatchAll(page);
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ id: 'u-alice', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com' }),
+      }),
+    );
+    await page.route('**/api/v1/edition/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
+    );
+    await page.route('**/api/v1/programs/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ results: MOVE_PROGRAM_PROGRAMS, count: MOVE_PROGRAM_PROGRAMS.length, next: null, previous: null }),
+      }),
+    );
+    await page.route('**/api/v1/projects/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ results: [MOVE_PROGRAM_PROJECT], count: 1, next: null, previous: null }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${MOVE_PROGRAM_PROJECT_ID}/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(MOVE_PROGRAM_PROJECT) }),
+    );
+    await page.route(`**/api/v1/projects/${MOVE_PROGRAM_PROJECT_ID}/members/**`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ id: 'membership-self', role: 300 }]) }),
+    );
+
+    await page.goto(`/projects/${MOVE_PROGRAM_PROJECT_ID}/settings/general`);
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible({ timeout: 10_000 });
+    await section.getByRole('button', { name: /add to program/i }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Move to a program' });
+    await expect(dialog).toBeVisible();
+    // Seat: Cancel is first in DOM order and gets initial focus.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+
+    await expectFocusStaysInside(page, dialog);
+  });
+});
+
+const PAT_ME = {
+  id: 'u-alice',
+  username: 'alice',
+  display_name: 'Alice',
+  initials: 'AL',
+  email: 'alice@example.com',
+};
+
+/**
+ * Representative dialog #2 of #4085's migration: a multi-state dialog
+ * (`PersonalAccessTokensPage.tsx`'s `CreateTokenDialog`) that swaps its whole
+ * body from a create form to a one-time reveal — the `focusKey` re-seat case
+ * rule 245/362 describe, distinct from dialog #1's single-state shape above.
+ */
+test.describe('aria-modal pairing migration — PersonalAccessTokensPage create dialog (#4085, #2211)', () => {
+  test('Tab and Shift+Tab both stay inside the dialog, across the create→reveal state swap', async ({
+    page,
+  }) => {
+    const pj = (data: unknown) => JSON.stringify(data);
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm-auth',
+        JSON.stringify({
+          state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+          version: 0,
+        }),
+      );
+    });
+    await setupCatchAll(page);
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(PAT_ME) }),
+    );
+    await page.route('**/api/v1/me/work/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 0, next: null, previous: null, results: [] }) }),
+    );
+    await page.route('**/api/v1/me/api-tokens/', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: pj({
+            id: 'tok-new',
+            name: 'CI token',
+            token: 'tppm_the_only_reveal_0123456789abcdef',
+            token_prefix: 'tppm_abc',
+            scopes: ['legacy:full'],
+            created_at: '2026-06-01T00:00:00Z',
+            last_used_at: null,
+            expires_at: null,
+            revoked_at: null,
+            is_revoked: false,
+            is_expired: false,
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ count: 0, next: null, previous: null, results: [] }),
+      });
+    });
+
+    await page.goto('/me/settings/api-tokens');
+    await expect(page.getByRole('heading', { name: 'Personal access tokens' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await page.getByRole('button', { name: 'Create token' }).click();
+
+    const dialog = page.getByRole('dialog', { name: /Create personal access token/i });
+    await expect(dialog).toBeVisible();
+    // Seat: the Name field is first in DOM order and gets initial focus.
+    await expect(dialog.getByLabel('Name')).toBeFocused();
+    await expectFocusStaysInside(page, dialog, { steps: 6 });
+
+    // Swap state: create → one-time reveal. The trap's `focusKey` must
+    // re-seat into the new content, and the trap must still hold.
+    await dialog.getByLabel('Name').fill('CI token');
+    await dialog.getByRole('button', { name: 'Create token' }).click();
+    await expect(page.getByText(/only time you.*see this token/i)).toBeVisible();
+    // The reveal swaps the dialog's accessible name too (#4085's
+    // `aria-labelledby` fix keeps it POINTING at a real heading across the
+    // swap, but that heading's own text is now "Token created…", not
+    // "Create personal access token") — re-locate by role alone; only one
+    // dialog is ever on the page.
+    const revealedDialog = page.getByRole('dialog');
+    await expectFocusStaysInside(page, revealedDialog, { steps: 4 });
+  });
+});
 
 test.describe('dependency picker focus trap (#3208)', () => {
   // A LATENT-instance guard, not a reproduction — and the distinction is
