@@ -42,6 +42,25 @@
 #   6. CONTROL   — with the policy REMOVED, probe 3 succeeds. Without this, a
 #      cluster that silently dropped all pod traffic for an unrelated reason
 #      would look like a passing drill.
+#   7. POSITIVE  — the `-api-ingress` policy's `component: test` peer (the
+#      `helm test` connection-probe Pod, #4018): `helm test` is run for real
+#      against this cluster and must succeed. NEGATIVE counterpart — a pod
+#      carrying the `component: test` label alone, without the chart's own
+#      name/instance labels, is denied, proving the peer needs the full
+#      podSelector match and not the component label in isolation.
+#   8. POSITIVE  — the `-api-ingress` policy's `networkPolicy.monitoringSelector`
+#      peer (in-cluster health scrapes / Blackbox probe, #4001): a pod in a
+#      namespace matching a representative `monitoringSelector` reaches the api
+#      Service directly. NEGATIVE counterpart — an unlabeled pod in the
+#      release's own namespace, probed the same way, is denied, so the positive
+#      result is attributable to the namespace selector and not to some wider
+#      hole in the api-ingress policy.
+#
+# #4372 added 7 and 8: both peers were allow-listed in templates/networkpolicy.yaml
+# by code-reading only — nothing in this drill had ever set monitoringSelector or
+# probed from a monitoring-labeled pod, and `helm test` only ran under kind's
+# default (non-enforcing-by-assumption) CNI in scripts/helm-install-drill.sh, never
+# here under Calico.
 #
 # How a verdict is measured, and why the two directions are not symmetric: a CNI
 # denies by DROPPING the packet, so "denied" can only ever be inferred from silence
@@ -338,16 +357,33 @@ kubectl get networkpolicy "${RELEASE}-postgresql" >/dev/null 2>&1 \
 kubectl get networkpolicy "${RELEASE}-valkey" >/dev/null 2>&1 \
   || fail "NetworkPolicy ${RELEASE}-valkey absent"
 
+# The namespace the release actually landed in, and the api Service's live
+# port — resolved from the cluster rather than assumed, since #4372's
+# monitoringSelector probe has to cross namespaces and therefore needs a fully
+# qualified Service name (<svc>.<namespace>.svc.cluster.local).
+app_ns="$(kubectl config view --minify -o jsonpath='{..namespace}' 2>/dev/null)"
+app_ns="${app_ns:-default}"
+api_port="$(kubectl get svc "$api_svc" -o jsonpath='{.spec.ports[0].port}')"
+[ -n "$api_port" ] || fail "could not resolve the api Service's port"
+
 # ---- probe helper ----------------------------------------------------------
 # Runs a one-shot busybox pod carrying the given labels and reports whether it
 # could open host:port. Echoes "ALLOWED" or "DENIED"; never fails the script
 # itself, so callers assert the expectation.
+#
+# An optional 5th arg is the namespace to run the probe pod in (default: the
+# current context namespace, i.e. the same namespace the release is installed
+# into). Added for #4372's monitoringSelector probe, which has to originate
+# from a pod in a DIFFERENT namespace — the selector it exercises is a
+# namespaceSelector, so a same-namespace pod could never discriminate it.
 probe() {
-  local name="$1" labels="$2" host="$3" port="$4"
-  kubectl delete pod "$name" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  local name="$1" labels="$2" host="$3" port="$4" ns="${5:-}"
+  local ns_args=()
+  [ -n "$ns" ] && ns_args=(-n "$ns")
+  kubectl delete pod "${ns_args[@]}" "$name" --ignore-not-found --wait=true >/dev/null 2>&1 || true
   local overrides
   overrides="$(printf '{"metadata":{"labels":%s}}' "$labels")"
-  if grep -q __OPEN__ <<<"$(kubectl run "$name" \
+  if grep -q __OPEN__ <<<"$(kubectl run "${ns_args[@]}" "$name" \
       --image="$PROBE_IMAGE" --image-pull-policy=IfNotPresent --restart=Never \
       --overrides="$overrides" \
       --attach --rm --quiet \
@@ -366,10 +402,10 @@ probe() {
 # second attempt on every run is a cluster degrading toward a real failure, and the
 # whole defect this fixes was a measurement that hid its own uncertainty.
 probe_until_allowed() {
-  local name="$1" labels="$2" host="$3" port="$4"
+  local name="$1" labels="$2" host="$3" port="$4" ns="${5:-}"
   local got attempt=1
   while :; do
-    got="$(probe "$name" "$labels" "$host" "$port")"
+    got="$(probe "$name" "$labels" "$host" "$port" "$ns")"
     if [ "$got" = "ALLOWED" ]; then
       if [ "$attempt" -gt 1 ]; then
         note "  ${host}:${port} connected on attempt ${attempt}/${PROBE_ALLOW_ATTEMPTS} — slow, not denied (#2647)"
@@ -388,13 +424,13 @@ probe_until_allowed() {
 }
 
 expect_probe() {
-  local want="$1" desc="$2" name="$3" labels="$4" host="$5" port="$6"
+  local want="$1" desc="$2" name="$3" labels="$4" host="$5" port="$6" ns="${7:-}"
   local got detail=""
   if [ "$want" = "ALLOWED" ]; then
-    got="$(probe_until_allowed "$name" "$labels" "$host" "$port")"
+    got="$(probe_until_allowed "$name" "$labels" "$host" "$port" "$ns")"
     detail=" after ${PROBE_ALLOW_ATTEMPTS} attempts"
   else
-    got="$(probe "$name" "$labels" "$host" "$port")"
+    got="$(probe "$name" "$labels" "$host" "$port" "$ns")"
   fi
   if [ "$got" != "$want" ]; then
     fail "$desc — expected ${want}, got ${got}${detail} (${host}:${port})"
@@ -483,6 +519,61 @@ expect_probe DENIED "negative: web-labeled pod denied PostgreSQL (component scop
   netpol-neg-web-pg "{${CLIENT_BASE},\"app.kubernetes.io/component\":\"web\"}" "$PG_SVC" 5432
 expect_probe DENIED "negative: web-labeled pod denied Valkey (component scoping holds)" \
   netpol-neg-web-vk "{${CLIENT_BASE},\"app.kubernetes.io/component\":\"web\"}" "$VK_SVC" 6379
+
+# ---- 8b. POSITIVE: the `-api-ingress` policy's `component: test` peer
+#          (#4018, #4372) ----------------------------------------------------
+# The peer this proves is the `helm test` connection-probe Pod itself
+# (templates/tests/api-connection.yaml), so run the real thing against this
+# Calico-enforcing cluster rather than re-simulating its labels with a
+# stand-in — it is strictly more faithful, and it is the exact path #4018
+# describes breaking under an enforcing CNI. demo.enabled/demo.interactive are
+# still false here, so this is the only `helm test` hook that renders; running
+# `helm test` again after the demo.interactive upgrade below would also
+# invoke the share-link and read-only demo hooks, which exercise the
+# web-ingress policy, not this one.
+log "running 'helm test' against the Calico-enforcing cluster (component:test peer, #4018, #4372)"
+if ! helm test "$RELEASE" --timeout "$INSTALL_TIMEOUT" --logs; then
+  fail "'helm test' failed under enforcement — the api-ingress component:test peer may not be admitting the probe pod (#4018)"
+fi
+log "OK [ALLOWED] helm test connection probe reached the api Service"
+
+# NEGATIVE counterpart: the podSelector for this peer matches the chart's own
+# name/instance labels AND component:test together — a pod carrying only the
+# component label, without the name/instance labels the real test Pod also
+# carries, must still be denied. Without this, an allow-list that matched on
+# the component label alone (decorative name/instance matching) would have
+# passed the positive probe above for the wrong reason.
+expect_probe DENIED "negative: component=test label alone (no chart name/instance) denied api http — podSelector needs the full match (#4372)" \
+  netpol-neg-test-label-only '{"app.kubernetes.io/component":"test"}' "$api_svc" "$api_port"
+
+# ---- 8c. POSITIVE: the `-api-ingress` policy's
+#          `networkPolicy.monitoringSelector` peer (#4001, #4372) ------------
+# Set the selector to the exact shape values.yaml and README document — a
+# namespaceSelector with no podSelector, which (per Kubernetes NetworkPolicy
+# semantics) admits every pod in a matching namespace — then probe from a pod
+# that actually sits in such a namespace.
+log "creating 'monitoring' namespace for the monitoringSelector probe (#4372)"
+kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+log "setting networkPolicy.monitoringSelector and asserting the scrape peer is admitted (#4001, #4372)"
+helm upgrade "$RELEASE" "$CHART" \
+  --reuse-values \
+  --set-json 'networkPolicy.monitoringSelector={"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"monitoring"}}}' \
+  --wait --timeout "$INSTALL_TIMEOUT"
+grep -q "kubernetes.io/metadata.name: monitoring" <<<"$(kubectl get networkpolicy "${RELEASE}-api-ingress" -o yaml)" \
+  || fail "api-ingress NetworkPolicy does not carry the monitoringSelector peer after the upgrade"
+
+api_fqdn="${api_svc}.${app_ns}.svc.cluster.local"
+expect_probe ALLOWED "positive: pod in the monitoring namespace reaches api http (monitoringSelector, #4001)" \
+  netpol-pos-monitoring '{}' "$api_fqdn" "$api_port" monitoring
+
+# NEGATIVE counterpart: an unlabeled pod in the release's OWN namespace, probed
+# the exact same way (same FQDN, same port), must still be denied — otherwise
+# the ALLOWED result above could be explained by some wider hole in
+# api-ingress rather than by the namespaceSelector actually discriminating on
+# namespace membership.
+expect_probe DENIED "negative: unlabeled pod in the release namespace denied api http — monitoringSelector does not admit it (#4372)" \
+  netpol-neg-monitoring-wrong-ns '{}' "$api_fqdn" "$api_port" "$app_ns"
 
 # ---- 9. EGRESS: datastore pods cannot dial out ----------------------------
 # `egress: []` with Egress in policyTypes is a default-deny. Probe an in-cluster
