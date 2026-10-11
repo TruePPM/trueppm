@@ -109,6 +109,10 @@ describe('boot-guard', () => {
     online = false;
     expect(guard._handleFailure(script('/assets/index-abc.js'))).toBe('notice');
     expect(schedule).not.toHaveBeenCalled();
+    // Offline is not a rollout, so the notice must not claim one.
+    const notice = document.getElementById('trueppm-boot-notice');
+    expect(notice?.textContent).toContain('You appear to be offline');
+    expect(notice?.textContent).not.toContain('being updated');
   });
 
   it('shows the notice when storage throws, since no reload budget can be kept', () => {
@@ -137,8 +141,10 @@ describe('boot-guard', () => {
   });
 
   it('renders an accessible notice whose Reload button clears the budget', () => {
-    online = false;
-    sessionStorage.setItem(guard.STORAGE_KEY, JSON.stringify({ n: 1, t: now }));
+    sessionStorage.setItem(
+      guard.STORAGE_KEY,
+      JSON.stringify({ n: guard.RELOAD_DELAYS_MS.length, t: now }),
+    );
     guard._handleFailure(script('/assets/index-abc.js'));
     const notice = document.getElementById('trueppm-boot-notice');
     expect(notice?.getAttribute('role')).toBe('alert');

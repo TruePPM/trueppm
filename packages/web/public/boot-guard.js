@@ -93,7 +93,7 @@
 
   // Plain DOM with styles set through CSSOM: the app's stylesheet may be the
   // asset that failed, and textContent keeps the notice free of any markup.
-  function showNotice() {
+  function showNotice(offline) {
     if (document.getElementById(NOTICE_ID)) return;
     var host = document.getElementById('root') || document.body;
     if (!host) return;
@@ -102,6 +102,10 @@
     box.setAttribute('role', 'alert');
     // Explicit colors: theme-init.js may already have set .dark, and the app's
     // stylesheet (which would style the page for it) may be what failed.
+    // A 16px side gutter at phone width: the width leaves 1rem each side and
+    // the max-width caps it on wider screens.
+    box.style.boxSizing = 'border-box';
+    box.style.width = 'calc(100% - 2rem)';
     box.style.maxWidth = '32rem';
     box.style.margin = '4rem auto';
     box.style.padding = '1.5rem';
@@ -111,12 +115,13 @@
     box.style.fontFamily = 'system-ui, -apple-system, "Segoe UI", sans-serif';
     box.style.lineHeight = '1.5';
     var heading = document.createElement('h1');
-    heading.textContent = 'TruePPM is being updated';
+    heading.textContent = offline ? 'You appear to be offline' : 'TruePPM is being updated';
     heading.style.fontSize = '1.25rem';
     heading.style.margin = '0 0 0.5rem';
     var body = document.createElement('p');
-    body.textContent =
-      'Part of the app could not be loaded, which usually means a new version is being rolled out. Reload in a moment to continue.';
+    body.textContent = offline
+      ? 'TruePPM could not load. Check your connection, then reload.'
+      : 'Part of the app could not be loaded, which usually means a new version is being rolled out. Reload in a moment to continue.';
     body.style.margin = '0 0 1rem';
     var button = document.createElement('button');
     button.type = 'button';
@@ -164,12 +169,16 @@
     handled = true;
     var now = deps.now();
     var attempts = readAttempts(now);
-    if (attempts < 0 || attempts >= RELOAD_DELAYS_MS.length || !deps.isOnline()) {
-      showNotice();
+    if (!deps.isOnline()) {
+      showNotice(true);
+      return 'notice';
+    }
+    if (attempts < 0 || attempts >= RELOAD_DELAYS_MS.length) {
+      showNotice(false);
       return 'notice';
     }
     if (!writeAttempts(attempts + 1, now)) {
-      showNotice();
+      showNotice(false);
       return 'notice';
     }
     deps.schedule(deps.reload, RELOAD_DELAYS_MS[attempts]);
