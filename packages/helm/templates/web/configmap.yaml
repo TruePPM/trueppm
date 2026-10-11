@@ -136,6 +136,13 @@ data:
             add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
         }
 
+        # Build-specific readiness sentinel (#4359) — same reasoning and the
+        # same `=404` (never a fallback to index.html) as the production
+        # block below.
+        location = /asset-manifest.json {
+            try_files $uri =404;
+        }
+
         # Unlike the share-link block below, `/` is NOT redirected here — this
         # mode's whole point is a visitor who lands on the login page and signs
         # in, so the SPA fallback serves it directly.
@@ -358,6 +365,13 @@ data:
             add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
         }
 
+        # Build-specific readiness sentinel (#4359) — same reasoning and the
+        # same `=404` (never a fallback to index.html) as the production
+        # block below.
+        location = /asset-manifest.json {
+            try_files $uri =404;
+        }
+
         location / {
             try_files $uri $uri/ /index.html;
         }
@@ -578,6 +592,27 @@ data:
             {{- with (include "trueppm.webSecurityHeaderAddLines" $ | trimSuffix "\n") }}
             {{- . | nindent 12 }}
             {{- end }}
+        }
+
+        # Build-specific readiness sentinel (#4359). The web Deployment's
+        # readinessProbe asks for this path instead of `/` because the SPA
+        # fallback just below answers EVERY unmatched path with index.html as
+        # long as nginx is up at all — proving only "nginx is running," not
+        # that this pod's html root holds a real build. (NOT a proxy-upstream
+        # check: a bad `proxy_pass` host already fails nginx's config load at
+        # startup, crash-looping the pod before any probe could reach it
+        # either way.) asset-manifest.json is Vite's build manifest
+        # (vite.config.ts's `build.manifest`), written at the html root by
+        # THIS image's own build: the Dockerfile's ADR-1249/#4341
+        # prior-release-assets stage only ever copies a previous release's
+        # files into assets/, never to the html root, so this file can never
+        # be a carried-over prior release's. `=404`, not a fallback to
+        # index.html — a missing manifest must fail the probe the same way a
+        # missing asset does, not silently pass it the way `/` would. This
+        # proves the html root is THIS image's build, not that every chunk
+        # the manifest names is actually present and intact.
+        location = /asset-manifest.json {
+            try_files $uri =404;
         }
 
         # SPA fallback — all unmatched routes serve index.html.

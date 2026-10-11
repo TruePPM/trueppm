@@ -680,6 +680,25 @@ them back or re-mint the token under a member account. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 
+### Upgrading across the #4359 readiness-probe change
+
+**Helm only — sets a floor on the `web` image, not just the chart.** The web
+pod's readiness probe moved from `GET /` to `GET /asset-manifest.json`, a
+build-specific file Vite writes at the html root (#4359). An image built from
+`v0.4.0-beta.7` or earlier has no `asset-manifest.json` at its html root — it
+predates the file's existence — so that probe path 404s unconditionally and
+the web pod never turns Ready. On a **fresh install**, this means no web
+endpoints join the Service at all; on an **upgrade with `--wait`**, the
+command hangs until it times out. There is no per-tier tag knob — both the
+`api` and `web` images resolve the same `image.tag` (`trueppm.imageTag`,
+`packages/helm/templates/_helpers.tpl`) — so this can only happen by
+explicitly overriding `image.tag` to `v0.4.0-beta.7` or earlier on a chart
+version that already carries #4359's `deployment.yaml`; leaving `image.tag`
+at its default (which resolves to the chart's own `appVersion`) is
+unaffected. The only other way to hit this is pointing `image.webRepository`
+at an old `web` image some other way the chart does not model, such as a
+pinned digest or a mirror that serves a stale tag.
+
 ---
 
 ## Upgrading to 0.3
@@ -1001,9 +1020,10 @@ rollback that is still stuck.
 **Across a release that added migrations, the three tiers do not roll back
 together — read this before you run it:**
 
-- **Web rolls back immediately.** The web tier's readiness probe only checks `/`
-  (`packages/helm/templates/web/deployment.yaml`); it does not gate on the api's
-  version. At `replicaCount` >= 2 the rollback is an ordinary rolling update in
+- **Web rolls back immediately.** The web tier's readiness probe checks
+  `/asset-manifest.json` (a build-specific sentinel, #4359), not any
+  api-dependent path (`packages/helm/templates/web/deployment.yaml`); it does
+  not gate on the api's version. At `replicaCount` >= 2 the rollback is an ordinary rolling update in
   reverse, so old- and new-release web pods serve together for the few seconds
   the rollout takes — the same mixed-asset mechanism as a forward upgrade (see
   [cause 4](/administration/troubleshooting/#the-browser-shows-a-blank-page) and

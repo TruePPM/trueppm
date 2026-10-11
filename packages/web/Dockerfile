@@ -73,6 +73,36 @@ FROM ${DOCKERHUB_PREFIX}/nginxinc/nginx-unprivileged:alpine@sha256:b9241c6e7b8e9
 USER root
 RUN apk upgrade --no-cache
 
+# worker_shutdown_timeout (#4359): a MAIN-context nginx directive, so it
+# cannot live in the chart-mounted/compose-mounted default.conf (included
+# inside this file's `http {}` block — setting it there is a hard config
+# error). It is inserted here, into the base image's own /etc/nginx/nginx.conf,
+# with sed rather than a wholesale COPY-replacement, so this stays a one-line
+# diff against the vendor's file instead of a config this project must keep
+# in sync with nginx-unprivileged's own upstream changes (mime types, log
+# format, temp paths, ...).
+#
+# Why it is needed at all: the chart's PRODUCTION web ConfigMap branch
+# (configmap.yaml's `else` block, and the image-direct nginx.conf) proxies
+# /ws/ with proxy_read_timeout 86400s — the two demo branches 404 it instead,
+# so they carry no WebSocket traffic and are unaffected either way. Whether
+# the production branch's /ws/ proxy actually sees live traffic depends on
+# topology: values.yaml's documented default Ingress routes /ws straight to
+# the api Service, bypassing the web pod's nginx entirely — this directive
+# matters on a topology that instead routes /ws through the web tier (no
+# Ingress, or an Ingress/LB configured to do so). On such a topology, the
+# base image's inherited `STOPSIGNAL SIGQUIT` triggers a graceful shutdown
+# that, with no bound, waits for open connections to close on their own, so a
+# terminating pod with live WebSocket viewers held those sockets open until
+# Kubernetes' termination grace period (30s for the web tier, minus the 5s
+# preStop sleep that runs before SIGQUIT is even sent — see values.yaml's
+# lifecycle.web) ran out and SIGKILLed the process: the connection's TCP
+# socket drops with no WebSocket close frame either way (close code 1006 on
+# the client), just later. 20s bounds that drain window inside the 25s that
+# remains after preStop, so the SIGKILL case is reached sooner and more
+# predictably rather than always eating the full remaining grace.
+RUN sed -i '1i worker_shutdown_timeout 20s;' /etc/nginx/nginx.conf
+
 # Prior release's assets first, then this build on top. Content-hashed names
 # mean a file in both is byte-identical, so the order only matters for the
 # root files (index.html, asset-manifest.json, asset-files.json), which come from this build

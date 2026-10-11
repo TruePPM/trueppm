@@ -99,7 +99,7 @@ no new structure, because none of them is keyed by tier.
 | `processes.api.workers` | `1` | Uvicorn worker processes per API pod (`--workers`). `1` is the shipped image's own single-process behavior, unchanged. Each additional worker is its own process (~160 MiB resident, measured) counted against `resources.api.limits.memory`, and holds its own persistent PostgreSQL connection (`CONN_MAX_AGE=600` under `ATOMIC_REQUESTS` in `trueppm_api.settings.prod`) — so `replicaCount x processes.api.workers` counts against PostgreSQL's `max_connections` ([#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275)). On Kubernetes, `replicaCount` buys the same throughput and redundancy besides, which a second worker in the same pod does not — prefer replicas; see [Raising the uvicorn worker count](/administration/sizing/#raising-the-uvicorn-worker-count). Must be `>= 1`; the render fails rather than passing `0` through to uvicorn. |
 | `image.repository` | `registry.gitlab.com/trueppm/trueppm/api` | API container image. |
 | `image.webRepository` | `registry.gitlab.com/trueppm/trueppm/web` | Web (nginx SPA) image; shares `tag`/`pullPolicy` with the API so a release deploys a matching pair. |
-| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks, resolving to `v<appVersion>` (for example `v0.4.0-beta.4`) — the tag form on the default GitLab registry, where the `v` is part of the tag, not decoration. GHCR uses the bare version instead; see [Image tags differ by registry](#image-tags-differ-by-registry). Override per-deploy with a concrete tag, which is used verbatim. |
+| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks, resolving to `v<appVersion>` (for example `v0.4.0-beta.4`) — the tag form on the default GitLab registry, where the `v` is part of the tag, not decoration. GHCR uses the bare version instead; see [Image tags differ by registry](#image-tags-differ-by-registry). Override per-deploy with a concrete tag, which is used verbatim. **Floor: a web image published after #4359 lands.** A `web` image from `v0.4.0-beta.7` or earlier has no `asset-manifest.json` at its html root (the readiness probe's path added by #4359), so pinning one 404s the web pod's readiness forever — see [Upgrading across the #4359 readiness-probe change](/getting-started/upgrade/#upgrading-across-the-4359-readiness-probe-change). |
 | `image.pullPolicy` | `IfNotPresent` | Standard Kubernetes pull policy. |
 
 ### Image tags differ by registry
@@ -313,7 +313,7 @@ the values reference; that page is the troubleshooting guide.
 | `probes.worker.readiness.*` | initial delay `15`, every `15`s, `failureThreshold: 3`, `staleSeconds: 30` | **No longer `celery inspect ping`** (0.4, #3236, #3346) — it stats the heartbeat file above and fails once it is older than `staleSeconds`. The file is refreshed by Celery's own `heartbeat_sent` signal on a fixed ~2s timer, independent of task load, so — unlike the pre-0.4 ping-based check — this probe cannot be starved by a busy worker. |
 | `probes.beat.liveness.*` | initial delay `30`, ping every `60`s, `failureThreshold: 5` | Beat's ping targets broker reachability (the fleet, not its own node); the generous threshold avoids restarts on a brief worker blip. Beat renders a liveness probe only, so there is no `probes.beat.readiness`. |
 | `probes.worker.*` / `probes.beat.*` flat keys | _(empty)_ | Shared override applied across that component's probes — see [Tuning celery probes apart](#tuning-celery-probes-apart). |
-| `probes.web.readiness*/liveness*Seconds` | 5/10, 10/30 | **Added in 0.4.** Initial-delay and period tuning for the web (nginx) tier's `GET /` probes — previously hardcoded in the chart. No startup key: the container serves a pre-built static bundle, so there is no boot-time dependency for a startup probe to cover. |
+| `probes.web.readiness*/liveness*Seconds` | 5/10, 10/30 | **Added in 0.4.** Initial-delay and period tuning for the web (nginx) tier's probes — previously hardcoded in the chart. No startup key: the container serves a pre-built static bundle, so there is no boot-time dependency for a startup probe to cover. The *path* is not a value — readiness checks `GET /asset-manifest.json` (a build-specific file proving the html root holds THIS image's own build, not a proxy-upstream check — see [web (nginx)](/administration/probes/#web-nginx)), while liveness stays on `GET /` (#4359). |
 
 ### Tuning celery probes apart
 
@@ -465,6 +465,51 @@ collaboration sockets.
 | `lifecycle.beat.terminationGracePeriodSeconds` | `30` | Beat holds no request; it just writes its schedule shelve. |
 | `lifecycle.web.terminationGracePeriodSeconds` | `30` | nginx finishes in-flight responses. |
 | `lifecycle.web.preStopSleepSeconds` | `5` | Same endpoint-deregistration race as the API. |
+
+**The web tier also bakes a fixed `worker_shutdown_timeout 20s;` into the
+image's nginx.conf (#4359), not a chart value.** Only the chart's PRODUCTION
+web ConfigMap branch (`configmap.yaml`'s `else` block) proxies `/ws/` with
+`proxy_read_timeout 86400s` — both demo branches `return 404` for `/ws/`
+instead and carry no WebSocket traffic either way. Whether that production
+`/ws/` proxy ever sees live traffic depends on topology:
+[`ingress.hosts`](#ingress)'s documented default routes `/ws` straight to the
+api Service, bypassing the web pod's nginx entirely; this directive matters
+on a topology that instead routes `/ws` through the web tier (no Ingress, or
+one configured to do so). On such a topology, the base image
+(`nginx-unprivileged`) stops on `SIGQUIT` — a graceful shutdown that, with no
+bound, waits for open connections to close on their own — so a terminating
+pod with live WebSocket viewers held those sockets open until the full
+termination grace ran out and Kubernetes SIGKILLed it. Either way the client
+sees an abrupt close (code `1006`; nginx does not send a WebSocket close
+frame on this path), so the fix is not about the close code — it is a bounded
+drain time: nginx now closes those connections itself within 20s instead of
+potentially riding out the full remaining grace, so the pod's own shutdown
+(and the next rollout step) is not held hostage to however long a client
+happens to stay connected. 20s leaves a 5s margin inside the 25s that remains
+after `lifecycle.web.preStopSleepSeconds` (5s) is subtracted from
+`lifecycle.web.terminationGracePeriodSeconds` (30s). `worker_shutdown_timeout`
+is a main-context nginx directive — it cannot live in the chart-mounted
+`default.conf`, which is included inside nginx's `http {}` block — so it is
+set once, in the `trueppm/web` image's own `nginx.conf`.
+
+**This reaches Helm (and a bare `docker run` of the image) but not Docker
+Compose.** Under the chart, the web Deployment's container runs this image's
+nginx directly, so the fix applies. Under both `docker-compose.prod.yml` and
+`docker-compose.demo.yml`, the `trueppm/web` image is used only by the
+one-shot `web-build` init container (`cp -r /usr/share/nginx/html/. /dist/`),
+which copies the static bundle out and exits — its nginx process, patched
+directive and all, never starts, in either stack. The container that
+actually serves traffic is a separate, unmodified `nginx:1.27-alpine` image
+in both — but only `docker-compose.prod.yml`'s has the underlying bug: it
+renders `nginx/app.conf.template` or `app-http.conf.template` (picked by
+`init-prod.sh`'s TLS mode), both of which proxy `/ws/` with the same
+unbounded `proxy_read_timeout 86400s` and no `worker_shutdown_timeout`.
+`docker-compose.demo.yml` renders `nginx/demo.conf.template`, whose `/ws/`
+already `return 404`s — the same no-WebSocket-traffic posture as the chart's
+own demo branches, so there is nothing to fix there. Tracked in
+[`#4366`](https://gitlab.com/trueppm/trueppm/-/issues/4366), scoped to
+`docker-compose.prod.yml` only. `docker-compose.yml` (dev) is unaffected
+either way: its `web` service runs the Vite dev server, not nginx.
 
 Related: `CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"]` is now bounded
 at 900s in `settings/base.py`. Tasks carry `acks_late=True`, so a killed worker

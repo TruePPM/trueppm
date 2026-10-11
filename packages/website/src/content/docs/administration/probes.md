@@ -42,7 +42,7 @@ is ready, not to give it more time to do that work.
 | celery worker | heartbeat file **exists** | heartbeat file **fresh** | `celery inspect ping` |
 | celery beat | — | — (see [why beat has no readiness probe](#celery-beat)) | `celery inspect ping` (fleet) |
 | valkey / postgres (bundled subcharts) | vendor default | vendor default | vendor default |
-| web (nginx) | — (no boot-time dependency) | `GET /` — 200 | `GET /` — 200 |
+| web (nginx) | — (no boot-time dependency) | `GET /asset-manifest.json` — 200, build-specific | `GET /` — 200 |
 
 Full tunable defaults for every row are in the
 [Health probes section of the Helm values reference](/administration/helm-values/#health-probes).
@@ -214,15 +214,46 @@ observes it indirectly, through `/readyz`'s database/cache checks above.
 
 ## web (nginx)
 
-**Readiness and liveness — `GET /` on both**, differing only in timing
-(readiness reaches a first success at 5s so a rollout is not held up; liveness
-waits until 10s and checks less often). Both are answered entirely by nginx
-serving the pre-built static bundle — there is no backend dependency, which is
-also why there is **no startup probe**: the container is either serving within
-a second of starting or its process failed to start at all, and there is no
-meaningful boot window in between for a startup probe to cover. These numbers
-were previously hardcoded in the chart; from 0.4 they are tunable via
-`probes.web.*` — see [the values reference](/administration/helm-values/#health-probes).
+**Readiness — `GET /asset-manifest.json`, not `/`.** The web tier serves a
+single-page app, and its catch-all `location /` answers *any* unmatched path
+with `index.html` as long as nginx is up at all — so a probe against `/` only
+ever proved "nginx is running," never that this pod's html root actually
+holds this release's build (`#4359`). It is **not** a proxy check: a
+`proxy_pass` upstream name that does not resolve already fails nginx's own
+config load at startup, crash-looping the pod before any probe — old or new
+— could reach it either way. `asset-manifest.json` is Vite's build manifest,
+written at the html root only by the image's own build — the image's
+prior-release-assets mechanism (`#4341`, which keeps a previous release's
+hashed chunks around for a tab that has not yet reloaded) only ever copies
+forward into `assets/`, never to the html root, so this file can never be a
+carried-over prior release's. The chart's web ConfigMap gives it its own
+`location = /asset-manifest.json { try_files $uri =404; }`, so a missing
+manifest 404s the probe instead of silently falling through to the SPA
+shell. What this does **not** prove: the manifest's mere presence says
+nothing about whether the individual JS chunks it names are actually on
+disk and intact — a corrupt or partially missing `assets/` directory still
+passes this probe (see `scripts/check-served-assets.sh`, a separate,
+heavier check run outside the probe path). The issue that raised this
+(`#4359`) also considered probing the SPA's entry chunk directly; the build
+manifest was used instead because it is a stable, well-known path that does
+not change with every build's content hash.
+
+**Liveness — still `GET /`.** Unlike readiness, liveness exists to catch a
+wedged *process*, and a missing or corrupted bundle is a static condition that
+a container restart cannot fix — pointing liveness at the same build-specific
+check would crash-loop a pod with a genuinely broken image forever, instead of
+leaving it `NotReady`, which is the correct terminal state readiness already
+produces for that failure.
+
+Both probes are answered entirely by nginx serving static files off disk —
+there is no backend dependency, which is also why there is **no startup
+probe**: the container is either serving within a second of starting or its
+process failed to start at all, and there is no meaningful boot window in
+between for a startup probe to cover. Timing (5s initial delay for readiness so
+a rollout is not held up; 10s for liveness, checked less often) was previously
+hardcoded in the chart; from 0.4 it is tunable via `probes.web.*` — see [the
+values reference](/administration/helm-values/#health-probes). The path itself
+is not a values knob — see [`#4359`](https://gitlab.com/trueppm/trueppm/-/issues/4359).
 
 ## Docker Compose equivalents
 

@@ -90,7 +90,27 @@ spec:
               readOnly: true
           readinessProbe:
             httpGet:
-              path: /
+              # /asset-manifest.json, not / (#4359). The SPA fallback
+              # (`try_files $uri $uri/ /index.html;`) answers EVERY path with
+              # index.html as long as nginx itself is up, so `/` proves
+              # nothing beyond "nginx is running" — not that this pod's html
+              # root holds a real build. (It is NOT a proxy-upstream check: a
+              # bad `proxy_pass` host already fails nginx's own config load at
+              # startup, crash-looping the pod before any probe — old or new —
+              # could reach it.) asset-manifest.json is build-specific: it is
+              # Vite's build manifest, written at the html root only by THIS
+              # image's own build (the ADR-1249/#4341 prior-release-assets
+              # stage copies a previous release's files forward into
+              # assets/, never to the html root), and the chart's web
+              # ConfigMap (configmap.yaml) adds a dedicated
+              # `location = /asset-manifest.json { try_files $uri =404; }` in
+              # every branch so a missing file 404s instead of silently
+              # falling back to index.html. This proves the html root is
+              # THIS image's own build — it does not verify every individual
+              # JS chunk the manifest names is present or intact; a missing
+              # or corrupt chunk still passes this probe (see
+              # scripts/check-served-assets.sh for that check).
+              path: /asset-manifest.json
               port: http
             # A `kindIs "invalid"` presence guard replaces `| default 5` on
             # initialDelaySeconds (#4351): 0 is a valid, legitimate Kubernetes
@@ -111,6 +131,13 @@ spec:
             periodSeconds: {{ .Values.probes.web.readinessPeriodSeconds | default 10 }}
           livenessProbe:
             httpGet:
+              # Deliberately still `/`, unlike the readiness probe above
+              # (#4359): liveness exists to catch a WEDGED process, and a
+              # missing or corrupt bundle is a static condition no restart
+              # can fix. Pointing liveness at the same build-specific check
+              # would crash-loop a pod with a genuinely broken image forever
+              # instead of leaving it NotReady — the correct terminal state
+              # for that failure, and the one readiness already produces.
               path: /
               port: http
             # See the readiness probe above for why initialDelaySeconds uses a
