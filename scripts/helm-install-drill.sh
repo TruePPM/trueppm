@@ -1658,9 +1658,21 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   # accepted, already-tracked condition #4347 exists to retire, not a HEAD
   # regression this probe should fail main for. So the mid-rollout probe
   # below is reported, never fatal, while this default stays 0. Flip it to 1
-  # once resolve_previous_chart_version() picks a chart that already
-  # shipped #4341 (beta.8 or later) — at that point a text/html round really
-  # does mean HEAD regressed.
+  # once resolve_previous_chart_version() picks a chart that already ships
+  # BOTH #4341 (the clean /assets/ 404) and #4408 (public/boot-guard.js) — at
+  # that point a failing round really does mean HEAD regressed. #4408 matters
+  # because boot-guard.js is an unhashed root file: a pod from a release
+  # without it answers the new index.html's request for it with the SPA
+  # fallback (200 text/html), which rollout mode rightly still fails.
+  #
+  # SERVED_ASSETS_ROLLOUT=1 (#4410) is what makes a strict run passable at
+  # all: a round that got the new index.html and asked an old pod for one of
+  # its hashed files gets a real 404, which is inherent to any multi-pod
+  # rollout and which the client recovers from (#4408). The probe reports
+  # those as SKEW instead of failing the round, and still fails on the SPA
+  # fallback, a prior-release file not served, or a wrong type. The strict
+  # post-rollout check further down is what catches a file genuinely missing
+  # from the new build, which rollout mode cannot tell apart from skew.
   ROLLOUT_ASSET_PROBE_STRICT="${ROLLOUT_ASSET_PROBE_STRICT:-0}"
 
   rollout_probe_dir="$(mktemp -d)"
@@ -1682,7 +1694,7 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
       # in manifest-missing noise on every single round. TODO(#4347): drop
       # this override once PREV_CHART_VERSION ships #4341.
       kubectl exec -i rollout-asset-probe -n ingress-nginx -- \
-        env SERVED_ASSETS_ROUNDS=1 SERVED_ASSETS_MANIFEST=0 sh -s "$probe_url" \
+        env SERVED_ASSETS_ROUNDS=1 SERVED_ASSETS_MANIFEST=0 SERVED_ASSETS_ROLLOUT=1 sh -s "$probe_url" \
         < scripts/check-served-assets.sh >> "$rollout_probe_log" 2>&1 || rc=$?
       [ "$rc" -eq 0 ] || echo "#4353 ROUND FAILED rc=${rc} at $(date -u +%H:%M:%S)" >> "$rollout_probe_log"
       sleep 1
@@ -1707,6 +1719,8 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   : > "$rollout_probe_stop"
   wait "$rollout_probe_pid" 2>/dev/null || true
   rollout_probe_failures="$(grep -c '^#4353 ROUND FAILED' "$rollout_probe_log" || true)"
+  rollout_probe_skew="$(grep -c '^check-served-assets: SKEW ' "$rollout_probe_log" || true)"
+  log "mid-rollout served-asset probe: ${rollout_probe_skew:-0} forward-skew 404(s) tolerated (#4410)"
   if [ "${rollout_probe_failures:-0}" -gt 0 ]; then
     if [ "$ROLLOUT_ASSET_PROBE_STRICT" = "1" ]; then
       fail "mid-rollout served-asset probe caught ${rollout_probe_failures} failing round(s) during the demo-upgrade rollout (#4353). Probe log:
