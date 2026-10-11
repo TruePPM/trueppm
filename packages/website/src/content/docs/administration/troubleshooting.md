@@ -143,6 +143,14 @@ times, because one pass can land every request on the same replica:
 SERVED_ASSETS_ROUNDS=5 sh scripts/check-served-assets.sh https://trueppm.example.com
 ```
 
+Run that after a rollout has finished. While one is still in progress, a round
+that gets the new `index.html` and asks a pod still on the old release for one
+of its files gets a `404`, which the app recovers from on its own, so a plain
+run fails on it. Add `SERVED_ASSETS_ROLLOUT=1` to report those as `SKEW` and
+fail only on the problems a rollout should never show: a file answered with
+the `index.html` page, a wrong content type, or a previous-release file that is
+not served.
+
 **Confirm the fix.** Reload with the console open. `GET /` returns `200
 text/html`, every `/assets/*.js` returns `200 application/javascript`, and the
 first `/api/v1/` call returns `200` or `401` — not `502` or `0`.

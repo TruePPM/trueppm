@@ -73,6 +73,26 @@
 # also what scripts/helm-install-drill.sh's demo-upgrade leg uses, from an
 # in-cluster pod, to observe a rolling update mid-flight (#4353).
 #
+# Rollout mode (#4410). Mid-rollout, a 404 on a hashed /assets/ file named by
+# the index.html (or manifest) fetched in the same round is inherent, not a
+# regression: the round got the NEW index.html from a new pod and asked an old
+# pod, which does not have the new release's files, for one of them. Measured
+# at ~50% of new-index rounds inside the window at two web replicas, even when
+# both releases carry #4341. The client recovers from it (src/lib/chunkReload.ts
+# for lazy chunks, public/boot-guard.js for the entry graph, #4408). In strict
+# mode every one of those rounds fails, so a strict mid-rollout probe could
+# never pass. SERVED_ASSETS_ROLLOUT=1 reports such a 404 as SKEW and counts it
+# without failing. Everything that is a real regression still fails:
+#   - any asset answered 2xx text/html (the #4338 SPA fallback);
+#   - any other non-2xx status, a wrong content type, or an empty body;
+#   - a 404 on a file outside /assets/ (unhashed root files exist on every pod);
+#   - any prior-release asset not served (ADR-1249: a NEW pod must serve the
+#     previous release's files, and an old pod serves them as its own);
+#   - the missing-path probe answering 2xx.
+# A 404 that is really a missing file in the new build is hidden here by
+# design, so the caller MUST also run a strict check after the rollout
+# finishes. scripts/helm-install-drill.sh does.
+#
 # Portability. POSIX sh + tr/sed/grep/sort/wc only, no GNU-only flags: it runs
 # in docker:27 (BusyBox), on the macOS arm64 shell runner (BSD tools), inside
 # the Helm drill environment's own job container, AND inside the chart's API
@@ -93,6 +113,9 @@
 #         SERVED_ASSETS_MISSING_PROBE  0 skips the missing-/assets/-path 404 probe
 #                                 (default 1). Only for a tier known to predate
 #                                 #4341, e.g. a drill's previously published chart.
+#         SERVED_ASSETS_ROLLOUT   1 tolerates a 404 on a same-round /assets/
+#                                 ref as forward rollout skew (default 0).
+#                                 Mid-rollout probes only; see above.
 #         SERVED_ASSETS_PRIOR_DIR the previous release's html root; enables the
 #                                 prior-release pass (ADR-1249)
 #         SERVED_ASSETS_PRIOR_REQUIRED  1 fails, rather than skips, a prior-release
@@ -300,6 +323,24 @@ verify_asset() {
     [ -f "$_body" ] && _size="$(wc -c < "$_body" | tr -d ' ')"
     rm -f "$_body"
 
+    # Forward rollout skew (#4410): only under SERVED_ASSETS_ROLLOUT=1, only
+    # for a ref the same round's index.html or manifest named
+    # (_va_tolerate_skew, set by check_once per pass), and only for a hashed
+    # /assets/ file.
+    if [ "$_status" = "404" ] && [ "${_va_tolerate_skew:-0}" = "1" ]; then
+        case "$_va_url" in
+            "$_origin"/assets/*)
+                echo "check-served-assets: SKEW  $_va_url — HTTP 404 (forward rollout skew, tolerated under SERVED_ASSETS_ROLLOUT=1)"
+                _skew=$((_skew + 1))
+                # Un-record it so the prior-release pass, which never
+                # tolerates a 404, still fetches this URL if it lists it.
+                grep -vxF -- "$_va_url" "$_tmp/checked_urls" > "$_tmp/checked_urls.next" || true
+                mv "$_tmp/checked_urls.next" "$_tmp/checked_urls"
+                return 0
+                ;;
+        esac
+    fi
+
     _why=""
     case "$_status" in
         2??) ;;
@@ -355,7 +396,21 @@ check_once() {
 
     _ok=0
     _bad=0
+    _skew=0
     _skipped=0
+    # Read fresh per call, like SERVED_ASSETS_MANIFEST, so --self-test can
+    # toggle it per case. The index.html and manifest passes tolerate skew; the
+    # prior-release pass below resets this to 0.
+    _rollout="${SERVED_ASSETS_ROLLOUT:-0}"
+    case "$_rollout" in
+        0 | 1) ;;
+        *)
+            echo "check-served-assets: SERVED_ASSETS_ROLLOUT must be 0 or 1, got '$_rollout'" >&2
+            rm -rf "$_tmp"
+            return 2
+            ;;
+    esac
+    _va_tolerate_skew="$_rollout"
     while read -r _kind _ref; do
         [ -n "$_ref" ] || continue
         case "$_ref" in
@@ -377,7 +432,7 @@ check_once() {
     # A page that referenced nothing at all (e.g. a JSON error body) is
     # vacuous regardless of what the manifest later says, so this is checked
     # — and can return — before the manifest step runs.
-    if [ $((_ok + _bad)) -eq 0 ]; then
+    if [ $((_ok + _bad + _skew)) -eq 0 ]; then
         echo "check-served-assets: FAIL  $_base/ referenced no same-origin script/modulepreload/stylesheet — refusing to pass vacuously"
         rm -rf "$_tmp"
         return 1
@@ -485,6 +540,8 @@ check_once() {
                 echo "check-served-assets: prior-release pass SKIPPED — $_prior_skip (ADR-1249)"
             fi
         else
+            # Never tolerated: see "Rollout mode" in the header.
+            _va_tolerate_skew=0
             _prior_bad_before=$_bad
             _prior_n=0
             while read -r _pref; do
@@ -528,7 +585,11 @@ check_once() {
     fi
     rm -rf "$_tmp"
 
-    echo "check-served-assets: $_ok served, $_bad failed, $_skipped cross-origin skipped ($_base/)"
+    if [ "$_rollout" = "1" ]; then
+        echo "check-served-assets: $_ok served, $_bad failed, $_skew rollout-skew 404s tolerated, $_skipped cross-origin skipped ($_base/)"
+    else
+        echo "check-served-assets: $_ok served, $_bad failed, $_skipped cross-origin skipped ($_base/)"
+    fi
     [ "$_bad" -eq 0 ]
 }
 
@@ -798,6 +859,79 @@ self_test() {
     SERVED_ASSETS_PRIOR_DIR="$st_prior"
     _case "prior-release asset-files.json names zero assets" expect-fail "named no assets"
     unset SERVED_ASSETS_PRIOR_DIR
+
+    # ── Rollout mode (#4410) ────────────────────────────────────────────────
+    # Forward skew: the round's index.html names a hashed file this pod lacks,
+    # and the pod answers a real 404. Strict mode fails it (case "asset
+    # answering 404" above); rollout mode reports it as SKEW and passes.
+    healthy_assets
+    page "$healthy_tags" '<script type="module" src="/assets/gone-NEW.js"></script>'
+    SERVED_ASSETS_ROLLOUT=1
+    st_out="$(run_check "$FIXTURE_ORIGIN" 2>&1)" && st_r=0 || st_r=$?
+    case "$st_r:$st_out" in
+        0:*"SKEW  "*"gone-NEW.js"*"1 rollout-skew 404s tolerated"*)
+            echo "SELF-TEST OK: rollout mode reports a same-round /assets/ 404 as SKEW and passes." ;;
+        *) echo "SELF-TEST FAILED: rollout mode did not tolerate and report a same-round /assets/ 404:" >&2; echo "$st_out" >&2; st_rc=1 ;;
+    esac
+    # A round where every ref is skewed is still not a vacuous pass: it
+    # fetched and classified something.
+    page '<script type="module" src="/assets/gone-NEW.js"></script>'
+    _case "rollout mode, every ref skewed" expect-pass
+    # Everything that is a real regression still fails in rollout mode.
+    page "$healthy_tags"
+    rm -f "$FIXTURE_DIR/assets/Toast-BBB.js"
+    FIXTURE_SPA_FALLBACK=1
+    _case "rollout mode, chunk served as the SPA fallback (200 text/html)" expect-fail "Toast-BBB.js"
+    FIXTURE_SPA_FALLBACK=0
+    healthy_assets
+    echo 'x' > "$FIXTURE_DIR/assets/wrongtype-EEE.js"
+    page '<script type="module" src="/assets/wrongtype-EEE.js"></script>'
+    _case "rollout mode, script with a non-JavaScript type" expect-fail "expected JavaScript"
+    healthy_assets
+    page "$healthy_tags" '<script src="/gone-root.js"></script>'
+    _case "rollout mode, 404 on an unhashed root file" expect-fail "gone-root.js"
+    healthy_assets
+    page "$healthy_tags"
+    FIXTURE_SPA_FALLBACK=1
+    _case "rollout mode, missing-path probe answered 2xx" expect-fail "does-not-exist"
+    FIXTURE_SPA_FALLBACK=0
+    # ADR-1249 is never relaxed: a prior-release file the tier does not serve
+    # fails, even when the same URL was tolerated as skew by the index pass.
+    prior_served
+    prior_manifest
+    rm -f "$FIXTURE_DIR/assets/Lazy-OLD3.js"
+    SERVED_ASSETS_PRIOR_DIR="$st_prior"
+    _case "rollout mode, prior-release file not served" expect-fail "Lazy-OLD3.js"
+    # The fixture answers a real 404 only for a "gone-" path (any other missing
+    # file gets the SPA fallback), so the shared file is named that way: the
+    # index pass sees a 404 it tolerates, the prior pass must see it again.
+    healthy_assets
+    rm -rf "$st_prior" && mkdir -p "$st_prior"
+    printf '%s' '{"files":["assets/gone-OLD9.js","assets/index-AAA.js","assets/Toast-BBB.js","assets/index-CCC.css","assets/LazyChunk-DDD.js"]}' \
+        > "$st_prior/asset-files.json"
+    page "$healthy_tags" '<script type="module" src="/assets/gone-OLD9.js"></script>'
+    # Exact count, not just "not served": the summary line always contains
+    # that phrase, so only "1 not served" proves the prior pass re-fetched the
+    # URL the index pass tolerated, instead of deduplicating it away.
+    st_out="$(run_check "$FIXTURE_ORIGIN" 2>&1)" && st_r=0 || st_r=$?
+    case "$st_r:$st_out" in
+        0:*) echo "SELF-TEST FAILED: rollout mode passed with a prior-release file not served:" >&2; echo "$st_out" >&2; st_rc=1 ;;
+        *"SKEW  "*"gone-OLD9.js"*"prior-release pass: 5 files named by its asset-files.json, 1 not served"*)
+            echo "SELF-TEST OK: rollout mode, prior-release file tolerated as skew by index.html is still checked." ;;
+        *) echo "SELF-TEST FAILED: the prior-release pass did not re-check a file the index pass tolerated as skew:" >&2; echo "$st_out" >&2; st_rc=1 ;;
+    esac
+    unset SERVED_ASSETS_PRIOR_DIR
+    for st_bad in 2 yes ""; do
+        SERVED_ASSETS_ROLLOUT="$st_bad"
+        healthy_assets
+        page "$healthy_tags"
+        if [ -z "$st_bad" ]; then
+            _case "SERVED_ASSETS_ROLLOUT='' (empty means default 0)" expect-pass
+        else
+            _case "SERVED_ASSETS_ROLLOUT=$st_bad" expect-fail "must be 0 or 1"
+        fi
+    done
+    unset SERVED_ASSETS_ROLLOUT
 
     # A page with nothing to check is not a pass (e.g. a JSON error body).
     page ''
