@@ -200,6 +200,14 @@ working on any number of web replicas. The limits:
 
   Neither one retries while the browser is offline. An offline browser sees
   **You appear to be offline** with the same **Reload** button instead.
+
+  If you would rather have no skew at all, set the web tier's rollout strategy
+  (`rollout.web`, see [Helm values](/administration/helm-values/)).
+  `strategy: Recreate`, or `maxSurge: 0` on a single web pod, stops every old
+  pod before a new one starts. That removes the window, but it turns every web
+  rollout into a full outage of the UI for as long as the new pod takes to
+  become ready, and with one pod, a node drain is an outage too. The default
+  rolling update keeps the UI up and lets the client recover from the window.
 - **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
   blank page until it reloads.
 - **The first upgrade to a release that adds the first-load recovery** does
