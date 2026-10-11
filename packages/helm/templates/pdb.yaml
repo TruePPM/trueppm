@@ -16,13 +16,10 @@ fallback to the top-level replicaCount could never fire), a values-prod deploy
 rendered api=2, worker=2, web=1, PDBs=0: an unprotected singleton in front of a
 redundant backend.
 
-That history is why the web tier still gets a PDB block even though #4348
-pins `replicas.web: 1` in both values-demo.yaml and values-prod.yaml: a
+values-prod.yaml runs two web pods (replicas.web follows replicaCount), so
+the web budget protects it. values-demo.yaml pins `replicas.web: 1`, and a
 maxUnavailable PDB against one desired replica permits full disruption, so
-the budget is a no-op for web under either shipped overlay. It stays wired
-for the operator who raises replicas.web above 1, where it becomes
-meaningful again, and for parity with api/worker rather than special-casing
-the one tier currently pinned to a single pod.
+the budget is a no-op there. That is accepted for a public demo.
 
 A PDB alone is still not redundancy. Without topologySpreadConstraints (see
 values.yaml) both replicas can land on one node, and a node failure takes the

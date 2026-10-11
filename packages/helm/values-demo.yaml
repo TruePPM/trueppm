@@ -269,8 +269,12 @@ replicaCount: 3
 # about (see "Blank pages during an upgrade of the web tier" in
 # /getting-started/upgrade/ for the operator-facing mitigation, including the
 # one-time beta.7 -> beta.8 case the fix itself does not cover). A single web
-# pod means every request is answered by the same release for the whole
-# rollout, so the window does not open at all.
+# pod keeps the window to well under a second, but it does not close it:
+# Kubernetes' default RollingUpdate starts the new pod before it stops the old
+# one, so both serve together briefly (#4409). The client recovers from a 404
+# in that window on its own (#4408). The demo stays at one pod because a short
+# outage of a public demo during a node drain is acceptable; values-prod.yaml
+# runs two.
 replicas:
   web: 1
 
