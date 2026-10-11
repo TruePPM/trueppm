@@ -183,13 +183,23 @@ working on any number of web replicas. The limits:
   so an upgrade from 0.4.0-beta.6 is covered. Not covered: an upgrade that
   skips a release. Tabs opened before it reload once, automatically, when they
   next need a file.
-- **During the rollout, the other direction.** With two or more web replicas,
-  old and new pods serve together until the rollout finishes, and a browser
-  that got the new `index.html` can ask an old pod for a new file. The app
-  retries that file twice, over about two seconds, before it reloads, and does
-  not retry while the browser is offline. The shipped `values-prod.yaml` pins
-  `replicas.web: 1` for this reason (#4348) — the web tier gains no throughput
-  from extra replicas, so this window only applies if you have raised it.
+- **During the rollout, the other direction.** Old and new web pods serve
+  together until the rollout finishes, and a browser that got the new
+  `index.html` can ask an old pod for a new file, which answers `404`. With two
+  or more web replicas this lasts for the whole web rollout. On a single
+  replica it lasts well under a second, because Kubernetes' default rolling
+  update starts the new pod before it stops the old one; the shipped
+  `values-prod.yaml` pins `replicas.web: 1` to keep the window that short
+  (#4348). Both ends of a page load recover on their own:
+  - A page the app opens after it has loaded (a lazy route) retries the file
+    twice, over about two seconds, before it reloads.
+  - The first load of the page, where the app's own entry script or one of the
+    files it needs to start is the one that fails, reloads after 1, 3, 8 and
+    15 seconds until the page starts. If it still has not started after the
+    fourth reload, it shows **TruePPM is being updated** with a **Reload**
+    button instead of a blank page.
+
+  Neither one retries while the browser is offline.
 - **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
   blank page until it reloads.
 - **Upgrading from 0.4.0-beta.7, specifically.** This one hop is not covered

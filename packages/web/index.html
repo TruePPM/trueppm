@@ -34,6 +34,12 @@
          without an inline hash or 'unsafe-inline' (#897). Served from /public,
          so it loads same-origin. -->
     <script src="/theme-init.js"></script>
+    <!-- Boot guard (#4408) — must run before the module entry below. During a web
+         rollout the entry script can 404 from a pod still on the previous release;
+         the in-app recovery lives inside that entry, so only a script outside the
+         bundle can reload the page or explain the failure. External for the same
+         CSP reason as theme-init.js. -->
+    <script src="/boot-guard.js"></script>
   </head>
   <body>
     <div id="root"></div>

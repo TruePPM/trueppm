@@ -12,6 +12,10 @@ import { installChunkReloadHandler } from './lib/chunkReload';
 import { getPendingWriteCount } from './hooks/useSyncStatus';
 import { initWebVitals } from './lib/telemetry';
 
+// Reaching this line means the entry module graph loaded; public/boot-guard.js
+// stands down and refunds its reload budget (#4408).
+window.__trueppmBootGuard?.booted();
+
 applyFeatureFlagsFromUrl();
 
 // Deploy version skew (#4341): a missing hashed chunk reloads the page once.
