@@ -1112,6 +1112,56 @@ def _apply_cpm_results(
     return tasks_to_update, old_cpm_dates, moved_tasks, old_day_end
 
 
+_CPM_WRITE_FIELDS: tuple[str, ...] = (
+    "early_start",
+    "early_finish",
+    "late_start",
+    "late_finish",
+    "total_float",
+    "free_float",
+    "is_critical",
+    "scheduled_start",
+    "milestone_at_day_end",
+)
+"""Columns the CPM write-back persists on EVERY scheduled row, both passes.
+
+Every entry is an engine OUTPUT: read-only on ``TaskSerializer`` and recomputed from
+the inputs on each pass. The write-back is a T0-snapshot/T1-write with no row lock and
+no ``server_version`` predicate, so a column listed here is written with whatever the
+recalc loaded — and that is only safe for a value the next recalc rederives. An edit
+that races the recalc enqueues that next recalc, so a stale output is transient.
+
+``duration`` is deliberately NOT here (#4371). On a leaf it is a user INPUT the engine
+never computes: writing it back reverted a PATCH committed mid-recalc, the follow-up
+recalc then read the reverted value as truth, and ``bulk_update`` allocates no
+``sync_seq``, so no client ever learned of it. Summary durations, which the engine
+does compute (#3530), go through a separate ``duration``-only write restricted to
+summary rows — see :func:`_bulk_write_cpm_results`. Any narrowing of the write-back to
+rows that moved (#4096) must keep that split.
+"""
+
+
+def _bulk_write_cpm_results(
+    task_model: Any,
+    tasks_to_update: list[Any],
+    summary_durations: Mapping[str, int],
+) -> None:
+    """Persist ``_apply_cpm_results``' in-memory mutations, without clobbering leaf input.
+
+    Two statements, not one: the engine outputs for every row, then ``duration`` for
+    the summary rows ``summary_working_day_durations`` measured — the only rows whose
+    duration the recalc computes. A leaf's ``duration`` never appears in either field
+    list, so a concurrent edit to it survives the write-back (#4371). Must be called
+    inside the write-back's ``transaction.atomic()``.
+    """
+    task_model.objects.bulk_update(
+        tasks_to_update, list(_CPM_WRITE_FIELDS), batch_size=_WRITEBACK_BATCH_SIZE
+    )
+    summary_rows = [t for t in tasks_to_update if str(t.id) in summary_durations]
+    if summary_rows:
+        task_model.objects.bulk_update(summary_rows, ["duration"], batch_size=_WRITEBACK_BATCH_SIZE)
+
+
 def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
     """Set ``is_driving`` on each stored Dependency whose edge has zero relationship
     free float (#2095).
@@ -1494,22 +1544,8 @@ def _run_schedule(
     )
 
     with transaction.atomic():
-        Task.objects.bulk_update(
-            tasks_to_update,
-            [
-                "early_start",
-                "early_finish",
-                "late_start",
-                "late_finish",
-                "total_float",
-                "free_float",
-                "is_critical",
-                "duration",
-                "scheduled_start",
-                "milestone_at_day_end",
-            ],
-            batch_size=_WRITEBACK_BATCH_SIZE,
-        )
+        # Leaf `duration` is excluded on purpose (#4371): see _CPM_WRITE_FIELDS.
+        _bulk_write_cpm_results(Task, tasks_to_update, summary_durations)
 
         # ADR-1152 (#3578): the write-back above covers only the rows the engine
         # returned, which is the committed set. Rows that LEFT it keep their last
@@ -1811,20 +1847,6 @@ def _member_cpm_delta(moved_tasks: list[Any]) -> dict[str, object]:
     }
 
 
-_PROGRAM_WRITE_FIELDS = [
-    "early_start",
-    "early_finish",
-    "late_start",
-    "late_finish",
-    "total_float",
-    "free_float",
-    "is_critical",
-    "duration",
-    "scheduled_start",
-    "milestone_at_day_end",
-]
-
-
 def _register_program_broadcasts(
     graph: Any,
     by_project: dict[object, list[Any]],
@@ -1964,6 +1986,8 @@ def _run_program_schedule(program_id: str) -> None:
     # Snapshot CPM dates before overwrite, for the schedule-shift events (ADR-0207).
     old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
     old_day_end: dict[str, bool] = {}
+    # Summary-row working-day durations (#3530); empty when nothing was scheduled.
+    summary_durations: dict[str, int] = {}
     if graph.result is not None:
         result_map = graph.result_map
         # Roll summary dates up from leaves through the shared helper (parity with
@@ -2022,9 +2046,10 @@ def _run_program_schedule(program_id: str) -> None:
 
     with transaction.atomic():
         if tasks_to_update:
-            Task.objects.bulk_update(
-                tasks_to_update, _PROGRAM_WRITE_FIELDS, batch_size=_WRITEBACK_BATCH_SIZE
-            )
+            # Same split as the single-project pass: leaf `duration` is never
+            # written back, so a concurrent edit anywhere in the program survives
+            # (#4371). See _CPM_WRITE_FIELDS.
+            _bulk_write_cpm_results(Task, tasks_to_update, summary_durations)
 
         # ADR-1152 (#3578): mirror of the single-project clear. Scoped to every member
         # project, NOT to the schedulable subset — a member whose whole committed set
