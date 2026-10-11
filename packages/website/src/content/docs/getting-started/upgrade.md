@@ -689,12 +689,15 @@ build-specific file Vite writes at the html root (#4359). An image built from
 predates the file's existence — so that probe path 404s unconditionally and
 the web pod never turns Ready. On a **fresh install**, this means no web
 endpoints join the Service at all; on an **upgrade with `--wait`**, the
-command hangs until it times out. This can only happen if you explicitly pin
-`image.webRepository`/`image.tag` to an old web image while running a chart
-version that already carries #4359's `deployment.yaml` — pinning only the
-`api` image, or leaving `image.tag` at its default (which resolves to the
-chart's own `appVersion`), is unaffected. If you pin image tags independently
-per tier, keep the `web` tag at or above the chart's own `appVersion`.
+command hangs until it times out. There is no per-tier tag knob — both the
+`api` and `web` images resolve the same `image.tag` (`trueppm.imageTag`,
+`packages/helm/templates/_helpers.tpl`) — so this can only happen by
+explicitly overriding `image.tag` to `v0.4.0-beta.7` or earlier on a chart
+version that already carries #4359's `deployment.yaml`; leaving `image.tag`
+at its default (which resolves to the chart's own `appVersion`) is
+unaffected. The only other way to hit this is pointing `image.webRepository`
+at an old `web` image some other way the chart does not model, such as a
+pinned digest or a mirror that serves a stale tag.
 
 ---
 
