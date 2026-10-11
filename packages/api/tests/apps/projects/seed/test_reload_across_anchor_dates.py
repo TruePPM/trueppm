@@ -111,15 +111,33 @@ def _replay_calendar_phase(sample_key: str, anchor: date, owner: Any) -> None:
     ``_resolve_calendars`` the full import runs first. A full reload costs ~3 s;
     this is what makes three weeks of history affordable in one test.
 
-    Run with ``is_sample`` off, which skips the stale-exception cleanup: the history
-    is written add-only, exactly as the pre-#4339 importer wrote it on a live
-    instance. So the sweep also proves an already-polluted instance heals on its
-    next reload, not merely that a clean one stays clean.
+    Resolves each calendar by name directly (rather than delegating to
+    ``_resolve_calendars``) and feeds it straight to ``_resolve_calendar_exceptions``
+    on an importer built with ``is_sample=False``, which skips the stale-exception
+    cleanup: the history is written add-only, exactly as the pre-#4339 importer wrote
+    it on a live instance. So the sweep also proves an already-polluted instance heals
+    on its next reload, not merely that a clean one stays clean.
+
+    The explicit by-name lookup here is deliberate and distinct from
+    ``_resolve_calendars`` itself: since #4369, the generic (non-sample) path no
+    longer resolves calendars by name at all — it always creates a fresh row — so
+    delegating to it would mint a new, unrelated calendar on every simulated day
+    instead of accumulating history on one shared row. This helper intentionally
+    reproduces the old shared-catalog-by-name lookup to keep building the stale-
+    exception history the sweep exercises, independent of that generic-path fix.
     """
     import json
 
     payload = json.loads(SAMPLES[sample_key].path.read_text())
-    importer_module._SeedImporter(payload, owner=owner, create_users=False)._resolve_calendars()
+    seed_importer = importer_module._SeedImporter(payload, owner=owner, create_users=False)
+    for cal in payload.get("calendars", []):
+        obj = Calendar.objects.filter(name=cal["name"]).first() or Calendar.objects.create(
+            name=cal["name"],
+            working_days=cal.get("working_days", 31),
+            hours_per_day=cal.get("hours_per_day", 8.0),
+            timezone=cal.get("timezone", "UTC"),
+        )
+        seed_importer._resolve_calendar_exceptions(obj, cal.get("exceptions", []))
 
 
 def test_daily_demo_reset_never_collapses_a_sprint(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,12 +315,17 @@ def _calendar_with_lookalike_row() -> tuple[Calendar, CalendarException]:
     return cal, row
 
 
-def test_generic_import_never_deletes_from_a_shared_calendar(owner: Any) -> None:
-    """A caller-authored seed can add to a same-named calendar, never delete from it.
+def test_generic_import_never_touches_a_shared_calendar(owner: Any) -> None:
+    """#4369: a caller-authored (generic) seed must never bind the shared calendar
+    catalog by name — not to add exceptions to it, and (a fortiori) not to delete
+    from it either.
 
-    ``import_seed`` is reachable by any authenticated user, and the calendar is
-    matched by name. The cleanup is sample-only so naming a real calendar in a
-    payload cannot remove its holidays.
+    Before #4369 the generic path matched ``calendars[]`` by name and could add
+    exceptions to a real calendar it merely shared a name with — the cleanup
+    being sample-only only stopped a seed from *deleting* a real calendar's
+    holidays, not from *injecting* non-working exceptions into it. Since #4369,
+    ``_resolve_calendars`` always creates a fresh calendar on the generic path, so
+    a pre-existing calendar of the same name is left completely alone either way.
     """
     cal, theirs = _calendar_with_lookalike_row()
     import_seed(
@@ -310,8 +333,14 @@ def test_generic_import_never_deletes_from_a_shared_calendar(owner: Any) -> None
         owner=owner,
         create_users=True,
     )
+    # The pre-existing calendar's own row survives untouched...
     assert CalendarException.objects.filter(pk=theirs.pk).exists()
-    assert cal.exceptions.filter(exc_start=date(2026, 10, 8), exc_end=date(2026, 10, 11)).exists()
+    # ...and the seed's PTO was never added to it either: a fresh calendar (of the
+    # same non-unique name) was created for this import instead.
+    assert not cal.exceptions.filter(
+        exc_start=date(2026, 10, 8), exc_end=date(2026, 10, 11)
+    ).exists()
+    assert Calendar.objects.filter(name="Drift 5-day").count() == 2
 
 
 def _use_as_workspace_default(cal: Calendar, owner: Any) -> None:
