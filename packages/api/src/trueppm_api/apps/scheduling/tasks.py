@@ -1145,21 +1145,84 @@ def _bulk_write_cpm_results(
     task_model: Any,
     tasks_to_update: list[Any],
     summary_durations: Mapping[str, int],
+    moved_tasks: list[Any],
 ) -> None:
-    """Persist ``_apply_cpm_results``' in-memory mutations, without clobbering leaf input.
+    """Persist ``_apply_cpm_results``' in-memory mutations, without clobbering user input.
 
-    Two statements, not one: the engine outputs for every row, then ``duration`` for
-    the summary rows ``summary_working_day_durations`` measured — the only rows whose
-    duration the recalc computes. A leaf's ``duration`` never appears in either field
-    list, so a concurrent edit to it survives the write-back (#4371). Must be called
-    inside the write-back's ``transaction.atomic()``.
+    Must be called inside the write-back's ``transaction.atomic()``, and before the
+    ``task_dates_updated`` delta is built from ``moved_tasks``. Three steps:
+
+    1. The engine outputs (:data:`_CPM_WRITE_FIELDS`) on every row. This UPDATE also
+       takes the row lock on every row the recalc touches, which is what makes the two
+       re-reads below see a committed state no concurrent writer can change before
+       this transaction commits.
+    2. ``duration`` on summary rows only — the only rows whose duration the recalc
+       computes (#3530) — and only those that STILL have a live descendant now. The
+       summary set was captured at load time; if an accidental container lost its last
+       child meanwhile, ``sync_structure_shadow_values`` has already restored its own
+       estimate into ``duration`` and saved it, and writing the rolled-up span over
+       that would be a permanent lost update: the next recalc reads the row as a leaf
+       and never writes its duration again (#4371).
+    3. Re-read ``duration`` (non-summary rows) and ``planned_start`` (every row) for
+       ``moved_tasks`` so the WebSocket delta carries the committed value rather than
+       the load-time snapshot. Both are user-owned inputs the recalc never writes; a
+       client splices the delta straight into its cache, so a stale value there would
+       flicker a just-saved edit back until the next refetch. Skipped for a project
+       above ``CPM_DELTA_BROADCAST_CAP``, whose delta ships no rows.
     """
+    from django.db.models import Exists, OuterRef, Value
+    from django.db.models.functions import Concat
+
     task_model.objects.bulk_update(
         tasks_to_update, list(_CPM_WRITE_FIELDS), batch_size=_WRITEBACK_BATCH_SIZE
     )
-    summary_rows = [t for t in tasks_to_update if str(t.id) in summary_durations]
-    if summary_rows:
-        task_model.objects.bulk_update(summary_rows, ["duration"], batch_size=_WRITEBACK_BATCH_SIZE)
+
+    candidates = [t for t in tasks_to_update if str(t.id) in summary_durations]
+    written_summary_ids: set[str] = set()
+    if candidates:
+        live_descendant = task_model.objects.filter(
+            project_id=OuterRef("project_id"),
+            is_deleted=False,
+            wbs_path__startswith=Concat(OuterRef("wbs_path"), Value(".")),
+        )
+        written_summary_ids = {
+            str(pk)
+            for pk in task_model.objects.filter(pk__in=[t.pk for t in candidates])
+            .filter(Exists(live_descendant))
+            .values_list("pk", flat=True)
+        }
+        summary_rows = [t for t in candidates if str(t.id) in written_summary_ids]
+        if summary_rows:
+            task_model.objects.bulk_update(
+                summary_rows, ["duration"], batch_size=_WRITEBACK_BATCH_SIZE
+            )
+
+    # The delta is built per project (the program pass ships one per member), so the
+    # cap is applied per project: a project over it ships `truncated` and no rows.
+    moved_by_project: dict[object, list[Any]] = {}
+    for t in moved_tasks:
+        moved_by_project.setdefault(t.project_id, []).append(t)
+    shipped = [
+        t
+        for rows in moved_by_project.values()
+        if len(rows) <= CPM_DELTA_BROADCAST_CAP
+        for t in rows
+    ]
+    current: dict[str, dict[str, Any]] = {}
+    for i in range(0, len(shipped), _WRITEBACK_BATCH_SIZE):
+        chunk = [t.pk for t in shipped[i : i + _WRITEBACK_BATCH_SIZE]]
+        for row in task_model.objects.filter(pk__in=chunk).values(
+            "pk", "duration", "planned_start"
+        ):
+            current[str(row["pk"])] = row
+    if current:
+        for t in shipped:
+            row = current.get(str(t.id))
+            if row is None:
+                continue
+            t.planned_start = row["planned_start"]
+            if str(t.id) not in written_summary_ids:
+                t.duration = row["duration"]
 
 
 def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
@@ -1509,7 +1572,11 @@ def _run_schedule(
     # they are not a sync anchor (bulk_update bypasses VersionedModel.save(), ADR-0091).
     # Built via the shared helper so the single-project and program-pass deltas (and
     # their >CPM_DELTA_BROADCAST_CAP truncation) can never drift.
-    delta_payload = _member_cpm_delta(moved_tasks)
+    #
+    # Built INSIDE the atomic block below, after _bulk_write_cpm_results has re-read
+    # the user-owned columns it ships (duration, planned_start) — building it here
+    # would broadcast the load-time snapshot of a field a concurrent PATCH just
+    # changed (#4371).
 
     # Persist results and mark the outbox row done in a single transaction, and
     # defer the board broadcasts to on_commit (#896). Previously the bulk_update
@@ -1545,7 +1612,8 @@ def _run_schedule(
 
     with transaction.atomic():
         # Leaf `duration` is excluded on purpose (#4371): see _CPM_WRITE_FIELDS.
-        _bulk_write_cpm_results(Task, tasks_to_update, summary_durations)
+        _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
+        delta_payload = _member_cpm_delta(moved_tasks)
 
         # ADR-1152 (#3578): the write-back above covers only the rows the engine
         # returned, which is the committed set. Rows that LEFT it keep their last
@@ -2049,7 +2117,7 @@ def _run_program_schedule(program_id: str) -> None:
             # Same split as the single-project pass: leaf `duration` is never
             # written back, so a concurrent edit anywhere in the program survives
             # (#4371). See _CPM_WRITE_FIELDS.
-            _bulk_write_cpm_results(Task, tasks_to_update, summary_durations)
+            _bulk_write_cpm_results(Task, tasks_to_update, summary_durations, moved_tasks)
 
         # ADR-1152 (#3578): mirror of the single-project clear. Scoped to every member
         # project, NOT to the schedulable subset — a member whose whole committed set

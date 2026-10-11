@@ -25,9 +25,21 @@ from typing import Any
 from unittest import mock
 
 import pytest
+from django.db import transaction
 from django.utils import timezone
 
-from trueppm_api.apps.projects.models import Calendar, Dependency, Program, Project, Task
+from trueppm_api.apps.projects.models import (
+    STRUCTURE_SHADOW_RESTORE_FIELDS,
+    Calendar,
+    Dependency,
+    Program,
+    Project,
+    StructureRole,
+    Task,
+    TaskStatus,
+    structural_parent,
+    sync_structure_shadow_values,
+)
 from trueppm_api.apps.scheduling import tasks as sched_tasks
 
 MONDAY = date(2026, 1, 5)
@@ -48,29 +60,89 @@ def _commit_duration_edit(task_id: object, duration: int) -> int:
 
 
 @pytest.fixture
-def edit_during_recalc() -> Iterator[Callable[[object, int], list[int]]]:
-    """Arm a one-shot concurrent edit between the recalc's load and its write-back."""
+def during_recalc() -> Iterator[Callable[[Callable[[], Any]], list[Any]]]:
+    """Arm a one-shot callable to run between the recalc's load and its write-back."""
     real = sched_tasks._build_schedule_shift_events
-    armed: dict[str, Any] = {}
-    versions: list[int] = []
+    armed: list[Callable[[], Any]] = []
+    results: list[Any] = []
 
     def _wrapped(*args: Any, **kwargs: Any) -> Any:
         if armed:
-            versions.append(_commit_duration_edit(armed.pop("task_id"), armed.pop("duration")))
+            results.append(armed.pop()())
         return real(*args, **kwargs)
 
-    def _arm(task_id: object, duration: int) -> list[int]:
-        armed.update(task_id=task_id, duration=duration)
-        return versions
+    def _arm(fn: Callable[[], Any]) -> list[Any]:
+        armed.append(fn)
+        return results
 
     with mock.patch.object(sched_tasks, "_build_schedule_shift_events", side_effect=_wrapped):
         yield _arm
 
 
+@pytest.fixture
+def edit_during_recalc(
+    during_recalc: Callable[[Callable[[], Any]], list[Any]],
+) -> Callable[[object, int], list[Any]]:
+    """Arm a one-shot concurrent duration edit between load and write-back."""
+
+    def _arm(task_id: object, duration: int) -> list[Any]:
+        return during_recalc(lambda: _commit_duration_edit(task_id, duration))
+
+    return _arm
+
+
+@pytest.fixture
+def broadcasts() -> Iterator[list[tuple[str, str, dict[str, Any]]]]:
+    """Record every board broadcast the recalc fires on commit."""
+    sent: list[tuple[str, str, dict[str, Any]]] = []
+
+    def _record(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
+        sent.append((str(project_id), event_type, payload))
+
+    with mock.patch(
+        "trueppm_api.apps.sync.broadcast.broadcast_board_event",
+        side_effect=lambda *a, **kw: _record(
+            kw.get("project_id", a[0] if a else ""),
+            kw.get("event_type", a[1] if len(a) > 1 else ""),
+            kw.get("payload", a[2] if len(a) > 2 else {}),
+        ),
+    ):
+        yield sent
+
+
+def _delta_row(
+    sent: list[tuple[str, str, dict[str, Any]]], task_id: object
+) -> dict[str, Any] | None:
+    for _pid, event, payload in sent:
+        if event != "task_dates_updated":
+            continue
+        for row in payload.get("tasks", []):
+            if row["id"] == str(task_id):
+                return dict(row)
+    return None
+
+
+def _remove_last_child(child_id: object) -> None:
+    """Delete a container's last child the way ``TaskViewSet.perform_destroy`` does.
+
+    The accidental container reverts to work and gets its parked estimate back, saved
+    through ``Model.save()`` — the restore the recalc must not overwrite.
+    """
+    # One transaction, as the request runs under ATOMIC_REQUESTS.
+    with transaction.atomic():
+        child = Task.objects.get(pk=child_id)
+        parent = structural_parent(child)
+        child.soft_delete()
+        assert parent is not None
+        parent.refresh_from_db()
+        assert sync_structure_shadow_values(parent), "fixture premise: the container reverts"
+        parent.save(update_fields=list(STRUCTURE_SHADOW_RESTORE_FIELDS))
+
+
 @pytest.mark.django_db(transaction=True)
 class TestSingleProjectWriteBack:
     def test_leaf_duration_edited_mid_recalc_survives(
-        self, calendar: Calendar, edit_during_recalc: Callable[[object, int], list[int]]
+        self, calendar: Calendar, edit_during_recalc: Callable[[object, int], list[Any]]
     ) -> None:
         project = Project.objects.create(
             name="Race", start_date=MONDAY, status_date=MONDAY, calendar=calendar
@@ -110,6 +182,58 @@ class TestSingleProjectWriteBack:
         assert leaf.early_start == MONDAY
         assert leaf.early_finish == date(2026, 1, 16)
 
+    def test_container_that_lost_its_last_child_keeps_its_restored_estimate(
+        self, calendar: Calendar, during_recalc: Callable[[Callable[[], Any]], list[Any]]
+    ) -> None:
+        """A summary at load time that stopped being one before the write (#4371).
+
+        Deleting an accidental container's last child restores its parked estimate
+        into ``duration``. The recalc still holds the row as a summary; writing the
+        rolled-up span over the restore would be permanent, because the next recalc
+        reads the row as a leaf and never writes its duration again.
+        """
+        project = Project.objects.create(
+            name="Revert", start_date=MONDAY, status_date=MONDAY, calendar=calendar
+        )
+        parent = Task.objects.create(
+            project=project,
+            name="Was work",
+            duration=3,
+            wbs_path="1",
+            structure_role=StructureRole.CONTAINER,
+            auto_container=True,
+            own_estimate=3,
+            own_status=TaskStatus.NOT_STARTED,
+        )
+        child = Task.objects.create(project=project, name="Child", duration=10, wbs_path="1.1")
+
+        ran = during_recalc(lambda: _remove_last_child(child.pk))
+        sched_tasks._run_schedule(str(project.pk), tracker=None)
+
+        assert ran, "fixture premise: the child removal must have run mid-recalc"
+        parent.refresh_from_db()
+        assert parent.auto_container is False
+        assert parent.duration == 3
+
+    def test_delta_broadcast_carries_the_committed_duration(
+        self,
+        calendar: Calendar,
+        edit_during_recalc: Callable[[object, int], list[Any]],
+        broadcasts: list[tuple[str, str, dict[str, Any]]],
+    ) -> None:
+        """The ``task_dates_updated`` row a client splices must not undo the PATCH."""
+        project = Project.objects.create(
+            name="Delta", start_date=MONDAY, status_date=MONDAY, calendar=calendar
+        )
+        leaf = Task.objects.create(project=project, name="Work", duration=5, wbs_path="1")
+
+        edit_during_recalc(leaf.pk, 8)
+        sched_tasks._run_schedule(str(project.pk), tracker=None)
+
+        row = _delta_row(broadcasts, leaf.pk)
+        assert row is not None, "fixture premise: the leaf moved and was broadcast"
+        assert row["duration"] == 8
+
 
 @pytest.mark.django_db(transaction=True)
 class TestProgramWriteBack:
@@ -136,7 +260,7 @@ class TestProgramWriteBack:
         return program, phase_a, a_leaf, b_leaf
 
     def test_leaf_duration_edited_mid_program_pass_survives(
-        self, calendar: Calendar, edit_during_recalc: Callable[[object, int], list[int]]
+        self, calendar: Calendar, edit_during_recalc: Callable[[object, int], list[Any]]
     ) -> None:
         program, phase_a, _a_leaf, b_leaf = self._program(calendar)
 
@@ -160,3 +284,18 @@ class TestProgramWriteBack:
         assert phase_a.duration == 10
         assert a_leaf.duration == 10
         assert a_leaf.early_finish == date(2026, 1, 16)
+
+    def test_program_delta_broadcast_carries_the_committed_duration(
+        self,
+        calendar: Calendar,
+        edit_during_recalc: Callable[[object, int], list[Any]],
+        broadcasts: list[tuple[str, str, dict[str, Any]]],
+    ) -> None:
+        program, _phase_a, _a_leaf, b_leaf = self._program(calendar)
+
+        edit_during_recalc(b_leaf.pk, 9)
+        sched_tasks._run_program_schedule(str(program.pk))
+
+        row = _delta_row(broadcasts, b_leaf.pk)
+        assert row is not None, "fixture premise: the leaf moved and was broadcast"
+        assert row["duration"] == 9
