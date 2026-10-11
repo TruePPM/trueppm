@@ -201,6 +201,13 @@ working on any number of web replicas. The limits:
   Neither one retries while the browser is offline.
 - **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
   blank page until it reloads.
+- **The first upgrade to a release that adds the first-load recovery** does
+  not fully have it during its own rollout. The recovery is a separate file,
+  `/boot-guard.js`, which the release you are upgrading from does not have. A
+  browser that gets the new `index.html` and then asks an old pod for that file
+  starts without it, and behaves as before for that one page load: a blank
+  page until it reloads. Every later upgrade is covered, because both releases
+  then carry the file.
 - **Upgrading from 0.4.0-beta.7, specifically.** This one hop is not covered
   by either mitigation above, even on a release that ships both: a beta.7 web
   pod predates the nginx rule that answers a missing hashed asset with a
