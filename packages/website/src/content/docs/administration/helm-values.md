@@ -535,7 +535,7 @@ defaults (RollingUpdate 25%/25%, `minReadySeconds: 0`,
 | `rollout.api.minReadySeconds` | `null` | `null` omits the field (Kubernetes default `0`). An explicit `0` is a distinct, real setting — accept a replacement pod the instant it reports ready — and renders rather than being treated as unset. |
 | `rollout.api.progressDeadlineSeconds` | `null` | `null` omits the field (Kubernetes default `600`). |
 | `rollout.worker.*` | same shape | Same five keys, independent of the api tier. |
-| `rollout.web.*` | same shape | Same five keys. Set `strategy: Recreate` here to trade a brief 502 for the mixed-asset blank screen a RollingUpdate can show mid-rollout before #4341's prior-release-asset retention closes that window entirely. |
+| `rollout.web.*` | same shape | Same five keys. Set `strategy: Recreate` here to trade a full web outage for the length of every rollout for zero version skew. Under the default RollingUpdate, #4341's prior-release-asset retention covers tabs opened before the upgrade. The other direction, a new `index.html` asking an old pod for a new file, stays open for the rollout and the client recovers from it with an automatic reload (#4408). |
 
 `strategy: Recreate` cannot carry `maxSurge`/`maxUnavailable` — Kubernetes
 has no surge/unavailable concept for a tear-down-then-start-up rollout, and
