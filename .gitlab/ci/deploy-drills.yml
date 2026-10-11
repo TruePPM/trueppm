@@ -872,6 +872,15 @@ backup:restore-drill:
   # Debian-based postgres:16 image (which carries bash + pg_dump/pg_restore/psql/
   # pg_isready), needing no prebaked registry image.
   #
+  # Media round-trip (#4368): every leg below also seeds a small file under
+  # --media-dir, passes --media-dir on the matching restore.sh call, and
+  # sha256-compares the restored file against the seeded one. Before #4368 all
+  # three legs proved only that backup.sh PACKS media into the archive (leg 6's
+  # MANIFEST/tar.gz assertions) — restore.sh's own `-m`/`--media-dir`
+  # extraction branch (restore.sh:213-223) ran on no leg, so a wrong
+  # strip-components, wrong target path, or a swallowed permission failure
+  # there would have shipped invisibly.
+  #
   # Trigger: nightly schedule (catches rot between changes) + any change to the
   # scripts or the CronJob template (and this CI file, so the job tests itself).
   stage: test
@@ -953,15 +962,24 @@ backup:restore-drill:
     - BEFORE_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
     - BEFORE_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
     - echo "seeded projects=$BEFORE_PROJECTS tasks=$BEFORE_TASKS"
+    # Media fixture (#4368): backup.sh packing media into the archive and
+    # flagging it in the MANIFEST was proven (leg 6 below), but restore.sh's
+    # `-m`/`--media-dir` extraction branch (restore.sh:213-223) had zero
+    # coverage — every leg restored without passing it. Seed a small nested
+    # file and checksum it now so later legs can prove byte-for-byte recovery,
+    # not just presence in the archive.
+    - mkdir -p "$CI_PROJECT_DIR/drill-media/sub"
+    - echo "local-leg-media-payload" > "$CI_PROJECT_DIR/drill-media/sub/payload.bin"
+    - MEDIA_SHA=$(sha256sum "$CI_PROJECT_DIR/drill-media/sub/payload.bin" | awk '{print $1}')
     # 1. back up
-    - ./scripts/backup.sh --output-dir "$CI_PROJECT_DIR/drill-backups"
+    - ./scripts/backup.sh --output-dir "$CI_PROJECT_DIR/drill-backups" --media-dir "$CI_PROJECT_DIR/drill-media"
     - ARTIFACT=$(ls -1 "$CI_PROJECT_DIR"/drill-backups/trueppm-backup-*.tar.gz | head -n1)
     - echo "artifact=$ARTIFACT"
     # 2. destroy the source (FORCE drops any lingering connection from pg_dump)
     - psql -h postgres -U trueppm -d trueppm_test -c "DROP DATABASE drilldb WITH (FORCE);"
     - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
     # 3. restore (restore.sh verifies ltree + pg_trgm + btree_gist internally and exits non-zero if absent)
-    - ./scripts/restore.sh --artifact "$ARTIFACT" --yes
+    - ./scripts/restore.sh --artifact "$ARTIFACT" --media-dir "$CI_PROJECT_DIR/drill-media-restored" --yes
     # 4. assert the round-trip preserved every row
     - AFTER_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
     - AFTER_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
@@ -973,7 +991,20 @@ backup:restore-drill:
         echo "  tasks:    before=$BEFORE_TASKS after=$AFTER_TASKS" >&2
         exit 1
       fi
-    - echo "restore drill GREEN — row counts match and required extensions present"
+    # 5. assert restore.sh actually extracted media to disk, not just that the
+    # archive contained it — a wrong strip-components, wrong target path, or a
+    # swallowed permission failure in restore.sh:213-223 would ship invisibly
+    # without this.
+    - |
+      RESTORED_MEDIA="$CI_PROJECT_DIR/drill-media-restored/sub/payload.bin"
+      [ -f "$RESTORED_MEDIA" ] || { echo "RESTORE DRILL FAILED: restore.sh --media-dir did not extract $RESTORED_MEDIA" >&2; exit 1; }
+      RESTORED_SHA=$(sha256sum "$RESTORED_MEDIA" | awk '{print $1}')
+      if [ "$RESTORED_SHA" != "$MEDIA_SHA" ]; then
+        echo "RESTORE DRILL FAILED: restored media content does not match the seeded file" >&2
+        echo "  expected sha256=$MEDIA_SHA got=$RESTORED_SHA" >&2
+        exit 1
+      fi
+    - echo "restore drill GREEN — row counts and media checksum match, required extensions present"
     # ---- 5. off-cluster round trip (#2611) ---------------------------------
     # The local drill above proves the artifact is correct; this proves it can
     # actually reach a bucket and come back. Before #2611 the chart injected a
@@ -999,7 +1030,10 @@ backup:restore-drill:
       done
     - aws --endpoint-url "$DRILL_S3_ENDPOINT" s3 mb "s3://$DRILL_S3_BUCKET"
     # Back up straight to the bucket, then verify the object really landed.
-    - ./scripts/backup.sh --output-dir "$CI_PROJECT_DIR/s3-backups" --s3-bucket "$DRILL_S3_BUCKET" --s3-endpoint "$DRILL_S3_ENDPOINT" --s3-prefix drill/daily
+    # Media rides along too (#4368) — same source fixture from leg 4, still on
+    # disk (it is backup.sh's *input*, not an output artifact, so the cleanup
+    # below does not touch it).
+    - ./scripts/backup.sh --output-dir "$CI_PROJECT_DIR/s3-backups" --media-dir "$CI_PROJECT_DIR/drill-media" --s3-bucket "$DRILL_S3_BUCKET" --s3-endpoint "$DRILL_S3_ENDPOINT" --s3-prefix drill/daily
     - |
       OBJECTS=$(aws --endpoint-url "$DRILL_S3_ENDPOINT" s3 ls --recursive "s3://$DRILL_S3_BUCKET" | grep -c 'drill/daily/trueppm-backup-.*\.tar\.gz' || true)
       if [ "$OBJECTS" -lt 1 ]; then
@@ -1013,7 +1047,7 @@ backup:restore-drill:
     - rm -rf "$CI_PROJECT_DIR/s3-backups" "$CI_PROJECT_DIR/drill-backups"
     - psql -h postgres -U trueppm -d trueppm_test -c "DROP DATABASE drilldb WITH (FORCE);"
     - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
-    - ./scripts/restore.sh --from-s3 latest --s3-bucket "$DRILL_S3_BUCKET" --s3-endpoint "$DRILL_S3_ENDPOINT" --s3-prefix drill/daily --yes
+    - ./scripts/restore.sh --from-s3 latest --s3-bucket "$DRILL_S3_BUCKET" --s3-endpoint "$DRILL_S3_ENDPOINT" --s3-prefix drill/daily --media-dir "$CI_PROJECT_DIR/s3-media-restored" --yes
     - S3_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
     - S3_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
     - |
@@ -1023,7 +1057,19 @@ backup:restore-drill:
         echo "  tasks:    before=$BEFORE_TASKS after=$S3_TASKS" >&2
         exit 1
       fi
-    - echo "S3 round-trip drill GREEN — artifact uploaded, local copies removed, restored from the bucket"
+    # The restored path can only have come from the downloaded artifact — the
+    # local source fixture and local artifact copies were deleted above, so
+    # this proves restore.sh's --media-dir path works through the S3 leg too.
+    - |
+      S3_RESTORED_MEDIA="$CI_PROJECT_DIR/s3-media-restored/sub/payload.bin"
+      [ -f "$S3_RESTORED_MEDIA" ] || { echo "S3 DRILL FAILED: restore.sh --media-dir did not extract $S3_RESTORED_MEDIA from the downloaded artifact" >&2; exit 1; }
+      S3_RESTORED_SHA=$(sha256sum "$S3_RESTORED_MEDIA" | awk '{print $1}')
+      if [ "$S3_RESTORED_SHA" != "$MEDIA_SHA" ]; then
+        echo "S3 DRILL FAILED: media restored from the bucket does not match the seeded checksum" >&2
+        echo "  expected sha256=$MEDIA_SHA got=$S3_RESTORED_SHA" >&2
+        exit 1
+      fi
+    - echo "S3 round-trip drill GREEN — artifact and media uploaded, local copies removed, both restored from the bucket"
     # ---- 6. the CHART's backup command, round-tripped (#3185) --------------
     # Everything above exercises scripts/backup.sh. The chart does NOT run that
     # script — it runs an inlined command in the PostgreSQL client image — and
@@ -1046,6 +1092,7 @@ backup:restore-drill:
     - yq --version
     - mkdir -p "$CI_PROJECT_DIR/chart-backups" "$CI_PROJECT_DIR/chart-media/sub"
     - echo "attachment-bytes" > "$CI_PROJECT_DIR/chart-media/sub/attachment.bin"
+    - CHART_MEDIA_SHA=$(sha256sum "$CI_PROJECT_DIR/chart-media/sub/attachment.bin" | awk '{print $1}')
     # s3 stays OFF so the dump container is the sole container; with s3 on it is
     # an initContainer instead, and this leg is about the dump, not the upload
     # (leg 5 already proves the upload).
@@ -1095,9 +1142,12 @@ backup:restore-drill:
       tar -tzf "$CHART_ARTIFACT" | grep -q 'media.tar.gz' \
         || { echo "CHART DRILL FAILED: MANIFEST claims media but the artifact has no media.tar.gz" >&2; exit 1; }
     # And restore.sh must consume the chart's artifact, not only the script's.
+    # --media-dir is passed here too (#4368) — until now this leg proved the
+    # CronJob's artifact CONTAINS media.tar.gz, never that restore.sh unpacks
+    # it back to disk.
     - psql -h postgres -U trueppm -d trueppm_test -c "DROP DATABASE drilldb WITH (FORCE);"
     - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
-    - ./scripts/restore.sh --artifact "$CHART_ARTIFACT" --yes
+    - ./scripts/restore.sh --artifact "$CHART_ARTIFACT" --media-dir "$CI_PROJECT_DIR/chart-media-restored" --yes
     - CHART_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
     - CHART_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
     - |
@@ -1107,4 +1157,13 @@ backup:restore-drill:
         echo "  tasks:    before=$BEFORE_TASKS after=$CHART_TASKS" >&2
         exit 1
       fi
-    - echo "chart drill GREEN — the CronJob's own command produces a restorable artifact with a script-compatible MANIFEST"
+    - |
+      CHART_RESTORED_MEDIA="$CI_PROJECT_DIR/chart-media-restored/sub/attachment.bin"
+      [ -f "$CHART_RESTORED_MEDIA" ] || { echo "CHART DRILL FAILED: restore.sh --media-dir did not extract $CHART_RESTORED_MEDIA" >&2; exit 1; }
+      CHART_RESTORED_SHA=$(sha256sum "$CHART_RESTORED_MEDIA" | awk '{print $1}')
+      if [ "$CHART_RESTORED_SHA" != "$CHART_MEDIA_SHA" ]; then
+        echo "CHART DRILL FAILED: restored media content does not match the seeded attachment" >&2
+        echo "  expected sha256=$CHART_MEDIA_SHA got=$CHART_RESTORED_SHA" >&2
+        exit 1
+      fi
+    - echo "chart drill GREEN — the CronJob's own command produces a restorable artifact with a script-compatible MANIFEST, and restore.sh extracts the media byte-for-byte"

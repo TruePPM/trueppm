@@ -650,6 +650,13 @@ scripts:test:
   #     `helm show values` and any schema-driven tooling showed six ordinary,
   #     validated keys indistinguishable from the stable surface. No cluster, no
   #     `helm template` needed — pure JSON, ~1s.
+  #   - backup-media — restore.sh's `-m`/`--media-dir` extraction branch
+  #     (restore.sh:213-223) (#4368). backup-s3.test.sh and backup:restore-drill
+  #     both proved backup.sh PACKS media into the archive, never that
+  #     restore.sh unpacks it; this stubs pg_dump/pg_isready/pg_restore/psql (no
+  #     DB needed) and sha256-compares a nested fixture file through a real
+  #     backup.sh -> restore.sh round trip, plus the two skip branches and a
+  #     corrupted-archive negative control. No cluster, no DB, ~1s.
   #   - wt-testdb: the per-worktree Postgres test DB lifecycle (#3270). `wt new`
   #     creates the DB name, pytest-django drops the DB only on a CLEAN exit, and
   #     nothing dropped it otherwise — 78 orphans, 1959 MB, 97% of the local
@@ -709,6 +716,7 @@ scripts:test:
         - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
         - scripts/tests/backup-s3.test.sh
+        - scripts/tests/backup-media.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
@@ -758,6 +766,7 @@ scripts:test:
         - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
         - scripts/tests/backup-s3.test.sh
+        - scripts/tests/backup-media.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
@@ -786,6 +795,7 @@ scripts:test:
     - bash scripts/tests/wt-testdb.test.sh
     - bash scripts/tests/osv-severity-gate.test.sh
     - bash scripts/tests/backup-s3.test.sh
+    - bash scripts/tests/backup-media.test.sh
     - bash scripts/tests/check-enterprise-imports.test.sh
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
