@@ -66,33 +66,73 @@ def _purge_protecting_children(model: type[models.Model], pks: Sequence[Any]) ->
 
 
 @transaction.atomic
-def hard_delete_projects(project_ids: Sequence[Any]) -> int:
+def hard_delete_projects(project_ids: Sequence[Any], *, broadcast: bool = False) -> int:
     """Permanently delete projects and the rows whose ``PROTECT`` FKs block them.
 
-    Returns the number of ``Project`` rows removed. Callers are responsible for
-    authorization, audit events, and sync broadcasts — this helper owns only the
-    delete order.
+    Returns the number of ``Project`` rows removed. Authorization and audit events
+    remain the caller's responsibility, but the ``project_hard_deleted`` sync
+    broadcast does not: pass ``broadcast=True`` to have this helper schedule one
+    per deleted project via ``transaction.on_commit`` (deferred so a rollback never
+    advertises a delete that didn't happen). Every current caller needs this
+    broadcast, so it is opt-in rather than silently assumed — a caller that forgets
+    the flag gets no broadcast and no event, instead of the inverse bug this helper
+    used to invite (#4374): callers were "responsible for... sync broadcasts" in
+    name only, and one of five forgot.
+
+    ``project_ids`` are coerced to ``str`` before being used in the on_commit
+    closures, so each callback captures a plain string rather than a lazily
+    re-evaluated queryset or ORM instance.
     """
     if not project_ids:
         return 0
-    _purge_protecting_children(Project, project_ids)
-    _, by_model = Project.objects.filter(pk__in=project_ids).delete()
-    return int(by_model.get(Project._meta.label, 0))
+    ids = [str(pid) for pid in project_ids]
+    _purge_protecting_children(Project, ids)
+    _, by_model = Project.objects.filter(pk__in=ids).delete()
+    deleted = int(by_model.get(Project._meta.label, 0))
+    if broadcast and deleted:
+        # A direct, literal call rather than functools.partial: the #1019/#1381
+        # AST sweep that keeps FROZEN_WS_EVENT_TYPES honest
+        # (tests/apps/sync/ws_event_scan.py) only recognizes a literal event_type
+        # reaching broadcast_board_event() directly or through a one-level
+        # parameter-forwarding wrapper — partial(broadcast_board_event, ...) is
+        # neither, and would make "project_hard_deleted" invisible to that scan.
+        # A nested def with a typed default argument (not a bare lambda, which
+        # mypy --strict cannot infer a type for here, and not a closure over the
+        # bare loop variable, which would let every callback resolve to the last
+        # id once the loop finishes) is what keeps each callback bound to its own
+        # id.
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        for project_id in ids:
+
+            def _emit_hard_deleted(project_id: str = project_id) -> None:
+                broadcast_board_event(project_id, "project_hard_deleted", {"id": project_id})
+
+            transaction.on_commit(_emit_hard_deleted)
+    return deleted
 
 
 @transaction.atomic
-def hard_delete_program(program_id: uuid.UUID | str) -> None:
+def hard_delete_program(program_id: uuid.UUID | str, *, broadcast: bool = False) -> int:
     """Permanently delete a program, its projects, and all ``PROTECT``-ing children.
 
     The program's projects are deleted outright rather than detached — the only
     caller is sample-data teardown, where the whole subtree is disposable. Contrast
     :func:`delete_program_cascade`, which *soft*-deletes a real program and detaches
     its projects so they survive as standalone work.
+
+    Returns the number of ``Project`` rows removed. Pass ``broadcast=True`` to emit
+    the per-project ``project_hard_deleted`` sync broadcast via
+    :func:`hard_delete_projects` — the program itself has no deliverable WS channel
+    (#836), so a ``program_deleted`` event, if the caller also sends one, reaches no
+    client; the per-project broadcast is what lets an open tab on one of the deleted
+    projects learn it is gone.
     """
     project_ids = list(Project.objects.filter(program_id=program_id).values_list("pk", flat=True))
-    hard_delete_projects(project_ids)
+    deleted = hard_delete_projects(project_ids, broadcast=broadcast)
     _purge_protecting_children(Program, [program_id])
     Program.objects.filter(pk=program_id).delete()
+    return deleted
 
 
 @transaction.atomic

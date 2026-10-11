@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -782,11 +782,18 @@ def test_sample_replace_broadcasts_the_hard_delete(
     first = import_seed(_seed(), owner=seed_owner, create_users=True, is_sample=True)
     doomed = {str(pk) for pk in Project.objects.filter(program=first).values_list("pk", flat=True)}
 
-    # Patched where the importer *binds* it: ``seed/importer.py`` imports the
-    # name at module load, so patching the source module would leave the bound
-    # reference untouched and the callback would hit a real broker.
+    # Two distinct call sites to intercept (#4374): the importer's own
+    # ``program_deleted`` call binds ``broadcast_board_event`` at module load, so
+    # patching the source module would leave that bound reference untouched; the
+    # per-project ``project_hard_deleted`` broadcasts now originate inside
+    # ``access.services.hard_delete_projects``, which imports the name lazily
+    # inside the function, so patching the *source* module is what reaches it.
+    # Pointing both patches at one shared mock lets both be asserted from a single
+    # call list.
+    broadcast = MagicMock()
     with (
-        patch("trueppm_api.apps.projects.seed.importer.broadcast_board_event") as broadcast,
+        patch("trueppm_api.apps.projects.seed.importer.broadcast_board_event", broadcast),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", broadcast),
         django_capture_on_commit_callbacks(execute=True),
     ):
         import_seed(_seed(), owner=seed_owner, create_users=True, is_sample=True, replace=True)
