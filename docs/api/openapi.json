@@ -19866,7 +19866,7 @@
         "/api/v1/projects/{id}/export/jobs/": {
             "get": {
                 "operationId": "v1_projects_export_jobs_list",
-                "description": "List recent async export jobs for this project (#1266, ADR-0219). Admin+.\n\nPage-number envelope so an integrator can tell a truncated list from a complete\none. Scoped to the resolved (membership-checked) project, so no cross-project rows\nleak.",
+                "description": "List recent async export jobs for this project (#1266, ADR-0219). Admin+.\n\nPage-number envelope so an integrator can tell a truncated list from a complete\none. Scoped to the resolved (membership-checked) project, so no cross-project\nrows leak — and to the requester (#4370): a job's bundle content depends on who\nasked for it (withheld emails, #3627; blocker text, #4082), so another project\nAdmin's in-flight or completed jobs never appear in this list either. This is\nstricter than #4310's program-grain sibling, which deliberately left the\nprogram list visible to every program Admin and scoped only the download link\n(see ``ProgramExportJobSerializer.get_download_url``) — the two export-job\nsurfaces now differ here on purpose, not identically.",
                 "summary": "List this project's async export jobs",
                 "parameters": [
                     {
@@ -19966,7 +19966,7 @@
         "/api/v1/projects/{id}/export/jobs/{job_id}/": {
             "get": {
                 "operationId": "v1_projects_export_jobs_retrieve",
-                "description": "Poll an async export job (#1266, ADR-0219). Admin+.\n\nThe job is looked up scoped to the resolved project, so a ``job_id`` belonging\nto another project 404s rather than leaking (object-level IDOR guard).",
+                "description": "Poll an async export job (#1266, ADR-0219). Admin+.\n\nThe job is looked up scoped to the resolved project, so a ``job_id`` belonging\nto another project 404s rather than leaking (object-level IDOR guard). It is\nalso requester-scoped (#4370): a ``job_id`` belonging to another project\nAdmin's export request 404s the same way, not 403 — the lookup filters on\n``requested_by`` alongside ``project``, so the two refusals are\nindistinguishable from outside. This is stricter than #4310's program-grain\nfix, which left program poll metadata visible to every program Admin and\nscoped only the download link — the two siblings differ here on purpose.",
                 "summary": "Poll one async export job's status",
                 "parameters": [
                     {
@@ -20039,7 +20039,7 @@
         "/api/v1/projects/{id}/export/jobs/{job_id}/download/": {
             "get": {
                 "operationId": "v1_projects_export_jobs_download_retrieve",
-                "description": "Stream a completed export bundle (#1266, ADR-0219). Admin+.\n\nAuthenticated — the archive contains the whole project including its audit\nhistory, so it is never served from a raw, unauthenticated storage URL. ``409``\nif not ready, ``410 Gone`` once the link has expired. The job is project-scoped\nso a ``job_id`` from another project 404s (object-level IDOR guard).",
+                "description": "Stream a completed export bundle (#1266, ADR-0219). Admin+.\n\nAuthenticated — the archive contains the whole project including its audit\nhistory, so it is never served from a raw, unauthenticated storage URL. ``409``\nif not ready, ``410 Gone`` once the link has expired. The job is project-scoped\nso a ``job_id`` from another project 404s (object-level IDOR guard). It is also\nrequester-scoped (#4370, mirroring #4310): a ``job_id`` belonging to another\nadmin's export request 404s the same way, not 403 — the lookup filters on\n``requested_by`` alongside ``project``, so the two refusals are\nindistinguishable from outside.",
                 "summary": "Download a completed async export bundle",
                 "parameters": [
                     {
@@ -20112,6 +20112,17 @@
                             }
                         },
                         "description": "Download link has expired."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "No job with this id on this project, OR the job belongs to a different admin's export request (#4370). A bundle can be downloaded only by the admin who requested it — another project Admin's request for the same job id gets the same 404 an unrelated project would, not a 403, so the two cases are indistinguishable from outside."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

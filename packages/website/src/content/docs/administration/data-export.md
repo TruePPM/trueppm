@@ -133,7 +133,15 @@ job endpoint until `status` is `success` (or `failed`), then fetch `download_url
 The download endpoint is authenticated (the archive is never served from a raw
 storage URL); it returns `409` while the job is still building and `410 Gone`
 once the link has expired. A bundle already `pending`/`running` for the project
-is reused rather than queuing a duplicate build.
+**for the same requester** is reused rather than queuing a duplicate build — a
+second Admin's `POST` always gets a job of their own.
+
+The jobs list, the poll endpoint, and the download endpoint are all scoped to the
+admin who requested the job, in addition to the project: another project Admin's
+job id — even for the same project — 404s the same way a job id from an unrelated
+project would, and never appears in another Admin's jobs list. The bundle's
+contents depend on who asked for it (see the email and blocker-text notes below),
+so a job and its archive are visible only to their own requester.
 
 ### What the bundle contains
 
