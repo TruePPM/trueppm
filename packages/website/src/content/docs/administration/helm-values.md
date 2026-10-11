@@ -478,9 +478,23 @@ close code `1006` instead of a clean `1012` (Service Restart). 20s leaves a
 5s margin inside the 25s that remains after `lifecycle.web.preStopSleepSeconds`
 (5s) is subtracted from `lifecycle.web.terminationGracePeriodSeconds` (30s).
 `worker_shutdown_timeout` is a main-context nginx directive — it cannot live in
-the chart-mounted or Compose-mounted `default.conf`, which is included inside
-nginx's `http {}` block — so it is set once, in the image, and applies
-identically under Helm and both Docker Compose stacks.
+the chart-mounted `default.conf`, which is included inside nginx's `http {}`
+block — so it is set once, in the `trueppm/web` image's own `nginx.conf`.
+
+**This reaches Helm (and a bare `docker run` of the image) but not Docker
+Compose.** Under the chart, the web Deployment's container runs this image's
+nginx directly, so the fix applies. Under both `docker-compose.prod.yml` and
+`docker-compose.demo.yml`, the `trueppm/web` image is used only by the
+one-shot `web-build` init container (`cp -r /usr/share/nginx/html/. /dist/`),
+which copies the static bundle out and exits — its nginx process, patched
+directive and all, never starts. The container that actually serves traffic
+in both Compose stacks is a separate, unmodified `nginx:1.27-alpine` image
+(`nginx/app.conf.template`, `app-http.conf.template`, `demo.conf.template`),
+which still has no `worker_shutdown_timeout` and still proxies `/ws/` with the
+same unbounded graceful shutdown — tracked in
+[`#4366`](https://gitlab.com/trueppm/trueppm/-/issues/4366).
+`docker-compose.yml` (dev) is unaffected either way: its `web` service runs
+the Vite dev server, not nginx.
 
 Related: `CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"]` is now bounded
 at 900s in `settings/base.py`. Tasks carry `acks_late=True`, so a killed worker
