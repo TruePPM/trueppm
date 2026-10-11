@@ -217,18 +217,26 @@ observes it indirectly, through `/readyz`'s database/cache checks above.
 **Readiness — `GET /asset-manifest.json`, not `/`.** The web tier serves a
 single-page app, and its catch-all `location /` answers *any* unmatched path
 with `index.html` as long as nginx is up at all — so a probe against `/` only
-ever proves "nginx is running," never "this pod is serving a working bundle
-through a correctly-configured proxy." A pod with a working shell and a
-corrupted or half-copied build, or a `proxy_pass` upstream name that does not
-resolve, reported Ready under that check (`#4359`). `asset-manifest.json` is
-Vite's build manifest, written at the html root only by the image's own
-build — the image's prior-release-assets mechanism (`#4341`, which keeps a
-previous release's hashed chunks around for a tab that has not yet reloaded)
-only ever copies forward into `assets/`, never to the html root, so this file
-can never be a carried-over prior release's. The chart's web ConfigMap gives it
-its own `location = /asset-manifest.json { try_files $uri =404; }`, so a
-missing manifest 404s the probe instead of silently falling through to the SPA
-shell.
+ever proved "nginx is running," never that this pod's html root actually
+holds this release's build (`#4359`). It is **not** a proxy check: a
+`proxy_pass` upstream name that does not resolve already fails nginx's own
+config load at startup, crash-looping the pod before any probe — old or new
+— could reach it either way. `asset-manifest.json` is Vite's build manifest,
+written at the html root only by the image's own build — the image's
+prior-release-assets mechanism (`#4341`, which keeps a previous release's
+hashed chunks around for a tab that has not yet reloaded) only ever copies
+forward into `assets/`, never to the html root, so this file can never be a
+carried-over prior release's. The chart's web ConfigMap gives it its own
+`location = /asset-manifest.json { try_files $uri =404; }`, so a missing
+manifest 404s the probe instead of silently falling through to the SPA
+shell. What this does **not** prove: the manifest's mere presence says
+nothing about whether the individual JS chunks it names are actually on
+disk and intact — a corrupt or partially missing `assets/` directory still
+passes this probe (see `scripts/check-served-assets.sh`, a separate,
+heavier check run outside the probe path). The issue that raised this
+(`#4359`) also considered probing the SPA's entry chunk directly; the build
+manifest was used instead because it is a stable, well-known path that does
+not change with every build's content hash.
 
 **Liveness — still `GET /`.** Unlike readiness, liveness exists to catch a
 wedged *process*, and a missing or corrupted bundle is a static condition that

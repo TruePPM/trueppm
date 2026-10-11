@@ -987,11 +987,13 @@ probes:
   # pre-built static bundle, so nginx is either up within a second or its
   # process failed to start at all — there is no meaningful boot window for a
   # startup probe to cover, unlike api/worker which wait on migrations or a
-  # broker connection. Readiness and liveness both hit `GET /`, which nginx
-  # answers with the SPA's index.html with no backend dependency, so the two
-  # differ only in timing: readiness reaches a first success quickly so a
-  # rolling update proceeds promptly, liveness is slower to conclude a restart
-  # is warranted.
+  # broker connection. Readiness checks `GET /asset-manifest.json` (#4359) —
+  # a build-specific file that proves the html root holds THIS image's own
+  # build, not just that nginx answered `/` — while liveness stays on
+  # `GET /`, which nginx answers with the SPA's index.html with no backend
+  # dependency either way. The two differ only in timing beyond that:
+  # readiness reaches a first success quickly so a rolling update proceeds
+  # promptly, liveness is slower to conclude a restart is warranted.
   web:
     readinessInitialDelaySeconds: 5
     readinessPeriodSeconds: 10

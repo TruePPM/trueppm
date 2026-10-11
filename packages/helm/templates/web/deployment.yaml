@@ -93,10 +93,11 @@ spec:
               # /asset-manifest.json, not / (#4359). The SPA fallback
               # (`try_files $uri $uri/ /index.html;`) answers EVERY path with
               # index.html as long as nginx itself is up, so `/` proves
-              # nothing about the bundle this pod actually serves, or about a
-              # typo'd proxy_pass upstream name elsewhere in the mounted
-              # config — a pod with a working shell and a broken deploy still
-              # reports Ready. asset-manifest.json is build-specific: it is
+              # nothing beyond "nginx is running" — not that this pod's html
+              # root holds a real build. (It is NOT a proxy-upstream check: a
+              # bad `proxy_pass` host already fails nginx's own config load at
+              # startup, crash-looping the pod before any probe — old or new —
+              # could reach it.) asset-manifest.json is build-specific: it is
               # Vite's build manifest, written at the html root only by THIS
               # image's own build (the ADR-1249/#4341 prior-release-assets
               # stage copies a previous release's files forward into
@@ -104,8 +105,11 @@ spec:
               # ConfigMap (configmap.yaml) adds a dedicated
               # `location = /asset-manifest.json { try_files $uri =404; }` in
               # every branch so a missing file 404s instead of silently
-              # falling back to index.html — the same failure mode this
-              # probe exists to catch.
+              # falling back to index.html. This proves the html root is
+              # THIS image's own build — it does not verify every individual
+              # JS chunk the manifest names is present or intact; a missing
+              # or corrupt chunk still passes this probe (see
+              # scripts/check-served-assets.sh for that check).
               path: /asset-manifest.json
               port: http
             # A `kindIs "invalid"` presence guard replaces `| default 5` on

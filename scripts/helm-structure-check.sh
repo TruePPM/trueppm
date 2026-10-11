@@ -331,21 +331,46 @@ cm_mount="$(echo "$WEB_DEP" | yq '.spec.template.spec.containers[0].volumeMounts
 #     location (asserted at 4b below to carry security headers) answers
 #     EVERY unmatched path with index.html as long as nginx is up at all, so
 #     a probe against `/` only ever proves "nginx is running" — never that
-#     this pod serves a working bundle, or that the proxy_pass upstream
-#     asserted above actually resolves. Whatever path the probe does use must
-#     have its OWN location in the ConfigMap that does not fall back to
-#     index.html on a miss, or a missing/corrupt build would 200 the probe
-#     exactly the way `/` always does.
+#     this pod's html root holds a real build. (NOT a proxy-upstream check:
+#     a bad `proxy_pass` host asserted above already fails nginx's config
+#     load at startup, crash-looping the pod before any probe — old or new —
+#     could reach it.) Whatever path the probe does use must have its OWN
+#     location in the ConfigMap that does not fall back to index.html on a
+#     miss, or a missing manifest would 200 the probe exactly the way `/`
+#     always does. The readiness path itself is not demo-conditional (set
+#     once in deployment.yaml, independent of demo.*), but the ConfigMap's
+#     server block IS — production, share-link demo, and interactive demo
+#     each render their OWN copy of this location (configmap.yaml), so the
+#     sentinel is asserted on all three renders, not just the default one.
 web_ready_path="$(echo "$WEB_DEP" | yq '.spec.template.spec.containers[0].readinessProbe.httpGet.path')"
 [ -n "$web_ready_path" ] && [ "$web_ready_path" != "null" ] \
   || fail "web readinessProbe.httpGet.path did not render (#4359)"
 [ "$web_ready_path" != "/" ] \
   || fail "web readinessProbe.httpGet.path is '/' — the SPA fallback answers it with index.html on any pod that has nginx up, so it proves nothing about the bundle this pod actually serves (#4359)"
-grep -qF "location = ${web_ready_path} {" <<<"$web_upstream" \
-  || fail "web nginx ConfigMap has no dedicated 'location = ${web_ready_path}' for the readiness probe path — without one the request falls through to the SPA fallback and would 200 even with the file missing (#4359)"
-sentinel_body="$(grep -A2 -F "location = ${web_ready_path} {" <<<"$web_upstream")"
-grep -q 'try_files $uri =404;' <<<"$sentinel_body" \
-  || fail "web nginx ConfigMap's '${web_ready_path}' location does not '=404' on a miss — a missing file would fall back to index.html and the readiness probe would pass on a broken bundle again (#4359)"
+
+assert_web_readiness_sentinel() { # <label> <rendered-default.conf-text>
+  local label="$1" conf="$2" body
+  grep -qF "location = ${web_ready_path} {" <<<"$conf" \
+    || fail "${label}: web nginx ConfigMap has no dedicated 'location = ${web_ready_path}' for the readiness probe path — without one the request falls through to the SPA fallback and would 200 even with the file missing (#4359)"
+  body="$(grep -A2 -F "location = ${web_ready_path} {" <<<"$conf")"
+  grep -q 'try_files $uri =404;' <<<"$body" \
+    || fail "${label}: web nginx ConfigMap's '${web_ready_path}' location does not '=404' on a miss — a missing file would fall back to index.html and the readiness probe would pass on a broken bundle again (#4359)"
+}
+
+assert_web_readiness_sentinel "production" "$web_upstream"
+
+web_cm_sharelink="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set demo.enabled=true --set demo.baseUrl=https://demo.example.com \
+  --set demo.shareToken.schedule=struct4a-schedule --set demo.shareToken.board=struct4a-board \
+  --set networkPolicy.ingressControllerConfirmed=true \
+  --show-only templates/web/configmap.yaml | yq '.data["default.conf"]')"
+assert_web_readiness_sentinel "demo (share-link)" "$web_cm_sharelink"
+
+web_cm_interactive="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set demo.interactive=true \
+  --set demo.loginHint.username=struct4a-visitor --set demo.loginHint.password=Struct4aPw1 \
+  --show-only templates/web/configmap.yaml | yq '.data["default.conf"]')"
+assert_web_readiness_sentinel "demo (interactive)" "$web_cm_interactive"
 
 # 4b. The SPA document must ship security response headers ON A DEFAULT INSTALL
 #     (#2849). Django's XFrameOptions / SECURE_CONTENT_TYPE_NOSNIFF / CSP
@@ -2553,4 +2578,4 @@ echo "  - demo/LoadBalancer/NodePort web exposure with no Ingress and the defaul
 echo "  - web pod template carries checksum/nginx-conf, and it changes when the nginx config does, so a config-only upgrade rolls the web pod (#4047)"
 echo "  - interactive demo edge: the fenced /api/ 403 routes to an internal @demo_read_only location returning the middleware JSON body; share-link and production ConfigMaps carry none of it (#4053)"
 echo "  - values-prod.yaml's Ingress overlay routes /api and /ws to the api Service and / to the web Service, so the SPA stays reachable once the overlay replaces values.yaml's default host list (#4349)"
-echo "  - web readinessProbe.httpGet.path is not '/' (the SPA fallback answers it unconditionally), and the ConfigMap gives that path its own non-SPA-falling-back, '=404'-on-a-miss location (#4359)"
+echo "  - web readinessProbe.httpGet.path is not '/' (the SPA fallback answers it unconditionally), and all three rendered ConfigMap branches (production, share-link demo, interactive demo) give that path its own non-SPA-falling-back, '=404'-on-a-miss location (#4359)"

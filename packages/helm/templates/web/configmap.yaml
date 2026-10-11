@@ -597,16 +597,20 @@ data:
         # Build-specific readiness sentinel (#4359). The web Deployment's
         # readinessProbe asks for this path instead of `/` because the SPA
         # fallback just below answers EVERY unmatched path with index.html as
-        # long as nginx is up at all — a pod with a broken bundle, or a
-        # typo'd proxy_pass upstream name elsewhere in this file, would still
-        # report Ready. asset-manifest.json is Vite's build manifest
+        # long as nginx is up at all — proving only "nginx is running," not
+        # that this pod's html root holds a real build. (NOT a proxy-upstream
+        # check: a bad `proxy_pass` host already fails nginx's config load at
+        # startup, crash-looping the pod before any probe could reach it
+        # either way.) asset-manifest.json is Vite's build manifest
         # (vite.config.ts's `build.manifest`), written at the html root by
         # THIS image's own build: the Dockerfile's ADR-1249/#4341
         # prior-release-assets stage only ever copies a previous release's
         # files into assets/, never to the html root, so this file can never
         # be a carried-over prior release's. `=404`, not a fallback to
         # index.html — a missing manifest must fail the probe the same way a
-        # missing asset does, not silently pass it the way `/` would.
+        # missing asset does, not silently pass it the way `/` would. This
+        # proves the html root is THIS image's build, not that every chunk
+        # the manifest names is actually present and intact.
         location = /asset-manifest.json {
             try_files $uri =404;
         }

@@ -82,18 +82,25 @@ RUN apk upgrade --no-cache
 # in sync with nginx-unprivileged's own upstream changes (mime types, log
 # format, temp paths, ...).
 #
-# Why it is needed at all: every server block proxies /ws/ with
-# proxy_read_timeout 86400s (see configmap.yaml and nginx.conf), and the base
-# image inherits nginx-unprivileged's `STOPSIGNAL SIGQUIT` — a graceful
-# shutdown that, with no bound, waits for open connections to close on their
-# own. A terminating pod with live WebSocket viewers would therefore hold
-# those sockets open until Kubernetes' termination grace period (30s for the
-# web tier, minus the 5s preStop sleep that runs before SIGQUIT is even sent
-# — see values.yaml's lifecycle.web) ran out and SIGKILLed the process,
-# costing ~30s per rollout step and handing connected clients an abrupt close
-# code 1006 instead of a clean 1012 (Service Restart). 20s leaves a 5s margin
-# inside that 25s post-preStop budget for nginx to actually begin shutting
-# down workers.
+# Why it is needed at all: the chart's PRODUCTION web ConfigMap branch
+# (configmap.yaml's `else` block, and the image-direct nginx.conf) proxies
+# /ws/ with proxy_read_timeout 86400s — the two demo branches 404 it instead,
+# so they carry no WebSocket traffic and are unaffected either way. Whether
+# the production branch's /ws/ proxy actually sees live traffic depends on
+# topology: values.yaml's documented default Ingress routes /ws straight to
+# the api Service, bypassing the web pod's nginx entirely — this directive
+# matters on a topology that instead routes /ws through the web tier (no
+# Ingress, or an Ingress/LB configured to do so). On such a topology, the
+# base image's inherited `STOPSIGNAL SIGQUIT` triggers a graceful shutdown
+# that, with no bound, waits for open connections to close on their own, so a
+# terminating pod with live WebSocket viewers held those sockets open until
+# Kubernetes' termination grace period (30s for the web tier, minus the 5s
+# preStop sleep that runs before SIGQUIT is even sent — see values.yaml's
+# lifecycle.web) ran out and SIGKILLed the process: the connection's TCP
+# socket drops with no WebSocket close frame either way (close code 1006 on
+# the client), just later. 20s bounds that drain window inside the 25s that
+# remains after preStop, so the SIGKILL case is reached sooner and more
+# predictably rather than always eating the full remaining grace.
 RUN sed -i '1i worker_shutdown_timeout 20s;' /etc/nginx/nginx.conf
 
 # Prior release's assets first, then this build on top. Content-hashed names
