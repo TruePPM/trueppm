@@ -19866,7 +19866,7 @@
         "/api/v1/projects/{id}/export/jobs/": {
             "get": {
                 "operationId": "v1_projects_export_jobs_list",
-                "description": "List recent async export jobs for this project (#1266, ADR-0219). Admin+.\n\nPage-number envelope so an integrator can tell a truncated list from a complete\none. Scoped to the resolved (membership-checked) project, so no cross-project\nrows leak — and to the requester (#4370): a job's bundle content depends on who\nasked for it (withheld emails, #3627; blocker text, #4082), so another project\nAdmin's in-flight or completed jobs never appear in this list either.",
+                "description": "List recent async export jobs for this project (#1266, ADR-0219). Admin+.\n\nPage-number envelope so an integrator can tell a truncated list from a complete\none. Scoped to the resolved (membership-checked) project, so no cross-project\nrows leak — and to the requester (#4370): a job's bundle content depends on who\nasked for it (withheld emails, #3627; blocker text, #4082), so another project\nAdmin's in-flight or completed jobs never appear in this list either. This is\nstricter than #4310's program-grain sibling, which deliberately left the\nprogram list visible to every program Admin and scoped only the download link\n(see ``ProgramExportJobSerializer.get_download_url``) — the two export-job\nsurfaces now differ here on purpose, not identically.",
                 "summary": "List this project's async export jobs",
                 "parameters": [
                     {
@@ -19966,7 +19966,7 @@
         "/api/v1/projects/{id}/export/jobs/{job_id}/": {
             "get": {
                 "operationId": "v1_projects_export_jobs_retrieve",
-                "description": "Poll an async export job (#1266, ADR-0219). Admin+.\n\nThe job is looked up scoped to the resolved project, so a ``job_id`` belonging\nto another project 404s rather than leaking (object-level IDOR guard). It is\nalso requester-scoped (#4370, mirroring #4310): a ``job_id`` belonging to\nanother project Admin's export request 404s the same way, not 403 — the lookup\nfilters on ``requested_by`` alongside ``project``, so the two refusals are\nindistinguishable from outside.",
+                "description": "Poll an async export job (#1266, ADR-0219). Admin+.\n\nThe job is looked up scoped to the resolved project, so a ``job_id`` belonging\nto another project 404s rather than leaking (object-level IDOR guard). It is\nalso requester-scoped (#4370): a ``job_id`` belonging to another project\nAdmin's export request 404s the same way, not 403 — the lookup filters on\n``requested_by`` alongside ``project``, so the two refusals are\nindistinguishable from outside. This is stricter than #4310's program-grain\nfix, which left program poll metadata visible to every program Admin and\nscoped only the download link — the two siblings differ here on purpose.",
                 "summary": "Poll one async export job's status",
                 "parameters": [
                     {

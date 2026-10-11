@@ -351,13 +351,28 @@ def test_jobs_list_is_project_scoped(project: Project, admin_user: Any, calendar
 
 
 # ---------------------------------------------------------------------------
-# Requester scoping (#4370 — the #4310 program fix never reached this path)
+# Requester scoping (#4370). List/poll were never requester-scoped on the
+# project path at all (unlike the program path, where #4310 scoped the
+# download link but deliberately left list/poll metadata visible to every
+# program Admin, per ProgramExportJobSerializer.get_download_url's #4310
+# comment). Only the download endpoint's fix below mirrors #4310 1:1; list
+# and poll go further on the project path, by design (#4370).
 # ---------------------------------------------------------------------------
 
 
 def test_other_admins_job_is_not_in_the_list(project: Project, admin_user: Any, owner: Any) -> None:
-    """Both ``admin_user`` and ``owner`` are project Admin+. A's job must not appear
-    in B's list — only the admin who requested a job can see it (#4370)."""
+    """Both ``admin_user`` and ``owner`` are project Admin+, and ``owner`` additionally
+    holds a workspace Admin role — the asymmetry the issue's test plan asks for ("two
+    admins of different workspace roles on one project"), which is exactly the #3627
+    condition where the two requesters' views of the SAME job would differ (only a
+    workspace Admin+ requester gets emails in their own bundle). A's job must not
+    appear in B's list regardless — only the admin who requested a job can see it
+    (#4370)."""
+    from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
+
+    ws = Workspace.objects.first() or Workspace.objects.create()
+    WorkspaceMembership.objects.create(workspace=ws, user=owner, role=WorkspaceRole.ADMIN)
+
     admins_job = ProjectExportJob.objects.create(project=project, requested_by=admin_user)
     owners_job = ProjectExportJob.objects.create(project=project, requested_by=owner)
 

@@ -1652,8 +1652,13 @@ class ProjectViewSet(
         # (portability for archival/forensics), so they skip IsProjectNotArchived.
         # Object-level cross-project IDOR (a job_id from another project) is closed in
         # the action bodies via project-scoped lookups. They are also requester-scoped
-        # (#4370, mirroring #4310): the lookups filter on requested_by too, so another
-        # project Admin can neither list, poll, nor download a sibling admin's jobs.
+        # (#4370): the lookups filter on requested_by too, so another project Admin can
+        # neither list, poll, nor download a sibling admin's jobs. This is STRICTER than
+        # #4310's program-grain fix, which deliberately left program list/poll metadata
+        # visible to every program Admin and withheld only the download link
+        # (serializers.py's ProgramExportJobSerializer, "the link is withheld from every
+        # other admin who can read this job's metadata") — the two siblings now differ
+        # on purpose, not identically. Only the download scoping mirrors #4310 1:1.
         if self.action in ("export_jobs", "export_job_detail", "export_job_download"):
             return [IsAuthenticated(), IsProjectAdmin()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
@@ -3015,7 +3020,11 @@ class ProjectViewSet(
         one. Scoped to the resolved (membership-checked) project, so no cross-project
         rows leak — and to the requester (#4370): a job's bundle content depends on who
         asked for it (withheld emails, #3627; blocker text, #4082), so another project
-        Admin's in-flight or completed jobs never appear in this list either.
+        Admin's in-flight or completed jobs never appear in this list either. This is
+        stricter than #4310's program-grain sibling, which deliberately left the
+        program list visible to every program Admin and scoped only the download link
+        (see ``ProgramExportJobSerializer.get_download_url``) — the two export-job
+        surfaces now differ here on purpose, not identically.
         """
         from django.contrib.auth.models import User
 
@@ -3046,10 +3055,12 @@ class ProjectViewSet(
 
         The job is looked up scoped to the resolved project, so a ``job_id`` belonging
         to another project 404s rather than leaking (object-level IDOR guard). It is
-        also requester-scoped (#4370, mirroring #4310): a ``job_id`` belonging to
-        another project Admin's export request 404s the same way, not 403 — the lookup
-        filters on ``requested_by`` alongside ``project``, so the two refusals are
-        indistinguishable from outside.
+        also requester-scoped (#4370): a ``job_id`` belonging to another project
+        Admin's export request 404s the same way, not 403 — the lookup filters on
+        ``requested_by`` alongside ``project``, so the two refusals are
+        indistinguishable from outside. This is stricter than #4310's program-grain
+        fix, which left program poll metadata visible to every program Admin and
+        scoped only the download link — the two siblings differ here on purpose.
         """
         project = self.get_object()
         job = get_object_or_404(
