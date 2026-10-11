@@ -979,18 +979,33 @@ class _SeedImporter:
 
     def _resolve_calendars(self) -> None:
         for cal in self.payload.get("calendars", []):
-            # Calendar.name carries no uniqueness constraint, so a plain
-            # get_or_create raises MultipleObjectsReturned (unhandled 500) when the
-            # shared catalog already holds two calendars of this name — the #2267
-            # bug class. Reuse the first match and only create when none exists.
             defaults = {
                 "working_days": cal.get("working_days", 31),
                 "hours_per_day": cal.get("hours_per_day", 8.0),
                 "timezone": cal.get("timezone", "UTC"),
             }
-            obj = Calendar.objects.filter(name=cal["name"]).first() or Calendar.objects.create(
-                name=cal["name"], **defaults
-            )
+            if self.is_sample:
+                # Calendar.name carries no uniqueness constraint, so a plain
+                # get_or_create raises MultipleObjectsReturned (unhandled 500) when
+                # the shared catalog already holds two calendars of this name — the
+                # #2267 bug class. Reuse the first match and only create when none
+                # exists. Server-curated bundled samples are the one caller allowed
+                # to bind the shared catalog by name (see #4369 below).
+                obj = Calendar.objects.filter(
+                    name=cal["name"], is_deleted=False
+                ).first() or Calendar.objects.create(name=cal["name"], **defaults)
+            else:
+                # Generic import (#4369): never resolve a calendar against the
+                # shared/global catalog by name. Calendar.name has no uniqueness
+                # constraint and a Calendar is reachable by any authenticated
+                # caller's project (CalendarViewSet's queryset is unscoped) — so
+                # matching by name would let an attacker-crafted seed bind a real
+                # calendar (e.g. the workspace default) and have
+                # ``_resolve_calendar_exceptions`` inject non-working exceptions
+                # into it, corrupting every project's CPM dates on its next
+                # recalc. Mirrors the #1004 fix already shipped for resources:
+                # always create a fresh row on the generic path.
+                obj = Calendar.objects.create(name=cal["name"], **defaults)
             self.calendars[cal["slug"]] = obj
             self._resolve_calendar_exceptions(obj, cal.get("exceptions", []))
 
@@ -1031,9 +1046,15 @@ class _SeedImporter:
 
         - **Bundled samples only** (``is_sample``). A sample's calendar names and
           descriptions are server-curated; a generic ``import_seed`` payload is
-          caller-authored, and before #4339 a seed could only ever *add* rows to a
-          shared calendar. Letting any authenticated caller delete them by naming
-          a real calendar would widen what the looser import gate can destroy.
+          caller-authored. Before #4339 a seed could only ever *add* rows to a
+          shared calendar; since #4369, ``_resolve_calendars`` never resolves a
+          calendar by name on the generic path at all — the ``calendar`` this
+          method receives there is always one this import itself just created, so
+          a caller-authored payload can no longer add rows to a shared calendar
+          either. Letting any authenticated caller delete rows by naming a real
+          calendar would widen what the looser import gate can destroy, which is
+          why this cleanup stays fenced to ``is_sample`` even though the sibling
+          risk it once guarded against on the generic path is now closed upstream.
         - **Never a calendar in real use** (:meth:`_calendar_in_real_use`): the
           workspace default, any program's, any non-sample project's primary
           calendar or calendar layer, or one a resource with real assignments
@@ -1156,9 +1177,9 @@ class _SeedImporter:
                 # only create when none exists, which keeps the dedup intent while
                 # tolerating a pre-existing duplicate.
                 lookup = {"email": res["email"]} if res.get("email") else {"name": res["name"]}
-                obj = Resource.objects.filter(**lookup).first() or Resource.objects.create(
-                    **defaults
-                )
+                obj = Resource.objects.filter(
+                    is_deleted=False, **lookup
+                ).first() or Resource.objects.create(**defaults)
             else:
                 # Generic import (#1004): never match a live global resource by
                 # email. Doing so would bind a pre-existing resource — and the

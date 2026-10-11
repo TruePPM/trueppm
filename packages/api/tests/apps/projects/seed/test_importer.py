@@ -324,14 +324,20 @@ def test_sample_reload_refuses_to_delete_program_holding_real_work(owner: Any) -
     assert Project.objects.filter(program=sample, is_sample=True).exists()
 
 
-def test_import_tolerates_duplicate_calendar_names(owner: Any) -> None:
-    """#2268: Calendar.name is non-unique, so the importer must not 500 when the shared
-    catalog already holds two calendars of the seed's calendar name."""
+def test_sample_import_tolerates_duplicate_calendar_names(owner: Any) -> None:
+    """#2268: Calendar.name is non-unique, so the SAMPLE-path importer must not 500 when
+    the shared catalog already holds two calendars of the seed's calendar name.
+
+    Pinned to ``is_sample=True`` since #4369: the generic path no longer resolves
+    ``calendars[]`` by name at all (see
+    ``test_generic_import_never_binds_an_existing_calendar_by_name`` below), so it can
+    no longer hit this code path.
+    """
     Calendar.objects.create(name="Seed Standard 5-day")
     Calendar.objects.create(name="Seed Standard 5-day")
 
     # Must not raise MultipleObjectsReturned; must not mint a third calendar.
-    import_seed(_seed(), owner=owner, create_users=True)
+    import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
 
     assert Calendar.objects.filter(name="Seed Standard 5-day").count() == 2
 
@@ -353,6 +359,76 @@ def test_import_tolerates_duplicate_calendar_exceptions(owner: Any) -> None:
     import_seed(seed, owner=owner, create_users=True)
 
     assert CalendarException.objects.filter(calendar=cal, exc_start=start, exc_end=end).count() == 2
+
+
+def test_generic_import_never_binds_an_existing_calendar_by_name(owner: Any) -> None:
+    """#4369: the generic (non-sample) import path must never resolve ``calendars[]``
+    against the shared/global catalog by name. Calendar.name carries no uniqueness
+    constraint, so any authenticated caller who knows (or guesses) a real calendar's
+    name — e.g. a workspace default — could otherwise bind it and have
+    ``_resolve_calendar_exceptions`` inject non-working exceptions into it, shifting
+    every date on every project scheduled against it on the next CPM pass. Mirrors
+    the #1004 fix already shipped for resources: always create a fresh row on the
+    generic path."""
+    victim = Calendar.objects.create(name="Seed Standard 5-day", working_days=31)
+
+    import_seed(_seed(), owner=owner, create_users=False)
+
+    # A fresh calendar was created for the import; the pre-existing (potential
+    # victim) row of the same name was neither reused nor touched.
+    assert Calendar.objects.filter(name="Seed Standard 5-day").count() == 2
+    assert not CalendarException.objects.filter(calendar=victim).exists()
+
+
+def test_generic_import_does_not_corrupt_a_victim_calendar_or_its_computed_dates(
+    owner: Any,
+) -> None:
+    """#4369 failure scenario: user B, with no membership in victim's program, imports
+    a generic seed naming the victim's calendar with a year-long non-working
+    exception. The victim's calendar exception set and the victim's CPM-computed
+    dates must be unchanged — before the fix, the exception landed on the victim's
+    real calendar and the next recalc shifted every bound project's dates."""
+    from trueppm_api.apps.scheduling.tasks import _run_program_schedule
+
+    victim_owner = User.objects.create_user(username="victim-owner", email="victim@example.com")
+    victim_calendar = Calendar.objects.create(name="Shared Standard", working_days=31)
+    victim_seed = copy.deepcopy(_seed())
+    victim_seed["program"]["slug"] = "victim-prog"
+    victim_seed["calendars"][0]["name"] = "Shared Standard"
+    victim_program = import_seed(victim_seed, owner=victim_owner, create_users=False)
+    victim_project = Project.objects.filter(program=victim_program).first()
+    assert victim_project is not None
+    victim_project.calendar = victim_calendar
+    victim_project.save(update_fields=["calendar"])
+
+    _run_program_schedule(str(victim_program.id))
+    before = {
+        t.pk: (t.early_start, t.early_finish)
+        for t in Task.objects.filter(project=victim_project, is_deleted=False)
+    }
+    assert before, "victim program produced no scheduled tasks to protect"
+
+    # Attacker (owner — a distinct account with no membership in victim_program)
+    # imports a generic seed naming the victim's calendar with a crafted exception.
+    attacker_seed = copy.deepcopy(_seed())
+    attacker_seed["calendars"][0]["name"] = "Shared Standard"
+    attacker_seed["calendars"][0]["exceptions"] = [
+        {"exc_start": "2026-01-01", "exc_end": "2026-12-31", "description": "Attacker shutdown"}
+    ]
+    import_seed(attacker_seed, owner=owner, create_users=False)
+
+    # The victim's calendar carries no attacker-authored exception.
+    assert not CalendarException.objects.filter(
+        calendar=victim_calendar, description="Attacker shutdown"
+    ).exists()
+
+    # Re-running the victim's own CPM pass reproduces identical dates.
+    _run_program_schedule(str(victim_program.id))
+    after = {
+        t.pk: (t.early_start, t.early_finish)
+        for t in Task.objects.filter(project=victim_project, is_deleted=False)
+    }
+    assert after == before
 
 
 def test_sample_reload_same_owner_is_idempotent(owner: Any) -> None:
