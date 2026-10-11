@@ -102,7 +102,9 @@ function assetFilesList(): PluginOption {
           (d) =>
             `assets/${resolve(d.parentPath, d.name).slice(resolve(outDir, 'assets').length + 1)}`,
         )
-        .sort();
+        // Code-unit order, not localeCompare: the build host's ICU locale must
+        // not change the emitted file.
+        .sort((a, b) => Number(a > b) - Number(a < b));
       writeFileSync(resolve(outDir, 'asset-files.json'), `${JSON.stringify({ files }, null, 1)}\n`);
     },
   };
