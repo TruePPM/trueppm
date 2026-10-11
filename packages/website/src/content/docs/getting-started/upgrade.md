@@ -183,15 +183,40 @@ working on any number of web replicas. The limits:
   so an upgrade from 0.4.0-beta.6 is covered. Not covered: an upgrade that
   skips a release. Tabs opened before it reload once, automatically, when they
   next need a file.
-- **During the rollout, the other direction.** With two or more web replicas,
-  old and new pods serve together until the rollout finishes, and a browser
-  that got the new `index.html` can ask an old pod for a new file. The app
-  retries that file twice, over about two seconds, before it reloads, and does
-  not retry while the browser is offline. The shipped `values-prod.yaml` pins
-  `replicas.web: 1` for this reason (#4348) — the web tier gains no throughput
-  from extra replicas, so this window only applies if you have raised it.
+- **During the rollout, the other direction.** Old and new web pods serve
+  together until the rollout finishes, and a browser that got the new
+  `index.html` can ask an old pod for a new file, which answers `404`. With two
+  or more web replicas this lasts for the whole web rollout. On a single
+  replica it lasts well under a second, but it still opens, because
+  Kubernetes' default rolling update starts the new pod before it stops the
+  old one. Both ends of a page load recover on their own:
+  - A page the app opens after it has loaded (a lazy route) retries the file
+    twice, over about two seconds, before it reloads.
+  - The first load of the page, where the app's own entry script or one of the
+    files it needs to start is the one that fails, reloads after 1, 3, 8 and
+    15 seconds until the page starts. If it still has not started after the
+    fourth reload, it shows **TruePPM is being updated** with a **Reload**
+    button instead of a blank page.
+
+  Neither one retries while the browser is offline. An offline browser sees
+  **You appear to be offline** with the same **Reload** button instead.
+
+  If you would rather have no skew at all, set the web tier's rollout strategy
+  (`rollout.web`, see [Helm values](/administration/helm-values/)).
+  `strategy: Recreate`, or `maxSurge: 0` on a single web pod, stops every old
+  pod before a new one starts. That removes the window, but it turns every web
+  rollout into a full outage of the UI for as long as the new pod takes to
+  become ready, and with one pod, a node drain is an outage too. The default
+  rolling update keeps the UI up and lets the client recover from the window.
 - **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
   blank page until it reloads.
+- **The first upgrade to a release that adds the first-load recovery** does
+  not fully have it during its own rollout. The recovery is a separate file,
+  `/boot-guard.js`, which the release you are upgrading from does not have. A
+  browser that gets the new `index.html` and then asks an old pod for that file
+  starts without it, and behaves as before for that one page load: a blank
+  page until it reloads. Every later upgrade is covered, because both releases
+  then carry the file.
 - **Upgrading from 0.4.0-beta.7, specifically.** This one hop is not covered
   by either mitigation above, even on a release that ships both: a beta.7 web
   pod predates the nginx rule that answers a missing hashed asset with a
