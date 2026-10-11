@@ -79,7 +79,8 @@ white. No error text. The browser console usually shows a failed request for a
    entry script, or one it needs before it can start, the page reloads itself
    after 1, 3, 8 and 15 seconds. If the page still has not started after the
    fourth reload, it shows **TruePPM is being updated** with a **Reload** button
-   rather than staying blank. Neither one retries while the browser is offline.
+   rather than staying blank. Neither one retries while the browser is offline;
+   an offline browser sees **You appear to be offline** with the same button.
    If you see that message outside an upgrade, the web tier is missing files
    that its own `index.html` names. Check that every web pod runs the same image.
    A reload fetches the current `index.html`, but it can still land on the other

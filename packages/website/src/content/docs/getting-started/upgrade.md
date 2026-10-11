@@ -198,7 +198,8 @@ working on any number of web replicas. The limits:
     fourth reload, it shows **TruePPM is being updated** with a **Reload**
     button instead of a blank page.
 
-  Neither one retries while the browser is offline.
+  Neither one retries while the browser is offline. An offline browser sees
+  **You appear to be offline** with the same **Reload** button instead.
 - **Upgrading to 0.4.0-beta.7 or earlier** has neither; a browser can show a
   blank page until it reloads.
 - **The first upgrade to a release that adds the first-load recovery** does
