@@ -25,6 +25,14 @@ change between releases. Pin an exact version (e.g.
   the finish instead of its end. The milestone and every FS/SS predecessor
   reported one working day less `total_float`, so a task with one day of float
   was `is_critical` and listed in `critical_path`.
+- **A milestone's predecessors no longer lose free float to a successor that
+  started on a non-working day (#4345).** #4332 made free float read a work
+  successor's Saturday `actual_start` at the next working day, but the
+  computation of how far a milestone may move before that successor moves still
+  read the raw Saturday. The milestone's stretch ended early, so a predecessor
+  whose free float is bounded through the milestone reported less `free_float`
+  than it can slip (one working day across a plain weekend). Both now read the
+  same working-day start. The Rust/WASM engine matches.
 
 ## [0.4.0b7] - 2026-10-09
 

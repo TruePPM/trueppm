@@ -1,0 +1,20 @@
+{
+  "id": "p-progress-saturday-actual-start-milestone-free-instant",
+  "name": "A milestone's free instant reads a work successor's Saturday actual_start at its working-day start, so its SS predecessor keeps two days of free float (#4345)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "P", "name": "SS predecessor", "duration": 86400.0},
+    {"id": "M", "name": "Milestone", "duration": 0.0},
+    {"id": "S", "name": "Started on a Saturday", "duration": 86400.0, "percent_complete": 10.0, "actual_start": "2026-03-14"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "P", "successor_id": "M", "dep_type": "SS", "lag": 432000.0},
+    {"predecessor_id": "M", "successor_id": "S", "dep_type": "FS", "lag": 518400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

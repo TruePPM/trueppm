@@ -1805,3 +1805,86 @@ class TestFinishLinkOutOfAStartOfDayMilestone:
         p = self._chain(DependencyType.FF, 0)
         mc = monte_carlo(p, runs=16, seed=1)
         assert mc.p50 == mc.p80 == mc.p95 == schedule(p).project_finish == _JAN_6_TUE
+
+
+# ---------------------------------------------------------------------------
+# A milestone's free instant reads a work successor at its working-day start (#4345)
+# ---------------------------------------------------------------------------
+
+_MAR_14_SAT = date(2026, 3, 14)
+_MAR_16_MON = date(2026, 3, 16)
+
+
+def _saturday_started_successor(
+    s_actual: date = _MAR_14_SAT, p_start: date | None = None
+) -> Project:
+    """``P -SS+5d-> M -FS+6d-> S`` where ``S`` started, verbatim, on a Saturday.
+
+    ``M`` sits at Saturday midnight 03-07, shown Monday 03-09. ``S``'s recorded
+    ``actual_start`` holds its early start on Saturday 03-14 — the same
+    working-time position as Monday 03-16 (#4332).
+    """
+    s = Task("S", "S", timedelta(days=1), percent_complete=10.0, actual_start=s_actual)
+    p = Task("P", "P", timedelta(days=1), planned_start=p_start)
+    return Project(
+        "p",
+        "p",
+        date(2026, 3, 2),
+        [p, Task("M", "M", timedelta(0)), s],
+        [_dep("P", "M", DependencyType.SS, lag=5), _dep("M", "S", lag=6)],
+        Calendar(),
+    )
+
+
+class TestMilestoneFreeInstantSnapsAWorkSuccessor:
+    """``_milestone_free_instants`` and ``_free_float_days`` read one reference (#4345).
+
+    ``_free_float_days`` measures a work successor from ``next_wd(early_start)``
+    (#4332). The milestone free instant read the raw Saturday instead, capping
+    ``M``'s stretch at 03-08 rather than 03-09, so ``P`` — whose free float is
+    measured against that cap — reported one working day where it has two.
+    """
+
+    def test_predecessor_free_float_counts_the_snapped_reference(self) -> None:
+        tasks = _by_id(_saturday_started_successor())
+        assert tasks["S"].early_start == _MAR_14_SAT  # verbatim, non-working
+        assert tasks["P"].free_float == timedelta(days=2)
+        assert tasks["M"].free_float == timedelta(days=1)
+
+    def test_free_float_is_the_slip_that_moves_nothing(self) -> None:
+        """The perturbation oracle: slipping ``P`` by its reported free float leaves
+        ``M`` and ``S`` where they were (``S`` by working-time position), and one more
+        working day moves ``M`` — so the reported value is exactly two."""
+        cal = Calendar()
+
+        def position(tasks: dict[str, Task]) -> tuple[object, ...]:
+            m, s = tasks["M"], tasks["S"]
+            assert s.early_start is not None
+            s_start = s.early_start
+            while not cal.is_working_day(s_start):
+                s_start += timedelta(days=1)
+            return (*_early_position(m), s_start, s.early_finish)
+
+        tasks = _by_id(_saturday_started_successor())
+        base = position(tasks)
+        p_es = date(2026, 3, 2)
+        ff = tasks["P"].free_float.days
+        assert ff < tasks["P"].total_float.days  # a link sets it, so ff + 1 must move
+        for slip, moves in [(ff, False), (ff + 1, True)]:
+            planned = _advance_working_days(p_es, slip, cal)
+            after = position(_by_id(_saturday_started_successor(p_start=planned)))
+            assert (after != base) is moves, slip
+
+    def test_saturday_and_monday_actual_starts_give_the_same_floats(self) -> None:
+        """The rule pinned: a Saturday ``actual_start`` and the Monday after it are one
+        working-time position, so every float — the milestone's own, read by
+        ``_free_float_days``, and its predecessor's, read through the milestone's
+        free instant — is identical for the two."""
+        sat = schedule(_saturday_started_successor(_MAR_14_SAT))
+        mon = schedule(_saturday_started_successor(_MAR_16_MON))
+        floats = {
+            r_id: {t.id: (t.free_float, t.total_float) for t in r.tasks}
+            for r_id, r in (("sat", sat), ("mon", mon))
+        }
+        assert floats["sat"] == floats["mon"]
+        assert sat.driving_edges == mon.driving_edges
