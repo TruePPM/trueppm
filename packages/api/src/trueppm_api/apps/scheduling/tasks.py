@@ -1175,9 +1175,12 @@ def _ids_with_live_child(task_model: Any, candidates: list[Any]) -> set[str]:
         return set()
     table = connections[task_model.objects.db].ops.quote_name(task_model._meta.db_table)
     # Static SQL apart from the model's own (quoted) table name; values are bound.
-    # nosemgrep: avoid-raw-sql
+    # `table` is `Task._meta.db_table` (both callers pass the Task model class), run
+    # through the backend's quote_name — never request, queryset, or row data. Same
+    # shape as the precedent in core/db.py.
+    # nosemgrep: avoid-raw-sql, formatted-sql-query
     sql = (
-        f"SELECT DISTINCT project_id::text, subpath(wbs_path, 0, nlevel(wbs_path) - 1)::text "
+        f"SELECT DISTINCT project_id::text, subpath(wbs_path, 0, nlevel(wbs_path) - 1)::text "  # nosec B608
         f"FROM {table} WHERE NOT is_deleted AND project_id = ANY(%s::uuid[]) "
         f"AND wbs_path ? %s::lquery[]"
     )
