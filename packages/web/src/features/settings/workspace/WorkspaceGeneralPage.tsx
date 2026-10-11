@@ -8,6 +8,7 @@ import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings'
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FiscalYearStartField } from '../components/FiscalYearStartField';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { docsUrl } from '@/lib/docsUrl';
 import { IterationLabelField } from '../project/IterationLabelField';
 import { WorkspaceLogoField } from './WorkspaceLogoField';
 import { Toggle } from '../components/Toggle';
@@ -338,21 +339,23 @@ export function WorkspaceGeneralPage() {
         title="General"
         subtitle="Workspace identity, defaults, and conventions that every project inherits."
         action={
-          // Workspace-settings change history is an audit trail — an Enterprise
-          // capability (enterprise-check 2026-05-27). The button is disabled on
-          // the OSS surface; the EnterpriseBadge (community-only) is the reachable
-          // upsell link. The enterprise build wires the real action via its slot.
-          <span className="inline-flex items-center">
-            <button
-              type="button"
-              disabled
-              title="Workspace change history is available in TruePPM Enterprise"
-              className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
-            >
-              View change history
-            </button>
-            <EnterpriseBadge />
-          </span>
+          // The OSS API already records `workspace_settings_changed` in the
+          // operational audit log (ADR-0157, #859; GET
+          // /workspace/audit-events/, Admin/Owner-visible) — it is not an
+          // Enterprise capability, so this is not a disabled upsell button.
+          // There is no in-app viewer yet (#2657 tracks one), so this links out
+          // to the reference docs rather than claiming an in-app history view
+          // that does not exist (#4380).
+          <a
+            href={docsUrl('administration/audit-log')}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            View audit log
+            <span className="sr-only"> (opens in a new tab)</span>
+            <span aria-hidden="true">→</span>
+          </a>
         }
       />
 

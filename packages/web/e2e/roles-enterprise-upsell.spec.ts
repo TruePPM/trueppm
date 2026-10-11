@@ -4,13 +4,15 @@ import { setupCatchAll } from './fixtures/api-mocks';
 /**
  * Workspace → Settings → Roles & permissions: Enterprise upsell affordance (#541).
  *
- * Enterprise-only capability rows (View audit log, Manage integrations, Manage
- * billing) carry an "EE" badge that links to the Enterprise page, so an
- * evaluator can tell OSS rows from Enterprise rows without leaving the matrix.
- * Basic OIDC/OAuth SSO and workspace data export ship in the OSS core, so
- * "Manage SSO" and "Export workspace data" are NOT badged (#2165). The badge is
- * suppressed when the running edition is Enterprise (the capabilities are then
- * available).
+ * Enterprise-only capability rows (Tamper-evident audit retention, Manage
+ * integrations, Manage billing) carry an "EE" badge that links to the
+ * Enterprise page, so an evaluator can tell OSS rows from Enterprise rows
+ * without leaving the matrix. Basic OIDC/OAuth SSO and workspace data export
+ * ship in the OSS core, so "Manage SSO" and "Export workspace data" are NOT
+ * badged (#2165). "View audit log" moved off the Enterprise list in #4380 —
+ * the OSS API serves it to Admin and Owner; only the compliance-grade
+ * retention/signing layer stays Enterprise. The badge is suppressed when the
+ * running edition is Enterprise (the capabilities are then available).
  */
 
 const pj = (data: unknown) => JSON.stringify(data);
@@ -80,6 +82,18 @@ test.describe('Roles matrix — Enterprise upsell (#541)', () => {
     // Basic SSO is OSS (#2165): the "Manage SSO" row header carries no EE badge.
     const ssoRow = matrix.getByRole('rowheader', { name: /Manage SSO/i });
     await expect(ssoRow.getByRole('link')).toHaveCount(0);
+
+    // "View audit log" is OSS too (#4380): the API serves it to Admin and
+    // Owner, so its row carries no EE badge. Only the compliance-grade
+    // "Tamper-evident audit retention" counterpart stays Enterprise-badged.
+    const auditRow = matrix.getByRole('rowheader', { name: 'View audit log' });
+    await expect(auditRow.getByRole('link')).toHaveCount(0);
+    const auditRetentionRow = matrix.getByRole('rowheader', {
+      name: /Tamper-evident audit retention/i,
+    });
+    await expect(
+      auditRetentionRow.getByRole('link', { name: /Available in TruePPM Enterprise/i }),
+    ).toHaveCount(1);
 
     // WCAG 1.3.1 (#2165): the matrix is a real table an AT user can navigate —
     // a column header per role and a row header per capability.

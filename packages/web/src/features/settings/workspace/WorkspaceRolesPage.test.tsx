@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { WorkspaceRolesPage, buildRolesMatrixCsv } from './WorkspaceRolesPage';
+import { WorkspaceRolesPage, buildRolesMatrixCsv, MATRIX_ROW_ENDPOINTS } from './WorkspaceRolesPage';
 
 // Mock the edition hook so the page renders without a QueryClientProvider and
 // so each test can pick the running edition. Defaults to community.
@@ -61,9 +61,11 @@ describe('WorkspaceRolesPage', () => {
 
 describe('WorkspaceRolesPage — Enterprise upsell (#541)', () => {
   // Basic OIDC/OAuth SSO and workspace data export ship in the OSS core, so
-  // "Manage SSO" and "Export workspace data" are NOT badged (#2165). The
-  // remaining Enterprise-only workspace capabilities keep their badge.
-  const EE_ROWS = ['View audit log', 'Manage integrations', 'Manage billing'];
+  // "Manage SSO" and "Export workspace data" are NOT badged (#2165). "View
+  // audit log" moved off this list in #4380 — the OSS API serves it to
+  // Admin and Owner; only the compliance-grade retention/signing layer
+  // ("Tamper-evident audit retention") stays Enterprise.
+  const EE_ROWS = ['Tamper-evident audit retention', 'Manage integrations', 'Manage billing'];
 
   it('renders an EE badge on every Enterprise-only matrix row in the community edition', () => {
     render(<WorkspaceRolesPage />);
@@ -175,6 +177,54 @@ describe('WorkspaceRolesPage — gate reconciliation with the server matrix (#21
   it('gates resource-heatmap reads at Scheduler+ (not Member+)', () => {
     const csv = buildRolesMatrixCsv();
     expect(csv).toContain('People,View resource heatmap,No,No,Yes,Yes,Yes');
+  });
+});
+
+describe('WorkspaceRolesPage — audit log is OSS, Admin+Owner, not Enterprise-only (#4380)', () => {
+  const ROLES_ORDER = ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner'] as const;
+
+  it('shows "View audit log" granted to Admin and Owner, matching the community API', () => {
+    // The OSS API (IsWorkspaceAuditViewer) admits ADMIN+, not Owner alone —
+    // this is the exact regression #4380 fixed (was No,No,No,No,Yes).
+    const csv = buildRolesMatrixCsv();
+    expect(csv).toContain('Workspace,View audit log,No,No,No,Yes,Yes');
+  });
+
+  it('does not badge "View audit log" as Enterprise-only in the community edition', () => {
+    render(<WorkspaceRolesPage />);
+    const matrix = screen.getByTestId('roles-matrix');
+    const rowHeader = within(matrix).getByRole('rowheader', { name: 'View audit log' });
+    expect(within(rowHeader).queryByRole('link')).toBeNull();
+  });
+
+  it('badges only the compliance-grade "Tamper-evident audit retention" row as Enterprise', () => {
+    render(<WorkspaceRolesPage />);
+    const matrix = screen.getByTestId('roles-matrix');
+    const rowHeader = within(matrix).getByRole('rowheader', {
+      name: /Tamper-evident audit retention/i,
+    });
+    expect(
+      within(rowHeader).getByRole('link', { name: /Available in TruePPM Enterprise/i }),
+    ).toBeInTheDocument();
+  });
+
+  // Class guard (#4380 fix instruction 2): every matrix row that names a
+  // specific server endpoint must agree with the roles that endpoint's
+  // permission class actually admits (MATRIX_ROW_ENDPOINTS, pinned against
+  // IsWorkspaceAuditViewer by `test_admin_can_read_audit_log` /
+  // `test_owner_can_read_audit_log` / `test_member_cannot_read_audit_log` in
+  // packages/api/tests/apps/workspace/test_audit_log.py). A row reverted to a
+  // grant the API refuses — or widened past what it allows — fails here.
+  it('keeps every endpoint-named matrix row in agreement with MATRIX_ROW_ENDPOINTS', () => {
+    const csv = buildRolesMatrixCsv();
+    for (const [label, { rolesAdmitted }] of Object.entries(MATRIX_ROW_ENDPOINTS)) {
+      const expectedCells = ROLES_ORDER.map((role) =>
+        (rolesAdmitted as readonly string[]).includes(role) ? 'Yes' : 'No',
+      );
+      expect(csv, `row "${label}" must match MATRIX_ROW_ENDPOINTS`).toContain(
+        `Workspace,${label},${expectedCells.join(',')}`,
+      );
+    }
   });
 });
 

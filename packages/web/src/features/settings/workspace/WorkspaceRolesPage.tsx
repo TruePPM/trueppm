@@ -57,6 +57,30 @@ interface CapabilitySection {
   capabilities: Capability[];
 }
 
+/**
+ * Pins a matrix row's `grants` to the roles the server permission class for
+ * the endpoint it names actually admits, so the row cannot silently drift
+ * from what the API serves (#4380). A vitest in `WorkspaceRolesPage.test.tsx`
+ * asserts each named row's `grants` agrees with the `rolesAdmitted` list here;
+ * a pytest in `packages/api/tests/apps/workspace/test_audit_log.py` pins the
+ * permission class's own behavior (`test_admin_can_read_audit_log`,
+ * `test_owner_can_read_audit_log`, `test_member_cannot_read_audit_log`).
+ * Neither test imports the other side — they are synced by this comment and
+ * by both naming #4380 — but a row reverted to a grant the API refuses (or
+ * vice versa) now fails one of them.
+ *
+ * Deliberately scoped to the one row this issue concerns, not a general RBAC
+ * mirror of the whole matrix — most rows above name no specific endpoint.
+ */
+export const MATRIX_ROW_ENDPOINTS: Record<string, { endpoint: string; rolesAdmitted: Role[] }> = {
+  'View audit log': {
+    endpoint: 'GET /api/v1/workspace/audit-events/',
+    // IsWorkspaceAuditViewer (packages/api/src/trueppm_api/apps/workspace/permissions.py):
+    // ADMIN+ required for every method, reads included (ADR-0157, #859).
+    rolesAdmitted: ['Admin', 'Owner'],
+  },
+};
+
 const SECTIONS: CapabilitySection[] = [
   {
     label: 'Tasks',
@@ -111,7 +135,18 @@ const SECTIONS: CapabilitySection[] = [
   {
     label: 'Workspace',
     capabilities: [
-      { label: 'View audit log', grants: [false, false, false, false, true], ee: true },
+      // The OSS API ships GET /workspace/audit-events/, gated by
+      // IsWorkspaceAuditViewer (ADMIN+ on every method) — ADR-0157, #859. Only
+      // immutability, signing, retention and SOC-2 export are Enterprise, so
+      // this row is an OSS capability granted to Admin and Owner, not an EE
+      // row gated to Owner alone (#4380). See MATRIX_ROW_ENDPOINTS above.
+      { label: 'View audit log', grants: [false, false, false, true, true] },
+      // The compliance-grade counterpart is Enterprise: immutability, signing,
+      // retention policy and SOC-2-aligned export layered on the same OSS
+      // audit events via the `audit_event_created` signal (ADR-0157). Grants
+      // mirror the OSS row's roles (Admin+Owner) because the Enterprise layer
+      // narrows *what the log guarantees*, not *who can read it* (#4380).
+      { label: 'Tamper-evident audit retention', grants: [false, false, false, true, true], ee: true },
       // Basic OIDC/OAuth single sign-on (WorkspaceSsoPage) is part of the
       // Apache-2.0 core (auth carve-out; ADR-0517/ADR-0187 §4) — not Enterprise.
       // Only enforced org-wide SSO and identity governance (SAML/SCIM/LDAP) are

@@ -102,17 +102,23 @@ function renderPage() {
   );
 }
 
-describe('WorkspaceGeneralPage — unwired buttons (#969, #641, Enterprise)', () => {
-  it('treats "View change history" as an Enterprise affordance (disabled + EE badge)', () => {
+describe('WorkspaceGeneralPage — audit log is OSS, not an Enterprise upsell (#4380)', () => {
+  it('links "View audit log" to the docs instead of a disabled Enterprise button', () => {
     renderPage();
-    const historyBtn = screen.getByRole('button', { name: 'View change history' });
-    expect(historyBtn).toBeDisabled();
-    // Scope to the badge alongside this button — there is now a second EE badge on
-    // the iteration-terminology "Enforce" policy (#1106).
-    const ee = within(historyBtn.parentElement as HTMLElement).getByRole('link', {
-      name: /Available in TruePPM Enterprise/i,
-    });
-    expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
+    // The OSS API already records workspace settings changes in the
+    // operational audit log (ADR-0157) — this is a real, enabled link out to
+    // the reference docs, not a disabled Enterprise upsell button.
+    const historyLink = screen.getByRole('link', { name: /View audit log/i });
+    expect(historyLink).not.toHaveAttribute('disabled');
+    expect(historyLink).toHaveAttribute('href', expect.stringContaining('administration/audit-log'));
+    expect(historyLink).toHaveAttribute('target', '_blank');
+    // No Enterprise badge next to it — the capability it links to is OSS.
+    expect(
+      within(historyLink.parentElement as HTMLElement).queryByRole('link', {
+        name: /Available in TruePPM Enterprise/i,
+      }),
+    ).toBeNull();
+    expect(screen.queryByText(/Workspace change history is available in TruePPM Enterprise/i)).toBeNull();
   });
 
   it('wires the logo Upload control and keeps the deferred calendar stub disabled', () => {
