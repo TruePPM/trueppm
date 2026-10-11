@@ -121,6 +121,17 @@ READY_TIMEOUT="${READY_TIMEOUT:-300}"
 # the first write lands within ~30 s of beat starting. Three periods of headroom
 # keeps a loaded shared runner from reading as a dead scheduler.
 BEAT_TIMEOUT="${BEAT_TIMEOUT:-120}"
+# Overrides TRUEPPM_CELERY_WORKER_SELF_HEAL_STALE_SECONDS via the generated
+# .env (see set_env SELFHEAL below) for the worker self-heal recovery leg
+# (#4367) ONLY — not a change to docker-compose.prod.yml's shipped default
+# (90s, worker_selfheal.py _DEFAULT_STALE_SECONDS) and not a production
+# recommendation; it exists purely to bound this drill's wall time. The
+# watchdog that reads it polls every ~10s (worker_selfheal
+# _CHECK_INTERVAL_SECONDS).
+SELFHEAL_STALE_SECONDS="${SELFHEAL_STALE_SECONDS:-20}"
+# Headroom for the self-exit leg's two waits (stale threshold + poll ticks +
+# exec/restart overhead each time).
+SELFHEAL_WAIT_TIMEOUT="${SELFHEAL_WAIT_TIMEOUT:-90}"
 ADMIN_EMAIL="${DJANGO_SUPERUSER_EMAIL:-admin@trueppm.example.com}"
 # create_admin derives the username from the local part of the email when
 # DJANGO_SUPERUSER_USERNAME is unset, and the JWT endpoint authenticates on
@@ -220,6 +231,11 @@ set_env INTEGRATION_ENCRYPTION_KEY "$(gen_fernet)"
 # refuses to boot until a choice is MADE, not that either backend works.
 set_env TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE true
 set_env DJANGO_SUPERUSER_EMAIL "${ADMIN_EMAIL}"
+# See SELFHEAL_STALE_SECONDS above — env_file passes every key in .env
+# straight into the celery container's environment, so this reaches the
+# worker without touching docker-compose.prod.yml's explicit `environment:`
+# block (which does not set this key, only TRUEPPM_CELERY_WORKER_SELF_HEAL).
+set_env TRUEPPM_CELERY_WORKER_SELF_HEAL_STALE_SECONDS "${SELFHEAL_STALE_SECONDS}"
 
 # ---- 2. boot through the documented entrypoint -----------------------------
 #
@@ -517,5 +533,117 @@ done
 if grep -q "Refusing to start:" <<<"$(compose logs api 2>&1)"; then
   fail "api refused to start on a boot guard AFTER restart"
 fi
+
+# ---- 7. celery worker self-heal recovery (#3936's mechanism, drilled by #4367)
+#
+# #3936 gave `restart: unless-stopped` something to act on for a wedged
+# worker: trueppm_api.core.worker_selfheal runs a daemon thread INSIDE the
+# worker's own MainProcess — the same process whose heartbeat_sent handler
+# (trueppm_api.core.worker_heartbeat) touches the heartbeat file every ~2s —
+# that calls os._exit() once that file's mtime is older than its staleness
+# threshold. Nothing exercised this end to end before #4367.
+#
+# The stall can't be `docker compose pause` (freezes every thread in the
+# container, including the self-heal watchdog that has to react) or a signal
+# aimed at "the heartbeat process" (there is no separate process or thread to
+# signal — the Heart timer and the watchdog are both threads on the one
+# MainProcess). Instead this revokes write permission on the heartbeat file
+# itself: worker_heartbeat._touch() swallows OSError and only logs, so every
+# tick after the chmod fails silently and the mtime stops advancing — the
+# "heartbeat present but frozen" symptom the mechanism exists to recover
+# from — while the worker's task pool and the self-heal watchdog thread both
+# keep running untouched.
+log "capturing the celery container's baseline RestartCount/StartedAt"
+celery_cid="$(compose ps -q celery)"
+[ -n "${celery_cid}" ] || fail "could not resolve the celery container id"
+restarts_before="$(docker inspect -f '{{.RestartCount}}' "${celery_cid}")"
+started_before="$(docker inspect -f '{{.State.StartedAt}}' "${celery_cid}")"
+
+log "revoking write permission on the heartbeat file to stall it without touching any process"
+compose exec -T celery chmod 000 /tmp/trueppm-celery-worker-heartbeat \
+  || fail "could not chmod the heartbeat file to induce staleness"
+
+log "waiting up to ${SELFHEAL_WAIT_TIMEOUT}s for the worker to self-exit and restart: unless-stopped to bring it back"
+deadline=$(( $(date +%s) + SELFHEAL_WAIT_TIMEOUT ))
+until [ "$(docker inspect -f '{{.RestartCount}}' "${celery_cid}" 2>/dev/null || echo "${restarts_before}")" != "${restarts_before}" ]; do
+  [ "$(date +%s)" -lt "${deadline}" ] || {
+    echo "---- diagnostics: celery self-heal leg ----" >&2
+    docker inspect -f 'RestartCount={{.RestartCount}} State={{.State.Status}} StartedAt={{.State.StartedAt}}' "${celery_cid}" >&2 || true
+    compose logs --tail=120 celery 2>&1 | sed 's/^/  /' >&2 || true
+    fail "celery worker did not self-exit/restart within ${SELFHEAL_WAIT_TIMEOUT}s of a stale heartbeat (TRUEPPM_CELERY_WORKER_SELF_HEAL wiring regression — #3936/#4367)"
+  }
+  sleep 3
+done
+restarts_after="$(docker inspect -f '{{.RestartCount}}' "${celery_cid}")"
+started_after="$(docker inspect -f '{{.State.StartedAt}}' "${celery_cid}")"
+log "celery container restarted: RestartCount ${restarts_before} -> ${restarts_after}, StartedAt ${started_before} -> ${started_after}"
+[ "${restarts_after}" != "${restarts_before}" ] || fail "RestartCount did not change — the container reports running but was never actually restarted"
+
+grep -q "self-exiting so \`restart: unless-stopped\` can recover the container" <<<"$(compose logs celery 2>&1)" \
+  || fail "celery restarted, but its log carries no worker_selfheal self-exit message — the restart may be unrelated (OOM, crash) rather than the self-heal mechanism (#3936)"
+
+# Snapshot the current (pre-restart) DB heartbeat value so step 7b below can
+# require a heartbeat strictly newer than this — i.e. one the RECOVERED
+# worker, not the one that died, processed.
+heartbeat_baseline="$("${CURL[@]}" -H "Authorization: Bearer ${token}" "${BASE_URL}/api/v1/health/beat/" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("last_heartbeat") or "")' 2>/dev/null || true)"
+
+# There is nothing to chmod back, and an earlier version of this leg that
+# tried to (`chmod 600` on the same path) failed in CI with ENOENT
+# immediately after RestartCount changed — not "still mode 000", gone
+# entirely. `tmpfs: - /tmp` does NOT survive a container restart (confirmed
+# against that real run, not assumed): Docker tears down and recreates a
+# container's mount namespace — tmpfs's only backing store — on every
+# stop+start, including a restart-policy-triggered one, unlike the
+# disk-backed overlay2 writable layer, which does survive. Nothing in
+# worker_heartbeat.py unlinks the file either: `_touch()` opens
+# `O_CREAT | O_WRONLY` with no `O_TRUNC` (so it would reuse an existing inode
+# if one were there), and `_remove()` only runs from a GRACEFUL
+# `worker_shutting_down` signal, which an `os._exit()` self-heal exit
+# bypasses entirely. So the recovered worker's own `_on_worker_ready` ->
+# `_touch()` call is what creates a brand-new file, mode 0600 from the
+# `os.open()` call itself — this module's own docstring calls that first
+# touch the STARTUP signal precisely because the file does not exist before
+# it fires. The wait below already tolerates "does not exist yet": `find` on
+# a missing path errors to `/dev/null`, so `test -n "$(...)"` is simply false
+# and the loop retries — and this is also where the real cold-start-after-
+# restart latency (broker reconnect, mingle/gossip, then the first ~2s
+# heartbeat_sent tick) gets absorbed, bounded by SELFHEAL_WAIT_TIMEOUT.
+log "waiting up to ${SELFHEAL_WAIT_TIMEOUT}s for the recovered worker to create a fresh heartbeat file"
+deadline=$(( $(date +%s) + SELFHEAL_WAIT_TIMEOUT ))
+# Single-quoted on purpose: `$(find …)` must expand inside the CONTAINER's sh
+# -c, not here (shellcheck SC2016 is wrong for the same reason noted in
+# check-boundary-doc-command.sh). No pipe into grep -q/head, unlike the
+# compose healthcheck's own `find … | grep -q .` test, so check-sigpipe-readers
+# does not flag it either.
+until compose exec -T celery sh -c 'test -n "$(find /tmp/trueppm-celery-worker-heartbeat -newermt "-15 seconds" 2>/dev/null)"'; do
+  [ "$(date +%s)" -lt "${deadline}" ] || {
+    compose logs --tail=80 celery 2>&1 | sed 's/^/  /' >&2 || true
+    fail "recovered celery worker's heartbeat file never reappeared and went fresh within ${SELFHEAL_WAIT_TIMEOUT}s"
+  }
+  sleep 3
+done
+log "recovered worker's heartbeat is fresh again"
+
+# ---- 7b. a real queued task completes on the recovered worker --------------
+# beat-heartbeat (CELERY_BEAT_SCHEDULE, settings/base.py) dispatches
+# `beat.heartbeat` every 30s regardless of whether a worker is there to
+# consume it — celery-beat never stopped during the stall above, so the task
+# queues in the broker and is exactly the "enqueue a trivial task" proof
+# #4367 asks for, with no new app code: GET /api/v1/health/beat/ (already
+# authenticated above, step 5) only advances past heartbeat_baseline once
+# THIS worker drains that queue and writes BeatHeartbeat.last_heartbeat.
+log "waiting up to ${BEAT_TIMEOUT}s for a beat.heartbeat to be processed by the recovered worker"
+deadline=$(( $(date +%s) + BEAT_TIMEOUT ))
+until last_heartbeat="$("${CURL[@]}" -H "Authorization: Bearer ${token}" "${BASE_URL}/api/v1/health/beat/" \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("last_heartbeat") or "")' 2>/dev/null)" \
+    && [ -n "${last_heartbeat}" ] && [ "${last_heartbeat}" != "${heartbeat_baseline}" ]; do
+  [ "$(date +%s)" -lt "${deadline}" ] || {
+    compose logs --tail=60 celery celery-beat 2>&1 | sed 's/^/  /' >&2 || true
+    fail "no beat.heartbeat completed on the recovered worker within ${BEAT_TIMEOUT}s — /api/v1/health/beat/ last_heartbeat is still '${heartbeat_baseline:-<none>}'"
+  }
+  sleep 3
+done
+log "beat.heartbeat completed on the recovered worker at ${last_heartbeat} — self-heal recovery is functional end to end"
 
 log "prod compose drill passed"
