@@ -187,10 +187,9 @@ working on any number of web replicas. The limits:
   together until the rollout finishes, and a browser that got the new
   `index.html` can ask an old pod for a new file, which answers `404`. With two
   or more web replicas this lasts for the whole web rollout. On a single
-  replica it lasts well under a second, because Kubernetes' default rolling
-  update starts the new pod before it stops the old one; the shipped
-  `values-prod.yaml` pins `replicas.web: 1` to keep the window that short
-  (#4348). Both ends of a page load recover on their own:
+  replica it lasts well under a second, but it still opens, because
+  Kubernetes' default rolling update starts the new pod before it stops the
+  old one. Both ends of a page load recover on their own:
   - A page the app opens after it has loaded (a lazy route) retries the file
     twice, over about two seconds, before it reloads.
   - The first load of the page, where the app's own entry script or one of the
