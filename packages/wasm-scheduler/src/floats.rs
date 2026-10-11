@@ -91,8 +91,12 @@ fn milestone_free_instants(
                     )?;
                     (start_ref, b, seen)
                 }
+                // The same working-day snap `compute_floats` reads a work successor
+                // at (#4332): a live task's verbatim non-working `actual_start` is
+                // the working-time position of the next working day, so capping from
+                // the raw date ends this milestone's stretch early (#4345).
                 None => (
-                    succ.early_start.unwrap(),
+                    next_working_day(succ.early_start.unwrap(), cals.for_node(s))?,
                     succ.early_finish.unwrap(),
                     dep.dep_type,
                 ),

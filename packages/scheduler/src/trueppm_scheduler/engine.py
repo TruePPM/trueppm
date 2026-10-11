@@ -1161,7 +1161,11 @@ def _milestone_free_instants(
             succ_free = free.get(succ_id)
             if succ_free is None:
                 assert succ.early_start is not None and succ.early_finish is not None
-                refs = (succ.early_start, succ.early_finish)
+                # The same working-day snap _free_float_days reads a work successor
+                # at (#4332): a live task's verbatim non-working actual_start is the
+                # working-time position of the next working day, so capping from the
+                # raw date ends this milestone's stretch early (#4345).
+                refs = (_next_working_day(succ.early_start, cal_for(succ_id)), succ.early_finish)
             else:
                 dep = _milestone_link(dep)
                 succ_cal = cal_for(succ_id)

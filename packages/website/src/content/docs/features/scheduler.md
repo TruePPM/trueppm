@@ -134,7 +134,11 @@ an FS successor does. Two behaviors are worth knowing:
   Monday after it. A predecessor whose link only reaches the Friday before can
   slip to Monday without moving that successor's work, so it keeps that day of
   free float and is not reported as the successor's driving link
-  ([#4332](https://gitlab.com/trueppm/trueppm/-/issues/4332)).
+  ([#4332](https://gitlab.com/trueppm/trueppm/-/issues/4332)). The same holds
+  through a milestone: how far a milestone may move before such a successor
+  moves is measured from that Monday too, so the milestone's own predecessors
+  keep the same free float
+  ([#4345](https://gitlab.com/trueppm/trueppm/-/issues/4345)).
 :::
 
 ### Which float answers which question

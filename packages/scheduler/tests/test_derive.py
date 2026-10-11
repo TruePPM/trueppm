@@ -748,3 +748,36 @@ def test_free_float_into_a_saturday_actual_start_matches_the_engine() -> None:
     assert timedelta(days=d.value) == engine_a.free_float
     ss = next(c for c in d.contributions if c.source_task_id == "w")
     assert (ss.imposed_date, ss.slack_days) == (date(2027, 2, 1), 1)
+
+
+def test_free_float_through_a_milestone_into_a_saturday_actual_start() -> None:
+    """The "why" agrees with the engine when a milestone sits between (#4345).
+
+    ``P -SS+5d-> M -FS+6d-> S`` with ``S`` started on a Saturday. ``M``'s free
+    instant reads ``S`` at its working-day start, as ``_free_float_days`` does, so
+    ``P`` has two working days of free float; the derivation's ``early_refs``
+    already snaps the same way and must explain the same two.
+    """
+    s = Task(
+        "S",
+        "S",
+        timedelta(days=1),
+        percent_complete=10.0,
+        actual_start=date(2026, 3, 14),
+    )
+    p = Project(
+        "p",
+        "p",
+        date(2026, 3, 2),
+        [task("P", "P", 1), task("M", "M", 0), s],
+        [
+            Dependency("P", "M", dep_type=DependencyType.SS, lag=timedelta(days=5)),
+            Dependency("M", "S", lag=timedelta(days=6)),
+        ],
+        Calendar(),
+    )
+    result = schedule(p)
+    engine_p = {t.id: t for t in result.tasks}["P"]
+    assert engine_p.free_float == timedelta(days=2)
+    d = derive_value(p, "P", Quantity.FREE_FLOAT, result=result)
+    assert timedelta(days=d.value) == engine_p.free_float
