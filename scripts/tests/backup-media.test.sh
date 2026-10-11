@@ -107,7 +107,7 @@ seed_media "$SRC1"
 EXPECTED_SHA="$(sha_of "$SRC1/sub/attachment.bin")"
 
 bash "$BACKUP" --db-url "$DB_URL" --media-dir "$SRC1" -o "$OUT1" >/dev/null
-ARTIFACT1="$(ls -1 "$OUT1"/trueppm-backup-*.tar.gz | head -n1)"
+ARTIFACT1="$(ls -1 "$OUT1"/trueppm-backup-*.tar.gz | sed -n '1p')"
 check "backup.sh produced an artifact" "$([ -n "$ARTIFACT1" ] && [ -f "$ARTIFACT1" ] && echo 0 || echo 1)"
 
 bash "$RESTORE" --db-url "$DB_URL" --artifact "$ARTIFACT1" --media-dir "$RESTORED1" --yes >/dev/null
@@ -133,7 +133,7 @@ check "restore.sh still exits 0 when media is intentionally skipped" \
 # --- 3. no media in the artifact at all: the other skip branch -------------
 OUT3_DIR="$TMP/out3"
 bash "$BACKUP" --db-url "$DB_URL" -o "$OUT3_DIR" >/dev/null
-ARTIFACT3="$(ls -1 "$OUT3_DIR"/trueppm-backup-*.tar.gz | head -n1)"
+ARTIFACT3="$(ls -1 "$OUT3_DIR"/trueppm-backup-*.tar.gz | sed -n '1p')"
 RESTORED3="$TMP/restored3-media"
 OUT3="$(bash "$RESTORE" --db-url "$DB_URL" --artifact "$ARTIFACT3" --media-dir "$RESTORED3" --yes 2>&1)"
 check "no media in the artifact logs the 'no media' skip message" \
@@ -150,7 +150,7 @@ SRC4="$TMP/src4-media"
 OUT4="$TMP/out4"
 seed_media "$SRC4"
 bash "$BACKUP" --db-url "$DB_URL" --media-dir "$SRC4" -o "$OUT4" >/dev/null
-ARTIFACT4="$(ls -1 "$OUT4"/trueppm-backup-*.tar.gz | head -n1)"
+ARTIFACT4="$(ls -1 "$OUT4"/trueppm-backup-*.tar.gz | sed -n '1p')"
 
 CORRUPT_DIR="$TMP/corrupt"
 mkdir -p "$CORRUPT_DIR"
