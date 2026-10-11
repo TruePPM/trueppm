@@ -309,10 +309,32 @@ and discards any cached state:
 docker compose -f docker-compose.prod.yml restart api celery celery-beat
 ```
 
-To restore the `media` volume alongside the database, reverse the backup step
-with the same disposable helper container (this **overwrites** the volume's
-current contents — stop the `api`/`celery`/`celery-beat` containers first so
-nothing is writing to it mid-restore):
+If the artifact was created with `TRUEPPM_MEDIA_ROOT`/`--media-dir` set (the
+"fold into the same tarball" option above), pass the same `media` volume
+mount through to `restore.sh` instead of the artifact's database-only
+invocation — it extracts `media.tar.gz` from that **same** artifact once the
+database restore and extension checks pass:
+
+```bash
+set -a; source .env; set +a
+
+docker compose -f docker-compose.prod.yml run --rm --no-deps \
+  -v "$(pwd)/scripts:/scripts:ro" \
+  -v "$(pwd)/backups:/backups" \
+  -v media:/media \
+  -e DATABASE_URL="postgres://trueppm:${DB_PASSWORD}@db:5432/trueppm" \
+  db bash /scripts/restore.sh \
+    --artifact /backups/trueppm-backup-<UTC>.tar.gz --media-dir /media --yes
+```
+
+This **overwrites** files already in the volume (it extracts on top of
+whatever is there — it does not first empty the directory) — stop the
+`api`/`celery`/`celery-beat` containers first so nothing is writing to it
+mid-restore. If the backup instead used the "back it up separately" option —
+a standalone `trueppm-media-<UTC>.tar.gz` that `restore.sh` has never seen —
+restore it with the same disposable helper container pattern used to create
+it (this one DOES clear the volume first, since it is a plain `tar` extract
+rather than a `restore.sh` run):
 
 ```bash
 docker run --rm \
@@ -582,14 +604,20 @@ A backup you have never restored is a hypothesis, not a backup. Prove it:
      `extension present: pg_trgm`, and `extension present: btree_gist`.
   2. Row counts on the restored database match the source for the core tables
      (`SELECT count(*) FROM projects_project;` and `projects_task`, `sprints_sprint`).
-  3. The API boots against the restored database (`/api/v1/health/` returns
+  3. If the artifact includes media, an attachment restored with `--media-dir`
+     opens and matches its original checksum — the archive listing `media.tar.gz`
+     only proves it was packed, not that it comes back intact.
+  4. The API boots against the restored database (`/api/v1/health/` returns
      `200`) and you can open a project and see its schedule.
 - **CI evidence** — every change to the backup/restore scripts or the CronJob
   template runs an automated restore drill in CI (`backup:restore-drill`): it
-  seeds a database, backs it up, drops it, restores from the artifact, and asserts
-  the row counts match. A nightly scheduled run exercises the same path so the
-  procedure can't rot between changes. Green there is your standing evidence that
-  the runbook on this page actually works.
+  seeds a database and a small media fixture, backs both up, drops the database
+  and deletes the local copies, restores from the artifact (database and media —
+  including through the S3 leg and the chart's own CronJob command), and asserts
+  the row counts **and** the media file's sha256 checksum match. A nightly
+  scheduled run exercises the same path so the procedure can't rot between
+  changes. Green there is your standing evidence that the runbook on this page
+  actually works.
 
 ## Related
 
