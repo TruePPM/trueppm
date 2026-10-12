@@ -19,6 +19,7 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { fetchWsTicket } from '@/api/wsTicket';
+import { WS_CLOSE_FORBIDDEN, WS_CLOSE_UNAUTHENTICATED } from '@/stores/wsConnectionStore';
 
 const WS_BASE = (() => {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -89,6 +90,8 @@ function MemberProjectScheduleChannel({
     let ws: WebSocket | null = null;
     let backoffMs = 1_000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    // A 4001 since the last socket that delivered a frame — see the close handler.
+    let authRejected = false;
 
     const scheduleInvalidate = () => {
       if (debounceRef.current !== null) return;
@@ -120,15 +123,37 @@ function MemberProjectScheduleChannel({
       const url = `${WS_BASE}/ws/v1/projects/${projectId}/?ticket=${encodeURIComponent(ticket)}`;
       ws = new WebSocket(url);
       ws.addEventListener('message', handleMessage);
+      // Only a socket that actually delivered a frame earns back the 4001 re-mint
+      // allowance: a refusal is accept-then-close (#4375), so `open` fires for a
+      // refused socket too, and resetting there would re-mint forever.
+      ws.addEventListener(
+        'message',
+        () => {
+          authRejected = false;
+        },
+        { once: true },
+      );
       ws.addEventListener('open', () => {
         backoffMs = 1_000;
       });
       ws.addEventListener('close', (closeEvent) => {
         if (!mountedRef.current) return;
-        // 4001 = Channels auth reject (expired/invalid ticket). Don't retry into
-        // a void — the apiClient refresh path drives re-auth; bail like the
-        // project socket does.
-        if (closeEvent.code === 4001) return;
+        // 4003: the caller's role on THIS member project does not get live
+        // updates (a Viewer, or not a member). Terminal — every retry is refused
+        // again, so stop rather than re-minting a ticket on a 30 s backoff for as
+        // long as the page is open (#4375). The program schedule query still
+        // refreshes from the other member projects' channels and on remount.
+        if (closeEvent.code === WS_CLOSE_FORBIDDEN) return;
+        // 4001: the ticket did not resolve. The first one re-mints once — a ticket
+        // lives 30 s and is single-use, so an aged ticket is not an expired session.
+        // A second in a row is a real auth failure: stop, and let the apiClient
+        // refresh path (and the project socket) drive re-auth.
+        if (closeEvent.code === WS_CLOSE_UNAUTHENTICATED) {
+          if (authRejected) return;
+          authRejected = true;
+          connect();
+          return;
+        }
         scheduleReconnect();
       });
     };
