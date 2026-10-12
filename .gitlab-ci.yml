@@ -1610,6 +1610,31 @@ docs:api-routes:
     - python3 scripts/check-docs-api-routes.py --self-test
     - python3 scripts/check-docs-api-routes.py
 
+docs:error-codes:
+  extends: .fast-job
+  # Error/warning `code` documentation gate (#4376). errors.md is hand-written
+  # and nothing compared its tables to the source, so nine codes
+  # (calendar_has_no_working_day, no_anchor_recorded, not_a_sample,
+  # already_committed, wbs_path_occupied, structure_role_contradicted,
+  # seed_slug_taken, seed_import_concurrency_limit,
+  # assignment_not_unit_tracked) were emitted and undocumented for an unknown
+  # length of time. AST-collects every `code` string literal from a
+  # Response({...})/warnings[] dict, an APIException.default_code, or a
+  # `code=` keyword under packages/api/src: a new emission site not on
+  # errors.md and not in scripts/error-code-internal-allowlist.txt (codes that
+  # never reach the wire — #2550) fails, and so does a documented code with no
+  # emission site left anywhere. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache python3
+  script:
+    - python3 scripts/check-error-codes-documented.py --self-test
+    - python3 scripts/check-error-codes-documented.py
+
 docs:helm-walkthrough-drift:
   extends: .fast-job
   # scripts/helm-install-drill.sh's `walkthrough` leg (#4027) drills

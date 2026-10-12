@@ -171,6 +171,9 @@ the envelope uses; every other field key is unambiguous.
 | `self_reference` | A task in the graph depends on itself | `offending` |
 | `cyclic_dependency` | The dependencies form a cycle | `offending` |
 | `subtree_too_large` | The targeted subtree exceeds the per-request cascade cap | `matched`, `max` |
+| `calendar_has_no_working_day` | The project's working calendar defines no usable working day, so sprint cadence/dates cannot be generated — fix the calendar in calendar settings first | — |
+| `not_a_sample` | `POST .../programs/{id}/shift-sample-dates/` refused: the program is not sample data, so it has no anchor date to shift from | — |
+| `no_anchor_recorded` | `POST .../programs/{id}/shift-sample-dates/` refused: the sample was loaded before #3481 and carries no recorded anchor date — reload the sample instead of shifting it | — |
 
 ### Non-object request bodies
 
@@ -375,6 +378,9 @@ capped sample naming them:
 | `calendar_in_use` | `409` | The working calendar is still referenced | `reference_count`, `references`? |
 | `skill_in_use` | `409` | The skill is still referenced | `reference_count`, `references`? |
 | `roster_has_assignments` | `409` | `DELETE /project-resources/{id}/` refused: the resource still has live task assignments on this project and `force=true` was not passed. Distinct from the `has_assignments` 2xx warning below — that is an advisory on a task restructure that succeeded; this is a hard refusal of the roster removal itself | `affected_tasks`, `task_names`, `assignment_count` |
+| `already_committed` | `409` | `POST /projects/{id}/commit/` refused: the plan has already been committed to a baseline — commit is a one-way `draft → active` transition and cannot be repeated | — |
+| `wbs_path_occupied` | `409` | `POST /projects/{id}/tasks/{id}/restore/` refused: another task now occupies the WBS position this task would return to. Move the occupant, then restore this one | `wbs_path`, `occupied_by` |
+| `structure_role_contradicted` | `409` | A write declared `structure_role: "work"` on a task that already has structural (non-subtask) children — the tree makes it a container regardless of what was declared. Move or delete the children first, or declare it a container | `structure_role` |
 | `sprint_already_bound` | `409` | The milestone is already bound to a sprint | — |
 | `sync_conflict` | `409` | A stale write overlapped a concurrent writer | see below |
 | `proposal_closed` | `409` | The ceiling proposal is no longer open | — |
@@ -387,6 +393,7 @@ capped sample naming them:
 | `seed_replace_required` | `409` | A live program you own already uses this seed's slug as its code, and the import did not confirm the replacement | `conflict` |
 | `seed_replace_mismatch` | `409` | `expected_program_id` does not name the program that would actually be replaced | `conflict` |
 | `seed_replace_ambiguous` | `409` | Two live programs you own already share this seed's slug as their `code` — a reload can't tell which one to replace | — |
+| `seed_slug_taken` | `409` | The seed document's `program.slug` is already in use as another program's `code`. Change `program.slug` in the document and import it again | — |
 | `too_large` | `409` | The structural act affected too many rows to be reversed automatically | — |
 | `not_top_of_stack` | `409` | A more recent structural act sits above this one — undo that first | `blocking_operation_id` |
 | `shape_changed` | `409` | The outline has changed in the affected region since the act ran — it can no longer be undone | `changed` |
@@ -444,6 +451,7 @@ it. See [Programs](/api/reference/programs/#programs).
 | Code | Meaning | Extra keys |
 |------|---------|-----------|
 | `sync_cooldown` | The connection was refreshed too recently to sync again | `retry_after` (seconds) |
+| `seed_import_concurrency_limit` | The caller already has the maximum number of concurrent seed imports queued or running (`SEED_IMPORT_MAX_CONCURRENT_JOBS`, default 3) — wait for one to finish, then re-send | — |
 
 The **general** rate limiter is different: it returns a bare `detail` with **no
 `code`**, plus a `Retry-After` header. See
@@ -540,6 +548,7 @@ treat them as failures:
 |------|-----------|---------|
 | `resource_overallocated` | assignment writes | The resource's load on at least one working day now exceeds their capacity. The `detail` names that day |
 | `skill_mismatch` | assignment writes | The resource lacks a skill the task requires |
+| `assignment_not_unit_tracked` | assignment writes | The resource is folded into the overallocation peak via a bare `Task.assignee` link (no `TaskResource.units` row), assumed full-time for its span — the peak above includes an estimate, not a tracked figure |
 | `has_assignments` | task restructure | A task became a summary task while still carrying assignments. Not to be confused with the `roster_has_assignments` `409` refusal above — that is a failed roster removal, not an advisory on a successful write |
 | `scope_pending_on_close` | sprint close | Scope-injection requests were still pending at close |
 
