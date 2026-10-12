@@ -11,3 +11,10 @@ surface darker than `bg-neutral-surface` (#FFFFFF)** — including `-raised`, `-
 any `hover:bg-*` state on a row that contains disabled-token text (the hover state is the
 worst case and the one that must pass AA). Informational text that must stay legible uses
 `text-neutral-text-secondary` as the floor. (Surfaced by ux-review on #590.)
+
+**Superseded 2026-10 (#4379, rule 435).** `--neutral-text-disabled` was darkened to
+`#686663` light / lightened to `#7F93B0` dark, which clears 4.5:1 on every neutral
+surface in both themes (4.55:1 on sunken, the binding light surface). The prohibition
+above was a contrast workaround for a token that failed AA below white; it no longer
+applies. See rule 435 for the current numbers and the `tokenContrast.test.ts` guard
+that now enforces the floor directly on the token instead of on where it may be used.

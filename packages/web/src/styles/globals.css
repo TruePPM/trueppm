@@ -64,11 +64,29 @@
                                                  clear 4.5:1 on every light surface
                                                  (4.85:1 sunken, 5.9:1 white); monotonic
                                                  contrast gain everywhere else (#2265). */
-    --neutral-text-disabled:   160 157 153;   /* #A09D99 */
+    --neutral-text-disabled:   104 102 99;    /* #686663 — was #A09D99 (2.70:1 on white,
+                                                 2.15:1 sunken: fails WCAG 1.4.3 for the
+                                                 informational/muted-text uses the name
+                                                 implies "disabled-only"; #4379). Darkened to
+                                                 clear 4.5:1 on every light surface (4.55:1
+                                                 sunken — the binding one — 5.72:1 white).
+                                                 This sits only 1.06:1 from
+                                                 --neutral-text-secondary (#64625D): AA's
+                                                 4.5:1 floor on sunken paper-3 and
+                                                 --neutral-text-secondary's own already-tight
+                                                 4.85:1 on that surface (#2265) leave almost
+                                                 no luminance room between the two tokens that
+                                                 still passes. Chosen as the lightest (most
+                                                 muted) value that clears every surface, so it
+                                                 reads as a shade lighter than secondary rather
+                                                 than collapsing onto it. Disabled controls
+                                                 keep other non-color cues (opacity, cursor,
+                                                 aria-disabled) — this token no longer needs to
+                                                 rely on contrast alone to read as "disabled". */
     --neutral-text-inverse:    255 255 255;   /* #FFFFFF */
     /* #2207 a11y (WCAG 1.4.11): ≥3:1 boundary/mark tokens. --neutral-border
        #E6E1D6 is 1.30:1 as a sole field boundary; --neutral-text-disabled
-       #A09D99 is 2.70:1 as a chart mark. */
+       was #A09D99, 2.70:1 as a chart mark, pre-#4379. */
     --input-border:            136 135 128;   /* #888780 — 3.61:1 on white */
     --chart-neutral:           136 135 128;   /* #888780 — 3.61:1 on white */
     /* Drag-preview ghost — applied at low / 0.85 alpha in tailwind.config.ts;
@@ -87,7 +105,14 @@
     --neutral-border:          42 58 87;      /* #2A3A57 — navy border */
     --neutral-text-primary:    233 237 243;   /* #E9EDF3 — reversed ink, 12.1:1 on #15223C */
     --neutral-text-secondary:  148 163 184;   /* #94A3B8 — 7.45:1 on surface */
-    --neutral-text-disabled:   100 116 139;   /* #64748B */
+    --neutral-text-disabled:   127 147 176;   /* #7F93B0 — was #64748B (3.33:1 on surface,
+                                                 2.99:1 raised: fails WCAG 1.4.3; #4379).
+                                                 Lightened to clear 4.5:1 on every dark
+                                                 surface (4.54:1 raised — the binding one —
+                                                 5.98:1 sunken). Stays distinct from
+                                                 --neutral-text-secondary (#94A3B8): 1.22:1
+                                                 apart, darker/more muted than secondary in
+                                                 both themes. */
     --neutral-text-inverse:    26 25 23;      /* #1A1917 */
     --input-border:            100 116 139;   /* #64748B — 3.34:1 on navy-800 surface */
     --chart-neutral:           180 178 169;   /* #B4B2A9 — brand dark neutral, ~7:1 on surface */
