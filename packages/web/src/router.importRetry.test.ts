@@ -10,7 +10,10 @@ vi.mock('@/lib/chunkReload', async (importOriginal) => ({
 }));
 
 describe('router route chunks (ADR-1249)', () => {
-  it('wraps every lazy route import in withImportRetry', async () => {
+  // The dynamic import evaluates the whole router module graph, which takes
+  // ~5 s on a loaded CI shard and tripped vitest's 5 s default — the timeout
+  // bounds module-graph load time, not the assertions.
+  it('wraps every lazy route import in withImportRetry', { timeout: 30_000 }, async () => {
     const declared = routerSource.match(/=\s*lazy\(/g)?.length ?? 0;
     await import('./router');
     expect(declared).toBeGreaterThan(40);
