@@ -443,8 +443,14 @@ helm:demo-upgrade:
   # during that window, then re-running the identical allowlist/throttle
   # matrix and served-asset check helm:demo already uses once the rollout
   # completes, against the POST-upgrade hook re-fire (DRILL_LEG=demo-upgrade
-  # in the same script — see its header comment). See
-  # scripts/helm-install-drill.sh.
+  # in the same script — see its header comment). Both the pre-upgrade
+  # install and the HEAD-side upgrade force the web tier to 3 replicas,
+  # independent of either chart's own demo overlay (which correctly pins it
+  # to 1 for the real public demo, #4348) — a single pod can never overlap
+  # with another, and this leg exists specifically to observe that overlap,
+  # so it separately asserts more than one old AND more than one new web
+  # pod were Ready at the same time at least once, failing if that window
+  # never opened (#4378). See scripts/helm-install-drill.sh.
   #
   # Trigger: main pushes and the nightly schedule ONLY — deliberately not
   # every MR. Per #3941's own cost note (quoted in helm:upgrade's comment

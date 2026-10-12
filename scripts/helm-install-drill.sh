@@ -71,8 +71,18 @@
 #     `helm upgrade`s the SAME release to the HEAD chart, NOW with HEAD's own
 #     values-demo.yaml (the file every real upgrade lands on), and re-runs
 #     section 10's allowlist/throttle matrix, this time against the
-#     POST-upgrade hook re-fire rather than only a fresh install. It also
-#     asserts every asset index.html references (script src, link
+#     POST-upgrade hook re-fire rather than only a fresh install. Both the
+#     pre-upgrade install and the HEAD-side upgrade force the web tier to
+#     DEMO_WEB_ROLLOUT_REPLICAS (3) regardless of either chart version's own
+#     replicas.web/web.replicaCount pin — that pin is correctly 1 for the
+#     real demo overlay (#4348), but a single web pod can never overlap with
+#     another, and this leg's reason to exist (#4353) is observing exactly
+#     that overlap. A mid-rollout probe asserts >1 old AND >1 new web pod
+#     were Ready at the same time at least once during the upgrade, failing
+#     the leg if that window was never opened (#4378) — see
+#     web_rollout_window_evaluate below for the pass/fail rule and
+#     scripts/tests/helm-web-rollout-window.test.sh for its unit coverage. It
+#     also asserts every asset index.html references (script src, link
 #     rel=modulepreload, link rel=stylesheet) answers 2xx with the right
 #     content-type, via scripts/check-served-assets.sh (#4338: a beta.7 web
 #     image blank-screened by serving missing JS chunks and empty CSS through
@@ -1035,6 +1045,112 @@ capture_prior_web_assets() {
   log "pre-upgrade release has no asset-files.json (built before ADR-1249) — captured its assets/ listing ($(printf '%s\n' "$listing" | wc -l | tr -d ' ') files)"
 }
 
+# ---- demo-upgrade: pin the web tier's --set key to whichever one the chart
+# BEING INSTALLED actually accepts (#4378) -----------------------------------
+# ADR-1248 renamed the per-tier replica override from `web.replicaCount` to
+# the current `replicas.web`. `additionalProperties: false` on both shapes
+# means the WRONG key is a hard schema-validation failure, not a silent
+# no-op — #4365 hit exactly this class, on the sibling `-f` overlay file
+# rather than a --set key. A chart published before the rename (0.4.0-beta.6
+# and earlier) only accepts `web.replicaCount`; beta.7 and later only accept
+# `replicas.web` (the two are mutually exclusive on-schema, never both).
+#
+# `grep -q '"replicas"'` is a plain substring search, not a JSON-structural
+# one — safe here because today it is unambiguous: beta.6's values.schema.json
+# has zero occurrences of the literal `"replicas"` key, beta.7's has exactly
+# one (the new top-level property itself), verified against both published
+# schemas while fixing #4378. If a future chart version ever nests a
+# different `"replicas"` key elsewhere in the schema, this needs to become a
+# real JSON-structural check instead of a substring match.
+#
+# Sets the global array PREV_WEB_REPLICAS_SET_ARGS rather than echoing, so the
+# caller can splice it into a `helm install`/`helm upgrade` argv the same way
+# every other *_ARGS array in this script already is.
+web_replicas_set_arg() {
+  local schema_file="$1" n="$2"
+  if grep -q '"replicas"' "$schema_file" 2>/dev/null; then
+    PREV_WEB_REPLICAS_SET_ARGS=(--set "replicas.web=${n}")
+  else
+    PREV_WEB_REPLICAS_SET_ARGS=(--set "web.replicaCount=${n}")
+  fi
+}
+
+# ---- demo-upgrade: parse a kubectl pod dump into (old, new) web-pod READY
+# counts (#4378) ---------------------------------------------------------------
+# Input (stdin): one "<pod-name> <container-image> <ready>" line per web pod,
+# the shape
+#   kubectl get pods -l app.kubernetes.io/component=web \
+#     -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.containers[0].image}{" "}{.status.containerStatuses[0].ready}{"\n"}{end}'
+# prints. Counts a pod on the "old" or "new" side purely by exact image-string
+# equality against the two arguments — the pre-upgrade and post-upgrade
+# installs below each pin image.tag explicitly (or inherit a chart default
+# that resolves to the same string), so the two sides can never collide on
+# one image during a single rollout. Only pods whose OWN readiness probe is
+# currently reporting ready=true are counted on either side: a pod that is
+# merely Running but failing its readiness probe is not serving traffic, and
+# counting it would assert an overlap window the Service's endpoints never
+# actually had.
+#
+# Echoes "<old_ready> <new_ready>" on stdout. A line with a pod name but no
+# resolved image/ready (not yet scheduled) naturally falls through both
+# `case`/`if` branches uncounted rather than erroring — the next sample a few
+# seconds later picks it up once it has settled.
+web_rollout_window_parse() {
+  local old_image="$1" new_image="$2"
+  local name image ready old_ready=0 new_ready=0
+  while read -r name image ready; do
+    [ -n "$name" ] || continue
+    case "$ready" in
+      true | True) ;;
+      *) continue ;;
+    esac
+    if [ "$image" = "$old_image" ]; then
+      old_ready=$((old_ready + 1))
+    elif [ "$image" = "$new_image" ]; then
+      new_ready=$((new_ready + 1))
+    fi
+  done
+  echo "${old_ready} ${new_ready}"
+}
+
+# ---- demo-upgrade: did >1 old AND >1 new web pod ever report Ready at the
+# SAME sample during the rollout? (#4378) -------------------------------------
+# Reads a log of "<old_ready> <new_ready>" lines — one per poll of
+# web_rollout_window_parse, written by the mid-rollout probe loop below — and
+# answers the one question this leg exists to force an answer to: was the
+# skew window #4353 built to observe ever actually open, or did the chart's
+# own replicas.web:1 demo pin (#4348) shrink it back to a scale-down-with-an-
+# image-change that never has two pods of either generation serving at once?
+#
+# Deliberately does NOT require the overlap on the FIRST qualifying sample —
+# it scans the whole log and reports the first "old>1 AND new>1" pair it
+# finds, continuing to track the running max of each side regardless, so a
+# caller whose rollout never opens the window gets back the best it ever
+# managed on each side (e.g. "1 1" — one pod of each, never both above one)
+# instead of a bare "not observed" with no diagnostic value.
+#
+# Echoes "<observed:0|1> <old> <new>" — old/new are the overlap sample when
+# observed=1, or the per-side running maxima (not necessarily simultaneous)
+# when observed=0.
+web_rollout_window_evaluate() {
+  local log="$1" old new max_old=0 max_new=0 observed=0 obs_old=0 obs_new=0
+  while read -r old new; do
+    [ -n "$old" ] || continue
+    [ "$old" -gt "$max_old" ] && max_old="$old"
+    [ "$new" -gt "$max_new" ] && max_new="$new"
+    if [ "$observed" -eq 0 ] && [ "$old" -gt 1 ] && [ "$new" -gt 1 ]; then
+      observed=1
+      obs_old="$old"
+      obs_new="$new"
+    fi
+  done <"$log"
+  if [ "$observed" -eq 1 ]; then
+    echo "1 ${obs_old} ${obs_new}"
+  else
+    echo "0 ${max_old} ${max_new}"
+  fi
+}
+
 # ---- restart + contention evidence ------------------------------------------
 # A rollout that times out with `context deadline exceeded` can leave every pod
 # Running/Ready by the time dump_diagnostics runs, so the not-Ready loop below
@@ -1582,10 +1698,53 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   # (#4018, shipped well before 0.4.0-beta.7). If a future squash or an
   # unusually early "previous" version ever predates #4018, the fail above
   # catches it loudly instead of silently stopping being a demo install.
-  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} WITH ITS OWN values-demo.yaml (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO})"
+  #
+  # #4378: this leg's entire reason to exist (#4340, #4353) is observing an
+  # old-build/new-build web rollout OVERLAP — and values-demo.yaml on EITHER
+  # side now pins the web tier to 1 replica (#4348, correct for the real
+  # demo: nginx serving a static bundle gets nothing from extra pods, and a
+  # single pod keeps the public demo's own upgrade-blip window well under a
+  # second). A single pod can never overlap with another pod, so left at
+  # that pin this leg exercises a scale-down-to-1-with-an-image-change, not
+  # the N-old/N-new rolling update #4353 built the mid-rollout probe to
+  # watch. Both installs below override it to DEMO_WEB_ROLLOUT_REPLICAS,
+  # independent of whatever either chart version's own overlay says —
+  # exactly like the `upgrade` leg's own --set replicaCount=2 overrides a
+  # few hundred lines up, which exist for the identical reason on the OTHER
+  # tiers.
+  #
+  # 3, not 2 or 4: Kubernetes' default RollingUpdate rounds maxSurge UP and
+  # maxUnavailable DOWN from 25% of the Deployment's replica count. At 3
+  # that is maxSurge=1, maxUnavailable=0 — maxUnavailable=0 is what forces a
+  # STRICT one-pod-at-a-time cadence (never more than one pod in flight),
+  # which makes the controller provably pass through an old=2/new=2-Ready
+  # plateau on the way from old=3/new=0 to old=0/new=3 (verified by hand
+  # against the documented algorithm while fixing #4378 — the controller
+  # must scale new up to 2 and wait for both replicas Ready before minAvail=3
+  # lets it drop old below 2). At 2, maxUnavailable rounds down to 0 too, but
+  # maxSurge is only 1 pod total above a base of 2 — the single-pod cadence
+  # it forces never lands on a sample where BOTH sides are above 1 at once
+  # (verified the same way: the only reachable states are old=2/new=1 and
+  # old=1/new=2). At 4, maxUnavailable rounds to exactly 1 instead of 0,
+  # which lets the controller scale old down by MORE than one pod in a
+  # single step whenever slack allows (avail-minAvailable can reach 2, not
+  # just 1) — an overlap still occurs (old can still land on 2 while new is
+  # at 3), but the one-pod cadence that makes 3's plateau last a full pod
+  # STARTUP duration no longer holds, so 4's window can collapse to however
+  # long it takes two new pods to both finish starting at nearly the same
+  # moment — bounded only by controller sync latency, not by a startup
+  # probe's own timing. That makes 4 a LESS reliable target for a ~1s-
+  # cadence poll than 3, not a safer margin above it. 3 is therefore the
+  # smallest replica count whose rounding FORCES (not just permits) a
+  # plateau wide enough for this leg's poll interval to reliably sample.
+  DEMO_WEB_ROLLOUT_REPLICAS="${DEMO_WEB_ROLLOUT_REPLICAS:-3}"
+  web_replicas_set_arg "${PREV_CHART_DIR}/trueppm/values.schema.json" "$DEMO_WEB_ROLLOUT_REPLICAS"
+  log "pinning the PRE-upgrade (chart ${PREV_CHART_VERSION}) web tier to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas via ${PREV_WEB_REPLICAS_SET_ARGS[1]} (#4378)"
+  log "helm install ${RELEASE} FROM PREVIOUS RELEASED CHART ${PREV_CHART_VERSION} WITH ITS OWN values-demo.yaml (oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}), web tier forced to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas (#4378)"
   helm install "$RELEASE" "oci://${CHART_GHCR_HOST}/${CHART_OCI_REPO}" --version "$PREV_CHART_VERSION" \
     -f "$PREV_VALUES_DEMO" \
     "${DEMO_SET_ARGS[@]}" \
+    "${PREV_WEB_REPLICAS_SET_ARGS[@]}" \
     --wait --timeout "$INSTALL_TIMEOUT"
   log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
   wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
@@ -1678,7 +1837,15 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
   rollout_probe_dir="$(mktemp -d)"
   rollout_probe_log="$rollout_probe_dir/log"
   rollout_probe_stop="$rollout_probe_dir/stop"
+  # #4378: a second, independent log from the SAME loop iteration below —
+  # one "<old_ready> <new_ready>" web-pod-count line per poll, fed to
+  # web_rollout_window_evaluate once the rollout finishes. Kept separate
+  # from rollout_probe_log (the served-asset probe's own output) rather than
+  # interleaved into it, so the pure line-oriented parser never has to tell
+  # the two kinds of line apart.
+  rollout_window_log="$rollout_probe_dir/window"
   : > "$rollout_probe_log"
+  : > "$rollout_window_log"
   probe_url="${DEMO_BASE_URL}/share/schedule/${DEMO_SCHEDULE_TOKEN}"
   (
     while [ ! -e "$rollout_probe_stop" ]; do
@@ -1697,16 +1864,31 @@ elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
         env SERVED_ASSETS_ROUNDS=1 SERVED_ASSETS_MANIFEST=0 SERVED_ASSETS_ROLLOUT=1 sh -s "$probe_url" \
         < scripts/check-served-assets.sh >> "$rollout_probe_log" 2>&1 || rc=$?
       [ "$rc" -eq 0 ] || echo "#4353 ROUND FAILED rc=${rc} at $(date -u +%H:%M:%S)" >> "$rollout_probe_log"
+      # #4378: same cadence as the served-asset probe above, against the web
+      # Deployment's OWN pods directly rather than through the Service — the
+      # whole point is counting how many of EACH generation are Ready at
+      # once, which the Service's load-balanced response can never reveal.
+      # `|| true` on the whole pipeline (not just kubectl): under `set -e
+      # -o pipefail` a transient kubectl error (API server hiccup, or no
+      # pods yet matched) would make the PIPELINE's exit status nonzero and
+      # kill this background subshell's while loop outright — exactly the
+      # failure mode the served-asset probe's own `|| rc=$?` above exists to
+      # avoid. A skipped sample here costs nothing but one data point; the
+      # next one a second later picks the rollout back up.
+      kubectl get pods -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=web" \
+          -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.containers[0].image}{" "}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null \
+        | web_rollout_window_parse "$PREV_WEB_IMAGE" "$WEB_IMAGE" >> "$rollout_window_log" || true
       sleep 1
     done
   ) &
   rollout_probe_pid=$!
-  log "mid-rollout asset probe loop started (pid ${rollout_probe_pid}) — polling ${probe_url} roughly every second via rollout-asset-probe"
+  log "mid-rollout asset probe loop started (pid ${rollout_probe_pid}) — polling ${probe_url} roughly every second via rollout-asset-probe, and sampling web-pod Ready counts by image (old=${PREV_WEB_IMAGE}, new=${WEB_IMAGE}) on the same cadence (#4378)"
 
-  log "helm upgrade ${RELEASE} -> HEAD chart WITH HEAD's own values-demo.yaml (image tag ${RELEASE_IMAGE_TAG}), WITHOUT --wait (#4353) — the rollout and the mid-rollout probe above now genuinely overlap; helm still blocks here on the post-upgrade demo-seed hook (always synchronous — see wait_for_demo_seed_hook), exactly as a real operator's own upgrade would"
+  log "helm upgrade ${RELEASE} -> HEAD chart WITH HEAD's own values-demo.yaml (image tag ${RELEASE_IMAGE_TAG}), web tier forced to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas (#4378), WITHOUT --wait (#4353) — the rollout and the mid-rollout probes above now genuinely overlap; helm still blocks here on the post-upgrade demo-seed hook (always synchronous — see wait_for_demo_seed_hook), exactly as a real operator's own upgrade would"
   helm upgrade "$RELEASE" "$CHART" \
     "${DEMO_ARGS[@]}" \
     --set image.tag="$RELEASE_IMAGE_TAG" \
+    --set replicas.web="$DEMO_WEB_ROLLOUT_REPLICAS" \
     "${CELERY_PROBE_OVERRIDES[@]}" \
     --timeout "$INSTALL_TIMEOUT"
   log "helm upgrade returned (post-upgrade hook complete) — waiting for every Deployment of this release to finish rolling out, which is what --wait would otherwise have blocked on above"
@@ -1731,6 +1913,23 @@ $(cat "$rollout_probe_log")"
     fi
   else
     log "mid-rollout served-asset probe: 0 failing rounds (#4353)"
+  fi
+
+  # #4378: the assertion this whole leg exists for. A green run above proves
+  # the drill reached a fully-upgraded release; it says nothing about
+  # whether a BROWSER sitting on the old build mid-rollout could ever have
+  # been served by an old pod while a new pod was ALSO already up — the
+  # specific multi-pod skew window a chunk-reload or nginx-404 regression
+  # (#4341/#4350) only misbehaves inside. web_rollout_window_evaluate's three fields:
+  # observed (0/1), and either the overlapping (old,new) Ready pair when
+  # observed=1 or each side's running max (not necessarily simultaneous)
+  # when observed=0.
+  read -r window_observed window_old window_new < <(web_rollout_window_evaluate "$rollout_window_log")
+  if [ "${window_observed:-0}" = "1" ]; then
+    log "mid-rollout web-pod window OBSERVED (#4378): ${window_old} old + ${window_new} new web pod(s) Ready at the same time (web tier pinned to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas)"
+  else
+    fail "mid-rollout web-pod window NEVER observed (#4378) — old and new web pods never both reported >1 Ready at the same sample (best seen: ${window_old} old / ${window_new} new, not necessarily simultaneous). web tier was pinned to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas; this leg exists specifically to prove a multi-pod old+new skew window was exercised, not just a scale-down-with-an-image-change. Window log:
+$(cat "$rollout_window_log")"
   fi
   rm -rf "$rollout_probe_dir"
 else
@@ -2306,7 +2505,7 @@ elif [ "$DRILL_LEG" = "walkthrough" ]; then
 elif [ "$DRILL_LEG" = "demo" ]; then
   log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, served assets verified (#4338), allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
 elif [ "$DRILL_LEG" = "demo-upgrade" ]; then
-  log "HELM DEMO-UPGRADE DRILL GREEN (#4340, #4353) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml at replicaCount=3, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart WITHOUT --wait, overlapping the post-upgrade demo-seed hook re-fire with an in-cluster mid-rollout served-asset probe (${rollout_probe_failures:-0} failing round(s), $( [ "$ROLLOUT_ASSET_PROBE_STRICT" = "1" ] && echo "STRICT" || echo "reported-only, TODO(#4347)" )); then kubectl rollout status confirmed every Deployment and the allowlist/throttle matrix + final served-asset check both held against the fully-upgraded release (closing the #3941 gap that let #4339 ship); HEAD still served every asset of the pre-upgrade release (ADR-1249); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+  log "HELM DEMO-UPGRADE DRILL GREEN (#4340, #4353, #4378) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml, web tier forced to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas (overriding its own replicas.web/web.replicaCount pin of 1, #4348/#4378) so the rollout below has a real old+new overlap to exercise, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart (web tier pinned to the same ${DEMO_WEB_ROLLOUT_REPLICAS}) WITHOUT --wait, overlapping the post-upgrade demo-seed hook re-fire with an in-cluster mid-rollout served-asset probe (${rollout_probe_failures:-0} failing round(s), $( [ "$ROLLOUT_ASSET_PROBE_STRICT" = "1" ] && echo "STRICT" || echo "reported-only, TODO(#4347)" )) AND a mid-rollout web-pod window probe that asserted >1 old AND >1 new web pod were Ready at the same time at least once (${window_old} old / ${window_new} new observed, #4378); then kubectl rollout status confirmed every Deployment and the allowlist/throttle matrix + final served-asset check both held against the fully-upgraded release (closing the #3941 gap that let #4339 ship); HEAD still served every asset of the pre-upgrade release (ADR-1249); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 else
   log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 fi
