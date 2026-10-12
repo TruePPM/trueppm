@@ -231,6 +231,32 @@ past four members the chain elides its middle to `… (N more)`, so a long cycle
 never produces a proportionally long sentence. `offending` stays the raw, complete
 ordered id list — branch and highlight rows on that.
 
+**The direct `POST/PATCH /dependencies/` cycle refusal carries two deprecated
+legacy keys alongside the pair above (#3800).** That endpoint's `CycleDetectedError`
+predates the `code`/`offending` contract and is a different exception from the one
+above (`InfeasibleGraphError`, raised by the bulk graph guard), so its `detail` is
+the bare machine string `"cyclic_dependency"` — not the prose shown above — and it
+carries an additional `cycle` key: the same ordered path as `offending`, resolved to
+rich `{id, name, hex_id}` objects instead of bare ids:
+
+```json
+{
+  "code": "cyclic_dependency",
+  "detail": "cyclic_dependency",
+  "offending": ["3f2a…", "9b1c…", "3f2a…"],
+  "cycle": [
+    {"id": "3f2a…", "name": "Design", "hex_id": "AAA1"},
+    {"id": "9b1c…", "name": "Build", "hex_id": "BBB2"},
+    {"id": "3f2a…", "name": "Design", "hex_id": "AAA1"}
+  ]
+}
+```
+
+`detail` and `cycle` are kept on the wire, unchanged from before #3800, for one
+minor so an already-shipped client survives without a server-version check. They
+are scheduled for removal in a future minor — branch on `code` and `offending`,
+the pair every other 400 in this table uses.
+
 `subtree_too_large` carries `matched` (how many descendants the request would
 have touched) and `max` (the cap), so a client can say how far over the limit it
 is without parsing the sentence in `detail`. Both are **strings**, not numbers —

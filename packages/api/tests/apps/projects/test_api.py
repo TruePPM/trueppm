@@ -547,6 +547,9 @@ class TestDependencyAPI:
             {"predecessor": str(task.pk), "successor": str(task.pk), "dep_type": "FS"},
         )
         assert r.status_code == 400
+        # #3800: `code`/`offending` are the stable contract; `detail`/`cycle`
+        # stay on the wire as deprecated legacy aliases for one minor.
+        assert r.data["code"] == "cyclic_dependency"
         assert r.data["detail"] == "cyclic_dependency"
         assert isinstance(r.data["cycle"], list)
         assert len(r.data["cycle"]) >= 2
@@ -554,6 +557,8 @@ class TestDependencyAPI:
         for node in r.data["cycle"]:
             assert set(node.keys()) == {"id", "name", "hex_id"}
         assert all(node["id"] == str(task.pk) for node in r.data["cycle"])
+        assert r.data["offending"] == [node["id"] for node in r.data["cycle"]]
+        assert all(node_id == str(task.pk) for node_id in r.data["offending"])
 
     def test_create_rejects_2_cycle(
         self,
@@ -570,12 +575,16 @@ class TestDependencyAPI:
             {"predecessor": str(t2.pk), "successor": str(task.pk), "dep_type": "FS"},
         )
         assert r.status_code == 400
+        assert r.data["code"] == "cyclic_dependency"
         assert r.data["detail"] == "cyclic_dependency"
         cycle_ids = {node["id"] for node in r.data["cycle"]}
         assert cycle_ids == {str(task.pk), str(t2.pk)}
         # Cycle path closes on its first node so the client can render
         # "A → B → A" unambiguously.
         assert r.data["cycle"][0]["id"] == r.data["cycle"][-1]["id"]
+        # `offending` is the plain-id mirror of `cycle`, same order.
+        assert r.data["offending"] == [node["id"] for node in r.data["cycle"]]
+        assert r.data["offending"][0] == r.data["offending"][-1]
 
     def test_create_rejects_3_cycle(
         self,
@@ -594,8 +603,10 @@ class TestDependencyAPI:
             {"predecessor": str(c.pk), "successor": str(task.pk), "dep_type": "FS"},
         )
         assert r.status_code == 400
+        assert r.data["code"] == "cyclic_dependency"
         cycle_ids = {node["id"] for node in r.data["cycle"]}
         assert cycle_ids == {str(task.pk), str(b.pk), str(c.pk)}
+        assert set(r.data["offending"]) == cycle_ids
 
     def test_create_rejects_summary_logical_cycle(
         self,
@@ -614,6 +625,7 @@ class TestDependencyAPI:
             {"predecessor": str(validate.pk), "successor": str(eng.pk), "dep_type": "FS"},
         )
         assert r.status_code == 400
+        assert r.data["code"] == "cyclic_dependency"
         assert r.data["detail"] == "cyclic_dependency"
 
     def test_create_succeeds_on_diamond(
@@ -658,7 +670,10 @@ class TestDependencyAPI:
             {"successor": str(task.pk)},
         )
         assert r.status_code == 400
+        assert r.data["code"] == "cyclic_dependency"
         assert r.data["detail"] == "cyclic_dependency"
+        # PATCH emits the same shape as POST — same helper, same bug class.
+        assert r.data["offending"] == [node["id"] for node in r.data["cycle"]]
 
     def test_create_does_not_persist_when_cycle_detected(
         self,
@@ -1035,6 +1050,7 @@ class TestCrossProjectDependency:
         # The reverse cross edge would close a program-spanning cycle.
         r = self._post_edge(client, succ, pred)
         assert r.status_code == 400
+        assert r.data["code"] == "cyclic_dependency"
         assert r.data["detail"] == "cyclic_dependency"
 
     # -- D5: minimal visibility card ----------------------------------------

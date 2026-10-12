@@ -175,8 +175,12 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
           return route.fulfill({
             status: 400,
             contentType: 'application/json',
+            // #3800: code/offending are the current contract; detail/cycle are
+            // kept as deprecated legacy aliases for one minor.
             body: JSON.stringify({
+              code: 'cyclic_dependency',
               detail: 'cyclic_dependency',
+              offending: ['task-a', 'task-b', 'task-a'],
               cycle: [
                 { id: 'task-a', name: 'Design Phase', hex_id: 'aa11' },
                 { id: 'task-b', name: 'Build Phase', hex_id: 'bb22' },

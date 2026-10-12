@@ -225,8 +225,12 @@ test.describe('Drag-to-link on the Schedule canvas (#1666)', () => {
         return route.fulfill({
           status: 400,
           contentType: 'application/json',
+          // #3800: code/offending are the current contract; detail/cycle are
+          // kept as deprecated legacy aliases for one minor.
           body: JSON.stringify({
+            code: 'cyclic_dependency',
             detail: 'cyclic_dependency',
+            offending: ['bm1', 'bm2', 'bm1'],
             cycle: [
               { id: 'bm1', name: 'Foundation', hex_id: 'aa11' },
               { id: 'bm2', name: 'Framing', hex_id: 'bb22' },

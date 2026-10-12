@@ -725,6 +725,45 @@ def test_the_refusal_keeps_the_structured_offending_id_list_unchanged(
     assert offending[0] == offending[-1]
 
 
+def test_direct_and_bulk_cycle_refusals_share_the_code_and_offending_shape(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """#3800: the direct ``/dependencies/`` refusal and this bulk-graph refusal are
+    two different exceptions (``CycleDetectedError`` vs. ``InfeasibleGraphError``)
+    converted by two different views, and they drifted — the direct path omitted
+    ``code`` entirely and named its id list ``cycle`` instead of ``offending``. Pin
+    the part of the shape a client actually branches on so they cannot drift again:
+    both carry ``code: "cyclic_dependency"`` and an ``offending`` id list closed on
+    its first element.
+    """
+    a = Task.objects.get(project=project, name="Design")
+    b = Task.objects.get(project=project, name="Build")
+    _cycle(a, b)
+
+    bulk_response = _patch(
+        owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.SCRUM
+    )
+    assert bulk_response.status_code == 400, bulk_response.data
+
+    # A fresh, independent edge pair for the direct endpoint — the bulk graph
+    # above was written with bulk_create specifically to bypass the per-edge
+    # check this exercises, so the direct POST needs its own live cycle.
+    c = Task.objects.create(project=project, name="C", duration=1)
+    d = Task.objects.create(project=project, name="D", duration=1)
+    Dependency.objects.create(predecessor=c, successor=d)
+    direct_response = owner_client.post(
+        "/api/v1/dependencies/",
+        {"predecessor": str(d.pk), "successor": str(c.pk), "dep_type": "FS"},
+    )
+    assert direct_response.status_code == 400, direct_response.data
+
+    for response in (bulk_response, direct_response):
+        assert response.data["code"] == "cyclic_dependency"
+        offending = [str(node) for node in response.data["offending"]]
+        assert len(offending) >= 2
+        assert offending[0] == offending[-1]
+
+
 def test_a_self_referencing_task_is_named_rather_than_listed(
     owner_client: APIClient, project: Project, phase: Task
 ) -> None:
