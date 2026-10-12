@@ -42,7 +42,6 @@ Finish = tuple[date, bool | None]
 FINISH_READING_FIELDS: tuple[str, ...] = (
     "is_milestone",
     "milestone_at_day_end",
-    "actual_start",
     "actual_finish",
     "percent_complete",
 )
@@ -54,11 +53,11 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     Mirrors the engine's own rule (``trueppm_scheduler.engine._finish_instant``):
     only a network-placed milestone the engine did not put at the end of its day
     (``milestone_at_day_end`` False) ends at the start of its day. Work always ends
-    at the end of its finish day, and so does a milestone pinned by recorded
-    actuals — the engine lays it out as ordinary work and resets
-    ``milestone_at_day_end`` to False, so the flag alone would misread it. Pinned
-    means complete (``actual_finish`` set, or ``percent_complete`` at 100) with an
-    actual date to anchor on (``_pinned_placement``).
+    at the end of its finish day, and so does a completed milestone — the engine
+    pins every completed task out of the network (``_pinned_placement``, #4343),
+    lays it out as ordinary work and resets ``milestone_at_day_end`` to False, so
+    the flag alone would misread it. Complete means ``actual_finish`` set, or
+    ``percent_complete`` at 100, with or without a recorded actual.
 
     ``milestone_at_day_end`` overrides the task's own flag, for reading a finish
     the task held before a recalculation overwrote it.
@@ -74,11 +73,11 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
         is_milestone = getattr(task, "duration", None) == timedelta(0)
     if not is_milestone or milestone_at_day_end:
         return False
-    actual_finish = getattr(task, "actual_finish", None)
-    actual_start = getattr(task, "actual_start", None)
-    complete = actual_finish is not None or (getattr(task, "percent_complete", 0) or 0) >= 100
-    pinned = complete and (actual_finish is not None or actual_start is not None)
-    return not pinned
+    complete = (
+        getattr(task, "actual_finish", None) is not None
+        or (getattr(task, "percent_complete", 0) or 0) >= 100
+    )
+    return not complete
 
 
 def values_finish_at_day_start(row: Mapping[str, Any]) -> bool | None:

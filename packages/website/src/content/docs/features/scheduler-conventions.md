@@ -64,7 +64,7 @@ absorbed up to two days of it (#4333).
 
 | Rule | vs MS Project / P6 | Decided in |
 |------|--------------------|------------|
-| A **completed** task (`actual_finish` set, or `percent_complete` at 100) is pinned to its recorded dates verbatim, even when they fall on a non-working day. It is out of network logic and is never re-sampled in Monte Carlo. | — | [ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md) |
+| A **completed** task (`actual_finish` set, or `percent_complete` at 100) is pinned to its recorded dates verbatim, even when they fall on a non-working day. It is out of network logic and is never re-sampled in Monte Carlo. With no recorded actuals at all it is pinned too: its full duration is laid out from the project start, or from its `planned_start` (start no earlier than) when that is later, and no predecessor moves it. Its predecessors' float is therefore measured without it, and it still drives its own successors. | — | [ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md), [#4343](https://gitlab.com/trueppm/trueppm/-/issues/4343) |
 | An **in-progress** task schedules only its remaining work, `duration − floor(duration × percent_complete / 100)` working days. That work runs forward from the data date (`status_date`) and is floored at `actual_start`, which is kept unsnapped. | — | [ADR-0132](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0132-data-date-aware-progress-forecasting.md) |
 
 ## Float and output

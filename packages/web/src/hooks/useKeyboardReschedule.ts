@@ -256,10 +256,11 @@ export function useKeyboardReschedule({
 
       // The refusal is keyed on recorded actuals, NOT on completion (#2827).
       //
-      // Both server engines take a task out of network logic only when it is
+      // Both server engines ignore `planned_start` only for a task that is
       // complete AND carries an actual (`_pinned_placement` / `pinned_placement`,
-      // ADR-0132), so a task complete by `progress` alone with no actuals is
-      // still fully network-scheduled and its dates still move. The pointer path
+      // ADR-0132). A task complete by `progress` alone with no actuals is pinned
+      // at its `planned_start` (or the project start, #4343), so a reschedule
+      // still moves its dates. The pointer path
       // reschedules exactly that task, so the old `isComplete` gate left the two
       // input paths disagreeing about one task — a WCAG 2.1.1 gap on the class
       // of task a keyboard user is most likely to be correcting.

@@ -186,7 +186,7 @@ def _status_transition_fields(
     REVIEW mirrors ``TaskSerializer._apply_transition_actuals`` (ADR-1153,
     #3709): before this, the same transition recorded a finish over REST and
     none over inbound sync, so a task an external system moved to "In Review"
-    took a full-duration planning position in CPM instead of its real pin.
+    was pinned at the project start in CPM instead of at its real finish.
     """
     from django.utils import timezone as _tz
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import random
 from datetime import date, timedelta
 
@@ -2437,14 +2438,59 @@ class TestCompletedFullDuration:
         assert t.total_float == timedelta(0)
 
 
-class TestCompletedNoActualsHonorsNetworkConstraints:
-    """A task complete by ``percent_complete`` alone is the one completed branch
-    ``schedule()`` runs through network logic instead of pinning: it takes a
-    full-duration planning position at the project start, then floors that at its
-    ``planned_start`` (SNET) and at every predecessor constraint. Monte Carlo used
-    to pin it at the bare project-start anchor and drop both, so the percentiles
-    could land *earlier* than the deterministic finish — a risk feature
-    under-reporting risk (#2572).
+def _add_working_days(d: date, n: int, cal: Calendar) -> date:
+    """``d`` advanced by ``n`` working days, walked day by day (no engine helper)."""
+    while n > 0:
+        d += timedelta(days=1)
+        if cal.is_working_day(d):
+            n -= 1
+    return d
+
+
+def _float_slip_oracle(p: Project, tid: str) -> tuple[bool, bool]:
+    """Perturbation oracle for one live task's total float (#4343).
+
+    Slips ``tid`` through its ``planned_start`` (SNET) by its reported total float,
+    then by one working day more, and reports ``(finish held at TF, finish moved at
+    TF+1)``. Both are True exactly when the reported float is the real one. This is
+    a property of the schedule, not agreement with another engine — a rule ported
+    faithfully to both engines would pass a cross-engine check and fail this one.
+    """
+    base = schedule(p)
+    t = next(x for x in base.tasks if x.id == tid)
+    assert t.early_start is not None
+    tf = t.total_float.days
+
+    def finish_after_slip(days: int) -> date:
+        tasks = [
+            dataclasses.replace(x, planned_start=_add_working_days(t.early_start, days, p.calendar))
+            if x.id == tid
+            else x
+            for x in p.tasks
+        ]
+        return schedule(
+            Project(p.id, p.name, p.start_date, tasks, p.dependencies, p.calendar)
+        ).project_finish
+
+    return (
+        finish_after_slip(tf) == base.project_finish,
+        finish_after_slip(tf + 1) > base.project_finish,
+    )
+
+
+class TestCompletedNoActualsIsPinned:
+    """A task complete by ``percent_complete`` alone, with no ``actual_start`` or
+    ``actual_finish``, is pinned out of the network like every other completed task
+    (ADR-0136, #4343): full duration from the un-floored project start, raised to its
+    ``planned_start`` (SNET). Predecessors never move it.
+
+    It used to be the one completed branch ``schedule()`` placed *through* the
+    network, while the backward pass, free float, Monte Carlo and the derivation all
+    treated it as out of the network. Every predecessor of it inherited that
+    disagreement: its float was measured against a successor that never constrained
+    it, so it read as slack and fell off the critical path. Monte Carlo pinned the
+    task at its deterministic position, freezing a date that in fact moved with its
+    predecessors (#2572 had made it agree with ``schedule()`` on *that* position).
 
     The shape is reachable from any import path that carries ``percent_complete``
     without actuals (MS Project / CSV / Jira), from seed data, and from direct use
@@ -2502,10 +2548,10 @@ class TestCompletedNoActualsHonorsNetworkConstraints:
         # Deterministic input, so the band collapses onto the CPM finish exactly.
         assert mc.p50 == mc.p80 == mc.p95 == cpm
 
-    def test_monte_carlo_honors_a_predecessor_of_a_completed_task(self) -> None:
-        """A completed-by-percent task chained after an *incomplete* predecessor:
-        schedule() pushes it out to the predecessor's finish, and Monte Carlo must
-        carry the same constraint into its constant pin."""
+    def test_a_live_predecessor_does_not_move_a_completed_task(self) -> None:
+        """A completed-by-percent task chained after an *incomplete* predecessor
+        stays pinned at the project start (#4343) — before, schedule() pushed it out
+        to the predecessor's finish — and Monte Carlo agrees."""
         p = make_project(
             tasks=[
                 task("A", "A", 8),  # live, not started
@@ -2515,13 +2561,192 @@ class TestCompletedNoActualsHonorsNetworkConstraints:
             start=date(2026, 3, 2),
         )
         by_id = {t.id: t for t in schedule(p).tasks}
-        # B is pushed past A rather than sitting at the project start.
-        assert by_id["B"].early_start == date(2026, 3, 12)
-        assert by_id["B"].early_finish == date(2026, 3, 16)
+        assert by_id["B"].early_start == date(2026, 3, 2)
+        assert by_id["B"].early_finish == date(2026, 3, 4)
+        # A has no live successor, so it alone sets the finish and is critical.
+        assert by_id["A"].total_float == timedelta(0)
+        assert by_id["A"].is_critical is True
 
         cpm = schedule(p).project_finish
+        assert cpm == by_id["A"].early_finish
         mc = monte_carlo(p, runs=100, seed=7)
         assert mc.p50 == mc.p80 == mc.p95 == cpm
+
+    def test_issue_repro_between_live_tasks(self) -> None:
+        """#4343's repro: ``A(5) -> B(3, 100%, no actuals) -> C(2)``.
+
+        B is pinned at the project start; it still drives C from its pinned finish
+        (ADR-0136 "drives successors"), and A no longer drives C through it. The
+        engine used to place B after A going forward and ignore it going backward,
+        so A reported 5 days of float and ``critical_path == ['C']``. Every live
+        task's float is checked by actually slipping it, not by reading it back.
+        """
+        p = make_project(
+            tasks=[
+                task("A", "A", 5),
+                task("B", "B", 3, percent_complete=100.0),
+                task("C", "C", 2),
+            ],
+            dependencies=[Dependency("A", "B"), Dependency("B", "C")],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert (by_id["B"].early_start, by_id["B"].early_finish) == (
+            date(2026, 3, 2),
+            date(2026, 3, 4),
+        )
+        assert (by_id["C"].early_start, by_id["C"].early_finish) == (
+            date(2026, 3, 5),
+            date(2026, 3, 6),
+        )
+        assert r.project_finish == date(2026, 3, 6)
+        assert by_id["A"].total_float == timedelta(0)
+        assert by_id["B"].total_float == timedelta(0)
+        assert by_id["B"].is_critical is False
+        assert r.critical_path == ["A", "C"]
+        for tid in ("A", "C"):
+            assert _float_slip_oracle(p, tid) == (True, True), tid
+
+    def test_issue_comment_case_seven_day_calendar(self) -> None:
+        """The second case on #4343, on a 7-day calendar:
+        ``P(2) -> A(5, 100%, no actuals) -> B(3)``.
+
+        A is pinned on days 1-5, B follows it on days 6-8, and P — which used to
+        report 8 days of float measured through A's network position — has
+        exactly the 6 days the slip oracle finds: nothing live follows it."""
+        cal = Calendar(working_days=0b1111111)
+        p = make_project(
+            tasks=[
+                task("P", "P", 2),
+                task("A", "A", 5, percent_complete=100.0),
+                task("B", "B", 3),
+            ],
+            dependencies=[Dependency("P", "A"), Dependency("A", "B")],
+            start=date(2026, 3, 2),
+            calendar=cal,
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert (by_id["A"].early_start, by_id["A"].early_finish) == (
+            date(2026, 3, 2),
+            date(2026, 3, 6),
+        )
+        assert by_id["B"].early_start == date(2026, 3, 7)
+        assert r.project_finish == date(2026, 3, 9)
+        assert by_id["P"].total_float == timedelta(days=6)
+        assert by_id["P"].is_critical is False
+        assert r.critical_path == ["B"]
+        for tid in ("P", "B"):
+            assert _float_slip_oracle(p, tid) == (True, True), tid
+
+    @pytest.mark.parametrize("seed", range(40))
+    def test_live_float_survives_the_slip_oracle(self, seed: int) -> None:
+        """Property over random FS networks with completed-without-actuals tasks
+        chained between live ones: every live task's reported total float is
+        exactly the slip that leaves the project finish unmoved (#4343).
+
+        Kept to zero-lag FS on the default Mon-Fri calendar and to work (no
+        milestones), so a failure here names this rule and not a lag, link-type or
+        instant convention. The 2026-10-09 audit's float-oracle failures all had
+        this state present."""
+        rng = random.Random(seed)
+        n = rng.randint(3, 7)
+        tasks = [
+            task(
+                f"T{i}",
+                f"T{i}",
+                rng.randint(1, 6),
+                percent_complete=100.0 if rng.random() < 0.35 else 0.0,
+            )
+            for i in range(n)
+        ]
+        deps = [
+            Dependency(f"T{i}", f"T{j}")
+            for i in range(n)
+            for j in range(i + 1, n)
+            if rng.random() < 0.45
+        ]
+        p = make_project(tasks, deps, start=date(2026, 3, 2))
+        for t in tasks:
+            if t.percent_complete < 100:
+                assert _float_slip_oracle(p, t.id) == (True, True), (seed, t.id)
+
+    def test_snet_pins_a_completed_task_past_its_predecessor_independent_of_it(
+        self,
+    ) -> None:
+        """The SNET raises the pin; the predecessor still does not. Lengthening
+        the predecessor past the SNET leaves the completed task where it was."""
+
+        def pinned_b(a_days: int) -> tuple[date | None, date | None]:
+            p = make_project(
+                tasks=[
+                    task("A", "A", a_days),
+                    task("B", "B", 3, percent_complete=100.0, planned_start=date(2026, 3, 7)),
+                ],
+                dependencies=[Dependency("A", "B")],
+                start=date(2026, 3, 2),
+            )
+            b = next(t for t in schedule(p).tasks if t.id == "B")
+            return b.early_start, b.early_finish
+
+        # Saturday SNET snaps to Monday 03-09.
+        assert pinned_b(2) == (date(2026, 3, 9), date(2026, 3, 11))
+        assert pinned_b(15) == (date(2026, 3, 9), date(2026, 3, 11))
+
+    def test_completed_pin_is_constant_under_predecessor_variance(self) -> None:
+        """Monte Carlo pins a completed task at the dates ``schedule()`` gives it;
+        under #4343 those dates do not depend on any predecessor, so the pin
+        coincides with the position every sampled run would compute.
+
+        Asserted directly: the pinned window equals ``schedule()``'s for the
+        repro with A at its most likely, optimistic and pessimistic durations —
+        and the simulated finish is driven by A alone (C, after the pinned B, is
+        fixed at 03-06), so no percentile can sit below A's own sampled finish
+        or the deterministic finish."""
+        import networkx as nx
+
+        from trueppm_scheduler.engine import _completed_dates
+
+        def build(a_days: int) -> Project:
+            return make_project(
+                tasks=[
+                    task(
+                        "A",
+                        "A",
+                        a_days,
+                        optimistic_duration=timedelta(days=5),
+                        most_likely_duration=timedelta(days=10),
+                        pessimistic_duration=timedelta(days=20),
+                    ),
+                    task("B", "B", 3, percent_complete=100.0),
+                    task("C", "C", 2),
+                ],
+                dependencies=[Dependency("A", "B"), Dependency("B", "C")],
+                start=date(2026, 3, 2),
+            )
+
+        windows = set()
+        for a_days in (5, 10, 20):
+            b = next(t for t in schedule(build(a_days)).tasks if t.id == "B")
+            windows.add((b.early_start, b.early_finish))
+        assert windows == {(date(2026, 3, 2), date(2026, 3, 4))}
+
+        p = build(10)
+        g: nx.DiGraph[str] = nx.DiGraph()
+        g.add_nodes_from(t.id for t in p.tasks)
+        for d in p.dependencies:
+            g.add_edge(d.predecessor_id, d.successor_id, dep=d)
+        dates, _ = _completed_dates(
+            p, {t.id: t for t in p.tasks}, list(nx.topological_sort(g)), g, None
+        )
+        assert dates == {"B": (date(2026, 3, 2), date(2026, 3, 4))}
+
+        mc = monte_carlo(p, runs=2000, seed=3)
+        cpm = schedule(p).project_finish
+        # A's optimistic finish (5 working days from 03-02) bounds every run.
+        assert min(mc.distribution) >= date(2026, 3, 6)
+        assert mc.p50 >= cpm
 
     def test_completed_by_percent_still_pins_across_runs(self) -> None:
         """The corrected pin must stay *constant* across runs — folding the SNET

@@ -1,11 +1,11 @@
 {
   "id": "p-progress-completed-percent-only-constraints",
-  "name": "Complete by percent alone (no actuals): SNET floor and predecessor constraints still apply",
+  "name": "Complete by percent alone (no actuals): pinned at its SNET or the project start; a predecessor does not move it (#4343)",
   "start_date": "2026-04-01",
   "tasks": [
     {"id": "A", "name": "Complete by percent, SNET-floored", "duration": 864000.0, "percent_complete": 100.0, "planned_start": "2026-04-15"},
     {"id": "B", "name": "Live predecessor", "duration": 345600.0},
-    {"id": "C", "name": "Complete by percent, pushed past its predecessor", "duration": 259200.0, "percent_complete": 100.0},
+    {"id": "C", "name": "Complete by percent, a live predecessor does not move it", "duration": 259200.0, "percent_complete": 100.0},
     {"id": "D", "name": "Successor of the SNET-floored completed task", "duration": 172800.0}
   ],
   "dependencies": [

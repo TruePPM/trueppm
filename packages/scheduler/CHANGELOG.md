@@ -33,6 +33,20 @@ change between releases. Pin an exact version (e.g.
   whose free float is bounded through the milestone reported less `free_float`
   than it can slip (one working day across a plain weekend). Both now read the
   same working-day start. The Rust/WASM engine matches.
+- **A completed task with no actuals no longer inflates its predecessors' float
+  (#4343).** A task with `percent_complete >= 100` and neither `actual_start`
+  nor `actual_finish` was placed after its predecessors by the forward pass but
+  treated as out of the network by the backward pass, free float, `monte_carlo`
+  and `derive_value`. Its predecessors' `total_float` was measured as if it
+  were not there while their dates were not, so a task that drove the finish
+  could report float and drop out of `critical_path`, Monte Carlo pinned the
+  task at a position that in fact moved with its predecessors, and
+  `derive_value` cited a predecessor's constraint as `project_start`. Every
+  completed task is now pinned in the forward pass too: with no actuals it is
+  laid out at full duration from the project start, or from its
+  `planned_start` when later, and no predecessor moves it — it still drives its
+  successors. **Behavior change:** such a task's `early_start`/`early_finish`
+  can move earlier. The Rust/WASM engine matches.
 
 ## [0.4.0b7] - 2026-10-09
 

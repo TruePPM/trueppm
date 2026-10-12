@@ -236,8 +236,11 @@ takes it out of network logic entirely — its actuals are the truth, and the
 planned start is never consulted for it again. You can still grab such a bar,
 and the drag says so while you hold it: *"Recorded actuals set this task's
 dates — the drop won't move it."* Completion alone does not do this. A task
-marked 100% with no recorded actuals is still scheduled by the network and
-drags normally; it is the actuals, not the checkbox, that pin the dates. To
+marked 100% with no recorded actuals is out of network logic too — the work is
+done, so a predecessor slipping never moves it — but with no actuals to anchor
+on it sits at the project start, or at its **start no earlier than** date when
+that is later. So it drags normally: the drop becomes that committed start. It
+is the actuals, not the checkbox, that freeze the dates. To
 move a pinned task, change its actual dates in the task drawer's **Actual
 dates** section — see [Recording and correcting actual
 dates](#recording-and-correcting-actual-dates).

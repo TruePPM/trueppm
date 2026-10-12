@@ -52,9 +52,10 @@ export interface CpmTask {
   milestoneAtDayEnd?: boolean;
   name: string;
   /**
-   * ADR-0132 §2: a completed task with recorded actuals is PINNED — the server
-   * takes it out of network logic entirely (`_pinned_placement`), so the
-   * preview must never move it either. Its finish still constrains successors.
+   * ADR-0136: the server takes every completed task out of network logic
+   * (`_pinned_placement`, #4343), so no predecessor moves it in the preview
+   * either; with recorded actuals it does not move even when dragged. Its
+   * finish still constrains successors.
    */
   isComplete?: boolean;
   /**

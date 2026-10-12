@@ -340,8 +340,9 @@ fn apply_ef_constraints(
 /// Compute early_start and early_finish for every task (in-place).
 ///
 /// Progress-aware (ADR-0132), mirroring the Python `_forward_pass`: a completed
-/// task (`actual_finish` set, or `percent_complete >= 100`) is pinned to its
-/// recorded span at full duration and taken out of network logic; an in-progress
+/// task (`actual_finish` set, or `percent_complete >= 100`) is pinned at full
+/// duration by `pinned_placement` and taken out of network logic (ADR-0136,
+/// #4343); an in-progress
 /// task contributes only its remaining duration; and when `status_date` (the data
 /// date) is given, remaining/not-started work is floored at it so future work is
 /// never scheduled in the past. An in-progress task's `actual_start`, when
@@ -398,7 +399,7 @@ pub fn forward_pass(
         // reset first so an input carrying a previous run's value cannot leak.
         tasks[i].milestone_at_day_end = false;
 
-        if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal)? {
+        if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal, start_base)? {
             let t = &mut tasks[i];
             t.early_start = Some(es);
             t.early_finish = Some(ef);
@@ -407,50 +408,36 @@ pub fn forward_pass(
         }
 
         // In-progress work contributes only what is left, laid forward from the
-        // data date; not-started work uses its full estimate; a complete-without-
-        // actuals task uses full duration anchored at the un-floored start.
-        let (duration_days, base_es) = if tasks[i].is_complete() {
-            (tasks[i].duration_days(), start_base)
-        } else {
-            (tasks[i].effective_duration_days(), start)
-        };
+        // data date; not-started work uses its full estimate. Every completed task
+        // was pinned above (#4343), so none reaches the network placement below.
+        let duration_days = tasks[i].effective_duration_days();
 
         // A task with an SF link is not floored at the project start — only at the
         // data date (#4218, #4220): its project-start floor is `min(project start,
         // SF placement)`, which its SF link already enforces. The project start is a
         // planning convention an SF link may overrule (MS Project schedules such a
         // successor ahead of it); the data date is a fact about time, and remaining
-        // work cannot be forecast into the past. A complete-without-actuals task
-        // was never floored at the data date, so it keeps no floor at all. Mirrors
-        // the Python `_early_start_floors`.
+        // work cannot be forecast into the past. Mirrors the Python
+        // `_early_start_floors`.
         let is_sf_linked = sf_linked(idx, pg, deps);
         let mut es_constraints: Vec<NaiveDate> = if !is_sf_linked {
-            vec![base_es]
-        } else if tasks[i].is_complete() {
-            Vec::new()
+            vec![start]
         } else {
             data_floor.into_iter().collect()
         };
         // Every floor but the project start's — the list an SF-linked task gets —
         // binds a milestone's link instant; the project start only bounds where
         // it is shown (#4225, see `place_milestone`).
-        let mut hard_floors: Vec<NaiveDate> = if tasks[i].is_complete() {
-            Vec::new()
-        } else {
-            data_floor.into_iter().collect()
-        };
-        if !tasks[i].is_complete() {
-            if let Some(actual_start) = tasks[i].actual_start {
-                // ADR-0132 §2 / #2621: work already underway is floored at
-                // where it actually started, not just at the data date or
-                // predecessor constraints — actuals are truth and are never
-                // smoothed back to an earlier network slot. Unsnapped, unlike
-                // planned_start: a recorded actual can legitimately land on a
-                // non-working day (e.g. logged over a weekend) and is not
-                // renegotiated.
-                es_constraints.push(actual_start);
-                hard_floors.push(actual_start);
-            }
+        let mut hard_floors: Vec<NaiveDate> = data_floor.into_iter().collect();
+        if let Some(actual_start) = tasks[i].actual_start {
+            // ADR-0132 §2 / #2621: work already underway is floored at where it
+            // actually started, not just at the data date or predecessor
+            // constraints — actuals are truth and are never smoothed back to an
+            // earlier network slot. Unsnapped, unlike planned_start: a recorded
+            // actual can legitimately land on a non-working day (e.g. logged over
+            // a weekend) and is not renegotiated.
+            es_constraints.push(actual_start);
+            hard_floors.push(actual_start);
         }
         if let Some(ps) = tasks[i].planned_start {
             let snet = next_working_day(ps, node_cal)?;
@@ -562,20 +549,26 @@ fn compute_scheduled_start(task: &Task, calendar: &Calendar) -> Result<NaiveDate
     start_from_finish(early_finish, full_days, calendar)
 }
 
-/// Placement for a task whose recorded actuals pin it out of network logic.
+/// Placement for a completed task, which is pinned out of network logic.
 ///
 /// A completed task (`actual_finish` set, or `percent_complete >= 100`) is laid
 /// out at its FULL duration so the bar keeps its shape (ADR-0136). Actuals are
 /// truth, so a pinned task may even sit before a predecessor — out-of-sequence
 /// reality is surfaced rather than smoothed away.
 ///
-/// Returns `None` — meaning "schedule this one through the network" — when the
-/// task is not complete, and for the complete-via-`percent_complete`-only case
-/// with no actuals at all: that task takes a full-duration planning position
-/// anchored at the un-floored project start.
+/// A completed task with no actuals at all is pinned too (#4343): its full
+/// duration is laid out from `start_base` — the project start on the task's own
+/// calendar, never the data date, because completed work is historical — raised
+/// to its `planned_start` (SNET) when that is later. Predecessors do not move it,
+/// which is what the backward pass and float computation already assume for
+/// every completed task. Mirrors the Python `_pinned_placement`.
+///
+/// Returns `None` — meaning "schedule this one through the network" — only when
+/// the task is not complete.
 fn pinned_placement(
     task: &Task,
     calendar: &Calendar,
+    start_base: NaiveDate,
 ) -> Result<Option<(NaiveDate, NaiveDate)>, String> {
     if !task.is_complete() {
         return Ok(None);
@@ -595,7 +588,12 @@ fn pinned_placement(
         // from it.
         return Ok(Some((a, finish_from_start(a, full_days, calendar)?)));
     }
-    Ok(None)
+    // No actuals: the un-floored project start, or the SNET when it is later.
+    let es = match task.planned_start {
+        Some(ps) => start_base.max(next_working_day(ps, calendar)?),
+        None => start_base,
+    };
+    Ok(Some((es, finish_from_start(es, full_days, calendar)?)))
 }
 
 /// Whether `idx` has at least one incoming SF link (#4218, #4220).

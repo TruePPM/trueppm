@@ -1,5 +1,5 @@
 /**
- * The client-side mirror of the server's "this task is out of network logic"
+ * The client-side mirror of the server's "recorded actuals set this task's dates"
  * verdict (ADR-0132, issue #2819).
  *
  * Both server engines take a task that is complete AND carries a recorded
@@ -18,9 +18,11 @@
  * This module is the one place that verdict and its explanation live, so the
  * drag chrome and the screen-reader announcement cannot drift apart.
  *
- * Deliberately NOT keyed on `isComplete` alone: pinning is conditional on
- * recorded actuals. A task complete by `progress` with no actuals IS still
- * network-scheduled and must stay fully draggable — a blanket completion gate
+ * Deliberately NOT keyed on `isComplete` alone. Both engines take every
+ * completed task out of the network (#4343), but only recorded actuals make a
+ * drop inert: a task complete by `progress` with no actuals is placed at the
+ * later of the project start and its `planned_start`, which is exactly what a
+ * drop writes, so it must stay fully draggable — a blanket completion gate
  * would take a working interaction away from it.
  */
 

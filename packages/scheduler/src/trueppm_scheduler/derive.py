@@ -239,14 +239,17 @@ def _days_between(a: date, b: date) -> int:
     return (b - a).days
 
 
-def _completed_forward_contribs(task: Task, *, want_finish: bool) -> list[DerivationContribution]:
-    """Provenance for a completed task pinned to its recorded actuals (ADR-0136).
+def _completed_forward_contribs(
+    task: Task, cal: Calendar, project_start: date, *, want_finish: bool
+) -> list[DerivationContribution]:
+    """Provenance for a completed task, which the engine pins out of network logic (ADR-0136).
 
-    Completed tasks are taken out of network logic; the honest binding is the
-    recorded actual (or, for a bare 100%-complete task, the full-duration
-    planning position from the un-floored project start), not a predecessor link.
-    The two contributions are emitted finish-first or start-first to mirror which
-    actual the engine treated as authoritative.
+    The honest binding is the recorded actual — or, for a 100%-complete task with no
+    actuals, the term ``engine._pinned_placement`` laid its full duration from: the
+    un-floored project start, or its ``planned_start`` (SNET) when that is later
+    (#4343). Never a predecessor link: no predecessor moves a completed task. The
+    contributions are emitted finish-first or start-first to mirror which actual the
+    engine treated as authoritative.
     """
     contribs: list[DerivationContribution] = []
     if task.actual_finish is not None:
@@ -272,13 +275,33 @@ def _completed_forward_contribs(task: Task, *, want_finish: bool) -> list[Deriva
             )
         )
     else:
-        # 100%-complete with no recorded actuals: laid out at full duration from
-        # the un-floored project start (engine full-duration planning position).
-        contribs.append(
+        # 100%-complete with no recorded actuals: full duration from the later of the
+        # un-floored project start and the SNET — exactly the two terms
+        # engine._pinned_placement compares, with the one it picked flagged. The data
+        # date is not a candidate: completed work is historical.
+        start_base = _next_working_day(project_start, cal)
+        anchors = [
             DerivationContribution(
-                kind="project_start", imposed_date=task.early_start, is_binding=not want_finish
+                kind="project_start",
+                imposed_date=start_base,
+                calendar_days_added=_days_between(project_start, start_base),
             )
-        )
+        ]
+        if task.planned_start is not None:
+            snet = _next_working_day(task.planned_start, cal)
+            anchors.append(
+                DerivationContribution(
+                    kind="planned_start_snet",
+                    imposed_date=snet,
+                    calendar_days_added=_days_between(task.planned_start, snet),
+                )
+            )
+        if not want_finish:
+            # The later anchor binds; a tie keeps the first, as _flag_binding does
+            # for anchors.
+            latest = max(c.imposed_date for c in anchors if c.imposed_date is not None)
+            next(c for c in anchors if c.imposed_date == latest).is_binding = True
+        contribs.extend(anchors)
         contribs.append(
             DerivationContribution(
                 kind="early_start", imposed_date=task.early_finish, is_binding=want_finish
@@ -467,11 +490,11 @@ def _derive_forward(
     binding one flagged. ``want_finish`` selects ``early_finish`` vs ``early_start``.
     ``links`` carries each predecessor's milestone context, parallel to ``preds``.
     """
-    # Completed tasks are pinned to their recorded actuals and taken out of network
-    # logic (engine ADR-0136); the honest binding is the recorded actual, not a
-    # predecessor link.
+    # Completed tasks are pinned and taken out of network logic (engine ADR-0136,
+    # #4343); the honest binding is the recorded actual or the project start / SNET,
+    # never a predecessor link.
     if _is_complete(task):
-        contribs = _completed_forward_contribs(task, want_finish=want_finish)
+        contribs = _completed_forward_contribs(task, cal, project_start, want_finish=want_finish)
         value = task.early_finish if want_finish else task.early_start
         return (value.isoformat() if value else None, contribs)
 
