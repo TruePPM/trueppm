@@ -24,8 +24,10 @@ import { create } from 'zustand';
  * - `refused`      — terminal and NOT a fault: the server does not give this
  *                    caller's role live updates (close code 4003, or the project's
  *                    `can_subscribe_live` is false, so no socket was opened). The
- *                    view refreshes from REST on {@link REFUSED_POLL_INTERVAL_MS}
- *                    (#4375). Distinct from `stale` on purpose: `stale` says edits
+ *                    hooks that poll through `fallbackPollInterval` (the task list
+ *                    and the Monte Carlo forecast) refresh from REST on
+ *                    {@link REFUSED_POLL_INTERVAL_MS}; other surfaces refresh only
+ *                    when re-fetched (#4375). Distinct from `stale` on purpose: `stale` says edits
  *                    are not reaching the server, which is untrue here.
  */
 export type WsConnectionState =

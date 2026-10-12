@@ -78,11 +78,14 @@ def _discard_active_timers_on_revocation(project_id: Any, user_id: Any) -> None:
 def _evict_on_revocation(sender: type, instance: ProjectMembership, **kwargs: Any) -> None:
     """Evict live sockets and discard running timers when a membership is revoked.
 
-    Fires on the same transition for both effects: a soft-delete, or a demotion
-    *across* the Member threshold (e.g. Member/Scheduler/Admin -> Viewer). A
-    demotion that stays at or above Member keeps the user connectable and able to
-    log time, so neither effect fires. See :func:`_discard_active_timers_on_revocation`
-    for why the timer is discarded rather than finalized (#4318).
+    Two independent checks, both also triggered by a soft-delete. Eviction fires
+    when the role stops clearing ``role_can_subscribe_live`` (the socket's own
+    connect floor, #4375). Timer discard fires on a demotion across the Member
+    time-logging floor. The two floors coincide today (Member), so e.g.
+    Admin -> Viewer triggers both and Admin -> Member triggers neither, but they
+    are separate rules and moving one must not move the other. See
+    :func:`_discard_active_timers_on_revocation` for why the timer is discarded
+    rather than finalized (#4318).
     """
     if instance.pk is None:
         return  # brand-new membership — nothing to revoke
