@@ -16,18 +16,18 @@ The authoritative text is the [`LICENSE`](https://gitlab.com/trueppm/trueppm/-/b
 
 ### Where the license text travels
 
-Apache 2.0 §4(a) requires anyone who receives a distribution to receive a copy of the License with it. The root `LICENSE` covers the repository, but it does not follow an artifact that leaves the repository on its own — so each separately-distributed package carries its own identical copy. The three PyPI packages also carry a copy of the root `NOTICE` (the project's own copyright line) for the same reason — Apache 2.0 does not strictly require it, but a standalone package with no copyright statement anywhere in it is an attribution gap:
+Apache 2.0 §4(a) requires anyone who receives a distribution to receive a copy of the License with it. The root `LICENSE` covers the repository, but it does not follow an artifact that leaves the repository on its own — so each separately-distributed package carries its own identical copy. The three PyPI packages also carry a copy of the root `NOTICE` (the project's own copyright line) for the same reason — Apache 2.0 does not strictly require it, but a standalone package with no copyright statement anywhere in it is an attribution gap. `trueppm-api` and `trueppm-mcp` additionally carry a package-scoped `NOTICES` + `licenses/*.txt` (their own copyleft-dependency disclosures — see "certifi" and "psycopg" above), packaged the same way via each package's `license-files`:
 
-| Package | How it is distributed | Carries `LICENSE` | Carries `NOTICE` |
-|---|---|---|---|
-| `trueppm-scheduler` | PyPI wheel / sdist | yes | yes |
-| `trueppm-mcp` | PyPI wheel / sdist | yes | yes |
-| `trueppm-api` | PyPI wheel / sdist (in addition to the Docker image) | yes | yes |
-| `wasm-scheduler` | publishable crate; compiled `.wasm` in the web bundle | yes | — |
-| `mobile` | app binary installed on a device | yes | — |
-| `helm` | packaged chart tarball | yes | — |
+| Package | How it is distributed | Carries `LICENSE` | Carries `NOTICE` | Carries third-party `NOTICES`/`licenses/` |
+|---|---|---|---|---|
+| `trueppm-scheduler` | PyPI wheel / sdist | yes | yes | n/a (no copyleft dependency) |
+| `trueppm-mcp` | PyPI wheel / sdist | yes | yes | yes (certifi only) |
+| `trueppm-api` | PyPI wheel / sdist (in addition to the Docker image) | yes | yes | yes (psycopg + certifi) |
+| `wasm-scheduler` | publishable crate; compiled `.wasm` in the web bundle | yes | — | — |
+| `mobile` | app binary installed on a device | yes | — | — |
+| `helm` | packaged chart tarball | yes | — | — |
 
-`web` and `website` are not separately distributed — they ship inside the docs site, which carries the root `LICENSE`. The API Docker image also carries the root `LICENSE` and `NOTICES` (the API's own Dockerfile copies both), independently of the `trueppm-api` PyPI package above.
+`web` and `website` are not separately distributed — they ship inside the docs site, which carries the root `LICENSE`. The API Docker image also carries the root `LICENSE` and `NOTICES` (the API's own Dockerfile copies both from the repository root, which is its build context), independently of the `trueppm-api` PyPI package above. The MCP Docker image's build context is scoped to `packages/mcp/` alone, so it cannot reach the repository root at all — it instead carries `trueppm-mcp`'s own `NOTICES`/`licenses/` the same way it carries `LICENSE`/`NOTICE`: packaged into the installed wheel's `dist-info/licenses/` by `license-files`, which the Dockerfile's `COPY --from=builder /venv /venv` brings into the final image.
 
 A CI gate (`lint:package-licenses`) enforces this. It also fails if a new directory appears under `packages/` without being classified as distributed or bundled, so the list cannot quietly go stale.
 
@@ -45,7 +45,7 @@ The dependency is strictly one-way — enterprise code depends on the core, neve
 
 You do not have to take our word that the dependency tree is clean. Every merge request and every push to `main` runs automated license audits. A dependency carrying an incompatible license **fails the pipeline** and cannot merge.
 
-- **Python dependencies** (`license:check:py`, via `pip-licenses`) — the GPL family (GPLv2, GPLv3, AGPLv3) is **blocked**; introducing a GPL-licensed package fails the build. **LGPL is permitted** under its library-linking (dynamic-linking) exemption: LGPL code is linked at runtime, not statically incorporated into TruePPM's own source, so it does not affect the Apache 2.0 license of TruePPM's code.
+- **Python dependencies** (`license:check:py`, via `pip-licenses`) — the GPL family (GPLv2, GPLv3, AGPLv3) is **blocked**; introducing a GPL-licensed package fails the build. **LGPL is permitted** under its library-linking (dynamic-linking) exemption: LGPL code is linked at runtime, not statically incorporated into TruePPM's own source, so it does not affect the Apache 2.0 license of TruePPM's code. **MPL-2.0 is also permitted** — it is file-level copyleft (it reaches modifications to the licensed files themselves, not software that merely depends on them) and is satisfied by a notice plus unmodified-source availability rather than a relinking obligation; see `certifi` below.
 - **JavaScript / npm dependencies** (`license:check:web`, via `license-checker --production --onlyAllow`) — a strict allowlist applied to the **shipped** dependency set. Only these licenses are permitted; anything else fails the build:
 
   ```
@@ -80,6 +80,7 @@ The tables below attribute the major **direct** dependencies by layer. They are 
 | cryptography | Cryptographic primitives | Apache-2.0 OR BSD-3-Clause |
 | defusedxml | Safe XML parsing | PSF (Python Software Foundation License) |
 | psycopg (v3) | PostgreSQL driver | LGPL-3.0 ¹ |
+| certifi | CA certificate bundle (transitive via requests/httpx) | MPL-2.0 ⁴ |
 | redis-py | Valkey / Redis client | MIT |
 | networkx | Graph algorithms (CPM engine) | BSD-3-Clause |
 | numpy | Numerical computing (Monte Carlo) | BSD-3-Clause |
@@ -88,6 +89,8 @@ The tables below attribute the major **direct** dependencies by layer. They are 
 ¹ **psycopg is LGPL-3.0** — the one copyleft dependency, and it is permitted deliberately. It is dynamically linked, not statically incorporated, so under the LGPL's library-linking exemption it does not affect the licensing of TruePPM's own code. This is the honest detail behind "LGPL is permitted" above. **Redistributing a frozen image** (a self-hosted bundle that vendors the psycopg binary, rather than pip-installing it at build time) carries the LGPL's standard relinking obligation (§4): you must let recipients replace the library. The stock TruePPM images install psycopg from PyPI as a normal, replaceable dependency, so this obligation is satisfied without any extra step — it only becomes your responsibility if you build a deliberately frozen/vendored derivative. The production API image installs the `psycopg[c]` build, which dynamically links the C extension against the **system** libpq so OS-level libpq/OpenSSL security upgrades flow through to the driver — a security-posture choice, not the relink lever: the §4 obligation above is over psycopg itself and is met identically by the precompiled `psycopg[binary]` wheel used for local development (both are replaceable site-packages wheels; libpq is permissively licensed). The full LGPL-3.0 (and the GPL-3.0 it incorporates) text and the relink statement travel with every distributed copy — they are in the repository's [`NOTICES`](https://gitlab.com/trueppm/trueppm/-/blob/main/NOTICES) file and `licenses/` directory, and are copied into the API Docker image, the primary redistribution vehicle.
 
 ² `trueppm-scheduler` is TruePPM's own CPM/Monte Carlo engine, published as a standalone Apache 2.0 package on [PyPI](https://pypi.org/project/trueppm-scheduler/).
+
+⁴ **certifi is MPL-2.0.** It is not a direct dependency of `trueppm-api` or `trueppm-mcp` — it arrives transitively via `requests` (the `django-allauth[socialaccount]` OpenID Connect provider, and the OpenTelemetry OTLP HTTP exporter) in the API, and via `httpx` in the MCP server. We redistribute it unmodified, and MPL-2.0's obligations attach only to modifications of the licensed files themselves, so no source-disclosure step is triggered — only the notice-preservation requirement, which the repository's [`NOTICES`](https://gitlab.com/trueppm/trueppm/-/blob/main/NOTICES) file and `licenses/MPL-2.0.txt` satisfy. It is deliberately left unpinned, since certifi ships a rolling CA bundle and a pin would eventually distribute stale root certificates. It travels with every distributed copy: the API and MCP Docker images (copied from the repository root into the API image; packaged into the MCP wheel's `dist-info/licenses/` for the MCP image), and the `trueppm-api` / `trueppm-mcp` PyPI sdists and wheels (via each package's own `NOTICES` and `licenses/MPL-2.0.txt`, declared in `license-files`).
 
 ### Frontend (TypeScript / React)
 

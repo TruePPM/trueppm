@@ -13,7 +13,14 @@ license = "Apache-2.0"
 # carried no license or copyright text at all (#4177). LICENSE and NOTICE are
 # kept byte-identical to the repo-root copies via
 # scripts/check-package-licenses.sh.
-license-files = ["LICENSE", "NOTICE"]
+#
+# NOTICES and licenses/*.txt (#4377) disclose the third-party components this
+# package redistributes transitively (psycopg, certifi) — they are NOT
+# covered by that script's byte-identical check (NOTICES content legitimately
+# differs per package; packages/mcp's own copy omits psycopg, which it never
+# depends on), so keep this local copy in sync with the repo-root NOTICES by
+# hand when either file changes.
+license-files = ["LICENSE", "NOTICE", "NOTICES", "licenses/*.txt"]
 requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },

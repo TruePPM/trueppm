@@ -1,0 +1,49 @@
+TruePPM MCP Server — Third-Party Notices
+=========================================
+
+This file is scoped to what `trueppm-mcp` itself redistributes — it is NOT a
+byte-identical copy of the repository-root `NOTICES` (unlike this package's
+`LICENSE`/`NOTICE`, which are). The root file also covers psycopg, which
+`trueppm-mcp` never depends on (it is a pure HTTP client of the TruePPM REST
+API — ADR-0186 — with no Django, no ORM, no database driver), so copying it
+verbatim here would misstate what this package distributes. If TruePPM's
+third-party dependency set changes, keep this file and the root `NOTICES` in
+sync by hand for the components both packages actually ship.
+
+TruePPM's own source code is licensed under the Apache License 2.0 (see
+`LICENSE` in this directory, and the repository-root `LICENSE`). This file
+records the third-party components that `trueppm-mcp` redistributes — in its
+Docker image (`packages/mcp/Dockerfile`, via the installed wheel's
+`dist-info/licenses/`) and in its own published PyPI sdist/wheel — and whose
+licenses require a notice to travel with every distributed copy.
+
+
+certifi — Mozilla's curated bundle of root certificates
+--------------------------------------------------------
+
+  Component:   certifi
+  Version:     unpinned (resolved transitively; see below)
+  License:     Mozilla Public License 2.0 (SPDX: MPL-2.0)
+  Upstream:    https://github.com/certifi/python-certifi
+  License text: licenses/MPL-2.0.txt
+
+  How it arrives, and the obligation we satisfy:
+
+  certifi is not a direct dependency of trueppm-mcp — it arrives transitively
+  via `httpx`, this package's HTTP client. It is redistributed unmodified,
+  installed from PyPI as an ordinary wheel.
+
+  MPL-2.0 is file-level copyleft: the obligations attach to modifications of
+  the *licensed files themselves*, not to software that merely depends on or
+  links against them (§1.4, §3.1-3.3). We do not modify certifi's source, so
+  no source-disclosure obligation is triggered — only the Notice preservation
+  and license-availability requirements that apply to any Covered Software we
+  redistribute (§3.2, §3.3), both satisfied here: this NOTICES entry plus
+  `licenses/MPL-2.0.txt` travel with every copy of this package (image and
+  PyPI artifact alike), and certifi's own unmodified source remains available
+  from its canonical PyPI/GitHub location at all times.
+
+  No version is pinned deliberately: certifi ships a rolling CA bundle update,
+  and pinning a version would eventually distribute stale root certificates.
+  See the repository-root `NOTICES` for the full rationale (shared verbatim
+  with this package's own copy of the certifi entry).
