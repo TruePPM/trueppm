@@ -18,7 +18,14 @@ from trueppm_api.routing import websocket_urlpatterns  # noqa: E402
 
 
 class _CloseConsumer(WebsocketConsumer):  # type: ignore[misc]
-    """Catch-all consumer that immediately closes unmatched WebSocket paths."""
+    """Catch-all consumer that immediately closes unmatched WebSocket paths.
+
+    Deliberately closes BEFORE accept, unlike ``ProjectConsumer``'s policy refusals
+    (#4375): Channels turns a pre-accept close into an HTTP 403 on the upgrade, so a
+    browser sees close code 1006 and never the 4404 below. That is the intent — no
+    shipped client dials an unrouted path, so there is no code for one to act on,
+    and refusing at the upgrade keeps arbitrary-path probes off the accept path.
+    """
 
     def connect(self) -> None:
         self.close(code=4404)

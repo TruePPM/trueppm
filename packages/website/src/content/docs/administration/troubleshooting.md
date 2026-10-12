@@ -291,9 +291,12 @@ closing shortly after opening.
    corporate proxies, and some WAFs cap idle WebSocket lifetime well below the
    application's. Symptom: it connects, works, and dies on a fixed interval.
 3. **The close code says it is not a network problem at all.** `4001` is "no valid
-   credential", `4003` is "authorization revoked or membership removed", `4404` is
-   "no consumer at that path". A `4003` will retry forever and never succeed —
-   the user's project access was removed, and re-granting it is the fix.
+   credential", `4003` is "role below Team Member, or membership removed", `4404` is
+   "no consumer at that path". The web app stops on a `4003` and shows **No live
+   updates** in the status bar — that is a Viewer (or a just-demoted member), not
+   an outage; grant Team Member if they need live updates. `4404` is rejected
+   before the handshake is accepted, so a browser reports it as `1006` — test an
+   unrouted path with a non-browser client if you need the code.
 
 **Commands.** Read the close code first; it decides everything else.
 

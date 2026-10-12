@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Iterator
 from contextlib import ExitStack
 from datetime import date
 from typing import Any
@@ -81,6 +82,7 @@ async def test_connect_no_token_rejected(project: Project) -> None:
 
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     await consumer.websocket_connect({"type": "websocket.connect"})
     close_mock.assert_called_once_with(code=4001)
@@ -106,6 +108,7 @@ async def test_connect_invalid_token_rejected(project: Project, settings: Any) -
 
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     await consumer.websocket_connect({"type": "websocket.connect"})
     close_mock.assert_called_once_with(code=4001)
@@ -141,6 +144,7 @@ async def test_connect_inactive_user_rejected(project: Project, settings: Any) -
     consumer.channel_name = "test.channel"
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     await consumer.websocket_connect({"type": "websocket.connect"})
 
@@ -166,6 +170,7 @@ async def test_connect_viewer_rejected(user: object, project: Project) -> None:
 
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     # Patch _authenticate to return the user, _get_role to return VIEWER.
     with (
@@ -194,6 +199,7 @@ async def test_connect_non_member_rejected(user: object, project: Project) -> No
 
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     with (
         patch(
@@ -228,6 +234,7 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
     super_connect = AsyncMock()
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     mock_redis = AsyncMock()
     mock_redis.hset = AsyncMock()
@@ -318,6 +325,7 @@ async def test_connect_member_accepted_real_role_query(user: object, project: Pr
     consumer.channel_name = "test.channel"
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     with _stack(_connect_ctx(user)):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -344,6 +352,7 @@ async def test_connect_viewer_rejected_real_role_query(
     consumer.channel_name = "test.channel"
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     with _stack(_connect_ctx(viewer_user)):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -364,6 +373,7 @@ async def test_connect_non_member_rejected_real_role_query(user: object, project
     consumer.channel_name = "test.channel"
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     with _stack(_connect_ctx(user)):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -395,6 +405,7 @@ async def test_connect_soft_deleted_member_rejected_real_role_query(
     consumer.channel_name = "test.channel"
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     with _stack(_connect_ctx(user)):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -429,6 +440,7 @@ async def test_connect_membership_other_project_rejected_real_role_query(
     consumer.channel_name = "test.channel"
     close_mock = AsyncMock()
     consumer.close = close_mock
+    consumer.accept = AsyncMock()
 
     with _stack(_connect_ctx(user)):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -1096,7 +1108,12 @@ async def test_accepted_connect_and_disconnect_balance_connection_gauge(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_rejected_connect_does_not_discount_gauge(project: Project) -> None:
-    """A handshake rejected before accept never counted, so disconnect must not discount."""
+    """A refused handshake never counted, so disconnect must not discount.
+
+    Refusals are accept-then-close since #4375, so "refused" no longer means "never
+    accepted" — the gauge must still stay untouched, because it counts sockets that
+    reached the live stream, not handshakes the server answered.
+    """
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     consumer = ProjectConsumer()
@@ -1104,6 +1121,7 @@ async def test_rejected_connect_does_not_discount_gauge(project: Project) -> Non
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
     consumer.close = AsyncMock()
+    consumer.accept = AsyncMock()
 
     opened = MagicMock()
     closed = MagicMock()
@@ -1213,3 +1231,149 @@ async def test_presence_keepalive_survives_a_redis_failure() -> None:
 
     assert still_running, "keepalive died on a transient Redis error"
     assert mock_redis.expire.await_count >= 2, "keepalive stopped refreshing after the failure"
+
+
+# ---------------------------------------------------------------------------
+# #4375 — policy refusals are accept-then-close at the ASGI level
+#
+# A close sent BEFORE accept makes Channels/Daphne reject the HTTP upgrade with a
+# 403, which a browser reports as close code 1006 — the application code never
+# arrives, so the web client cannot tell "refused" from "network drop" and
+# reconnects forever. These drive the real router through WebsocketCommunicator
+# and assert the wire sequence: websocket.accept, then websocket.close carrying
+# the code. A pre-accept close shows up here as ``connect() -> (False, code)``.
+# ---------------------------------------------------------------------------
+
+
+def _ws_app() -> Any:
+    """The production websocket router, including the unrouted-path catch-all."""
+    from channels.routing import URLRouter
+    from django.urls import re_path
+
+    from trueppm_api.asgi import _CloseConsumer
+    from trueppm_api.routing import websocket_urlpatterns
+
+    return URLRouter([*websocket_urlpatterns, re_path(r".*", _CloseConsumer.as_asgi())])
+
+
+@pytest.fixture
+def in_memory_channel_layer(settings: Any) -> Iterator[None]:
+    """Swap the Redis channel layer for the in-memory one (no Valkey needed)."""
+    from channels.layers import channel_layers
+
+    settings.CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+    channel_layers.backends.clear()
+    yield
+    channel_layers.backends.clear()
+
+
+async def _connect_and_read_close(path: str) -> tuple[bool, Any, dict[str, Any] | None]:
+    """Drive one handshake and return ``(accepted, pre_accept_code, close_frame)``.
+
+    Uses asgiref's ``ApplicationCommunicator`` rather than Channels'
+    ``WebsocketCommunicator``: importing ``channels.testing`` pulls in
+    ``daphne.testing``, and this project serves ASGI with uvicorn, not Daphne.
+    The frames asserted are the raw ASGI messages either server translates.
+    """
+    from asgiref.testing import ApplicationCommunicator
+
+    raw_path, _, query = path.partition("?")
+    scope = {
+        "type": "websocket",
+        "path": raw_path,
+        "raw_path": raw_path.encode(),
+        "query_string": query.encode(),
+        "headers": [],
+        "subprotocols": [],
+    }
+    communicator = ApplicationCommunicator(_ws_app(), scope)
+    await communicator.send_input({"type": "websocket.connect"})
+    first = await communicator.receive_output(timeout=2)
+    if first["type"] == "websocket.close":
+        # Closed before accept: a real server answers the upgrade with HTTP 403.
+        await communicator.send_input({"type": "websocket.disconnect", "code": first["code"]})
+        await communicator.wait(timeout=2)
+        return False, first.get("code"), None
+    assert first["type"] == "websocket.accept", first
+    close_frame = await communicator.receive_output(timeout=2)
+    await communicator.send_input({"type": "websocket.disconnect", "code": close_frame["code"]})
+    await communicator.wait(timeout=2)
+    return True, None, close_frame
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("in_memory_channel_layer")
+async def test_unauthenticated_connect_is_accepted_then_closed_4001(project: Project) -> None:
+    """No credential → accept, then close 4001 (so a browser's CloseEvent carries it)."""
+    connected, detail, close_frame = await _connect_and_read_close(f"/ws/v1/projects/{project.pk}/")
+
+    assert connected is True, f"refused before accept (code {detail}) — browser would see 1006"
+    assert close_frame == {"type": "websocket.close", "code": 4001}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("in_memory_channel_layer")
+async def test_viewer_connect_is_accepted_then_closed_4003(
+    viewer_user: object, project: Project
+) -> None:
+    """A real Viewer membership → accept, then close 4003; never joins the group."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=viewer_user, role=Role.VIEWER
+    )
+    with patch(
+        "trueppm_api.apps.sync.consumers.authenticate_scope",
+        new=AsyncMock(return_value=WsAuthResult(user=viewer_user, via="ticket")),
+    ):
+        connected, detail, close_frame = await _connect_and_read_close(
+            f"/ws/v1/projects/{project.pk}/?ticket=t"
+        )
+
+    assert connected is True, f"refused before accept (code {detail}) — browser would see 1006"
+    assert close_frame == {"type": "websocket.close", "code": 4003}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("in_memory_channel_layer")
+async def test_non_member_and_missing_project_refuse_identically(user: object) -> None:
+    """A real project the caller is not in and a project that does not exist both
+    produce accept + 4003 — accepting first must not open an existence oracle."""
+    calendar = await database_sync_to_async(Calendar.objects.create)(name="Std")
+    other = await database_sync_to_async(Project.objects.create)(
+        name="Not mine", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    missing = "00000000-0000-4000-8000-000000000000"
+    with patch(
+        "trueppm_api.apps.sync.consumers.authenticate_scope",
+        new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+    ):
+        real = await _connect_and_read_close(f"/ws/v1/projects/{other.pk}/?ticket=t")
+        absent = await _connect_and_read_close(f"/ws/v1/projects/{missing}/?ticket=t")
+
+    assert real[0] is True and absent[0] is True
+    assert real[2] == absent[2] == {"type": "websocket.close", "code": 4003}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("in_memory_channel_layer")
+async def test_unrouted_path_stays_pre_accept_4404() -> None:
+    """The router catch-all is the one deliberate pre-accept rejection (see asgi.py)."""
+    connected, detail, close_frame = await _connect_and_read_close("/ws/v1/nope/")
+
+    assert connected is False
+    assert detail == 4404
+    assert close_frame is None
+
+
+def test_role_can_subscribe_live_floor() -> None:
+    """The shared predicate behind both the consumer gate and the serializer field."""
+    from trueppm_api.apps.access.permissions import role_can_subscribe_live
+
+    assert role_can_subscribe_live(None) is False
+    assert role_can_subscribe_live(Role.VIEWER) is False
+    assert role_can_subscribe_live(Role.MEMBER - 1) is False
+    for role in (Role.MEMBER, Role.SCHEDULER, Role.ADMIN, Role.OWNER):
+        assert role_can_subscribe_live(role) is True

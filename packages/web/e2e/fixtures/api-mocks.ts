@@ -417,9 +417,14 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   // sees no note) and makes the refusal something a spec has to ask for by putting
   // `can_undo_batch_operations: false` on its own fixture — the spread is second,
   // so that wins.
+  // `can_subscribe_live` (#4375) gates whether ProjectShell dials the project
+  // WebSocket at all. Defaulted on so every existing spec keeps the Member+ caller
+  // it was written against (socket dialed, as before); a Viewer spec sets
+  // `can_subscribe_live: false` on its own fixture.
   const projects = (opts.projects ?? [DEFAULT_PROJECT]).map((p) => ({
     can_author: true,
     can_undo_batch_operations: true,
+    can_subscribe_live: true,
     ...p,
   }));
   const projectId = opts.projectId ?? projects[0].id;

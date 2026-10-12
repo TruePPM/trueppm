@@ -71,6 +71,9 @@
  *
  * Reconnects with exponential backoff (1s → 2s → 4s → … up to 30s).
  * Stops reconnecting when `projectId` is null/undefined or the token is absent.
+ * Never dials when `options.liveUpdates` is `false` (the project's
+ * `can_subscribe_live`), and stops for good on a 4003 refusal — both leave the
+ * store in `refused`, not `stale` (#4375).
  */
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -80,7 +83,11 @@ import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
 import { useReconcileStore } from '@/stores/reconcileStore';
 import type { ReconcileObservation } from '@/features/schedule/reconcile/reconcileState';
-import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import {
+  useWsConnectionStore,
+  WS_CLOSE_FORBIDDEN,
+  WS_CLOSE_UNAUTHENTICATED,
+} from '@/stores/wsConnectionStore';
 import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
 import { needsBaselineVarianceRefetch } from '@/lib/baselineFinishVariance';
 import { fetchWsTicket } from '@/api/wsTicket';
@@ -1192,6 +1199,12 @@ interface ProjectSocketConfig {
   mountedRef: MutableRefObject<boolean>;
   lastSeqRef: MutableRefObject<number>;
   eventHandlers: Record<string, WsHandler>;
+  /**
+   * Called once when the server refuses this caller (4003). The hook uses it to
+   * re-read the project's `can_subscribe_live`, so a member demoted or removed
+   * mid-session is not re-dialed on the next token refresh (#4375).
+   */
+  onRefused?: (projectId: string) => void;
 }
 
 /**
@@ -1206,6 +1219,9 @@ class ProjectSocketController {
   private ws: WebSocket | null = null;
   private backoffMs = 1_000;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  // A 4001 since the last successful open. The first one re-mints a ticket (see
+  // the close handler); a second in a row is treated as a real auth failure.
+  private authRejected = false;
 
   constructor(private readonly cfg: ProjectSocketConfig) {}
 
@@ -1297,11 +1313,29 @@ class ProjectSocketController {
 
     ws.addEventListener('close', (event) => {
       if (!this.cfg.mountedRef.current) return;
-      // Server-side auth rejection (Channels closes with 4001 when the
-      // token in the connect URL is invalid/expired). Without this branch
-      // the socket would silently retry forever while the cache stayed
-      // alive and the user kept editing into a void (#352).
-      if (event.code === 4001) {
+      // Policy refusal: this caller's role does not get live updates, or the
+      // membership was revoked/demoted mid-session (`connection_evict`). Terminal
+      // and not a fault — retrying can only be refused again, so stop, and do not
+      // report it as `stale` (#4375). Reachable only because the consumer now
+      // accepts before closing; a pre-accept close arrives here as 1006.
+      if (event.code === WS_CLOSE_FORBIDDEN) {
+        useWsConnectionStore.getState().markRefused();
+        this.cfg.onRefused?.(pid);
+        return;
+      }
+      // Server-side auth rejection: the ticket did not resolve to an active user.
+      // Without this branch the socket would silently retry forever while the cache
+      // stayed alive and the user kept editing into a void (#352). The FIRST one
+      // re-mints rather than declaring the session dead: a ticket lives 30 s and is
+      // single-use, so a tab suspended between mint and dial gets a 4001 on a
+      // healthy session. The re-mint goes through apiClient's refresh-and-retry, so
+      // a truly expired session fails there and lands in `connect()`'s catch.
+      if (event.code === WS_CLOSE_UNAUTHENTICATED) {
+        if (!this.authRejected) {
+          this.authRejected = true;
+          this.connect();
+          return;
+        }
         useWsConnectionStore.getState().markFailed();
         useAuthStore.getState().markSessionExpired();
         window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
@@ -1315,9 +1349,22 @@ class ProjectSocketController {
     });
 
     ws.addEventListener('open', () => {
+      // An accepted socket is not yet a live one: a policy refusal is
+      // accept-then-close (#4375), so `open` fires and the 4001/4003 close follows
+      // in the same tick. Marking live here is still right for every healthy
+      // connect; a refusal's close handler overwrites it immediately. The auth
+      // retry flag is reset only on an open that the server did not refuse — see
+      // the `message` reset below.
       this.backoffMs = 1_000; // reset on successful connection
       useWsConnectionStore.getState().markLive();
     });
+    ws.addEventListener(
+      'message',
+      () => {
+        this.authRejected = false;
+      },
+      { once: true },
+    );
   }
 
   // Initial handshake. Retries are driven from the close handler and must not
@@ -1339,7 +1386,23 @@ class ProjectSocketController {
   }
 }
 
-export function useProjectWebSocket(projectId: string | null | undefined): void {
+export interface UseProjectWebSocketOptions {
+  /**
+   * The project's `can_subscribe_live` — the server's verdict on whether its
+   * socket will accept this caller (#4375). `false` means the consumer would
+   * refuse with 4003, so no ticket is minted, no socket is opened, and the store
+   * goes straight to `refused` (which relaxes the fallback poll). `undefined`
+   * (unknown) dials anyway: the server is the enforcement point, and a refusal now
+   * arrives as a terminal 4003 rather than an endless retry.
+   */
+  liveUpdates?: boolean;
+}
+
+export function useProjectWebSocket(
+  projectId: string | null | undefined,
+  options: UseProjectWebSocketOptions = {},
+): void {
+  const { liveUpdates } = options;
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
   const setRecalculating = useSchedulerStore((s) => s.setRecalculating);
@@ -1407,6 +1470,17 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
     if (!projectId || !accessToken) return;
 
+    // The server has already said it will refuse this caller (#4375): do not mint
+    // a ticket or dial a socket, and report `refused` rather than leaving the store
+    // in `connecting` — which every polling hook reads as "socket down, poll at
+    // 30 s". Cleanup resets to idle exactly as `controller.stop()` does.
+    if (liveUpdates === false) {
+      useWsConnectionStore.getState().markRefused();
+      return () => {
+        useWsConnectionStore.getState().markConnecting();
+      };
+    }
+
     const scheduleInvalidate = makeScheduleInvalidate(queryClient, projectIdRef, {
       pending: pendingInvalidationsRef,
       timer: invalidateTimerRef,
@@ -1445,6 +1519,12 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       mountedRef,
       lastSeqRef,
       eventHandlers,
+      // Re-read the verdict so a member evicted mid-session (4003 via
+      // `connection_evict`) flips `liveUpdates` to false and is not re-dialed on
+      // the next token refresh.
+      onRefused: (pid) => {
+        void queryClient.invalidateQueries({ queryKey: ['project', pid] });
+      },
     });
     controller.start();
 
@@ -1460,5 +1540,5 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, accessToken]);
+  }, [projectId, accessToken, liveUpdates]);
 }

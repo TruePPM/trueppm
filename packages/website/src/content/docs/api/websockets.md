@@ -74,19 +74,35 @@ removed entirely next release. Migrate clients to the ticket flow above.
 
 ## Close codes
 
-If the server rejects the connection it closes with one of these application
-close codes (rather than accepting and then dropping):
+A refused connection is **accepted and then immediately closed** with an
+application close code. The order matters: a server that closes *before* accepting
+rejects the HTTP upgrade with a `403`, and a browser then reports close code `1006`
+with no application code at all — indistinguishable from a network drop. Accepting
+first is what lets `CloseEvent.code` carry the reason.
 
-| Code | Meaning |
-|------|---------|
-| `4001` | Missing, invalid, expired, or already-consumed ticket (or, on the deprecated path, an invalid token) |
-| `4003` | Authenticated but lacks the required role on the project (Team Member+ to subscribe) |
+| Code | When | Sent | Reaches a browser? |
+|------|------|------|--------------------|
+| `4001` | Missing, invalid, expired, or already-consumed ticket (or, on the deprecated path, an invalid token) | after accept | yes |
+| `4003` | Authenticated, but not a member of the project, or a role below Team Member — also sent to a live socket when the user is demoted or removed | after accept | yes |
+| `4404` | The path matched no WebSocket route | **before** accept | no — the browser sees `1006` |
 
-A client that receives `4001` should mint a fresh ticket (refreshing the access
-token first if needed) and reconnect; a persistent `4001` means the session has
-expired and the user must re-authenticate.
-Retryable transport drops (network loss, server restart) use the standard
-`1006`/`1001` codes and should be reconnected with backoff.
+`4003` is the same for a project that does not exist and one the caller is not a
+member of, so the code does not reveal whether a project exists. `4404` stays a
+pre-accept rejection on purpose: no client should dial an unrouted path, so there is
+nothing for one to act on.
+
+How a client should react:
+
+- **`4003` is terminal.** Retrying can only be refused again. Stop reconnecting,
+  refresh from the REST API instead, and tell the user live updates are not
+  available for their role. Better still, do not connect at all when the project's
+  `can_subscribe_live` field is `false` — it is computed from the same rule the
+  socket enforces.
+- **`4001`:** mint a fresh ticket (refreshing the access token first if needed) and
+  reconnect once; a second consecutive `4001` means the session has expired and the
+  user must re-authenticate.
+- Retryable transport drops (network loss, server restart) use the standard
+  `1006`/`1001` codes and should be reconnected with backoff.
 
 ## Board channel — server → client
 

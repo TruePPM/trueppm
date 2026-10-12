@@ -11,7 +11,7 @@ from typing import Any, cast
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.permissions import role_can_subscribe_live
 from trueppm_api.apps.observability.otel import metrics
 from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
 
@@ -42,6 +42,31 @@ _PRESENCE_REFRESH_INTERVAL = _PRESENCE_TTL // 2
 # a ``resync_required`` frame instead — matching the "since older than retention"
 # fallback.
 _REPLAY_CAP = 1000
+
+# Close codes (#4375). Which side of the handshake a refusal happens on decides
+# whether a browser can ever see the code:
+#
+# - Before ``accept``, Channels rejects the HTTP upgrade with a 403, and a browser
+#   reports close code **1006** with no application code at all. The client cannot
+#   tell "you may not" from "the network dropped", so it retries forever.
+# - After ``accept``, the close frame carries the code and the browser's
+#   ``CloseEvent.code`` is the value sent here.
+#
+# So every *policy* refusal a legitimate client must act on is post-accept:
+#
+# - ``WS_CLOSE_UNAUTHENTICATED`` (4001): no valid ticket. Accepting first reveals
+#   nothing — the check runs before the project id is even read.
+# - ``WS_CLOSE_FORBIDDEN`` (4003): not a member, a soft-deleted member, a role
+#   below the live-update floor, or a project that does not exist. All four send
+#   the same code from the same point, so the code is not an existence oracle;
+#   also sent by ``connection_evict`` on a live socket.
+#
+# The one pre-accept rejection is the router catch-all in ``asgi.py`` (4404, an
+# unrouted path). No client the product ships connects to one, there is nothing
+# for a browser to act on, and refusing at the upgrade keeps scanners off the
+# accept path. Its code never reaches a browser, by design.
+WS_CLOSE_UNAUTHENTICATED = 4001
+WS_CLOSE_FORBIDDEN = 4003
 
 
 def _presence_key(project_pk: str) -> str:
@@ -76,10 +101,17 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                      on connect. The legacy `?token=<jwt>` query param is disabled
                      by default and opt-in only via
                      `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` (#1723). Connection is
-                     rejected (4001) if no valid credential is present.
+                     refused (4001) if no valid credential is present.
 
-    Authorization:   The user must hold at least the Member role (ordinal ≥ 1)
-                     on the requested project. Viewers (role == Role.VIEWER) are rejected.
+    Authorization:   The user must clear ``role_can_subscribe_live`` (Member+) on
+                     the requested project; anyone else is refused (4003). The
+                     project serializer's ``can_subscribe_live`` emits the same
+                     verdict so the web client does not dial a socket it will be
+                     refused (#4375).
+
+    Refusals:        Accepted first, then closed with the code, so a browser's
+                     ``CloseEvent`` carries it — see the module-level close-code
+                     notes. A pre-accept close surfaces as 1006 in a browser.
 
     Presence:        On connect, the user is added to a Redis hash keyed by
                      `project:{pk}:presence`.  A `presence_join` event is
@@ -145,7 +177,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         scope = self.scope
         auth = await authenticate_scope(scope)
         if auth.user is None:
-            await self.close(code=4001)
+            await self._refuse(WS_CLOSE_UNAUTHENTICATED)
             return
         user = auth.user
 
@@ -153,11 +185,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         project_pk = str(scope["url_route"]["kwargs"]["pk"])
         warn_if_legacy(auth, consumer="ProjectConsumer", project_pk=project_pk)
 
-        # Check membership ≥ Member (Viewers cannot connect). Symbolic comparison
-        # so the gate stays correct under ADR-0072 role-ordinal re-spacing.
+        # Live-update floor (Member+; Viewers and non-members are refused). The
+        # predicate is shared with ProjectSerializer.can_subscribe_live so the client
+        # gate and this one cannot drift (#4375).
         role = await self._get_role(user, project_pk)
-        if role is None or role < Role.MEMBER:
-            await self.close(code=4003)
+        if not role_can_subscribe_live(role):
+            await self._refuse(WS_CLOSE_FORBIDDEN)
             return
 
         self.project_pk = project_pk
@@ -357,7 +390,19 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         Sockets for other users in the group ignore the message.
         """
         if hasattr(self, "_user") and event.get("user_id") == str(self._user.pk):
-            await self.close(code=4003)
+            await self.close(code=WS_CLOSE_FORBIDDEN)
+
+    async def _refuse(self, code: int) -> None:
+        """Refuse a connect so the browser actually receives ``code`` (#4375).
+
+        Accept, then close. Closing before accept makes Channels reject the HTTP
+        upgrade with a 403, which a browser reports as close code 1006 — so the
+        client could never recognize 4001 or 4003 as terminal and kept reconnecting.
+        Nothing has been joined or counted at this point (no group, no presence, no
+        gauge increment), so ``disconnect`` is a no-op for a refused socket.
+        """
+        await self.accept()
+        await self.close(code=code)
 
     # ------------------------------------------------------------------
     # Presence helpers

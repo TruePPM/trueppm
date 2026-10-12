@@ -65890,6 +65890,11 @@
                         "description": "Whether the requesting user may reverse a recorded batch write on this project — the classification cascade and paste-many undo endpoints. Read-only; the same rule those endpoints enforce. Clients use it to disclose, before an irreversible batch write, that the caller will not be able to undo it. Does not answer for structural operations, whose undo rule is actor-or-Admin.",
                         "readOnly": true
                     },
+                    "can_subscribe_live": {
+                        "type": "boolean",
+                        "description": "Whether the project's live-update WebSocket (`/ws/v1/projects/{id}/`) will accept the requesting user. Read-only; the same rule the socket enforces. When false the socket refuses the connect with close code 4003, so clients should not open it and should refresh from REST instead.",
+                        "readOnly": true
+                    },
                     "server_date": {
                         "type": "string",
                         "format": "date",
@@ -65933,6 +65938,7 @@
                     "at_risk_count",
                     "calendar_source",
                     "can_author",
+                    "can_subscribe_live",
                     "can_undo_batch_operations",
                     "default_member_role_label",
                     "draft_started_at",
@@ -66959,6 +66965,11 @@
                         "description": "Whether the requesting user may reverse a recorded batch write on this project — the classification cascade and paste-many undo endpoints. Read-only; the same rule those endpoints enforce. Clients use it to disclose, before an irreversible batch write, that the caller will not be able to undo it. Does not answer for structural operations, whose undo rule is actor-or-Admin.",
                         "readOnly": true
                     },
+                    "can_subscribe_live": {
+                        "type": "boolean",
+                        "description": "Whether the project's live-update WebSocket (`/ws/v1/projects/{id}/`) will accept the requesting user. Read-only; the same rule the socket enforces. When false the socket refuses the connect with close code 4003, so clients should not open it and should refresh from REST instead.",
+                        "readOnly": true
+                    },
                     "server_date": {
                         "type": "string",
                         "format": "date",
@@ -67051,6 +67062,7 @@
                     "at_risk_count",
                     "calendar_source",
                     "can_author",
+                    "can_subscribe_live",
                     "can_undo_batch_operations",
                     "default_member_role_label",
                     "draft_started_at",

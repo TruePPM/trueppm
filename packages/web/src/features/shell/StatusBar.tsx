@@ -7,7 +7,11 @@ import { useProjects } from '@/hooks/useProjects';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
-import { useWsConnectionStore, type WsConnectionState } from '@/stores/wsConnectionStore';
+import {
+  REFUSED_POLL_INTERVAL_MS,
+  useWsConnectionStore,
+  type WsConnectionState,
+} from '@/stores/wsConnectionStore';
 
 declare const __BUILD_SHA__: string;
 
@@ -46,6 +50,18 @@ const CONNECTION_PRESENTATION: Record<
     dot: 'bg-semantic-critical',
     label: 'Disconnected',
     aria: "Disconnected — you've been signed out. Sign in again to reconnect.",
+  },
+  // Not a fault (#4375): the caller's role does not receive live updates, so the
+  // calm-neutral dot — never at-risk/critical — and copy that says what DOES happen
+  // instead. Deliberately not "Connection lost": that claims edits are failing to
+  // save, which is false for a read-only role. The interval is derived from the
+  // store constant so the sentence cannot drift from the poll it describes.
+  refused: {
+    dot: 'bg-neutral-text-disabled',
+    label: 'No live updates',
+    aria: `No live updates for your role on this project. This view refreshes every ${
+      REFUSED_POLL_INTERVAL_MS / 60_000
+    } minutes.`,
   },
 };
 

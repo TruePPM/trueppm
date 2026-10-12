@@ -749,19 +749,61 @@ describe('useProjectWebSocket — auth close-code handling (#352)', () => {
     });
   });
 
-  it('marks the session expired and dispatches the auth event on WS close 4001', () => {
+  it('marks the session expired and dispatches the auth event on a SECOND consecutive 4001', () => {
     const eventSpy = vi.fn();
     window.addEventListener('auth:sessionExpired', eventSpy);
     try {
       renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+      // First 4001: the ticket may simply have aged out (30 s TTL, single-use), so
+      // the hook re-mints and re-dials instead of declaring the session dead (#4375).
       act(() => {
         MockWebSocket.instances[0].dispatch('close', { code: 4001 });
       });
+      expect(useAuthStore.getState().sessionExpired).toBe(false);
+      expect(eventSpy).not.toHaveBeenCalled();
+      expect(MockWebSocket.instances).toHaveLength(2);
+      // Second in a row: a real auth failure.
+      act(() => {
+        MockWebSocket.instances[1].dispatch('close', { code: 4001 });
+      });
       expect(useAuthStore.getState().sessionExpired).toBe(true);
       expect(eventSpy).toHaveBeenCalled();
+      expect(MockWebSocket.instances).toHaveLength(2);
     } finally {
       window.removeEventListener('auth:sessionExpired', eventSpy);
     }
+  });
+
+  it('an accept-then-4001 that never delivered a frame does not reset the re-mint allowance', () => {
+    // A refusal is accept-then-close, so `open` fires before the 4001. If `open`
+    // reset the allowance, two refusals would re-mint forever with no backoff.
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('open', {});
+      MockWebSocket.instances[0].dispatch('close', { code: 4001 });
+    });
+    act(() => {
+      MockWebSocket.instances[1].dispatch('open', {});
+      MockWebSocket.instances[1].dispatch('close', { code: 4001 });
+    });
+    expect(useAuthStore.getState().sessionExpired).toBe(true);
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
+  it('a socket that delivered a frame earns a fresh re-mint on a later 4001', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 4001 });
+    });
+    act(() => {
+      MockWebSocket.instances[1].dispatch('open', {});
+      MockWebSocket.instances[1].dispatch('message', {
+        data: JSON.stringify({ event_type: 'presence_join', payload: {} }),
+      });
+      MockWebSocket.instances[1].dispatch('close', { code: 4001 });
+    });
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+    expect(MockWebSocket.instances).toHaveLength(3);
   });
 
   it('does not mark the session expired on a normal close (network drop)', () => {
@@ -770,6 +812,95 @@ describe('useProjectWebSocket — auth close-code handling (#352)', () => {
       MockWebSocket.instances[0].dispatch('close', { code: 1006 });
     });
     expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+});
+
+describe('useProjectWebSocket — role refusal (#4375)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true, sessionExpired: false });
+      useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false, sessionExpired: false });
+    });
+  });
+
+  it('a 4003 close is terminal: state refused, no reconnect scheduled, verdict re-read', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('open', {});
+      MockWebSocket.instances[0].dispatch('close', { code: 4003 });
+    });
+    expect(useWsConnectionStore.getState().state).toBe('refused');
+    // Well past the 30 s backoff cap: nothing re-dials.
+    act(() => {
+      vi.advanceTimersByTime(120_000);
+    });
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(useWsConnectionStore.getState().state).toBe('refused');
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+  });
+
+  it('negative control: a 1006 close (what a pre-accept refusal looks like) still retries', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(useWsConnectionStore.getState().state).toBe('reconnecting');
+  });
+
+  it('liveUpdates: false never dials and reports refused', () => {
+    const { unmount } = renderHook(() => useProjectWebSocket('proj-1', { liveUpdates: false }), {
+      wrapper: makeWrapper(qc),
+    });
+    expect(MockWebSocket.instances).toHaveLength(0);
+    expect(useWsConnectionStore.getState().state).toBe('refused');
+    act(() => {
+      vi.advanceTimersByTime(120_000);
+    });
+    expect(MockWebSocket.instances).toHaveLength(0);
+    // Leaving the project resets to idle, like controller.stop().
+    unmount();
+    expect(useWsConnectionStore.getState().state).toBe('connecting');
+  });
+
+  it('liveUpdates: undefined (verdict unknown) dials — the server enforces', () => {
+    renderHook(() => useProjectWebSocket('proj-1', { liveUpdates: undefined }), {
+      wrapper: makeWrapper(qc),
+    });
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('flipping liveUpdates to false (evicted member re-read) closes the live socket', () => {
+    const { rerender } = renderHook(
+      ({ live }: { live: boolean }) => useProjectWebSocket('proj-1', { liveUpdates: live }),
+      { wrapper: makeWrapper(qc), initialProps: { live: true } },
+    );
+    expect(MockWebSocket.instances).toHaveLength(1);
+    rerender({ live: false });
+    expect(MockWebSocket.instances[0].close).toHaveBeenCalled();
+    expect(useWsConnectionStore.getState().state).toBe('refused');
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
 

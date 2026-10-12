@@ -183,6 +183,19 @@ describe('StatusBar', () => {
       expect(screen.getByLabelText(/you've been signed out/i)).toBeInTheDocument();
     });
 
+    it('shows a neutral "No live updates" — never a fault — when the socket refuses the role (#4375)', () => {
+      useWsConnectionStore.setState({ state: 'refused', reconnectAttempts: 0 });
+      renderWithRouter(<StatusBar />);
+      expect(screen.getByText('No live updates')).toBeInTheDocument();
+      expect(screen.getByLabelText(/refreshes every 5 minutes/i)).toBeInTheDocument();
+      // Not the stale/failed copy: a Viewer's edits are not "failing to save".
+      expect(screen.queryByText(/connection lost|disconnected|reconnecting/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/won't be saved|signed out/i)).not.toBeInTheDocument();
+      // Calm-neutral dot, not at-risk/critical.
+      const dot = screen.getByText('No live updates').previousElementSibling;
+      expect(dot?.className).toContain('bg-neutral-text-disabled');
+    });
+
     it('does not show the viewing count (or its anonymity contract) outside the live state', () => {
       useWsConnectionStore.setState({ state: 'stale', reconnectAttempts: 3 });
       renderWithRouter(<StatusBar />);

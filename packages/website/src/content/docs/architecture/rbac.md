@@ -343,10 +343,18 @@ connection like this:
 
 ```python
 role = await self._get_role(user, project_pk)
-if role is None or role < Role.MEMBER:
-    await self.close(code=4003)
+if not role_can_subscribe_live(role):   # Member+, apps/access/permissions.py
+    await self._refuse(WS_CLOSE_FORBIDDEN)  # accept, then close 4003
     return
 ```
+
+`role_can_subscribe_live` is the single implementation of the socket's role floor.
+`ProjectSerializer.can_subscribe_live` calls the same predicate, so the web client
+reads the server's verdict instead of re-deriving `role >= Member` — and does not
+open a socket the consumer will refuse. The refusal accepts the handshake before
+closing: a close sent before accept becomes an HTTP 403 on the upgrade, which a
+browser reports as code 1006, so the client could never tell "refused" from "the
+network dropped" and reconnected forever.
 
 A Viewer is rejected outright — real-time push is a Member+ affordance, not a
 Viewer one. [ADR-0184](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0184-rbac-defense-in-depth-and-viewer-ws-read.md)
@@ -368,7 +376,9 @@ REST's request/response model doesn't otherwise touch.
 Close codes carry meaning: **4001** is "no valid credential" (see [Auth
 architecture](/architecture/auth/#the-websocket-ticket) for how that credential
 is minted and validated); and **4003** is "authenticated, but role below
-Member".
+Member" — also sent, identically, for a project the caller is not a member of or
+that does not exist, so the code is not an existence oracle. Both are sent after
+accept; only the router's unrouted-path rejection (4404) is sent before it.
 
 ## Defense-in-depth: why the same rule sometimes appears twice
 
