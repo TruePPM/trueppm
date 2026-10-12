@@ -392,6 +392,35 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
       expect(byId('C').deltaDays).toBe(0);
     });
 
+    it('keeps a complete-without-actuals milestone an instant its successor reads at the start of its day', () => {
+      // P → M(milestone, complete, no actuals) → B. The server pins M at the
+      // start of its day and keeps it an instant (#4343), exactly like a live
+      // milestone with no links, so B starts on M's day — not the day after, as
+      // it would after ordinary work. Dragging P moves neither.
+      const m = {
+        ...task('M', '2026-01-05', '2026-01-05', {
+          isMilestone: true,
+          isComplete: true,
+          durationDays: 0,
+        }),
+        milestoneAtDayEnd: false,
+      };
+      const tasks: CpmTask[] = [
+        task('P', '2026-01-05', '2026-01-09'),
+        m,
+        task('B', '2026-01-05', '2026-01-07'),
+      ];
+      const edges: CpmEdge[] = [edge('P', 'M', 'FS'), edge('M', 'B', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-03-02');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('M').earlyStart).toBe('2026-01-05');
+      expect(byId('M').deltaDays).toBe(0);
+      expect(byId('B').earlyStart).toBe('2026-01-05');
+      expect(byId('B').earlyFinish).toBe('2026-01-07');
+    });
+
     it('still moves a complete-without-actuals task when it is the drag target', () => {
       // The drop lands as `planned_start`, which the server's pin honors for a
       // task with no actuals — so unlike an actuals-pinned task, it moves, keeps

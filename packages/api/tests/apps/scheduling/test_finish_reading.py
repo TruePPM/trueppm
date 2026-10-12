@@ -79,9 +79,9 @@ def test_only_an_unpinned_start_of_day_milestone_finishes_at_its_day_start() -> 
         task_finish_at_day_start(_row(is_milestone=True, actual_start=FRI, percent_complete=100))
         is False
     )
-    # So is a milestone complete by percent alone, with no actuals: the engine
-    # pins every completed task out of the network (#4343).
-    assert task_finish_at_day_start(_row(is_milestone=True, percent_complete=100)) is False
+    # A milestone complete by percent alone, with no actuals, is pinned but stays
+    # an instant at the start of its day (#4343).
+    assert task_finish_at_day_start(_row(is_milestone=True, percent_complete=100)) is True
     # The override reads the flag a task held before a recalculation overwrote it.
     assert (
         task_finish_at_day_start(
@@ -499,26 +499,27 @@ def test_program_pass_real_boundary_breach_still_raises_a_conflict(
 def test_a_completed_milestone_without_actuals_reads_as_the_engine_places_it() -> None:
     """Engine-backed (#4343): a 100%-complete milestone with no actuals, after work.
 
-    The engine pins it at the project start as ordinary work and leaves it out of
-    its instant map, so it ends at the end of its day — the reading must agree, or
-    a project ending on it would read a phantom working day earlier.
+    The engine pins it at the project start but keeps it an instant at the start
+    of that day, as it does a live milestone with no links — the reading must
+    agree, or a project ending on it would read a phantom working day later.
     """
     from trueppm_scheduler import Dependency, Project, Task, schedule
+    from trueppm_scheduler.engine import _milestone_instants
 
-    result = schedule(
-        Project(
-            "p",
-            "p",
-            date(2026, 3, 2),
-            [
-                Task("A", "A", timedelta(days=3)),
-                Task("M", "M", timedelta(0), percent_complete=100.0),
-            ],
-            [Dependency("A", "M")],
-            SchedCalendar(),
-        )
+    project = Project(
+        "p",
+        "p",
+        date(2026, 3, 2),
+        [
+            Task("A", "A", timedelta(days=3)),
+            Task("M", "M", timedelta(0), percent_complete=100.0),
+        ],
+        [Dependency("A", "M")],
+        SchedCalendar(),
     )
-    m = next(t for t in result.tasks if t.id == "M")
+    m = next(t for t in schedule(project).tasks if t.id == "M")
     assert m.early_finish == date(2026, 3, 2)
     assert m.milestone_at_day_end is False
-    assert task_finish_at_day_start(m) is False
+    # The engine's own instant: the start (True) of 03-02.
+    assert _milestone_instants(project)[0]["M"] == (date(2026, 3, 2), True)
+    assert task_finish_at_day_start(m) is True

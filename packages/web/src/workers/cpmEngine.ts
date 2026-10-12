@@ -556,9 +556,13 @@ function toTaskState(t: CpmTask): TaskState {
     plannedStartMs: t.plannedStart ? nextWorkingDay(toMs(t.plannedStart)) : null,
     isMilestone: t.isMilestone,
     // Placeholder; `runCpmForwardPass` reads the real instant once it knows
-    // which milestones follow work. Completed tasks are ordinary work to their
-    // successors, as they are server-side.
-    instantMs: t.durationDays === 0 && !isComplete ? earlyFinishMs : null,
+    // which milestones follow work. A milestone pinned by actuals is ordinary
+    // work to its successors, as it is server-side; a completed milestone with
+    // no actuals stays an instant (#4343), it just never relaxes.
+    instantMs:
+      t.durationDays === 0 && !(isComplete && (actualStartMs !== null || t.actualFinish != null))
+        ? earlyFinishMs
+        : null,
     startDisplay: false,
     atDayEndHint: t.milestoneAtDayEnd,
     name: t.name,

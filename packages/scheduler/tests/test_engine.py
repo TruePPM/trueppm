@@ -2672,6 +2672,45 @@ class TestCompletedNoActualsIsPinned:
             if t.percent_complete < 100:
                 assert _float_slip_oracle(p, t.id) == (True, True), (seed, t.id)
 
+    @pytest.mark.parametrize("planned_start", [None, date(2026, 3, 7)])
+    def test_a_completed_milestone_without_actuals_stays_an_instant(
+        self, planned_start: date | None
+    ) -> None:
+        """``P(2) -> M(0, 100%, no actuals) -> B(3)``: M is pinned but remains a
+        milestone, an instant at the start of its day, so B starts on M's day
+        exactly as it does after the identical live milestone — no working day is
+        lost to M. With a Saturday SNET, M and B both move to Monday 03-09.
+
+        Checked against the slip oracle, not the other engine: P has no live
+        successor, so its float runs to the project finish; B drives it."""
+
+        def build(pct: float) -> Project:
+            return make_project(
+                tasks=[
+                    task("P", "P", 2),
+                    task("M", "M", 0, percent_complete=pct, planned_start=planned_start),
+                    task("B", "B", 3),
+                ],
+                dependencies=[Dependency("P", "M"), Dependency("M", "B")],
+                start=date(2026, 3, 2),
+            )
+
+        day = date(2026, 3, 2) if planned_start is None else date(2026, 3, 9)
+        # The live milestone with the same links: P's FS link would hold it to the
+        # end of 03-03, so compare against it with M's only link, M -> B.
+        live_p = dataclasses.replace(build(0.0), dependencies=[Dependency("M", "B")])
+        live = {t.id: t for t in schedule(live_p).tasks}
+        p = build(100.0)
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert (by_id["M"].early_start, by_id["M"].early_finish) == (day, day)
+        assert by_id["M"].milestone_at_day_end is False
+        assert by_id["B"].early_start == live["B"].early_start == day
+        assert by_id["B"].early_finish == _add_working_days(day, 2, p.calendar)
+        assert r.project_finish == by_id["B"].early_finish
+        for tid in ("P", "B"):
+            assert _float_slip_oracle(p, tid) == (True, True), tid
+
     def test_snet_pins_a_completed_task_past_its_predecessor_independent_of_it(
         self,
     ) -> None:

@@ -14,8 +14,9 @@ Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
 > Monte Carlo freezing a position that in fact moved with its predecessors, and a derivation
 > citing a predecessor's date as the project start. The forward pass now pins it too, in
 > both engines (`engine.py::_pinned_placement`, `forward.rs::pinned_placement`) and the
-> browser drag preview (`cpmEngine.ts`). The table and rules below are updated in place;
-> the Monte Carlo follow-up is resolved.
+> browser drag preview (`cpmEngine.ts`). A completed milestone with no actuals keeps its
+> instant semantics (see Rules). The table and rules below are updated in place; the Monte
+> Carlo follow-up is resolved.
 
 > **The conformance-fixture constraint below is superseded by shipped practice** (verified
 > 2026-07-31, #2664). Both the Constraints section ("the shared `wasm:conformance` fixtures
@@ -124,6 +125,14 @@ Rules:
   because completed work is historical. (Superseded rule, before #4343: "positioned by its
   FS/SS predecessor constraints, `planned_start`, and project start". The forward pass
   applied it while the backward pass did not, which is the defect #4343 fixed.)
+- **A completed milestone with no actuals stays an instant.** Pinning takes a
+  zero-duration task out of the network, not out of being a milestone: it is an instant
+  at the **start** of its pinned day, exactly what a live milestone with no links gets,
+  so an FS successor starts that same day and nothing downstream moves relative to the
+  live case (#4343). Its `planned_start` binds the instant its successors measure from;
+  the project start only bounds where it is shown (#4225). A milestone pinned by
+  **recorded actuals** is unchanged: it is laid out as ordinary work, ending at the end
+  of its day.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

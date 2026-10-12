@@ -436,9 +436,10 @@ describe('PreviewOverlay', () => {
     });
 
     it('does NOT treat a task complete by progress alone as pinned', () => {
-      // Pinning is conditional on recorded actuals, not on completion: a task
-      // complete by `progress` with no actuals IS still network-scheduled and
-      // its drag genuinely moves it (#2819).
+      // Freezing is conditional on recorded actuals, not on completion: a task
+      // complete by `progress` with no actuals is placed by its `planned_start`
+      // (#4343), which is what a drag writes, so the drag genuinely moves it
+      // (#2819).
       const tasks = [
         makeTask('t1', { isComplete: true, progress: 100 }),
         ...TASKS.slice(1),

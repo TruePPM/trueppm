@@ -122,7 +122,7 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
             "actual_finish",
             "story_points",
             "_span_start",
-            # With actual_finish above: the FINISH_READING_FIELDS
+            # With actual_start/actual_finish above: the FINISH_READING_FIELDS
             # values_finish_at_day_start reads (#4197).
             "is_milestone",
             "milestone_at_day_end",

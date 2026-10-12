@@ -1847,7 +1847,8 @@ def _forward_pass(
     start_display)}`` for each of them (:data:`_Instant`), which the backward pass,
     float computation and Monte Carlo's completed-task constraints read to invert
     and extend the same rule. A task pinned by recorded actuals is absent: it is
-    ordinary work to its successors.
+    ordinary work to its successors. A completed milestone with *no* actuals is
+    present: it stays an instant at its pinned day (:func:`_pinned_milestone_instant`).
 
     ``link_instants``, when given, is filled with the instant each of those
     milestones' successors measure from (:func:`_place_milestone`'s ``link``). It
@@ -1876,6 +1877,10 @@ def _forward_pass(
         pinned = _pinned_placement(task, cal, start_base)
         if pinned is not None:
             task.early_start, task.early_finish = pinned
+            if task.duration.days == 0 and task.actual_start is None and task.actual_finish is None:
+                # A completed milestone with no actuals stays an instant (#4343):
+                # exactly what _place_milestone gives a milestone with no links.
+                instants[node_id], links[node_id] = _pinned_milestone_instant(task, cal, pinned[0])
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 
@@ -2134,6 +2139,25 @@ def _pinned_placement(task: Task, cal: Calendar, start_base: date) -> tuple[date
     if task.planned_start is not None:
         start = max(start, _next_working_day(task.planned_start, cal))
     return start, _finish_from_start(start, full_days, cal)
+
+
+def _pinned_milestone_instant(task: Task, cal: Calendar, day: date) -> tuple[_Instant, _Instant]:
+    """``(shown, link)`` for a completed milestone with no actuals, pinned on ``day`` (#4343).
+
+    Pinning takes the milestone out of the network, but not out of being a
+    milestone: it is an instant at the start of ``day``, as a live milestone with
+    no links is, so a successor reads it at that midnight rather than at the end
+    of the day. Dropping it to ordinary work moved every FS successor a working
+    day later than the identical live milestone does. The pair is what
+    :func:`_place_milestone` returns with no predecessors: the SNET is a fact
+    about when the milestone happens and binds ``link``; the project start only
+    bounds where it is shown (#4225), so ``link`` falls back to it only when no
+    SNET is set.
+    """
+    shown: _Instant = (day, True)
+    if task.planned_start is None:
+        return shown, shown
+    return shown, (_next_working_day(task.planned_start, cal), True)
 
 
 def _forward_edge_constraints(

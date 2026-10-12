@@ -187,6 +187,9 @@ so a server-written `today` is never re-validated.
 `REVIEW` means "work is done, awaiting sign-off", so the finish date is known at that
 moment, and the engine already treats the row as complete via the forced
 `percent_complete = 100`. Stamping gives it a real pin instead of a planning position.
+*(Since #4343 the no-actuals case is itself pinned — at the project start or its
+`planned_start` rather than through the network — so the stamp now moves the pin from
+that placeholder onto the real finish.)*
 
 `actual_start` stays untouched. **ADR-0136 is unchanged and this ADR does not argue
 against it**: a card that jumped to done without ever being `IN_PROGRESS` never
@@ -224,8 +227,9 @@ only — not by `applyTaskDatesDelta`.** Actuals are *inputs* to CPM, not output
 - A PM or scheduler can state and correct an actual date. It is the only such path.
 - A contributor's completion now records a finish date, so the highest-volume
   completion path stops producing unplaced completed work.
-- A `REVIEW` task moves from a planning position to its real pin, so forecasts
-  downstream of it read a truthful placement.
+- A `REVIEW` task moves from a placeholder position (since #4343, a pin at the
+  project start or its `planned_start`) to its real pin, so forecasts downstream of
+  it read a truthful placement.
 - The API can no longer accept an inverted pair that kills the project's recompute.
 
 **Harder**

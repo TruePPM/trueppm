@@ -158,10 +158,10 @@ test.describe('Schedule preview overlay (#2819)', () => {
   });
 
   test('a complete task with NO actuals is keyboard-reschedulable (#2827)', async ({ page }) => {
-    // The parity case. The server schedules this task through the network
-    // (`_pinned_placement` returns None without an actual) and the pointer path
-    // already moves it, so the keyboard must reach it too — that asymmetry was
-    // the WCAG 2.1.1 gap.
+    // The parity case. Without an actual, the server pins this task at its
+    // `planned_start` (or the project start, #4343), so a reschedule — which
+    // writes `planned_start` — moves it and the pointer path already does; the
+    // keyboard must reach it too — that asymmetry was the WCAG 2.1.1 gap.
     await page.getByRole('option', { name: /Site survey/ }).focus();
     await page.keyboard.press('r');
 

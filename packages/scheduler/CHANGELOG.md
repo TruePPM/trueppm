@@ -45,8 +45,12 @@ change between releases. Pin an exact version (e.g.
   completed task is now pinned in the forward pass too: with no actuals it is
   laid out at full duration from the project start, or from its
   `planned_start` when later, and no predecessor moves it — it still drives its
-  successors. **Behavior change:** such a task's `early_start`/`early_finish`
-  can move earlier. The Rust/WASM engine matches.
+  successors. A completed milestone with no actuals stays an instant at the
+  start of its pinned day (`milestone_at_day_end` False), so an FS successor
+  starts that same day, as after a live milestone. **Behavior change:** such a
+  task's `early_start`/`early_finish` move earlier when a predecessor was holding
+  it later; one already at the project start or its `planned_start` does not
+  move. The Rust/WASM engine matches.
 
 ## [0.4.0b7] - 2026-10-09
 

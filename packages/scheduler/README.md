@@ -280,7 +280,7 @@ convention. The same list, with the comparison spelled out, is on
 
 **Progress and actuals**
 
-- A **completed** task (`actual_finish` set, or 100%) is pinned to its recorded dates verbatim — even on a non-working day — and is never re-sampled. With no recorded actuals it is pinned at the project start (or its `planned_start`, when later); no predecessor moves it. ([ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md))
+- A **completed** task (`actual_finish` set, or 100%) is pinned to its recorded dates verbatim — even on a non-working day — and is never re-sampled. With no recorded actuals it is pinned at the project start (or its `planned_start`, when later); no predecessor moves it, and a milestone stays an instant at the start of that day. ([ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md))
 - An **in-progress** task schedules its remaining `duration − floor(duration × pct / 100)` working days forward from the data date (`status_date`), floored at its unsnapped `actual_start`. ([ADR-0132](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0132-data-date-aware-progress-forecasting.md))
 
 **Float and output**

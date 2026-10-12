@@ -364,7 +364,8 @@ fn apply_ef_constraints(
 /// Zero-duration tasks scheduled through the network are placed as instants
 /// (#4079, `place_milestone`); the returned [`MilestoneInstants`] holds each
 /// one's shown and link [`Instant`] by node index (`None` for ordinary work and
-/// for tasks pinned by actuals), which the backward pass and float computation
+/// for tasks pinned by actuals; a completed milestone with no actuals keeps its
+/// instant, #4343), which the backward pass and float computation
 /// read to invert the same rule.
 ///
 /// Tasks are carried in a `Vec<Task>` indexed by node position (#1535); each
@@ -403,6 +404,12 @@ pub fn forward_pass(
             let t = &mut tasks[i];
             t.early_start = Some(es);
             t.early_finish = Some(ef);
+            if t.duration_days() == 0 && t.actual_start.is_none() && t.actual_finish.is_none() {
+                // A completed milestone with no actuals stays an instant (#4343).
+                let (shown, link) = pinned_milestone_instant(t, node_cal, es)?;
+                instants[i] = Some(shown);
+                links[i] = Some(link);
+            }
             t.scheduled_start = Some(compute_scheduled_start(t, node_cal)?);
             continue;
         }
@@ -594,6 +601,26 @@ fn pinned_placement(
         None => start_base,
     };
     Ok(Some((es, finish_from_start(es, full_days, calendar)?)))
+}
+
+/// `(shown, link)` for a completed milestone with no actuals, pinned on `day` (#4343).
+///
+/// Pinning takes the milestone out of the network but not out of being a
+/// milestone: it is an instant at the start of `day`, as a live milestone with no
+/// links is, so a successor reads it at that midnight rather than at the end of
+/// the day. The pair is what `place_milestone` returns with no predecessors: the
+/// SNET binds `link`; the project start only bounds where it is shown (#4225).
+/// Mirrors the Python `_pinned_milestone_instant`.
+fn pinned_milestone_instant(
+    task: &Task,
+    calendar: &Calendar,
+    day: NaiveDate,
+) -> Result<(Instant, Instant), String> {
+    let shown = (day, true);
+    match task.planned_start {
+        None => Ok((shown, shown)),
+        Some(ps) => Ok((shown, (next_working_day(ps, calendar)?, true))),
+    }
 }
 
 /// Whether `idx` has at least one incoming SF link (#4218, #4220).
