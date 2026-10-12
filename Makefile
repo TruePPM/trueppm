@@ -528,6 +528,15 @@ docs-api-routes-check: ## Run the docs:api-routes CI job locally (#3753)
 	@python3 scripts/check-docs-api-routes.py --self-test
 	@python3 scripts/check-docs-api-routes.py
 
+error-codes-documented-check: ## Run the docs:error-codes CI job locally (#4376)
+	@# Every `code` string literal a Response({...})/warnings[] dict, an
+	@# APIException.default_code, or a `code=` keyword emits under
+	@# packages/api/src must be on errors.md or in the internal allowlist
+	@# (scripts/error-code-internal-allowlist.txt); a documented code with no
+	@# emission site left anywhere also fails. ~1s, no network.
+	@python3 scripts/check-error-codes-documented.py --self-test
+	@python3 scripts/check-error-codes-documented.py
+
 helm-walkthrough-drift-check: ## Run the docs:helm-walkthrough-drift CI job locally (#4027)
 	@# scripts/helm-install-drill.sh's walkthrough leg must keep running the SAME
 	@# namespace/Secret/my-values.yaml commands deployment.md documents — see
@@ -703,6 +712,7 @@ pre-push-checks: ws-event-reachability-check
 pre-push-checks: ws-handler-conformance-check
 pre-push-checks: docs-internal-links-check
 pre-push-checks: docs-api-routes-check
+pre-push-checks: error-codes-documented-check
 pre-push-checks: helm-walkthrough-drift-check
 pre-push-checks: e2e-catchall-check
 pre-push-checks: demo-nginx-allowlist-check

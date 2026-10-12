@@ -1,0 +1,79 @@
+# Codes raised with a `code=` keyword that never reach the response body (#4376).
+#
+# DRF's exception_handler collapses `code` to a Python-side attribute on the
+# ErrorDetail string subclass when `detail` is a plain string (or a dict whose
+# value is a string, including a field-keyed ValidationError) — the wire body
+# is just {"detail": "..."} or a field-keyed message, with no sibling `code`
+# key. errors.md's "Codes that exist in code but not on the wire" section
+# (#2550) explains this at length and names a few of these by example; this
+# file is the complete, checked list the #4376 audit's AST scan found.
+#
+# One "<code>\t<reason>" per line. This is NOT a waiver for an integrator-facing
+# code — a new literal `Response({"code": "...", "detail": "..."})` or
+# `warnings.append({"code": "...", ...})` dict belongs on errors.md, not here,
+# and scripts/check-error-codes-documented.py cannot tell the difference. A
+# human decides on each new failure.
+
+# ADR-1153 actual-date rules (actual_date_rules.py) — raised via
+# `_raise_actual_date_violation`, which wraps each in
+# `serializers.ValidationError({field: ErrorDetail(message, code=...)})`: a
+# field-keyed ValidationError, so `code` is lost.
+actual_dates_out_of_order	Field-keyed ValidationError (ErrorDetail on `actual_finish`) — #2550 shape.
+actual_date_in_future	Field-keyed ValidationError (ErrorDetail on the checked field) — #2550 shape.
+actual_date_outside_span	Field-keyed ValidationError (ErrorDetail on the checked field) — #2550 shape.
+actual_finish_requires_signoff	Field-keyed ValidationError (ErrorDetail on `actual_finish`) — #2550 shape.
+
+# Task-attachment validation (ADR-0075) — plain-string `detail` or a dict whose
+# only value is a string, each with a `code=` keyword.
+attachment_content_mismatch	`UnsupportedAttachmentMediaType(sniff_error, code=...)` — plain-string detail, #2550 shape.
+attachment_count_cap	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
+attachment_file_xor_url	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+attachment_too_large	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+attachment_unsupported_mime	`UnsupportedAttachmentMediaType.default_code`, `default_detail` is a plain string — #2550 shape.
+attachment_unsupported_scheme	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+
+# Task-comment validation (ADR-0075).
+comment_body_too_long	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+comment_count_cap	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
+comment_edit_window_closed	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
+comment_parent_cross_task	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+comment_reply_depth	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+
+# Task-note validation (ADR-0143) and reaction validation.
+note_body_too_long	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+note_count_cap	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
+note_edit_window_closed	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
+reaction_unsupported_emoji	`ValidationError("...", code=...)` — plain-string detail, #2550 shape.
+
+# Idempotency-key reuse and the sync id-collision conflict — plain-string
+# `default_detail` with a `default_code`.
+idempotency_key_conflict	`IdempotencyConflict.default_code`, `default_detail` is a plain string — #2550 shape.
+sync_id_collision	`default_code` on a plain-string `default_detail` APIException — #2550 shape.
+
+# Signed download URLs (ADR attachment signing, #573) — plain-string detail (or
+# a dict with one string-valued key) with a `code=` keyword, or a plain-string
+# `default_detail`.
+signed_url_backend_unsupported	`AttachmentSigningNotSupported.default_code`, `default_detail` is a plain string — #2550 shape.
+signed_url_external	`ValidationError({"detail": "..."}, code=...)` — single string-valued key, #2550 shape.
+signed_url_invalid_ttl	`ValidationError({"ttl": "..."}, code=...)` — single string-valued key, #2550 shape.
+signed_url_ttl_out_of_range	`ValidationError({"ttl": "..."}, code=...)` — single string-valued key, #2550 shape.
+
+# Milestone-flag / sprint-targeting conflicts — field-keyed ValidationError.
+milestone_signal_conflict	Field-keyed ValidationError (ErrorDetail on `is_milestone`) — #2550 shape.
+milestone_targeted_by_sprint	Field-keyed ValidationError (ErrorDetail on `is_milestone`) — #2550 shape.
+
+# Three-point-estimate ordering and @mention resolution.
+invalid_three_point_estimate	Field-keyed ValidationError (ErrorDetail on `most_likely_duration`) — #2550 shape.
+mention_resolution_failed	`ValidationError(detail, code=...)` where `detail` carries a non-string `skipped_users` list — same raise-site `code=` shape errors.md's #2550 section already flags as not reaching the wire; not independently re-verified against DRF's handler for the list-valued case.
+
+# Phase-rollup-lock family (ADR-0293 / ADR-0112) — errors.md's "Codes that
+# exist in code but not on the wire" section names these seven by example
+# already; each is a field-keyed ValidationError (ErrorDetail, sometimes a list
+# of one), so `code` is lost the same way.
+assignee_on_phase	Field-keyed ValidationError (ErrorDetail on `assignee`) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
+phase_estimate_rollup_locked	Field-keyed ValidationError (ErrorDetail per three-point field) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
+phase_in_sprint_forbidden	Field-keyed ValidationError (ErrorDetail on `sprint`) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
+phase_status_rollup_locked	Field-keyed ValidationError (ErrorDetail on `status`) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
+subtask_on_phase	Field-keyed ValidationError (a list of one ErrorDetail on `parent_id`) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
+summary_rollup_locked	Field-keyed ValidationError (ErrorDetail on `percent_complete`) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
+time_log_on_phase	ValidationError raised with a bare ErrorDetail (no field key) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
