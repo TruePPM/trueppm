@@ -11,7 +11,13 @@ license = "Apache-2.0"
 # NOTICE carries the MacroDream, LLC copyright line (#4177) — see
 # packages/scheduler/pyproject.toml's comment for the full rationale. Kept
 # byte-identical to the repo-root copy via scripts/check-package-licenses.sh.
-license-files = ["LICENSE", "NOTICE"]
+#
+# NOTICES and licenses/MPL-2.0.txt (#4377) disclose certifi (MPL-2.0), which
+# arrives transitively via httpx and is redistributed in this package's
+# Docker image and PyPI artifact alike. This package's NOTICES is scoped to
+# what it actually ships (certifi only — it has no psycopg dependency), so it
+# is NOT byte-identical to the repo-root NOTICES; keep both in sync by hand.
+license-files = ["LICENSE", "NOTICE", "NOTICES", "licenses/*.txt"]
 requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },

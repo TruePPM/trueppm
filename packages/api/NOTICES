@@ -1,0 +1,104 @@
+TruePPM — Third-Party Notices
+=============================
+
+TruePPM's own source code is licensed under the Apache License 2.0 (see the
+LICENSE file at the repository root). This NOTICES file records the third-party
+components that TruePPM *redistributes* and whose licenses require a notice to
+travel with every distributed copy. For psycopg the redistribution vehicle is
+the API Docker image — which carries this file and the `licenses/` texts under
+`/app` (see `packages/api/Dockerfile`) — plus the Helm bundles that deploy that
+image and the source distribution (this repository). For certifi the
+redistribution vehicles are **both** the API and the MCP Docker images (see
+`packages/api/Dockerfile` and `packages/mcp/Dockerfile`), the Helm bundles that
+deploy the API image, and the source distribution. It applies to **every
+distributed edition** — the Apache-2.0 Community Edition and the proprietary,
+installable Enterprise edition alike, both of which redistribute the
+components below transitively.
+
+The complete, authoritative dependency set is whatever the CI license jobs
+verify on each build (see docs: "License & Third-Party Attribution"). This file
+covers only the components carrying a notice/relink obligation; permissively
+licensed dependencies (MIT, BSD, Apache-2.0, ISC, …) are attributed there, not
+here.
+
+
+psycopg — PostgreSQL database adapter for Python
+------------------------------------------------
+
+  Component:   psycopg (v3), including its implementation packages
+               psycopg-c (production image) and psycopg-binary (local dev).
+  Version:     >= 3.1, < 4.0
+  License:     GNU Lesser General Public License v3.0 only (SPDX: LGPL-3.0-only)
+  Upstream:    https://www.psycopg.org/  ·  https://github.com/psycopg/psycopg
+  License text: licenses/LGPL-3.0.txt (LGPL-3.0 incorporates the terms of the
+               GNU GPL v3.0, included as licenses/GPL-3.0.txt).
+
+  Why it is included, and the obligations we satisfy:
+
+  psycopg is LGPL-3.0 — the one copyleft dependency in the tree, permitted
+  deliberately. It is *dynamically imported* by an application (TruePPM is not a
+  library that statically incorporates it), so under the LGPL's library-linking
+  terms it does not affect the license of TruePPM's own code, and it is
+  compatible with both the Apache-2.0 Community Edition and the proprietary
+  Enterprise edition. We do not modify psycopg's source.
+
+  LGPL-3.0 §4 (combined works) requires that recipients be able to relink or
+  replace the covered library. TruePPM satisfies this **by construction**:
+
+    * psycopg is installed from PyPI as a normal, replaceable wheel in
+      site-packages — never frozen into a single-file binary or statically
+      linked into a blob. An operator can `pip install` a different psycopg
+      build (including in vendored or air-gapped deployments) without rebuilding
+      TruePPM.
+    * The production Docker image installs the `psycopg[c]` implementation,
+      which dynamically links the C extension against the **system** libpq
+      (libpq5) rather than bundling its own. This is a security-posture choice,
+      not an additional §4 lever: OS-level libpq/OpenSSL upgrades to the base
+      image flow through to the driver. The §4 relink guarantee above is over
+      psycopg itself and is satisfied identically by either implementation —
+      both `[c]` and `[binary]` are replaceable site-packages wheels — while
+      libpq is permissively licensed (PostgreSQL License) and carries no
+      copyleft relink obligation. (Local development uses the precompiled
+      `psycopg[binary]` wheel for convenience; it bundles its own libpq and is
+      not used in production.)
+
+  Operator note: if you build a deliberately *frozen* or *vendored* derivative
+  that embeds psycopg as a static/single-file artifact, the §4 relink obligation
+  becomes yours to satisfy — keep psycopg a replaceable component, or ship the
+  object code/relink materials with your derivative. The stock TruePPM images do
+  not do this, so no extra step is required for them.
+
+
+certifi — Mozilla's curated bundle of root certificates
+--------------------------------------------------------
+
+  Component:   certifi
+  Version:     unpinned (resolved transitively; see below)
+  License:     Mozilla Public License 2.0 (SPDX: MPL-2.0)
+  Upstream:    https://github.com/certifi/python-certifi
+  License text: licenses/MPL-2.0.txt
+
+  How it arrives, and the obligation we satisfy:
+
+  certifi is not a direct dependency of trueppm-api or trueppm-mcp — it arrives
+  transitively via `requests` (django-allauth[socialaccount]'s OpenID Connect
+  provider, and the OpenTelemetry OTLP HTTP exporter) in the API image, and via
+  `httpx` in the MCP image. Both images redistribute it unmodified, installed
+  from PyPI as an ordinary wheel.
+
+  MPL-2.0 is file-level copyleft: the obligations attach to modifications of
+  the *licensed files themselves*, not to software that merely depends on or
+  links against them (§1.4, §3.1-3.3). We do not modify certifi's source, so no
+  source-disclosure obligation is triggered — only the Notice preservation and
+  license-availability requirements that apply to any Covered Software we
+  redistribute (§3.2, §3.3), both satisfied here: this NOTICES entry plus
+  `licenses/MPL-2.0.txt` travel with every image, and certifi's own unmodified
+  source remains available from its canonical PyPI/GitHub location at all
+  times (§3.3's "where the recipient can obtain it" is met by upstream
+  distribution — we do not vendor or fork it).
+
+  No version is pinned deliberately: certifi ships a rolling CA bundle update,
+  and pinning a version would eventually distribute stale root certificates.
+  The license (MPL-2.0) has been the same across every certifi release to
+  date; a CI license-check job would flag a change if that ever stopped
+  holding (see docs: "License & Third-Party Attribution").
