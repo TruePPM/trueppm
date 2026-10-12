@@ -38,6 +38,24 @@ describe('refPath', () => {
     );
   });
 
+  it('trims leading and trailing slashes from each part, keeping interior ones', () => {
+    const p = { id: UUID, code: 'PLAT' };
+    expect(projectPath(p, '////board////')).toBe('/projects/PLAT/board');
+    expect(projectPath(p, '///a/b///', '/c/')).toBe('/projects/PLAT/a/b/c');
+    expect(projectPath(p, 'a//b')).toBe('/projects/PLAT/a//b');
+    expect(programPath({ id: UUID, code: 'atlas' }, '//overview//')).toBe(
+      '/programs/atlas/overview',
+    );
+  });
+
+  it('drops all-slash and empty parts, and stringifies numeric parts', () => {
+    const p = { id: UUID, code: 'PLAT' };
+    expect(projectPath(p, '/', '', '////', 'board')).toBe('/projects/PLAT/board');
+    expect(projectPath(p, '', '/')).toBe('/projects/PLAT');
+    expect(projectPath(p, 'tasks', 42, '/7/')).toBe('/projects/PLAT/tasks/42/7');
+    expect(programPath({ id: UUID, code: 'atlas' }, 0)).toBe('/programs/atlas/0');
+  });
+
   it('swaps only the object segment and keeps the rest of the path', () => {
     expect(replaceRefSegment(`/projects/${UUID}/tasks/T-10`, 'project', 'PLAT')).toBe(
       '/projects/PLAT/tasks/T-10',
