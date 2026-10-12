@@ -1157,15 +1157,23 @@ export function useReorderTasks(projectId: string | null) {
 export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
 
 /**
- * Server-side cycle-detection error payload (ADR-0055).
+ * Server-side cycle-detection error payload (ADR-0055, #3800).
  *
  * Issued by `POST /dependencies/` and `PATCH /dependencies/{id}/` when the
  * proposed edge would close a logical cycle on the expanded leaf graph.
- * Each `cycle` entry carries the task name + hex_id so the toast can render
- * a path like `A → B → A` without needing to look the task up in cache.
+ * `code`/`offending` are the stable contract, matching the bulk graph
+ * endpoint's refusal shape (`docs/api/errors.md`). `detail`/`cycle` are
+ * deprecated legacy aliases the server keeps emitting for one minor — `cycle`
+ * carries the same path as `offending` but resolved to rich objects (task
+ * name + hex_id) so the toast can render a path like `A → B → A` without
+ * looking the task up in cache.
  */
 export interface CyclicDependencyError {
-  detail: 'cyclic_dependency';
+  code: 'cyclic_dependency';
+  /** @deprecated legacy alias of `code` kept on the wire for one minor (#3800). */
+  detail: string;
+  offending: string[];
+  /** @deprecated legacy alias of `offending` kept on the wire for one minor (#3800). */
   cycle: { id: string; name: string; hex_id: string }[];
 }
 
@@ -1191,14 +1199,22 @@ export function formatCycleMessage(err: CyclicDependencyError): string {
  *
  * Returns the parsed payload or `null` for any other error shape so callers
  * can branch on cycle vs. generic failure without `as` casts.
+ *
+ * Accepts either the current `code: "cyclic_dependency"` discriminator or the
+ * legacy `detail: "cyclic_dependency"` one (#3800) — a server older than this
+ * minor sends only the latter, and `offending` with it, so this keeps working
+ * unmodified against both. When the server omits `offending` (an even older
+ * server, or a legacy-only mock), it is derived from `cycle`'s ids.
  */
 export function parseCyclicDependencyError(err: unknown): CyclicDependencyError | null {
   if (typeof err !== 'object' || err === null) return null;
   const data = (err as { response?: { data?: unknown } }).response?.data;
   if (typeof data !== 'object' || data === null) return null;
+  const code = (data as { code?: unknown }).code;
   const detail = (data as { detail?: unknown }).detail;
+  if (code !== 'cyclic_dependency' && detail !== 'cyclic_dependency') return null;
   const cycle = (data as { cycle?: unknown }).cycle;
-  if (detail !== 'cyclic_dependency' || !Array.isArray(cycle)) return null;
+  if (!Array.isArray(cycle)) return null;
   for (const node of cycle) {
     if (
       typeof node !== 'object' ||
@@ -1210,7 +1226,18 @@ export function parseCyclicDependencyError(err: unknown): CyclicDependencyError 
       return null;
     }
   }
-  return data as CyclicDependencyError;
+  const typedCycle = cycle as { id: string; name: string; hex_id: string }[];
+  const offending = (data as { offending?: unknown }).offending;
+  const typedOffending =
+    Array.isArray(offending) && offending.every((id) => typeof id === 'string')
+      ? offending
+      : typedCycle.map((node) => node.id);
+  return {
+    code: 'cyclic_dependency',
+    detail: typeof detail === 'string' ? detail : 'cyclic_dependency',
+    offending: typedOffending,
+    cycle: typedCycle,
+  };
 }
 
 /**
@@ -1399,8 +1426,9 @@ export type AddDependencyResult = ApiDependencyResponse;
  * auth expiry, dev StrictMode races, or any network hiccup (#353).
  *
  * Cycle detection is enforced server-side at create time (ADR-0055); a 400
- * with `{detail: "cyclic_dependency", cycle: [...]}` surfaces to callers via
- * the mutation's `onError` and is parseable with {@link parseCyclicDependencyError}.
+ * with `{code: "cyclic_dependency", offending: [...], ...}` surfaces to
+ * callers via the mutation's `onError` and is parseable with
+ * {@link parseCyclicDependencyError}.
  */
 export function useAddDependency(projectId: string | null) {
   const queryClient = useQueryClient();

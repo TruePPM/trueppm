@@ -7157,10 +7157,12 @@ class CycleDetectedError(Exception):
     edge would close a cycle on the expanded leaf graph.
 
     Caught by ``DependencyViewSet.create`` / ``update`` and converted to a
-    structured ``400 {"detail": "cyclic_dependency", "cycle": [...]}`` response.
-    Bypasses DRF's :class:`serializers.ValidationError` because that class wraps
-    string fields in ``ErrorDetail`` lists, which mangles the shape the
-    frontend expects (see ADR-0055).
+    structured ``400 {"code": "cyclic_dependency", "detail": "cyclic_dependency",
+    "offending": [...], "cycle": [...]}`` response — ``detail``/``cycle`` are
+    deprecated legacy aliases of ``code``/``offending`` kept for one minor
+    (#3800). Bypasses DRF's :class:`serializers.ValidationError` because that
+    class wraps string fields in ``ErrorDetail`` lists, which mangles the shape
+    the frontend expects (see ADR-0055).
     """
 
     def __init__(self, cycle: list[dict[str, str]]) -> None:

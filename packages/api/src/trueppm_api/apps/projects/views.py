@@ -8190,6 +8190,42 @@ class BaselineActivateView(IdempotencyMixin, APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+# #3800: the direct create/update refusal and the bulk graph refusal
+# (``TaskClassificationView`` / ``errors.md``) now agree on `code` + `offending`.
+# `detail`/`cycle` stay on the wire as deprecated legacy aliases for one minor —
+# the web client (``useTaskMutations.ts``) and any external integrator built
+# against the pre-#3800 shape must keep working without a server-version check.
+#
+# No dedicated ``@extend_schema`` 400 override here on purpose: the generic
+# ``_VALIDATION_RESPONSE`` the ``TruePPMAutoSchema`` postprocessing hook injects
+# for every body-accepting write (``trueppm_api.core.openapi``) already types
+# ``code``/``detail`` as the recursive ``ValidationErrorDetail`` and every other
+# key via ``additionalProperties`` of the same type — a plain string leaf under
+# ``offending``/``cycle`` validates against it already, the same way the bulk
+# graph endpoint's ``code``/``offending`` (and ``TaskViewSet``'s
+# ``progress_requires_anchor``/``milestone_rollup_locked``) do with no override
+# of their own. Declaring a narrower ``responses={400: ...}`` here would
+# *replace* that generic response (the hook's injection is a ``setdefault``) and
+# silently undocument the ordinary field-validation 400 this same action can
+# also return (a bad ``dep_type`` choice, a missing ``predecessor``, …).
+def _cycle_detected_response_body(exc: CycleDetectedError) -> dict[str, Any]:
+    """The direct create/update 400 body for a :class:`CycleDetectedError` (#3800).
+
+    ``code``/``offending`` match the vocabulary ``TaskClassificationView``'s bulk
+    graph refusal and ``errors.md`` already use. ``detail``/``cycle`` stay on the
+    wire unchanged — ``detail`` as the legacy machine string (not the prose
+    ``errors.md`` shows for the bulk endpoint) and ``cycle`` as the legacy rich
+    ``{id, name, hex_id}`` list — so an already-shipped client reading either
+    pre-#3800 key keeps working for one minor.
+    """
+    return {
+        "code": "cyclic_dependency",
+        "detail": "cyclic_dependency",
+        "offending": [node["id"] for node in exc.cycle],
+        "cycle": exc.cycle,
+    }
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -8286,7 +8322,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
             return super().create(request, *args, **kwargs)
         except CycleDetectedError as exc:
             return Response(
-                {"detail": "cyclic_dependency", "cycle": exc.cycle},
+                _cycle_detected_response_body(exc),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -8295,7 +8331,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
             return super().update(request, *args, **kwargs)
         except CycleDetectedError as exc:
             return Response(
-                {"detail": "cyclic_dependency", "cycle": exc.cycle},
+                _cycle_detected_response_body(exc),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
