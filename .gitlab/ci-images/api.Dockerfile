@@ -42,7 +42,7 @@
 # release builds unchanged.
 ARG DOCKERHUB_PREFIX=docker.io
 
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:6f31d6e9ba2b0a787a3f81c37b004155b87b9efa1b771182bd550c1615745be5
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
 
 # git is needed by drf-spectacular's schema diff and by diff-cover; libpq-dev +
 # gcc build psycopg's C extensions.
