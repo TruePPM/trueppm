@@ -75,6 +75,7 @@ These rules are enforced at review time. Violations block merge.
 423. **A Recharts root inside an `aria-hidden` wrapper must set `accessibilityLayer={false}` — the library's own focusable keyboard overlay is still reachable by Tab even though `aria-hidden` removes it from the accessibility tree.** → [rule](../../docs/design/invariants/423-a-recharts-root-inside-an-aria-hidden-wrapper-must-set.md)
 428. **A persistent mode-indicator bar that never changes during a session carries no `aria-live` — use `<aside aria-label="…">` for findability instead, keep responsive copy in ONE text node, and render nothing while the mode is unresolved.** → [rule](../../docs/design/invariants/428-a-persistent-mode-indicator-that-never-changes.md)
 429. **A permanently-mounted live region must stay in the accessibility tree while it is empty — `empty:sr-only`, never `empty:hidden`; and responsive copy hidden with `hidden md:inline` is hidden from assistive technology too, so a sentence that must be complete at every width uses `sr-only md:not-sr-only`.** → [rule](../../docs/design/invariants/429-a-permanently-mounted-live-region-must-stay-in-the-tree.md)
+435. **`--neutral-text-disabled` now clears 4.5:1 on every surface, in both themes; it is no longer AA-exempt** — supersedes rules 87 and 169. → [rule](../../docs/design/invariants/435-neutral-text-disabled-now-clears-4-5-1-on-every-surface.md)
 
 ## Color and tokens
 
