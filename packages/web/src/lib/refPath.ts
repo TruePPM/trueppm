@@ -32,12 +32,21 @@ export interface KeyedObject {
 /** The URL segment an object is addressed by: its key when it has one, else its UUID. */
 export function refSegment(obj: KeyedObject): string {
   const code = obj.code?.trim();
-  return code ? code : obj.id;
+  return code || obj.id;
+}
+
+// Index-based so the trim stays linear; an end-anchored regex alternative rescans runs of '/'.
+function trimSlashes(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '/') start += 1;
+  while (end > start && value[end - 1] === '/') end -= 1;
+  return value.slice(start, end);
 }
 
 function join(base: string, rest: ReadonlyArray<string | number>): string {
   const tail = rest
-    .map((part) => String(part).replace(/^\/+|\/+$/g, ''))
+    .map((part) => trimSlashes(String(part)))
     .filter((part) => part.length > 0)
     .join('/');
   return tail ? `${base}/${tail}` : base;
@@ -83,5 +92,5 @@ export function segmentAfterRef(pathname: string, kind: RefKind): string | undef
   if (!pathname.startsWith(prefix)) return undefined;
   const parts = pathname.slice(prefix.length).split('/');
   const view = parts[1];
-  return view ? view : undefined;
+  return view || undefined;
 }
