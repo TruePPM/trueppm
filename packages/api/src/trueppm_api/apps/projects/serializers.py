@@ -6499,8 +6499,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # ADR-1153 that path recorded no actuals at all. The row was already
             # complete to the engine (Task._coerce_signoff_percent forces
             # percent_complete=100 in this status, and _is_complete reads that), so
-            # this does not newly mark it done — it gives it a real PIN instead of a
-            # full-duration planning position (ADR-0136 _pinned_placement).
+            # this does not newly mark it done — it anchors its pin on a real finish
+            # instead of the project start (ADR-0136 _pinned_placement).
             #
             # We still do NOT invent an actual_start: a card that jumped to done
             # without ever being IN_PROGRESS never recorded a start, and stamping

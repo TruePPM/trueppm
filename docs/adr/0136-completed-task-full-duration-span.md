@@ -4,6 +4,20 @@
 Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
 (Actual Start and Finish Dates on Tasks) — implemented on main; status corrected 2026-06-30 after ADR audit (verified: ADR-0136)
 
+> **Amended 2026-10-11 (#4343): a completed task with no actuals is pinned, not
+> network-placed.** The "neither" row and the "No actuals → network position" rule below
+> originally placed such a task through its FS/SS predecessors. Only the forward pass did
+> that: the backward pass, free float, Monte Carlo and the derivation all treated the same
+> task as out of the network, as "Symmetry & float" says every completed task is. The two
+> halves of the engine therefore disagreed about one task, and every predecessor inherited
+> it — float measured against a successor that never constrained it, a false critical path,
+> Monte Carlo freezing a position that in fact moved with its predecessors, and a derivation
+> citing a predecessor's date as the project start. The forward pass now pins it too, in
+> both engines (`engine.py::_pinned_placement`, `forward.rs::pinned_placement`) and the
+> browser drag preview (`cpmEngine.ts`). A completed milestone with no actuals keeps its
+> instant semantics (see Rules). The table and rules below are updated in place; the Monte
+> Carlo follow-up is resolved.
+
 > **The conformance-fixture constraint below is superseded by shipped practice** (verified
 > 2026-07-31, #2664). Both the Constraints section ("the shared `wasm:conformance` fixtures
 > carry **no** progress fields and must stay that way — adding actuals/`status_date` to the
@@ -93,7 +107,7 @@ task is **always laid out with its full working-day duration** — it never take
 | both | `actual_start` | `actual_finish` *(actuals are truth, even if span ≠ duration)* |
 | only `actual_finish` | `actual_finish − full_duration` (working days back) | `actual_finish` |
 | only `actual_start` | `actual_start` | `actual_start + full_duration` |
-| neither | predecessor/`planned_start`/project-start position, **not** floored at `status_date` | `early_start + full_duration` |
+| neither | `max(project start, planned_start)` — no predecessor constraint, **not** floored at `status_date` *(#4343)* | `early_start + full_duration` |
 
 Rules:
 
@@ -103,10 +117,22 @@ Rules:
 - **Derive the missing endpoint.** When exactly one actual is recorded, the other is
   derived from full working-day duration via the existing
   `_start_from_finish`/`_finish_from_start` helpers.
-- **No actuals → network position, unfloored.** A completed task with no actuals is
-  positioned by its FS/SS predecessor constraints, `planned_start`, and project start —
-  but **not** floored at the data date, because completed work is historical. FF/SF
-  constraints are not applied to a completed task (its dates are its own).
+- **No actuals → pinned at the project start or its SNET, unfloored.** A completed task
+  with no actuals is pinned like every other completed task: its full duration is laid
+  out from the project start (snapped to the task's calendar), or from its
+  `planned_start` when that is later. No predecessor link of any type moves it — the work
+  is done, so nothing upstream can delay it — and it is **not** floored at the data date,
+  because completed work is historical. (Superseded rule, before #4343: "positioned by its
+  FS/SS predecessor constraints, `planned_start`, and project start". The forward pass
+  applied it while the backward pass did not, which is the defect #4343 fixed.)
+- **A completed milestone with no actuals stays an instant.** Pinning takes a
+  zero-duration task out of the network, not out of being a milestone: it is an instant
+  at the **start** of its pinned day, exactly what a live milestone with no links gets,
+  so an FS successor starts that same day and nothing downstream moves relative to the
+  live case (#4343). Its `planned_start` binds the instant its successors measure from;
+  the project start only bounds where it is shown (#4225). A milestone pinned by
+  **recorded actuals** is unchanged: it is laid out as ordinary work, ending at the end
+  of its day.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).
@@ -160,7 +186,10 @@ realistic span without inventing a start date.
   match the existing far-future guards on `planned_start`/`status_date`/`planned_finish`
   (#951), `_validate_project` now rejects an `actual_*` more than `MAX_PROJECT_SPAN_DAYS`
   from the project start on both the CPM and Monte Carlo paths.
-- *Monte Carlo treatment of undated-complete tasks (deferred).* The deterministic pass
+- *Monte Carlo treatment of undated-complete tasks — resolved.* Monte Carlo now pins
+  every completed task at the dates `schedule()` gives it (`_completed_dates`, #2572), and
+  since #4343 those dates do not depend on any predecessor, so the pin is the position
+  every sampled run would compute. The original deferral, kept for the record: The deterministic pass
   treats `percent_complete >= 100` as complete; the MC sampler still pins only on
   `actual_finish`, so a REVIEW task (100%, no finish) or undated seed task is pinned in
   CPM but re-sampled in MC. After the write-path fix a COMPLETE task always carries
@@ -170,7 +199,8 @@ realistic span without inventing a start date.
 
 **Seed data**
 - With the engine fix, the "neither actual" branch already gives completed seed tasks a
-  full-duration network position, so the **bug screenshot is fixed by the engine alone**.
+  full-duration position (since #4343, pinned at the project start or their SNET), so the
+  **bug screenshot is fixed by the engine alone**.
   Backfilling realistic `actual_start`/`actual_finish` into the seed builder scripts is
   desirable for demo fidelity (and exercises the both-/one-actual branches) but is not
   required for correctness; scoped as a follow-on within this change, deferrable if the

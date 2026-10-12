@@ -516,7 +516,8 @@ describe('ScheduleAriaOverlay keyboard edges', () => {
       makeTask('t1', 'Design'),
       makeTask('t2', 'Phase rollup', { isSummary: true }),
       // Pinned means complete AND carrying an actual (#2827) — completion alone
-      // leaves the task network-scheduled and therefore reschedulable.
+      // leaves the task placed by its `planned_start` (#4343) and therefore
+      // reschedulable.
       makeTask('t3', 'Shipped', { isComplete: true, actualFinish: '2026-04-20' }),
     ];
     mount({ tasks });
@@ -527,7 +528,7 @@ describe('ScheduleAriaOverlay keyboard edges', () => {
   });
 
   it('announces a complete row that carries no actuals (#2827)', () => {
-    // It is still scheduled through the network and the keyboard can move it,
+    // Its `planned_start` still places it (#4343) and the keyboard can move it,
     // so withholding the hint would hide a shortcut that works.
     const tasks = [makeTask('t1', 'Design'), makeTask('t2', 'Site survey', { isComplete: true })];
     mount({ tasks });

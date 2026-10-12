@@ -441,12 +441,48 @@ def test_completed_with_actual_start_only_is_start_first() -> None:
     assert _contribs(p, "A", Quantity.EARLY_FINISH) == [as_, {**af, "is_binding": True}]
 
 
-def test_completed_bare_100_percent_uses_planning_position() -> None:
+def test_completed_bare_100_percent_cites_the_project_start() -> None:
     p = _completed()  # 100% complete, no recorded actuals
-    ps = _c("project_start", imposed_date="2026-03-02")
+    ps = _c("project_start", imposed_date="2026-03-02", calendar_days_added=0)
     ef = _c("early_start", imposed_date="2026-03-04")
     assert _contribs(p, "A", Quantity.EARLY_START) == [{**ps, "is_binding": True}, ef]
     assert _contribs(p, "A", Quantity.EARLY_FINISH) == [ps, {**ef, "is_binding": True}]
+
+
+def test_completed_bare_100_percent_cites_a_later_snet() -> None:
+    """An SNET later than the project start is what pins the task (#4343); a
+    Saturday SNET snaps to Monday and says so."""
+    p = _completed(planned_start=date(2026, 3, 7))
+    ps = _c("project_start", imposed_date="2026-03-02", calendar_days_added=0)
+    snet = _c("planned_start_snet", imposed_date="2026-03-09", calendar_days_added=2)
+    ef = _c("early_start", imposed_date="2026-03-11")
+    assert _contribs(p, "A", Quantity.EARLY_START) == [ps, {**snet, "is_binding": True}, ef]
+    assert _contribs(p, "A", Quantity.EARLY_FINISH) == [ps, snet, {**ef, "is_binding": True}]
+
+
+def test_completed_bare_100_percent_never_cites_its_predecessor() -> None:
+    """#4343's repro, ``A(5) -> B(3, 100%) -> C(2)``: B's early start is the
+    project start, and the derivation cites it with the date the project start
+    actually imposes — not A's FS constraint (03-09) relabeled as the project
+    start, which is what it reported while the forward pass placed B after A."""
+    p = Project(
+        id="r",
+        name="R",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=5)),
+            Task(id="B", name="B", duration=timedelta(days=3), percent_complete=100),
+            Task(id="C", name="C", duration=timedelta(days=2)),
+        ],
+        dependencies=[Dependency("A", "B"), Dependency("B", "C")],
+        calendar=Calendar(),
+    )
+    d = derive_value(p, "B", Quantity.EARLY_START)
+    assert d.value == "2026-03-02"
+    assert d.binding is not None
+    assert d.binding.kind == "project_start"
+    assert d.binding.imposed_date == date(2026, 3, 2)
+    assert all(c.source_task_id is None for c in d.contributions)
 
 
 def test_completed_backward_pins_late_to_early() -> None:

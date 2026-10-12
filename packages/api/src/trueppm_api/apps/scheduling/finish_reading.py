@@ -57,8 +57,10 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     at the end of its finish day, and so does a milestone pinned by recorded
     actuals — the engine lays it out as ordinary work and resets
     ``milestone_at_day_end`` to False, so the flag alone would misread it. Pinned
-    means complete (``actual_finish`` set, or ``percent_complete`` at 100) with an
-    actual date to anchor on (``_pinned_placement``).
+    by actuals means complete (``actual_finish`` set, or ``percent_complete`` at
+    100) with an actual date to anchor on. A completed milestone with no actuals is
+    pinned too (``_pinned_placement``) but stays an instant at the start of its day
+    (#4343), so it reads like a live milestone.
 
     ``milestone_at_day_end`` overrides the task's own flag, for reading a finish
     the task held before a recalculation overwrote it.

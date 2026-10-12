@@ -6,6 +6,16 @@ Proposed — amends ADR-0023 (field independence), ADR-0136 (completed-task layo
 ADR-0132 (§ edge cases); extends ADR-0752 (span vs remaining window, Accepted).
 Resolves #2664.
 
+> **Superseded in part by #4343 (2026-10-12).** This ADR's title and its §2 premise — that
+> ADR-0136's "neither" row positions a complete-without-actuals task by its predecessors,
+> `planned_start` and project start — no longer describe the engine. ADR-0136 was amended
+> by #4343: **every** completed task is now pinned out of network logic, and one with no
+> actuals sits at `max(project start, planned_start)` with no predecessor constraint (a
+> milestone stays an instant at the start of that day). "Only a recorded actual pins a
+> task" is therefore false as written; what a recorded actual still decides is whether
+> `planned_start` can move the task. The §2 data-date ceiling remains an open proposal and
+> would now apply to that pinned position, not to a network one. Read ADR-0136 first.
+
 ## Context
 
 **P3M layer:** Programs and Projects (single-project CPM and the schedule surface a PM

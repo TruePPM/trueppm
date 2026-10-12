@@ -12,10 +12,13 @@
  * dates the server contradicts on commit — bars visibly snap back once the CPM
  * run lands, which reads as data corruption rather than as reconciliation:
  *
- *  1. **Completed work is pinned.** A task that is complete AND carries a
- *     recorded actual (`actual_start` or `actual_finish`) is out of network
- *     logic entirely — it never moves, not even when it IS the drag target.
- *     Its finish still constrains its successors.
+ *  1. **Completed work is out of the network.** No predecessor moves a
+ *     complete task (ADR-0136, #4343); its finish still constrains its
+ *     successors. One that also carries a recorded actual (`actual_start` or
+ *     `actual_finish`) is pinned outright — it never moves, not even when it IS
+ *     the drag target. One complete by `percent_complete` alone sits at the
+ *     later of the project start and its `planned_start`, so a drop (which
+ *     lands as `planned_start`) still moves it.
  *  2. **In-progress work contributes only what is left.** The forward pass lays
  *     `remainingDuration` — not the full duration — ahead of the successors,
  *     and floors the task's early start at its recorded `actual_start`.
@@ -130,9 +133,14 @@ interface TaskState {
    */
   effectiveDurationDays: number;
   /**
-   * True when recorded actuals take this task out of network logic
-   * (`_pinned_placement`). A pinned task is never relaxed and never accepts a
-   * drag, but its dates still feed its successors' constraints.
+   * True for every completed task: the server pins all of them out of network
+   * logic (`_pinned_placement`, #4343), so no predecessor relaxes one. Its
+   * dates still feed its successors' constraints.
+   */
+  isComplete: boolean;
+  /**
+   * True when recorded actuals set this task's dates. Such a task also never
+   * accepts a drag: the server reads its actuals before `planned_start`.
    */
   isPinned: boolean;
   /** Recorded `actual_start` in ms, or null — the in-progress ES floor. */
@@ -536,9 +544,10 @@ function toTaskState(t: CpmTask): TaskState {
     // (see TaskState.durationDays doc — this is the calendar-blindness fix).
     durationDays: t.durationDays,
     effectiveDurationDays,
-    // Mirrors `_pinned_placement`: completion alone is not enough — a task
-    // complete only by percent_complete, with no actuals, still takes a
-    // full-duration position through the network.
+    isComplete,
+    // Mirrors `_pinned_placement`: only recorded actuals make the drop inert. A
+    // task complete by percent_complete alone is out of the network too, but
+    // its `planned_start` still places it, so a drag can move it.
     isPinned: isComplete && (actualStartMs !== null || t.actualFinish != null),
     actualStartMs,
     // Snapped on the way in, mirroring the server's
@@ -547,8 +556,9 @@ function toTaskState(t: CpmTask): TaskState {
     plannedStartMs: t.plannedStart ? nextWorkingDay(toMs(t.plannedStart)) : null,
     isMilestone: t.isMilestone,
     // Placeholder; `runCpmForwardPass` reads the real instant once it knows
-    // which milestones follow work. Pinned tasks are ordinary work to their
-    // successors, as they are server-side.
+    // which milestones follow work. A milestone pinned by actuals is ordinary
+    // work to its successors, as it is server-side; a completed milestone with
+    // no actuals stays an instant (#4343), it just never relaxes.
     instantMs:
       t.durationDays === 0 && !(isComplete && (actualStartMs !== null || t.actualFinish != null))
         ? earlyFinishMs
@@ -591,7 +601,8 @@ function applyDrag(
   // for work already underway — its recorded actual start.
   const plannedStartMs = nextWorkingDay(toMs(newStartIso));
   let earlyStartMs = plannedStartMs;
-  if (statusDate) {
+  // Completed work is historical: the server never floors it at the data date.
+  if (statusDate && !dragged.isComplete) {
     const dataDateMs = nextWorkingDay(toMs(statusDate));
     if (dataDateMs > earlyStartMs) earlyStartMs = dataDateMs;
   }
@@ -687,9 +698,9 @@ function setEarlyWindow(task: TaskState, earlyStartMs: number, spanFloorMs: numb
  * a date EARLIER than the server's — never a slip it will not honor.
  *
  * The dragged task is skipped: its start is the user's input, not something the
- * network derives. Pinned tasks are skipped too — recorded actuals leave the
- * network entirely (ADR-0132 §2), so an upstream drag can never move them, even
- * though their unchanged finish still constrains everything below them.
+ * network derives. Completed tasks are skipped too — the server pins every one
+ * out of the network (ADR-0136, #4343), so an upstream drag can never move them,
+ * even though their unchanged finish still constrains everything below them.
  */
 function relaxForward(
   order: string[],
@@ -701,7 +712,7 @@ function relaxForward(
     if (taskId === draggedTaskId) continue; // Already set by the caller.
     const task = stateMap.get(taskId);
     if (!task) continue;
-    if (task.isPinned) continue; // Actuals are truth — never renegotiated.
+    if (task.isComplete) continue; // Completed work is pinned — never relaxed.
 
     const preds = predecessors.get(taskId) ?? [];
     if (preds.length === 0) continue; // No predecessors — keep original dates.

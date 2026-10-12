@@ -135,6 +135,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // feed them. Tracked as the next widening step.
   progress_completed_pin: 'adapter: does not thread actuals/status date',
   progress_completed_percent_only_constraints: 'adapter: does not thread actuals/status date',
+  progress_completed_no_actuals_between_live_tasks: 'adapter: does not thread actuals/status date',
+  progress_completed_no_actuals_seven_day_chain: 'adapter: does not thread actuals/status date',
+  progress_completed_no_actuals_milestone_instant: 'adapter: does not thread actuals/status date',
   progress_completed_successor_no_backward_constraint:
     'adapter: does not thread actuals/status date',
   progress_in_progress_remaining: 'adapter: does not thread actuals/status date',

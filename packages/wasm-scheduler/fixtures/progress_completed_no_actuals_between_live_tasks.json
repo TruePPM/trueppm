@@ -1,0 +1,24 @@
+{
+  "id": "p-progress-completed-no-actuals-between-live-tasks",
+  "name": "Complete by percent alone (no actuals) chained between live tasks: pinned at the project start or its SNET, never moved by a predecessor (#4343)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Live predecessor", "duration": 432000.0},
+    {"id": "B", "name": "Complete by percent, no actuals, pinned at the project start", "duration": 259200.0, "percent_complete": 100.0},
+    {"id": "C", "name": "Live successor of the pinned task", "duration": 172800.0},
+    {"id": "D", "name": "Complete by percent, no actuals, Saturday SNET", "duration": 259200.0, "percent_complete": 100.0, "planned_start": "2026-03-07"},
+    {"id": "E", "name": "Live successor of the SNET-pinned task", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "D", "dep_type": "SS", "lag": 864000.0},
+    {"predecessor_id": "D", "successor_id": "E", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

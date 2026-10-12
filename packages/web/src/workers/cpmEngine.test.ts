@@ -369,23 +369,83 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
       expect(byId('D').earlyFinish).toBe('2026-01-21');
     });
 
-    it('still schedules a complete-without-actuals task through the network', () => {
-      // `_pinned_placement` returns None for this case: completion by
-      // percent_complete alone, with no actuals, takes an ordinary
-      // full-duration position. Pinning on `isComplete` alone would be wrong.
+    it('does not let a predecessor move a complete-without-actuals task', () => {
+      // `_pinned_placement` pins every completed task (#4343): one complete by
+      // percent_complete alone sits at the project start or its SNET, and no
+      // predecessor moves it. The preview used to push it after A.
       const tasks: CpmTask[] = [
         task('A', '2026-01-05', '2026-01-09'),
-        task('B', '2026-01-12', '2026-01-14', { isComplete: true }),
+        task('B', '2026-01-05', '2026-01-07', { isComplete: true }),
+        task('C', '2026-01-08', '2026-01-09'),
       ];
-      const edges: CpmEdge[] = [edge('A', 'B', 'FS')];
+      const edges: CpmEdge[] = [edge('A', 'B', 'FS'), edge('B', 'C', 'FS')];
 
       const { results } = runCpmForwardPass(tasks, edges, 'A', '2026-03-02');
-      const b = results.find((r) => r.taskId === 'B')!;
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
 
-      // A finishes Mar 6 (Fri) → Mar 7 is a Saturday → B starts Mar 9, and
-      // keeps its FULL 3-day duration (ADR-0136), not a collapsed remainder.
-      expect(b.earlyStart).toBe('2026-03-09');
-      expect(b.earlyFinish).toBe('2026-03-11');
+      expect(byId('A').earlyStart).toBe('2026-03-02');
+      expect(byId('B').earlyStart).toBe('2026-01-05');
+      expect(byId('B').earlyFinish).toBe('2026-01-07');
+      expect(byId('B').deltaDays).toBe(0);
+      // …so nothing reaches C through it either.
+      expect(byId('C').earlyStart).toBe('2026-01-08');
+      expect(byId('C').deltaDays).toBe(0);
+    });
+
+    it('keeps a complete-without-actuals milestone an instant its successor reads at the start of its day', () => {
+      // P → M(milestone, complete, no actuals) → B. The server pins M at the
+      // start of its day and keeps it an instant (#4343), exactly like a live
+      // milestone with no links, so B starts on M's day — not the day after, as
+      // it would after ordinary work. Dragging P moves neither.
+      const m = {
+        ...task('M', '2026-01-05', '2026-01-05', {
+          isMilestone: true,
+          isComplete: true,
+          durationDays: 0,
+        }),
+        milestoneAtDayEnd: false,
+      };
+      const tasks: CpmTask[] = [
+        task('P', '2026-01-05', '2026-01-09'),
+        m,
+        task('B', '2026-01-05', '2026-01-07'),
+      ];
+      const edges: CpmEdge[] = [edge('P', 'M', 'FS'), edge('M', 'B', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-03-02');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('M').earlyStart).toBe('2026-01-05');
+      expect(byId('M').deltaDays).toBe(0);
+      expect(byId('B').earlyStart).toBe('2026-01-05');
+      expect(byId('B').earlyFinish).toBe('2026-01-07');
+    });
+
+    it('still moves a complete-without-actuals task when it is the drag target', () => {
+      // The drop lands as `planned_start`, which the server's pin honors for a
+      // task with no actuals — so unlike an actuals-pinned task, it moves, keeps
+      // its FULL 3-day duration (ADR-0136), and carries its successor along.
+      const tasks: CpmTask[] = [
+        task('B', '2026-01-05', '2026-01-07', { isComplete: true }),
+        task('C', '2026-01-08', '2026-01-09'),
+      ];
+      const edges: CpmEdge[] = [edge('B', 'C', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'B', '2026-01-12');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('B').earlyStart).toBe('2026-01-12');
+      expect(byId('B').earlyFinish).toBe('2026-01-14');
+      expect(byId('C').earlyStart).toBe('2026-01-15');
+    });
+
+    it('does not floor a dropped complete task at the data date', () => {
+      // Completed work is historical: the server never floors it at the data
+      // date, so a drop before it stays where it was dropped.
+      const tasks: CpmTask[] = [task('B', '2026-01-19', '2026-01-21', { isComplete: true })];
+
+      const { results } = runCpmForwardPass(tasks, [], 'B', '2026-01-12', '2026-02-02');
+      expect(results.find((r) => r.taskId === 'B')!.earlyStart).toBe('2026-01-12');
     });
   });
 

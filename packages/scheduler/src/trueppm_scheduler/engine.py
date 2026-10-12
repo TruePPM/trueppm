@@ -1824,8 +1824,9 @@ def _forward_pass(
 ) -> dict[str, _Instant]:
     """Compute early_start and early_finish for every task (in-place).
 
-    Progress-aware (ADR-0132): a completed task (``actual_finish`` set) is pinned
-    to its recorded dates and removed from network logic; an in-progress task
+    Progress-aware (ADR-0132): a completed task (``actual_finish`` set, or
+    ``percent_complete >= 100``) is pinned by :func:`_pinned_placement` and removed
+    from network logic (ADR-0136, #4343); an in-progress task
     contributes only its remaining duration; and when ``status_date`` (the data
     date) is given, remaining/not-started work is floored at it — future work is
     never scheduled in the past. An in-progress task's ``actual_start``, when
@@ -1846,7 +1847,8 @@ def _forward_pass(
     start_display)}`` for each of them (:data:`_Instant`), which the backward pass,
     float computation and Monte Carlo's completed-task constraints read to invert
     and extend the same rule. A task pinned by recorded actuals is absent: it is
-    ordinary work to its successors.
+    ordinary work to its successors. A completed milestone with *no* actuals is
+    present: it stays an instant at its pinned day (:func:`_pinned_milestone_instant`).
 
     ``link_instants``, when given, is filled with the instant each of those
     milestones' successors measure from (:func:`_place_milestone`'s ``link``). It
@@ -1872,24 +1874,26 @@ def _forward_pass(
         # reset first so an input carrying a previous run's value cannot leak.
         task.milestone_at_day_end = False
 
-        pinned = _pinned_placement(task, cal)
+        pinned = _pinned_placement(task, cal, start_base)
         if pinned is not None:
             task.early_start, task.early_finish = pinned
+            if task.duration.days == 0 and task.actual_start is None and task.actual_finish is None:
+                # A completed milestone with no actuals stays an instant (#4343):
+                # exactly what _place_milestone gives a milestone with no links.
+                instants[node_id], links[node_id] = _pinned_milestone_instant(task, cal, pinned[0])
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 
         sf_linked = _sf_linked(node_id, g)
         duration_days, es_constraints = _early_start_floors(
-            task, cal, start_base, start, data_floor, sf_linked=sf_linked
+            task, cal, start, data_floor, sf_linked=sf_linked
         )
 
         if duration_days == 0:
             # Every floor but the project start's — the list an SF-linked task gets —
             # binds the instant successors measure from; the project start only
             # bounds where the milestone is shown (#4225, see _place_milestone).
-            _, hard_floors = _early_start_floors(
-                task, cal, start_base, start, data_floor, sf_linked=True
-            )
+            _, hard_floors = _early_start_floors(task, cal, start, data_floor, sf_linked=True)
             instant, day, links[node_id] = _place_milestone(
                 node_id,
                 task_map,
@@ -1964,7 +1968,6 @@ def _sf_linked(node_id: str, g: nx.DiGraph[str]) -> bool:
 def _early_start_floors(
     task: Task,
     cal: Calendar,
-    start_base: date,
     start: date,
     data_floor: date | None = None,
     *,
@@ -1986,29 +1989,24 @@ def _early_start_floors(
     such a successor ahead of the project start rather than dropping its link. The
     data date is not a planning choice: remaining work cannot be forecast into the
     past, so an SF anchor behind it means the successor is late, and it stays on
-    the data date like any other unfinished work. A complete-without-actuals task
-    was never floored at the data date, so it keeps no floor at all.
+    the data date like any other unfinished work.
+
+    Only reached for a task that is not complete: every completed task is pinned by
+    :func:`_pinned_placement` before the forward pass asks for its floors (#4343).
     """
-    if _is_complete(task):
-        # Complete but with no actuals recorded: a full-duration CPM planning
-        # position, anchored at the un-floored project start rather than the
-        # data date (completed work is historical and is never floored at it).
-        duration_days = task.duration.days
-        es_constraints: list[date] = [] if sf_linked else [start_base]
-    else:
-        # In-progress work contributes only what is left, laid forward from the
-        # data date; not-started work uses its full estimate.
-        duration_days = _effective_duration_days(task)
-        es_floor = data_floor if sf_linked else start
-        es_constraints = [] if es_floor is None else [es_floor]
-        if task.actual_start is not None:
-            # ADR-0132 §2 / #2621: work already underway is floored at where
-            # it actually started, not just at the data date or predecessor
-            # constraints — actuals are truth and are never smoothed back
-            # to an earlier network slot. Unsnapped, unlike planned_start:
-            # a recorded actual can legitimately land on a non-working day
-            # (e.g. logged over a weekend) and is not renegotiated.
-            es_constraints.append(task.actual_start)
+    # In-progress work contributes only what is left, laid forward from the
+    # data date; not-started work uses its full estimate.
+    duration_days = _effective_duration_days(task)
+    es_floor = data_floor if sf_linked else start
+    es_constraints: list[date] = [] if es_floor is None else [es_floor]
+    if task.actual_start is not None:
+        # ADR-0132 §2 / #2621: work already underway is floored at where
+        # it actually started, not just at the data date or predecessor
+        # constraints — actuals are truth and are never smoothed back
+        # to an earlier network slot. Unsnapped, unlike planned_start:
+        # a recorded actual can legitimately land on a non-working day
+        # (e.g. logged over a weekend) and is not renegotiated.
+        es_constraints.append(task.actual_start)
 
     # planned_start (SNET) is an additional ES lower-bound: the task may
     # not start before this date regardless of network logic.
@@ -2096,8 +2094,8 @@ def _compute_scheduled_start(task: Task, cal: Calendar) -> date:
     return _start_from_finish(task.early_finish, full_days, cal)
 
 
-def _pinned_placement(task: Task, cal: Calendar) -> tuple[date, date] | None:
-    """Early window for a task whose recorded actuals pin it out of network logic.
+def _pinned_placement(task: Task, cal: Calendar, start_base: date) -> tuple[date, date] | None:
+    """Early window for a completed task, which is pinned out of network logic.
 
     A completed task (``actual_finish`` set, or ``percent_complete >= 100``) is laid
     out at its FULL duration so the bar keeps its shape (ADR-0136). Whatever actuals
@@ -2105,9 +2103,18 @@ def _pinned_placement(task: Task, cal: Calendar) -> tuple[date, date] | None:
     are truth, so a pinned task leaves network logic entirely — it may even sit before
     a predecessor, surfacing out-of-sequence reality rather than smoothing it away.
 
-    Returns ``None`` — "schedule this one through the network" — when the task is not
-    complete, and for the complete-with-no-actuals case, which takes a full-duration
-    planning position instead.
+    A completed task with **no** actuals at all is pinned too (#4343): its full
+    duration is laid out from ``start_base`` — the project start snapped to the
+    task's calendar, never the data date, because completed work is historical —
+    raised to its ``planned_start`` (SNET) when one is set. Predecessors do not move
+    it. That is the position the backward pass, free float, Monte Carlo and the
+    derivation already assumed (they all treat a completed task as out of the
+    network); placing it through the network here instead made the two halves of the
+    engine disagree about the same task, inflating its predecessors' float and
+    dropping them off the critical path.
+
+    Returns ``None`` — "schedule this one through the network" — only when the task
+    is not complete.
     """
     if not _is_complete(task):
         return None
@@ -2127,7 +2134,30 @@ def _pinned_placement(task: Task, cal: Calendar) -> tuple[date, date] | None:
         # Start is known (e.g. a REVIEW task: done, awaiting sign-off); lay the full
         # duration forward from it.
         return task.actual_start, _finish_from_start(task.actual_start, full_days, cal)
-    return None
+    # No actuals: the un-floored project start, or the SNET when it is later.
+    start = start_base
+    if task.planned_start is not None:
+        start = max(start, _next_working_day(task.planned_start, cal))
+    return start, _finish_from_start(start, full_days, cal)
+
+
+def _pinned_milestone_instant(task: Task, cal: Calendar, day: date) -> tuple[_Instant, _Instant]:
+    """``(shown, link)`` for a completed milestone with no actuals, pinned on ``day`` (#4343).
+
+    Pinning takes the milestone out of the network, but not out of being a
+    milestone: it is an instant at the start of ``day``, as a live milestone with
+    no links is, so a successor reads it at that midnight rather than at the end
+    of the day. Dropping it to ordinary work moved every FS successor a working
+    day later than the identical live milestone does. The pair is what
+    :func:`_place_milestone` returns with no predecessors: the SNET is a fact
+    about when the milestone happens and binds ``link``; the project start only
+    bounds where it is shown (#4225), so ``link`` falls back to it only when no
+    SNET is set.
+    """
+    shown: _Instant = (day, True)
+    if task.planned_start is None:
+        return shown, shown
+    return shown, (_next_working_day(task.planned_start, cal), True)
 
 
 def _forward_edge_constraints(
@@ -4541,7 +4571,7 @@ def _mc_pre_start_pad_days(
 
     The bound is a lower bound on every run's start, not a deterministic replay: in a
     run, a task that is not SF-linked starts no earlier than the project-start floor
-    (or, when pinned by actuals, at its fixed recorded start), and an SF-linked task's
+    (or, when complete, at its fixed pinned start), and an SF-linked task's
     start is at least the back-solve of any single SF bound — its other links only
     raise it (#4220) — over its *longest*
     possible sampled duration, measured from that lower bound on the predecessor —
@@ -4563,7 +4593,7 @@ def _mc_pre_start_pad_days(
     for tid in topo_order:
         task = task_map[tid]
         cal = cal_of[tid]
-        pinned = _pinned_placement(task, cal)
+        pinned = _pinned_placement(task, cal, _next_working_day(project.start_date, cal))
         if pinned is not None:
             lo[tid] = pinned[0]
             continue
@@ -4808,20 +4838,20 @@ def _completed_dates(
     (#2460/#2461) — and, unlike a transcription, cannot fall behind a later change to
     the deterministic pass (#2572).
 
-    The transcription it replaces reproduced only the *pinned* branches faithfully.
-    For the third branch — ``percent_complete >= 100`` with no actuals at all — it
-    returned the bare project-start anchor and dropped both the ``planned_start``
-    (SNET) floor and every predecessor constraint that ``_forward_pass`` folds in,
-    so a completed-by-percent task with an SNET pin simulated *earlier* than its CPM
-    position and the percentiles under-reported risk.
+    The transcription it replaces reproduced only the actuals-anchored branches
+    faithfully. For the third branch — ``percent_complete >= 100`` with no actuals at
+    all — it returned the bare project-start anchor and dropped the ``planned_start``
+    (SNET) floor, so a completed-by-percent task with an SNET pin simulated *earlier*
+    than its deterministic position and the percentiles under-reported risk.
 
-    Both dropped constraints are resolved here, once, in scalar ``date`` space — which
-    is what keeps the constant-pin property the Monte Carlo fast path relies on. The
-    SNET floor is a fixed input date. The predecessor constraints are read off the
-    deterministic (mean-duration) positions rather than each run's sampled ones: a
-    completed task chained after incomplete work is an inherently anomalous data state,
-    and pinning it at its CPM position is both run-invariant and exactly what
-    ``schedule()`` reports for it.
+    Every completed task is pinned out of the network (:func:`_pinned_placement`,
+    #4343), including one with no actuals, so each date read here is a function of the
+    task's own fields and the project start alone — never of a predecessor's sampled
+    duration. That is what makes the pin a true constant across runs, the property the
+    Monte Carlo fast path relies on: no run can move a completed task. (Before #4343
+    the no-actuals task was placed through the network in ``schedule()``, so pinning it
+    at its deterministic position here froze a position that in fact depended on its
+    predecessors' durations, and the percentiles under-reported risk downstream of it.)
 
     Scalar ``date`` space also preserves the *non-working* dates the working-day offset
     index cannot represent — a weekend ``actual_finish`` stays verbatim.
