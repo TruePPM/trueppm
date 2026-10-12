@@ -1236,7 +1236,7 @@ async def test_presence_keepalive_survives_a_redis_failure() -> None:
 # ---------------------------------------------------------------------------
 # #4375 — policy refusals are accept-then-close at the ASGI level
 #
-# A close sent BEFORE accept makes Channels/Daphne reject the HTTP upgrade with a
+# A close sent BEFORE accept makes the ASGI server (uvicorn) reject the HTTP upgrade with a
 # 403, which a browser reports as close code 1006 — the application code never
 # arrives, so the web client cannot tell "refused" from "network drop" and
 # reconnects forever. These drive the real router through WebsocketCommunicator

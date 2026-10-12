@@ -3044,7 +3044,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         CPM dates. ``can_access_project`` is the per-project membership predicate;
         injecting it keeps the schedule service request-agnostic.
         """
-        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.access.permissions import (
+            _membership_role,
+            role_can_subscribe_live,
+        )
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.projects.program_schedule import compute_program_schedule
 
@@ -3060,6 +3063,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 # task titles and program-true CPM dates, which is the wrong answer for
                 # a project that explicitly withheld consent.
                 exclude_project_ids=mcp_excluded_project_ids(request),
+                # #4375: the program page opens one socket per member project; this
+                # is the consumer's own floor, so it never dials one that refuses it.
+                # ``_membership_role`` caches per request, so this adds no queries
+                # beyond the ``can_access_project`` lookups above.
+                can_subscribe_live=lambda project_id: role_can_subscribe_live(
+                    _membership_role(request, project_id)
+                ),
             )
         )
 

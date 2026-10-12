@@ -36,6 +36,7 @@ from django.db.models.signals import post_delete, pre_save
 from django.dispatch import receiver
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.permissions import role_can_subscribe_live
 from trueppm_api.apps.sync.broadcast import evict_project_connection
 
 
@@ -89,11 +90,20 @@ def _evict_on_revocation(sender: type, instance: ProjectMembership, **kwargs: An
     if old is None:
         return
     became_deleted = not old.is_deleted and instance.is_deleted
-    # Demotion *across* the Member threshold (e.g. Member/Scheduler/Admin -> Viewer).
-    # A demotion that stays at or above Member keeps the user connectable, so no evict.
+    # Eviction keys on the socket's OWN floor — the predicate the consumer's connect
+    # gate calls — so a socket is evicted exactly when a fresh connect would be
+    # refused, wherever that floor sits (#4375). An inline ordinal comparison here
+    # would drift silently if the floor moved.
+    lost_live_updates = role_can_subscribe_live(old.role) and not role_can_subscribe_live(
+        instance.role
+    )
+    if became_deleted or lost_live_updates:
+        _schedule_evict(instance.project_id, instance.user_id)
+    # Timers follow the time-logging floor (Member), a different rule that happens to
+    # share today's ordinal; keep it separate so moving one floor does not move the
+    # other. A demotion that stays at or above Member keeps the user able to log time.
     demoted_below_member = old.role >= Role.MEMBER and instance.role < Role.MEMBER
     if became_deleted or demoted_below_member:
-        _schedule_evict(instance.project_id, instance.user_id)
         _discard_active_timers_on_revocation(instance.project_id, instance.user_id)
 
 

@@ -19,6 +19,15 @@ export interface ProgramScheduleLane {
   /** Whether the requester may read this member project's tasks in full. */
   accessible: boolean;
   /**
+   * Whether this member project's live-update WebSocket will accept the requester
+   * (#4375) — the server's `role_can_subscribe_live`, the consumer's own gate. The
+   * program page opens no socket for a lane where this is `false` (it would be
+   * refused with 4003). Optional: an absent value is "unknown — subscribe", the
+   * pre-#4375 behavior, safe because the server enforces and 4003 is now terminal.
+   * Distinct from `accessible`: a Viewer can read a project but gets no socket.
+   */
+  can_subscribe_live?: boolean;
+  /**
    * Working days across the lane's own rolled-up span (`[min early_start, max
    * early_finish]` of every task in the project), per that project's composed
    * calendar (#3597) — matches `_apply_cpm_results`'/`summary_working_day_durations`'

@@ -3191,6 +3191,14 @@ class ProgramScheduleLaneSerializer(serializers.Serializer[dict[str, Any]]):
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(read_only=True)
     accessible = serializers.BooleanField(read_only=True)
+    can_subscribe_live = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether this member project's live-update WebSocket will accept the "
+            "requesting user — the same rule the socket enforces. When false the socket "
+            "refuses with close code 4003, so clients should not subscribe to it."
+        ),
+    )
     duration = serializers.IntegerField(
         read_only=True, help_text="Lane's rolled-up working-day duration (#3597)."
     )

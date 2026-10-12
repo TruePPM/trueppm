@@ -693,7 +693,7 @@ RFC 9220. In practice:
 
 | What you see | Cause | Fix |
 |---|---|---|
-| Closes immediately, code **4003** | The authenticated user's role on that project is Viewer (or they are not a member). Not a networking fault. The web app does not normally dial for a Viewer at all — it shows **No live updates** and refreshes every 5 minutes. | Grant Team Member or above; see [RBAC](/administration/rbac/). |
+| Closes immediately, code **4003** | The authenticated user's role on that project is Viewer (or they are not a member). Not a networking fault. The web app does not normally dial for a Viewer at all — it shows **No live updates**, and tasks and the forecast refresh every 5 minutes. | Grant Team Member or above; see [RBAC](/administration/rbac/). |
 | Closes immediately, code **4001** | No valid credential: the ticket is missing, expired, or already redeemed. Tickets are single-use, so a client that reuses one across reconnects fails on the second attempt. | Mint a fresh ticket per connection. |
 | Closes immediately, code **4404** (a browser shows **1006**: this one is refused before the handshake is accepted) | The path matched no route. | Check the edge is not rewriting or stripping the `/ws` prefix — `/ws/v1/projects/<uuid>/` must arrive intact. |
 | Handshake never completes; you get **HTTP 200 with the SPA's HTML**, or a 400 | The proxy stripped `Upgrade`/`Connection`, or spoke HTTP/1.0 upstream, or `/ws` fell through to the SPA's `try_files` catch-all. | Add the three required headers and `proxy_http_version 1.1`; route `/ws` before `/`. |

@@ -59,9 +59,12 @@ const CONNECTION_PRESENTATION: Record<
   refused: {
     dot: 'bg-neutral-text-disabled',
     label: 'No live updates',
-    aria: `No live updates for your role on this project. This view refreshes every ${
+    // Scoped on purpose: only the task list and the forecast poll on this interval
+    // (`fallbackPollInterval`); other surfaces refresh when reopened, so a blanket
+    // "this view refreshes" would overclaim.
+    aria: `No live updates for your role on this project. Tasks and the forecast refresh every ${
       REFUSED_POLL_INTERVAL_MS / 60_000
-    } minutes.`,
+    } minutes; reopen other views to refresh them.`,
   },
 };
 

@@ -187,7 +187,9 @@ describe('StatusBar', () => {
       useWsConnectionStore.setState({ state: 'refused', reconnectAttempts: 0 });
       renderWithRouter(<StatusBar />);
       expect(screen.getByText('No live updates')).toBeInTheDocument();
-      expect(screen.getByLabelText(/refreshes every 5 minutes/i)).toBeInTheDocument();
+      expect(
+        screen.getByLabelText(/tasks and the forecast refresh every 5 minutes/i),
+      ).toBeInTheDocument();
       // Not the stale/failed copy: a Viewer's edits are not "failing to save".
       expect(screen.queryByText(/connection lost|disconnected|reconnecting/i)).not.toBeInTheDocument();
       expect(screen.queryByLabelText(/won't be saved|signed out/i)).not.toBeInTheDocument();

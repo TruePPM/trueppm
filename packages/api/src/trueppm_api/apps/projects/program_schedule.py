@@ -572,6 +572,7 @@ def compute_program_schedule(
     *,
     can_access_project: Callable[[Any], bool],
     exclude_project_ids: Collection[Any] | None = None,
+    can_subscribe_live: Callable[[Any], bool] | None = None,
 ) -> dict[str, Any]:
     """Compute the merged, program-true schedule for ``program`` on read.
 
@@ -581,6 +582,12 @@ def compute_program_schedule(
             requester may read a member project's tasks in full. Tasks of projects
             for which this returns ``False`` are redacted to the ExternalTaskCard
             shape. Injected by the view so this service stays request-agnostic.
+        can_subscribe_live: Optional predicate ``project_id -> bool`` — whether the
+            requester's role on a member project clears the project WebSocket's
+            floor (``role_can_subscribe_live``). Emitted per lane so the program
+            page never dials a member project's socket that would refuse it with
+            4003 (#4375). ``None`` reports ``False`` for every lane (fails closed;
+            the client then simply does not subscribe).
 
     Returns:
         A JSON-serializable dict: ``program_id``, ``start_date``, ``finish_date``,
@@ -615,6 +622,7 @@ def compute_program_schedule(
             "id": str(p.id),
             "name": p.name,
             "accessible": bool(can_access_project(p.id)),
+            "can_subscribe_live": bool(can_subscribe_live and can_subscribe_live(p.id)),
             # Working days across the lane's own rolled-up span (#3597) — 0 for a
             # project with no scheduled task, matching the pre-fix client fallback.
             "duration": lane_durations.get(str(p.id), 0),

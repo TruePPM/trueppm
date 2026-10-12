@@ -70,8 +70,7 @@ describe('ProgramScheduleLiveSync — per-project close codes (#4375)', () => {
     });
   });
 
-  function mount(projectIds: string[]) {
-    const qc = new QueryClient();
+  function mount(projectIds: string[], qc: QueryClient = new QueryClient()) {
     return render(
       <QueryClientProvider client={qc}>
         <ProgramScheduleLiveSync programId="prog-1" projectIds={projectIds} />
@@ -96,6 +95,29 @@ describe('ProgramScheduleLiveSync — per-project close codes (#4375)', () => {
     expect(socketsFor('viewer-proj')).toHaveLength(1);
     // The healthy sibling channel is untouched.
     expect(socketsFor('member-proj')).toHaveLength(1);
+  });
+
+  it('a refusal survives a token refresh: the refused project is not re-dialed', () => {
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    mount(['viewer-proj', 'member-proj'], qc);
+    act(() => {
+      const [refused] = socketsFor('viewer-proj');
+      refused.dispatch('open', {});
+      refused.dispatch('close', { code: 4003 });
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['programs', 'prog-1', 'schedule'] });
+
+    // A new access token re-runs every channel's effect (15-minute token life).
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-refreshed' });
+    });
+    act(() => {
+      vi.advanceTimersByTime(120_000);
+    });
+    expect(socketsFor('viewer-proj')).toHaveLength(1);
+    // The healthy channel does reconnect on the new token, as before.
+    expect(socketsFor('member-proj')).toHaveLength(2);
   });
 
   it('negative control: a 1006 drop still reconnects with backoff', () => {

@@ -46,8 +46,9 @@ _REPLAY_CAP = 1000
 # Close codes (#4375). Which side of the handshake a refusal happens on decides
 # whether a browser can ever see the code:
 #
-# - Before ``accept``, Channels rejects the HTTP upgrade with a 403, and a browser
-#   reports close code **1006** with no application code at all. The client cannot
+# - Before ``accept``, the ASGI server (uvicorn in production) answers the HTTP
+#   upgrade with a 403 instead of switching protocols, and a browser reports close
+#   code **1006** with no application code at all. The client cannot
 #   tell "you may not" from "the network dropped", so it retries forever.
 # - After ``accept``, the close frame carries the code and the browser's
 #   ``CloseEvent.code`` is the value sent here.
@@ -395,8 +396,8 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     async def _refuse(self, code: int) -> None:
         """Refuse a connect so the browser actually receives ``code`` (#4375).
 
-        Accept, then close. Closing before accept makes Channels reject the HTTP
-        upgrade with a 403, which a browser reports as close code 1006 — so the
+        Accept, then close. Closing before accept makes the ASGI server (uvicorn)
+        answer the HTTP upgrade with a 403, which a browser reports as code 1006 — so the
         client could never recognize 4001 or 4003 as terminal and kept reconnecting.
         Nothing has been joined or counted at this point (no group, no presence, no
         gauge increment), so ``disconnect`` is a no-op for a refused socket.

@@ -72,8 +72,12 @@ export function ProgramSchedulePage() {
     return map;
   }, [data]);
 
+  // Only lanes whose socket will accept this caller (#4375): a Viewer on — or a
+  // non-member of — a member project would be refused with 4003, so subscribing
+  // would cost a ticket and a handshake per refused project per token refresh.
+  // `!== false` on purpose: an unknown verdict subscribes; the server enforces.
   const memberProjectIds = useMemo(
-    () => (data?.projects ?? []).map((p) => p.id),
+    () => (data?.projects ?? []).filter((p) => p.can_subscribe_live !== false).map((p) => p.id),
     [data],
   );
 

@@ -269,3 +269,28 @@ def test_a_soft_deleted_membership_is_not_re_evicted_on_deactivation(
         user.is_active = False
         user.save(update_fields=["is_active"])
     evict.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_eviction_follows_the_live_update_predicate_not_an_inline_floor(
+    user: Any, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Eviction keys on ``role_can_subscribe_live`` — the consumer's own gate (#4375).
+
+    Simulates the floor moving to Admin: an Admin -> Scheduler demotion then loses
+    live updates and must evict, even though it stays above Member. With the old
+    inline ``>= Role.MEMBER`` comparison this demotion would not evict, leaving a
+    socket open that a fresh connect would be refused.
+    """
+    m = ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    with (
+        patch(
+            "trueppm_api.apps.access.signals.role_can_subscribe_live",
+            new=lambda role: role is not None and role >= Role.ADMIN,
+        ),
+        patch(_EVICT) as evict,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        m.role = Role.SCHEDULER
+        m.save()
+    evict.assert_called_once_with(str(project.pk), str(user.pk))

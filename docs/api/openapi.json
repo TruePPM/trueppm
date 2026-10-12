@@ -65200,6 +65200,11 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "can_subscribe_live": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Whether this member project's live-update WebSocket will accept the requesting user — the same rule the socket enforces. When false the socket refuses with close code 4003, so clients should not subscribe to it."
+                    },
                     "duration": {
                         "type": "integer",
                         "readOnly": true,
@@ -65208,6 +65213,7 @@
                 },
                 "required": [
                     "accessible",
+                    "can_subscribe_live",
                     "duration",
                     "id",
                     "name"

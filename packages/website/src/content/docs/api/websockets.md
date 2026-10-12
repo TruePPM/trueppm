@@ -95,9 +95,10 @@ How a client should react:
 
 - **`4003` is terminal.** Retrying can only be refused again. Stop reconnecting,
   refresh from the REST API instead, and tell the user live updates are not
-  available for their role. Better still, do not connect at all when the project's
-  `can_subscribe_live` field is `false` — it is computed from the same rule the
-  socket enforces.
+  available for their role. Better still, do not connect at all when
+  `can_subscribe_live` is `false` — on the project (`GET /projects/{id}/`) or on a
+  lane of the program schedule (`GET /programs/{id}/schedule/`). Both are computed
+  from the same rule the socket enforces.
 - **`4001`:** mint a fresh ticket (refreshing the access token first if needed) and
   reconnect once; a second consecutive `4001` means the session has expired and the
   user must re-authenticate.
