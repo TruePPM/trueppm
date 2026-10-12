@@ -897,6 +897,11 @@ def _do_project_purge(*, dry_run: bool = False, override_value: int | None = Non
     FK; that enumeration went stale when mention groups landed and a single project
     that had ever carried one aborted the whole batch (#2372).
 
+    ``broadcast=True`` is passed on every batch so a purged project's board gets its
+    own ``project_hard_deleted`` event, same as every other hard-delete path (#3860,
+    #4374) — a connected client is unlikely this late in the retention window, but
+    a stale socket or a shortened window should not surface as silent desync.
+
     HistoricalProject rows are intentionally not touched here; they age out via the
     separate history retention purge.
     """
@@ -928,7 +933,7 @@ def _do_project_purge(*, dry_run: bool = False, override_value: int | None = Non
         # hard_delete_projects is itself @transaction.atomic, so each batch remains a
         # single transaction — the batching still caps collector memory and lock-hold
         # time without one failure rolling back previously purged batches.
-        deleted_projects += hard_delete_projects(batch)
+        deleted_projects += hard_delete_projects(batch, broadcast=True)
     if deleted_projects:
         logger.info(
             "purge_soft_deleted_projects: hard-deleted %d soft-deleted project(s)",

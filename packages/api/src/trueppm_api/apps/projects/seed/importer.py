@@ -831,22 +831,14 @@ class _SeedImporter:
                 release_keys_for_replace(doomed_project)
             )
         if self.is_sample:
-            # Capture the doomed project ids before the rows go: a hard delete
-            # leaves no tombstone, so the broadcast is the only signal a client
-            # holding these rows will ever get (the #2581 defect, on the branch
-            # ADR-0726 deliberately left hard). Mirrors ``remove_sample``.
-            doomed = [
-                str(pk)
-                for pk in Project.objects.filter(program=target).values_list("pk", flat=True)
-            ]
+            # A hard delete leaves no tombstone, so the project_hard_deleted
+            # broadcast is the only signal a client holding these rows will ever
+            # get (the #2581 defect, on the branch ADR-0726 deliberately left
+            # hard). broadcast=True makes hard_delete_program schedule one per
+            # deleted project (#4374) — mirrors ``remove_sample``, which routes
+            # through the same helper.
             program_id = str(target.pk)
-            hard_delete_program(target.pk)
-            for doomed_id in doomed:
-
-                def _emit_hard_deleted(project_id: str = doomed_id) -> None:
-                    broadcast_board_event(project_id, "project_hard_deleted", {"id": project_id})
-
-                transaction.on_commit(_emit_hard_deleted)
+            hard_delete_program(target.pk, broadcast=True)
             transaction.on_commit(
                 lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
             )

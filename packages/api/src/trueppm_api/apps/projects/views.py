@@ -1897,8 +1897,6 @@ class ProjectViewSet(
         irreversible loss. Issues a distinct ``project_hard_deleted`` event so
         clients can hard-evict rather than mark-tombstoned.
         """
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
         project_id = str(instance.pk)
         force_raw = (self.request.query_params.get("force") or "").lower()
         force = force_raw in ("1", "true", "yes")
@@ -1915,20 +1913,17 @@ class ProjectViewSet(
             # archive → force-delete dialog already gates against accidents; at this
             # point the Owner has confirmed and those rows must go with the project
             # row. hard_delete_projects resolves the PROTECT-ing set from _meta so
-            # this path cannot rot as new FKs land (#2364).
+            # this path cannot rot as new FKs land (#2364). broadcast=True schedules
+            # the project_hard_deleted event itself (#4374) — do not also broadcast
+            # here, or the one client listening gets the event twice.
             from trueppm_api.apps.access.services import hard_delete_projects
 
-            hard_delete_projects([instance.pk])
+            hard_delete_projects([instance.pk], broadcast=True)
             _record_project_audit_event(
                 event_type="project_deleted",
                 actor=self.request.user,
                 project=instance,
                 metadata={"mode": "hard"},
-            )
-            transaction.on_commit(
-                lambda: broadcast_board_event(
-                    project_id, "project_hard_deleted", {"id": project_id}
-                )
             )
             return
 

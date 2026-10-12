@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -481,6 +482,38 @@ def test_remove_sample_endpoint_owner_tears_down(owner: Any) -> None:
     assert resp.status_code == 204
     assert not Program.objects.filter(pk=program.pk, is_deleted=False).exists()
     assert not Project.objects.filter(program_id=program.pk).exists()
+
+
+def test_remove_sample_broadcasts_project_hard_deleted_per_project(
+    owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    """#4374: an open tab on a torn-down sample project must learn it is gone.
+
+    ``remove_sample`` only ever sent the undeliverable ``program_deleted`` (#836
+    — no program WS channel exists). The per-project ``project_hard_deleted``
+    broadcast is the one ``useProjectWebSocket`` actually handles.
+    """
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    doomed = {
+        str(pk) for pk in Project.objects.filter(program=program).values_list("pk", flat=True)
+    }
+    assert doomed, "fixture must seed at least one sample project"
+
+    # remove_sample imports broadcast_board_event lazily inside the view method
+    # (same as hard_delete_projects does), so patching the source module reaches
+    # both the per-project and the program-level call.
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(owner).post(f"/api/v1/programs/{program.pk}/remove-sample/")
+    assert resp.status_code == 204
+
+    hard = {
+        call.args[0] for call in broadcast.call_args_list if call.args[1] == "project_hard_deleted"
+    }
+    assert hard == doomed
+    assert any(call.args[1] == "program_deleted" for call in broadcast.call_args_list)
 
 
 def test_remove_sample_non_owner_denied(owner: Any) -> None:

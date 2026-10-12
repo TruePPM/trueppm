@@ -2308,9 +2308,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         teardown can never remove real work. Hard-deletes the *entire* program
         subtree (all projects, not only is_sample ones — a sample program holds
         only sample projects). Unlike ``destroy`` this is a hard delete, not a
-        soft delete: sample data is disposable, so it is purged outright. Offline
-        sync clients reconcile via the ``program_deleted`` broadcast rather than a
-        tombstone — acceptable because demo data is never offline-authored.
+        soft delete: sample data is disposable, so it is purged outright. Each
+        deleted project gets its own ``project_hard_deleted`` broadcast (#4374) —
+        that is what an open tab actually reconciles on; the program-level
+        ``program_deleted`` broadcast below is kept for forward compatibility but
+        reaches no client today, since no program WS channel exists yet (#836).
         """
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -2331,8 +2333,9 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # hard_delete_program resolves the PROTECT-ing children from _meta rather
             # than listing them here — the hand-written list this replaced covered
             # memberships but not mention groups, so teardown 500'd on any sample
-            # program that had one (#2364).
-            hard_delete_program(program.pk)
+            # program that had one (#2364). broadcast=True is what makes an open tab
+            # on one of the deleted projects learn it is gone (#4374).
+            hard_delete_program(program.pk, broadcast=True)
         transaction.on_commit(
             lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
         )

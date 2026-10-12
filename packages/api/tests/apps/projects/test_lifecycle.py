@@ -224,6 +224,36 @@ def test_force_delete_archived_project_hard_deletes(owner: object, project: Proj
     assert not Project.objects.filter(pk=project.pk).exists()
 
 
+@pytest.mark.django_db
+def test_force_delete_broadcasts_project_hard_deleted_exactly_once(
+    owner: object,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#4374 moved this broadcast into hard_delete_projects(broadcast=True).
+
+    Regression guard for the refactor: perform_destroy used to schedule this
+    broadcast itself, in addition to the row delete. Asserting exactly one call
+    (not zero, not two) catches both a dropped broadcast and the helper plus the
+    view each firing one.
+    """
+    project_id = str(project.pk)
+    client = _client(owner)
+    client.post(f"/api/v1/projects/{project.pk}/archive/")
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = client.delete(f"/api/v1/projects/{project.pk}/?force=true")
+    assert resp.status_code == 204
+
+    hard_deleted_calls = [
+        call for call in broadcast.call_args_list if call.args[1] == "project_hard_deleted"
+    ]
+    assert len(hard_deleted_calls) == 1
+    assert hard_deleted_calls[0].args[0] == project_id
+
+
 # ---------------------------------------------------------------------------
 # Project soft-delete cascade + zombie-URL guard (#1111)
 # ---------------------------------------------------------------------------

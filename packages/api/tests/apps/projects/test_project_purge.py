@@ -15,11 +15,14 @@ Covers (#1114, ADR-0173):
   - A custom / disabled (None) window is respected; override_value forces a window
   - purge_soft_deleted_projects has the expected idempotent_task configuration
   - The purge is registered in the ADR-0173 purge registry
+  - Each purged project gets its own deferred project_hard_deleted broadcast,
+    matching every other hard-delete path (#3860, #4374)
 """
 
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -235,3 +238,28 @@ class TestProjectPurge:
         )
         assert spec.purge is _do_project_purge
         assert spec.db_tables == (Project._meta.db_table,)
+
+    def test_purge_broadcasts_project_hard_deleted_per_project(
+        self, django_capture_on_commit_callbacks: Any
+    ) -> None:
+        """#3860/#4374: a stale socket or a shortened retention window must not
+        desync silently — each purged project gets its own deferred broadcast,
+        matching every other hard-delete path.
+        """
+        from trueppm_api.apps.projects.models import Project
+
+        first = _make_project(name="p1", age_days=40)
+        second = _make_project(name="p2", age_days=40)
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            assert _purge() == 2
+
+        hard = {
+            call.args[0]
+            for call in broadcast.call_args_list
+            if call.args[1] == "project_hard_deleted"
+        }
+        assert hard == {str(first.pk), str(second.pk)}
+        assert not Project.objects.filter(pk__in=[first.pk, second.pk]).exists()
