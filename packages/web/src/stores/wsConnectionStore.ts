@@ -13,7 +13,7 @@
 import { create } from 'zustand';
 
 /**
- * The five connection states, in increasing severity:
+ * The connection states:
  * - `connecting`   — initial handshake (or idle, between projects); no socket open.
  * - `live`         — connected; edits broadcast and presence is accurate.
  * - `reconnecting` — a recent drop; actively retrying (first few attempts).
@@ -21,13 +21,51 @@ import { create } from 'zustand';
  *                    are not reaching the server.
  * - `failed`       — terminal; the session expired (close code 4001) and the
  *                    socket will not reconnect without re-authentication.
+ * - `refused`      — terminal and NOT a fault: the server does not give this
+ *                    caller's role live updates (close code 4003, or the project's
+ *                    `can_subscribe_live` is false, so no socket was opened). The
+ *                    hooks that poll through `fallbackPollInterval` (the task list
+ *                    and the Monte Carlo forecast) refresh from REST on
+ *                    {@link REFUSED_POLL_INTERVAL_MS}; other surfaces refresh only
+ *                    when re-fetched (#4375). Distinct from `stale` on purpose: `stale` says edits
+ *                    are not reaching the server, which is untrue here.
  */
 export type WsConnectionState =
   | 'connecting'
   | 'live'
   | 'reconnecting'
   | 'stale'
-  | 'failed';
+  | 'failed'
+  | 'refused';
+
+/**
+ * Close codes the project WebSocket sends AFTER accept, so a browser's
+ * `CloseEvent.code` carries them (#4375; `apps/sync/consumers.py`). A refusal sent
+ * before accept would arrive as 1006 and be indistinguishable from a network drop.
+ */
+export const WS_CLOSE_UNAUTHENTICATED = 4001;
+export const WS_CLOSE_FORBIDDEN = 4003;
+
+/** Fallback REST poll while the socket is not delivering events (down or connecting). */
+export const FALLBACK_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Relaxed REST poll for a caller the socket refuses (#4375). A read-only role has
+ * no live channel by design, so the view's only freshness source is this poll —
+ * slow enough that an open Viewer tab is not a 30-second full-schedule refetch,
+ * fast enough that the view does not silently freeze for the session.
+ */
+export const REFUSED_POLL_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * The `refetchInterval` a live-updated query should use in each connection state.
+ * One function so every polling hook relaxes for `refused` identically.
+ */
+export function fallbackPollInterval(state: WsConnectionState): number | false {
+  if (state === 'live') return false;
+  if (state === 'refused') return REFUSED_POLL_INTERVAL_MS;
+  return FALLBACK_POLL_INTERVAL_MS;
+}
 
 /**
  * Consecutive retryable disconnects after which the connection is treated as
@@ -54,6 +92,8 @@ interface WsConnectionStoreState {
   markDisconnected: () => void;
   /** Socket closed terminally (auth 4001 / session expired). */
   markFailed: () => void;
+  /** The server does not give this caller live updates (4003 / `can_subscribe_live: false`). */
+  markRefused: () => void;
 }
 
 export const useWsConnectionStore = create<WsConnectionStoreState>()((set) => ({
@@ -74,4 +114,6 @@ export const useWsConnectionStore = create<WsConnectionStoreState>()((set) => ({
     }),
 
   markFailed: () => set({ state: 'failed' }),
+
+  markRefused: () => set({ state: 'refused', reconnectAttempts: 0 }),
 }));

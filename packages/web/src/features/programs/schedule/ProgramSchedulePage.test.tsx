@@ -471,6 +471,24 @@ describe('ProgramSchedulePage', () => {
     expect(sync).toHaveAttribute('data-project-ids', 'proj-a,proj-b');
   });
 
+  it('does not subscribe to a member project whose socket would refuse the caller (#4375)', () => {
+    useProgramSchedule.mockReturnValue(
+      queryResult({
+        data: {
+          ...GOLDEN,
+          projects: [
+            { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 10, can_subscribe_live: false },
+            { id: 'proj-b', name: 'Helios Mobile', accessible: true, duration: 8, can_subscribe_live: true },
+            // Verdict unknown (older server): subscribe — the server enforces.
+            { id: 'proj-c', name: 'Helios Ops', accessible: true, duration: 3 },
+          ],
+        },
+      }),
+    );
+    renderPage();
+    expect(screen.getByTestId('live-sync')).toHaveAttribute('data-project-ids', 'proj-b,proj-c');
+  });
+
   it('degrades the live-sync program id to empty when mounted outside a program route', () => {
     useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
     renderPage('/schedule');

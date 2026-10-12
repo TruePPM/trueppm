@@ -715,6 +715,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # response's own ``can_undo`` to tell it. Calls the SAME predicate the undo
     # endpoints enforce — one rule, called three times now (ADR-0133).
     can_undo_batch_operations = serializers.SerializerMethodField()
+    # Server-derived "will the live-update WebSocket accept this caller" verdict
+    # (#4375). ``ProjectConsumer`` refuses below-Member roles with close 4003; without
+    # this field the client could not know that, so a Viewer's tab reconnected and
+    # ran the 30 s fallback poll forever. Calls the SAME predicate the consumer
+    # enforces — one rule, called twice (ADR-0133).
+    can_subscribe_live = serializers.SerializerMethodField()
     # The server's own current date, so a client can tell whether a date it is about to
     # commit has already arrived (#3075). Several server rules are gated on
     # ``timezone.localdate()`` — most visibly the NOT_STARTED → IN_PROGRESS promote in
@@ -985,6 +991,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "can_author",
             # Whether the caller may reverse a recorded batch write (web rule 373(d), #3357).
             "can_undo_batch_operations",
+            # Whether the project WebSocket will accept the caller (#4375).
+            "can_subscribe_live",
             # The server's today, for client-side previews of date-gated server rules (#3075).
             "server_date",
             # Two separate lifecycles, both read-only, each with its own transition
@@ -1005,6 +1013,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role_label",
             "can_author",
             "can_undo_batch_operations",
+            "can_subscribe_live",
             "server_date",
             "default_member_role_label",
             "effective_calendar",
@@ -1324,6 +1333,42 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if request is None:
             return False
         return can_user_undo_batch_operation(request, obj.pk)
+
+    @extend_schema_field(
+        serializers.BooleanField(
+            help_text=(
+                "Whether the project's live-update WebSocket "
+                "(`/ws/v1/projects/{id}/`) will accept the requesting user. Read-only; "
+                "the same rule the socket enforces. When false the socket refuses the "
+                "connect with close code 4003, so clients should not open it and "
+                "should refresh from REST instead."
+            )
+        )
+    )
+    def get_can_subscribe_live(self, obj: Project) -> bool:
+        """Whether ``ProjectConsumer`` will accept this caller's socket (#4375).
+
+        Resolved like ``can_author``: the viewset's ``_my_role`` annotation first, so
+        a project list costs no per-row query, then the request-scoped membership
+        lookup. Both paths end in :func:`role_can_subscribe_live`, the predicate the
+        consumer's connect gate calls, so the advertised floor and the enforced one
+        cannot drift. Advisory only — the consumer re-checks on every connect.
+
+        Fails closed to ``False`` without a request.
+        """
+        from trueppm_api.apps.access.permissions import (
+            _membership_role,
+            role_can_subscribe_live,
+        )
+
+        annotated_role = getattr(obj, "_my_role", None)
+        if annotated_role is not None:
+            return role_can_subscribe_live(annotated_role)
+
+        request = self.context.get("request")
+        if request is None:
+            return False
+        return role_can_subscribe_live(_membership_role(request, str(obj.pk)))
 
     @extend_schema_field(serializers.DateField())
     def get_server_date(self, obj: Project) -> str:
@@ -3146,6 +3191,14 @@ class ProgramScheduleLaneSerializer(serializers.Serializer[dict[str, Any]]):
     id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(read_only=True)
     accessible = serializers.BooleanField(read_only=True)
+    can_subscribe_live = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether this member project's live-update WebSocket will accept the "
+            "requesting user — the same rule the socket enforces. When false the socket "
+            "refuses with close code 4003, so clients should not subscribe to it."
+        ),
+    )
     duration = serializers.IntegerField(
         read_only=True, help_text="Lane's rolled-up working-day duration (#3597)."
     )

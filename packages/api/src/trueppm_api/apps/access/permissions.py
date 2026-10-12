@@ -277,6 +277,25 @@ def _can_author_plan_for_project_id(request: Request, project_id: Any) -> bool:
     return role_can_author_plan(_membership_role(request, str(project_id)))
 
 
+def role_can_subscribe_live(role: int | None) -> bool:
+    """May this role hold the project's live-update WebSocket? (#4375)
+
+    The single implementation of the socket's role floor. ``ProjectConsumer``
+    refuses a connect (close 4003) when this is ``False``, and
+    ``ProjectSerializer.can_subscribe_live`` emits the same verdict so the web
+    client never opens a socket — and never starts its 30-second fallback poll —
+    for a role the consumer would refuse. Before this was shared, the client had
+    no way to know the floor and a Viewer's tab reconnected forever.
+
+    Member+ because the socket carries presence (who has the project open) and
+    the full board-event stream that Member+ write surfaces are built around;
+    read-only roles get the same data from REST on a relaxed poll. A threshold,
+    so an Enterprise custom role in a band at or above Member inherits it
+    (ADR-0072). Fails closed: ``None`` (no membership) is ``False``.
+    """
+    return role is not None and role >= Role.MEMBER
+
+
 def role_can_undo_batch_operation(role: int | None) -> bool:
     """May this role reverse a recorded batch write? (ADR-0810, ADR-0773's undo matrix)
 

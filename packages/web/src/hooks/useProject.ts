@@ -376,6 +376,19 @@ export interface ApiProjectDetail {
    */
   can_undo_batch_operations: boolean;
   /**
+   * Whether the project's live-update WebSocket will accept the caller (#4375) —
+   * the server's answer from `role_can_subscribe_live`, the predicate the
+   * consumer's connect gate calls (one rule, called twice). `false` means the
+   * socket would refuse with close 4003, so `ProjectShell` does not open it and
+   * the store reports `refused`.
+   *
+   * **Optional on purpose**, unlike `can_author`: its only consumer treats an
+   * absent value as "unknown — dial anyway", which is the pre-#4375 behavior and is
+   * safe because the server enforces and its refusal is now terminal. Never
+   * re-derive it client-side as `my_role >= ROLE_MEMBER`.
+   */
+  can_subscribe_live?: boolean;
+  /**
    * The server's current date, `YYYY-MM-DD` (#3075).
    *
    * Several server rules fire on `timezone.localdate()` — most visibly the

@@ -161,6 +161,36 @@ def test_schedule_redacts_inaccessible_project_tasks(calendar: Calendar) -> None
 
 
 @pytest.mark.django_db
+def test_schedule_lanes_report_the_live_update_verdict(calendar: Calendar) -> None:
+    """#4375: each lane carries ``can_subscribe_live`` from the socket's own predicate.
+
+    The program page opens one project socket per lane; a lane where this is false
+    (Viewer, or not a member) would be refused with 4003, so the client skips it.
+    """
+    from trueppm_api.apps.access.permissions import role_can_subscribe_live
+
+    program, proj_a, proj_b, _a1, _b1 = _program_with_cross_edge(calendar, accepted=True)
+    user = User.objects.create_user(username="live-lanes", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=proj_a, user=user, role=Role.VIEWER)
+    # No ProjectMembership on B.
+
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+    assert resp.status_code == 200, resp.data
+    lanes = {lane["id"]: lane for lane in resp.data["projects"]}
+    # A Viewer can READ project A (accessible) but its socket refuses them.
+    assert lanes[str(proj_a.pk)]["accessible"] is True
+    assert lanes[str(proj_a.pk)]["can_subscribe_live"] is role_can_subscribe_live(Role.VIEWER)
+    assert lanes[str(proj_a.pk)]["can_subscribe_live"] is False
+    assert lanes[str(proj_b.pk)]["can_subscribe_live"] is False
+
+    ProjectMembership.objects.filter(project=proj_a, user=user).update(role=Role.MEMBER)
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+    lanes = {lane["id"]: lane for lane in resp.data["projects"]}
+    assert lanes[str(proj_a.pk)]["can_subscribe_live"] is True
+
+
+@pytest.mark.django_db
 def test_redacted_milestone_carries_its_day_edge(calendar: Calendar) -> None:
     """#4079: a redacted milestone that follows work reports ``milestone_at_day_end``.
 

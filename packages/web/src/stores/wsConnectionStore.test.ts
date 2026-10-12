@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useWsConnectionStore, STALE_AFTER_ATTEMPTS } from './wsConnectionStore';
+import {
+  useWsConnectionStore,
+  STALE_AFTER_ATTEMPTS,
+  fallbackPollInterval,
+  FALLBACK_POLL_INTERVAL_MS,
+  REFUSED_POLL_INTERVAL_MS,
+} from './wsConnectionStore';
 
 beforeEach(() => {
   useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 });
@@ -60,5 +66,23 @@ describe('wsConnectionStore state machine', () => {
     getState().markConnecting();
     expect(getState().state).toBe('connecting');
     expect(getState().reconnectAttempts).toBe(0);
+  });
+});
+
+describe('refused state and the shared fallback poll (#4375)', () => {
+  it('markRefused is terminal-but-not-a-fault: refused, attempt counter cleared', () => {
+    getState().markDisconnected();
+    getState().markRefused();
+    expect(getState().state).toBe('refused');
+    expect(getState().reconnectAttempts).toBe(0);
+  });
+
+  it('polls never while live, relaxed while refused, at 30 s in every other state', () => {
+    expect(fallbackPollInterval('live')).toBe(false);
+    expect(fallbackPollInterval('refused')).toBe(REFUSED_POLL_INTERVAL_MS);
+    for (const state of ['connecting', 'reconnecting', 'stale', 'failed'] as const) {
+      expect(fallbackPollInterval(state)).toBe(FALLBACK_POLL_INTERVAL_MS);
+    }
+    expect(REFUSED_POLL_INTERVAL_MS).toBeGreaterThan(FALLBACK_POLL_INTERVAL_MS);
   });
 });

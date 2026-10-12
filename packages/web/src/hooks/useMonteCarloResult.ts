@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { apiClient } from '@/api/client';
-import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { fallbackPollInterval, useWsConnectionStore } from '@/stores/wsConnectionStore';
 import type {
   AddedTimeFacts,
   ForecastReason,
@@ -190,9 +190,10 @@ export function useMonteCarloResult(projectId?: string): UseMonteCarloResultRetu
   // Rerun *action* on the verdict, a dead socket would otherwise leave the user
   // without the recompute affordance until they navigated or reloaded. That is the
   // defect #3140 exists to remove, so it must not survive as a transport-dependent
-  // special case.
+  // special case. A caller the socket refuses (`refused`, #4375) polls on the
+  // relaxed read-only interval instead of 30 s.
   const wsState = useWsConnectionStore((s) => s.state);
-  const fallbackInterval = wsState === 'live' ? (false as const) : 30_000;
+  const fallbackInterval = fallbackPollInterval(wsState);
 
   const query = useQuery({
     queryKey: ['monte-carlo-latest', projectId],

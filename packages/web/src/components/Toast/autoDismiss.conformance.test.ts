@@ -118,7 +118,15 @@ const REARMABLE_TIMER =
   /useEffect\(\(\)\s*=>\s*\{(?:(?!\}, \[)[\s\S])*?setTimeout(?:(?!\}, \[)[\s\S])*?\}, \[([^\]]*\b(?:on[A-Z]\w*|handle[A-Z]\w*|\w+Callback)\b[^\]]*)\]\)/;
 
 /** Same contract as ALLOWLIST above: a decision with a name, not an exemption. */
-const REARM_ALLOWLIST: Record<string, string> = {};
+const REARM_ALLOWLIST: Record<string, string> = {
+  // WS reconnect-backoff and invalidate-debounce timers, not a toast dismiss — there
+  // is no dwell-gated focusable control here. `isRefused`/`onRefused` are
+  // useCallback-stabilized in the parent (`[]` and `[queryClient, programId]`), both
+  // of which are themselves stable across renders, so the effect does not re-run —
+  // and the timers do not re-arm — on an unrelated parent re-render (#4375).
+  'features/programs/schedule/ProgramScheduleLiveSync.tsx':
+    'WS reconnect/debounce timer; isRefused/onRefused are useCallback-stabilized, not an unstable re-render-driven dep',
+};
 
 describe('a dwell is not re-armable by an unrelated re-render (#3394)', () => {
   it('leaves no NEW timer effect that a re-render can restart', () => {

@@ -21,7 +21,7 @@ import type { PaginatedResponse } from '@/api/types';
 import type { ExternalLinkStatus } from '@/lib/linkStatus';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
 import { mapWithConcurrency } from '@/utils/mapWithConcurrency';
-import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { fallbackPollInterval, useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { applyDemoOverlay, useDemoOverlayStore } from '@/stores/demoOverlayStore';
 
 export interface UseScheduleTasksResult {
@@ -727,9 +727,10 @@ export function useScheduleTasks(
   // poll is pure waste (a full multi-page refetch at 0.5 Hz). Gate the
   // interval on the connection state: poll only while the socket is down
   // (`reconnecting`/`stale`/`failed`) or before it has opened (`connecting`).
+  // A caller the socket refuses by role (`refused`) has no live channel at all, so
+  // it polls too — on the relaxed read-only interval, not every 30 s (#4375).
   const wsState = useWsConnectionStore((s) => s.state);
-  const wsHealthy = wsState === 'live';
-  const fallbackInterval = wsHealthy ? (false as const) : 30_000;
+  const fallbackInterval = fallbackPollInterval(wsState);
 
   const tasksQuery = useQuery({
     queryKey: ['tasks', resolvedId],

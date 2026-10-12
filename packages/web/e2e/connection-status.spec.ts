@@ -36,7 +36,10 @@ const FIXTURE_TASKS = [
   },
 ];
 
-async function setup(page: import('@playwright/test').Page) {
+async function setup(
+  page: import('@playwright/test').Page,
+  projectOverrides: Record<string, unknown> = {},
+) {
   // The project WebSocket only connects when an access token is in memory
   // (#897 moved it out of localStorage). All API calls here are route-mocked,
   // so the lazy 401→refresh that normally re-mints the token never fires —
@@ -44,7 +47,7 @@ async function setup(page: import('@playwright/test').Page) {
   await setupAuth(page, { accessToken: 'e2e-ws-token' });
   await setupCatchAll(page);
   await setupApiMocks(page, {
-    projects: FIXTURE_PROJECTS,
+    projects: FIXTURE_PROJECTS.map((p) => ({ ...p, ...projectOverrides })),
     projectId: FIXTURE_PROJECT_ID,
     tasks: FIXTURE_TASKS,
     statusSummary: { task_count: 1 },
@@ -81,5 +84,76 @@ test.describe('StatusBar connection pill (#643)', () => {
     // The pill must stop claiming "Live" and surface a degraded state.
     await expect(statusBar).toContainText(/Reconnecting…|Connection lost/, { timeout: 12_000 });
     await expect(statusBar).not.toContainText('Live');
+  });
+
+  // #4375 — the server refuses below-Member roles. Before the fix the client did
+  // not know, retried every ≤30 s forever (a ticket mint + handshake each time),
+  // ran the 30 s full-schedule fallback poll, and showed "Connection lost".
+  test('a Viewer never dials the socket, keeps the schedule, and does not poll at 30 s', async ({
+    page,
+  }) => {
+    await page.clock.install();
+    let socketAttempts = 0;
+    await page.routeWebSocket('**/ws/v1/projects/**', async (ws) => {
+      socketAttempts += 1;
+      await ws.close({ code: 4003 });
+    });
+    let ticketPosts = 0;
+    let taskReads = 0;
+    page.on('request', (req) => {
+      const url = req.url();
+      if (req.method() === 'POST' && url.includes('/api/v1/ws/ticket/')) ticketPosts += 1;
+      if (req.method() === 'GET' && /\/api\/v1\/tasks\/(\?|$)/.test(url)) taskReads += 1;
+    });
+
+    await setup(page, { can_subscribe_live: false, my_role: 1 });
+    await page.goto(`${BASE_URL}/schedule`);
+
+    const statusBar = page.getByRole('contentinfo', { name: 'Application status' });
+    await expect(page.getByText('Alpha Phase').first()).toBeVisible({ timeout: 10_000 });
+    await expect(statusBar).toContainText('No live updates');
+    const readsAfterLoad = taskReads;
+    // Guard against a vacuous count: the pattern must have matched the initial load.
+    expect(readsAfterLoad).toBeGreaterThan(0);
+
+    // Two of the old 30 s fallback windows, and two of the old 30 s backoff caps.
+    await page.clock.runFor(60_000);
+
+    await expect(page.getByText('Alpha Phase').first()).toBeVisible();
+    await expect(statusBar).toContainText('No live updates');
+    await expect(statusBar).not.toContainText(/Connection lost|Reconnecting|Disconnected/);
+    expect(ticketPosts).toBe(0);
+    expect(socketAttempts).toBe(0);
+    expect(taskReads).toBe(readsAfterLoad);
+  });
+
+  test('a 4003 refusal on connect is terminal: refused, and no reconnect', async ({ page }) => {
+    await page.clock.install();
+    let socketAttempts = 0;
+    // Verdict unknown/true but the server refuses anyway (e.g. demoted between the
+    // project read and the dial, or evicted later): accept-then-close 4003.
+    await page.routeWebSocket('**/ws/v1/projects/**', async (ws) => {
+      socketAttempts += 1;
+      await ws.close({ code: 4003 });
+    });
+    let ticketPosts = 0;
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && req.url().includes('/api/v1/ws/ticket/')) ticketPosts += 1;
+    });
+
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+
+    const statusBar = page.getByRole('contentinfo', { name: 'Application status' });
+    await expect(statusBar).toContainText('No live updates', { timeout: 10_000 });
+    const attemptsAfterRefusal = socketAttempts;
+    const ticketsAfterRefusal = ticketPosts;
+    expect(attemptsAfterRefusal).toBeGreaterThanOrEqual(1);
+
+    await page.clock.runFor(60_000);
+
+    expect(socketAttempts).toBe(attemptsAfterRefusal);
+    expect(ticketPosts).toBe(ticketsAfterRefusal);
+    await expect(statusBar).toContainText('No live updates');
   });
 });

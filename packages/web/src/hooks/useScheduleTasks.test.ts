@@ -14,7 +14,7 @@ import {
   type ApiTask,
   type TaskDatesDelta,
 } from './useScheduleTasks';
-import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { REFUSED_POLL_INTERVAL_MS, useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { useDemoOverlayStore } from '@/stores/demoOverlayStore';
 
 // ---------------------------------------------------------------------------
@@ -771,6 +771,27 @@ describe('useScheduleTasks fallback polling gate (#773)', () => {
     // One 30 s window should trigger at least one fallback refetch.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000);
+    });
+    await vi.waitFor(() => expect(tasksFetchCount()).toBeGreaterThan(initial));
+  });
+
+  it('relaxes the poll to the read-only interval when the socket refuses this role (#4375)', async () => {
+    useWsConnectionStore.getState().markRefused();
+
+    renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+
+    await vi.waitFor(() => expect(tasksFetchCount()).toBe(1));
+    const initial = tasksFetchCount();
+
+    // Several 30 s windows pass with no refetch — a Viewer tab is not a 30 s poller.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REFUSED_POLL_INTERVAL_MS - 5_000);
+    });
+    expect(tasksFetchCount()).toBe(initial);
+
+    // …but the view does not freeze for the session either.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
     });
     await vi.waitFor(() => expect(tasksFetchCount()).toBeGreaterThan(initial));
   });

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Outlet } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
 import { useProjectUnavailable } from '@/hooks/useProjectUnavailable';
 import { useDemoMode } from '@/hooks/useDemoMode';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
@@ -66,8 +67,18 @@ export function ProjectShell() {
   //
   // Also held closed in the read-only demo, whose web tier 404s `/ws/` on purpose
   // (ADR-1197 D1): connecting would retry forever against a route that never exists (#4048).
+  //
+  // And held until the project detail answers whether the socket will accept this
+  // caller at all (`can_subscribe_live`, the consumer's own role predicate). A
+  // Viewer is refused with 4003, so dialing would cost a ticket and a handshake for
+  // nothing; passing `liveUpdates: false` skips the socket and puts the store in
+  // `refused`, which relaxes the fallback poll from 30 s to 5 min (#4375). Same
+  // `['project', id]` query the gate above already reads — no extra request.
   const { isDemoReadOnly } = useDemoMode();
-  useProjectWebSocket(projectUnavailable || isDemoReadOnly ? null : projectId);
+  const { data: projectDetail, isPending: projectPending } = useProject(projectId);
+  useProjectWebSocket(projectUnavailable || isDemoReadOnly || projectPending ? null : projectId, {
+    liveUpdates: projectDetail?.can_subscribe_live,
+  });
 
   // Record a real last-visited ping so the app's landing default lands the user
   // on the project they actually last opened (ADR-0150). Fire-and-forget.

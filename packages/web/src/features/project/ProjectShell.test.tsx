@@ -7,14 +7,16 @@ import { ProjectShell } from './ProjectShell';
 // Spy on the WS hook so tests can assert it is suppressed (called with null) once
 // the project becomes unavailable (#2040). Hoisted so the vi.mock factory below
 // can close over it.
-const wsSpy = vi.hoisted(() => vi.fn());
+const wsSpy = vi.hoisted(() =>
+  vi.fn<(id: string | null, liveUpdates: boolean | undefined) => void>(),
+);
 
 // Keep the shell isolated: stub the WebSocket, the recalc store, and the two
 // presentational children so the test targets only the availability gate.
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
 vi.mock('@/hooks/useProjectWebSocket', () => ({
-  useProjectWebSocket: (id: string | null) => {
-    wsSpy(id);
+  useProjectWebSocket: (id: string | null, opts?: { liveUpdates?: boolean }) => {
+    wsSpy(id, opts?.liveUpdates);
   },
 }));
 vi.mock('@/hooks/useRecordProjectVisit', () => ({ useRecordProjectVisit: () => undefined }));
@@ -27,7 +29,8 @@ vi.mock('@/hooks/useDemoMode', () => ({
   useDemoMode: () => ({ isDemoReadOnly: demoMode.readOnly, loginHint: null, isLoading: false }),
 }));
 
-const mockUseProject = vi.fn<() => { error: unknown }>();
+const mockUseProject =
+  vi.fn<() => { error: unknown; data?: { can_subscribe_live?: boolean }; isPending?: boolean }>();
 vi.mock('@/hooks/useProject', () => ({ useProject: () => mockUseProject() }));
 
 function axiosStatus(statusCode: number): AxiosError {
@@ -70,21 +73,41 @@ describe('ProjectShell availability gate (#1111, #2040)', () => {
   it('keeps the WebSocket live on a healthy project', () => {
     mockUseProject.mockReturnValue({ error: null });
     renderWithRouter(<ProjectShell />);
-    expect(wsSpy).toHaveBeenCalledWith('proj-1');
+    expect(wsSpy).toHaveBeenCalledWith('proj-1', undefined);
   });
 
   it('suppresses the WebSocket (passes null) once the project is unavailable', () => {
     mockUseProject.mockReturnValue({ error: axiosStatus(403) });
     renderWithRouter(<ProjectShell />);
-    expect(wsSpy).toHaveBeenCalledWith(null);
-    expect(wsSpy).not.toHaveBeenCalledWith('proj-1');
+    expect(wsSpy).toHaveBeenCalledWith(null, undefined);
+    expect(wsSpy.mock.calls.map((c) => c[0])).not.toContain('proj-1');
   });
 
   it('never opens the WebSocket in the read-only demo, where /ws/ is 404 by design (#4048)', () => {
     demoMode.readOnly = true;
     mockUseProject.mockReturnValue({ error: null });
     renderWithRouter(<ProjectShell />);
-    expect(wsSpy).toHaveBeenCalledWith(null);
-    expect(wsSpy).not.toHaveBeenCalledWith('proj-1');
+    expect(wsSpy).toHaveBeenCalledWith(null, undefined);
+    expect(wsSpy.mock.calls.map((c) => c[0])).not.toContain('proj-1');
+  });
+
+  it('passes the server verdict through: a Viewer gets liveUpdates false (#4375)', () => {
+    mockUseProject.mockReturnValue({ error: null, data: { can_subscribe_live: false } });
+    renderWithRouter(<ProjectShell />);
+    expect(wsSpy).toHaveBeenCalledWith('proj-1', false);
+    expect(wsSpy).not.toHaveBeenCalledWith('proj-1', true);
+  });
+
+  it('a Member gets liveUpdates true', () => {
+    mockUseProject.mockReturnValue({ error: null, data: { can_subscribe_live: true } });
+    renderWithRouter(<ProjectShell />);
+    expect(wsSpy).toHaveBeenCalledWith('proj-1', true);
+  });
+
+  it('holds the socket while the project detail (and its verdict) is still loading', () => {
+    mockUseProject.mockReturnValue({ error: null, isPending: true });
+    renderWithRouter(<ProjectShell />);
+    expect(wsSpy).toHaveBeenCalledWith(null, undefined);
+    expect(wsSpy.mock.calls.map((c) => c[0])).not.toContain('proj-1');
   });
 });

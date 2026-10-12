@@ -248,7 +248,7 @@ All querysets are scoped to projects the requesting user is a member of via `Pro
 
 ## WebSocket auth
 
-WebSocket connections authenticate with a short-lived, single-use **ticket** (`?ticket=<ticket>`), minted via `POST /api/v1/ws/ticket/` — so no JWT ever reaches a URL or an access log. The legacy `?token=<jwt>` handshake is disabled by default and opt-in only via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` (deprecated). Viewer (role=1) connections are rejected with close code 4003 — real-time push requires Team Member or above. See [WebSocket connections](/administration/deployment/#websocket-connections).
+WebSocket connections authenticate with a short-lived, single-use **ticket** (`?ticket=<ticket>`), minted via `POST /api/v1/ws/ticket/` — so no JWT ever reaches a URL or an access log. The legacy `?token=<jwt>` handshake is disabled by default and opt-in only via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` (deprecated). Viewer (role=1) connections are refused with close code 4003 — real-time push requires Team Member or above. The web app reads the project's `can_subscribe_live` flag and does not open a socket for a Viewer; tasks and the forecast refresh from the API every 5 minutes, other views refresh when reopened, and the status bar reads **No live updates**. See [WebSocket connections](/administration/deployment/#websocket-connections).
 
 ## Server-derived capability flags
 
