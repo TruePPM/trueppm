@@ -79,7 +79,8 @@ describe('BuildModeCheatsheet — dismissal', () => {
   it('Esc closes', () => {
     const onClose = vi.fn();
     render(<BuildModeCheatsheet open={true} onClose={onClose} />);
-    fireEvent.keyDown(window, { key: 'Escape' });
+    // useFocusTrap's Escape handler listens on `document`, not `window`.
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledOnce();
   });
 

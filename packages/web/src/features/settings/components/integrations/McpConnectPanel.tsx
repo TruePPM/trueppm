@@ -73,11 +73,27 @@ export function buildClaudeDesktopConfig(apiUrl: string, token: string): string 
  * command is `trueppm-mcp`, the env vars are `TRUEPPM_API_URL` (the instance
  * origin; the server appends `/api/v1`) and `TRUEPPM_API_TOKEN`.
  */
-export function McpConnectPanel({ token, onClose }: { token: string; onClose: () => void }) {
+export function McpConnectPanel({
+  token,
+  onClose,
+  titleId,
+}: {
+  token: string;
+  onClose: () => void;
+  /**
+   * Reuses the host dialog's `aria-labelledby` target id. The host may swap
+   * its body from a create form to this reveal mid-mount (#4085) — if the
+   * dialog's `aria-labelledby` still points at the create form's (now
+   * unmounted) heading id, the dialog's accessible name goes stale the
+   * instant this panel replaces it. Omit only when no host dialog labels
+   * itself by this component's heading.
+   */
+  titleId?: string;
+}) {
   const config = buildClaudeDesktopConfig(instanceUrl(), token);
   return (
     <>
-      <h2 className="text-sm font-semibold text-neutral-text-primary mb-2" aria-live="polite">
+      <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2" aria-live="polite">
         Token created — copy it now
       </h2>
       <p className="text-xs text-semantic-critical mb-3">

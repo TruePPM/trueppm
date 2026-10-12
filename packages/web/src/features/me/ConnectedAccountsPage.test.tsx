@@ -874,7 +874,8 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     const dialog = await screen.findByRole('alertdialog');
     fireEvent.pointerDown(within(dialog).getByRole('heading', { name: /Disconnect Jira\?/i }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
-    fireEvent.pointerDown(dialog);
+    // `dialog` is the panel (rule 419) — the scrim is its parent.
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(disconnectMutate).not.toHaveBeenCalled();
   });
@@ -1025,10 +1026,11 @@ describe('ConnectedAccountsPage — credential dialogs', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    // Re-open and dismiss by clicking the scrim (target === the dialog root).
+    // Re-open and dismiss by clicking the scrim — `dialog` is the panel (rule
+    // 419), so the scrim is its parent.
     fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/ })[0]);
     const dialog = await screen.findByRole('dialog');
-    fireEvent.pointerDown(dialog);
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
@@ -1160,8 +1162,9 @@ describe('ConnectedAccountsPage — credential dialogs', () => {
     // Inside the panel: a destructive confirm must not close under the pointer.
     fireEvent.pointerDown(within(dialog).getByRole('heading', { name: /Revoke GitHub/i }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
-    // On the scrim: dismiss without revoking.
-    fireEvent.pointerDown(dialog);
+    // On the scrim: dismiss without revoking. `dialog` is the panel (rule
+    // 419) — the scrim is its parent.
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(revokeMutate).not.toHaveBeenCalled();
   });

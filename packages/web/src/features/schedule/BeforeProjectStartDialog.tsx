@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { Button } from '@/components/Button';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface Props {
   /** Project start date (ISO `YYYY-MM-DD`) — shown literally in the header. */
@@ -59,18 +60,11 @@ export function BeforeProjectStartDialog({
   onCancel,
 }: Props) {
   const snapRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    snapRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCancel();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // `isPending` disables every control in the footer (Cancel, Move project
+  // start, Snap) — pass it as focusKey (rule 362) so the trap re-seats onto
+  // the panel rather than falling through to an empty focusable set when the
+  // mutation resolves and the controls re-enable.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel, isPending);
 
   const startLabel = formatIso(projectStartDate);
   const floorLabel = formatIso(effectiveFloorDate);
@@ -82,11 +76,13 @@ export function BeforeProjectStartDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-neutral-overlay" aria-hidden="true" onClick={onCancel} />
       <div
+        ref={trapRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="before-start-title"
         aria-describedby="before-start-desc"
-        className="relative z-10 rounded-card bg-neutral-surface border border-neutral-border p-6 w-[360px]"
+        tabIndex={-1}
+        className="relative z-10 rounded-card bg-neutral-surface border border-neutral-border p-6 w-[360px] focus:outline-none"
       >
         <h2
           id="before-start-title"
@@ -144,7 +140,14 @@ export function BeforeProjectStartDialog({
               Move project start
             </button>
           ) : null}
-          <Button ref={snapRef} variant="primary" onClick={onSnap} disabled={isPending}>
+          <Button
+            ref={snapRef}
+            variant="primary"
+            onClick={onSnap}
+            disabled={isPending}
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- modal: Snap (not first-in-DOM Cancel) is the recommended action focused on open
+            autoFocus
+          >
             Snap to project start
           </Button>
         </div>

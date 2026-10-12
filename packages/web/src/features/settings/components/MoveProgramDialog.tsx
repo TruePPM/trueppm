@@ -22,8 +22,9 @@
  * is never autofocused.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { usePrograms } from '@/hooks/usePrograms';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ROLE_ADMIN } from '@/lib/roles';
 
 /** Sentinel for the "Standalone (no program)" radio value — distinct from a UUID. */
@@ -61,24 +62,15 @@ export function MoveProgramDialog({
   const { data: programs, isLoading } = usePrograms();
   // null = nothing chosen yet; STANDALONE or a UUID once the user picks.
   const [selected, setSelected] = useState<string | null>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  // Escape cancels; stopPropagation so it does not bubble to a parent handler
-  // (e.g. the settings discard guard) that would also react to the key.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCancel();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Cancel is NOT first in DOM order once the program list loads (the radio
+  // fieldset precedes the footer), so the trap's default seat would land on
+  // the first radio — `autoFocus` on the Cancel button (below) wins that race
+  // explicitly, preserving "focus on Cancel, the safe control" regardless of
+  // whether the list has loaded by the time the trap seats (a move is only
+  // reversible by moving back). Escape routes to Cancel; the hook's own
+  // handler stopPropagations so it does not bubble to a parent handler (e.g.
+  // the settings discard guard) that would also react.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   const options = useMemo<ProgramOption[]>(() => {
     const list = [...(programs ?? [])].sort((a, b) => a.name.localeCompare(b.name));
@@ -108,11 +100,13 @@ export function MoveProgramDialog({
 
   return (
     <div
+      ref={trapRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="move-program-dialog-title"
       aria-describedby="move-program-dialog-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade focus:outline-none"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
@@ -184,8 +178,9 @@ export function MoveProgramDialog({
 
         <div className="flex justify-end gap-2">
           <button
-            ref={cancelRef}
             type="button"
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- modal: Cancel (the safe control, not first-in-DOM once the program list loads) is focused on open
+            autoFocus
             onClick={onCancel}
             className="h-8 rounded border border-neutral-border bg-transparent px-3 text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >

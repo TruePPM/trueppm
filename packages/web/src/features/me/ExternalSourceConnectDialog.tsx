@@ -25,7 +25,7 @@
  * credential step with the backend `detail` shown inline.
  */
 
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { type FormEvent, useId, useState } from 'react';
 import {
   type ConnectExternalSourceInput,
   extractConnectionError,
@@ -35,6 +35,7 @@ import {
 import type { ExternalTaskSourceEntry } from '@/features/integrations/registry';
 import { SourceMark } from '@/features/integrations/SourceMark';
 import { CheckIcon } from '@/components/Icons';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 type Step = 'credentials' | 'configure' | 'connecting';
 type Deployment = 'cloud' | 'server';
@@ -71,33 +72,18 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
   const connect = useConnectExternalSource(source.provider);
   const sync = useSyncExternalSource(source.provider);
 
-  const firstFieldRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  // Re-seat focus on every step change — a persistent multi-state modal must move
-  // focus into the newly-revealed step, not leave it stranded on the prior step's
-  // (now-hidden) control. The connecting step has no field, so focus the dialog
-  // panel itself rather than dropping to <body> behind the still-open scrim.
-  useEffect(() => {
-    if (step === 'connecting') {
-      panelRef.current?.focus();
-      return;
-    }
-    firstFieldRef.current?.focus();
-  }, [step]);
-
+  // Re-seat focus on every step change (focusKey) — a persistent multi-state
+  // modal must move focus into the newly-revealed step, not leave it
+  // stranded on the prior step's (now-unmounted) control. The 'connecting'
+  // step has no field, so the trap's no-focusables fallback seats the panel
+  // itself rather than dropping to <body> behind the still-open scrim.
   // Escape closes the dialog — but never mid-connect, where the request is
   // already on the wire and a dismiss would orphan the spinner.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && step !== 'connecting') {
-        e.stopPropagation();
-        onDismiss();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onDismiss, step]);
+  const panelRef = useFocusTrap<HTMLDivElement>(
+    true,
+    step !== 'connecting' ? onDismiss : undefined,
+    step,
+  );
 
   function parseProjectKeys(): string[] {
     // Split on commas/whitespace, upper-case, dedupe — Jira project keys are
@@ -179,7 +165,7 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none"
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md mx-4 p-5 motion-safe:animate-modal-scale-in focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <div className="flex items-center gap-2.5 mb-1">
           <SourceMark sourceType={source.provider} label={source.name} />
@@ -230,7 +216,8 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
             <label className="flex flex-col gap-1">
               <span className="text-[12px] font-medium text-neutral-text-primary">Site URL</span>
               <input
-                ref={firstFieldRef}
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- multi-step dialog: wins the focus-trap seat over the earlier sr-only deployment radios (#4085)
+                autoFocus
                 type="url"
                 required
                 placeholder={isServer ? 'https://jira.your-company.com' : 'https://your-team.atlassian.net'}
@@ -336,7 +323,8 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
               <legend className="text-[12px] font-medium text-neutral-text-primary mb-1">What to pull</legend>
               <label className="flex items-center gap-2.5 text-[13px] text-neutral-text-primary">
                 <input
-                  ref={firstFieldRef}
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- multi-step dialog: re-seats the focus trap on this step's first control (#4085)
+                  autoFocus
                   type="radio"
                   name="pull-mode"
                   checked={pullMode === 'assigned'}

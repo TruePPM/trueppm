@@ -14,7 +14,7 @@
  * After the dialog closes it is unrecoverable — the server only stores its hash.
  */
 
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { type FormEvent, useId, useState } from 'react';
 import {
   MAX_PERSONAL_ACCESS_TOKENS,
   isTokenActive,
@@ -25,6 +25,7 @@ import {
   type CreatedMyApiToken,
   type MyApiToken,
 } from '@/hooks/useMyApiTokens';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { McpConnectPanel } from '@/features/settings/components/integrations/McpConnectPanel';
 import { MeSettingsSubNav } from '@/features/me/MeSettingsSubNav';
 import { docsUrl } from '@/lib/docsUrl';
@@ -225,7 +226,6 @@ function EmptyState() {
 function CreateTokenDialog({ onClose }: { onClose: () => void }) {
   const titleId = useId();
   const create = useCreateMyApiToken();
-  const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState('');
   const [tokenScope, setTokenScope] = useState<ApiTokenScope>('legacy:full');
   const [expiresAt, setExpiresAt] = useState('');
@@ -237,22 +237,17 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
   // block submit rather than round-trip for a 400.
   const mcpRead = tokenScope === 'mcp:read';
 
-  useEffect(() => {
-    nameRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      // Once the token is revealed, Escape must not silently discard it before
-      // the user has copied it — they explicitly click Done instead.
-      if (e.key === 'Escape' && !create.isPending && !created) {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, create.isPending, created]);
+  // Name field is first in DOM order, so the trap seats initial focus on it.
+  // `focusKey` re-seats when the panel swaps from the create form to the
+  // one-time reveal (#1776-style multi-state swap) and also covers
+  // `create.isPending` disabling the submit button (rule 362). Once the
+  // token is revealed, Escape must not silently discard it before the user
+  // has copied it — they explicitly click Done instead.
+  const dialogRef = useFocusTrap<HTMLDivElement>(
+    true,
+    !create.isPending && !created ? onClose : undefined,
+    created ? 'revealed' : create.isPending,
+  );
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -283,25 +278,28 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
+      role="presentation"
       className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !create.isPending && !created) onClose();
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className={[
-          'bg-neutral-surface border border-neutral-border rounded-card w-full p-5 motion-safe:animate-modal-scale-in',
+          'bg-neutral-surface border border-neutral-border rounded-card w-full p-5 motion-safe:animate-modal-scale-in focus:outline-none',
           created && revealMcp ? 'max-w-lg' : 'max-w-md',
         ].join(' ')}
       >
         {created ? (
           revealMcp ? (
-            <McpConnectPanel token={created.token} onClose={onClose} />
+            <McpConnectPanel token={created.token} onClose={onClose} titleId={titleId} />
           ) : (
-            <TokenReveal token={created.token} onClose={onClose} />
+            <TokenReveal token={created.token} onClose={onClose} titleId={titleId} />
           )
         ) : (
           <>
@@ -312,7 +310,8 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
               <label className="flex flex-col gap-1">
                 <span className="text-[13px] font-medium text-neutral-text-primary">Name</span>
                 <input
-                  ref={nameRef}
+                  // eslint-disable-next-line jsx-a11y/no-autofocus -- modal: focus the first input on open per dialog UX convention
+                  autoFocus
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -458,10 +457,23 @@ function ScopeSelector({
   );
 }
 
-function TokenReveal({ token, onClose }: { token: string; onClose: () => void }) {
+function TokenReveal({
+  token,
+  onClose,
+  titleId,
+}: {
+  token: string;
+  onClose: () => void;
+  /**
+   * Reuses the dialog's `aria-labelledby` target id (#4085) — this panel
+   * replaces the create form's heading mid-mount, and the dialog's
+   * accessible name must not go stale when it does.
+   */
+  titleId: string;
+}) {
   return (
     <>
-      <h2 className="text-sm font-semibold text-neutral-text-primary mb-2" aria-live="polite">
+      <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2" aria-live="polite">
         Token created — copy it now
       </h2>
       <p className="text-xs text-semantic-critical mb-3">
@@ -508,35 +520,28 @@ function RevokeDialog({
 }) {
   const titleId = useId();
   const descId = useId();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCancel();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Cancel ("Keep token") is first in DOM order and never disabled, so the
+  // trap seats initial focus on the safe action. `pending` disables the
+  // confirm button — pass it as focusKey (rule 362).
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onCancel, pending);
 
   return (
     <div
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      aria-describedby={descId}
+      role="presentation"
       className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm p-5 motion-safe:animate-modal-scale-in">
+      <div
+        ref={dialogRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+        tabIndex={-1}
+        className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm p-5 motion-safe:animate-modal-scale-in focus:outline-none"
+      >
         <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
           Revoke this token?
         </h2>
@@ -546,7 +551,6 @@ function RevokeDialog({
         </p>
         <div className="flex justify-end gap-2">
           <button
-            ref={cancelRef}
             type="button"
             onClick={onCancel}
             className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"

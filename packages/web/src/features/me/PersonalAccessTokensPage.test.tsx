@@ -579,12 +579,13 @@ describe('PersonalAccessTokensPage', () => {
     renderPage();
     const dialog = openCreateDialog('');
 
-    // Pointer-down inside the panel must not dismiss (target !== currentTarget).
-    fireEvent.pointerDown(dialog.firstElementChild!);
+    // `dialog` is the panel (rule 419) — pointer-down on it must not dismiss
+    // (target !== currentTarget, the scrim).
+    fireEvent.pointerDown(dialog);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
 
-    // Pointer-down on the scrim itself dismisses.
-    fireEvent.pointerDown(dialog);
+    // Pointer-down on the scrim (the panel's parent) itself dismisses.
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -777,10 +778,12 @@ describe('PersonalAccessTokensPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     const dialog = screen.getByRole('alertdialog');
 
-    fireEvent.pointerDown(dialog.firstElementChild!);
+    // `dialog` is the panel (rule 419) — pointer-down on it must not dismiss.
+    fireEvent.pointerDown(dialog);
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
 
-    fireEvent.pointerDown(dialog);
+    // Pointer-down on the scrim (the panel's parent) dismisses.
+    fireEvent.pointerDown(dialog.parentElement as HTMLElement);
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(revokeMutate).not.toHaveBeenCalled();
   });

@@ -1140,6 +1140,28 @@ lint:focus-trap-focuskey:
     - bash scripts/check-focus-trap-focuskey.sh --self-test
     - bash scripts/check-focus-trap-focuskey.sh
 
+lint:aria-modal-focus-trap:
+  extends: .fast-job
+  # aria-modal pairing gate (#4085, the #2193 class recurring, #4125's lint
+  # half). `role="dialog"`/`role="alertdialog"` + `aria-modal="true"` is a
+  # promise that focus cannot leave the surface; nothing enforced it, so
+  # #2193's ~17 fixed dialogs recurred as 14 fresh instances with no gate to
+  # catch the next one. Flags a file declaring aria-modal="true"/{true} with
+  # none of: a useFocusTrap import, an inline `// focus-trap: <reason>`
+  # waiver, or a <BottomSheet> shell. See scripts/check-aria-modal-focus-trap.sh.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    # Self-test FIRST (#3194/#3195): a green run has to be backed by proof
+    # it still detects a planted offender, in THIS job, on THIS image.
+    - bash scripts/check-aria-modal-focus-trap.sh --self-test
+    - bash scripts/check-aria-modal-focus-trap.sh
+
 lint:hover-reveal-focus:
   extends: .fast-job
   # Hover-only reveal keyboard-reachability gate (web-rule 417, #3619). A

@@ -8,6 +8,7 @@ import {
 import { ReadOnlyIndicator } from '@/features/settings/components/ReadOnlyIndicator';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { CloseIcon } from '@/components/Icons';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 export interface PhaseGateConfigPanelProps {
   programId: string;
@@ -37,13 +38,15 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
     }
   }, [config]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !update.isPending) onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, update.isPending]);
+  // `update.isPending` disables every control (checkbox, textarea, close,
+  // Cancel, Save) — pass it as focusKey (rule 362) so a focused-then-disabled
+  // control re-seats rather than dropping to <body>. Escape is suppressed
+  // while pending, mirroring the prior hand-rolled guard.
+  const trapRef = useFocusTrap<HTMLDivElement>(
+    true,
+    !update.isPending ? onClose : undefined,
+    update.isPending,
+  );
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault();
@@ -67,10 +70,12 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
       className="fixed inset-0 z-50 flex justify-end bg-neutral-overlay"
     >
       <aside
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="phase-gate-panel-title"
-        className="w-full max-w-[440px] h-full bg-neutral-surface-raised border-l border-neutral-border flex flex-col"
+        tabIndex={-1}
+        className="w-full max-w-[440px] h-full bg-neutral-surface-raised border-l border-neutral-border flex flex-col focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
       >
         <header className="px-5 py-3 border-b border-neutral-border/55">
           <div className="flex items-start justify-between gap-2">
