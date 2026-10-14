@@ -249,6 +249,11 @@ def test_bundle_build_propagates_soft_time_limit_from_xml_export(
         raise SoftTimeLimitExceeded
 
     monkeypatch.setattr("trueppm_api.apps.msproject.exporter.export_project_xml", _hit_limit)
+    # #4310: a project is bundled only for a requester with live project membership;
+    # without it the XML step is never reached and the raise below is vacuous.
+    ProjectMembership.objects.create(
+        project=populated_program.projects.get(), user=owner, role=Role.ADMIN
+    )
     job = ProgramExportJob.objects.create(program=populated_program, requested_by=owner)
 
     with pytest.raises(SoftTimeLimitExceeded):
