@@ -49,6 +49,9 @@ done
 # shellcheck disable=SC2034  # read by the eval'd drill functions, which shellcheck cannot see
 PROBE_TIMEOUT=6
 PROBE_ALLOW_ATTEMPTS=3
+# shellcheck disable=SC2034  # ditto; the drill defines it outside the extracted functions
+PROBE_ALLOWED="$(awk -F'"' '/^PROBE_ALLOWED=/{print $2; exit}' "$DRILL")"
+[ -n "$PROBE_ALLOWED" ] || { echo "FAIL: could not read PROBE_ALLOWED from helm-netpol-drill.sh"; exit 1; }
 # shellcheck disable=SC2034  # ditto
 PROBE_RETRY_DELAY=0
 
