@@ -1787,6 +1787,39 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
   // #4386 round 2: a socket that drops while a frame is held must not let the
   // 750 ms window flush it during the >= 1 s backoff. That would move the cursor
   // past the hole, and the reconnect's ?since= would never replay event 10.
+  // The 4001 re-mint path reconnects through connect() without the backoff timer,
+  // and its ticket fetch can take longer than the 750 ms window. The held frame
+  // must already be gone when that window would have expired.
+  it('drops a held frame on a 4001 re-mint so the reconnect replays the hole', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 9 }, seq: null });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    dispatch({ event_type: 'project_updated', payload: { id: 'proj-1' }, seq: 11 });
+    wsTicketControl.mode = 'defer';
+    try {
+      act(() => {
+        MockWebSocket.instances[0].dispatch('close', { code: 4001 });
+      });
+      // The re-mint is in flight; the reorder window would expire meanwhile.
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+
+      act(() => {
+        wsTicketControl.deferredResolve?.('fresh-ticket');
+      });
+      expect(MockWebSocket.instances.length).toBe(2);
+      expect(MockWebSocket.instances[1].url).toContain('&since=9');
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    } finally {
+      wsTicketControl.mode = 'success';
+      wsTicketControl.deferredResolve = null;
+      wsTicketControl.deferredReject = null;
+    }
+  });
+
   it('drops a held frame on a retryable close so the reconnect replays the hole', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
     dispatch({ event_type: 'resync_required', payload: { latest_seq: 9 }, seq: null });

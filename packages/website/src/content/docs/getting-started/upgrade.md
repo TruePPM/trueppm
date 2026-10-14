@@ -727,24 +727,31 @@ default). We measured about 0.12 s for 300,000 rows across 500 projects on a
 developer laptop, local PostgreSQL 16. That figure is from one machine. Expect it to
 scale roughly with row count, and to be slower on shared or network storage.
 
-Creating the counter table, which has a foreign key to projects, also locks
-`projects_project` against writes (`SHARE ROW EXCLUSIVE`) until the migration
-commits. While the locks are held, old pods that are still serving wait on them:
+Near the end of the migration, the counter table's foreign key to projects is
+created. That takes a `SHARE ROW EXCLUSIVE` lock on `projects_project`, held from
+then until the migration commits. The locks are taken in this order:
+`sync_boardevent`, then `projects_project`. While they are held, old pods that are
+still serving wait on them:
 
-- a board-event broadcast or a reconnect replay;
-- any write to a project row. This includes the sync-cursor bump each sync upload
-  makes, project edits, and anything that locks a project row for update.
+- a board-event broadcast or a reconnect replay, for the whole migration;
+- an `INSERT`, `UPDATE` or `DELETE` on a project row, for the tail of the migration.
+  This includes the sync-cursor bump each sync upload makes, and project edits.
+  Plain `SELECT … FOR UPDATE` on a project row does not wait.
 
-Each pauses for that long, then continues. Nothing fails.
+Each pauses for that long, then continues. Nothing fails. We found no old-pod
+transaction that writes a project row and then touches `sync_boardevent`, so a
+deadlock is not expected. This is not guaranteed by construction.
 
 **During a rolling update** (`replicaCount >= 2`, as in `values-prod.yaml`), pods on
 the old and new code run side by side for a few minutes, using two different `seq`
 number spaces:
 
 - A browser can briefly miss live updates or apply them late.
-- An open tab can stay stale until its socket next reconnects. This happens at
-  the latest on its next token refresh, and the reconnect re-baselines it with a
-  `resync_required`.
+- A tab whose socket is still on an old pod can receive one event from a new pod.
+  This applies to a newly loaded tab as well as an existing one. After that event,
+  the tab ignores further events from old pods. Changes old pods make from then on
+  are not shown until the data is refetched or the page is reloaded. Reconnecting
+  to a new pod does not correct this on its own.
 - Events written by an old pod during the window are delivered live but are not
   replayable after a reconnect.
 
@@ -761,7 +768,7 @@ The reload is required because a tab still holds a per-project cursor above 2³�
 far above every global id the rolled-back release issues. The rolled-back server
 neither replays to such a cursor nor resyncs it. The tab then drops every live
 board event as already seen, until it is reloaded. For a scripted client, discard
-any cursor saved during the upgrade.
+any cursor saved since the upgrade.
 
 ### Upgrading across the #4359 readiness-probe change
 

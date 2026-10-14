@@ -1398,7 +1398,9 @@ class ProjectSocketController {
     if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     // Drop held frames, cursor untouched (see SeqGate.dropHeld): a held frame must
     // not be delivered after teardown, possibly into a project the user has left.
-    // A same-project successor controller replays it from the cursor.
+    // A same-project successor controller replays it from the cursor. Note #4422
+    // (open): a stopped controller can keep reconnecting after a token change and
+    // share the live cursor; that pre-existing bug is not fixed here.
     this.gate.dispose();
     if (this.ws) {
       this.ws.removeEventListener('message', this.handleMessage);

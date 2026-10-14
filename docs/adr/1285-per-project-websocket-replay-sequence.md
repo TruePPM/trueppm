@@ -117,6 +117,12 @@ the hole. Until #2848 lands, the only recovery is a later refetch of the affecte
 A cursor of 0 means the client is not yet baselined. Its first frame waits out the
 window unless it is `seq 1`, so a reversed pair at page load is still ordered.
 
+A socket that closes, or a controller that stops, drops its held frames without
+moving the cursor (`SeqGate.dropHeld`). The reconnect then replays them from the
+cursor, as long as one same-project controller owns the cursor. A pre-existing bug,
+#4422 (open), can leave a stopped controller reconnecting after a token change and
+sharing the live cursor. This change does not fix it.
+
 **Gap → resync is left to #2848.** A confirmed hole at window expiry is exactly the
 signal #2848 needs, and the hook point is marked `TODO(#2848)`. #2848 also covers
 backing off the fallback poll while the socket is live, and fixing the throttle
@@ -145,8 +151,15 @@ disclosed in the 0.4 upgrade notes (CLAUDE.md migration rule 8(c)):
 
 - An old consumer replays global ids to a new client. The client's cursor is then a
   global id, below every seed, so its next reconnect to a new pod resyncs.
-- An old client that has taken a per-project seq drops old-pod frames as
-  duplicates. Those frames are live-only anyway.
+- Some clients end up with a per-project cursor while still attached to an old
+  consumer: a new web client, or an old one, that has received a single new-pod
+  frame. That frame's seq is at least the seed (old max + 2**32). The gate flushes
+  it after 750 ms, and the cursor jumps into the per-project space. From then on,
+  every old-pod frame the old consumer forwards carries a global id below the cursor
+  and is dropped as a duplicate (`wsSeqGate.ts`). A later reconnect to a new
+  consumer does **not** resync, because the count check matches. Old-pod rows have
+  a NULL seq and are never replayed. So old-pod writes made after that first
+  new-pod frame are not shown until a refetch or a page reload.
 - An old client still on a global cursor treats the first per-project frame as a
   forward jump and adopts it. Its next reconnect either resyncs (global cursor) or
   replays correctly (per-project cursor).
@@ -202,12 +215,21 @@ already received, plus a public constant. For a project with none, the seed reve
 once how many events the installation had written by the upgrade. That is a single
 fixed number, not the per-frame volume the old design leaked continuously.
 
-**Migration locks.** The whole migration is one transaction. It holds `ACCESS EXCLUSIVE`
-on `sync_boardevent` until commit. `CreateModel(BoardEventSequence)`, through its
-foreign key to `projects.Project`, also takes `SHARE ROW EXCLUSIVE` on
-`projects_project` until commit. That blocks every write to project rows, including
-the `last_sync_version` bump on a sync upload, for the duration. About 0.12 s was
-measured for 300,000 buffer rows on a laptop. The upgrade notes say so.
+**Migration locks.** The whole migration is one transaction. It takes `ACCESS EXCLUSIVE`
+on `sync_boardevent` first and holds it until commit.
+`CreateModel(BoardEventSequence)`'s foreign key to `projects.Project` is created from
+the schema editor's deferred SQL at the **tail** of the migration. That foreign key
+takes `SHARE ROW EXCLUSIVE` on `projects_project` and holds it from then until
+commit. The lock order is therefore `sync_boardevent`, then `projects_project`.
+
+While that second lock is held, `INSERT`, `UPDATE` and `DELETE` on project rows wait,
+including the `last_sync_version` bump on a sync upload. `SELECT … FOR UPDATE` takes
+`ROW SHARE`, which does not conflict with `SHARE ROW EXCLUSIVE`, so it does not wait.
+
+We found no old-pod transaction that writes a project row and then touches
+`sync_boardevent`, so a deadlock is not expected. It is not guaranteed by
+construction. About 0.12 s was measured for the whole migration with 300,000 buffer
+rows on a laptop. The upgrade notes say so.
 
 ## Alternatives Considered
 
@@ -219,7 +241,7 @@ measured for 300,000 buffer rows on a laptop. The upgrade notes say so.
 | PostgreSQL `SEQUENCE` per project | No row lock | Non-transactional: holes on rollback, and allocation order is not commit order, so this is the same bug as a race |
 | Renumber the surviving buffer per project (first draft) | Sequences start at 1; no instance figure is published | A pre-upgrade cursor at or below the new head replays from the wrong point and silently skips events (§6) |
 | Seed every project at the global identity value | One rule for every project | Publishes the instance's cumulative event count to every member, not only members of projects with no surviving rows |
-| Seed at the bare old max (round-1 draft) | A fully-current old cursor replays instead of resyncing | Old pods' fresh global ids fall in the new seq range during the rolling update; a client can reach `since == head` with a seq skipped (§5) |
+| Seed at the bare old max (the round-1 fix, `0053964df`) | A fully-current old cursor replays instead of resyncing | Old pods' fresh global ids fall in the new seq range during the rolling update; a client can reach `since == head` with a seq skipped (§5) |
 
 ## Consequences
 
