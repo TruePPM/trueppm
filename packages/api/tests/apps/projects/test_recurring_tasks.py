@@ -751,3 +751,20 @@ def test_soft_time_limit_propagates_out_of_recurrence_sweep(
     messages = [r.getMessage() for r in caplog.records]
     assert any("soft time limit exceeded; 1 item(s) not processed" in m for m in messages)
     assert not any("failed for rule" in m for m in messages)
+
+
+@pytest.mark.django_db
+def test_non_member_cannot_list_or_retrieve_another_projects_rule(
+    project: Project, template: Task
+) -> None:
+    """The viewset's own `task__project_id__in` filter is the only scope (#4007)."""
+    outsider = User.objects.create_user(username="outsider", password="pw")
+    rule = _make_rule(template, frequency=TaskRecurrenceFrequency.DAILY)
+    client = _client_for(outsider)
+
+    listing = client.get("/api/v1/recurrence-rules/")
+    assert listing.status_code == 200
+    data = listing.data
+    items = data["results"] if isinstance(data, dict) and "results" in data else data
+    assert items == []
+    assert client.get(f"/api/v1/recurrence-rules/{rule.pk}/").status_code == 404

@@ -107,7 +107,7 @@ Here is the single one, top to bottom:
 | Reference Docker image | Cannot parse it | Bundles neither the MPXJ JAR nor a JRE |
 
 So on a stock deployment a `.mpp` uploaded through the API returns `202`, and the
-worker then fails with `"MPXJ JAR not found"`. That reason has nowhere to surface
+worker then fails with an `".mpp import is not available on this server (reference …)"` message; the JAR path is written to the server log under that reference. That reason has nowhere to surface
 today ([#2714](https://gitlab.com/trueppm/trueppm/-/issues/2714)), which is why
 the file pickers no longer offer a path that ends there.
 

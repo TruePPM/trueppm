@@ -2692,8 +2692,15 @@ class McpReadableViewMixin(_McpViewBase):
         Resolves the project relation the same way ``ProjectScopedViewSet`` does
         (``project`` FK → ``predecessor__project`` → the ``Project`` row itself), so
         the two stay consistent and a model with an unusual shape is handled in one
-        place. A model with no reachable project relation is returned unfiltered —
-        it holds no project-scoped rows to withhold.
+        place. A model with no reachable project relation fails closed (``qs.none()``):
+        once a project has opted out, a row whose project cannot be resolved cannot
+        be shown to belong to a visible one, and returning it would leak exactly the
+        data the opt-out withholds (the same fail-open shape #4007 closed in
+        ``ProjectScopedViewSet.get_queryset``). The branch runs for every scope that
+        reaches ``filter_queryset`` (all except ``NONE`` and ``NO_PROJECT_DATA``),
+        ``PATH`` and ``AGGREGATE`` generic views included, not only ``QUERYSET``
+        subclasses. Unlike ``ProjectScopedViewSet`` there is no opt-in. No current
+        view reaches it: each has a direct project path.
         """
         from trueppm_api.apps.projects.models import is_agent_token
 
@@ -2748,7 +2755,7 @@ class McpReadableViewMixin(_McpViewBase):
             # not withhold program-level intake data it does not own.
             filtered = qs.exclude(program__mcp_enabled=False)
         else:
-            return qs
+            return qs.none()
 
         # Record that something was withheld so the audit row is not an unqualified
         # "allowed" (ADR-0678 T8). Set as a flag, not a count: counting would cost a
@@ -3027,7 +3034,20 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
     Idempotency-Key header. The mixin precedes GenericViewSet in the MRO so its
     initial()/finalize_response()/handle_exception() overrides run inside the
     ATOMIC_REQUESTS transaction. Opt out with ``idempotency_exempt = True``.
+
+    Fails closed: a model with no ``project`` / ``predecessor`` FK (and that is not
+    ``Project``) gets ``qs.none()`` from this base. A new task-scoped subclass that
+    calls ``super().get_queryset()`` would otherwise be silently unscoped, a
+    cross-project IDOR with no warning. A viewset whose model is deliberately not
+    project-scoped (an org-level shared resource such as ``Calendar``) must opt in
+    with ``unscoped_queryset = True``; a subclass that reaches its project through a
+    longer path must apply its own membership filter on top of an opted-in base.
+    Enterprise subclasses inherit the same default and must opt in explicitly.
     """
+
+    #: Opt-in for models that are intentionally not project-scoped. Default False so
+    #: the base fails closed rather than open.
+    unscoped_queryset: bool = False
 
     def get_queryset(self) -> QuerySet[Any]:
         qs = super().get_queryset()
@@ -3059,7 +3079,9 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
         # on every other project lookup (#1111).
         if model.__name__ == "Project":
             return qs.filter(pk__in=member_project_ids, is_deleted=False)
-        # Calendar and other non-project-scoped models: fall through unfiltered.
-        # Calendars are org-level shared resources; scoping is documented as
-        # intentional for the OSS single-tenant model (M2 decision: accept).
-        return qs
+        # No recognizable project path. Fail closed unless the viewset explicitly
+        # declared the model non-project-scoped (Calendars are org-level shared
+        # resources; M2 decision: accept for the OSS single-tenant model).
+        if self.unscoped_queryset:
+            return qs
+        return qs.none()
