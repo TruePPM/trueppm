@@ -207,7 +207,8 @@ class TestLabelledMessageStaysBounded:
         utf16_len = sum(2 if ord(ch) > 0xFFFF else 1 for ch in message)
         assert utf16_len <= MAX_MESSAGE_CHARS
         # Surrogate pairs are never split: every emoji that survived is intact.
-        assert "\ud800" not in message and "\udc00" not in message
+        assert "\ud800" not in message
+        assert "\udc00" not in message
 
     def test_control_characters_in_a_name_cannot_forge_a_second_line(self) -> None:
         """A task name is caller-controlled text and this message is now prose.

@@ -463,7 +463,8 @@ def _float_inversions(
             or _task_calendar(project, pred) != _task_calendar(project, succ)
         ):
             continue
-        assert pred.total_float is not None and succ.total_float is not None
+        assert pred.total_float is not None
+        assert succ.total_float is not None
         if pred.total_float > succ.total_float:
             found.append((pred.id, succ.id))
     return found

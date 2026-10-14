@@ -396,7 +396,8 @@ class TestStatusSummaryHealthBand:
         # tests in ``compute_health_band`` is the mutation this case catches, and
         # no single-signal case above can.
         data = client.get(self.URL.format(pk=project.pk)).json()
-        assert data["at_risk_count"] > 0 and data["critical_count"] > 0
+        assert data["at_risk_count"] > 0
+        assert data["critical_count"] > 0
         assert data["health_band"] == "critical"
 
     # ── The override branch: the PM's report beats the counts ─────────────────

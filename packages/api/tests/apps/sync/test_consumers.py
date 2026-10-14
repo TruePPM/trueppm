@@ -1352,7 +1352,8 @@ async def test_non_member_and_missing_project_refuse_identically(user: object) -
         real = await _connect_and_read_close(f"/ws/v1/projects/{other.pk}/?ticket=t")
         absent = await _connect_and_read_close(f"/ws/v1/projects/{missing}/?ticket=t")
 
-    assert real[0] is True and absent[0] is True
+    assert real[0] is True
+    assert absent[0] is True
     assert real[2] == absent[2] == {"type": "websocket.close", "code": 4003}
 
 

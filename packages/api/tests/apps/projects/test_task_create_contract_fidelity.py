@@ -270,7 +270,8 @@ def test_an_arbitrary_unknown_key_is_named_in_the_warning(
 
     assert resp.status_code == 201
     detail = _dropped_detail(resp)
-    assert "also_not" in detail and "not_a_field" in detail
+    assert "also_not" in detail
+    assert "not_a_field" in detail
 
 
 @pytest.mark.django_db

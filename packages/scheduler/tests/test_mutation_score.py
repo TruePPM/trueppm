@@ -16,7 +16,8 @@ import pytest
 
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "check_mutation_score.py"
 _spec = importlib.util.spec_from_file_location("check_mutation_score", _SCRIPT)
-assert _spec is not None and _spec.loader is not None
+assert _spec is not None
+assert _spec.loader is not None
 cms = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cms)
 

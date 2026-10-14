@@ -41,7 +41,8 @@ MODULE_PATH = REPO_ROOT / "packages" / "api" / "perf" / "capacity" / "run_capaci
 def _load_module() -> ModuleType:
     """Import the harness script by path — it is a script, not an installed module."""
     spec = importlib.util.spec_from_file_location("run_capacity", MODULE_PATH)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)

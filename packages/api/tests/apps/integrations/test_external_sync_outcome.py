@@ -531,7 +531,8 @@ def test_summary_does_not_echo_unknown_config_keys(
     # projected explicitly in ``_summary``, never by ``config`` being echoed.
     assert body["poll_enabled"] is True
     assert "config" not in body
-    assert "secret" not in body and "secret_ciphertext" not in body
+    assert "secret" not in body
+    assert "secret_ciphertext" not in body
 
 
 @pytest.mark.parametrize(

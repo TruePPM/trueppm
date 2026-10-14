@@ -208,7 +208,8 @@ def test_contract_baseline_and_rebaseline_are_months_apart(owner):
     rebaseline = Baseline.objects.get(project=project, name="Rebaseline — mezzanine change order")
     gap = (rebaseline.created_at.date() - contract.created_at.date()).days
     assert gap > 60, f"contract baseline and rebaseline are {gap} days apart"
-    assert rebaseline.is_active and not contract.is_active
+    assert rebaseline.is_active
+    assert not contract.is_active
 
 
 # --- Helios: goals and a mitigation with a task behind it -------------------
@@ -232,7 +233,8 @@ def test_migration_risk_has_a_scheduled_mitigation_task(owner):
     risk = project.risks.get(title="Legacy data migration fidelity")
 
     assert risk.mitigation_due_date, "the mitigation arc has no due date"
-    assert risk.trigger and risk.contingency
+    assert risk.trigger
+    assert risk.contingency
     assert risk.status == "MITIGATING", (
         f"the risk never moved off OPEN (is {risk.status}) — the mitigation was "
         f"scheduled but the register does not know it"

@@ -62,7 +62,8 @@ def test_tasks_and_task_history_drop_the_reason_column(blocked_task: Task) -> No
     members = _archive_members()
     tasks: list[dict[str, Any]] = json.loads(members["projects/tasks.json"])
     history: list[dict[str, Any]] = json.loads(members["history/tasks.json"])
-    assert tasks and history
+    assert tasks
+    assert history
     assert all("blocked_reason" not in row for row in tasks)
     assert all("blocked_reason" not in row for row in history)
     # The ungated half of the blocker still records that the task was blocked.
@@ -75,7 +76,8 @@ def test_other_history_tables_keep_their_columns(blocked_task: Task) -> None:
     """The exclusion is scoped to Task — project history is emitted whole."""
     members = _archive_members()
     projects: list[dict[str, Any]] = json.loads(members["history/projects.json"])
-    assert projects and "name" in projects[0]
+    assert projects
+    assert "name" in projects[0]
 
 
 def test_every_excluded_name_is_a_real_task_field() -> None:

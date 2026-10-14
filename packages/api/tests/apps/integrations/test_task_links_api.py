@@ -993,7 +993,8 @@ def test_github_owner_repo_are_percent_encoded_in_api_path(
     _client(member).post(_refresh_url(project, task, link.pk))
     assert len(seen) == 1
     assert seen[0].startswith("https://api.github.com/repos/")
-    assert "?" not in seen[0] and "#" not in seen[0]
+    assert "?" not in seen[0]
+    assert "#" not in seen[0]
     assert seen[0].endswith("/issues/7")
 
 

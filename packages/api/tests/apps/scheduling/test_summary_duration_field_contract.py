@@ -66,7 +66,8 @@ def _recalc(project_id: object) -> None:
 
 def _calendar_span_days(task: Task) -> int:
     """What the pre-#3530 write-back stored: the raw calendar-day difference."""
-    assert task.early_start is not None and task.early_finish is not None
+    assert task.early_start is not None
+    assert task.early_finish is not None
     return max(1, (task.early_finish - task.early_start).days)
 
 

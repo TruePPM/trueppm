@@ -82,7 +82,8 @@ def test_export_email_never_emits_a_relative_link_when_unconfigured(db: object) 
     _subject, body = _render_export_email(object())
     for line in body.splitlines():
         assert not line.strip().startswith("/"), f"relative link leaked into export email: {line!r}"
-    assert "Settings" in body and "Danger Zone" in body
+    assert "Settings" in body
+    assert "Danger Zone" in body
 
 
 @pytest.mark.django_db

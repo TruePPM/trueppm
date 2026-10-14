@@ -1187,7 +1187,9 @@ def test_the_207_body_matches_the_schema_it_publishes(
             format="json",
         )
 
-    assert r.data["applied"] and r.data["rejected"] and r.data["skipped"]
+    assert r.data["applied"]
+    assert r.data["rejected"]
+    assert r.data["skipped"]
     assert r.data["dependencies"]["applied"]
     assert r.data["dependencies"]["rejected"]
     assert_response_matches_schema(

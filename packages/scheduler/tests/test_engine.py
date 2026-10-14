@@ -3091,8 +3091,10 @@ class TestNonWorkingActualDurationWalk:
             start=date(2026, 2, 2),
         )
         t = schedule(p).tasks[0]
-        assert t.late_start is not None and t.early_start is not None
-        assert t.late_finish is not None and t.early_finish is not None
+        assert t.late_start is not None
+        assert t.early_start is not None
+        assert t.late_finish is not None
+        assert t.early_finish is not None
         assert t.late_start >= t.early_start
         assert t.late_finish >= t.early_finish
 

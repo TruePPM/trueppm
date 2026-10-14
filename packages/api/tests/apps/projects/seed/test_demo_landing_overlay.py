@@ -161,7 +161,9 @@ def test_the_forecast_lands_ahead_of_the_commitment(demo_mode: None, program: An
     result = apply_demo_landing_overlay(program)
     assert result.p80 < result.commitment_finish
     run = MonteCarloRun.objects.get(pk=result.monte_carlo_run_id)
-    assert run.p50 is not None and run.p80 is not None and run.p95 is not None
+    assert run.p50 is not None
+    assert run.p80 is not None
+    assert run.p95 is not None
     assert run.p50 <= run.p80 <= run.p95
 
 

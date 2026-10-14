@@ -409,7 +409,8 @@ class RustRunner:
         )
 
     def schedule(self, project: RefProject) -> dict[str, EngineTask]:
-        assert self._proc.stdin is not None and self._proc.stdout is not None
+        assert self._proc.stdin is not None
+        assert self._proc.stdout is not None
         doc = json.dumps(project_document(project))
         self._proc.stdin.write(doc + "\n")
         self._proc.stdin.flush()

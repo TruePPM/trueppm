@@ -216,7 +216,8 @@ def test_sf_free_float_is_exactly_the_slip_that_leaves_the_successor_unmoved(
     assert unmoved["B"].early_start == base["B"].early_start
 
     moved = _sf(lag_days, _slip(base, slack + 1, cal), **pinned)  # type: ignore[arg-type]
-    assert moved["B"].early_finish is not None and base["B"].early_finish is not None
+    assert moved["B"].early_finish is not None
+    assert base["B"].early_finish is not None
     assert moved["B"].early_finish > base["B"].early_finish
 
 
@@ -249,7 +250,8 @@ def test_sf_backward_pass_late_start_is_the_latest_start_that_holds_the_finish()
     base = build(date(2026, 3, 10))
     a = {t.id: t for t in base.tasks}["A"]
     late_start = a.late_start
-    assert late_start is not None and a.early_start is not None
+    assert late_start is not None
+    assert a.early_start is not None
     assert late_start > a.early_start, "the SF link must leave A some float"
 
     assert build(late_start).project_finish == base.project_finish
@@ -402,7 +404,8 @@ def test_floats_stay_consistent_for_a_pre_start_task() -> None:
     assert a.free_float == _days(0)
     assert a.is_critical
     for t in (a, b):
-        assert t.late_start is not None and t.early_start is not None
+        assert t.late_start is not None
+        assert t.early_start is not None
         assert t.late_start >= t.early_start
 
 
@@ -586,7 +589,8 @@ def test_adding_a_non_sf_link_never_moves_a_task_earlier_and_lags_are_monotone()
         for lag in range(-12, 6):
             link = Dependency("B", "D", dep_type=dep_type, lag=_days(lag))
             d = _repro_4220(with_ss=False, extra=[link])["D"]
-            assert d.early_start is not None and d.early_finish is not None
+            assert d.early_start is not None
+            assert d.early_finish is not None
             assert d.early_start >= base.early_start, (dep_type, lag)
             if previous is not None:
                 assert d.early_finish >= previous, (dep_type, lag)
@@ -622,7 +626,8 @@ def test_a_shorter_sf_lag_never_finishes_work_later() -> None:
     assert t2(-1).early_finish == date(2026, 2, 27)
     for lag in range(-6, 4):
         t_short, t_long = t2(lag - 1), t2(lag)
-        assert t_short.early_finish is not None and t_long.early_finish is not None
+        assert t_short.early_finish is not None
+        assert t_long.early_finish is not None
         assert t_short.early_finish <= t_long.early_finish, lag
 
 
@@ -663,7 +668,9 @@ def test_an_upstream_sf_link_never_moves_a_downstream_task_later() -> None:
     assert with_z["T"].early_start == date(2026, 2, 26)
     for tid in ("T", "S"):
         a, b = with_z[tid].early_finish, without[tid].early_finish
-        assert a is not None and b is not None and a <= b, tid
+        assert a is not None, tid
+        assert b is not None, tid
+        assert a <= b, tid
 
 
 def test_a_milestone_with_a_non_binding_ss_link_stays_before_the_project_start() -> None:
@@ -715,7 +722,8 @@ def test_derivation_offers_no_project_start_term_for_an_sf_linked_task(
     project = _mixed_project(-10, 1)
     d = derive_value(project, "C", quantity)
     assert "project_start" not in {c.kind for c in d.contributions}
-    assert d.binding is not None and d.binding.imposed_date == date(2026, 2, 27)
+    assert d.binding is not None
+    assert d.binding.imposed_date == date(2026, 2, 27)
 
 
 def test_derivation_names_a_binding_lead_on_an_sf_linked_task() -> None:
@@ -1030,7 +1038,8 @@ def test_a_milestone_predecessors_late_instant_is_the_raw_inverse() -> None:
     held = {t.id: t for t in build(date(2026, 3, 5)).tasks}["T"]
     moved = {t.id: t for t in build(date(2026, 3, 6)).tasks}["T"]
     assert held.early_finish == t_finish
-    assert moved.early_finish is not None and moved.early_finish > t_finish
+    assert moved.early_finish is not None
+    assert moved.early_finish > t_finish
 
 
 @pytest.mark.parametrize("milestone", [False, True])

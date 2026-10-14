@@ -485,7 +485,8 @@ def test_the_cap_error_states_the_limit_and_the_way_out(
     message = str(res.data["owners"]["non_field_errors"][0])
     assert message == MSG_TOO_MANY_OWNERS.format(max_length=MAX_TASK_OWNERS_PER_WRITE)
     assert str(MAX_TASK_OWNERS_PER_WRITE) in message
-    assert "duplicate" in message and "split" in message
+    assert "duplicate" in message
+    assert "split" in message
 
 
 @pytest.mark.django_db

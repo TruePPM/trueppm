@@ -25,13 +25,15 @@ class TestResolveRateLimitEnabled:
             requested_enabled=False, ack=RATE_LIMIT_DISABLE_ACK_SENTINEL
         )
         assert enabled is False
-        assert message is not None and "DISABLED" in message
+        assert message is not None
+        assert "DISABLED" in message
 
     def test_disabled_without_ack_is_refused(self) -> None:
         # Fail toward the protected state (limits ON), never toward an outage.
         enabled, message = resolve_rate_limit_enabled(requested_enabled=False, ack="")
         assert enabled is True
-        assert message is not None and "remains ENABLED" in message
+        assert message is not None
+        assert "remains ENABLED" in message
 
     def test_disabled_with_wrong_ack_is_refused(self) -> None:
         enabled, message = resolve_rate_limit_enabled(requested_enabled=False, ack="please")

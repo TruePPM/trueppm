@@ -111,7 +111,8 @@ def test_a_cancelled_sprint_is_on_the_board_with_its_reason(aurora):
     assert "cancel" not in (sprint.goal or "").lower()
     # ...and its scope went somewhere rather than evaporating.
     later = [s for s in _sprints(aurora) if s.start_date > sprint.start_date]
-    assert later and Task.objects.filter(project=aurora, sprint=later[0]).exists(), (
+    assert later, "the sprint after the cancelled one is empty, so nothing was folded forward"
+    assert Task.objects.filter(project=aurora, sprint=later[0]).exists(), (
         "the sprint after the cancelled one is empty, so nothing was folded forward"
     )
 
