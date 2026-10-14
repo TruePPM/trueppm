@@ -93,6 +93,8 @@ async def test_abroadcast_awaits_group_send_with_board_envelope() -> None:
                 "payload": {"user_id": "u9"},
                 # presence_join is ephemeral → not persisted → no replay sequence.
                 "seq": None,
+                # Channel-layer-internal number-space marker (ADR-1285, #4386).
+                "seq_scope": "project",
             },
         )
     ]
@@ -143,26 +145,165 @@ def test_broadcast_persists_boardevent_with_seq_in_payload(replay_project: Any) 
 
     row = BoardEvent.objects.get(project_id=replay_project.pk, event_type="task_created")
     assert row.payload == {"id": "t1"}
-    # The live envelope carries the persisted row's sequence (its PK).
+    # The live envelope carries the persisted row's per-project sequence.
     _group, message = layer.sent[0]
-    assert message["seq"] == row.pk
+    assert message["seq"] == row.seq == 1
     assert message["event_type"] == "task_created"
 
 
 @pytest.mark.django_db
-def test_broadcast_sequence_is_monotonic_per_project(replay_project: Any) -> None:
-    """Successive persisted events get strictly increasing sequences (ADR-0236)."""
+def test_broadcast_sequence_is_dense_per_project(replay_project: Any) -> None:
+    """Each project's events are numbered 1, 2, 3 with no holes, however much
+    traffic another project interleaves (ADR-1285, #4386). Under the old global-id
+    design the second project's events consumed values, so this project's
+    sequence was never contiguous and gap detection was impossible."""
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
+
+    other = Project.objects.create(
+        name="Noisy neighbor", start_date=date(2026, 1, 1), calendar=replay_project.calendar
+    )
+    pid, oid = str(replay_project.pk), str(other.pk)
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        broadcast_board_event(pid, "task_created", {"id": "t1"})
+        broadcast_board_event(oid, "task_created", {"id": "x1"})
+        broadcast_board_event(oid, "task_updated", {"id": "x1"})
+        broadcast_board_event(pid, "task_updated", {"id": "t1"})
+        # An ephemeral event in the middle draws no value.
+        broadcast_board_event(pid, "task_run_progress", {"task_run_id": "r1", "pct": 5})
+        broadcast_board_event(pid, "task_deleted", {"id": "t1"})
+
+    by_group: dict[str, list[Any]] = {}
+    for group, msg in layer.sent:
+        by_group.setdefault(group, []).append(msg["seq"])
+    assert by_group[f"project_{pid}"] == [1, 2, None, 3]
+    assert by_group[f"project_{oid}"] == [1, 2]
+    assert list(
+        BoardEvent.objects.filter(project_id=replay_project.pk)
+        .order_by("seq")
+        .values_list("seq", flat=True)
+    ) == [1, 2, 3]
+    # The counter is the head the consumer reports as latest_seq.
+    assert BoardEventSequence.objects.get(project_id=replay_project.pk).value == 3
+
+
+@pytest.mark.django_db
+def test_rolled_back_persist_leaves_no_hole(replay_project: Any) -> None:
+    """A failed INSERT rolls its allocation back with it, so the next event reuses
+    the value and the committed sequence stays dense."""
+    from django.db import DatabaseError
+
     from trueppm_api.apps.sync.models import BoardEvent
 
     layer = _FakeChannelLayer()
+    pid = str(replay_project.pk)
     with patch(_GET_LAYER, return_value=layer):
-        broadcast_board_event(str(replay_project.pk), "task_created", {"id": "t1"})
-        broadcast_board_event(str(replay_project.pk), "task_updated", {"id": "t1"})
-        broadcast_board_event(str(replay_project.pk), "task_deleted", {"id": "t1"})
+        broadcast_board_event(pid, "task_created", {"id": "t1"})
+        with patch(
+            "trueppm_api.apps.sync.models.BoardEvent.objects.create",
+            side_effect=DatabaseError("boom"),
+        ):
+            broadcast_board_event(pid, "task_updated", {"id": "t1"})
+        broadcast_board_event(pid, "task_deleted", {"id": "t1"})
 
-    seqs = [msg["seq"] for _g, msg in layer.sent]
-    assert seqs == sorted(seqs) and len(set(seqs)) == 3
-    assert BoardEvent.objects.filter(project_id=replay_project.pk).count() == 3
+    assert [msg["seq"] for _g, msg in layer.sent] == [1, None, 2]
+    assert list(
+        BoardEvent.objects.filter(project_id=replay_project.pk).values_list("seq", flat=True)
+    ) == [1, 2]
+
+
+@pytest.mark.django_db
+def test_persist_for_a_missing_project_draws_no_sequence() -> None:
+    """A project id with no Project row gets no counter row and no seq — the live
+    frame still goes out — instead of a deferred FK violation at COMMIT."""
+    import uuid
+
+    from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
+
+    ghost = str(uuid.uuid4())
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        broadcast_board_event(ghost, "task_created", {"id": "t1"})
+
+    assert layer.sent[0][1]["seq"] is None
+    assert not BoardEventSequence.objects.filter(project_id=ghost).exists()
+    assert not BoardEvent.objects.filter(project_id=ghost).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_allocation_on_one_project_is_dense_and_unique(replay_project: Any) -> None:
+    """Parallel broadcasts on one project — including the very first, which races to
+    create the counter row — commit a dense, duplicate-free sequence. Each worker
+    thread opens its own connection, so this exercises the real row lock."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connection as main_connection
+    from django.db import connections
+
+    from trueppm_api.apps.sync.broadcast import _persist_board_event
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    pid = str(replay_project.pk)
+    main_connection.close()
+
+    def _worker(i: int) -> int | None:
+        try:
+            return _persist_board_event(pid, "task_updated", {"id": f"t{i}"})
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        seqs = list(pool.map(_worker, range(24)))
+
+    assert sorted(s for s in seqs if s is not None) == list(range(1, 25))
+    stored = sorted(
+        BoardEvent.objects.filter(project_id=replay_project.pk).values_list("seq", flat=True)
+    )
+    assert stored == list(range(1, 25))
+
+
+@pytest.mark.django_db
+def test_renumber_board_events_backfills_dense_per_project_sequences(
+    replay_project: Any,
+) -> None:
+    """The #4386 migration's backfill: rows that predate ``seq`` are renumbered per
+    project in their original (global id) order, and each project's counter resumes
+    at its own head so the next live event continues the run."""
+    from django.db import connection
+
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.sync.broadcast import _persist_board_event
+    from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
+    from trueppm_api.apps.sync.sequence import renumber_board_events
+
+    other = Project.objects.create(
+        name="Other", start_date=date(2026, 1, 1), calendar=replay_project.calendar
+    )
+    # Pre-#4386 rows: no seq, interleaved across two projects in global id order.
+    a1 = BoardEvent.objects.create(project=replay_project, event_type="a1", payload={})
+    BoardEvent.objects.create(project=other, event_type="b1", payload={})
+    a2 = BoardEvent.objects.create(project=replay_project, event_type="a2", payload={})
+    BoardEvent.objects.create(project=other, event_type="b2", payload={})
+    BoardEvent.objects.create(project=other, event_type="b3", payload={})
+
+    renumber_board_events(BoardEvent, BoardEventSequence, connection)
+
+    def _seqs(project: Any) -> list[tuple[str, int | None]]:
+        return list(
+            BoardEvent.objects.filter(project=project)
+            .order_by("id")
+            .values_list("event_type", "seq")
+        )
+
+    assert _seqs(replay_project) == [("a1", 1), ("a2", 2)]
+    assert _seqs(other) == [("b1", 1), ("b2", 2), ("b3", 3)]
+    assert a1.pk < a2.pk
+    assert BoardEventSequence.objects.get(project=replay_project).value == 2
+    assert BoardEventSequence.objects.get(project=other).value == 3
+    # The next live event continues each project's run.
+    assert _persist_board_event(str(replay_project.pk), "a3", {}) == 3
+    assert _persist_board_event(str(other.pk), "b4", {}) == 4
 
 
 @pytest.mark.django_db

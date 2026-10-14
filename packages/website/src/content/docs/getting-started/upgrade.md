@@ -705,6 +705,35 @@ them back or re-mint the token under a member account. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 
+### WebSocket replay `seq` becomes per-project (`sync.0006`)
+
+The `seq` on a real-time board event is now a per-project, dense counter instead of
+the replay buffer's global row id (#4386). `sync.0006_boardevent_per_project_seq`
+adds the column and the per-project counter table. It renumbers the surviving
+replay buffer (at most `TRUEPPM_BOARD_EVENT_RETENTION_HOURS` of rows, 24 h by
+default) before it adds a `(project, seq)` unique constraint. Operators have
+nothing to configure.
+
+**During a rolling update** (`replicaCount >= 2`, as in `values-prod.yaml`), pods on
+the old and new code run side by side for a few minutes, using two different `seq`
+number spaces:
+
+- A browser can briefly miss live updates or apply them late.
+- An open tab can stay stale until its socket next reconnects. This happens at
+  the latest on its next token refresh, and the reconnect re-baselines it with a
+  `resync_required`.
+- Events written by an old pod during the window are delivered live but are not
+  replayable after a reconnect.
+
+Reloading the page clears all of these. If you script against the WebSocket API,
+expect one `resync_required` the first time a client reconnects with a cursor saved
+before the upgrade. See
+[Sequence numbers and reconnect replay](/api/websockets/#sequence-numbers-and-reconnect-replay).
+
+**Rollback:** the migration is reversible. Unapplying it drops the column and the
+counter table. A client that then reconnects with a per-project cursor gets
+replayed events or a `resync_required`, and recovers either way.
+
 ### Upgrading across the #4359 readiness-probe change
 
 **Helm only — sets a floor on the `web` image, not just the chart.** The web

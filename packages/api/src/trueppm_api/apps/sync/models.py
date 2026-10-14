@@ -132,28 +132,36 @@ class BoardEvent(models.Model):
     Like :class:`SyncBatch`, this is server infrastructure, never pulled as a synced
     domain row, so it is a plain ``models.Model`` (no ``server_version``).
 
-    **The primary key is the sequence.** The ``BigAutoField`` ``id`` is assigned
-    atomically by Postgres at INSERT, so it is globally monotonic with no lost or
-    duplicate values under concurrent commits. Clients only need a strictly
-    increasing-per-project value for a ``seq > since`` comparison and tolerate gaps
-    (other projects' rows interleave the global sequence), so the PK *is* the
-    per-project sequence — no per-project counter row or dedicated sequence is
-    needed. The wire exposes it as ``seq``.
+    **``seq`` is a per-project, dense, commit-ordered sequence (ADR-1285, #4386).**
+    It is drawn from the project's :class:`BoardEventSequence` row in the *same*
+    transaction as this row's INSERT, so the counter's row lock is held until the
+    event commits: within one project, commit order equals allocation order and the
+    committed values are 1, 2, 3, … with no holes. That is what lets a client treat
+    ``seq > last + 1`` as "a frame is missing or still in flight" and ``seq <= last``
+    as a genuine duplicate, and lets the consumer prove a replay complete by
+    counting rows. The previous design used the global ``BigAutoField`` PK, which
+    could not support either: other projects' traffic interleaved it (so the next
+    frame on a project was almost never ``last + 1``), two workers' sends could
+    arrive in the reverse of allocation order and the later-allocated one would
+    make the client drop the other as a duplicate, and the delta between frames
+    leaked instance-wide event volume to every project member.
 
-    Rows are reaped past ``TRUEPPM_BOARD_EVENT_RETENTION_HOURS`` (default 24h) by
-    the ``sync.purge_board_events`` Beat task, keeping the buffer bounded (the
-    ADR-0081 purge convention). Because ``created_at`` is monotonic with ``id`` at
-    that granularity, the purge removes a contiguous low-``id`` prefix — which is
-    what lets the consumer use "oldest surviving id" as the gap-detection
-    watermark (see ``consumers.py``).
+    ``seq`` is nullable for one reason: a pod running the pre-#4386 code during a
+    rolling update INSERTs without it. Such a row is live-only — the replay query
+    filters ``seq`` non-null and the allocator never counted it, so it neither
+    creates a false gap nor gets replayed. Rows are reaped past
+    ``TRUEPPM_BOARD_EVENT_RETENTION_HOURS`` (default 24h) by the
+    ``sync.purge_board_events`` Beat task (the ADR-0081 purge convention).
     """
 
-    # id: implicit BigAutoField PK (DEFAULT_AUTO_FIELD) — doubles as the sequence.
+    # id: implicit BigAutoField PK (DEFAULT_AUTO_FIELD) — row identity only; the
+    # wire sequence is ``seq`` (ADR-1285).
     project = models.ForeignKey(
         "projects.Project",
         on_delete=models.CASCADE,
         related_name="board_events",
     )
+    seq = models.BigIntegerField(null=True, blank=True, editable=False)
     event_type = models.CharField(max_length=64)
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -161,22 +169,60 @@ class BoardEvent(models.Model):
     objects: models.Manager[BoardEvent] = models.Manager()
 
     class Meta:
-        # Replay streams strictly by ascending sequence (the PK).
         ordering = ["id"]
+        constraints = [
+            # One event per (project, seq). Its index also serves the replay query
+            # ``WHERE project_id=? AND seq > ? AND seq <= ? ORDER BY seq``. NULLs
+            # (rolling-update rows, see the class docstring) are distinct in a
+            # Postgres unique index, so they never collide.
+            models.UniqueConstraint(fields=["project", "seq"], name="boardevent_project_seq_uniq"),
+        ]
         indexes = [
-            # The replay query: WHERE project_id=? AND id > ? ORDER BY id.
-            models.Index(fields=["project", "id"], name="boardevent_project_seq_idx"),
             # The reaper scans by age; keeps the nightly purge cheap.
             models.Index(fields=["created_at"], name="boardevent_created_idx"),
         ]
 
     def __str__(self) -> str:
-        return f"BoardEvent(seq={self.pk}, {self.event_type}, project={self.project_id})"
+        return f"BoardEvent(seq={self.seq}, {self.event_type}, project={self.project_id})"
 
-    @property
-    def seq(self) -> int:
-        """The wire sequence — an alias for the monotonic PK (ADR-0236)."""
-        return self.pk
+
+class BoardEventSequence(models.Model):
+    """Per-project allocator for :attr:`BoardEvent.seq` (ADR-1285, #4386).
+
+    One row per project that has ever persisted a replayable event, created lazily
+    on the first one. ``value`` is the last allocated ``seq`` and therefore also the
+    replay head the consumer reports as ``latest_seq``.
+
+    **Why a row lock and not a PostgreSQL SEQUENCE** — the same reason as
+    :class:`ProgramSyncSequence` and the ``sync_seq`` allocator (ADR-0686):
+    ``nextval()`` is non-transactional, so it would hand out values with no
+    relationship to commit order and leave holes on rollback. Allocating by
+    ``UPDATE … RETURNING`` in the event's own transaction holds this row's lock
+    until that transaction commits, which is what makes the committed values dense
+    and commit-ordered.
+
+    **Why its own row and not a column on ``Project``.** ``Project.last_sync_version``
+    is held locked for the *whole* apply of a sync upload, and ``Project`` rows are
+    also taken ``FOR UPDATE`` by several domain transactions. Broadcasts run in
+    ``on_commit`` callbacks; putting their allocator on the project row would make
+    every broadcast on a project wait behind any of those, and couple a transport
+    counter to domain locking. A dedicated row is locked only for the few
+    milliseconds of one event INSERT, and nothing else ever locks it, so it cannot
+    take part in a lock cycle with the project row.
+    """
+
+    project = models.OneToOneField(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="board_event_sequence",
+    )
+    value = models.BigIntegerField(default=0, editable=False)
+
+    objects: models.Manager[BoardEventSequence] = models.Manager()
+
+    def __str__(self) -> str:
+        return f"BoardEventSequence(project={self.project_id}, value={self.value})"
 
 
 class ProgramSyncSequence(models.Model):

@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 # can branch on it. Bump only on a backward-incompatible envelope change.
 WS_PROTOCOL_VERSION = 1
 
+# Channel-layer marker naming the number space of a message's ``seq`` (ADR-1285,
+# #4386). See ``_board_message``; read by ``ProjectConsumer.board_event``.
+SEQ_SCOPE_PROJECT = "project"
+
 # Event types that are deliberately NOT persisted to the BoardEvent replay buffer
 # (ADR-0236, #321). Everything else is persisted so a reconnecting client can
 # replay it via ``?since=``. A *denylist* (not an allowlist) is the fail-safe
@@ -89,35 +93,45 @@ def _record_broadcast_metric() -> None:
 def _persist_board_event(project_id: str, event_type: str, payload: dict[str, Any]) -> int | None:
     """Persist a replayable event to the BoardEvent buffer; return its sequence.
 
-    The sequence is the row's ``BigAutoField`` PK — globally monotonic, assigned
-    atomically by Postgres, so it survives concurrent commits with no lost or
-    duplicate values (ADR-0236). Returns ``None`` for non-persisted events
-    (``DONT_PERSIST_EVENT_TYPES``) and on any DB failure: best-effort exactly like the
-    broadcast itself, so a failed insert logs and is swallowed — the live event
-    still goes out (without a ``seq``) and the client recovers the gap via a
-    ``resync_required`` on its next reconnect.
+    The sequence is drawn from the project's own counter in the same transaction
+    as the INSERT (ADR-1285, #4386), so per project it is dense (1, 2, 3, …) and
+    commit-ordered. Returns ``None`` for non-persisted events
+    (``DONT_PERSIST_EVENT_TYPES``), for a project id that names no project, and on
+    any DB failure: best-effort exactly like the broadcast itself, so a failed
+    insert logs and is swallowed — the live event still goes out (without a
+    ``seq``) and a rolled-back allocation leaves no hole in the sequence.
 
-    Callers already run this inside a ``transaction.on_commit`` callback, so the
-    INSERT happens post-commit in autocommit — the row is the durable truth, the
-    broadcast is the best-effort echo.
+    Callers run this inside a ``transaction.on_commit`` callback (ATOMIC_REQUESTS
+    has already committed), so the ``atomic()`` below is normally the outermost
+    transaction and the counter row is locked only for this one INSERT. A caller
+    that broadcasts *inside* an open transaction breaks the on-commit contract
+    ``broadcast-check`` enforces, and here that costs more than a phantom frame:
+    the outer rollback would return the value to the counter, the next event
+    would reuse it, and a client that saw the phantom would drop the real one as a
+    duplicate.
     """
     if event_type in DONT_PERSIST_EVENT_TYPES:
         return None
 
-    from django.db import DatabaseError
+    from django.db import DatabaseError, transaction
 
     from trueppm_api.apps.sync.models import BoardEvent
+    from trueppm_api.apps.sync.sequence import allocate_board_event_seq
 
     try:
-        row = BoardEvent.objects.create(
-            project_id=project_id, event_type=event_type, payload=payload
-        )
+        with transaction.atomic():
+            seq = allocate_board_event_seq(project_id)
+            if seq is None:
+                return None
+            BoardEvent.objects.create(
+                project_id=project_id, seq=seq, event_type=event_type, payload=payload
+            )
     except DatabaseError:
         logger.exception(
             "broadcast: failed to persist BoardEvent %s for project %s", event_type, project_id
         )
         return None
-    return row.pk
+    return seq
 
 
 def _board_message(
@@ -134,6 +148,13 @@ def _board_message(
     ``None`` for an ephemeral event that was not buffered (ADR-0236). It is
     additive: a client that ignores it behaves exactly as before, so
     ``protocol_version`` stays ``1``.
+
+    ``seq_scope`` is a channel-layer-internal marker, never forwarded to a client
+    (ADR-1285, #4386). It says the ``seq`` on this message is the per-project
+    sequence. During a rolling update a pod still running the older code
+    group-sends the *global* row id as ``seq`` with no marker; the consumer
+    forwards such a ``seq`` as ``None`` so a client never adopts a value from the
+    other number space as its cursor.
     """
     return {
         "type": "board.event",
@@ -141,6 +162,7 @@ def _board_message(
         "event_type": event_type,
         "payload": payload,
         "seq": seq,
+        "seq_scope": SEQ_SCOPE_PROJECT,
     }
 
 
@@ -224,8 +246,9 @@ def broadcast_board_event(
         return
 
     # Persist the replay-buffer row first so its sequence can ride the live
-    # payload (ADR-0236). Best-effort: a persist failure yields seq=None and the
-    # event still broadcasts.
+    # payload (ADR-0236). The row is committed before group_send, so a replay that
+    # races this send already sees it. Best-effort: a persist failure yields
+    # seq=None and the event still broadcasts.
     seq = _persist_board_event(project_id, event_type, payload)
 
     group = _group_name(project_id)

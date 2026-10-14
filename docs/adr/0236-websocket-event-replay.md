@@ -31,6 +31,13 @@ A plain `models.Model` (server infrastructure, never pulled as a synced domain r
 Indexes: `(project, id)` composite (the replay query `WHERE project_id=? AND id > ?  ORDER BY id`) and `(created_at)` (purge). No `server_version` — this is not a `VersionedModel`.
 
 ### 2. Sequence allocation — the global `BigAutoField` PK **is** the sequence
+
+> **Superseded by [ADR-1285](1285-per-project-websocket-replay-sequence.md) (2026-10-14, #4386).**
+> The global PK was not a valid per-project order. Two workers' sends could arrive in the
+> reverse of allocation order, and the client then dropped the earlier one as a duplicate.
+> Other projects' rows made `last + 1` gap detection impossible. The deltas between frames
+> leaked instance-wide event volume. `seq` is now a per-project, dense, commit-ordered
+> counter. The text below is kept as the record of the original decision.
 Clients only need a value that is **strictly increasing per project** for a `seq > since` comparison, and **gaps are harmless** (they compare, they do not count). The table's global auto-increment PK satisfies this for free: Postgres assigns it atomically at INSERT, so two racing commits can never receive a duplicate or lost sequence. Per-project the ids are monotonically increasing with gaps (other projects' rows interleave) — exactly the gap-tolerant contract the client needs.
 
 This deliberately avoids a per-project counter row (`SELECT … FOR UPDATE` contention) and a dedicated Postgres sequence (no benefit over the PK). The wire field is named `seq` and equals the row `id`.

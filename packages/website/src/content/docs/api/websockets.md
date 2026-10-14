@@ -111,7 +111,7 @@ Every board/schedule event on `ws/v1/projects/{project_id}/` arrives as a JSON
 envelope:
 
 ```json
-{ "protocol_version": 1, "event_type": "<name>", "payload": { ... } }
+{ "protocol_version": 1, "event_type": "<name>", "payload": { ... }, "seq": 1234 }
 ```
 
 `event_type` is a `snake_case` name. Clients dispatch on it and typically
@@ -252,6 +252,47 @@ reconnect, so a client should refetch the affected resource on reconnect rather
 than rely on having seen every event. Event payloads are intentionally minimal
 (usually `{ "id": "<uuid>" }` or a small id set) — fetch the resource for the
 full state.
+
+### Sequence numbers and reconnect replay
+
+A replayable event also carries a `seq` field; an ephemeral one (`presence_*`,
+`task_run_*`) carries `"seq": null`. `seq` is **per project, dense and
+commit-ordered**: a project's events are numbered `1, 2, 3, …` with no holes, in
+the order they committed. It is not a global counter, and two projects' values are
+unrelated.
+
+Dense numbering does not make delivery ordered. Two server workers can commit
+events 10 and 11 in that order and still deliver 11 first. A client should
+therefore keep the highest `seq` it has applied with nothing missing below it, and
+then handle each frame like this:
+
+- **`seq` ≤ that cursor**: the event was already applied. Drop it.
+- **`seq` = cursor + 1**: apply it, then apply any held frames that are now
+  contiguous.
+- **`seq` > cursor + 1**: an earlier event is still in flight or was lost. Hold
+  the frame briefly (the web client waits 750 ms). If the missing event arrives,
+  apply the run in order. If it does not, apply what you hold in order and move
+  on. Do not drop a frame because it arrived early.
+
+To resume after a disconnect, reconnect with `?since=<cursor>`. The server sends
+the events you are owed (`seq > since`, in order, each with `"replayed": true`)
+before the live stream resumes. It sends a single `resync_required` frame
+instead, carrying `{ "latest_seq": <n> }`, when:
+
+- part of the gap has been purged (the buffer keeps
+  `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, 24 h by default);
+- you are more than 1,000 events behind; or
+- `since` is above the project's current head.
+
+After a `resync_required`, refetch your project-scoped state and set your
+cursor to `latest_seq`.
+
+:::caution[Cursors saved before the per-project sequence]
+Before #4386, `seq` was the replay buffer's global row id. A cursor saved under
+that scheme is not comparable with the per-project sequence. Expect one
+`resync_required` the first time you reconnect with it, then continue from
+`latest_seq`. Do not persist a cursor across projects.
+:::
 
 An event's payload may be richer at some emitting sites than others, but **all
 sites emitting a given `event_type` share at least one key**, so one handler can

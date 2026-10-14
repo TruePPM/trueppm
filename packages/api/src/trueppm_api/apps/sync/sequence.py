@@ -369,3 +369,78 @@ def register_sequence_receivers() -> None:
         dispatch_uid="sync_sequence_project_calendar_link",
         weak=False,
     )
+
+
+def allocate_board_event_seq(project_id: Any) -> int | None:
+    """Draw the next WebSocket replay ``seq`` for ``project_id`` (ADR-1285, #4386).
+
+    **Must run inside the same ``transaction.atomic()`` as the ``BoardEvent``
+    INSERT that carries the value.** The ``UPDATE … RETURNING`` takes the
+    project's :class:`~trueppm_api.apps.sync.models.BoardEventSequence` row lock
+    and holds it until that transaction commits, so a second event on the project
+    waits for the first to commit before drawing — commit order equals allocation
+    order — and a rolled-back event takes its value back with it, so the committed
+    values stay dense.
+
+    The counter row is created lazily on a project's first replayable event. Two
+    concurrent first events are safe: ``get_or_create`` resolves the INSERT race
+    inside its own savepoint, and both then serialize on the row lock.
+
+    Returns ``None`` when the project does not exist (a broadcast that names a
+    deleted or non-project id): the caller then broadcasts without a ``seq``,
+    exactly as for an ephemeral event.
+    """
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.sync.models import BoardEventSequence
+    from trueppm_api.core.db import increment_returning
+
+    seq = increment_returning(BoardEventSequence, "value", project_id)
+    if seq is not None:
+        return seq
+    # Checked before the INSERT rather than left to the FK: Django's FKs are
+    # DEFERRABLE INITIALLY DEFERRED, so a missing project would only fail at the
+    # outermost COMMIT — outside any except clause the caller can put around this.
+    if not Project.objects.filter(pk=project_id).exists():
+        return None
+    BoardEventSequence.objects.get_or_create(project_id=project_id)
+    return increment_returning(BoardEventSequence, "value", project_id)
+
+
+def renumber_board_events(
+    board_event_model: type[models.Model],
+    sequence_model: type[models.Model],
+    connection: Any,
+) -> None:
+    """Rewrite the replay buffer onto per-project dense sequences (ADR-1285, #4386).
+
+    Run once by the migration that introduced ``BoardEvent.seq``; it takes the
+    models as arguments so the migration can pass its historical ones, and so the
+    outcome is testable without importing a migration module.
+
+    Every surviving row gets ``seq = ROW_NUMBER() OVER (PARTITION BY project ORDER
+    BY id)`` — the old global id order *is* the old per-project order, so replay
+    order is preserved — and each project's counter starts at its highest
+    renumbered value, so the next live event continues the dense run.
+
+    A client that crossed the upgrade still holds a cursor drawn from the old
+    global id space. Nothing here translates it: the consumer answers a ``since``
+    above the project's head with ``resync_required`` (see
+    ``ProjectConsumer._replay_missed_events``), and one below it either replays
+    idempotent events or fails the density check and resyncs.
+    """
+    events = connection.ops.quote_name(board_event_model._meta.db_table)
+    sequences = connection.ops.quote_name(sequence_model._meta.db_table)
+    with connection.cursor() as cursor:
+        # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+        cursor.execute(
+            f"UPDATE {events} AS e SET seq = r.rn "  # nosec B608 - table names from _meta
+            f"FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY id) AS rn "
+            f"FROM {events}) AS r WHERE e.id = r.id"
+        )
+        # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+        cursor.execute(
+            f"INSERT INTO {sequences} (project_id, value) "  # nosec B608 - table names from _meta
+            f"SELECT project_id, MAX(seq) FROM {events} GROUP BY project_id "
+            f"ON CONFLICT (project_id) DO UPDATE "
+            f"SET value = GREATEST({sequences}.value, EXCLUDED.value)"
+        )

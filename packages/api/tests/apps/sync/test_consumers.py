@@ -557,6 +557,85 @@ async def test_board_event_forwarded_to_client(user: object, project: Project) -
     assert sent[0]["protocol_version"] == 1
 
 
+async def _forward(project: Project, message: dict) -> list[dict]:
+    """Run one channel-layer message through ``ProjectConsumer.board_event``."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    consumer.group_name = f"project_{project.pk}"
+    sent: list[dict] = []
+
+    async def _send_json(content: dict, close: bool = False) -> None:
+        sent.append(content)
+
+    consumer.send_json = _send_json  # type: ignore[method-assign]
+    await consumer.board_event(message)
+    return sent
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_board_event_forwards_seq_marked_as_per_project(
+    user: object, project: Project
+) -> None:
+    """A message built by the current broadcast helper carries its seq to the client."""
+    from trueppm_api.apps.sync.broadcast import _board_message
+
+    sent = await _forward(project, _board_message("task_created", {"id": "t1"}, 7))
+    assert sent[0]["seq"] == 7
+    # The scope marker is channel-layer-internal and never reaches the wire.
+    assert "seq_scope" not in sent[0]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_board_event_strips_unmarked_seq_from_a_previous_release_pod(
+    user: object, project: Project
+) -> None:
+    """During a rolling update an older pod group-sends its global row id as ``seq``
+    with no scope marker (#4386). Forwarding it would hand the client a cursor from
+    the other number space, so it goes out unsequenced — applied, never gated."""
+    message = {
+        "type": "board.event",
+        "protocol_version": 1,
+        "event_type": "task_created",
+        "payload": {"id": "t1"},
+        "seq": 987654,
+    }
+    sent = await _forward(project, message)
+    assert sent[0]["event_type"] == "task_created"
+    assert sent[0]["seq"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_events_committed_in_order_but_delivered_reversed_both_reach_the_client(
+    user: object, project: Project
+) -> None:
+    """#4386 test plan: two events commit as seq 1 then 2, but the second worker's
+    group_send lands first. The consumer forwards both, each with its own dense
+    seq, so the client can apply them in order (its reorder gate is pinned in
+    ``wsSeqGate.test.ts``) instead of dropping 1 as a duplicate of 2."""
+    from trueppm_api.apps.sync.broadcast import _board_message, _persist_board_event
+
+    persist = database_sync_to_async(_persist_board_event)
+    first = await persist(str(project.pk), "task_dates_updated", {"tasks": []})
+    second = await persist(str(project.pk), "task_updated", {"id": "t1"})
+    assert (first, second) == (1, 2)
+
+    reversed_delivery = [
+        *await _forward(project, _board_message("task_updated", {"id": "t1"}, second)),
+        *await _forward(project, _board_message("task_dates_updated", {"tasks": []}, first)),
+    ]
+    assert [(f["event_type"], f["seq"]) for f in reversed_delivery] == [
+        ("task_updated", 2),
+        ("task_dates_updated", 1),
+    ]
+
+
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_board_event_on_closed_socket_is_dropped(user: object, project: Project) -> None:
@@ -978,6 +1057,15 @@ async def _connect_capturing(project_pk: str, user: object, since: int) -> list[
     return sent
 
 
+def _persist(project: Project, event_type: str, payload: dict) -> int:
+    """Persist one replayable event through the real allocator; return its seq."""
+    from trueppm_api.apps.sync.broadcast import _persist_board_event
+
+    seq = _persist_board_event(str(project.pk), event_type, payload)
+    assert seq is not None
+    return seq
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_replay_streams_missed_events_scoped_to_project(
@@ -991,55 +1079,120 @@ async def test_replay_streams_missed_events_scoped_to_project(
         name="Other", start_date=date(2026, 1, 1), calendar=calendar
     )
 
-    from trueppm_api.apps.sync.models import BoardEvent
+    persist = database_sync_to_async(_persist)
+    s1 = await persist(project, "task_created", {"id": "t1"})
+    # Another project's traffic interleaves — it must neither appear in this replay
+    # (no IDOR) nor punch a hole in this project's sequence (#4386).
+    await persist(other, "task_created", {"id": "x1"})
+    s2 = await persist(project, "task_updated", {"id": "t1"})
+    s3 = await persist(project, "task_deleted", {"id": "t1"})
+    assert [s1, s2, s3] == [1, 2, 3]
 
-    make = database_sync_to_async(BoardEvent.objects.create)
-    e1 = await make(project=project, event_type="task_created", payload={"id": "t1"})
-    e2 = await make(project=project, event_type="task_updated", payload={"id": "t1"})
-    e3 = await make(project=project, event_type="task_deleted", payload={"id": "t1"})
-    # An event on a different project must never appear in this replay (no IDOR).
-    await make(project=other, event_type="task_created", payload={"id": "x1"})
-
-    sent = await _connect_capturing(str(project.pk), user, since=e1.pk)
+    sent = await _connect_capturing(str(project.pk), user, since=s1)
 
     replayed = [f for f in sent if f.get("replayed")]
-    assert [f["seq"] for f in replayed] == [e2.pk, e3.pk]
+    assert [f["seq"] for f in replayed] == [2, 3]
     assert [f["event_type"] for f in replayed] == ["task_updated", "task_deleted"]
     assert all(f["event_type"] != "resync_required" for f in sent)
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_replay_sends_resync_when_since_predates_retention(
+async def test_replay_sends_resync_when_part_of_the_gap_was_purged(
     user: object, project: Project
 ) -> None:
-    """A ?since= older than the oldest surviving row yields resync_required, not partial replay."""
+    """Owed events missing from the buffer yield resync_required, not a partial replay."""
     await database_sync_to_async(ProjectMembership.objects.create)(
         project=project, user=user, role=Role.MEMBER
     )
 
     from trueppm_api.apps.sync.models import BoardEvent
 
-    make = database_sync_to_async(BoardEvent.objects.create)
-    e1 = await make(project=project, event_type="task_created", payload={"id": "t1"})
-    e2 = await make(project=project, event_type="task_updated", payload={"id": "t1"})
-    e3 = await make(project=project, event_type="task_deleted", payload={"id": "t1"})
+    persist = database_sync_to_async(_persist)
+    for i in range(3):
+        await persist(project, "task_updated", {"id": f"t{i}"})
+    # The purge reaped seq 2: a client at since=1 is owed 2 and 3 but only 3 survives.
+    await database_sync_to_async(BoardEvent.objects.filter(project_id=project.pk, seq=2).delete)()
 
-    # Simulate the purge trimming the contiguous low-id prefix: delete the two
-    # oldest so the smallest surviving id is e3. A client that had only seen up to
-    # e1 now has a gap it can't stream — expect resync.
-    await database_sync_to_async(BoardEvent.objects.filter(pk__in=[e1.pk, e2.pk]).delete)()
-
-    # e1,e2,e3 are consecutive ids, so (e3 - 2) == e1 — a positive `since` that is
-    # strictly below the oldest surviving id (e3), the resync trigger. Derived from
-    # e3 (never 0) rather than e1-1, which would be 0 on a fresh PK sequence and
-    # skip replay entirely.
-    sent = await _connect_capturing(str(project.pk), user, since=e3.pk - 2)
+    sent = await _connect_capturing(str(project.pk), user, since=1)
 
     resync = [f for f in sent if f["event_type"] == "resync_required"]
     assert len(resync) == 1
-    assert resync[0]["payload"]["latest_seq"] == e3.pk
+    assert resync[0]["payload"]["latest_seq"] == 3
     assert not [f for f in sent if f.get("replayed")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_replay_resyncs_a_cursor_above_the_project_head(
+    user: object, project: Project
+) -> None:
+    """A since above the head is from another number space — a client that crossed
+    the #4386 upgrade still holding a global row id. It is re-baselined, not ignored:
+    ignoring it would leave the client dropping every new frame as a duplicate."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    persist = database_sync_to_async(_persist)
+    await persist(project, "task_created", {"id": "t1"})
+    await persist(project, "task_updated", {"id": "t1"})
+
+    sent = await _connect_capturing(str(project.pk), user, since=50_000)
+
+    assert sent == [
+        {
+            "protocol_version": 1,
+            "event_type": "resync_required",
+            "payload": {"latest_seq": 2},
+            "seq": None,
+        }
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_replay_resyncs_a_cursor_on_a_project_with_no_events(
+    user: object, project: Project
+) -> None:
+    """No counter row yet: the head is 0, so any positive since is re-baselined to 0."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    sent = await _connect_capturing(str(project.pk), user, since=5)
+    assert [f["payload"] for f in sent] == [{"latest_seq": 0}]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_replay_at_the_head_sends_nothing(user: object, project: Project) -> None:
+    """A client already at the head is owed nothing — no replay and no resync."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    persist = database_sync_to_async(_persist)
+    await persist(project, "task_created", {"id": "t1"})
+    head = await persist(project, "task_updated", {"id": "t1"})
+
+    sent = await _connect_capturing(str(project.pk), user, since=head)
+    assert sent == []
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_replay_beyond_the_cap_resyncs(user: object, project: Project) -> None:
+    """A client further behind than _REPLAY_CAP is told to refetch, not streamed to."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    persist = database_sync_to_async(_persist)
+    for i in range(4):
+        await persist(project, "task_updated", {"id": f"t{i}"})
+
+    with patch("trueppm_api.apps.sync.consumers._REPLAY_CAP", 2):
+        sent = await _connect_capturing(str(project.pk), user, since=1)
+
+    assert [f["event_type"] for f in sent] == ["resync_required"]
+    assert sent[0]["payload"] == {"latest_seq": 4}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1049,12 +1202,7 @@ async def test_no_since_skips_replay_entirely(user: object, project: Project) ->
     await database_sync_to_async(ProjectMembership.objects.create)(
         project=project, user=user, role=Role.MEMBER
     )
-
-    from trueppm_api.apps.sync.models import BoardEvent
-
-    await database_sync_to_async(BoardEvent.objects.create)(
-        project=project, event_type="task_created", payload={"id": "t1"}
-    )
+    await database_sync_to_async(_persist)(project, "task_created", {"id": "t1"})
 
     sent = await _connect_capturing(str(project.pk), user, since=0)
     assert sent == []

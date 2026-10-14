@@ -29,7 +29,7 @@ backward-incompatible envelope change, never for a new `event_type`.
 delivery as best-effort and refetch the affected resource on reconnect rather than
 relying on having seen every event.
 
-`seq` is the monotonic replay sequence for a persisted (replayable) event, or
+`seq` is the per-project replay sequence for a persisted (replayable) event, or
 `null` for an ephemeral one (presence, task-run progress). It is additive — a
 client that ignores it behaves exactly as before, so it does not bump
 `protocol_version` — and it powers reconnect replay, below.
@@ -39,27 +39,41 @@ client that ignores it behaves exactly as before, so it does not bump
 Broadcast delivery is best-effort: an event sent while a client is disconnected is
 lost. Rather than force a full refetch storm on every reconnect, each replayable
 event is persisted to a bounded per-project buffer (`BoardEvent`) and stamped with
-a monotonic `seq` (ADR-0236). The mechanism:
+a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
 
-- **Sequence** — the `seq` is the buffer row's global auto-increment primary key.
-  It is strictly increasing and gap-tolerant per project (other projects' rows
-  interleave the global sequence); clients only ever compare it, never count on
-  contiguity.
+- **Sequence** — the `seq` is a **per-project, dense, commit-ordered** counter
+  (ADR-1285, #4386). It is drawn from the project's `BoardEventSequence` row in the
+  same transaction as the event's INSERT. That row stays locked until the event
+  commits, so within one project the committed values are `1, 2, 3, …` with no
+  holes, in commit order. A rolled-back event returns its value. Until #4386 the
+  `seq` was the buffer's global row id. Other projects' traffic interleaved it, so
+  the next frame on a project was almost never `last + 1`. The client dropped an
+  out-of-order delivery as a duplicate, and the gap between frames revealed
+  instance-wide event volume.
 - **What is buffered** — every mutation event, but **not** the high-frequency
   ephemeral ones (`presence_*`, `task_run_*`), which carry `seq: null` and are
   pointless to replay. This is a denylist, so a newly-added mutation event is
   replayable by default.
-- **The handshake** — a client tracks the highest `seq` it has processed and, on
-  reconnect, opens the socket with `?since=<seq>`. The consumer streams the
-  buffered events with `seq > since` (each flagged `"replayed": true`) before the
-  live stream resumes. Replayed (older `seq`) frames always precede live (newer
-  `seq`) ones, and the client drops any frame whose `seq` it has already processed,
-  so replay is idempotent.
-- **Gap fallback** — if `since` predates the retained window (the buffer purges
-  rows past `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, default 24h) or the client is
-  further behind than the replay cap, the consumer sends a single
-  `resync_required` control frame carrying `{ "latest_seq": <n> }`; the client
-  refetches its project-scoped caches and baselines its cursor to `latest_seq`.
+- **Ordering on the client** — dense allocation does not order delivery. Two
+  workers can commit 10 then 11 and still have 11's `group_send` arrive first. The
+  client keeps a contiguous cursor. It drops `seq <= cursor` as a duplicate and
+  applies `cursor + 1` immediately. It holds a frame that overtook its predecessor
+  for a short window (`SEQ_REORDER_WINDOW_MS`, `packages/web/src/hooks/wsSeqGate.ts`).
+  When the window expires, it applies the held frames in order rather than dropping
+  them.
+- **The handshake** — on reconnect the client opens the socket with
+  `?since=<cursor>`. The consumer reads the project's head (its counter value).
+  The client is owed exactly `head - since` events, and the consumer streams them
+  (each flagged `"replayed": true`) only when exactly that many rows survive.
+  Replayed frames always precede live ones, and the client drops any `seq` it has
+  already applied, so replay is idempotent.
+- **Gap fallback** — the consumer sends a single `resync_required` control frame
+  carrying `{ "latest_seq": <head> }` in three cases. The first is when some owed
+  rows were purged (the buffer keeps `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, default
+  24h). The second is when the client is more than the replay cap behind. The third
+  is when `since` is above the head, which is a cursor from the pre-#4386 global
+  number space. The client refetches its project-scoped caches and baselines its
+  cursor to `latest_seq`. Every value the consumer reads is scoped to the project.
 
 `resync_required` is a **consumer-emitted control frame**, not a broadcast event —
 it never passes through `broadcast_board_event()`, so it is deliberately *not* part
