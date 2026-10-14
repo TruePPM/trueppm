@@ -1066,8 +1066,9 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
-    # Calendars are an org-level library with no project FK; opt out of the
-    # base class's fail-closed `qs.none()` (#4007).
+    # Declares the intent: Calendars are an org-level library with no project FK.
+    # This view builds its own queryset in `get_queryset` and never calls the base
+    # fallback, so the flag is documentation here, not behavior (#4007).
     unscoped_queryset = True
     # Exempt from the archived-write invariant (#3414). A Calendar belongs to no
     # project — `get_queryset` returns the whole org library and `get_permissions`

@@ -51,7 +51,9 @@ def test_explicit_opt_in_returns_unfiltered(django_user_model):
 
 
 def test_known_unscoped_viewsets_declare_the_opt_in():
-    assert CalendarViewSet.unscoped_queryset is True
+    # CalendarViewSet builds its own queryset and never reaches the base fallback,
+    # so this only pins the declared intent, not behavior (the list test below does).
+    assert CalendarViewSet.unscoped_queryset is True, "Calendar must declare its intent"
     # Reaches its project via `task`; applies its own membership filter after super().
     assert TaskRecurrenceRuleViewSet.unscoped_queryset is True
     assert TaskRecurrenceRule._meta.get_field("task")
@@ -69,3 +71,20 @@ def test_calendar_list_unchanged_for_a_non_member(django_user_model):
     body = r.json()
     rows = body["results"] if isinstance(body, dict) else body
     assert "Shared library entry" in {c["name"] for c in rows}
+
+
+def test_mcp_filter_fails_closed_for_model_without_project_path(django_user_model):
+    """A QUERYSET-scoped MCP mixin on a model with no project path returns none (#4007)."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from trueppm_api.apps.access.permissions import McpReadableViewMixin
+
+    Calendar.objects.create(name="Org calendar")
+    view = McpReadableViewMixin()
+    view.request = SimpleNamespace(auth=None)
+    with patch(
+        "trueppm_api.apps.projects.mcp_settings.mcp_visible_project_ids",
+        return_value=set(),
+    ):
+        assert view._mcp_filter_queryset(Calendar.objects.all()).count() == 0

@@ -2692,8 +2692,12 @@ class McpReadableViewMixin(_McpViewBase):
         Resolves the project relation the same way ``ProjectScopedViewSet`` does
         (``project`` FK → ``predecessor__project`` → the ``Project`` row itself), so
         the two stay consistent and a model with an unusual shape is handled in one
-        place. A model with no reachable project relation is returned unfiltered —
-        it holds no project-scoped rows to withhold.
+        place. A model with no reachable project relation fails closed (``qs.none()``):
+        once a project has opted out, a row whose project cannot be resolved cannot
+        be shown to belong to a visible one, and returning it would leak exactly the
+        data the opt-out withholds (the same fail-open shape #4007 closed in
+        ``ProjectScopedViewSet.get_queryset``). Every current ``QUERYSET``-scoped
+        subclass has a direct project path, so this branch is a guard for the next one.
         """
         from trueppm_api.apps.projects.models import is_agent_token
 
@@ -2748,7 +2752,7 @@ class McpReadableViewMixin(_McpViewBase):
             # not withhold program-level intake data it does not own.
             filtered = qs.exclude(program__mcp_enabled=False)
         else:
-            return qs
+            return qs.none()
 
         # Record that something was withheld so the audit row is not an unqualified
         # "allowed" (ADR-0678 T8). Set as a flag, not a count: counting would cost a
