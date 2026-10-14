@@ -13,8 +13,14 @@ different process, does not count. Import aliases (``import subprocess as sp``,
 ``from subprocess import Popen as P, PIPE as Q``) are resolved.
 
 Not covered: ``subprocess.run``/``check_output`` (they drain internally, so are
-safe), ``stderr=<file object>`` (no pipe), a Popen handed to another function or
-stored on ``self`` before draining, and ``star-import``/``getattr`` indirection.
+safe), ``stderr=<file object>`` (no pipe), a Popen stored on ``self`` before
+draining, and ``star-import``/``getattr`` indirection. Known evasions (the rule
+passes these although they are unsafe): Popen kwargs passed via ``**kw``; a
+``.read()`` evaluated eagerly in a Thread's ``args=``; the process variable
+reassigned before ``communicate()``. Known false positive (fails safe): a Popen
+handed to another function, e.g. ``def drain(p): p.stderr.read()`` started via
+``Thread(target=drain, args=(p,))``, is flagged because the drain does not read
+``<var>.stderr`` in the spawning scope.
 """
 
 from __future__ import annotations
