@@ -724,3 +724,20 @@ def test_generation_emits_no_per_assignment_events(staffed_template: Task) -> No
     assert created
     emitted = [call.args[1] for call in mock_broadcast.call_args_list if len(call.args) > 1]
     assert emitted == [], f"generation should emit no board events itself, got {emitted}"
+
+
+@pytest.mark.django_db
+def test_non_member_cannot_list_or_retrieve_another_projects_rule(
+    project: Project, template: Task
+) -> None:
+    """The viewset's own `task__project_id__in` filter is the only scope (#4007)."""
+    outsider = User.objects.create_user(username="outsider", password="pw")
+    rule = _make_rule(template, frequency=TaskRecurrenceFrequency.DAILY)
+    client = _client_for(outsider)
+
+    listing = client.get("/api/v1/recurrence-rules/")
+    assert listing.status_code == 200
+    data = listing.data
+    items = data["results"] if isinstance(data, dict) and "results" in data else data
+    assert items == []
+    assert client.get(f"/api/v1/recurrence-rules/{rule.pk}/").status_code == 404

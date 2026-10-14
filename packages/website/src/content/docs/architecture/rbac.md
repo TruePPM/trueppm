@@ -45,6 +45,12 @@ not exist. The requester learns nothing about whether the project is real. This
 lets a later tier return a richer, structured error without leaking anything a
 plain 404 wouldn't have.
 
+`ProjectScopedViewSet` fails closed on a model it cannot scope: for a model with
+no `project` or `predecessor` relation (and that is not `Project`), the base
+returns an empty queryset unless the subclass sets `unscoped_queryset = True`.
+Without that default, a new task-scoped viewset that called
+`super().get_queryset()` would silently return every project's rows.
+
 **Tier 1 — does the caller's role clear a threshold?** `IsProjectMemberWrite`
 (Member+), `IsProjectScheduler` (Scheduler+), `IsProjectAdmin` (Admin+), and
 `IsProjectOwner` (Owner, exactly) each compare the caller's `ProjectMembership.role`
