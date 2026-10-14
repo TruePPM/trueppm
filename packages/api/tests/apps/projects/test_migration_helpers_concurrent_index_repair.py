@@ -54,7 +54,8 @@ def invalid_index() -> None:
     with connection.cursor() as cursor, pytest.raises(DjangoDbError):
         cursor.execute(f"CREATE UNIQUE INDEX CONCURRENTLY {_INDEX} ON {_TABLE} (val);")
     exists, valid = _index_state(_INDEX)
-    assert exists and not valid, "fixture setup did not reproduce an INVALID index"
+    assert exists, "fixture setup did not reproduce an INVALID index"
+    assert not valid, "fixture setup did not reproduce an INVALID index"
     yield
     with connection.cursor() as cursor:
         cursor.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {_INDEX};")
@@ -82,7 +83,8 @@ def test_rebuild_after_repair_produces_a_valid_index(invalid_index: None) -> Non
         cursor.execute(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX} ON {_TABLE} (val);")
 
     exists, valid = _index_state(_INDEX)
-    assert exists and valid
+    assert exists
+    assert valid
 
 
 @pytest.mark.django_db(transaction=True)
@@ -99,7 +101,8 @@ def test_without_repair_a_rerun_silently_leaves_the_index_invalid(invalid_index:
         )
 
     exists, valid = _index_state(_INDEX)
-    assert exists and not valid
+    assert exists
+    assert not valid
 
 
 @pytest.mark.django_db(transaction=True)
@@ -117,9 +120,11 @@ def test_repair_is_a_noop_on_a_valid_index() -> None:
         with connection.cursor() as cursor:
             cursor.execute("SELECT oid FROM pg_class WHERE relname = %s", [_INDEX])
             row = cursor.fetchone()
-        assert row is not None and row[0] == oid_before, "valid index was dropped/rebuilt"
+        assert row is not None, "valid index was dropped/rebuilt"
+        assert row[0] == oid_before, "valid index was dropped/rebuilt"
         exists, valid = _index_state(_INDEX)
-        assert exists and valid
+        assert exists
+        assert valid
     finally:
         with connection.cursor() as cursor:
             cursor.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {_INDEX};")

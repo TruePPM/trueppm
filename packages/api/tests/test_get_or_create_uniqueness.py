@@ -239,10 +239,13 @@ def test_analyzer_flags_and_clears_synthetic_calls() -> None:
     assert unresolved == 0
     by_line = {f.line: f for f in findings}
     # Lines 1 and 2 are safe → not findings.
-    assert 1 not in by_line and 2 not in by_line
+    assert 1 not in by_line
+    assert 2 not in by_line
     # Line 3 (partial) and line 4 (no-unique) are unsafe, unwaived.
-    assert by_line[3].model == "Widget" and not by_line[3].waived
-    assert by_line[4].model == "Gadget" and not by_line[4].waived
+    assert by_line[3].model == "Widget"
+    assert not by_line[3].waived
+    assert by_line[4].model == "Gadget"
+    assert not by_line[4].waived
     # Line 5 is unsafe but waived.
     assert by_line[5].waived
 

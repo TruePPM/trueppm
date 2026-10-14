@@ -714,7 +714,8 @@ def test_projects_and_resources_count_toward_the_node_budget() -> None:
         errors = validation._node_budget_errors(payload)
     finally:
         validation.MAX_SEED_NODES = original
-    assert errors and "14 entities" in errors[0], errors
+    assert errors, errors
+    assert "14 entities" in errors[0], errors
 
 
 def test_a_container_diagnostic_does_not_echo_the_whole_payload() -> None:

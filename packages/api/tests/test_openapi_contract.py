@@ -811,7 +811,8 @@ def test_workspace_members_declares_pagination_envelope(schema: dict) -> None:
     sch = _response_2xx_schema(schema, "/api/v1/workspace/members/", "get")
     ref = sch.get("$ref", "")
     props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
-    assert "results" in props and props["results"].get("type") == "array"
+    assert "results" in props
+    assert props["results"].get("type") == "array"
 
 
 def test_me_search_declares_pagination_envelope(schema: dict) -> None:
@@ -828,7 +829,8 @@ def test_me_search_declares_pagination_envelope(schema: dict) -> None:
     ref = sch.get("$ref", "")
     assert ref, "me/search 200 must be an object envelope, not a bare array (#2267)."
     props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
-    assert "results" in props and props["results"].get("type") == "array"
+    assert "results" in props
+    assert props["results"].get("type") == "array"
     assert {"count", "next", "previous"} <= set(props)
 
 
@@ -1426,7 +1428,10 @@ def test_token_create_400s_keep_a_real_wire_shape(schema: dict, method: str, pat
         "losing it puts this operation back in the class the sweep exists to catch."
     )
     body = op["responses"]["400"]["content"]["application/json"]["schema"]
-    assert body.get("type") == "object" and "additionalProperties" in body, (
+    assert body.get("type") == "object", (
+        f"{method.upper()} {path} declares a 400 in a shape the API never returns (#3319): {body}"
+    )
+    assert "additionalProperties" in body, (
         f"{method.upper()} {path} declares a 400 in a shape the API never returns (#3319): {body}"
     )
 

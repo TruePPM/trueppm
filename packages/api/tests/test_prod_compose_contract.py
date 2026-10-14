@@ -136,7 +136,11 @@ def test_certbot_profile_is_activated_by_init_prod(services: dict[str, Any]) -> 
     documented systemd unit; persisting COMPOSE_PROFILES into .env does."""
     assert services["certbot"]["profiles"] == ["letsencrypt"]
     init = _INIT_PROD.read_text()
-    assert "COMPOSE_PROFILES" in init and "letsencrypt" in init, (
+    assert "COMPOSE_PROFILES" in init, (
+        "init-prod.sh never activates the letsencrypt profile, so the renewal "
+        "container is never created and TLS expires at ~90 days"
+    )
+    assert "letsencrypt" in init, (
         "init-prod.sh never activates the letsencrypt profile, so the renewal "
         "container is never created and TLS expires at ~90 days"
     )

@@ -296,7 +296,8 @@ def test_sample_reload_refuses_a_program_holding_a_real_project(seed_owner: Any)
     """#2476: a sample reload can never purge real work, even the caller's own."""
     program = import_seed(_seed(), owner=seed_owner, create_users=False)
     real = Project.objects.filter(program=program).first()
-    assert real is not None and real.is_sample is False
+    assert real is not None
+    assert real.is_sample is False
 
     # is_sample + replace=True is the most permissive combination there is; the
     # mixed-program guard must still hold.

@@ -149,7 +149,8 @@ class TestRepair:
         p.refresh_from_db()
         assert p.code == "PM"
         row = ObjectKey.objects.get(project=p)
-        assert row.is_current and row.source == ObjectKeySource.BACKFILL
+        assert row.is_current
+        assert row.source == ObjectKeySource.BACKFILL
         assert [(r.old_code, r.new_code) for r in rewritten] == [("", "PM")]
 
     def test_the_oldest_duplicate_keeps_its_code_and_the_rest_are_suffixed(self) -> None:
@@ -795,7 +796,8 @@ class TestSeedKeys:
         )
         import_seed(_seed_with_codes(), owner=owner, create_users=False, replace=True)
         original.refresh_from_db()
-        assert original.is_deleted and original.code == ""
+        assert original.is_deleted
+        assert original.code == ""
         r = _client(owner).post(f"{PROJECTS_URL}{original.pk}/restore/")
         assert r.status_code == 200, r.content
         original.refresh_from_db()

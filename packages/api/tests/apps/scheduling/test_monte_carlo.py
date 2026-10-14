@@ -223,7 +223,8 @@ class TestMonteCarloEndpoint:
         from trueppm_scheduler.engine import MAX_LAG_DELTA_CELLS
 
         cap = settings.MC_LAG_DELTA_CELL_CAP  # type: ignore[attr-defined]
-        assert cap is not None and cap <= MAX_LAG_DELTA_CELLS // 10
+        assert cap is not None
+        assert cap <= MAX_LAG_DELTA_CELLS // 10
 
     def test_defaults_to_cap_when_n_simulations_omitted(
         self,

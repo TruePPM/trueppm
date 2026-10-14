@@ -516,7 +516,8 @@ class TestProjectStartFloorIsDisplayOnly:
         )
         result = schedule(p)
         x = next(t for t in result.tasks if t.id == "X")
-        assert x.early_finish is not None and x.early_finish < MON
+        assert x.early_finish is not None
+        assert x.early_finish < MON
         mc = monte_carlo(p, runs=16, seed=1)
         assert mc.p50 == mc.p95 == result.project_finish
 
@@ -537,7 +538,8 @@ class TestProjectStartFloorIsDisplayOnly:
         )
         result = schedule(p)
         x = next(t for t in result.tasks if t.id == "X")
-        assert x.early_start is not None and x.early_start < MON + timedelta(days=lead + 14)
+        assert x.early_start is not None
+        assert x.early_start < MON + timedelta(days=lead + 14)
         assert result.project_finish == date(2026, 1, 12)
         mc = monte_carlo(p, runs=16, seed=1)
         assert mc.p50 == mc.p95 == result.project_finish
@@ -561,7 +563,8 @@ class TestProjectStartFloorIsDisplayOnly:
                 assert d.binding is not None, (tid, q)
                 assert d.binding.imposed_date == want, (tid, q, d.binding)
         t3 = derive_value(via_m, "T3", Quantity.EARLY_START, result)
-        assert t3.binding is not None and t3.binding.kind == "project_start"
+        assert t3.binding is not None
+        assert t3.binding.kind == "project_start"
 
 
 # ---------------------------------------------------------------------------
@@ -933,7 +936,8 @@ def test_every_date_derivation_cites_the_engines_own_value(p: Project) -> None:
             assert d.value == getattr(t, q.value).isoformat(), (t.id, q)
             binding = [c for c in d.contributions if c.is_binding]
             assert binding == [d.binding], (t.id, q)
-            assert d.binding is not None and d.binding.imposed_date is not None
+            assert d.binding is not None
+            assert d.binding.imposed_date is not None
             assert d.binding.imposed_date.isoformat() == d.value, (t.id, q)
         for q in (Quantity.TOTAL_FLOAT, Quantity.FREE_FLOAT):
             assert derive_value(p, t.id, q, result).value == getattr(t, q.value).days
@@ -1008,7 +1012,8 @@ class TestTerminalMilestoneLateSeed:
                 assert d.binding is not None
             lf = derive_value(p, "A", Quantity.LATE_FINISH, result)
             assert lf.value == a_late_finish
-            assert lf.binding is not None and lf.binding.source_task_id == "M"
+            assert lf.binding is not None
+            assert lf.binding.source_task_id == "M"
 
 
 # ---------------------------------------------------------------------------
@@ -1781,7 +1786,8 @@ class TestFinishLinkOutOfAStartOfDayMilestone:
         result = schedule(p)
         w = {t.id: t for t in result.tasks}["W"]
         assert (w.early_finish, w.late_finish) == (early, late)
-        assert w.early_start == w.early_finish and w.late_start == w.late_finish
+        assert w.early_start == w.early_finish
+        assert w.late_start == w.late_finish
         mc = monte_carlo(p, runs=16, seed=1)
         assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
 
@@ -1796,8 +1802,10 @@ class TestFinishLinkOutOfAStartOfDayMilestone:
             for lag in range(-4, 8)
         ]
         for earlier, later in itertools.pairwise(rows):
-            assert earlier.early_finish is not None and later.early_finish is not None
-            assert earlier.late_finish is not None and later.late_finish is not None
+            assert earlier.early_finish is not None
+            assert later.early_finish is not None
+            assert earlier.late_finish is not None
+            assert later.late_finish is not None
             assert earlier.early_finish <= later.early_finish
             assert earlier.late_finish <= later.late_finish
 

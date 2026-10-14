@@ -212,7 +212,8 @@ def test_bundle_history_and_seed_carry_no_reason_for_non_reader(
     for name in ("seed.json", "history/tasks.json"):
         assert b"SECRET" not in members[name], name
     rows = json.loads(members["history/tasks.json"])
-    assert rows and all(r["blocked_reason"] == "" for r in rows)
+    assert rows
+    assert all(r["blocked_reason"] == "" for r in rows)
     assert any(r["blocker_type"] == "vendor" for r in rows)
 
 

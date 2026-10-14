@@ -205,7 +205,8 @@ def test_the_subtree_cascade_repaths_a_descendant_whose_slot_was_taken(
         parent.soft_delete()
     lost.refresh_from_db()
     kept.refresh_from_db()
-    assert lost.is_deleted and kept.is_deleted
+    assert lost.is_deleted
+    assert kept.is_deleted
 
     # Somebody adds a subtask while the parent sits in the trash, taking 1.1.
     Task.objects.create(
@@ -254,7 +255,8 @@ def test_two_conflicted_descendants_get_different_replacements(project: Project)
 
     a.refresh_from_db()
     b.refresh_from_db()
-    assert a.is_deleted is False and b.is_deleted is False
+    assert a.is_deleted is False
+    assert b.is_deleted is False
     assert str(a.wbs_path) != str(b.wbs_path)
     live = list(
         Task.objects.filter(project=project, is_deleted=False).values_list("wbs_path", flat=True)

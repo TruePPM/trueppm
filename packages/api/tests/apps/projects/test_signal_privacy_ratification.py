@@ -637,9 +637,12 @@ def test_no_broadcast_payload_carries_a_vote_or_a_voter(
 
     for call in bcast.call_args_list:
         payload = call.args[2]
-        assert "voter" not in payload and "voter_id" not in payload
-        assert "choice" not in payload and "votes" not in payload
-        assert "approve_count" not in payload and "reject_count" not in payload
+        assert "voter" not in payload
+        assert "voter_id" not in payload
+        assert "choice" not in payload
+        assert "votes" not in payload
+        assert "approve_count" not in payload
+        assert "reject_count" not in payload
 
 
 def test_a_ratchet_to_team_broadcasts_the_policy_change(

@@ -177,7 +177,8 @@ def test_generic_import_materializes_team_skills_recurrence_and_subtasks() -> No
     assert requirement.skill == Skill.objects.get(normalized_name="offline sync")
     assert requirement.min_proficiency == 3
 
-    assert tasks["1.1"].is_subtask and tasks["1.2"].is_subtask
+    assert tasks["1.1"].is_subtask
+    assert tasks["1.2"].is_subtask
     assert not tasks["1"].is_subtask
 
     rule = TaskRecurrenceRule.objects.get(task=tasks["2"])

@@ -560,7 +560,8 @@ def test_sample_path_synthesizes_bounded_time_and_submissions(owner: Any) -> Non
     per_day: dict[date, int] = {}
     for entry in entries.filter(user=priya, task__wbs_path="2"):
         per_day[entry.entry_date] = per_day.get(entry.entry_date, 0) + entry.minutes
-    assert per_day and max(per_day.values()) <= int(8 * 60 * 1.1)
+    assert per_day
+    assert max(per_day.values()) <= int(8 * 60 * 1.1)
 
     anchor_monday = ANCHOR_DATE - timedelta(days=ANCHOR_DATE.weekday())
     weeks = list(TimesheetSubmission.objects.filter(user=priya))

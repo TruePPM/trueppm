@@ -249,7 +249,11 @@ class TestPolicyRefusalOnTheWire:
 
         hook = inspect.getsource(McpReadableViewMixin._record_mcp_agent_action)
         classifier = inspect.getsource(McpReadableViewMixin._mcp_refusal_classification)
-        assert "_mcp_refusal_classification" in hook and "refusal_marks" in classifier, (
+        assert "_mcp_refusal_classification" in hook, (
+            "the MCP audit hook no longer reads the refusal marks, so the row it "
+            "writes can disagree with what the caller was told (#2689)"
+        )
+        assert "refusal_marks" in classifier, (
             "the MCP audit hook no longer reads the refusal marks, so the row it "
             "writes can disagree with what the caller was told (#2689)"
         )

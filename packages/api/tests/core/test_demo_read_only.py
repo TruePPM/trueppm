@@ -423,7 +423,8 @@ def test_the_refusal_shape_is_stable(demo: Any) -> None:
     body = resp.json()
     assert set(body) == {"detail", "code"}
     assert body["code"] == "demo_read_only"
-    assert isinstance(body["detail"], str) and body["detail"]
+    assert isinstance(body["detail"], str)
+    assert body["detail"]
 
 
 def test_a_refusal_still_carries_the_correlation_id_and_csp(demo: Any) -> None:

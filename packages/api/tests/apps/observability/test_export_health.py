@@ -199,7 +199,8 @@ class TestRecordingSpanExporter:
         wrapper = export_health.RecordingSpanExporter(inner, _RecordingSpy())  # type: ignore[arg-type]
         assert wrapper.force_flush(1000) is True
         wrapper.shutdown()
-        assert inner.flushed and inner.shut
+        assert inner.flushed
+        assert inner.shut
 
 
 class TestCountDataPoints:

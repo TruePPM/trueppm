@@ -644,7 +644,8 @@ async def test_monte_carlo_why_leads_with_staleness_when_the_plan_moved(
     why = result["why"]
     assert why["forecast_staleness"] == "project_changed"
     assert why["explanation"].startswith("This forecast: this forecast was computed against")
-    assert "412" in why["explanation"] and "419" in why["explanation"]
+    assert "412" in why["explanation"]
+    assert "419" in why["explanation"]
     # The counter advances on any write, so the sentence must not claim a date moved.
     assert "plan changed" not in why["explanation"]
 

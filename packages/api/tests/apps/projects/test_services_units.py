@@ -831,7 +831,8 @@ class TestBootstrapSamplers:
     def test_velocity_sampler_is_reproducible_for_a_fixed_seed(self) -> None:
         first = _sample_backlog_sprint_counts(37.0, [5.0, 15.0], runs=40, seed=99)
         second = _sample_backlog_sprint_counts(37.0, [5.0, 15.0], runs=40, seed=99)
-        assert first is not None and second is not None
+        assert first is not None
+        assert second is not None
         assert first.tolist() == second.tolist()
 
     def test_throughput_sampler_returns_the_expected_week_count(self) -> None:
@@ -1360,7 +1361,8 @@ class TestAssembleMilestoneRollup:
         sprint = _rollup_sprint(SprintState.PLANNED, finish=date(2026, 3, 1), binding_snapshot=13)
         drifted = _assemble_milestone_rollup(milestone, [sprint], {sprint.pk: 21}, {})
         steady = _assemble_milestone_rollup(milestone, [sprint], {sprint.pk: 13}, {})
-        assert drifted is not None and steady is not None
+        assert drifted is not None
+        assert steady is not None
         assert drifted["binding_drifted"] is True
         assert steady["binding_drifted"] is False
 

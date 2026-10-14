@@ -86,7 +86,8 @@ def test_every_sample_loads_the_collaboration_layer(key: str) -> None:
     ).exists()
     if key in _AGILE:
         criteria = AcceptanceCriterion.objects.filter(**in_program)
-        assert criteria.filter(met=True).exists() and criteria.filter(met=False).exists()
+        assert criteria.filter(met=True).exists()
+        assert criteria.filter(met=False).exists()
     # #3490 — logged time, and submitted weeks for at least two personas.
     entries = TimeEntry.objects.filter(**in_program)
     assert entries.exists()
