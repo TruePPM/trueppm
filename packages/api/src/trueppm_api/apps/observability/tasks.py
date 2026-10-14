@@ -6,8 +6,6 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from celery.exceptions import SoftTimeLimitExceeded
-
 from trueppm_api.core.idempotent import idempotent_task
 
 if TYPE_CHECKING:
@@ -184,9 +182,7 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
             total_rows += rows
             if freed:
                 total_bytes += freed
-        except SoftTimeLimitExceeded:
-            raise
-        except Exception as exc:
+        except Exception as exc:  # TODO(#4421): also swallows SoftTimeLimitExceeded
             failures += 1
             logger.exception("retention purge failed for table %s", spec.key)
             tables.append(

@@ -105,9 +105,7 @@ def _handle_failure(
         try:
             step.compensate(context)
             record_history(instance, "step_compensated", {"step": step.name, "index": index})
-        except SoftTimeLimitExceeded:
-            raise
-        except Exception:
+        except Exception:  # TODO(#4421): also swallows SoftTimeLimitExceeded
             logger.exception(
                 "compensation failed for step %s of workflow %s", step.name, instance.id
             )

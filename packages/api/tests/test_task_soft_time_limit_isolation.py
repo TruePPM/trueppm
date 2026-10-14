@@ -11,8 +11,11 @@ bundles and so on): inside any ``for``/``while`` loop, every ``except Exception`
 bare ``except`` handler must be preceded, in the same ``try``, by
 ``except SoftTimeLimitExceeded: raise``, unless the handler itself re-raises
 (bare ``raise``). ``contextlib.suppress(Exception)`` in a loop is flagged too.
-A new unguarded loop anywhere fails here; a loop that genuinely can never run
-inside a Celery task is listed in ``_NOT_TASK_REACHABLE`` with its reason.
+A new unguarded loop anywhere fails here. Exempt functions live in ``_EXEMPT``
+with an exact handler count and a reason; some are *known* unguarded and tracked
+in #4421, so green here means "no NEW unguarded handler", not "every task-module
+loop is covered". Handlers outside a loop are only seen if listed in
+``_NON_LOOP_HELPERS`` or ``_EXEMPT``.
 """
 
 from __future__ import annotations
@@ -28,19 +31,50 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "trueppm_api"
 # loop rule cannot see them, so each is named here and asserted guarded.
 _NON_LOOP_HELPERS = {("apps/scheduling/services.py", "safe_capture_forecast_snapshot")}
 
-# Loops that are not reachable from a Celery task, so the soft limit cannot fire
-# inside them. Each needs a reason; a stale entry fails the test below.
-_NOT_TASK_REACHABLE = {
-    ("apps/agents/deferred.py", "drain_agent_actions"): "request-path drain",
-    ("apps/integrations/me_work.py", "_maybe_enqueue_on_open_refresh"): "request path",
-    ("apps/notifications/email_health.py", "_txt_records"): "admin request path (DNS lookup)",
-    ("apps/observability/otel/instrumentation.py", "reset_for_testing"): "test helper",
-    ("apps/projects/seed/importer.py", "_refresh_active_sprint_burndown"): "seed command",
-    ("apps/projects/seed/replay.py", "_snapshot_active_sprints"): "seed command",
-    ("apps/projects/views.py", "_bulk_scope_change"): "request path",
-    ("apps/sync/conflict.py", "_payload_changed_fields"): "request path, no I/O",
-    ("apps/sync/consumers.py", "_presence_keepalive"): "ASGI consumer, not a worker",
-    ("core/idempotent.py", "_run"): "lock-extender thread; the signal fires on the main thread",
+# Exempt handlers, keyed by (file, function) -> (handler count, reason). The count
+# is exact: a new unguarded handler in an exempt function fails, and so does a
+# stale entry (function renamed or removed, or the handler became guarded).
+# Two kinds, split by the reason text:
+#   - not task-reachable: the soft limit cannot fire there.
+#   - "KNOWN-UNGUARDED #4421": reachable from a task and still swallowing the
+#     signal; re-raising there changes behavior (a PurgeRun left RUNNING, a saga
+#     rollback undone inside the surrounding transaction) or needs a helper
+#     redesign, so it is tracked rather than fixed. Also tracked there and NOT
+#     seen by this scan: projects/receivers.py receivers and
+#     core/extension_signals send_robust.
+_EXEMPT: dict[tuple[str, str], tuple[int, str]] = {
+    ("apps/agents/deferred.py", "drain_agent_actions"): (1, "request-path drain"),
+    ("apps/integrations/me_work.py", "_maybe_enqueue_on_open_refresh"): (1, "request path"),
+    ("apps/notifications/email_health.py", "_txt_records"): (2, "admin request path (DNS)"),
+    ("apps/observability/otel/instrumentation.py", "reset_for_testing"): (1, "test helper"),
+    ("apps/projects/views.py", "_bulk_scope_change"): (1, "request path"),
+    ("apps/sync/conflict.py", "_payload_changed_fields"): (2, "request path, no I/O"),
+    ("apps/sync/consumers.py", "_presence_keepalive"): (1, "ASGI consumer, not a worker"),
+    ("core/idempotent.py", "_run"): (1, "lock-extender thread; signal fires on main thread"),
+    ("apps/projects/seed/importer.py", "_refresh_active_sprint_burndown"): (
+        1,
+        "KNOWN-UNGUARDED #4421 (seed import)",
+    ),
+    ("apps/projects/seed/replay.py", "_snapshot_active_sprints"): (
+        1,
+        "KNOWN-UNGUARDED #4421 (seed replay)",
+    ),
+    ("apps/observability/tasks.py", "_execute_run"): (
+        1,
+        "KNOWN-UNGUARDED #4421: re-raise would leave PurgeRun RUNNING and lose results",
+    ),
+    ("apps/workflow_engine/tasks.py", "_handle_failure"): (
+        1,
+        "KNOWN-UNGUARDED #4421: re-raise inside _do_advance's atomic undoes the rollback",
+    ),
+    ("apps/notifications/tasks.py", "_send_email_for_notification"): (
+        1,
+        "KNOWN-UNGUARDED #4421: swallows the signal, so the drain loop's guard is moot",
+    ),
+    ("apps/workspace/tasks.py", "_send_invite_email"): (
+        1,
+        "KNOWN-UNGUARDED #4421: swallows the signal, so the drain loop's guard is moot",
+    ),
 }
 
 _BROAD = {"Exception", "BaseException"}
@@ -62,7 +96,14 @@ def _reraises(handler: ast.ExceptHandler) -> bool:
 
 
 def _reraises_soft_limit(handler: ast.ExceptHandler) -> bool:
-    if handler.type is None or "SoftTimeLimitExceeded" not in ast.unparse(handler.type):
+    if handler.type is None:
+        return False
+    names = (
+        [ast.unparse(e) for e in handler.type.elts]
+        if isinstance(handler.type, ast.Tuple)
+        else [ast.unparse(handler.type)]
+    )
+    if not any(n.split(".")[-1] == "SoftTimeLimitExceeded" for n in names):
         return False
     return _reraises(handler)
 
@@ -129,28 +170,47 @@ def _rel(path: Path) -> str:
     return path.relative_to(SRC).as_posix()
 
 
+def _counts(path: Path) -> dict[str, int]:
+    """Unguarded broad handlers per function, scanning exempt/helper functions too."""
+    rel = _rel(path)
+    helpers = {fn for (r, fn) in _EXEMPT if r == rel} | {
+        fn for (r, fn) in _NON_LOOP_HELPERS if r == rel
+    }
+    counts: dict[str, int] = {}
+    for _, fn in violations_in(path.read_text(), helpers=helpers):
+        counts[fn] = counts.get(fn, 0) + 1
+    return counts
+
+
 def test_no_unguarded_per_item_handler_in_any_module() -> None:
     bad = []
     for path in _modules():
-        for lineno, fn in violations_in(path.read_text()):
-            if (_rel(path), fn) not in _NOT_TASK_REACHABLE:
-                bad.append(f"{_rel(path)}:{lineno} in {fn}")
+        for fn, n in _counts(path).items():
+            exempt = _EXEMPT.get((_rel(path), fn))
+            if exempt is None or exempt[0] != n:
+                bad.append(f"{_rel(path)}:{fn} has {n} (exempt: {exempt and exempt[0]})")
     assert not bad, (
         "per-item `except Exception` / suppress(Exception) in a loop without a preceding "
-        "`except SoftTimeLimitExceeded: raise` (or add to _NOT_TASK_REACHABLE with a reason): "
+        "`except SoftTimeLimitExceeded: raise` (guard it, or add to _EXEMPT with a reason): "
         + ", ".join(bad)
     )
 
 
-def test_not_task_reachable_list_has_no_stale_entries() -> None:
-    live = {(_rel(p), fn) for p in _modules() for _, fn in violations_in(p.read_text())}
-    stale = set(_NOT_TASK_REACHABLE) - live
-    assert not stale, f"remove entries that no longer need an exemption: {sorted(stale)}"
+def test_exemptions_match_the_code_exactly() -> None:
+    stale = []
+    for (rel, fn), (count, _reason) in _EXEMPT.items():
+        actual = _counts(SRC / rel).get(fn, 0)
+        if actual != count:
+            stale.append(f"{rel}:{fn} declares {count}, found {actual}")
+    assert not stale, f"update or remove stale exemptions: {stale}"
 
 
 @pytest.mark.parametrize(("rel", "func"), sorted(_NON_LOOP_HELPERS))
 def test_non_loop_helpers_on_task_paths_reraise_soft_time_limit(rel: str, func: str) -> None:
-    bad = violations_in((SRC / rel).read_text(), helpers={func})
+    source = (SRC / rel).read_text()
+    defined = {n.name for n in ast.walk(ast.parse(source)) if isinstance(n, ast.FunctionDef)}
+    assert func in defined, f"{rel}:{func} no longer exists; update _NON_LOOP_HELPERS"
+    bad = violations_in(source, helpers={func})
     assert not [b for b in bad if b[1] == func], f"{rel}:{func} swallows SoftTimeLimitExceeded"
 
 

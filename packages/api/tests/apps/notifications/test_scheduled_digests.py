@@ -620,3 +620,33 @@ def test_active_users_still_receive_theirs_alongside_a_deactivated_one(
     assert notif.recipient_id == active.pk
     assert "Apollo" in notif.body
     assert NotificationDigestRun.objects.filter(user=active).exists()
+
+
+@pytest.mark.django_db
+def test_soft_time_limit_stops_the_sweep_and_names_unreached_users(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The task time limit re-raises, is not logged as a per-user failure (#4381)."""
+    from unittest.mock import patch
+
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    with (
+        patch.object(digests, "_opted_in_user_ids", return_value={3, 1, 2}),
+        patch.object(
+            digests,
+            "_maybe_send_for_user",
+            side_effect=[1, SoftTimeLimitExceeded(), 1],
+        ) as send,
+        caplog.at_level("WARNING", logger=digests.logger.name),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        send_due_digests(now=SUNDAY_1700_UTC)
+
+    assert send.call_count == 2  # the third user is never attempted
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(
+        m.startswith("send_due_digests: soft time limit exceeded; 2 user(s) not processed for ")
+        for m in messages
+    )
+    assert not any("failed for user" in m for m in messages)

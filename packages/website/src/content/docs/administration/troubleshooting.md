@@ -402,23 +402,26 @@ work](/administration/durability/#why-losing-the-broker-does-not-lose-the-work).
 
 ---
 
-## A nightly sweep stopped early (`soft time limit exceeded`)
+## A background sweep stopped early (`soft time limit exceeded`)
 
-The burndown, recurring-task and daily-forecast Beat sweeps each have a soft time
-limit (110 to 120 seconds). When a very large instance runs past it, the task
-stops instead of skipping the slow item and carrying on, and the worker logs a
-WARNING naming how many items it did not reach and the first few ids (the
-sprint-burndown, recurring-task, daily-forecast and digest sweeps log it):
+Releases after 0.4.0-beta.7. Each sweep runs under a Celery soft time limit. When a
+very large instance runs past it, the task stops instead of skipping the slow item
+and carrying on, and the worker logs a WARNING naming how many items it did not
+reach and the first few ids:
 
-```text
-update_sprint_burndown_snapshots: soft time limit exceeded; 12 item(s) not processed (first: ...)
-```
+| Sweep | Schedule | Soft limit | Log text |
+|---|---|---|---|
+| Sprint burndown snapshots | nightly | 120 s | `update_sprint_burndown_snapshots: soft time limit exceeded; N item(s) not processed (first: ...)` |
+| Recurring task occurrences | hourly | 120 s | `generate_recurring_occurrences: soft time limit exceeded; N item(s) not processed (first: ...)` |
+| Daily forecast floor | nightly | 110 s | `capture_daily_forecast_floor: soft time limit exceeded; N project(s) not processed (first: ...)` |
+| Weekly digests | hourly | 280 s | `send_due_digests: soft time limit exceeded; N user(s) not processed for <event>` |
 
 Items are processed in a fixed order, so a sweep that keeps overrunning leaves
 the **same tail** unprocessed on every run. Those items are not eventually caught
-up by a later tick. A repeating WARNING means the instance has outgrown the limit:
+up by a later run. A repeating WARNING means the instance has outgrown the limit:
 check worker CPU and database latency first. A persisted cursor or per-item
-fan-out for these sweeps is tracked in #4420.
+fan-out for these sweeps is tracked in #4420, and the handlers that still swallow
+the time limit are tracked in #4421; neither is scheduled work.
 
 ## A Celery worker wedges and never recovers (Docker Compose)
 
