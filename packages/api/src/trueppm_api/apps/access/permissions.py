@@ -2696,8 +2696,11 @@ class McpReadableViewMixin(_McpViewBase):
         once a project has opted out, a row whose project cannot be resolved cannot
         be shown to belong to a visible one, and returning it would leak exactly the
         data the opt-out withholds (the same fail-open shape #4007 closed in
-        ``ProjectScopedViewSet.get_queryset``). Every current ``QUERYSET``-scoped
-        subclass has a direct project path, so this branch is a guard for the next one.
+        ``ProjectScopedViewSet.get_queryset``). The branch runs for every scope that
+        reaches ``filter_queryset`` (all except ``NONE`` and ``NO_PROJECT_DATA``),
+        ``PATH`` and ``AGGREGATE`` generic views included, not only ``QUERYSET``
+        subclasses. Unlike ``ProjectScopedViewSet`` there is no opt-in. No current
+        view reaches it: each has a direct project path.
         """
         from trueppm_api.apps.projects.models import is_agent_token
 

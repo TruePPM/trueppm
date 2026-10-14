@@ -54,9 +54,11 @@ def test_known_unscoped_viewsets_declare_the_opt_in():
     # CalendarViewSet builds its own queryset and never reaches the base fallback,
     # so this only pins the declared intent, not behavior (the list test below does).
     assert CalendarViewSet.unscoped_queryset is True, "Calendar must declare its intent"
-    # Reaches its project via `task`; applies its own membership filter after super().
+    # Reaches its project only via `task`; applies its own membership filter after super().
     assert TaskRecurrenceRuleViewSet.unscoped_queryset is True
-    assert TaskRecurrenceRule._meta.get_field("task")
+    assert {"project", "predecessor"}.isdisjoint(
+        {f.name for f in TaskRecurrenceRule._meta.get_fields()}
+    ), "opt-in is only justified while the model has no project/predecessor path"
 
 
 def test_calendar_list_unchanged_for_a_non_member(django_user_model):
