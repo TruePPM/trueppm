@@ -84,7 +84,7 @@ export function TokenAutocomplete({
         // the author opened a picker and pressed the accept key.
         e.preventDefault();
         e.stopPropagation();
-        onSelect(matches[activeIdx >= 0 ? activeIdx : 0]);
+        onSelect(matches[Math.max(activeIdx, 0)]);
       } else if (e.key === 'Enter' && activeIdx >= 0) {
         e.preventDefault();
         e.stopPropagation();

@@ -423,6 +423,9 @@ def self_test() -> int:
     global WAIVERS, UNMAPPED, ALIASES
     saved = (WAIVERS, UNMAPPED, ALIASES)
     failures: list[str] = []
+    # Baseline "owner" fixture type for every case below that isn't itself
+    # testing an owner-field drift (python:S1192: one spelling, not eight).
+    _OWNER_TYPE = "number | null"
 
     def case(
         name: str, owner: str, lead_id: str, extra_ts: str, expect: list[str]
@@ -439,40 +442,40 @@ def self_test() -> int:
 
     try:
         WAIVERS, UNMAPPED, ALIASES = {}, {}, {}
-        case("clean", "number | null", "number", "", [])
+        case("clean", _OWNER_TYPE, "number", "", [])
         case("top-level drift", "string | null", "number", "", ["DRIFT Thing.owner"])
         case(
             "nested drift",
-            "number | null",
+            _OWNER_TYPE,
             "string",
             "",
             ["DRIFT Thing.lead_detail.id"],
         )
         case(
             "unmapped interface",
-            "number | null",
+            _OWNER_TYPE,
             "number",
             "export interface Orphan { a: string }\n",
             ["UNMAPPED interface"],
         )
         WAIVERS = {"Thing.owner": "fixture"}
         case("waiver silences drift", "string | null", "number", "", [])
-        case("stale waiver fails", "number | null", "number", "", ["STALE waiver"])
+        case("stale waiver fails", _OWNER_TYPE, "number", "", ["STALE waiver"])
         WAIVERS, UNMAPPED = {}, {"Orphan": "fixture"}
         case(
             "unmapped entry silences",
-            "number | null",
+            _OWNER_TYPE,
             "number",
             "export interface Orphan { a: string }\n",
             [],
         )
-        case("stale unmapped fails", "number | null", "number", "", ["STALE UNMAPPED"])
+        case("stale unmapped fails", _OWNER_TYPE, "number", "", ["STALE UNMAPPED"])
         WAIVERS, UNMAPPED, ALIASES = {}, {}, {"Gone": "Thing"}
-        case("stale alias fails", "number | null", "number", "", ["STALE ALIASES"])
+        case("stale alias fails", _OWNER_TYPE, "number", "", ["STALE ALIASES"])
         ALIASES = {"Renamed": "Thing"}
         case(
             "alias maps a differently-named interface",
-            "number | null",
+            _OWNER_TYPE,
             "number",
             "export interface Renamed { owner: string }\n",
             ["DRIFT Renamed.owner"],

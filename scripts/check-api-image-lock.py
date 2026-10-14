@@ -165,6 +165,11 @@ def self_test() -> int:
     """
     failures: list[str] = []
 
+    # Any placeholder version works here — the self-test only exercises
+    # presence/absence and cross-dict agreement, never this value itself
+    # (python:S1192: one fixture constant instead of three repeated literals).
+    _LOCAL_PKG_VERSION = "0.4.0b4"
+
     def check(label: str, condition: bool) -> None:
         if condition:
             print(f"SELF-TEST OK: {label}")
@@ -175,8 +180,8 @@ def self_test() -> int:
     clean_locked = {"django": "5.2.17", "requests": "2.34.2"}
     clean_installed = {
         **clean_locked,
-        "trueppm-api": "0.4.0b4",
-        "trueppm-scheduler": "0.4.0b4",
+        "trueppm-api": _LOCAL_PKG_VERSION,
+        "trueppm-scheduler": _LOCAL_PKG_VERSION,
     }
     check(
         "a clean image (locked == installed + local-only) passes",
@@ -221,7 +226,7 @@ def self_test() -> int:
     locked_with_local_name = {**clean_locked, "trueppm-scheduler": "0.1.0"}
     installed_with_different_local_version = {
         **clean_installed,
-        "trueppm-scheduler": "0.4.0b4",
+        "trueppm-scheduler": _LOCAL_PKG_VERSION,
     }
     d = diagnose(
         locked_with_local_name,

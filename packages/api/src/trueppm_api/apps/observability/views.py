@@ -303,9 +303,13 @@ def email_metrics(_request: Request) -> HttpResponse:
 
     lines: list[str] = []
     for name, help_text, value in gauges:
-        lines.append(f"# HELP {name} {help_text}")
-        lines.append(f"# TYPE {name} gauge")
-        lines.append(f"{name} {value}")
+        lines.extend(
+            [
+                f"# HELP {name} {help_text}",
+                f"# TYPE {name} gauge",
+                f"{name} {value}",
+            ]
+        )
 
     body = "\n".join(lines) + "\n"
     return HttpResponse(body, content_type=_PROMETHEUS_CONTENT_TYPE)

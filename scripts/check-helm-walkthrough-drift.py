@@ -54,6 +54,11 @@ DRILL_PATH = REPO_ROOT / "scripts/helm-install-drill.sh"
 
 SECTION_HEADING = "### Production install walkthrough"
 
+#: The one Secret-create command every check below looks for (python:S1192) —
+#: kept as one literal rather than four so the doc/drill/self-test fixtures
+#: cannot drift from the string the real checks search for.
+SECRET_CREATE_CMD = "kubectl create secret generic trueppm-env"
+
 
 class DriftError(Exception):
     """A documented property does not hold against the drill script."""
@@ -121,14 +126,12 @@ def line_index(text: str, needle_re: str) -> int:
 
 def check_ordering(doc_secret_block: str, drill_text: str) -> None:
     doc_ns = line_index(doc_secret_block, r"kubectl create namespace")
-    doc_secret = line_index(
-        doc_secret_block, r"kubectl create secret generic trueppm-env"
-    )
+    doc_secret = line_index(doc_secret_block, SECRET_CREATE_CMD)
     if doc_ns < 0 or doc_secret < 0:
         raise DriftError(
             "the documented app-secret block no longer creates both the namespace and trueppm-env"
         )
-    if not doc_ns < doc_secret:
+    if doc_ns >= doc_secret:
         raise DriftError(
             "deployment.md creates trueppm-env before its namespace again — this is #4025's bug, "
             "reintroduced in the DOC"
@@ -137,14 +140,12 @@ def check_ordering(doc_secret_block: str, drill_text: str) -> None:
     drill_ns = line_index(
         drill_text, r"kubectl create namespace \"\$WALKTHROUGH_NAMESPACE\""
     )
-    drill_secret = line_index(
-        drill_text, r"kubectl create secret generic trueppm-env --namespace"
-    )
+    drill_secret = line_index(drill_text, rf"{SECRET_CREATE_CMD} --namespace")
     if drill_ns < 0 or drill_secret < 0:
         raise DriftError(
             "scripts/helm-install-drill.sh no longer creates both the walkthrough namespace and trueppm-env"
         )
-    if not drill_ns < drill_secret:
+    if drill_ns >= drill_secret:
         raise DriftError(
             "scripts/helm-install-drill.sh creates trueppm-env before its namespace — this is #4025's bug, "
             "reintroduced in the DRILL"
@@ -219,9 +220,7 @@ def check_allowed_hosts(doc_secret_block: str, drill_text: str) -> None:
 def run_check(doc_text: str, drill_text: str) -> None:
     section = extract_section(doc_text)
     blocks = extract_fenced_blocks(section)
-    secret_block = find_block(
-        blocks, "kubectl create secret generic trueppm-env", "app secret"
-    )
+    secret_block = find_block(blocks, SECRET_CREATE_CMD, "app secret")
     datastore_block = find_block(
         blocks, "kubectl create secret generic trueppm-db", "datastore secrets"
     )
@@ -324,8 +323,8 @@ def self_test() -> int:
 
     # 1. ordering regression in the DOC.
     bad = _GOOD_DOC.replace(
-        "kubectl create namespace trueppm\nkubectl create secret generic trueppm-env",
-        "kubectl create secret generic trueppm-env",
+        f"kubectl create namespace trueppm\n{SECRET_CREATE_CMD}",
+        SECRET_CREATE_CMD,
     ).replace(
         "  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true\n```",
         "  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true\nkubectl create namespace trueppm\n```",
@@ -336,8 +335,8 @@ def self_test() -> int:
 
     # 2. ordering regression in the DRILL.
     bad_drill = _GOOD_DRILL.replace(
-        'kubectl create namespace "$WALKTHROUGH_NAMESPACE"\nkubectl create secret generic trueppm-env',
-        "kubectl create secret generic trueppm-env",
+        f'kubectl create namespace "$WALKTHROUGH_NAMESPACE"\n{SECRET_CREATE_CMD}',
+        SECRET_CREATE_CMD,
     )
     r = _expect_drift("drill ordering regression", _GOOD_DOC, bad_drill)
     if r:

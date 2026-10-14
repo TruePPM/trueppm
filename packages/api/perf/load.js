@@ -173,7 +173,7 @@ function listAllProjects() {
     }
     const body = res.json();
     const results = Array.isArray(body) ? body : body.results || [];
-    for (let i = 0; i < results.length; i++) projects.push(results[i]);
+    for (const result of results) projects.push(result);
     url = Array.isArray(body) ? null : body.next || null;
   }
   return { projects: projects, ok: true };
@@ -198,9 +198,9 @@ export function setup() {
   }
 
   let target = null;
-  for (let i = 0; i < listed.projects.length; i++) {
-    if (listed.projects[i].name === PROJECT_NAME) {
-      target = listed.projects[i];
+  for (const project of listed.projects) {
+    if (project.name === PROJECT_NAME) {
+      target = project;
       break;
     }
   }
@@ -247,7 +247,7 @@ export function setup() {
   return { projectId: target.id, taskCount: taskCount, deepPage: deepPage };
 }
 
-export default function (data) {
+export default function vuIteration(data) {
   const projectList = http.get(
     `${BASE}/api/v1/projects/`,
     taggedParams("project_list"),
@@ -325,8 +325,7 @@ function endpointRows(metrics) {
     .filter((name) => ENDPOINT_METRIC_RE.test(name))
     .sort((a, b) => a.localeCompare(b));
 
-  for (let i = 0; i < names.length; i++) {
-    const name = names[i];
+  for (const name of names) {
     const metric = metrics[name] || {};
     const values = metric.values || {};
     const thresholds = metric.thresholds || {};
@@ -334,8 +333,7 @@ function endpointRows(metrics) {
 
     let budget = null;
     let breached = false;
-    for (let j = 0; j < exprs.length; j++) {
-      const expr = exprs[j];
+    for (const expr of exprs) {
       if (expr === UNTRACKED_EXPR) continue;
       const match = P95_BUDGET_RE.exec(expr);
       if (match) budget = Number(match[1]);
@@ -356,8 +354,8 @@ function endpointRows(metrics) {
 
 function formatRows(rows) {
   let width = 0;
-  for (let i = 0; i < rows.length; i++) {
-    width = Math.max(width, rows[i].endpoint.length);
+  for (const row of rows) {
+    width = Math.max(width, row.endpoint.length);
   }
 
   return rows.map((row) => {

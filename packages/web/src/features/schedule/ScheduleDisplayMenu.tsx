@@ -232,7 +232,7 @@ function buildChartSection(chart: ChartMenuConfig): RenderSection {
               id: 'sprint-bands',
               label: 'Sprint windows',
               checked: chart.sprintBandsVisible !== false,
-              activate: () => chart.setSprintBandsVisible?.(!(chart.sprintBandsVisible !== false)),
+              activate: () => chart.setSprintBandsVisible?.(chart.sprintBandsVisible === false),
             },
           ]
         : []),

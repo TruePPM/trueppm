@@ -29,7 +29,7 @@ export function useRovingTabIndex(
   options?: { disabled?: (i: number) => boolean },
 ) {
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [focusIdx, setFocusIdx] = useState(selectedIdx >= 0 ? selectedIdx : 0);
+  const [focusIdx, setFocusIdx] = useState(Math.max(selectedIdx, 0));
 
   // Keep roving focus tracking the selection when it changes elsewhere (e.g. the
   // effective scope snaps back to a default). Arrows still move it independently.

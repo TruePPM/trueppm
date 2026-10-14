@@ -19,13 +19,13 @@ import {
 } from '../durationChangePolicy';
 import type {
   DurationChangePercentPolicy,
+  IterationLabelOverridePolicy,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
+  PublicSharingOverridePolicy,
+  TaskDurationChangePercentOverridePolicy,
 } from '@/api/types';
 import { MC_HISTORY_RETENTION_MAX, MC_HISTORY_RETENTION_MIN } from '@/api/types';
-
-/** Cascade policy for the workspace iteration label (ADR-0116, #1106). */
-type IterationLabelPolicy = 'inherit' | 'suggest' | 'enforce';
 
 /** Clamp the retention cap into the server-enforced [1, 500] range. */
 function clampRetention(n: number): number {
@@ -99,11 +99,11 @@ export function WorkspaceGeneralPage() {
   const [workWeek, setWorkWeek] = useState<boolean[]>([true, true, true, true, true, false, false]);
   const [allowGuests, setAllowGuests] = useState(false);
   const [publicSharing, setPublicSharing] = useState(false);
-  const [publicSharingPolicy, setPublicSharingPolicy] = useState<'inherit' | 'suggest' | 'enforce'>(
+  const [publicSharingPolicy, setPublicSharingPolicy] = useState<PublicSharingOverridePolicy>(
     'suggest',
   );
   const [iterationLabel, setIterationLabel] = useState('Sprint');
-  const [iterationLabelPolicy, setIterationLabelPolicy] = useState<IterationLabelPolicy>('suggest');
+  const [iterationLabelPolicy, setIterationLabelPolicy] = useState<IterationLabelOverridePolicy>('suggest');
   // Forecast-history config (ADR-0144, issue 1232) — workspace is the non-null root.
   const [mcHistoryEnabled, setMcHistoryEnabled] = useState(true);
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState(100);
@@ -115,7 +115,7 @@ export function WorkspaceGeneralPage() {
   const [taskDurationChangePercentPolicy, setTaskDurationChangePercentPolicy] =
     useState<DurationChangePercentPolicy>('keep');
   const [taskDurationChangePercentOverridePolicy, setTaskDurationChangePercentOverridePolicy] =
-    useState<'inherit' | 'suggest' | 'enforce'>('suggest');
+    useState<TaskDurationChangePercentOverridePolicy>('suggest');
   // Sprint story-picker "Ready only" default (ADR-0758, #2670) — workspace is the
   // non-null root. No override policy: advisory UI guidance only.
   const [sprintPickerReadyOnlyDefault, setSprintPickerReadyOnlyDefault] = useState(true);
@@ -131,15 +131,15 @@ export function WorkspaceGeneralPage() {
     workWeek: [true, true, true, true, true, false, false] as boolean[],
     allowGuests: false,
     publicSharing: false,
-    publicSharingPolicy: 'suggest' as 'inherit' | 'suggest' | 'enforce',
+    publicSharingPolicy: 'suggest' as PublicSharingOverridePolicy,
     iterationLabel: 'Sprint',
-    iterationLabelPolicy: 'suggest' as IterationLabelPolicy,
+    iterationLabelPolicy: 'suggest' as IterationLabelOverridePolicy,
     mcHistoryEnabled: true,
     mcHistoryRetentionCap: 100,
     mcHistoryAttributionAudience: 'admin_owner' as MCAttributionAudience,
     mcHistoryOverridePolicy: 'suggest' as MCHistoryOverridePolicy,
     taskDurationChangePercentPolicy: 'keep' as DurationChangePercentPolicy,
-    taskDurationChangePercentOverridePolicy: 'suggest' as 'inherit' | 'suggest' | 'enforce',
+    taskDurationChangePercentOverridePolicy: 'suggest' as TaskDurationChangePercentOverridePolicy,
     sprintPickerReadyOnlyDefault: true,
   });
 

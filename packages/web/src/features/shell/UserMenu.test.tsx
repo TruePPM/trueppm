@@ -442,7 +442,7 @@ describe('UserMenu', () => {
 
     fireEvent.pointerDown(darkBtn);
     // The sheet must still be open after pointerdown lands on one of its controls.
-    expect(screen.queryByTestId('user-menu-sheet')).not.toBeNull();
+    expect(screen.getByTestId('user-menu-sheet')).toBeInTheDocument();
 
     fireEvent.click(darkBtn);
     expect(mockSetTheme).toHaveBeenCalledWith('dark');

@@ -86,7 +86,7 @@ function templateToRegExp(template: string): RegExp {
     .split('/')
     .map((segment) => {
       if (segment.startsWith('{') && segment.endsWith('}')) return '[^/]+';
-      return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return segment.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     })
     .join('/');
   // Trailing slash is optional: the client's axios base and a spec's inline

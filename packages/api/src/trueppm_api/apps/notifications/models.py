@@ -750,7 +750,7 @@ _T = ProjectNotificationEventType
 _C = ProjectNotificationChannel
 
 
-def _ALL_OFF() -> dict[str, bool]:
+def _all_off() -> dict[str, bool]:
     """Every channel off — the default for an event nothing dispatches (#2904)."""
     return {_C.IN_APP: False, _C.EMAIL: False, _C.SLACK: False, _C.MOBILE_PUSH: False}
 
@@ -779,14 +779,14 @@ PROJECT_NOTIFICATION_DEFAULT_MATRIX: dict[str, dict[str, bool]] = {
     # every channel so the settings matrix does not promise a delivery that never
     # comes; the API reports them in event_delivery as false so a client can label
     # them. Flip a row back to True in the same change that wires its dispatcher.
-    _T.TASK_ASSIGNED: _ALL_OFF(),
-    _T.TASK_OVERDUE: _ALL_OFF(),
-    _T.STATUS_CHANGE: _ALL_OFF(),
-    _T.BUDGET_ALERT: _ALL_OFF(),
-    _T.RISK_CREATED: _ALL_OFF(),
-    _T.MILESTONE_REACHED: _ALL_OFF(),
-    _T.SPRINT_START: _ALL_OFF(),
-    _T.SPRINT_END: _ALL_OFF(),
+    _T.TASK_ASSIGNED: _all_off(),
+    _T.TASK_OVERDUE: _all_off(),
+    _T.STATUS_CHANGE: _all_off(),
+    _T.BUDGET_ALERT: _all_off(),
+    _T.RISK_CREATED: _all_off(),
+    _T.MILESTONE_REACHED: _all_off(),
+    _T.SPRINT_START: _all_off(),
+    _T.SPRINT_END: _all_off(),
 }
 
 

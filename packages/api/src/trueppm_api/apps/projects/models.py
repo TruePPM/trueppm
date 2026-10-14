@@ -4009,7 +4009,7 @@ class Task(VersionedModel):
                 .exclude(wbs_path__regex=rf"^{re.escape(path)}\.\d+\.")
                 .select_for_update()
             )
-            for child in list(children):
+            for child in children:
                 child.soft_delete()
         self.deleted_at = timezone.now()
         # Deleting a row is not editing its content (ADR-0786 §4). Without this a

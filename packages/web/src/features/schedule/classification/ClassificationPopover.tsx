@@ -10,7 +10,6 @@ import {
   matchingPreset,
   previewClassification,
   resolveSubtree,
-  type ClassificationPresetKey,
 } from './classificationPreview';
 
 /**
@@ -603,4 +602,4 @@ function ChipButton({
   );
 }
 
-export type { ClassificationPresetKey };
+export type { ClassificationPresetKey } from './classificationPreview';

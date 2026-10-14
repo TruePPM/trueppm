@@ -3759,7 +3759,7 @@ function TaskNameLabel(props: TaskNameContentProps) {
 function ExternalLinkChip({ task }: { task: Task }) {
   const summary = task.externalLinkSummary;
   // Exact negation of the original `!isSummary && !isMilestone && summary && count > 0`.
-  if (task.isSummary || task.isMilestone || !summary || !(summary.count > 0)) return null;
+  if (task.isSummary || task.isMilestone || !summary || summary.count <= 0) return null;
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-0.5 text-xs font-medium ${

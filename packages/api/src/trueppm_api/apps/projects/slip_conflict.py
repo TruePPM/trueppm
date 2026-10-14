@@ -199,7 +199,7 @@ def _boundary_slip(
         if cal is not None
         else early_finish
     )
-    if not (finish_end > sprint.finish_date):
+    if finish_end <= sprint.finish_date:
         return None
     return sprint, early_finish
 
