@@ -135,6 +135,25 @@ class TestDoDrainWebhooks:
         delivery.refresh_from_db()
         assert delivery.status == DeliveryStatus.PENDING
 
+    def test_soft_time_limit_propagates_and_delivery_stays_pending(self, webhook: object) -> None:
+        """The task-level time limit must stop the drain, not be logged as 'broker down'."""
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        from trueppm_api.apps.webhooks.models import DeliveryStatus
+
+        delivery = _make_delivery(webhook, age_minutes=10)
+        with (
+            patch(
+                "trueppm_api.apps.webhooks.tasks.deliver_webhook.delay",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            _drain()
+
+        delivery.refresh_from_db()
+        assert delivery.status == DeliveryStatus.PENDING
+
     def test_does_not_touch_success_deliveries(self, webhook: object) -> None:
         """SUCCESS deliveries are never re-dispatched."""
         _make_delivery(webhook, status="success", age_minutes=10)

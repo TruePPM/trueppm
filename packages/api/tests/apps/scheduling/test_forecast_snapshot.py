@@ -213,6 +213,39 @@ class TestCapture:
         assert ProjectForecastSnapshot.objects.filter(project=project).count() == 0
 
 
+class TestSafeCaptureSoftTimeLimit:
+    """The wrapper's blanket ``except Exception`` must let the task time limit through."""
+
+    def test_limit_during_capture_propagates(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        def hit_limit(*_a: object, **_k: object) -> None:
+            raise SoftTimeLimitExceeded
+
+        monkeypatch.setattr(
+            "trueppm_api.apps.scheduling.services.capture_forecast_snapshot", hit_limit
+        )
+        with pytest.raises(SoftTimeLimitExceeded):
+            safe_capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+
+    def test_limit_during_shift_notification_propagates(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        def hit_limit(*_a: object, **_k: object) -> None:
+            raise SoftTimeLimitExceeded
+
+        Task.objects.create(project=project, name="A", duration=5, early_finish=date(2026, 3, 1))
+        monkeypatch.setattr(
+            "trueppm_api.apps.scheduling.services.notify_project_end_date_shift", hit_limit
+        )
+        with pytest.raises(SoftTimeLimitExceeded):
+            safe_capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+
+
 # ---------------------------------------------------------------------------
 # Capture population (#3539)
 # ---------------------------------------------------------------------------

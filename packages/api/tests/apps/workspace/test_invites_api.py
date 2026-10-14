@@ -481,6 +481,31 @@ def test_failed_invite_retry_waits_one_tick(admin: object, settings: object) -> 
 
 
 @pytest.mark.django_db
+def test_drain_propagates_soft_time_limit_and_leaves_invite_pending(
+    admin: object, settings: object
+) -> None:
+    from unittest.mock import patch as _patch
+
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="limit@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    with (
+        _patch(
+            "trueppm_api.apps.workspace.tasks._send_invite_email",
+            side_effect=SoftTimeLimitExceeded(),
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        _do_drain_invite_emails()
+
+    invite.refresh_from_db()
+    assert invite.email_pending is True
+    assert invite.email_attempts == 0
+
+
+@pytest.mark.django_db
 def test_create_invite_nudges_drain_on_commit(
     admin: object, django_capture_on_commit_callbacks: Any
 ) -> None:

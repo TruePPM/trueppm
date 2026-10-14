@@ -1803,3 +1803,35 @@ def test_the_declaration_names_the_deleted_kept_split(committed_schema: dict) ->
     ]["properties"]
 
     assert set(declared) == {"deleted", "kept"}
+
+
+@pytest.mark.django_db
+def test_template_drain_propagates_soft_time_limit_and_row_stays_pending(
+    target_project: Project,
+) -> None:
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.template_tasks import _do_template_apply_drain
+
+    application = TemplateApplication.objects.create(
+        project=target_project, status=TemplateApplicationStatus.PENDING
+    )
+    TemplateApplication.objects.filter(pk=application.pk).update(
+        created_at=timezone.now() - timedelta(hours=1)
+    )
+
+    with (
+        patch(
+            "trueppm_api.apps.projects.template_tasks.apply_template.delay",
+            side_effect=SoftTimeLimitExceeded(),
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        _do_template_apply_drain()
+
+    application.refresh_from_db()
+    assert application.status == TemplateApplicationStatus.PENDING

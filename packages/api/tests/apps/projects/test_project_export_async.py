@@ -464,6 +464,26 @@ def test_drain_redispatches_orphaned_pending(
     assert dispatched == [str(job.id)]
 
 
+def test_drain_propagates_soft_time_limit(
+    project: Project, owner: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from trueppm_api.apps.projects import tasks as project_tasks
+
+    job = ProjectExportJob.objects.create(project=project, requested_by=owner)
+    ProjectExportJob.objects.filter(pk=job.pk).update(
+        created_at=timezone.now() - timedelta(minutes=10)
+    )
+
+    def _hit_limit(_jid: str) -> None:
+        raise SoftTimeLimitExceeded
+
+    monkeypatch.setattr(project_tasks.run_project_export, "delay", _hit_limit)
+    with pytest.raises(SoftTimeLimitExceeded):
+        project_tasks._do_drain_project_exports()
+
+
 def test_drain_skips_fresh_pending(
     project: Project, owner: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

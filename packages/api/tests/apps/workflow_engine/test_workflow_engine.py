@@ -380,6 +380,29 @@ def test_drain_redispatches_old_pending(registry: None, backend: DefaultWorkflow
     assert row.status == WorkflowOutboxStatus.DISPATCHED
 
 
+def test_drain_propagates_soft_time_limit_and_leaves_row_pending(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    _register("d", [WorkflowStep("a", lambda ctx: None)])
+    wf_id = backend.start_workflow("d", {})
+    row = WorkflowOutboxRow.objects.get(workflow_id=wf_id)
+    _backdate_outbox(str(row.id), minutes=6)
+
+    with (
+        patch(
+            "trueppm_api.apps.workflow_engine.tasks.advance_workflow_step.delay",
+            side_effect=SoftTimeLimitExceeded(),
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        _do_outbox_drain()
+
+    row.refresh_from_db()
+    assert row.status == WorkflowOutboxStatus.PENDING
+
+
 def test_drain_skips_recent_pending(registry: None, backend: DefaultWorkflowBackend) -> None:
     _register("d", [WorkflowStep("a", lambda ctx: None)])
     backend.start_workflow("d", {})  # row created just now (inside orphan window)

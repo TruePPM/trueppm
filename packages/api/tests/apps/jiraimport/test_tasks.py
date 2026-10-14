@@ -275,6 +275,29 @@ class TestDrainJiraImportQueue:
         assert req.status == JiraImportStatus.PENDING
         assert req.celery_task_id == ""
 
+    def test_soft_time_limit_during_drain_propagates(self, project: Project) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        from trueppm_api.apps.jiraimport.tasks import _do_jira_import_drain
+
+        req = JiraImportRequest.objects.create(
+            project=project,
+            filename="pending.xml",
+            file_content_b64=base64.b64encode(CHAIN_EXPORT).decode("ascii"),
+            status=JiraImportStatus.PENDING,
+        )
+        with (
+            patch(
+                "trueppm_api.apps.jiraimport.tasks.import_jira.delay",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            _do_jira_import_drain()
+
+        req.refresh_from_db()
+        assert req.status == JiraImportStatus.PENDING
+
     def test_drain_task_is_configured_for_skip_on_contention(self) -> None:
         from trueppm_api.apps.jiraimport.tasks import drain_jira_import_queue
 
