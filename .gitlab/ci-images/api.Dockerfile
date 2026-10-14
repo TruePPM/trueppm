@@ -94,14 +94,7 @@ COPY packages/mcp/README.md            ./mcp/README.md
 # packages are uninstalled at the end — only the dep wheels remain. Real
 # CI jobs then `pip install -e packages/scheduler[dev] packages/api[dev]`
 # (or packages/mcp[dev]) against the actual source.
-RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api mcp/src/trueppm_mcp \
- && touch scheduler/src/trueppm_scheduler/__init__.py \
-          api/src/trueppm_api/__init__.py \
-          mcp/src/trueppm_mcp/__init__.py \
- && pip install --no-cache-dir -e "./scheduler[dev]" -e "./api[dev]" -e "./mcp[dev]" \
- && pip uninstall --yes trueppm-scheduler trueppm-api trueppm-mcp \
- && rm -rf /opt/ci-deps
-
+#
 # Bake the exact drf-spectacular version docs/api/openapi.json was generated
 # with, as a build-time cache belt. The SOURCE OF TRUTH for the pin is
 # packages/api/pyproject.toml (`drf-spectacular[sidecar]==0.30.0`) — the api CI
@@ -113,15 +106,13 @@ RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api mcp/src/trueppm
 # pinned exact rather than ranged. Adopting a new version is deliberate: bump the
 # pyproject pin, `uv lock --upgrade-package drf-spectacular`, bump this line, and
 # regenerate the schema (scripts/export-openapi.sh) in one MR.
-RUN pip install --no-cache-dir "drf-spectacular[sidecar]==0.30.0"
-
+#
 # Trust the CI checkout dir regardless of owner. GitLab's helper clones the repo
 # as root into /tmp/builds, but the job's step_script runs as `ci` (uid 1000),
 # so git aborts `git fetch origin` with "detected dubious ownership" unless the
 # build dir is marked safe. Baking it here fixes every ci-api job at once, with
 # no per-job `git config` line in .gitlab-ci.yml.
-RUN git config --system --add safe.directory '*'
-
+#
 # Run the CI jobs as a non-root user (Sonar dockerfile:S6471, defense-in-depth
 # for a build container that pulls the repo + third-party deps). uid 1000 owns
 # the whole /usr/local tree so any job-time `pip install` writes without root —
@@ -129,8 +120,17 @@ RUN git config --system --add safe.directory '*'
 # site-packages/bin, but also packages that drop data files under etc/ or share/.
 # Chowning only lib+bin left those unwritable and failed installs with EACCES
 # (#2236 — surfaced on scheduler:notebooks' jupyter install, same image pattern).
-RUN useradd --uid 1000 --create-home --shell /bin/bash ci \
- && chown -R ci /usr/local
+RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api mcp/src/trueppm_mcp \
+ && touch scheduler/src/trueppm_scheduler/__init__.py \
+          api/src/trueppm_api/__init__.py \
+          mcp/src/trueppm_mcp/__init__.py \
+ && pip install --no-cache-dir -e "./scheduler[dev]" -e "./api[dev]" -e "./mcp[dev]" \
+ && pip uninstall --yes trueppm-scheduler trueppm-api trueppm-mcp \
+ && pip install --no-cache-dir "drf-spectacular[sidecar]==0.30.0" \
+ && git config --system --add safe.directory '*' \
+ && useradd --uid 1000 --create-home --shell /bin/bash ci \
+ && chown -R ci /usr/local \
+ && rm -rf /opt/ci-deps
 USER ci
 
 WORKDIR /

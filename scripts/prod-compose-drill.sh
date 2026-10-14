@@ -91,6 +91,10 @@ PROBE_HOST="${PROBE_HOST:-docker}"
 # swallowing it in the HTTPS redirect. Issuance-vs-renewal authenticator drift
 # remains a tag-day manual smoke.
 TLS_MODE="${TLS_MODE:-none}"
+# Two-space indent for nested diagnostic output, and curl's HTTP-status-only
+# write-out format used by every polling loop below.
+INDENT_SED='s/^/  /'
+CURL_STATUS_FMT='%{http_code}'
 case "${TLS_MODE}" in
   none|selfsigned) ;;
   *) echo "TLS_MODE must be 'none' or 'selfsigned' for the drill (got '${TLS_MODE}')" >&2; exit 2 ;;
@@ -146,12 +150,12 @@ compose() { docker compose -f "${PROD_COMPOSE_FILE}" "$@"; }
 # ---- diagnostics + teardown ------------------------------------------------
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (prod compose stack did not reach a healthy state) ========" >&2
-  compose ps -a 2>&1 | sed 's/^/  /' >&2 || true
+  compose ps -a 2>&1 | sed "$INDENT_SED" >&2 || true
   # api-init runs migrate/collectstatic/create_admin and api waits on it, so its
   # log is where a failed bootstrap shows up — the api log would just be empty.
   for svc in api-init api celery celery-beat nginx db valkey; do
     echo "---- logs: ${svc} ----" >&2
-    compose logs --tail=120 "${svc}" 2>&1 | sed 's/^/  /' >&2 || true
+    compose logs --tail=120 "${svc}" 2>&1 | sed "$INDENT_SED" >&2 || true
   done
 }
 
@@ -392,16 +396,16 @@ done
 # a crash-looping container can read as "starting" for a long time, and the
 # guard's own prefix is the unambiguous signal.
 if grep -q "Refusing to start:" <<<"$(compose logs api 2>&1)"; then
-  compose logs api 2>&1 | grep "Refusing to start:" | sed 's/^/  /' >&2
+  compose logs api 2>&1 | grep "Refusing to start:" | sed "$INDENT_SED" >&2
   fail "api refused to start on a settings.prod boot guard"
 fi
 
 # ---- 4. readiness through nginx --------------------------------------------
 log "waiting for GET /api/v1/readyz to report ready at ${BASE_URL}"
 deadline=$(( $(date +%s) + READY_TIMEOUT ))
-until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/readyz")" = "200" ]; do
+until [ "$("${CURL[@]}" -o /dev/null -w "$CURL_STATUS_FMT" "${BASE_URL}/api/v1/readyz")" = "200" ]; do
   [ "$(date +%s)" -lt "${deadline}" ] || {
-    "${CURL[@]}" "${BASE_URL}/api/v1/readyz" | sed 's/^/  /' >&2 || true
+    "${CURL[@]}" "${BASE_URL}/api/v1/readyz" | sed "$INDENT_SED" >&2 || true
     fail "/api/v1/readyz did not go ready within ${READY_TIMEOUT}s"
   }
   sleep 3
@@ -418,7 +422,7 @@ grep -q '"status": *"ok"' <<<"${readyz}" || fail "readyz 200 but status is not o
 # after anyone last looked at it.
 if [ "${TLS_MODE}" != "none" ]; then
   log "asserting plain HTTP redirects to HTTPS"
-  redirect_code="$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${HTTP_BASE_URL}/")"
+  redirect_code="$("${CURL[@]}" -o /dev/null -w "$CURL_STATUS_FMT" "${HTTP_BASE_URL}/")"
   [ "${redirect_code}" = "301" ] || fail \
     "GET ${HTTP_BASE_URL}/ returned ${redirect_code}, not 301 — the :80 server block is not redirecting to HTTPS."
   redirect_target="$("${CURL[@]}" -o /dev/null -w '%{redirect_url}' "${HTTP_BASE_URL}/")"
@@ -485,7 +489,7 @@ grep -qi "^content-security-policy:.*frame-ancestors 'none'" <<<"${spa_headers}"
 # stylesheet is the probe because it is present in every collectstatic output
 # regardless of which optional apps are installed.
 log "asserting /static/ serves the collected assets"
-static_code="$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/static/admin/css/base.css")"
+static_code="$("${CURL[@]}" -o /dev/null -w "$CURL_STATUS_FMT" "${BASE_URL}/static/admin/css/base.css")"
 [ "${static_code}" = "200" ] || fail \
   "GET /static/admin/css/base.css returned ${static_code}, not 200 — collectstatic output is not reaching WhiteNoise (admin CSS and the Swagger UI / ReDoc assets are broken). See #2828."
 
@@ -507,12 +511,12 @@ token="$("${CURL[@]}" -X POST "${BASE_URL}/api/v1/auth/token/" \
 
 log "waiting for GET /api/v1/health/beat/ to return 200 (proves celery-beat dispatches)"
 deadline=$(( $(date +%s) + BEAT_TIMEOUT ))
-until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' \
+until [ "$("${CURL[@]}" -o /dev/null -w "$CURL_STATUS_FMT" \
             -H "Authorization: Bearer ${token}" \
             "${BASE_URL}/api/v1/health/beat/")" = "200" ]; do
   [ "$(date +%s)" -lt "${deadline}" ] || {
-    "${CURL[@]}" -H "Authorization: Bearer ${token}" "${BASE_URL}/api/v1/health/beat/" | sed 's/^/  /' >&2 || true
-    compose logs --tail=60 celery-beat 2>&1 | sed 's/^/  /' >&2 || true
+    "${CURL[@]}" -H "Authorization: Bearer ${token}" "${BASE_URL}/api/v1/health/beat/" | sed "$INDENT_SED" >&2 || true
+    compose logs --tail=60 celery-beat 2>&1 | sed "$INDENT_SED" >&2 || true
     fail "/api/v1/health/beat/ never returned 200 within ${BEAT_TIMEOUT}s — celery-beat is declared but not dispatching"
   }
   sleep 5
@@ -526,7 +530,7 @@ done
 log "restarting the api container"
 compose restart api
 deadline=$(( $(date +%s) + READY_TIMEOUT ))
-until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/readyz")" = "200" ]; do
+until [ "$("${CURL[@]}" -o /dev/null -w "$CURL_STATUS_FMT" "${BASE_URL}/api/v1/readyz")" = "200" ]; do
   [ "$(date +%s)" -lt "${deadline}" ] || fail "/api/v1/readyz did not recover within ${READY_TIMEOUT}s after restarting api"
   sleep 3
 done
@@ -569,7 +573,7 @@ until [ "$(docker inspect -f '{{.RestartCount}}' "${celery_cid}" 2>/dev/null || 
   [ "$(date +%s)" -lt "${deadline}" ] || {
     echo "---- diagnostics: celery self-heal leg ----" >&2
     docker inspect -f 'RestartCount={{.RestartCount}} State={{.State.Status}} StartedAt={{.State.StartedAt}}' "${celery_cid}" >&2 || true
-    compose logs --tail=120 celery 2>&1 | sed 's/^/  /' >&2 || true
+    compose logs --tail=120 celery 2>&1 | sed "$INDENT_SED" >&2 || true
     fail "celery worker did not self-exit/restart within ${SELFHEAL_WAIT_TIMEOUT}s of a stale heartbeat (TRUEPPM_CELERY_WORKER_SELF_HEAL wiring regression — #3936/#4367)"
   }
   sleep 3
@@ -618,7 +622,7 @@ deadline=$(( $(date +%s) + SELFHEAL_WAIT_TIMEOUT ))
 # does not flag it either.
 until compose exec -T celery sh -c 'test -n "$(find /tmp/trueppm-celery-worker-heartbeat -newermt "-15 seconds" 2>/dev/null)"'; do
   [ "$(date +%s)" -lt "${deadline}" ] || {
-    compose logs --tail=80 celery 2>&1 | sed 's/^/  /' >&2 || true
+    compose logs --tail=80 celery 2>&1 | sed "$INDENT_SED" >&2 || true
     fail "recovered celery worker's heartbeat file never reappeared and went fresh within ${SELFHEAL_WAIT_TIMEOUT}s"
   }
   sleep 3
@@ -639,7 +643,7 @@ until last_heartbeat="$("${CURL[@]}" -H "Authorization: Bearer ${token}" "${BASE
       | python3 -c 'import json,sys; print(json.load(sys.stdin).get("last_heartbeat") or "")' 2>/dev/null)" \
     && [ -n "${last_heartbeat}" ] && [ "${last_heartbeat}" != "${heartbeat_baseline}" ]; do
   [ "$(date +%s)" -lt "${deadline}" ] || {
-    compose logs --tail=60 celery celery-beat 2>&1 | sed 's/^/  /' >&2 || true
+    compose logs --tail=60 celery celery-beat 2>&1 | sed "$INDENT_SED" >&2 || true
     fail "no beat.heartbeat completed on the recovered worker within ${BEAT_TIMEOUT}s — /api/v1/health/beat/ last_heartbeat is still '${heartbeat_baseline:-<none>}'"
   }
   sleep 3

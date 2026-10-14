@@ -44,6 +44,7 @@ check() { # check "<description>" <expected> <actual>
     echo "  FAIL: $desc — expected '$expected', got '$actual'"
     fail_count=$((fail_count + 1))
   fi
+  return 0
 }
 die() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -58,6 +59,7 @@ extract() { # extract <func_name> -> prints the function body or dies
   esac
   [ -n "$body" ] || die "${name}() extracted as empty (#4378)"
   printf '%s\n' "$body"
+  return 0
 }
 
 PARSE_FUNC="$(extract web_rollout_window_parse)"
@@ -66,6 +68,11 @@ SET_ARG_FUNC="$(extract web_replicas_set_arg)"
 
 TMPDIR_TEST="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_TEST"' EXIT
+
+# The old/new image pair every web_rollout_window_parse fixture below resolves
+# pod-image membership against.
+OLD_IMG="web:v0.4.0-beta.6"
+NEW_IMG="web:latest"
 
 echo "web_rollout_window_parse:"
 
@@ -78,41 +85,42 @@ run_parse() { # run_parse <desc> <stdin-text> <old_image> <new_image> <expected 
     " _ "$old_image" "$new_image"
   )"
   check "$desc" "$expected" "$out"
+  return 0
 }
 
 run_parse "all three old pods Ready, no new pods yet" \
   "web-abc web:v0.4.0-beta.6 true
 web-def web:v0.4.0-beta.6 true
 web-ghi web:v0.4.0-beta.6 true" \
-  "web:v0.4.0-beta.6" "web:latest" "3 0"
+  "$OLD_IMG" "$NEW_IMG" "3 0"
 
 run_parse "classic mid-rollout overlap: 2 old Ready + 2 new Ready" \
   "web-abc web:v0.4.0-beta.6 true
 web-def web:v0.4.0-beta.6 true
 web-jkl web:latest true
 web-mno web:latest true" \
-  "web:v0.4.0-beta.6" "web:latest" "2 2"
+  "$OLD_IMG" "$NEW_IMG" "2 2"
 
 run_parse "a pod whose own readiness probe is false/empty is NOT counted on either side" \
   "web-abc web:v0.4.0-beta.6 true
 web-def web:v0.4.0-beta.6 false
 web-jkl web:latest true
 web-mno web:latest " \
-  "web:v0.4.0-beta.6" "web:latest" "1 1"
+  "$OLD_IMG" "$NEW_IMG" "1 1"
 
 run_parse "a pod not yet scheduled (blank image/ready) is skipped, not miscounted" \
   "web-abc web:v0.4.0-beta.6 true
 web-pqr  " \
-  "web:v0.4.0-beta.6" "web:latest" "1 0"
+  "$OLD_IMG" "$NEW_IMG" "1 0"
 
 run_parse "an image matching neither side (e.g. a stray leftover release) is ignored" \
   "web-abc web:v0.4.0-beta.5 true
 web-def web:v0.4.0-beta.6 true
 web-jkl web:latest true" \
-  "web:v0.4.0-beta.6" "web:latest" "1 1"
+  "$OLD_IMG" "$NEW_IMG" "1 1"
 
 run_parse "empty input (no web pods found yet) counts as 0/0, not an error" \
-  "" "web:v0.4.0-beta.6" "web:latest" "0 0"
+  "" "$OLD_IMG" "$NEW_IMG" "0 0"
 
 echo
 echo "web_rollout_window_evaluate:"
@@ -127,6 +135,7 @@ run_eval() { # run_eval <desc> <log-lines...-as-one-string> <expected "observed 
   " _ "$logfile")"
   check "$desc" "$expected" "$out"
   rm -f "$logfile"
+  return 0
 }
 
 run_eval "the real #4353/#4378 rollout shape (3 old -> 3 new through a 2/2 plateau): observed, reports the overlap pair" \
@@ -188,6 +197,7 @@ run_set_arg() { # run_set_arg <desc> <schema-file-path|__MISSING__> <schema-cont
   out="${out% }"
   check "$desc" "$expected" "$out"
   rm -f "$schema_file"
+  return 0
 }
 
 run_set_arg "pre-ADR-1248 schema (0.4.0-beta.6 shape: no top-level \"replicas\" key) uses the old web.replicaCount key" \

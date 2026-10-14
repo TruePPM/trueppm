@@ -133,6 +133,9 @@ if command -v jq >/dev/null 2>&1; then
           if . == null then null else (deref | .properties[$k]) end)
       | . != null
     ' "$SCHEMA" >/dev/null 2>&1
+    # Predicate: the caller branches on this function's exit status (jq -e's),
+    # so the explicit return must preserve it exactly, not pin it to 0.
+    return $?
   }
 
   # Self-check the walker before trusting its verdicts: a jq program that silently

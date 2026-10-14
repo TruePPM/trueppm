@@ -116,6 +116,7 @@ helm_render_provenance() {
     fi
     echo "--- end render provenance ---"
   } >&2 || true
+  return 0
 }
 
 # The web ConfigMap render the nginx assertions read, with the caller's args.
@@ -125,6 +126,7 @@ _helm_provenance_render() {
   local chart="$1"; shift
   helm template trueppm "$chart" --set image.tag=latest "$@" \
     --show-only templates/web/configmap.yaml 2>/dev/null || true
+  return 0
 }
 
 # _helm_provenance_verdict R1 R2 [CHECKED]
@@ -164,4 +166,5 @@ _helm_provenance_verdict() {
     echo "           against the failure: if they confirm it, this is a real chart"
     echo "           regression; if they contradict it, retry and note it on #3758."
   fi
+  return 0
 }

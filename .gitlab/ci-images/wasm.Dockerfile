@@ -46,59 +46,68 @@ FROM ${DOCKERHUB_PREFIX}/rust:1.85-slim@sha256:9f841bbe9e7d8e37ceb96ed907265a3a0
 # HTTP 5xx as retryable; --retry-all-errors additionally covers a connection
 # reset mid-transfer. The checksum verification below is what makes a retried
 # download safe to trust.
+# Bake the toolchain bits the .wasm before_script used to add on every run,
+# plus three pinned, checksum-verified release binaries:
+#
+#   - wasm-pack — same version + hash the wasm:build job installed inline
+#     (#904 supply-chain hardening; the sha256 is the published v0.13.1 musl
+#     tarball). The static musl binary runs on this glibc base.
+#   - cargo-deny 0.19.9 — same pinned release the wasm:license-check job
+#     installed inline. 0.19.x is required to parse CVSS 4.0 entries in the
+#     live RustSec DB. Downloaded to a file first (rather than curl|tar) so a
+#     failed download aborts the build instead of being masked by the pipe.
+#     (The upstream release publishes no per-asset sha256; this matches the
+#     prior in-job install exactly, so baking it is no worse and freezes the
+#     binary in a reviewed layer.)
+#   - wasm-bindgen — the version `wasm-bindgen = "0.2"` resolves to in
+#     Cargo.lock. wasm-pack shells out to a `wasm-bindgen` matching the locked
+#     crate, and when it is absent it falls back to
+#     `cargo install --force wasm-bindgen-cli --version <v>` with no
+#     `--locked`. That re-resolves the CLI's whole transitive tree on every
+#     run, so a crate published upstream can raise its MSRV above this
+#     image's rustc and red main with no change on our side — which is
+#     exactly what happened (#3536): icu_*, time and idna_adapter moved to
+#     editions requiring rustc 1.86/1.88 against a 1.85 image, and
+#     `wasm:build` went from green to red in 35 minutes on identical Rust
+#     source. `cargo install --locked` does not fix it: the CLI's published
+#     lockfile pins time@0.3.47, which itself declares rust-version 1.88.0.
+#     Compiling the CLI from source on a 1.85 image is fragile in both
+#     directions, so don't compile it — bake the prebuilt release, the same
+#     way wasm-pack and cargo-deny are handled. The tarball carries
+#     wasm-bindgen-test-runner too, which `wasm:test` needs for the
+#     wasm-bindgen-test harness.
+#
+# Bump each tool's version + hash together when upgrading (wasm-bindgen in
+# lockstep with packages/wasm-scheduler/Cargo.lock — a mismatch makes
+# wasm-pack install its own again and reopens the #3536 hole). Every one of
+# the three release curls carries --retry: GitHub's release CDN returns
+# intermittent 504s, and a single one aborts the whole image build. Two
+# different lines 504'd in two consecutive builds while fixing #3536, which
+# is a coin flip we do not want between us and a green main. curl already
+# counts HTTP 5xx as retryable; --retry-all-errors additionally covers a
+# connection reset mid-transfer. The checksum verification is what makes a
+# retried download safe to trust.
 RUN apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends git curl ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
-# Bake the toolchain bits the .wasm before_script used to add on every run.
-RUN rustup component add clippy \
- && rustup target add wasm32-unknown-unknown
-
-# Pinned, checksum-verified wasm-pack — same version + hash the wasm:build job
-# installed inline (#904 supply-chain hardening; the sha256 is the published
-# v0.13.1 musl tarball). The static musl binary runs on this glibc base. Bump
-# version + hash together when upgrading, in lockstep with .gitlab-ci.yml.
-RUN WASM_PACK_VERSION=0.13.1 \
+ && apt-get install -y -qq --no-install-recommends ca-certificates curl git \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup component add clippy \
+ && rustup target add wasm32-unknown-unknown \
+ && WASM_PACK_VERSION=0.13.1 \
  && WASM_PACK_SHA256=c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539 \
  && WASM_PACK_TARBALL="wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
- && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 180 "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/${WASM_PACK_TARBALL}" -o /tmp/wasm-pack.tar.gz \
+ && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL \
+      --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 180 \
+      "https://github.com/rustwasm/wasm-pack/releases/download/v${WASM_PACK_VERSION}/${WASM_PACK_TARBALL}" \
+      -o /tmp/wasm-pack.tar.gz \
  && echo "${WASM_PACK_SHA256}  /tmp/wasm-pack.tar.gz" | sha256sum -c - \
  && tar xzf /tmp/wasm-pack.tar.gz -C /usr/local/bin --strip-components=1 "wasm-pack-v${WASM_PACK_VERSION}-x86_64-unknown-linux-musl/wasm-pack" \
- && rm /tmp/wasm-pack.tar.gz
-
-# cargo-deny 0.19.9 — same pinned release the wasm:license-check job installed
-# inline. 0.19.x is required to parse CVSS 4.0 entries in the live RustSec DB.
-# Download to a file first (rather than curl|tar) so a failed download aborts
-# the build instead of being masked by the pipe. (The upstream release publishes
-# no per-asset sha256; this matches the prior in-job install exactly, so baking
-# it is no worse and freezes the binary in a reviewed layer. Bump version
-# together with .gitlab-ci.yml's reference.)
-RUN CARGO_DENY_VERSION=0.19.9 \
+ && rm /tmp/wasm-pack.tar.gz \
+ && CARGO_DENY_VERSION=0.19.9 \
  && CARGO_DENY_DIR="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl" \
  && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 180 "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${CARGO_DENY_DIR}.tar.gz" -o /tmp/cargo-deny.tar.gz \
  && tar xzf /tmp/cargo-deny.tar.gz -C /usr/local/bin --strip-components=1 "${CARGO_DENY_DIR}/cargo-deny" \
- && rm /tmp/cargo-deny.tar.gz
-
-# Pinned, checksum-verified wasm-bindgen — the version `wasm-bindgen = "0.2"`
-# resolves to in Cargo.lock. wasm-pack shells out to a `wasm-bindgen` matching
-# the locked crate, and when it is absent it falls back to
-# `cargo install --force wasm-bindgen-cli --version <v>` with no `--locked`.
-# That re-resolves the CLI's whole transitive tree on every run, so a crate
-# published upstream can raise its MSRV above this image's rustc and red main
-# with no change on our side — which is exactly what happened (#3536): icu_*,
-# time and idna_adapter moved to editions requiring rustc 1.86/1.88 against a
-# 1.85 image, and `wasm:build` went from green to red in 35 minutes on
-# identical Rust source.
-#
-# `cargo install --locked` does not fix it: the CLI's published lockfile pins
-# time@0.3.47, which itself declares rust-version 1.88.0. Compiling the CLI
-# from source on a 1.85 image is fragile in both directions, so don't compile
-# it — bake the prebuilt release, the same way wasm-pack and cargo-deny above
-# are handled. Bump this version in lockstep with the wasm-bindgen version in
-# packages/wasm-scheduler/Cargo.lock; a mismatch makes wasm-pack install its
-# own again and reopens the hole. The tarball carries wasm-bindgen-test-runner
-# too, which `wasm:test` needs for the wasm-bindgen-test harness.
-RUN WASM_BINDGEN_VERSION=0.2.115 \
+ && rm /tmp/cargo-deny.tar.gz \
+ && WASM_BINDGEN_VERSION=0.2.115 \
  && WASM_BINDGEN_SHA256=494df943e4e30a48ea2832e5a299e0e0f52d23f1e037b052cf401f467b820316 \
  && WASM_BINDGEN_DIR="wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl" \
  && curl --proto '=https' --proto-redir '=https' --tlsv1.2 -sSfL --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 180 "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/${WASM_BINDGEN_DIR}.tar.gz" -o /tmp/wasm-bindgen.tar.gz \
@@ -117,17 +126,16 @@ RUN WASM_BINDGEN_VERSION=0.2.115 \
 WORKDIR /opt/ci-deps/wasm-scheduler
 COPY packages/wasm-scheduler/Cargo.toml ./Cargo.toml
 COPY packages/wasm-scheduler/Cargo.lock ./Cargo.lock
-RUN mkdir -p src \
- && echo '// stub for cargo fetch — real source layered on at CI runtime' > src/lib.rs \
- && cargo fetch --locked \
- && rm -rf /opt/ci-deps
-
 # Run the CI jobs as a non-root user (Sonar dockerfile:S6471, defense-in-depth
 # for a build container that pulls the repo + third-party deps). uid 1000 owns
 # CARGO_HOME so the job-time cargo registry reads and cargo-deny's advisory-DB
 # clone still write without root. RUSTUP_HOME stays root-owned but is
 # world-readable, so the baked toolchain resolves for the ci user.
-RUN useradd --uid 1000 --create-home --shell /bin/bash ci \
+RUN mkdir -p src \
+ && echo '// stub for cargo fetch — real source layered on at CI runtime' > src/lib.rs \
+ && cargo fetch --locked \
+ && rm -rf /opt/ci-deps \
+ && useradd --uid 1000 --create-home --shell /bin/bash ci \
  && chown -R ci "$CARGO_HOME"
 USER ci
 

@@ -24,6 +24,9 @@ RESTORE="$REPO_ROOT/scripts/restore.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# The stub S3 endpoint every fixture below points S3_ENDPOINT at.
+MOCK_S3_ENDPOINT="http://minio.local:9000"
+
 fail=0
 pass=0
 check() { # check "<description>" <condition-exit-code>
@@ -75,7 +78,7 @@ reset_log() { : > "$LOG"; }
 # --- 1. aws is preferred, endpoint + path-style are forced -------------------
 (
   export PATH="$STUB:$PATH"
-  export S3_BUCKET=bk S3_ENDPOINT="http://minio.local:9000"
+  export S3_BUCKET=bk S3_ENDPOINT="$MOCK_S3_ENDPOINT"
   export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY='ab/cd+ef:gh'
   # shellcheck source=../lib/s3.sh
   . "$LIB"
@@ -113,7 +116,7 @@ check "real AWS keeps virtual-hosted addressing (path-style not forced)" \
 # --- 3. mc path uses `alias set` argv and never MC_HOST_* --------------------
 (
   export PATH="$STUB:$PATH"
-  export S3_BUCKET=bk S3_ENDPOINT="http://minio.local:9000"
+  export S3_BUCKET=bk S3_ENDPOINT="$MOCK_S3_ENDPOINT"
   export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY='ab/cd+ef:gh'
   export TRUEPPM_S3_CLIENT=mc MC_CONFIG_DIR="$TMP/mcconf"
   # shellcheck source=../lib/s3.sh
@@ -136,7 +139,7 @@ check "no MC_HOST_* env var is ever constructed" \
 reset_log
 LATEST="$(
   export PATH="$STUB:$PATH"
-  export S3_BUCKET=bk S3_ENDPOINT="http://minio.local:9000"
+  export S3_BUCKET=bk S3_ENDPOINT="$MOCK_S3_ENDPOINT"
   export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=sec
   # shellcheck source=../lib/s3.sh
   . "$LIB"
@@ -161,7 +164,7 @@ check "the listed prefix is slash-terminated" \
 reset_log
 (
   export PATH="$STUB:$PATH"
-  export S3_BUCKET=bk S3_ENDPOINT="http://minio.local:9000"
+  export S3_BUCKET=bk S3_ENDPOINT="$MOCK_S3_ENDPOINT"
   export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=sec
   # shellcheck source=../lib/s3.sh
   . "$LIB"

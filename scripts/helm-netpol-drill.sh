@@ -120,6 +120,12 @@ CALICO_VERSION="${CALICO_VERSION:-v3.32.1}"
 # (exit != 0) and an accepted connection as exit 0 — exactly the discrimination
 # these probes need.
 PROBE_IMAGE="${PROBE_IMAGE:-busybox:1.37}"
+# The one verdict string `probe`/`probe_until_allowed`/`expect_probe` share.
+PROBE_ALLOWED="ALLOWED"
+# Two-space indent for nested diagnostic output, and the jsonpath for "the
+# name of the first (only expected) matching object" by label selector.
+INDENT_SED='s/^/  /'
+JSONPATH_FIRST_NAME='{.items[0].metadata.name}'
 # Seconds nc waits before declaring the port unreachable. A DROPPED packet (which
 # is how a CNI denies) only manifests as a timeout, so this doubles as the "denied"
 # detection latency. Keep it short: every NEGATIVE probe pays it in full on every
@@ -160,19 +166,19 @@ VK_SVC=""
 
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (netpol drill did not reach a healthy state) ========" >&2
-  kubectl get pods -A -o wide 2>&1 | sed 's/^/  /' >&2 || true
+  kubectl get pods -A -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
   echo "---- NetworkPolicies as admitted ----" >&2
-  kubectl get networkpolicy -o yaml 2>&1 | sed 's/^/  /' >&2 || true
+  kubectl get networkpolicy -o yaml 2>&1 | sed "$INDENT_SED" >&2 || true
   echo "---- calico-node status ----" >&2
-  kubectl -n kube-system get pods -l k8s-app=calico-node -o wide 2>&1 | sed 's/^/  /' >&2 || true
+  kubectl -n kube-system get pods -l k8s-app=calico-node -o wide 2>&1 | sed "$INDENT_SED" >&2 || true
   for p in $(kubectl get pods -o name 2>/dev/null); do
     ready="$(kubectl get "$p" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
     phase="$(kubectl get "$p" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
     if [ "$phase" != "Succeeded" ] && [ "$ready" != "True" ]; then
       echo "---- describe $p ----" >&2
-      kubectl describe "$p" 2>&1 | sed 's/^/  /' >&2 || true
+      kubectl describe "$p" 2>&1 | sed "$INDENT_SED" >&2 || true
       echo "---- logs $p ----" >&2
-      kubectl logs "$p" --all-containers --prefix --tail=60 2>&1 | sed 's/^/  /' >&2 || true
+      kubectl logs "$p" --all-containers --prefix --tail=60 2>&1 | sed "$INDENT_SED" >&2 || true
     fi
   done
 }
@@ -348,8 +354,8 @@ kubectl get networkpolicy
 
 # The policies must actually exist — a values regression that flipped the default
 # off would otherwise make every negative probe below fail for the wrong reason.
-PG_SVC="$(kubectl get svc -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-VK_SVC="$(kubectl get svc -l app.kubernetes.io/name=valkey -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+PG_SVC="$(kubectl get svc -l app.kubernetes.io/name=postgresql -o jsonpath="$JSONPATH_FIRST_NAME" 2>/dev/null || true)"
+VK_SVC="$(kubectl get svc -l app.kubernetes.io/name=valkey -o jsonpath="$JSONPATH_FIRST_NAME" 2>/dev/null || true)"
 [ -n "$PG_SVC" ] || fail "no postgresql Service found"
 [ -n "$VK_SVC" ] || fail "no valkey Service found"
 kubectl get networkpolicy "${RELEASE}-postgresql" >/dev/null 2>&1 \
@@ -388,7 +394,7 @@ probe() {
       --overrides="$overrides" \
       --attach --rm --quiet \
       --command -- sh -c "nc -w ${PROBE_TIMEOUT} -z ${host} ${port} && echo __OPEN__ || echo __SHUT__" 2>/dev/null)"; then
-    echo "ALLOWED"
+    echo "$PROBE_ALLOWED"
   else
     echo "DENIED"
   fi
@@ -406,11 +412,11 @@ probe_until_allowed() {
   local got attempt=1
   while :; do
     got="$(probe "$name" "$labels" "$host" "$port" "$ns")"
-    if [ "$got" = "ALLOWED" ]; then
+    if [ "$got" = "$PROBE_ALLOWED" ]; then
       if [ "$attempt" -gt 1 ]; then
         note "  ${host}:${port} connected on attempt ${attempt}/${PROBE_ALLOW_ATTEMPTS} — slow, not denied (#2647)"
       fi
-      echo "ALLOWED"
+      echo "$PROBE_ALLOWED"
       return 0
     fi
     if [ "$attempt" -ge "$PROBE_ALLOW_ATTEMPTS" ]; then
@@ -426,7 +432,7 @@ probe_until_allowed() {
 expect_probe() {
   local want="$1" desc="$2" name="$3" labels="$4" host="$5" port="$6" ns="${7:-}"
   local got detail=""
-  if [ "$want" = "ALLOWED" ]; then
+  if [ "$want" = "$PROBE_ALLOWED" ]; then
     got="$(probe_until_allowed "$name" "$labels" "$host" "$port" "$ns")"
     detail=" after ${PROBE_ALLOW_ATTEMPTS} attempts"
   else
@@ -464,7 +470,7 @@ expect_probe ALLOWED "control: unpoliced canary Service is reachable (probe mech
 # The rollout above already proves this transitively (/readyz checks database and
 # cache), but assert it from inside the api pod so an over-restrictive policy
 # names itself here instead of surfacing as a readiness timeout.
-api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')"
+api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath="$JSONPATH_FIRST_NAME")"
 log "positive probe from the real api pod (${api_pod})"
 for target in "${PG_SVC} 5432" "${VK_SVC} 6379"; do
   # shellcheck disable=SC2086
@@ -597,7 +603,7 @@ expect_probe ALLOWED "control: canary Service reachable from an unpoliced pod (e
   netpol-egress-baseline '{}' netpol-canary-svc 8080
 
 for ds in postgresql valkey; do
-  ds_pod="$(kubectl get pod -l "app.kubernetes.io/name=${ds}" -o jsonpath='{.items[0].metadata.name}')"
+  ds_pod="$(kubectl get pod -l "app.kubernetes.io/name=${ds}" -o jsonpath="$JSONPATH_FIRST_NAME")"
   log "egress probe from ${ds} pod (${ds_pod}) -> netpol-canary-svc:8080"
   # Both datastore images ship bash, so /dev/tcp is available without adding a
   # sidecar. `timeout` bounds a DROPPED SYN, which never returns on its own.
@@ -654,8 +660,8 @@ kubectl get networkpolicy "${RELEASE}-api-egress-demo" >/dev/null 2>&1 \
 kubectl get networkpolicy "${RELEASE}-celery-worker-egress-demo" >/dev/null 2>&1 \
   || fail "NetworkPolicy ${RELEASE}-celery-worker-egress-demo absent after demo.interactive=true upgrade"
 
-api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath='{.items[0].metadata.name}')"
-worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o jsonpath='{.items[0].metadata.name}')"
+api_pod="$(kubectl get pod -l app.kubernetes.io/component=api -o jsonpath="$JSONPATH_FIRST_NAME")"
+worker_pod="$(kubectl get pod -l app.kubernetes.io/component=celery-worker -o jsonpath="$JSONPATH_FIRST_NAME")"
 
 log "positive: api pod still reaches the bundled datastores under the demo egress policy"
 for target in "${PG_SVC} 5432" "${VK_SVC} 6379"; do

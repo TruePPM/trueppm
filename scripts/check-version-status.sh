@@ -511,6 +511,10 @@ run_scan() {
   # Newline-separated git tag names (#4106). Empty = the pinned-latest check is
   # skipped, which is how the fixtures and the tagless CI image run it.
   local tags="${6:-}"
+  # Shared "pull the 0.X out of a matched hit" pattern — every stale/forward
+  # verb regex above already anchors on the surrounding words; this just lifts
+  # the bare version number back out of whichever one matched.
+  local version_num_re='0\.[0-9]+'
 
   if [ ! -f "$roadmap" ]; then
     echo "ERROR: roadmap source of truth not found at: $roadmap" >&2
@@ -596,7 +600,7 @@ $extra"
         fi
       done < <(printf '%s\n' "$line" \
         | grep -oE "$anchor_re|$subject_re" \
-        | grep -oE '0\.[0-9]+')
+        | grep -oE "$version_num_re")
     done <<< "$hits"
   done <<< "$files"
 
@@ -651,7 +655,7 @@ $extra"
     # first: a page can legitimately carry banners for two versions, and taking
     # only the first made the pairing check depend on document order.
     callout_vers="$(grep -oEi "$callout_re" "$f" 2>/dev/null \
-      | grep -oE '0\.[0-9]+' | sort -u || true)"
+      | grep -oE "$version_num_re" | sort -u || true)"
 
     # Pre-release pairing: an unshipped declaration needs a matching banner.
     if [ -n "$declared" ] && [ "$(version_gt "$declared" "$highest")" = "1" ]; then
@@ -727,7 +731,7 @@ $extra"
     stale_hits="$(printf '%s' "$collapsed" | grep -ozEi "$stale_status_re" 2>/dev/null | tr '\0' '\n' || true)"
     while IFS= read -r stale_hit; do
       [ -z "$stale_hit" ] && continue
-      stale_ver="$(printf '%s' "$stale_hit" | grep -oE '0\.[0-9]+')"
+      stale_ver="$(printf '%s' "$stale_hit" | grep -oE "$version_num_re")"
       if [ "$(version_gt "$stale_ver" "$highest")" != "1" ]; then
         echo "VIOLATION: $f: inline stale-currency phrase for shipped $stale_ver: \"$stale_hit\"" >&2
         echo "    $stale_ver has shipped — use past tense (\"shipped in $stale_ver\") instead." >&2
@@ -738,7 +742,7 @@ $extra"
     stale_hits="$(printf '%s' "$collapsed" | grep -ozEi "$stale_planned_re" 2>/dev/null | tr '\0' '\n' || true)"
     while IFS= read -r stale_hit; do
       [ -z "$stale_hit" ] && continue
-      stale_ver="$(printf '%s' "$stale_hit" | grep -oE '0\.[0-9]+' | tail -n 1)"
+      stale_ver="$(printf '%s' "$stale_hit" | grep -oE "$version_num_re" | tail -n 1)"
       if [ "$(version_gt "$stale_ver" "$highest")" != "1" ]; then
         echo "VIOLATION: $f: \"first beta is planned\" phrasing for shipped $stale_ver: \"$stale_hit\"" >&2
         echo "    $stale_ver has already shipped as the first beta — say so in past tense." >&2
@@ -749,7 +753,7 @@ $extra"
     stale_hits="$(printf '%s' "$collapsed" | grep -ozEi "$stale_latest_re" 2>/dev/null | tr '\0' '\n' || true)"
     while IFS= read -r stale_hit; do
       [ -z "$stale_hit" ] && continue
-      stale_ver="$(printf '%s' "$stale_hit" | grep -oE '0\.[0-9]+' | tail -n 1)"
+      stale_ver="$(printf '%s' "$stale_hit" | grep -oE "$version_num_re" | tail -n 1)"
       if [ "$(version_gt "$stale_ver" "$highest")" != "1" ] && [ "$stale_ver" != "$highest" ]; then
         echo "VIOLATION: $f: \"latest release\" points at superseded $stale_ver (highest shipped: $highest): \"$stale_hit\"" >&2
         stale_violations=$((stale_violations + 1))
@@ -810,7 +814,7 @@ $extra"
     fwd_hits="$(printf '%s' "$fwd_text" | grep -ozEi -e "$fwd_verb_re" -e "$fwd_far_re" -e "$fwd_will_re" 2>/dev/null | tr '\0' '\n' || true)"
     while IFS= read -r fwd_hit; do
       [ -z "$fwd_hit" ] && continue
-      fwd_ver="$(printf '%s' "$fwd_hit" | grep -oE '0\.[0-9]+' | tail -n 1)"
+      fwd_ver="$(printf '%s' "$fwd_hit" | grep -oE "$version_num_re" | tail -n 1)"
       if [ "$(version_gt "$fwd_ver" "$highest")" != "1" ]; then
         echo "VIOLATION: $f: future-tense prose about shipped $fwd_ver: \"$fwd_hit\"" >&2
         echo "    $fwd_ver has shipped — rewrite in past/present tense (or add \`tense-ok\` to the line if deliberate)." >&2
@@ -862,6 +866,14 @@ self_test() {
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064  # expand $tmp now, not at trap time.
   trap "rm -rf '$tmp'" EXIT
+  # An empty-but-present declaration-coverage baseline file, used by fixtures
+  # that need the ratchet armed without actually baselining anything.
+  local empty_baseline_contents='# baseline\n'
+  # The two outcomes every case helper below compares its "$expect" against.
+  # Call sites still pass the bare word (expect-pass/expect-fail, unquoted) —
+  # that convention is unchanged and matches the same style used elsewhere in
+  # this script and in check-adr-status.sh; only the comparison literal moves.
+  local expect_pass_val='expect-pass' expect_fail_val='expect-fail'
   local docs="$tmp/docs"
   mkdir -p "$docs/overview" "$docs/features"
 
@@ -938,14 +950,14 @@ MD
     cp "$docs/overview/roadmap.md" "$case_dir/"
     printf '%s\n' "$body" > "$case_dir/page.md"
     if run_scan "$case_dir/roadmap.md" "$case_dir" >/dev/null 2>&1; then
-      if [ "$expect" = "expect-pass" ]; then
+      if [ "$expect" = "$expect_pass_val" ]; then
         echo "SELF-TEST OK: $name accepted."
       else
         echo "SELF-TEST FAILED: $name was accepted and should not be." >&2
         return 1
       fi
     else
-      if [ "$expect" = "expect-fail" ]; then
+      if [ "$expect" = "$expect_fail_val" ]; then
         echo "SELF-TEST OK: $name correctly rejected."
       else
         echo "SELF-TEST FAILED: $name was rejected and should not be." >&2
@@ -1168,13 +1180,13 @@ This page documents functionality added in **TruePPM 0.2**.
     cp "$docs/overview/roadmap.md" "$dir/docs/"
     printf '%s\n' "$body" > "$dir/README.md"
     if run_scan "$dir/docs/roadmap.md" "$dir/docs" "" "" "$dir/README.md" "$tags" >/dev/null 2>&1; then
-      if [ "$expect" != "expect-pass" ]; then
+      if [ "$expect" != "$expect_pass_val" ]; then
         echo "SELF-TEST FAILED: pinned-latest $name was accepted and should not be." >&2
         return 1
       fi
       echo "SELF-TEST OK: pinned-latest $name accepted."
     else
-      if [ "$expect" != "expect-fail" ]; then
+      if [ "$expect" != "$expect_fail_val" ]; then
         echo "SELF-TEST FAILED: pinned-latest $name was rejected and should not be." >&2
         return 1
       fi
@@ -1247,14 +1259,14 @@ This page documents functionality added in **TruePPM 0.2**.
     # it; docs_root holds only the roadmap, so any verdict here comes from the
     # extra file alone.
     if run_scan "$dir/docs/roadmap.md" "$dir/docs" "" "" "$extra" >/dev/null 2>&1; then
-      if [ "$expect" = "expect-pass" ]; then
+      if [ "$expect" = "$expect_pass_val" ]; then
         echo "SELF-TEST OK: extra-file $name accepted."
       else
         echo "SELF-TEST FAILED: extra-file $name was accepted and should not be." >&2
         return 1
       fi
     else
-      if [ "$expect" = "expect-fail" ]; then
+      if [ "$expect" = "$expect_fail_val" ]; then
         echo "SELF-TEST OK: extra-file $name correctly rejected."
       else
         echo "SELF-TEST FAILED: extra-file $name was rejected and should not be." >&2
@@ -1298,7 +1310,7 @@ This page documents functionality added in **TruePPM 0.2**.
   printf -- '---\ntitle: Sharing\ndocumentedFor: "0.2"\n---\n\nShare links.\n' \
     > "$rx_dir/docs/features/page.md"
   printf 'Multi-arch images shipped in 0.2.\n' > "$rx_dir/README.md"
-  printf '# baseline\n' > "$rx_dir/baseline.txt"
+  printf "$empty_baseline_contents" > "$rx_dir/baseline.txt"
   if run_scan "$rx_dir/docs/roadmap.md" "$rx_dir/docs" "$rx_dir/baseline.txt" "" \
       "$rx_dir/README.md" >/dev/null 2>&1; then
     echo "SELF-TEST OK: extra-file is exempt from the declaration ratchet."
@@ -1318,14 +1330,14 @@ This page documents functionality added in **TruePPM 0.2**.
     cp "$docs/overview/roadmap.md" "$dir/"
     "$setup" "$dir"
     if run_scan "$dir/roadmap.md" "$dir" "$dir/baseline.txt" >/dev/null 2>&1; then
-      if [ "$expect" = "expect-pass" ]; then
+      if [ "$expect" = "$expect_pass_val" ]; then
         echo "SELF-TEST OK: ratchet $name accepted."
       else
         echo "SELF-TEST FAILED: ratchet $name was accepted and should not be." >&2
         return 1
       fi
     else
-      if [ "$expect" = "expect-fail" ]; then
+      if [ "$expect" = "$expect_fail_val" ]; then
         echo "SELF-TEST OK: ratchet $name correctly rejected."
       else
         echo "SELF-TEST FAILED: ratchet $name was rejected and should not be." >&2
@@ -1353,7 +1365,7 @@ This page documents functionality added in **TruePPM 0.2**.
   # A brand-new behavior page that declares nothing and was never recorded.
   _rt_unrecorded() {
     printf 'Click **Share** to generate a public link.\n' > "$1/features/page.md"
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_case "unrecorded" expect-fail _rt_unrecorded || return 1
 
@@ -1362,7 +1374,7 @@ This page documents functionality added in **TruePPM 0.2**.
   _rt_declared_clean() {
     printf -- '---\ntitle: Sharing\ndocumentedFor: "0.2"\n---\n\nShare links.\n' \
       > "$1/features/page.md"
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_case "declared-not-in-baseline" expect-pass _rt_declared_clean || return 1
 
@@ -1396,14 +1408,14 @@ This page documents functionality added in **TruePPM 0.2**.
     cp "$docs/overview/roadmap.md" "$dir/overview/"
     "$setup" "$dir"
     if run_scan "$dir/overview/roadmap.md" "$dir" "$dir/baseline.txt" >/dev/null 2>&1; then
-      if [ "$expect" = "expect-pass" ]; then
+      if [ "$expect" = "$expect_pass_val" ]; then
         echo "SELF-TEST OK: ratchet $name accepted."
       else
         echo "SELF-TEST FAILED: ratchet $name was accepted and should not be." >&2
         return 1
       fi
     else
-      if [ "$expect" = "expect-fail" ]; then
+      if [ "$expect" = "$expect_fail_val" ]; then
         echo "SELF-TEST OK: ratchet $name correctly rejected."
       else
         echo "SELF-TEST FAILED: ratchet $name was rejected and should not be." >&2
@@ -1414,7 +1426,7 @@ This page documents functionality added in **TruePPM 0.2**.
 
   # roadmap.md declares nothing and is in no baseline — and must stay accepted.
   _rt_roadmap_exempt() {
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_overview_case "overview-roadmap-exempt" expect-pass _rt_roadmap_exempt || return 1
 
@@ -1422,7 +1434,7 @@ This page documents functionality added in **TruePPM 0.2**.
   _rt_overview_unrecorded() {
     printf 'TruePPM federates login with Authelia, Okta, Auth0, and Entra ID.\n' \
       > "$1/overview/sso.md"
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_overview_case "overview-unrecorded" expect-fail _rt_overview_unrecorded || return 1
 
@@ -1434,7 +1446,7 @@ This page documents functionality added in **TruePPM 0.2**.
   # dead sign-in instructions are why the mechanism exists.
   _rt_extra_unrecorded() {
     printf 'Sign in as `atlas-alex` and walk the story.\n' > "$1/the-story.md"
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_overview_case "extra-page-unrecorded" expect-fail _rt_extra_unrecorded || return 1
 
@@ -1450,13 +1462,13 @@ This page documents functionality added in **TruePPM 0.2**.
   _rt_arch_unrecorded() {
     mkdir -p "$1/architecture"
     printf 'The API fans board events out over WebSockets.\n' > "$1/architecture/sync.md"
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_overview_case "architecture-unrecorded" expect-fail _rt_arch_unrecorded || return 1
 
   _rt_index_unrecorded() {
     printf -- '---\ntitle: TruePPM\n---\nTruePPM does everything.\n' > "$1/index.mdx"
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_overview_case "index-mdx-unrecorded" expect-fail _rt_index_unrecorded || return 1
 
@@ -1464,7 +1476,7 @@ This page documents functionality added in **TruePPM 0.2**.
   # the opt-in must be a list, not a sweep of the docs root.
   _rt_extra_out_of_scope() {
     printf 'TruePPM, Inc. was founded to fix P3M tooling.\n' > "$1/about.md"
-    printf '# baseline\n' > "$1/baseline.txt"
+    printf "$empty_baseline_contents" > "$1/baseline.txt"
   }
   ratchet_overview_case "extra-page-out-of-scope" expect-pass _rt_extra_out_of_scope || return 1
 
@@ -1482,14 +1494,14 @@ This page documents functionality added in **TruePPM 0.2**.
     printf 'export default { sidebar: [ { label: "Getting Started", items: [ %s ] } ] };\n' \
       "$entry" > "$dir/astro.config.mjs"
     if run_scan "$dir/roadmap.md" "$dir" "" "$dir/astro.config.mjs" >/dev/null 2>&1; then
-      if [ "$expect" = "expect-pass" ]; then
+      if [ "$expect" = "$expect_pass_val" ]; then
         echo "SELF-TEST OK: badge $name accepted."
       else
         echo "SELF-TEST FAILED: badge $name was accepted and should not be." >&2
         return 1
       fi
     else
-      if [ "$expect" = "expect-fail" ]; then
+      if [ "$expect" = "$expect_fail_val" ]; then
         echo "SELF-TEST OK: badge $name correctly rejected."
       else
         echo "SELF-TEST FAILED: badge $name was rejected and should not be." >&2

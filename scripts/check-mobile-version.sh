@@ -118,6 +118,8 @@ EOF
 # #3367, a half-updated lockfile, and release.sh growing the entry.
 self_test() {
   local tmp status
+  # The #3367 shape: a hand-run version bump swept all three mobile fields.
+  local swept_version="0.4.0-beta.1"
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064  # expand $tmp now, not at trap time
   trap "rm -rf '$tmp'" EXIT
@@ -141,7 +143,7 @@ self_test() {
   fi
 
   # Case 2: #3367 exactly — a hand-run bump swept all three fields.
-  _fixture "0.4.0-beta.1" "0.4.0-beta.1" "0.4.0-beta.1"
+  _fixture "$swept_version" "$swept_version" "$swept_version"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 1 ]; then
     echo "SELF-TEST FAIL: a swept-in release version was not caught (exit $status)" >&2
@@ -150,7 +152,7 @@ self_test() {
 
   # Case 3: manifest reverted, lockfile left behind. npm ci reads the lock, so
   # this half-fixed state must still fail.
-  _fixture "0.0.0" "0.4.0-beta.1" "0.4.0-beta.1"
+  _fixture "0.0.0" "$swept_version" "$swept_version"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 1 ]; then
     echo "SELF-TEST FAIL: a stale lockfile version was not caught (exit $status)" >&2

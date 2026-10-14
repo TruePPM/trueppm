@@ -453,11 +453,14 @@ run_check() {
 # its pattern, so every fixture below is checked in BOTH directions.
 self_test() {
   local tmp rc=0
+  # Placeholder "render" text for the _helm_provenance_verdict fixtures below —
+  # the content never matters, only whether it matches across arguments.
+  local fixture_render='rendered-A'
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064  # expand $tmp now, not at trap time.
   trap "rm -rf '$tmp'" EXIT
 
-  local GOOD_HEADERS='        add_header X-Frame-Options        "DENY" always;
+  local good_headers='        add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
@@ -472,7 +475,7 @@ self_test() {
     printf '    location /assets/ {\n        try_files $uri @assets_404;\n        add_header Cache-Control "public, max-age=31536000, immutable" always;\n%s\n    }\n\n    location @assets_404 {\n        add_header Cache-Control "no-store" always;\n%s\n        return 404;\n    }\n\n    location = /index.html {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$headers" "$headers" "$headers"
   }
 
-  local HSTS_LINE='        add_header Strict-Transport-Security "max-age=63072000" always;'
+  local hsts_line='        add_header Strict-Transport-Security "max-age=63072000" always;'
 
   # GOOD: headers present, /admin/ deny+limit_req, plus a redirect-only listener
   # that legitimately carries no headers.
@@ -484,8 +487,8 @@ server {
 server {
     listen 443 ssl;
     add_header Strict-Transport-Security "max-age=63072000" always;
-$GOOD_HEADERS
-$(cache_locations "$(printf '%s\n%s' "$GOOD_HEADERS" "$HSTS_LINE")")
+$good_headers
+$(cache_locations "$(printf '%s\n%s' "$good_headers" "$hsts_line")")
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ {
         allow 127.0.0.1;
@@ -500,8 +503,8 @@ CONF
   cat >"$tmp/good_404.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
-$(cache_locations "$GOOD_HEADERS")
+$good_headers
+$(cache_locations "$good_headers")
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
 }
@@ -520,7 +523,7 @@ CONF
   cat >"$tmp/bad_admin.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ {
         proxy_pass http://api:8000;
@@ -533,7 +536,7 @@ CONF
   cat >"$tmp/bad_nolimit.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ {
         allow 10.0.0.0/8;
@@ -559,7 +562,7 @@ CONF
   cat >"$tmp/bad_nohsts.conf" <<CONF
 server {
     listen 443 ssl;
-$GOOD_HEADERS
+$good_headers
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
 }
@@ -631,15 +634,15 @@ server {
 CONF
 
   # GOOD: `no-referrer` is the tighter of the two acceptable policies.
-  local NOREFERRER_HEADERS='    add_header X-Frame-Options        "DENY" always;
+  local noreferrer_headers='    add_header X-Frame-Options        "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy        "no-referrer" always;
     add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
   cat >"$tmp/good_noreferrer.conf" <<CONF
 server {
     listen 8080;
-$NOREFERRER_HEADERS
-$(cache_locations "$NOREFERRER_HEADERS")
+$noreferrer_headers
+$(cache_locations "$noreferrer_headers")
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
 }
@@ -650,15 +653,15 @@ CONF
   cat >"$tmp/bad_cache_noindex.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location /assets/ {
         try_files \$uri @assets_404;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
-$GOOD_HEADERS
+$good_headers
     }
     location @assets_404 {
         add_header Cache-Control "no-store" always;
-$GOOD_HEADERS
+$good_headers
         return 404;
     }
     location / { try_files \$uri \$uri/ /index.html; }
@@ -671,15 +674,15 @@ CONF
   cat >"$tmp/bad_cache_bare404.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location /assets/ {
         try_files \$uri =404;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
-$GOOD_HEADERS
+$good_headers
     }
     location = /index.html {
         add_header Cache-Control "no-cache" always;
-$GOOD_HEADERS
+$good_headers
     }
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
@@ -692,19 +695,19 @@ CONF
   cat >"$tmp/bad_cache_dropped_header.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location /assets/ {
         try_files \$uri @assets_404;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
     }
     location @assets_404 {
         add_header Cache-Control "no-store" always;
-$GOOD_HEADERS
+$good_headers
         return 404;
     }
     location = /index.html {
         add_header Cache-Control "no-cache" always;
-$GOOD_HEADERS
+$good_headers
     }
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
@@ -716,20 +719,20 @@ CONF
   cat >"$tmp/bad_cache_wrong_value.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location /assets/ {
         try_files \$uri @assets_404;
         add_header Cache-Control "no-cache" always;
-$GOOD_HEADERS
+$good_headers
     }
     location @assets_404 {
         add_header Cache-Control "no-store" always;
-$GOOD_HEADERS
+$good_headers
         return 404;
     }
     location = /index.html {
         add_header Cache-Control "no-cache" always;
-$GOOD_HEADERS
+$good_headers
     }
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
@@ -741,19 +744,19 @@ CONF
   cat >"$tmp/bad_cache_404_no_store.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location /assets/ {
         try_files \$uri @assets_404;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
-$GOOD_HEADERS
+$good_headers
     }
     location @assets_404 {
-$GOOD_HEADERS
+$good_headers
         return 404;
     }
     location = /index.html {
         add_header Cache-Control "no-cache" always;
-$GOOD_HEADERS
+$good_headers
     }
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/ { return 404; }
@@ -765,7 +768,7 @@ CONF
   cat >"$tmp/bad_nextline.conf" <<CONF
 server {
     listen 8080;
-$GOOD_HEADERS
+$good_headers
     location / { try_files \$uri \$uri/ /index.html; }
     location /admin/
     {
@@ -825,8 +828,8 @@ CONF
     done
     printf '}\n'
   }
-  large_conf "$GOOD_HEADERS" >"$tmp/good_large.conf"
-  large_conf "$(grep -v 'X-Content-Type-Options' <<<"$GOOD_HEADERS")" >"$tmp/bad_large.conf"
+  large_conf "$good_headers" >"$tmp/good_large.conf"
+  large_conf "$(grep -v 'X-Content-Type-Options' <<<"$good_headers")" >"$tmp/bad_large.conf"
   probe good_large.conf 0 "correct config larger than a pipe buffer accepted (SIGPIPE false red, #3758)"
   probe bad_large.conf  1 "config larger than a pipe buffer missing nosniff rejected (SIGPIPE false green, #3758)"
 
@@ -850,12 +853,12 @@ CONF
   }
 
   verdict_probe "a checked render that differs from its re-renders says RETRY THE JOB" \
-    "RETRY THE JOB" "rendered-A" "rendered-A" "rendered-STALE"
+    "RETRY THE JOB" "$fixture_render" "$fixture_render" "rendered-STALE"
   verdict_probe "a checked render identical to its re-renders clears the render" \
-    "the render is not the cause" "rendered-A" "rendered-A" "rendered-A"
+    "the render is not the cause" "$fixture_render" "$fixture_render" "$fixture_render"
   verdict_probe "an empty checked render is still compared, not ignored" \
-    "DIFFERS" "rendered-A" "rendered-A" ""
-  if grep -q "RETRY THE JOB" <<<"$(_helm_provenance_verdict rendered-A rendered-A rendered-A)"; then
+    "DIFFERS" "$fixture_render" "$fixture_render" ""
+  if grep -q "RETRY THE JOB" <<<"$(_helm_provenance_verdict $fixture_render $fixture_render $fixture_render)"; then
     echo "SELF-TEST FAILED: a deterministic render identical to the checked one must not say RETRY THE JOB" >&2
     rc=1
   else
@@ -863,11 +866,11 @@ CONF
   fi
 
   verdict_probe "two disagreeing renders are called an environment fault" \
-    "NOT REPRODUCIBLE" "rendered-A" "rendered-B"
+    "NOT REPRODUCIBLE" "$fixture_render" "rendered-B"
   verdict_probe "a disagreeing render says RETRY THE JOB" \
-    "RETRY THE JOB" "rendered-A" "rendered-B"
+    "RETRY THE JOB" "$fixture_render" "rendered-B"
   verdict_probe "two agreeing renders are NOT called an environment fault" \
-    "reproducible (2 identical renders)" "rendered-A" "rendered-A"
+    "reproducible (2 identical renders)" "$fixture_render" "$fixture_render"
   verdict_probe "an empty render is reported as helm failing outright" \
     "produced NOTHING" "" ""
 
