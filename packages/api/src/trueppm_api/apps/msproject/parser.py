@@ -9,6 +9,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from datetime import date
@@ -63,6 +64,7 @@ _DAY_TYPE_TO_BIT = {
 
 # Subprocess timeout for MPXJ (seconds).
 _MPXJ_TIMEOUT = 120
+_MPXJ_STDERR_KEEP = 8192
 
 # Sane upper bound for resource MaxUnits / assignment Units (#1720). MS Project
 # expresses these as fractions of a resource's capacity (1.0 = 100%); a value of
@@ -1154,9 +1156,18 @@ def parse_mpp(mpp_content: bytes) -> ProjectData:
     """
     jar_path = getattr(settings, "MPXJ_JAR_PATH", "/opt/mpxj/mpxj-cli.jar")
     if not os.path.isfile(jar_path):
+        # The path and setting name are operator detail; the user-facing
+        # RuntimeError carries only a reference id that maps to this log line.
+        error_id = uuid.uuid4().hex[:12]
+        logger.error(
+            "msproject.mpxj_jar_missing error_id=%s expected_path=%s "
+            "(.mpp import needs Java and the MPXJ CLI JAR; set MPXJ_JAR_PATH)",
+            error_id,
+            jar_path,
+        )
         raise RuntimeError(
-            "MPXJ JAR not found. .mpp import requires Java and the MPXJ CLI JAR. "
-            f"Expected at: {jar_path}. Set MPXJ_JAR_PATH in settings to override."
+            ".mpp import is not available on this server "
+            f"(reference {error_id}). Contact your administrator."
         )
 
     max_output = getattr(settings, "MPXJ_MAX_OUTPUT_MB", 512) * 1024 * 1024
@@ -1173,13 +1184,34 @@ def parse_mpp(mpp_content: bytes) -> ProjectData:
         # OOM the worker. We stream stdout in chunks and abort the moment the total
         # crosses MPXJ_MAX_OUTPUT_MB, killing the JVM. `-Xmx` is a second bound:
         # even a bomb that balloons MPXJ's in-memory model dies with a JVM OOM
-        # (non-zero exit) rather than driving the host into swap. stderr is small
-        # (error text only) and read after EOF, so it cannot deadlock the pipe.
+        # (non-zero exit) rather than driving the host into swap. stderr is drained
+        # CONCURRENTLY on a thread (#4385): reading it only after stdout EOF
+        # deadlocks once a chatty JVM fills the ~64 KB stderr pipe (the JVM blocks,
+        # stdout never closes, the worker is pinned until the watchdog). We do not
+        # use communicate() because it would buffer all of stdout and lose the cap
+        # above. The thread keeps only the first _MPXJ_STDERR_KEEP bytes and
+        # discards the rest, so hostile stderr volume costs neither memory nor disk.
         proc = subprocess.Popen(
             ["java", f"-Xmx{max_heap}m", "-jar", jar_path, tmp_path, "-o", "xml"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        stderr_kept = bytearray()
+
+        def _drain_stderr() -> None:
+            stream = proc.stderr
+            if stream is None:
+                return
+            while True:
+                chunk = stream.read(65536)
+                if not chunk:
+                    return
+                room = _MPXJ_STDERR_KEEP - len(stderr_kept)
+                if room > 0:
+                    stderr_kept.extend(chunk[:room])
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
         # Watchdog: preserve the original hard timeout even though we no longer use
         # subprocess.run's timeout= (a blocking read on a hung, silent JVM would
         # otherwise never return).
@@ -1212,14 +1244,27 @@ def parse_mpp(mpp_content: bytes) -> ProjectData:
             proc.wait()
         finally:
             timer.cancel()
+            # The JVM is dead or exited, so its stderr pipe reaches EOF and the
+            # drain thread ends; the timeout is a belt for a grandchild holding it.
+            stderr_thread.join(timeout=5)
 
         if timed_out.is_set():
             raise RuntimeError(f"MPXJ conversion timed out after {_MPXJ_TIMEOUT}s")
 
         if proc.returncode != 0:
-            stderr_bytes = proc.stderr.read() if proc.stderr is not None else b""
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-            raise RuntimeError(f"MPXJ conversion failed (exit {proc.returncode}): {stderr[:500]}")
+            # stderr can carry JVM paths and internal class names, so it goes to
+            # the server log only; the user-facing error carries a correlation id.
+            error_id = uuid.uuid4().hex[:12]
+            logger.warning(
+                "msproject.mpxj_failed error_id=%s exit=%s stderr=%r",
+                error_id,
+                proc.returncode,
+                bytes(stderr_kept).decode("utf-8", errors="replace"),
+            )
+            raise RuntimeError(
+                f"MPXJ could not convert this file (exit {proc.returncode}, "
+                f"reference {error_id}). Check that it is a valid .mpp file."
+            )
 
         xml_output = b"".join(chunks)
         if not xml_output:

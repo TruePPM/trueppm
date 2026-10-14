@@ -47,7 +47,7 @@ worker, and `ImportRequest` has no field to carry the reason back to the user
 for 0.6.
 :::
 
-If a user uploads a `.mpp` and the JAR isn't at the configured path, the import fails with `"MPXJ JAR not found … Expected at: {jar_path}. Set MPXJ_JAR_PATH in settings to override."` The user-facing import dialog and the format picker both recommend "**File → Save As → XML Format**" in MS Project as the workaround — `.xml` round-trips with everything `.mpp` round-trips, with the exception of MS Project's binary-only formatting / view state (which TruePPM never reads anyway).
+If a user uploads a `.mpp` and the JAR isn't at the configured path, the import fails with `".mpp import is not available on this server (reference <id>). Contact your administrator."` The expected JAR path and the `MPXJ_JAR_PATH` hint are logged server-side (`msproject.mpxj_jar_missing error_id=<id>`), not shown to the user. Conversion failures likewise log JVM stderr under `msproject.mpxj_failed error_id=<id>`. The user-facing import dialog and the format picker both recommend "**File → Save As → XML Format**" in MS Project as the workaround — `.xml` round-trips with everything `.mpp` round-trips, with the exception of MS Project's binary-only formatting / view state (which TruePPM never reads anyway).
 
 The reference TruePPM Docker image **does not bundle** the MPXJ JAR or a JRE. To enable `.mpp` import on a self-hosted deployment, you have two options:
 

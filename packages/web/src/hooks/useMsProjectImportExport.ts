@@ -21,7 +21,7 @@ export const MS_PROJECT_MAX_UPLOAD_MB = 50;
  * parsing needs the optional MPXJ JAR and a Java runtime, and the reference image
  * bundles neither. `MPXJ_JAR_PATH` is not even a declared setting; the parser
  * reads it through a `getattr` default. So on a stock deployment a `.mpp` upload
- * 202s and then dead-letters in the worker with "MPXJ JAR not found", and
+ * 202s and then dead-letters in the worker with ".mpp import is not available on this server", and
  * `ImportRequest` has no field to carry that reason back (#2714) — the user sees
  * an import that never lands and no explanation.
  *
