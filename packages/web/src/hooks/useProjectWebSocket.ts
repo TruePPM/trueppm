@@ -1327,6 +1327,12 @@ class ProjectSocketController {
 
     ws.addEventListener('close', (event) => {
       if (!this.cfg.mountedRef.current) return;
+      // ADR-1285 (#4386): any held frame is still waiting for its predecessor.
+      // Drop it, cursor untouched, before any reconnect path below. Otherwise the
+      // 750 ms window would expire during the >= 1 s backoff and apply it, moving
+      // the cursor past the hole, and `?since=` would never replay the
+      // predecessor. The replay re-sends both, in order.
+      this.gate.dropHeld();
       // Policy refusal: this caller's role does not get live updates, or the
       // membership was revoked/demoted mid-session (`connection_evict`). Terminal
       // and not a fault — retrying can only be refused again, so stop, and do not
@@ -1390,8 +1396,9 @@ class ProjectSocketController {
 
   stop(): void {
     if (this.retryTimer !== null) clearTimeout(this.retryTimer);
-    // A held frame must not be delivered after teardown, into a project the user
-    // has left; the new controller starts from the cursor alone.
+    // Drop held frames, cursor untouched (see SeqGate.dropHeld): a held frame must
+    // not be delivered after teardown, possibly into a project the user has left.
+    // A same-project successor controller replays it from the cursor.
     this.gate.dispose();
     if (this.ws) {
       this.ws.removeEventListener('message', this.handleMessage);
@@ -1457,8 +1464,16 @@ export function useProjectWebSocket(
   // current project — the highest seq applied with nothing missing below it (a
   // frame held by the reorder gate does not advance it). Sent as ?since= on
   // reconnect so the server replays exactly what is owed, and used to drop a
-  // replay↔live duplicate (or a re-delivered replay) at the same seq. A held
-  // frame dropped on teardown is therefore replayed, not lost. lastSeqProjectRef guards the reset: the cursor is zeroed only when the
+  // replay↔live duplicate (or a re-delivered replay) at the same seq.
+  //
+  // Held frames are dropped, cursor untouched, whenever the socket goes away: on a
+  // retryable close (the controller's close handler) and on stop() (a token-refresh
+  // reconnect or unmount). Both reconnect paths dial ?since=<this cursor>, so the
+  // replay re-sends the hole and the dropped frames, in order. A project switch
+  // also drops them, and then zeroes the cursor below. The new project starts
+  // fresh, and nothing from the old one is owed.
+  //
+  // lastSeqProjectRef guards that reset: the cursor is zeroed only when the
   // project actually changes, NOT on a token-refresh reconnect (which must keep
   // replaying across the gap).
   const lastSeqRef = useRef<number>(0);

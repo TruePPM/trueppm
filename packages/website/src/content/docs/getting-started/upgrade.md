@@ -714,9 +714,10 @@ the replay buffer's global row id (#4386). Operators have nothing to configure.
 
 - It adds a nullable `seq` column to `sync_boardevent`. It does not rewrite any
   existing rows; they keep `seq` empty and are delivered live but never replayed.
-- It creates the per-project counter table. It seeds each project's counter above
-  the highest replay id that project used, so no client cursor saved before the
-  upgrade can be mistaken for a newer one.
+- It creates the per-project counter table. It seeds each project's counter at the
+  highest replay id that project used plus 2³². The pods still running the old
+  release keep issuing global ids during the rollout. The offset keeps those ids, and
+  every cursor saved before the upgrade, below the new per-project numbers.
 - It replaces the `(project, id)` index with a `(project, seq)` unique constraint.
 
 Building that index scans the table. The whole migration runs in one transaction
@@ -726,9 +727,15 @@ default). We measured about 0.12 s for 300,000 rows across 500 projects on a
 developer laptop, local PostgreSQL 16. That figure is from one machine. Expect it to
 scale roughly with row count, and to be slower on shared or network storage.
 
-While the lock is held, old pods that are still serving wait on it. A board-event
-broadcast or a reconnect replay on one of those pods pauses for that long, then
-continues. Nothing fails.
+Creating the counter table, which has a foreign key to projects, also locks
+`projects_project` against writes (`SHARE ROW EXCLUSIVE`) until the migration
+commits. While the locks are held, old pods that are still serving wait on them:
+
+- a board-event broadcast or a reconnect replay;
+- any write to a project row. This includes the sync-cursor bump each sync upload
+  makes, project edits, and anything that locks a project row for update.
+
+Each pauses for that long, then continues. Nothing fails.
 
 **During a rolling update** (`replicaCount >= 2`, as in `values-prod.yaml`), pods on
 the old and new code run side by side for a few minutes, using two different `seq`
@@ -741,15 +748,20 @@ number spaces:
 - Events written by an old pod during the window are delivered live but are not
   replayable after a reconnect.
 
-Reloading the page clears all of these. If you script against the WebSocket API, a
-cursor saved before the upgrade gets one `resync_required` the first time you
-reconnect with it. The exception is a cursor that was fully up to date, which is
-replayed only the events since the upgrade. See
+Reloading the page clears all of these. Every client that was connected across
+the upgrade refetches its project data once, on its first reconnect. If you script
+against the WebSocket API, any cursor saved before the upgrade gets one
+`resync_required` the first time you reconnect with it. See
 [Sequence numbers and reconnect replay](/api/websockets/#sequence-numbers-and-reconnect-replay).
 
 **Rollback:** the migration is reversible. Unapplying it drops the column and the
-counter table. A client that then reconnects with a per-project cursor gets either
-replayed events or a `resync_required`, and recovers either way.
+counter table. After a rollback, reload every open browser tab.
+
+The reload is required because a tab still holds a per-project cursor above 2³²,
+far above every global id the rolled-back release issues. The rolled-back server
+neither replays to such a cursor nor resyncs it. The tab then drops every live
+board event as already seen, until it is reloaded. For a scripted client, discard
+any cursor saved during the upgrade.
 
 ### Upgrading across the #4359 readiness-probe change
 

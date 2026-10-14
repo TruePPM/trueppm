@@ -74,8 +74,10 @@ a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
   carrying `{ "latest_seq": <head> }` in three cases. The first is when some owed
   rows were purged (the buffer keeps `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, default
   24h). The second is when the client is more than the replay cap behind. The third
-  is when `since` is above the head, which is a cursor from the pre-#4386 global
-  number space. The client refetches its project-scoped caches and baselines its
+  is when `since` is above the head, a value the project's sequence never reached.
+  A global-id cursor from before #4386 lands in the first case. The upgrade seeded
+  every existing project's counter at its highest old id plus 2³², so such a cursor
+  is owed more events than carry a `seq` (ADR-1285 §6). The client refetches its project-scoped caches and baselines its
   cursor to `latest_seq`. Every value the consumer reads is scoped to the project.
 
 `resync_required` is a **consumer-emitted control frame**, not a broadcast event —

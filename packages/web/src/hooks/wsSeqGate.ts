@@ -78,11 +78,25 @@ export class SeqGate<T> {
     }, this.windowMs);
   }
 
-  /** Drop buffered frames and the pending timer (socket teardown). */
-  dispose(): void {
+  /**
+   * Drop held frames and the pending timer **without** advancing the cursor.
+   *
+   * Call it whenever the socket goes away. A held frame means its predecessor is
+   * still owed. If the window were left to expire, the flush would apply the held
+   * frame and move the cursor past the hole while no socket is open. The reconnect
+   * would then send `?since=` above the hole and the predecessor would be lost.
+   * Dropped here, the cursor stays contiguous, and the reconnect's replay serves
+   * the predecessor and the held frame again, in order.
+   */
+  dropHeld(): void {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.buffer.clear();
+  }
+
+  /** Socket teardown for good (unmount or project switch): same as `dropHeld`. */
+  dispose(): void {
+    this.dropHeld();
   }
 
   /** Frames currently waiting for a predecessor (for tests and diagnostics). */

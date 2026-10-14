@@ -86,8 +86,10 @@ The consumer reads the project's head (the counter value). The client is owed ex
 `head - since` events. The consumer replays only when exactly that many rows survive in
 `(since, head]`. In every other case it sends one `resync_required {latest_seq: head}`:
 
-- `since > head`: a cursor from another number space, such as a global id an old pod
-  handed out during a rolling update;
+- `since > head`: a value the project's sequence never reached, for example a global
+  id an old pod issued during the rolling update for a project created in that
+  window, whose counter starts at 0. A global-id cursor for a project that existed at
+  the upgrade is below the seed (§6), so it lands in the "fewer rows" case instead;
 - `head - since > _REPLAY_CAP`;
 - fewer rows than owed, because the purge reaped part of the gap.
 
@@ -127,13 +129,31 @@ pod does not know the column and INSERTs without it. Both kinds of row are live-
 counted them, so they create no false gap. Old pods `group_send` the global id as
 `seq`. New pods add a channel-layer-internal `seq_scope: "project"` marker, and the
 consumer forwards `seq` only when the marker is present, so a client never adopts a
-global id as its cursor. Some residual mixing during the window is accepted and
+global id as its cursor through a new consumer.
+
+An *old* consumer forwards whatever it receives, so a client fed by one can still
+mix the two spaces. Old pods also keep minting global ids from the same identity
+sequence throughout the window. With the seed at a project's bare old max, those
+fresh ids would land in the range the new pods hand out as per-project seqs. The
+round-2 audit reproduced the consequence with a seed of 1000. The client applies the
+old pod's 1001 and drops the new pod's seq 1001 as a duplicate. It applies 1002 and
+1003, then reconnects with `since=1003`, equal to the head. It is owed nothing, so it
+never gets seq 1001 back. The migration therefore offsets every seed by 2**32 (§6).
+That puts the two spaces about four billion apart, so no id an old pod can mint in
+the window reaches a project's seq space. The remaining mixing is accepted and
 disclosed in the 0.4 upgrade notes (CLAUDE.md migration rule 8(c)):
 
-- an old consumer replays global ids to a new client;
-- an old client drops new frames until it reconnects.
+- An old consumer replays global ids to a new client. The client's cursor is then a
+  global id, below every seed, so its next reconnect to a new pod resyncs.
+- An old client that has taken a per-project seq drops old-pod frames as
+  duplicates. Those frames are live-only anyway.
+- An old client still on a global cursor treats the first per-project frame as a
+  forward jump and adopts it. Its next reconnect either resyncs (global cursor) or
+  replays correctly (per-project cursor).
 
-Each recovers on its next reconnect via the `since > head` resync.
+The client gate's 750 ms window handles the one-time jump from a global cursor to the
+seeded space. The frame is held, then applied, and the cursor moves into the
+per-project space.
 
 ### 6. Migration and pre-upgrade cursors
 
@@ -149,25 +169,45 @@ So `sync.0006_boardevent_per_project_seq` does **not** renumber. It does three t
 
 1. adds the nullable `seq` column and the counter table; every existing row keeps
    `seq = NULL` and stays live-only;
-2. seeds every project's counter at **that project's highest existing global id**. A
-   project with no surviving rows is seeded at the table's identity-sequence value,
-   which bounds every id ever assigned, because a client can hold a cursor from rows
-   the purge has since removed;
+2. seeds every project's counter at **that project's highest existing global id plus
+   `BOARD_EVENT_SEQ_UPGRADE_OFFSET` (2**32)**. A project with no surviving rows is
+   seeded at the table's identity-sequence value plus the same offset. That value
+   bounds every id ever assigned, because a client can hold a cursor from rows the
+   purge has since removed. The offset is what keeps ids minted by old pods during
+   the rolling update out of the per-project space (§5);
 3. replaces the `(project, id)` index with the `(project, seq)` unique constraint. Every
    existing row is NULL there, so the constraint cannot be violated
    (`# safe-constraint`, rule 7).
 
-Every new per-project `seq` is then above any cursor an old client can hold, and the
-density check of §3 handles every case. A cursor below the seed is owed more events than
-carry a `seq`, so it gets `resync_required`. A cursor equal to the seed had seen
-everything, and it replays exactly the new events. The seeding lives in
-`sequence.py::seed_board_event_sequences`, so it is tested without importing a migration
-module (rule 3).
+Every global id is then below its project's seed, whether it was issued before the
+upgrade or during the window. So **every pre-upgrade cursor gets exactly one
+`resync_required`**. The density check of §3 handles it: the cursor is owed
+`head - since` events, more than the rows that carry a `seq`. This includes a cursor
+that was fully current at the upgrade. Treating every old cursor the same way is
+simpler to state and to test than special-casing that one, and it costs one refetch per
+client per upgrade.
+
+**Range.** `seq` is a signed 64-bit `BIGINT` (max 2**63 − 1). The web client compares
+seqs as JavaScript numbers, which are exact up to 2**53 − 1. A seed is an existing id
+plus about 4.3 × 10⁹, so both limits are many orders of magnitude away. The
+allocator's `value + 1` (`increment_returning`) and the `(project, seq)` uniqueness
+behave on shifted values exactly as on small ones. A project created after the upgrade
+starts its counter at 0, as before.
+
+The seeding lives in `sequence.py::seed_board_event_sequences`, so it is tested
+without importing a migration module (rule 3).
 
 What this publishes: for a project with surviving rows the seed is an id its members
-already received. For a project with none, the seed reveals once how many events the
-installation had written by the upgrade. That is a single fixed number, not the
-per-frame volume the old design leaked continuously.
+already received, plus a public constant. For a project with none, the seed reveals
+once how many events the installation had written by the upgrade. That is a single
+fixed number, not the per-frame volume the old design leaked continuously.
+
+**Migration locks.** The whole migration is one transaction. It holds `ACCESS EXCLUSIVE`
+on `sync_boardevent` until commit. `CreateModel(BoardEventSequence)`, through its
+foreign key to `projects.Project`, also takes `SHARE ROW EXCLUSIVE` on
+`projects_project` until commit. That blocks every write to project rows, including
+the `last_sync_version` bump on a sync upload, for the duration. About 0.12 s was
+measured for 300,000 buffer rows on a laptop. The upgrade notes say so.
 
 ## Alternatives Considered
 
@@ -179,6 +219,7 @@ per-frame volume the old design leaked continuously.
 | PostgreSQL `SEQUENCE` per project | No row lock | Non-transactional: holes on rollback, and allocation order is not commit order, so this is the same bug as a race |
 | Renumber the surviving buffer per project (first draft) | Sequences start at 1; no instance figure is published | A pre-upgrade cursor at or below the new head replays from the wrong point and silently skips events (§6) |
 | Seed every project at the global identity value | One rule for every project | Publishes the instance's cumulative event count to every member, not only members of projects with no surviving rows |
+| Seed at the bare old max (round-1 draft) | A fully-current old cursor replays instead of resyncing | Old pods' fresh global ids fall in the new seq range during the rolling update; a client can reach `since == head` with a seq skipped (§5) |
 
 ## Consequences
 
@@ -196,6 +237,9 @@ per-frame volume the old design leaked continuously.
   rolled-back write. Now it can also cost a real one. The contract is unchanged; the
   price of breaking it went up.
 - **Risk: rolling-update window.** See Decision §5.
+- **Upgrade cost:** every client that was connected across the upgrade refetches once,
+  and the migration briefly blocks `sync_boardevent` and `projects_project` writes
+  (§6).
 - **Risk: a frame more than 750 ms late is lost** until #2848 adds gap → resync (§4).
 - **Wire contract:** the field name and type are unchanged. Its meaning changed from
   "global, gap-tolerant" to "per-project, dense". Integrators holding a cursor see one

@@ -2,10 +2,12 @@
 
 """Per-project, commit-ordered WebSocket replay sequence (ADR-1285, #4386).
 
-Adds ``BoardEvent.seq`` and the per-project ``BoardEventSequence`` allocator, and
-seeds each project's counter at that project's highest existing global id so every
-new per-project ``seq`` sits above any cursor a pre-upgrade client holds (see
-``seed_board_event_sequences``).
+Adds ``BoardEvent.seq`` and the per-project ``BoardEventSequence`` allocator. It
+seeds each project's counter at that project's highest existing global id plus
+``BOARD_EVENT_SEQ_UPGRADE_OFFSET`` (2**32), so every new per-project ``seq`` sits far
+above any global id, including ids old pods issue during the rolling update. Every
+pre-upgrade cursor therefore gets one ``resync_required``. See
+``seed_board_event_sequences``.
 
 Existing rows are not renumbered: they keep ``seq = NULL`` and stay live-only. The
 same holds for rows a pod still running the previous release INSERTs during a

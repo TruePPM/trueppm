@@ -1783,6 +1783,30 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
     });
     expect(MockWebSocket.instances[1].url).toContain('&since=11');
   });
+
+  // #4386 round 2: a socket that drops while a frame is held must not let the
+  // 750 ms window flush it during the >= 1 s backoff. That would move the cursor
+  // past the hole, and the reconnect's ?since= would never replay event 10.
+  it('drops a held frame on a retryable close so the reconnect replays the hole', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 9 }, seq: null });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    // 11 overtakes 10 and is held; then the socket drops before 10 arrives.
+    dispatch({ event_type: 'project_updated', payload: { id: 'proj-1' }, seq: 11 });
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000); // past the 750 ms window and the first backoff
+    });
+
+    // 11 was never applied, and the reconnect asks for everything after 9.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(MockWebSocket.instances[1].url).toContain('&since=9');
+  });
 });
 
 // Recalculating-badge lifecycle (#1976) — the shell "Recalculating…" badge is

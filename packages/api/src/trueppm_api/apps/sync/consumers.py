@@ -322,14 +322,16 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         many rows survive. Anything else gets one ``resync_required`` frame and the
         client refetches:
 
-        - ``since > head`` — a cursor from another number space, such as a global
-          row id an old pod handed out during the #4386 rolling update.
+        - ``since > head`` — a cursor the project's sequence never reached. One
+          example is a global id an old pod issued during the #4386 rolling update
+          for a project created in that window, whose counter starts at 0.
           ``latest_seq`` re-baselines it.
-        - A cursor saved *before* the #4386 upgrade is a global id at or below the
-          project's seed (``seed_board_event_sequences``). Below the seed it is owed
-          more events than carry a ``seq``, so it falls into the purged case and
-          resyncs; equal to the seed it was fully current and replays exactly the
-          new events.
+        - A global-id cursor from before or during the #4386 upgrade, for a project
+          that existed at the upgrade, is below the project's seed
+          (``seed_board_event_sequences``, offset by
+          ``BOARD_EVENT_SEQ_UPGRADE_OFFSET``). It is owed more events than carry a
+          ``seq``, so it falls into the "fewer rows than owed" case below and
+          resyncs.
         - ``head - since > _REPLAY_CAP`` — cheaper to refetch than to stream.
         - fewer rows than owed — the purge reaped part of the gap.
 

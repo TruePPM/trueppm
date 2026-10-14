@@ -406,13 +406,33 @@ def allocate_board_event_seq(project_id: Any) -> int | None:
     return increment_returning(BoardEventSequence, "value", project_id)
 
 
+#: Gap placed between the old global ``BoardEvent`` id space and every project's new
+#: per-project ``seq`` space by the #4386 migration (ADR-1285 §6).
+#:
+#: Seeding a project at its highest old id is not enough on its own. During a
+#: rolling update the old pods keep minting *global* ids from the same identity
+#: sequence, just above that seed, while the new pods hand out per-project values
+#: in the same range. A client fed by both could then hold a cursor equal to a
+#: project's head while having skipped one of its seqs, and the replay would owe it
+#: nothing. Shifting every seed up by 2**32 puts the two spaces about four billion
+#: apart: no id an old pod can mint during a minutes-long window reaches a
+#: project's seq space, and every pre-upgrade cursor sits below its project's seed.
+#:
+#: Range: the column is a signed 64-bit ``BIGINT`` (max 2**63 - 1), and the web
+#: client compares seqs as JavaScript numbers, exact up to 2**53 - 1. A seed is
+#: an existing id plus 2**32 (about 4.3e9), so both limits are many orders of
+#: magnitude away. The allocator's ``value + 1`` and the ``(project, seq)``
+#: uniqueness work on the shifted values exactly as on small ones.
+BOARD_EVENT_SEQ_UPGRADE_OFFSET = 2**32
+
+
 def seed_board_event_sequences(
     board_event_model: type[models.Model],
     sequence_model: type[models.Model],
     project_model: type[models.Model],
     connection: Any,
 ) -> None:
-    """Start every project's replay counter above any cursor an old client holds.
+    """Start every project's replay counter above any cursor an old client can hold.
 
     Run once by the migration that introduced ``BoardEvent.seq`` (ADR-1285, #4386).
     It takes the models as arguments so the migration can pass its historical ones,
@@ -421,18 +441,12 @@ def seed_board_event_sequences(
     Before #4386 a client's cursor was a *global* ``BoardEvent`` id. The existing
     rows are deliberately **not** renumbered: they keep ``seq = NULL`` and stay
     live-only, so the replay never serves them. Instead each project's counter is
-    seeded at the project's highest old global id. Every new per-project ``seq`` is
-    then above any cursor an old client can hold for that project, which makes the
-    consumer's density check settle every pre-upgrade cursor correctly:
-
-    - ``since < seed``: ``head - since`` is more than the surviving sequenced rows
-      (only new rows carry a ``seq``), so the client gets ``resync_required``.
-    - ``since == seed``: the client had seen everything up to the upgrade, and the
-      replay serves exactly the new events.
-    - ``since > seed``: only reachable from a global id an old pod handed out
-      during the rolling update. It is almost always above the head too, so the
-      client is re-baselined; the residual case is the disclosed rolling-update
-      risk (upgrade notes).
+    seeded at the project's highest old global id plus
+    :data:`BOARD_EVENT_SEQ_UPGRADE_OFFSET`. Every global id, whether it was issued
+    before the upgrade or by an old pod during the rolling update, is then below its
+    project's seed. On reconnect, ``head - since`` exceeds the number of rows that
+    carry a ``seq``, so **every pre-upgrade cursor gets exactly one
+    ``resync_required``** and continues from ``latest_seq``.
 
     Renumbering the old rows per project, the first design, was wrong. A rank ``r``
     is at most the old id ``c`` it replaced, so a cursor ``c`` that landed at or
@@ -441,10 +455,10 @@ def seed_board_event_sequences(
 
     A project with no surviving rows still needs a seed: a client may hold a cursor
     from rows the purge has since removed. Any id ever assigned is at most the
-    table's identity sequence value, so those projects are seeded there. For their
-    members that one constant reveals how many events the installation had written
-    by the upgrade. It is a single fixed number, not the ongoing per-frame volume
-    the old design leaked.
+    table's identity sequence value, so those projects are seeded there, plus the
+    same offset. For their members that one constant reveals how many events the
+    installation had written by the upgrade. It is a single fixed number, not the
+    ongoing per-frame volume the old design leaked.
     """
     events = board_event_model._meta.db_table
     q_events = connection.ops.quote_name(events)
@@ -465,10 +479,10 @@ def seed_board_event_sequences(
         # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
         cursor.execute(
             f"INSERT INTO {q_sequences} (project_id, value) "  # nosec B608 - names from _meta
-            f"SELECT p.id, COALESCE(m.max_id, %s) FROM {q_projects} AS p "
+            f"SELECT p.id, COALESCE(m.max_id, %s) + %s FROM {q_projects} AS p "
             f"LEFT JOIN (SELECT project_id, MAX(id) AS max_id FROM {q_events} "
             f"GROUP BY project_id) AS m ON m.project_id = p.id "
             f"ON CONFLICT (project_id) DO UPDATE "
             f"SET value = GREATEST({q_sequences}.value, EXCLUDED.value)",
-            [global_floor],
+            [global_floor, BOARD_EVENT_SEQ_UPGRADE_OFFSET],
         )

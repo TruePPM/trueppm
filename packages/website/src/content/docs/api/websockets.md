@@ -301,11 +301,12 @@ cursor to `latest_seq`.
 
 :::caution[Cursors saved before the per-project sequence]
 Before #4386, `seq` was the replay buffer's global row id. The upgrade starts each
-project's sequence above the highest old id that project used, so an old cursor
-is never mistaken for a newer one. The first time you reconnect with an old
-cursor, you get one `resync_required` and continue from `latest_seq`. The one
-exception is a cursor that was fully up to date at the upgrade: it is replayed
-exactly the events since the upgrade. Do not reuse a cursor across projects.
+project's sequence far above every global id: at the project's highest old id plus
+2³² (4,294,967,296). An old cursor is therefore never mistaken for a newer one. The
+first time you reconnect with any cursor saved before the upgrade, you get one
+`resync_required`. Continue from its `latest_seq`. Expect `seq` values above 2³² on
+projects that existed before the upgrade. They are well within the exact range of a
+JavaScript number. Do not reuse a cursor across projects.
 :::
 
 An event's payload may be richer at some emitting sites than others, but **all

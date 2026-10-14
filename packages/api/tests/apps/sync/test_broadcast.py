@@ -331,14 +331,18 @@ def test_seed_board_event_sequences_starts_counters_above_old_global_ids(
     replay_project: Any,
 ) -> None:
     """The #4386 migration's seeding: pre-upgrade rows keep ``seq = NULL``, and each
-    project's counter starts at that project's highest old global id, so every new
-    per-project seq sits above any cursor an old client can hold for it."""
+    project's counter starts at that project's highest old global id plus
+    ``BOARD_EVENT_SEQ_UPGRADE_OFFSET``, so every new per-project seq sits far above
+    any global id, including ones an old pod mints during the rolling update."""
     from django.db import connection
 
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.sync.broadcast import _persist_board_event
     from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
-    from trueppm_api.apps.sync.sequence import seed_board_event_sequences
+    from trueppm_api.apps.sync.sequence import (
+        BOARD_EVENT_SEQ_UPGRADE_OFFSET,
+        seed_board_event_sequences,
+    )
 
     other = Project.objects.create(
         name="Other", start_date=date(2026, 1, 1), calendar=replay_project.calendar
@@ -356,14 +360,21 @@ def test_seed_board_event_sequences_starts_counters_above_old_global_ids(
 
     # Old rows are not renumbered.
     assert set(BoardEvent.objects.values_list("seq", flat=True)) == {None}
-    assert BoardEventSequence.objects.get(project=replay_project).value == a2.pk
-    assert BoardEventSequence.objects.get(project=other).value == b2.pk
+    offset = BOARD_EVENT_SEQ_UPGRADE_OFFSET
+    assert offset == 2**32
+    assert BoardEventSequence.objects.get(project=replay_project).value == a2.pk + offset
+    assert BoardEventSequence.objects.get(project=other).value == b2.pk + offset
     # A project whose rows were all purged is seeded at the identity sequence, which
     # bounds every id ever assigned, so a cursor from a purged row is still below it.
-    assert BoardEventSequence.objects.get(project=quiet).value >= b2.pk
-    # Live events continue above the seed, densely.
-    assert _persist_board_event(str(replay_project.pk), "a3", {}) == a2.pk + 1
-    assert _persist_board_event(str(other.pk), "b3", {}) == b2.pk + 1
+    assert BoardEventSequence.objects.get(project=quiet).value >= b2.pk + offset
+    # Live events continue above the seed, densely, and stay exact in a JS number.
+    a3 = _persist_board_event(str(replay_project.pk), "a3", {})
+    assert a3 == a2.pk + offset + 1
+    assert a3 is not None and a3 < 2**53
+    assert _persist_board_event(str(other.pk), "b3", {}) == b2.pk + offset + 1
+    # An id an old pod mints after the upgrade (no seq) stays far below the seed.
+    late = BoardEvent.objects.create(project=other, event_type="old-pod", payload={})
+    assert late.seq is None and late.pk < b2.pk + offset
     assert b1.pk < b2.pk
 
 

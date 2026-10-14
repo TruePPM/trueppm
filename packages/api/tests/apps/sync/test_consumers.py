@@ -16,6 +16,7 @@ from django.contrib.auth import get_user_model
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.sync.sequence import BOARD_EVENT_SEQ_UPGRADE_OFFSET
 from trueppm_api.apps.sync.ws_auth import WsAuthResult
 
 User = get_user_model()
@@ -1239,7 +1240,7 @@ async def test_pre_upgrade_cursor_that_missed_an_event_gets_a_resync(
     sent = await _connect_capturing(str(project.pk), user, since=ids["p3_seen"])
 
     assert [f["event_type"] for f in sent] == ["resync_required"]
-    assert sent[0]["payload"]["latest_seq"] == ids["p4_missed"] + 1
+    assert sent[0]["payload"]["latest_seq"] == ids["p4_missed"] + BOARD_EVENT_SEQ_UPGRADE_OFFSET + 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1262,11 +1263,12 @@ async def test_pre_upgrade_cursor_before_any_new_event_gets_a_resync(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_pre_upgrade_cursor_at_the_seed_replays_exactly_the_new_events(
+async def test_fully_current_pre_upgrade_cursor_also_resyncs(
     user: object, project: Project, calendar: Calendar
 ) -> None:
-    """A client that had seen every old event (cursor == P's highest old id, the
-    seed) is owed only what happened after the upgrade, and gets exactly that."""
+    """Even a client that had seen every old event (cursor == P's highest old id)
+    gets one resync, not a replay: the offset seed puts every global id below the
+    per-project space, so the contract is uniform for every pre-upgrade cursor."""
     await database_sync_to_async(ProjectMembership.objects.create)(
         project=project, user=user, role=Role.MEMBER
     )
@@ -1275,17 +1277,66 @@ async def test_pre_upgrade_cursor_at_the_seed_replays_exactly_the_new_events(
     )
     ids = await database_sync_to_async(_upgrade_with_old_rows)(project, other)
     persist = database_sync_to_async(_persist)
-    s1 = await persist(project, "task_created", {"id": "n1"})
-    s2 = await persist(project, "task_updated", {"id": "n1"})
-    seed = ids["p4_missed"]
-    assert (s1, s2) == (seed + 1, seed + 2)
+    await persist(project, "task_created", {"id": "n1"})
+    head = await persist(project, "task_updated", {"id": "n1"})
+    assert head == ids["p4_missed"] + BOARD_EVENT_SEQ_UPGRADE_OFFSET + 2
 
-    sent = await _connect_capturing(str(project.pk), user, since=seed)
+    sent = await _connect_capturing(str(project.pk), user, since=ids["p4_missed"])
 
-    assert [(f["event_type"], f["seq"], f.get("replayed")) for f in sent] == [
-        ("task_created", seed + 1, True),
-        ("task_updated", seed + 2, True),
+    assert sent == [
+        {
+            "protocol_version": 1,
+            "event_type": "resync_required",
+            "payload": {"latest_seq": head},
+            "seq": None,
+        }
     ]
+
+
+def _old_pod_writes(project: Project) -> int:
+    """An old pod during the rolling update: INSERT without ``seq``, return its id."""
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    return BoardEvent.objects.create(project=project, event_type="task_updated", payload={}).pk
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_rolling_update_interleaving_cannot_hide_a_skipped_seq(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """The round-2 audit's interleaving. Old pods keep minting global ids from the
+    same identity sequence while new pods hand out per-project seqs. Seeded at the
+    bare old max, an old-pod id could equal a new seq: the client applied the old
+    pod's id, dropped the new pod's equal seq as a duplicate, applied the next two,
+    and reconnected with since == head, so it was owed nothing and never got the
+    seq it dropped. With the offset the two spaces cannot meet, and the old-pod
+    cursor is resynced."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    other = await database_sync_to_async(Project.objects.create)(
+        name="Other", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    ids = await database_sync_to_async(_upgrade_with_old_rows)(project, other)
+    persist = database_sync_to_async(_persist)
+    old_pod = database_sync_to_async(_old_pod_writes)
+
+    old_id = await old_pod(project)  # applied by a client fed by an old consumer
+    new_seqs = [await persist(project, "task_updated", {"id": f"n{i}"}) for i in range(3)]
+    await old_pod(project)
+
+    seed = ids["p4_missed"] + BOARD_EVENT_SEQ_UPGRADE_OFFSET
+    assert new_seqs == [seed + 1, seed + 2, seed + 3]
+    # The two number spaces never meet: no old-pod id can be mistaken for a seq.
+    assert old_id < seed
+
+    sent = await _connect_capturing(str(project.pk), user, since=old_id)
+    assert [f["event_type"] for f in sent] == ["resync_required"]
+    assert sent[0]["payload"] == {"latest_seq": seed + 3}
+
+    # A client that took the new-pod frames is at the head and owed nothing.
+    assert await _connect_capturing(str(project.pk), user, since=seed + 3) == []
 
 
 @pytest.mark.django_db(transaction=True)
