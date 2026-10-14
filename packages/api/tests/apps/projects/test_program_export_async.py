@@ -237,6 +237,29 @@ def test_run_export_builds_and_stores_archive(populated_program: Program, owner:
     assert any(n.startswith(f"{pfx}attachments/") and n.endswith("plan.txt") for n in names)
 
 
+def test_bundle_build_propagates_soft_time_limit_from_xml_export(
+    populated_program: Program, owner: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The per-project XML fallback must not swallow the task time limit."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from trueppm_api.apps.projects.export_bundle import build_and_store_program_archive
+
+    def _hit_limit(_project_id: str) -> bytes:
+        raise SoftTimeLimitExceeded
+
+    monkeypatch.setattr("trueppm_api.apps.msproject.exporter.export_project_xml", _hit_limit)
+    # #4310: a project is bundled only for a requester with live project membership;
+    # without it the XML step is never reached and the raise below is vacuous.
+    ProjectMembership.objects.create(
+        project=populated_program.projects.get(), user=owner, role=Role.ADMIN
+    )
+    job = ProgramExportJob.objects.create(program=populated_program, requested_by=owner)
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        build_and_store_program_archive(str(job.id))
+
+
 def test_run_export_unknown_job_is_noop() -> None:
     from trueppm_api.apps.projects.tasks import run_program_export
 
@@ -342,6 +365,47 @@ def test_drain_redispatches_orphaned_pending(
     )
     project_tasks._do_drain_program_exports()
     assert dispatched == [str(job.id)]
+
+
+def test_drain_propagates_soft_time_limit(
+    program: Program, owner: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from trueppm_api.apps.projects import tasks as project_tasks
+
+    job = ProgramExportJob.objects.create(program=program, requested_by=owner)
+    ProgramExportJob.objects.filter(pk=job.pk).update(
+        created_at=timezone.now() - timedelta(minutes=10)
+    )
+
+    def _hit_limit(_jid: str) -> None:
+        raise SoftTimeLimitExceeded
+
+    monkeypatch.setattr(project_tasks.run_program_export, "delay", _hit_limit)
+    with pytest.raises(SoftTimeLimitExceeded):
+        project_tasks._do_drain_program_exports()
+
+
+def test_program_import_drain_propagates_soft_time_limit(
+    program: Program, owner: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from trueppm_api.apps.projects import tasks as project_tasks
+    from trueppm_api.apps.projects.models import ProgramImportJob
+
+    job = ProgramImportJob.objects.create(program=program, requested_by=owner)
+    ProgramImportJob.objects.filter(pk=job.pk).update(
+        created_at=timezone.now() - timedelta(minutes=10)
+    )
+
+    def _hit_limit(_jid: str) -> None:
+        raise SoftTimeLimitExceeded
+
+    monkeypatch.setattr(project_tasks.run_program_import, "delay", _hit_limit)
+    with pytest.raises(SoftTimeLimitExceeded):
+        project_tasks._do_drain_program_imports()
 
 
 def test_drain_skips_fresh_pending(

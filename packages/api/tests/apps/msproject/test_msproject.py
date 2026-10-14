@@ -2104,6 +2104,28 @@ class TestImportDrain:
         req.refresh_from_db()
         assert req.status == ImportRequestStatus.PENDING
 
+    def test_drain_propagates_soft_time_limit_and_leaves_row_pending(
+        self, project: Project
+    ) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        with (
+            patch(
+                "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            self._drain()
+
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.PENDING
+
     def test_drain_recovers_orphaned_dispatched_row(self, project: Project) -> None:
         from django.utils import timezone
 

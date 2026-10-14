@@ -21,6 +21,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from trueppm_api.core.idempotent import idempotent_task
 
@@ -165,6 +166,8 @@ def _do_drain_invite_emails() -> None:
     for invite in pending:
         try:
             ok = _send_invite_email(invite, connection=connection, from_email=from_email)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception("drain_invite_emails: unexpected error for invite %s", invite.pk)
             ok = False
@@ -329,6 +332,8 @@ def _do_drain_workspace_exports() -> None:
     for job in stuck:
         try:
             run_workspace_export.delay(str(job.id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:  # pragma: no cover - broker still down, next tick retries
             logger.warning("drain_workspace_exports: broker still unavailable for %s", job.id)
             break
@@ -546,6 +551,8 @@ def _send_invite_email(
     )
     try:
         msg.send(fail_silently=False)
+    # TODO(#4421): swallows SoftTimeLimitExceeded; the drain-loop guard
+    # is ineffective until this is fixed
     except Exception:
         logger.warning("drain_invite_emails: SMTP send failed for invite %s", inv.pk, exc_info=True)
         return False

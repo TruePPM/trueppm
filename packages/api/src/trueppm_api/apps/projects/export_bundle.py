@@ -32,6 +32,7 @@ import tempfile
 from collections.abc import Callable
 from typing import Any
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.core.files import File
 from django.core.files.storage import default_storage
 from django.core.serializers.json import DjangoJSONEncoder
@@ -387,6 +388,8 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
                 try:
                     _add_bytes(tar, f"{pfx}msproject.xml", export_project_xml(project_id))
                     counts[f"{cpfx}msproject_xml"] = 1
+                except SoftTimeLimitExceeded:
+                    raise
                 except Exception:
                     logger.warning(
                         "program export: MS Project XML generation failed for %s",

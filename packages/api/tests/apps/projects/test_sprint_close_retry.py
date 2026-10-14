@@ -373,6 +373,50 @@ def test_orphan_recovery_honors_the_attempt_budget_and_abandons_explicitly(
     assert Sprint.objects.get(pk=sprint.pk).state == SprintState.ACTIVE
 
 
+def test_soft_time_limit_while_abandoning_a_stalled_close_propagates(
+    project: Project, owner: Any
+) -> None:
+    """A per-row ``except Exception`` must not turn the task time limit into a
+    logged 'abandon failed' and keep sweeping until the hard kill."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    sprint = _active_sprint(project)
+    req = _request(sprint, owner)
+    SprintCloseRequest.objects.filter(pk=req.pk).update(
+        status=SprintCloseRequestStatus.IN_FLIGHT,
+        started_at=timezone.now() - timedelta(minutes=30),
+        attempt_count=_MAX_CLOSE_ATTEMPTS,
+    )
+
+    with (
+        patch(
+            "trueppm_api.apps.projects.tasks._finalize_close_failure",
+            side_effect=SoftTimeLimitExceeded(),
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        _do_drain()
+
+
+def test_soft_time_limit_while_dispatching_a_close_propagates(project: Project, owner: Any) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    sprint = _active_sprint(project)
+    req = _request(sprint, owner)
+    SprintCloseRequest.objects.filter(pk=req.pk).update(
+        requested_at=timezone.now() - timedelta(seconds=30)
+    )
+
+    with (
+        patch.object(close_sprint, "delay", side_effect=SoftTimeLimitExceeded()),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        _do_drain()
+
+    req.refresh_from_db()
+    assert req.status == SprintCloseRequestStatus.PENDING
+
+
 def test_orphan_within_budget_is_still_recovered(project: Project, owner: Any) -> None:
     """The cap must not break ordinary orphan recovery — a stalled first attempt
     still goes back to PENDING and is re-dispatched."""

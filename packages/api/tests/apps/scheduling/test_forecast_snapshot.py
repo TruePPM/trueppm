@@ -9,6 +9,7 @@ gate), and the management command.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -212,6 +213,39 @@ class TestCapture:
         assert ProjectForecastSnapshot.objects.filter(project=project).count() == 0
 
 
+class TestSafeCaptureSoftTimeLimit:
+    """The wrapper's blanket ``except Exception`` must let the task time limit through."""
+
+    def test_limit_during_capture_propagates(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        def hit_limit(*_a: object, **_k: object) -> None:
+            raise SoftTimeLimitExceeded
+
+        monkeypatch.setattr(
+            "trueppm_api.apps.scheduling.services.capture_forecast_snapshot", hit_limit
+        )
+        with pytest.raises(SoftTimeLimitExceeded):
+            safe_capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+
+    def test_limit_during_shift_notification_propagates(
+        self, project: Project, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        def hit_limit(*_a: object, **_k: object) -> None:
+            raise SoftTimeLimitExceeded
+
+        Task.objects.create(project=project, name="A", duration=5, early_finish=date(2026, 3, 1))
+        monkeypatch.setattr(
+            "trueppm_api.apps.scheduling.services.notify_project_end_date_shift", hit_limit
+        )
+        with pytest.raises(SoftTimeLimitExceeded):
+            safe_capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+
+
 # ---------------------------------------------------------------------------
 # Capture population (#3539)
 # ---------------------------------------------------------------------------
@@ -395,6 +429,24 @@ class TestDailyFloor:
         _do_daily_forecast_floor()
         assert ProjectForecastSnapshot.objects.filter(project=archived).count() == 0
         assert ProjectForecastSnapshot.objects.filter(project=deleted).count() == 0
+
+    def test_soft_time_limit_propagates_out_of_the_floor_sweep(
+        self, project: Project, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """safe_capture's best-effort catch must not swallow the task time limit (#4381)."""
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        with (
+            patch(
+                "trueppm_api.apps.scheduling.services.capture_forecast_snapshot",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            caplog.at_level("WARNING", logger="trueppm_api.apps.scheduling.tasks"),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            _do_daily_forecast_floor()
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("soft time limit exceeded; 1 project(s) not processed" in m for m in messages)
 
 
 # ---------------------------------------------------------------------------

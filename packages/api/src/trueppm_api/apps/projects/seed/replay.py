@@ -366,6 +366,8 @@ def _snapshot_active_sprints(ctx: ReplayContext, day: date) -> None:
         if sprint.state == SprintState.ACTIVE and sprint.start_date <= day <= sprint.finish_date:
             try:
                 upsert_burndown_for_sprint(sprint, snapshot_date=day)
+            # TODO(#4421): swallows SoftTimeLimitExceeded; the drain-loop guard
+            # is ineffective until this is fixed
             except Exception:  # burndown is a secondary observation; never fail the import
                 logger.exception(
                     "seed replay: burndown snapshot failed sprint=%s day=%s", sprint.pk, day

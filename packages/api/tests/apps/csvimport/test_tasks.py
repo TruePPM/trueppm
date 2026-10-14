@@ -186,6 +186,25 @@ class TestDrain:
         req.refresh_from_db()
         assert req.status == CsvImportStatus.PENDING
 
+    def test_soft_time_limit_during_drain_propagates_and_row_stays_pending(
+        self, project: Project
+    ) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        req = _make_request(project)
+        self._age(req, 15)
+        with (
+            patch(
+                "trueppm_api.apps.csvimport.tasks.import_csv.delay",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            _do_csv_import_drain()
+
+        req.refresh_from_db()
+        assert req.status == CsvImportStatus.PENDING
+
 
 @pytest.mark.django_db
 class TestClaimSemantics:

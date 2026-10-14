@@ -42,6 +42,7 @@ from collections import Counter
 from functools import partial
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
 
 if TYPE_CHECKING:
@@ -1304,6 +1305,8 @@ def _emit_surface_notifications(
                         for rid in recipient_ids
                     ]
                     rows.extend(rendered)
+                except SoftTimeLimitExceeded:
+                    raise
                 except Exception:
                     logger.exception(
                         "notify_project_surface_change: render failed for project %s",
@@ -1319,6 +1322,8 @@ def _emit_surface_notifications(
                 event_type=NotificationEventType.PROJECT_CONFIG_CHANGED,
                 rows=rows,
             )
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception(
                 "notify_project_surface_change: emit failed for projects %s", project_ids

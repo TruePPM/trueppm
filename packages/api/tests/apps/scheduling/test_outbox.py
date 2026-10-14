@@ -303,6 +303,22 @@ class TestDoDrain:
         req = ScheduleRequest.objects.get(project=project)
         assert req.status == ScheduleRequestStatus.PENDING
 
+    def test_soft_time_limit_propagates_and_row_stays_pending(self, project) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        ScheduleRequest.objects.create(project=project)
+        with (
+            patch(
+                "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            self._drain()
+
+        req = ScheduleRequest.objects.get(project=project)
+        assert req.status == ScheduleRequestStatus.PENDING
+
     def test_recovers_orphaned_dispatched_row(self, project) -> None:
         """Dispatched rows older than 10 min are reset to pending, then dispatched."""
         stale_time = timezone.now() - timedelta(minutes=11)

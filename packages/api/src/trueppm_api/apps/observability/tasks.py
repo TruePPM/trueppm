@@ -182,7 +182,7 @@ def _execute_run(run: PurgeRun, *, dry_run: bool) -> None:
             total_rows += rows
             if freed:
                 total_bytes += freed
-        except Exception as exc:
+        except Exception as exc:  # TODO(#4421): also swallows SoftTimeLimitExceeded
             failures += 1
             logger.exception("retention purge failed for table %s", spec.key)
             tables.append(

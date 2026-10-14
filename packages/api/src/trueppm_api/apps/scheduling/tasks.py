@@ -213,6 +213,8 @@ def _do_drain() -> None:
     for req in pending:
         try:
             result = recalculate_schedule.delay(str(req.project_id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "drain_schedule_queue: broker unavailable — project %s stays pending",
@@ -418,14 +420,27 @@ def _do_daily_forecast_floor() -> None:
     # ``notify_project_end_date_shift`` at each ADMIN — a daily "your end date
     # slipped" for a schedule the author is in the middle of typing. The commit
     # moment captures baseline v1, which is where a draft's history should start.
-    project_ids = visible_projects(
-        Project.objects.filter(is_deleted=False, is_archived=False)
-    ).values_list("id", flat=True)
+    # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
+    project_ids = list(
+        visible_projects(Project.objects.filter(is_deleted=False, is_archived=False))
+        .order_by("id")
+        .values_list("id", flat=True)
+    )
     captured = 0
-    for project_id in project_ids:
+    for index, project_id in enumerate(project_ids):
         if project_id in covered:
             continue
-        safe_capture_forecast_snapshot(project_id, ForecastSnapshotTrigger.SCHEDULED)
+        try:
+            safe_capture_forecast_snapshot(project_id, ForecastSnapshotTrigger.SCHEDULED)
+        except SoftTimeLimitExceeded:
+            unreached = [pid for pid in project_ids[index:] if pid not in covered]
+            logger.warning(
+                "capture_daily_forecast_floor: soft time limit exceeded; %d project(s) "
+                "not processed (first: %s)",
+                len(unreached),
+                ", ".join(str(pid) for pid in unreached[:20]),
+            )
+            raise
         captured += 1
     if captured:
         logger.info("capture_daily_forecast_floor: captured %d snapshot(s)", captured)

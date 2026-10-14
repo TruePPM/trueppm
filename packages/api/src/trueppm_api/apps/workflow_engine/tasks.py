@@ -25,6 +25,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -104,7 +105,7 @@ def _handle_failure(
         try:
             step.compensate(context)
             record_history(instance, "step_compensated", {"step": step.name, "index": index})
-        except Exception:
+        except Exception:  # TODO(#4421): also swallows SoftTimeLimitExceeded
             logger.exception(
                 "compensation failed for step %s of workflow %s", step.name, instance.id
             )
@@ -235,6 +236,8 @@ def _do_outbox_drain() -> None:
     for row in pending:
         try:
             result = advance_workflow_step.delay(str(row.id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "workflows_outbox_drain: broker unavailable — row %s stays pending", row.id

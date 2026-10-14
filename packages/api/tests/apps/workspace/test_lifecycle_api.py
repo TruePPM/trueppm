@@ -354,6 +354,28 @@ def test_drain_redispatches_stranded_export(owner: object) -> None:
 
 
 @pytest.mark.django_db
+def test_drain_propagates_soft_time_limit_from_export_dispatch(owner: object) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from trueppm_api.apps.workspace.tasks import (
+        EXPORT_ORPHAN_WINDOW_MINUTES,
+        _do_drain_workspace_exports,
+        run_workspace_export,
+    )
+
+    job = WorkspaceExportJob.objects.create(requested_by=owner, status=ExportJobStatus.PENDING)
+    WorkspaceExportJob.objects.filter(pk=job.pk).update(
+        created_at=timezone.now() - timedelta(minutes=EXPORT_ORPHAN_WINDOW_MINUTES + 1)
+    )
+
+    with (
+        patch.object(run_workspace_export, "delay", side_effect=SoftTimeLimitExceeded()),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        _do_drain_workspace_exports()
+
+
+@pytest.mark.django_db
 def test_drain_ignores_recent_export(owner: object) -> None:
     """A freshly queued job inside the orphan window is left for its own dispatch."""
     from trueppm_api.apps.workspace.tasks import (

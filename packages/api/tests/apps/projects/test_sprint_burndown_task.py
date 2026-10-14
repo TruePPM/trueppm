@@ -99,3 +99,28 @@ def test_continues_after_a_per_sprint_failure(project: Project) -> None:
 
     # Both active sprints were attempted despite the first one raising.
     assert upsert.call_count == 2
+
+
+def test_soft_time_limit_propagates_and_names_unreached_sprints(
+    project: Project, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The task time limit stops the sweep rather than logging as a sprint error (#4381)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    for name in ("A", "B", "C"):
+        _sprint(project, name, SprintState.ACTIVE)
+
+    with (
+        patch(
+            "trueppm_api.apps.projects.services.upsert_burndown_for_sprint",
+            side_effect=[None, SoftTimeLimitExceeded(), None],
+        ) as upsert,
+        caplog.at_level("WARNING", logger="trueppm_api.apps.projects.tasks"),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        update_sprint_burndown_snapshots.run()
+
+    assert upsert.call_count == 2  # the third sprint was never attempted
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("soft time limit exceeded; 2 item(s) not processed" in m for m in messages)
+    assert not any("failed for sprint" in m for m in messages)

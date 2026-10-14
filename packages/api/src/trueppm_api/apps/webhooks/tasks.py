@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.utils import timezone
 
 if TYPE_CHECKING:  # pragma: no cover — import cycle: models imports nothing here
@@ -580,6 +581,8 @@ def _do_drain_webhooks() -> None:
                 "_do_drain_webhooks: re-dispatched stranded delivery %s",
                 delivery.pk,
             )
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "_do_drain_webhooks: broker unavailable — delivery %s stays pending",

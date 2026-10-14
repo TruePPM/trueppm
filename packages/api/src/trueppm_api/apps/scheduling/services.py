@@ -28,6 +28,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -1226,6 +1227,9 @@ def safe_capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) ->
     """
     try:
         snapshot = capture_forecast_snapshot(project_id, trigger)
+    except SoftTimeLimitExceeded:
+        # The task-level time limit is not a capture failure — let the sweep stop.
+        raise
     except Exception:
         logger.warning("forecast snapshot capture failed for project %s", project_id, exc_info=True)
         return
@@ -1233,6 +1237,8 @@ def safe_capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) ->
     if snapshot is not None:
         try:
             notify_project_end_date_shift(snapshot)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "project end-date shift notification failed for project %s",

@@ -146,6 +146,27 @@ class TestDoDrainEmails:
         assert notif.email_sent_at is not None
 
     @pytest.mark.django_db
+    def test_soft_time_limit_propagates_and_row_stays_pending(
+        self, recipient: object, project: Project, comment: TaskComment, author: object
+    ) -> None:
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author, aged_minutes=0
+        )
+        with (
+            patch(
+                "trueppm_api.apps.notifications.tasks._send_email_for_notification",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            _do_drain_emails()
+        notif.refresh_from_db()
+        assert notif.email_pending is True
+        assert notif.email_attempts == 0
+
+    @pytest.mark.django_db
     def test_failed_notification_retry_waits_one_tick(
         self, recipient: object, project: Project, comment: TaskComment, author: object
     ) -> None:

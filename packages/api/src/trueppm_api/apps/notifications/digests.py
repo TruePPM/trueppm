@@ -26,6 +26,7 @@ import logging
 import zoneinfo
 from typing import TYPE_CHECKING, Any
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
@@ -362,11 +363,25 @@ def send_due_digests(now: datetime.datetime | None = None) -> int:
                 "user"
             )
         }
-        for user_id in user_ids:
+        # Deterministic order so a truncated run cuts the same tail and the
+        # WARNING below names exactly the users not reached.
+        # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
+        ordered_user_ids = sorted(user_ids, key=str)
+        for index, user_id in enumerate(ordered_user_ids):
             try:
                 created_total += _maybe_send_for_user(
                     user_id, settings_by_user.get(user_id), event_type, now
                 )
+            except SoftTimeLimitExceeded:
+                unreached = ordered_user_ids[index:]
+                logger.warning(
+                    "send_due_digests: soft time limit exceeded; %d user(s) not processed "
+                    "for %s (first: %s)",
+                    len(unreached),
+                    event_type,
+                    ", ".join(str(u) for u in unreached[:20]),
+                )
+                raise
             except Exception:
                 logger.exception(
                     "Digest %s failed for user %s — continuing with remaining users",

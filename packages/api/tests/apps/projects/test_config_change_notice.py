@@ -1924,3 +1924,41 @@ def test_the_assignment_read_actually_de_duplicates_in_the_database() -> None:
         f"task instead of one per (project, assignee):\n{assignee_arm}"
     )
     assert "ORDER BY" not in assignee_arm.upper()
+
+
+@pytest.mark.django_db
+def test_soft_time_limit_while_rendering_a_notice_propagates(
+    calendar: Calendar, monkeypatch: Any
+) -> None:
+    """Per-project render isolation must not turn the task time limit into a log line."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from trueppm_api.apps.projects import config_notice
+
+    def hit_limit(*_a: Any, **_k: Any) -> None:
+        raise SoftTimeLimitExceeded
+
+    project, _, _ = cohort_project(calendar, 300)
+    monkeypatch.setattr(config_notice, "_surface_subject", hit_limit)
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        emit([surface_change(project)])
+
+
+@pytest.mark.django_db
+def test_soft_time_limit_while_inserting_notices_propagates(
+    calendar: Calendar, monkeypatch: Any
+) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    def hit_limit(*_a: Any, **_k: Any) -> None:
+        raise SoftTimeLimitExceeded
+
+    project, _, _ = cohort_project(calendar, 301)
+    monkeypatch.setattr(
+        "trueppm_api.apps.notifications.services.create_event_notifications_multi_project",
+        hit_limit,
+    )
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        emit([surface_change(project)])

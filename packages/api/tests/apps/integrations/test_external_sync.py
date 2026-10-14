@@ -387,6 +387,27 @@ def test_drain_dispatches_stranded_pending(user: AbstractBaseUser) -> None:
     assert req.celery_task_id == "fake-task-id"
 
 
+def test_drain_propagates_soft_time_limit_and_leaves_row_pending(
+    user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    def _hit_limit(*_a: Any, **_k: Any) -> None:
+        raise SoftTimeLimitExceeded
+
+    req = ExternalSyncRequest.objects.create(
+        user=user, source="jira", status=ExternalSyncRequestStatus.PENDING
+    )
+    _age_request(req, requested_at=timezone.now() - timedelta(minutes=5))
+    monkeypatch.setattr(tasks.external_sync, "delay", _hit_limit)
+
+    with pytest.raises(SoftTimeLimitExceeded):
+        tasks._do_drain()
+
+    req.refresh_from_db()
+    assert req.status == ExternalSyncRequestStatus.PENDING
+
+
 def test_drain_skips_fresh_pending(user: AbstractBaseUser) -> None:
     """A just-created PENDING row is left for its on_commit dispatch (no double-fire)."""
     req = ExternalSyncRequest.objects.create(
