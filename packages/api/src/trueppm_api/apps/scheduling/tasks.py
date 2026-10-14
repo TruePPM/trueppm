@@ -420,6 +420,7 @@ def _do_daily_forecast_floor() -> None:
     # ``notify_project_end_date_shift`` at each ADMIN — a daily "your end date
     # slipped" for a schedule the author is in the middle of typing. The commit
     # moment captures baseline v1, which is where a draft's history should start.
+    # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
     project_ids = list(
         visible_projects(Project.objects.filter(is_deleted=False, is_archived=False))
         .order_by("id")

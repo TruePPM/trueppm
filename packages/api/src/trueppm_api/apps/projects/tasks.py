@@ -769,6 +769,7 @@ def update_sprint_burndown_snapshots(self: object) -> None:
     yesterday = timezone.localdate() - timedelta(days=1)
     # Deterministic order so a truncated run always cuts the same tail and the
     # WARNING below names exactly the sprints that were not reached.
+    # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
     sprints = list(Sprint.objects.filter(state=SprintState.ACTIVE, is_deleted=False).order_by("pk"))
     for index, sprint in enumerate(sprints):
         try:
@@ -815,6 +816,7 @@ def generate_recurring_occurrences(self: object) -> None:
     # Collect new occurrence ids per project so each project's open boards get a
     # single bulk event rather than one per task.
     created_by_project: dict[str, list[str]] = {}
+    # TODO(#4420): persisted cursor / per-item fan-out for sweeps that overrun.
     rules = list(
         TaskRecurrenceRule.objects.filter(is_deleted=False)
         .select_related("task", "task__assignee")

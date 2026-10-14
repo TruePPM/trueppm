@@ -407,16 +407,18 @@ work](/administration/durability/#why-losing-the-broker-does-not-lose-the-work).
 The burndown, recurring-task and daily-forecast Beat sweeps each have a soft time
 limit (110 to 120 seconds). When a very large instance runs past it, the task
 stops instead of skipping the slow item and carrying on, and the worker logs a
-WARNING naming how many items it did not reach and the first few ids:
+WARNING naming how many items it did not reach and the first few ids (the
+sprint-burndown, recurring-task, daily-forecast and digest sweeps log it):
 
 ```text
 update_sprint_burndown_snapshots: soft time limit exceeded; 12 item(s) not processed (first: ...)
 ```
 
-Items are processed in a fixed order, so the same tail is the one left over each
-run. The sweeps are idempotent and rerun on their next Beat tick (the recurring
-sweep hourly), but a sweep that warns every night means the instance has outgrown
-the limit. Check worker CPU and database latency first.
+Items are processed in a fixed order, so a sweep that keeps overrunning leaves
+the **same tail** unprocessed on every run. Those items are not eventually caught
+up by a later tick. A repeating WARNING means the instance has outgrown the limit:
+check worker CPU and database latency first. A persisted cursor or per-item
+fan-out for these sweeps is tracked in #4420.
 
 ## A Celery worker wedges and never recovers (Docker Compose)
 

@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from trueppm_api.core.idempotent import idempotent_task
 
@@ -251,6 +252,8 @@ def _do_template_apply_drain() -> None:
     for application_id in pending:
         try:
             apply_template.delay(str(application_id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             # Broker still down — leave it pending and try again in 30 seconds.
             logger.warning(

@@ -728,7 +728,7 @@ def test_generation_emits_no_per_assignment_events(staffed_template: Task) -> No
 
 @pytest.mark.django_db
 def test_soft_time_limit_propagates_out_of_recurrence_sweep(
-    project: Project, template: Task
+    project: Project, template: Task, caplog: pytest.LogCaptureFixture
 ) -> None:
     """SoftTimeLimitExceeded must not be swallowed as a per-rule failure (#4381)."""
     from celery.exceptions import SoftTimeLimitExceeded
@@ -742,8 +742,12 @@ def test_soft_time_limit_propagates_out_of_recurrence_sweep(
             "trueppm_api.apps.projects.services._generate_due_occurrences",
             side_effect=SoftTimeLimitExceeded(),
         ) as gen,
+        caplog.at_level("WARNING", logger="trueppm_api.apps.projects.tasks"),
         pytest.raises(SoftTimeLimitExceeded),
     ):
         mock_redis_module.client.return_value = mock_redis
         generate_recurring_occurrences.run()
     assert gen.call_count == 1
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("soft time limit exceeded; 1 item(s) not processed" in m for m in messages)
+    assert not any("failed for rule" in m for m in messages)
