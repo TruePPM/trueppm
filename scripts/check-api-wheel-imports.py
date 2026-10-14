@@ -162,6 +162,9 @@ def probe(package: str, *, setup_django: bool) -> int:
 
 def self_test() -> int:
     """Run the real probe against fixture packages, one clean and one broken."""
+    # python:S1192: one spelling for the marker file every fixture package below
+    # plants, rather than three repeated literals.
+    _INIT_PY = "__init__.py"
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         for name, body in (
@@ -173,14 +176,14 @@ def self_test() -> int:
         ):
             pkg = root / name
             (pkg / "apps" / "sub").mkdir(parents=True)  # `apps` has no __init__.py
-            (pkg / "__init__.py").write_text("")
+            (pkg / _INIT_PY).write_text("")
             (pkg / "apps" / "sub" / "mod.py").write_text(textwrap.dedent(body))
         # A fake scheduler and two consumers that import it ONLY inside functions:
         # one names symbols that exist (incl. a submodule), one names a private
         # symbol the scheduler no longer has. Module import succeeds for both.
         sched = root / "probe_sched"
         sched.mkdir()
-        (sched / "__init__.py").write_text("")
+        (sched / _INIT_PY).write_text("")
         (sched / "engine.py").write_text("_WorkingDayCounter = object\n")
         for name, sym in (
             ("probe_fn_ok", "_WorkingDayCounter"),
@@ -188,7 +191,7 @@ def self_test() -> int:
         ):
             pkg = root / name
             (pkg / "apps").mkdir(parents=True)
-            (pkg / "__init__.py").write_text("")
+            (pkg / _INIT_PY).write_text("")
             (pkg / "apps" / "mod.py").write_text(
                 textwrap.dedent(
                     f"""\

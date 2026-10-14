@@ -3758,8 +3758,12 @@ function TaskNameLabel(props: TaskNameContentProps) {
  */
 function ExternalLinkChip({ task }: { task: Task }) {
   const summary = task.externalLinkSummary;
-  // Exact negation of the original `!isSummary && !isMilestone && summary && count > 0`.
-  if (task.isSummary || task.isMilestone || !summary || !(summary.count > 0)) return null;
+  // De Morgan negation of the original `!isSummary && !isMilestone && summary && count > 0`,
+  // simplified from `!(summary.count > 0)` to `summary.count <= 0`: `count` is a
+  // non-negative integer from the server, never a float/NaN channel (unlike
+  // serializers.py's `new_pc`, where the same-shaped simplification would be wrong),
+  // so the two forms agree on every value this field actually takes.
+  if (task.isSummary || task.isMilestone || !summary || summary.count <= 0) return null;
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-0.5 text-xs font-medium ${

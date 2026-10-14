@@ -93,14 +93,13 @@ class TestEveryHookIsGuarded:
         register_fn(None)
 
 
-def test_the_two_callable_portfolio_hook_is_guarded() -> None:
+def test_the_two_callable_portfolio_hook_is_guarded(monkeypatch: pytest.MonkeyPatch) -> None:
     """``register_portfolio_access_provider`` takes two callables and guards both."""
+    # Records the pre-test (None) value so it is restored after the test
+    # regardless of what the registration below sets it to, instead of a
+    # manual module-global reset in a try/finally.
+    monkeypatch.setattr(profile_services, "_portfolio_access_provider", None)
+    monkeypatch.setattr(profile_services, "_portfolio_path_provider", None)
     profile_services.register_portfolio_access_provider(lambda _u: True, lambda _u: "/p")
-    try:
-        with pytest.raises(DuplicateProviderError):
-            profile_services.register_portfolio_access_provider(
-                lambda _u: False, lambda _u: "/other"
-            )
-    finally:
-        profile_services._portfolio_access_provider = None
-        profile_services._portfolio_path_provider = None
+    with pytest.raises(DuplicateProviderError):
+        profile_services.register_portfolio_access_provider(lambda _u: False, lambda _u: "/other")

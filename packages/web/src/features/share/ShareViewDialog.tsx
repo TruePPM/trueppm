@@ -35,6 +35,9 @@ const SEG_OFF = 'text-neutral-text-primary hover:bg-neutral-surface-sunken';
 
 type ExpiryChoice = 'never' | '30d' | 'custom';
 
+/** Which view the dialog is sharing — the only difference being copy, the managed-list filter, and the mint payload. */
+type ContentKind = 'board' | 'schedule';
+
 function errorDetail(err: unknown): string | null {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data as { detail?: string } | undefined;
@@ -105,12 +108,12 @@ function CreateForm({
 }: {
   noun: string;
   allowKindChoice: boolean;
-  kind: 'board' | 'schedule';
-  setKind: (next: 'board' | 'schedule') => void;
+  kind: ContentKind;
+  setKind: (next: ContentKind) => void;
   label: string;
   setLabel: (next: string) => void;
-  expiry: 'never' | '30d' | 'custom';
-  setExpiry: (next: 'never' | '30d' | 'custom') => void;
+  expiry: ExpiryChoice;
+  setExpiry: (next: ExpiryChoice) => void;
   customDate: string;
   setCustomDate: (next: string) => void;
   showAssignees: boolean;
@@ -320,7 +323,7 @@ function SharingDisabledNotice({
 }
 
 /** Human label for each expiry choice. */
-function expiryLabel(choice: 'never' | '30d' | 'custom'): string {
+function expiryLabel(choice: ExpiryChoice): string {
   switch (choice) {
     case 'never':
       return 'Never';
@@ -595,14 +598,14 @@ export function ShareViewDialog({
   allowKindChoice = false,
 }: {
   projectId: string;
-  contentKind: 'board' | 'schedule';
+  contentKind: ContentKind;
   onClose: () => void;
   /** When true (settings, context-free), the create form offers a Board/Schedule
    * selector. When false (toolbar), the kind is fixed to the launching view. */
   allowKindChoice?: boolean;
 }) {
   // The active kind: fixed from the launching view, or user-selectable in settings.
-  const [kind, setKind] = useState<'board' | 'schedule'>(contentKind);
+  const [kind, setKind] = useState<ContentKind>(contentKind);
   const noun = kind === 'schedule' ? 'schedule' : 'board';
   const { data: allLinks } = useShareLinks(projectId);
   // ADR-0135 resolves this server-side (project override ?? program ?? workspace); the

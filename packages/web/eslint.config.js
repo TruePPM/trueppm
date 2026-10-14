@@ -198,7 +198,7 @@ const FLEX_TRUNCATE_MESSAGE =
 // `src/test/flexTruncateMinWidthRule.test.ts` pins the class-order permutations
 // that caught this.
 const FLEX_TRUNCATE_PAT =
-  '/^(?=[\\s\\S]*\\bflex-1\\b)(?=[\\s\\S]*\\btruncate\\b)(?![\\s\\S]*\\bmin-w-0\\b)/';
+  String.raw`/^(?=[\s\S]*\bflex-1\b)(?=[\s\S]*\btruncate\b)(?![\s\S]*\bmin-w-0\b)/`;
 const CLASS_NAME_VALUE = (pat) =>
   `JSXAttribute[name.name="className"] :matches(Literal[value=${pat}], TemplateElement[value.raw=${pat}])`;
 export const NO_FLEX_TRUNCATE_WITHOUT_MIN_W_0 = [

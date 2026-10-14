@@ -101,7 +101,7 @@ function effectiveSchema(node: SchemaNode): SchemaNode {
   if (!resolved.allOf?.length) return resolved;
   const merged: SchemaNode = { ...resolved };
   delete merged.allOf;
-  const properties: Record<string, SchemaNode> = { ...(resolved.properties ?? {}) };
+  const properties: Record<string, SchemaNode> = { ...resolved.properties };
   const required = new Set(resolved.required ?? []);
   for (const member of resolved.allOf) {
     const flat = effectiveSchema(member);

@@ -1,13 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  AttachmentsOverridePolicy,
   CalendarOverridePolicy,
   DurationChangePercentPolicy,
   EstimationScale,
+  IterationLabelOverridePolicy,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
   MethodologyOverridePolicy,
   ProgramMethodology,
+  PublicSharingOverridePolicy,
+  TaskDurationChangePercentOverridePolicy,
   WorkspaceSettings,
 } from '@/api/types';
 
@@ -27,15 +31,15 @@ interface WorkspaceSettingsRaw {
   default_project_view: string;
   allow_guests: boolean;
   public_sharing: boolean;
-  public_sharing_override_policy: 'inherit' | 'suggest' | 'enforce';
+  public_sharing_override_policy: PublicSharingOverridePolicy;
   iteration_label: string;
-  iteration_label_override_policy: 'inherit' | 'suggest' | 'enforce';
+  iteration_label_override_policy: IterationLabelOverridePolicy;
   mc_history_enabled: boolean;
   mc_history_retention_cap: number;
   mc_history_attribution_audience: MCAttributionAudience;
   mc_history_override_policy: MCHistoryOverridePolicy;
   task_duration_change_percent_policy: DurationChangePercentPolicy;
-  task_duration_change_percent_override_policy: 'inherit' | 'suggest' | 'enforce';
+  task_duration_change_percent_override_policy: TaskDurationChangePercentOverridePolicy;
   estimation_scale: EstimationScale;
   sprint_picker_ready_only_default: boolean;
   methodology: ProgramMethodology;
@@ -44,7 +48,7 @@ interface WorkspaceSettingsRaw {
   feedback_enabled?: boolean;
   feedback_url?: string;
   allowed_attachment_types: string[];
-  attachments_override_policy: 'inherit' | 'suggest' | 'enforce';
+  attachments_override_policy: AttachmentsOverridePolicy;
   calendar: string | null;
   calendar_override_policy: CalendarOverridePolicy;
   logo_url: string | null;

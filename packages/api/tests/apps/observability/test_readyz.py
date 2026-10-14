@@ -81,16 +81,17 @@ def reset_process_latches() -> Iterator[None]:
 
 
 @pytest.fixture
-def booted_ahead() -> Iterator[None]:
+def booted_ahead() -> None:
     """Pin the process as having booted against an already-newer schema.
 
     That is the rollback posture: the pod started with the database ahead of its
     code, rather than drifting there mid-rollout while it was already serving.
+    No teardown here — the autouse ``reset_process_latches`` fixture above
+    already resets this latch after every test.
     """
     import trueppm_api.apps.observability.selectors as selectors_module
 
     selectors_module._first_migration_state = READY_MIGRATIONS_AHEAD
-    yield
 
 
 @pytest.fixture

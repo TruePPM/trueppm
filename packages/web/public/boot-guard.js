@@ -55,6 +55,7 @@
       var parsed = new URL(url, window.location.href);
       return parsed.origin === window.location.origin && parsed.pathname.indexOf('/assets/') === 0;
     } catch (_) {
+      // A malformed `url` (relative resolution failure) is not a boot asset.
       return false;
     }
   }
@@ -70,6 +71,8 @@
       if (now - state.t > RESET_AFTER_MS) return 0;
       return state.n;
     } catch (_) {
+      // Private mode, blocked site data, or a storage quota refusal — the
+      // caller treats -1 as "cannot tell how many reloads have run".
       return -1;
     }
   }
@@ -79,6 +82,8 @@
       window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ n: n, t: now }));
       return true;
     } catch (_) {
+      // Storage refusal: the caller treats a failed write the same as
+      // "could not record this attempt" and proceeds without the counter.
       return false;
     }
   }

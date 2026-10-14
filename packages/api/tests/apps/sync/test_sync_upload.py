@@ -68,7 +68,7 @@ def _bypass_upload_throttle() -> Any:
         ),
         patch(
             "trueppm_api.apps.sync.throttles.sync_batch_concurrency_slot",
-            lambda _user_pk: nullcontext(),
+            return_value=nullcontext(),
         ),
     ):
         yield

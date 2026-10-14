@@ -15,14 +15,18 @@
 
 import { Link } from 'react-router';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
-import { useSystemHealth, type SystemHealthComponent } from '@/hooks/useSystemHealth';
+import {
+  useSystemHealth,
+  type ComponentStatus,
+  type SystemHealthComponent,
+} from '@/hooks/useSystemHealth';
 import { useTrashedProjects } from '@/hooks/useProjectMutations';
 import { useSamples } from '@/hooks/useProgramSeedIo';
 import { formatUpdatedAgo } from './systemHealth/formatAge';
 
 // Full literal class strings per level — never build these dynamically, or
 // Tailwind's JIT purges the semantic color classes and the chip renders unstyled.
-const HEALTH_CHIP: Record<'ok' | 'warn' | 'crit' | 'unknown', string> = {
+const HEALTH_CHIP: Record<ComponentStatus, string> = {
   ok: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
   warn: 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
   crit: 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40',
@@ -41,7 +45,7 @@ const OPEN_LINK_CLASS = [
 
 /** Roll the per-component statuses up into one worst-case level + a plain label. */
 function overallHealth(components: SystemHealthComponent[]): {
-  level: 'ok' | 'warn' | 'crit' | 'unknown';
+  level: ComponentStatus;
   label: string;
 } {
   const total = components.length;
@@ -55,7 +59,7 @@ function overallHealth(components: SystemHealthComponent[]): {
   return { level: 'ok', label: `All ${total} components healthy` };
 }
 
-function HealthChip({ level, label }: { level: 'ok' | 'warn' | 'crit' | 'unknown'; label: string }) {
+function HealthChip({ level, label }: { level: ComponentStatus; label: string }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-chip border px-2 py-0.5 text-[11px] font-semibold ${HEALTH_CHIP[level]}`}

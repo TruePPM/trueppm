@@ -61,7 +61,7 @@ const MEASURABLE_TERMS = [
   'live', 'end[- ]to[- ]end', 'under', 'within', 'complete', 'completed',
   'signed[- ]?off', 'met',
 ];
-const MEASURABLE_TERMS_RE = new RegExp(`\\b(${MEASURABLE_TERMS.join('|')})\\b`);
+const MEASURABLE_TERMS_RE = new RegExp(String.raw`\b(${MEASURABLE_TERMS.join('|')})\b`);
 
 export function evaluateSprintGoal(raw: string): GoalQuality {
   const text = raw.trim();

@@ -97,12 +97,13 @@ function render({ rows, ok, violating, waived, skipped, ledger }) {
 function renderWaivers({ ledger }) {
   const out = ['export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> = {'];
   for (const [operationKey, entries] of [...ledger].sort((a, b) => compareCodeUnits(a[0], b[0]))) {
-    out.push(`  '${operationKey}': {`);
-    out.push(`    reason: 'TODO — why this is still served, and the issue that removes it',`);
-    out.push(`    allow: [`);
+    out.push(
+      `  '${operationKey}': {`,
+      `    reason: 'TODO — why this is still served, and the issue that removes it',`,
+      `    allow: [`,
+    );
     for (const key of [...entries.keys()].sort(compareCodeUnits)) out.push(`      '${key}',`);
-    out.push(`    ],`);
-    out.push(`  },`);
+    out.push(`    ],`, `  },`);
   }
   out.push('};');
   return out.join('\n');

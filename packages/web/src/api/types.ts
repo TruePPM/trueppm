@@ -622,6 +622,18 @@ export interface PhaseGateConfig {
 // Workspace settings types (ADR-0032, #517–#520)
 // ===========================================================================
 
+/** Cascade policy for `publicSharing` (ADR-0135, #978). Mirrors `MethodologyOverridePolicy`. */
+export type PublicSharingOverridePolicy = 'inherit' | 'suggest' | 'enforce';
+
+/** Cascade policy for the workspace default iteration-container label (ADR-0116, #1106). */
+export type IterationLabelOverridePolicy = 'inherit' | 'suggest' | 'enforce';
+
+/** Cascade policy for the workspace attachment policy (ADR-0153, issue 976). */
+export type AttachmentsOverridePolicy = 'inherit' | 'suggest' | 'enforce';
+
+/** Cascade policy for the workspace task-duration-change-percent default (ADR-0151, issue 1254). */
+export type TaskDurationChangePercentOverridePolicy = 'inherit' | 'suggest' | 'enforce';
+
 /**
  * Workspace-level settings returned by GET /workspace/ and accepted by PATCH
  * /workspace/. `subdomain` is read-only on the wire and never sent in PATCH.
@@ -645,13 +657,13 @@ export interface WorkspaceSettings {
   /** Cascade policy for `publicSharing` (ADR-0135, #978). `inherit`/`suggest`
    *  (OSS) let programs/projects narrow or widen freely; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
-  publicSharingOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  publicSharingOverridePolicy: PublicSharingOverridePolicy;
   /** Workspace-wide default iteration-container label (ADR-0116, #1106) — the
    *  root of the Workspace → Program → Project inheritance chain. */
   iterationLabel: string;
   /** Cascade policy. `inherit`/`suggest` (OSS) let lower scopes override;
    *  `enforce` locks the term and is an Enterprise capability (no-op in OSS). */
-  iterationLabelOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  iterationLabelOverridePolicy: IterationLabelOverridePolicy;
   /** Forecast-history config (ADR-0144, issue 1232) — the root of the
    *  Workspace → Program → Project inheritance chain (non-null at this scope). */
   mcHistoryEnabled: boolean;
@@ -685,14 +697,14 @@ export interface WorkspaceSettings {
   allowedAttachmentTypes: string[];
   /** `suggest`/`inherit` (OSS) let lower scopes override freely; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
-  attachmentsOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  attachmentsOverridePolicy: AttachmentsOverridePolicy;
   /** Workspace-wide default for what happens to a task's % complete when its
    *  duration changes (ADR-0151, issue 1254) — the non-null root of the
    *  Workspace → Program → Project chain. */
   taskDurationChangePercentPolicy: DurationChangePercentPolicy;
   /** `suggest`/`inherit` (OSS) let programs/projects override; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
-  taskDurationChangePercentOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  taskDurationChangePercentOverridePolicy: TaskDurationChangePercentOverridePolicy;
   /** Workspace-wide default estimation scale (ADR-0510, #2027) — the non-null root of
    *  the Workspace → Program → Project chain. No override policy: freely overridable
    *  at every scope (no enforcement seam). */

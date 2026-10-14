@@ -32,7 +32,7 @@ from glob import glob
 
 PROJECT = "trueppm%2Ftrueppm"
 ADR_REF = re.compile(r"ADR-(\d{3,4})")
-STATUS_SECTION = re.compile(r"^##\s*Status\s*$(.*?)(?=(?:^##\s)|\Z)", re.M | re.S)
+STATUS_SECTION = re.compile(r"^##\s*Status\s*$(.*?)(?=^##\s|\Z)", re.M | re.S)
 ACCEPTED = re.compile(r"\bAccepted\b|\bRATIFIED\b", re.I)
 DATE = re.compile(r"(20\d\d-\d\d-\d\d)")
 
@@ -106,7 +106,7 @@ def _classify_reference(
     path = adrs.get(n)
     if not path:
         return None
-    state, date, is_corr, head = adr_status(path)
+    state, date, is_corr, _ = adr_status(path)
     if state != "Accepted":
         return None
     created = issue["created_at"][:10]

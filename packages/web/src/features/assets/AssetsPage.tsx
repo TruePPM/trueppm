@@ -87,7 +87,7 @@ function ChipRadioGroup<V extends string | null>({
 }) {
   const btnRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectedIdx = options.findIndex((o) => o.value === value);
-  const [focusIdx, setFocusIdx] = useState(selectedIdx >= 0 ? selectedIdx : 0);
+  const [focusIdx, setFocusIdx] = useState(Math.max(selectedIdx, 0));
   useEffect(() => {
     if (selectedIdx >= 0) setFocusIdx(selectedIdx);
   }, [selectedIdx]);

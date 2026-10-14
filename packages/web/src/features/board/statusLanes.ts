@@ -28,7 +28,7 @@
  * a container still never becomes a card in either.
  */
 import type { Task, TaskStatus } from '@/types';
-import type { BoardColumnDef, BoardLaneDef } from '@/hooks/useBoardConfig';
+import type { BoardColumnDef } from '@/hooks/useBoardConfig';
 
 /** Separator between a status and its lane key in a track key. */
 const LANE_SEP = '#';
@@ -230,4 +230,4 @@ export function uniqueLaneKey(label: string, columns: readonly BoardColumnDef[])
   return `${base.slice(0, 24)}-${Date.now() % 100000}`;
 }
 
-export type { BoardLaneDef };
+export type { BoardLaneDef } from '@/hooks/useBoardConfig';
