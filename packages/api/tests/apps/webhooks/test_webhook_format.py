@@ -86,7 +86,8 @@ def test_event_type_cap() -> None:
     The agile trio (sprint.*) was added under ADR-0147, raising the cap 11→14; the
     risk/baseline/comment domain events were added under ADR-0206, raising it 14→19.
     """
-    assert len(ALL_WEBHOOK_EVENTS) == OSS_WEBHOOK_EVENT_CAP == 19
+    assert len(ALL_WEBHOOK_EVENTS) == OSS_WEBHOOK_EVENT_CAP
+    assert OSS_WEBHOOK_EVENT_CAP == 19
     assert set(ALL_WEBHOOK_EVENTS) == {
         "task.created",
         "task.updated",

@@ -99,11 +99,11 @@ export function WorkspaceGeneralPage() {
   const [workWeek, setWorkWeek] = useState<boolean[]>([true, true, true, true, true, false, false]);
   const [allowGuests, setAllowGuests] = useState(false);
   const [publicSharing, setPublicSharing] = useState(false);
-  const [publicSharingPolicy, setPublicSharingPolicy] = useState<PublicSharingOverridePolicy>(
-    'suggest',
-  );
+  const [publicSharingPolicy, setPublicSharingPolicy] =
+    useState<PublicSharingOverridePolicy>('suggest');
   const [iterationLabel, setIterationLabel] = useState('Sprint');
-  const [iterationLabelPolicy, setIterationLabelPolicy] = useState<IterationLabelOverridePolicy>('suggest');
+  const [iterationLabelPolicy, setIterationLabelPolicy] =
+    useState<IterationLabelOverridePolicy>('suggest');
   // Forecast-history config (ADR-0144, issue 1232) — workspace is the non-null root.
   const [mcHistoryEnabled, setMcHistoryEnabled] = useState(true);
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState(100);
