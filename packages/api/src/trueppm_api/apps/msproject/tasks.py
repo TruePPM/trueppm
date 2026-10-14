@@ -10,6 +10,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 
 from trueppm_api.core.idempotent import idempotent_task
 
@@ -386,6 +387,8 @@ def _do_import_drain() -> None:
                 import_request_id=str(req.id),
                 creates_project=req.creates_project,
             )
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "drain_import_queue: broker unavailable — ImportRequest %s stays pending",

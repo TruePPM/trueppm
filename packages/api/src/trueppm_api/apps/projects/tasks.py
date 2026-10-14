@@ -16,6 +16,7 @@ from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
 from django.utils import timezone
 
@@ -145,6 +146,8 @@ def _do_config_notice_drain() -> None:
     for pk in pending:
         try:
             result = emit_config_notice.delay(str(pk))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "drain_config_notice_requests: broker unavailable — %d notice(s) stay pending",
@@ -727,6 +730,22 @@ def drain_sprint_close_requests(self: object) -> None:
     _do_drain()
 
 
+def _warn_sweep_truncated(task_name: str, unreached: list[object]) -> None:
+    """Log (WARNING) that a Beat sweep hit its soft time limit with items left.
+
+    Operators otherwise see only a clean-looking partial run; naming the first
+    unreached ids makes the truncation greppable. Capped so a huge tail cannot
+    bloat the log line.
+    """
+    sample = ", ".join(str(pk) for pk in unreached[:20])
+    logger.warning(
+        "%s: soft time limit exceeded; %d item(s) not processed (first: %s)",
+        task_name,
+        len(unreached),
+        sample,
+    )
+
+
 @idempotent_task(
     lock_key_template="update_sprint_burndown_snapshots",
     lock_ttl=300,
@@ -748,9 +767,20 @@ def update_sprint_burndown_snapshots(self: object) -> None:
     from trueppm_api.apps.projects.services import upsert_burndown_for_sprint
 
     yesterday = timezone.localdate() - timedelta(days=1)
-    for sprint in Sprint.objects.filter(state=SprintState.ACTIVE, is_deleted=False):
+    # Deterministic order so a truncated run always cuts the same tail and the
+    # WARNING below names exactly the sprints that were not reached.
+    sprints = list(Sprint.objects.filter(state=SprintState.ACTIVE, is_deleted=False).order_by("pk"))
+    for index, sprint in enumerate(sprints):
         try:
             upsert_burndown_for_sprint(sprint, snapshot_date=yesterday)
+        except SoftTimeLimitExceeded:
+            # Per-item fault isolation must not swallow the task-level time limit:
+            # an `except Exception` below would log this as one sprint's failure and
+            # keep looping until the hard kill, silently truncating the sweep.
+            _warn_sweep_truncated(
+                "update_sprint_burndown_snapshots", [s.pk for s in sprints[index:]]
+            )
+            raise
         except Exception:
             logger.exception("update_sprint_burndown_snapshots: failed for sprint %s", sprint.pk)
 
@@ -785,12 +815,17 @@ def generate_recurring_occurrences(self: object) -> None:
     # Collect new occurrence ids per project so each project's open boards get a
     # single bulk event rather than one per task.
     created_by_project: dict[str, list[str]] = {}
-    rules = TaskRecurrenceRule.objects.filter(is_deleted=False).select_related(
-        "task", "task__assignee"
+    rules = list(
+        TaskRecurrenceRule.objects.filter(is_deleted=False)
+        .select_related("task", "task__assignee")
+        .order_by("pk")
     )
-    for rule in rules:
+    for index, rule in enumerate(rules):
         try:
             created = _generate_due_occurrences(rule, horizon_days=horizon)
+        except SoftTimeLimitExceeded:
+            _warn_sweep_truncated("generate_recurring_occurrences", [r.pk for r in rules[index:]])
+            raise
         except Exception:
             logger.exception("generate_recurring_occurrences: failed for rule %s", rule.pk)
             continue
@@ -1044,6 +1079,8 @@ def _do_drain() -> None:
                 # for a sprint that closed.
                 expected_status=SprintCloseRequestStatus.IN_FLIGHT,
             )
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception(
                 "drain_sprint_close_requests: abandoning stalled request %s failed", row["pk"]
@@ -1120,6 +1157,8 @@ def _do_drain() -> None:
     for req in pending:
         try:
             close_sprint.delay(str(req.id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "drain_sprint_close_requests: broker unavailable — request %s stays pending",
@@ -1309,6 +1348,8 @@ def _do_drain_project_exports() -> None:
     for job in stuck:
         try:
             run_project_export.delay(str(job.id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:  # pragma: no cover - broker still down, next tick retries
             logger.warning("drain_project_exports: broker still unavailable for %s", job.id)
             break
@@ -1451,6 +1492,8 @@ def _do_drain_program_exports() -> None:
     for job in stuck:
         try:
             run_program_export.delay(str(job.id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:  # pragma: no cover - broker still down, next tick retries
             logger.warning("drain_program_exports: broker still unavailable for %s", job.id)
             break
@@ -1713,6 +1756,8 @@ def _do_drain_program_imports() -> None:
     for job in stuck:
         try:
             run_program_import.delay(str(job.id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:  # pragma: no cover - broker still down, next tick retries
             logger.warning("drain_program_imports: broker still unavailable for %s", job.id)
             break

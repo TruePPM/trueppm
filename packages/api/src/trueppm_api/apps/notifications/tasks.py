@@ -31,6 +31,8 @@ import textwrap
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from celery.exceptions import SoftTimeLimitExceeded
+
 from trueppm_api.core.idempotent import idempotent_task
 
 from .delivery_limits import (
@@ -474,6 +476,8 @@ def _do_drain_emails() -> None:
                     from_email=from_email,
                     reply_to=reply_to,
                 )
+            except SoftTimeLimitExceeded:
+                raise
             except Exception:
                 logger.exception(
                     "drain_notification_emails: unexpected error for notif %s", notif.pk

@@ -724,3 +724,26 @@ def test_generation_emits_no_per_assignment_events(staffed_template: Task) -> No
     assert created
     emitted = [call.args[1] for call in mock_broadcast.call_args_list if len(call.args) > 1]
     assert emitted == [], f"generation should emit no board events itself, got {emitted}"
+
+
+@pytest.mark.django_db
+def test_soft_time_limit_propagates_out_of_recurrence_sweep(
+    project: Project, template: Task
+) -> None:
+    """SoftTimeLimitExceeded must not be swallowed as a per-rule failure (#4381)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    _make_rule(template, frequency=TaskRecurrenceFrequency.DAILY)
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = True
+    with (
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
+        patch(
+            "trueppm_api.apps.projects.services._generate_due_occurrences",
+            side_effect=SoftTimeLimitExceeded(),
+        ) as gen,
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        mock_redis_module.client.return_value = mock_redis
+        generate_recurring_occurrences.run()
+    assert gen.call_count == 1

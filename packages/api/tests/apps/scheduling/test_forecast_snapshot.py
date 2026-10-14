@@ -9,6 +9,7 @@ gate), and the management command.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -395,6 +396,19 @@ class TestDailyFloor:
         _do_daily_forecast_floor()
         assert ProjectForecastSnapshot.objects.filter(project=archived).count() == 0
         assert ProjectForecastSnapshot.objects.filter(project=deleted).count() == 0
+
+    def test_soft_time_limit_propagates_out_of_the_floor_sweep(self, project: Project) -> None:
+        """safe_capture's best-effort catch must not swallow the task time limit (#4381)."""
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        with (
+            patch(
+                "trueppm_api.apps.scheduling.services.capture_forecast_snapshot",
+                side_effect=SoftTimeLimitExceeded(),
+            ),
+            pytest.raises(SoftTimeLimitExceeded),
+        ):
+            _do_daily_forecast_floor()
 
 
 # ---------------------------------------------------------------------------

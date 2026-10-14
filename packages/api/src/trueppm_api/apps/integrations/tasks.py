@@ -27,6 +27,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -600,6 +601,8 @@ def _do_drain() -> None:
     for req in pending:
         try:
             result = external_sync.delay(str(req.id))
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning(
                 "drain_external_sync: broker unavailable — request %s stays pending",
