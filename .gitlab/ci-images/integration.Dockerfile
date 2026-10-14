@@ -71,13 +71,7 @@ COPY packages/api/README.md            ./api/README.md
 # packages are uninstalled at the end — only the dep wheels (+ uvicorn) remain.
 # Real CI jobs then `pip install -e packages/scheduler[dev] packages/api[dev]`
 # against the actual source.
-RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api \
- && touch scheduler/src/trueppm_scheduler/__init__.py \
-          api/src/trueppm_api/__init__.py \
- && pip install --no-cache-dir -e "./scheduler[dev]" -e "./api[dev]" "uvicorn[standard]" \
- && pip uninstall --yes trueppm-scheduler trueppm-api \
- && rm -rf /opt/ci-deps
-
+#
 # Run the CI job as a non-root user (Sonar dockerfile:S6471). The Playwright base
 # ships `pwuser` (uid **1001**, the vendor's own browser-sandbox user); give it
 # the venv so the job-time `pip install -e packages/...` editable re-link still
@@ -91,7 +85,13 @@ RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api \
 # the dev-deps are resident in /opt/api-venv anyway. Verify with
 # `docker run --rm --entrypoint sh <base> -c 'id pwuser'` before trusting it --
 # it is the vendor's number, not ours, and it has moved before.
-RUN chown -R pwuser /opt/api-venv
+RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api \
+ && touch scheduler/src/trueppm_scheduler/__init__.py \
+          api/src/trueppm_api/__init__.py \
+ && pip install --no-cache-dir -e "./scheduler[dev]" -e "./api[dev]" "uvicorn[standard]" \
+ && pip uninstall --yes trueppm-scheduler trueppm-api \
+ && rm -rf /opt/ci-deps \
+ && chown -R pwuser /opt/api-venv
 USER pwuser
 
 WORKDIR /

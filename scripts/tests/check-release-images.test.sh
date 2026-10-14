@@ -25,6 +25,10 @@ GATE="$REPO_ROOT/scripts/check-release-images.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# The release tag and registry path most fixtures below exercise the gate against.
+FIXTURE_TAG="v0.3.0-alpha.3"
+FIXTURE_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm"
+
 fail=0
 pass=0
 check() { # check "<description>" <condition-exit-code>
@@ -54,7 +58,7 @@ present() {
 run_gate() { # sets $OUT and $RC; never aborts under `set -e`
   set +e
   OUT="$(
-    CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+    CI_REGISTRY_IMAGE="$FIXTURE_REGISTRY_IMAGE" \
     RELEASE_IMAGE_PROBE="$TMP/probe.sh" \
     PRESENT_FILE="$TMP/present" \
     bash "$GATE" "$@" 2>&1
@@ -70,7 +74,7 @@ WEB_TAG="registry.example.com/trueppm/trueppm/web:v0.3.0-alpha.3"
 
 echo "check-release-images: both images reaped (the #2803 case)"
 present  # registry serves nothing
-run_gate "v0.3.0-alpha.3"
+run_gate "$FIXTURE_TAG"
 check "exits 1 when both release images are gone" "$([[ $RC -eq 1 ]] && echo 0 || echo 1)"
 check "names the missing api reference" "$(grep -q "$API_TAG" <<<"$OUT" && echo 0 || echo 1)"
 check "names the missing web reference" "$(grep -q "$WEB_TAG" <<<"$OUT" && echo 0 || echo 1)"
@@ -79,7 +83,7 @@ check "points at the cleanup policy as the cause" \
 
 echo "check-release-images: one image reaped, one surviving"
 present "$API_TAG"
-run_gate "v0.3.0-alpha.3"
+run_gate "$FIXTURE_TAG"
 check "exits 1 when only one image is missing" "$([[ $RC -eq 1 ]] && echo 0 || echo 1)"
 check "does not list the surviving image as missing" \
   "$(grep -q "MISSING $API_TAG" <<<"$OUT" && echo 1 || echo 0)"
@@ -89,10 +93,10 @@ check "lists the missing image" "$(grep -q "MISSING $WEB_TAG" <<<"$OUT" && echo 
 
 echo "check-release-images: both images present"
 present "$API_TAG" "$WEB_TAG"
-run_gate "v0.3.0-alpha.3"
+run_gate "$FIXTURE_TAG"
 check "exits 0 when every release image exists" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
 check "reports the tag it verified" \
-  "$(grep -q "v0.3.0-alpha.3" <<<"$OUT" && echo 0 || echo 1)"
+  "$(grep -q "$FIXTURE_TAG" <<<"$OUT" && echo 0 || echo 1)"
 
 # --- Invocation errors must be distinguishable from a missing image ---------
 # A gate that exits 1 because it could not find a tag to check would page the
@@ -101,7 +105,7 @@ check "reports the tag it verified" \
 echo "check-release-images: no registry configured"
 set +e
 OUT="$(CI_REGISTRY_IMAGE="" RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
-  bash "$GATE" "v0.3.0-alpha.3" 2>&1)"
+  bash "$GATE" "$FIXTURE_TAG" 2>&1)"
 RC=$?
 set -e
 check "exits 2 (not 1) when CI_REGISTRY_IMAGE is unset" "$([[ $RC -eq 2 ]] && echo 0 || echo 1)"
@@ -110,7 +114,7 @@ echo "check-release-images: no v* tag resolvable"
 mkdir -p "$TMP/notags"
 git -C "$TMP/notags" init -q 2>/dev/null
 set +e
-OUT="$(cd "$TMP/notags" && CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+OUT="$(cd "$TMP/notags" && CI_REGISTRY_IMAGE="$FIXTURE_REGISTRY_IMAGE" \
   RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
   bash "$GATE" 2>&1)"
 RC=$?
@@ -130,7 +134,7 @@ for t in v0.9.0 v0.10.0 v0.3.0-alpha.3; do git -C "$REPO" tag "$t"; done
 present "registry.example.com/trueppm/trueppm/api:v0.10.0" \
         "registry.example.com/trueppm/trueppm/web:v0.10.0"
 set +e
-OUT="$(cd "$REPO" && CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+OUT="$(cd "$REPO" && CI_REGISTRY_IMAGE="$FIXTURE_REGISTRY_IMAGE" \
   RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
   bash "$GATE" 2>&1)"
 RC=$?
@@ -163,7 +167,7 @@ BIGTAG="v0.59.0-alpha.99-padding-to-lengthen-the-refname"
 present "registry.example.com/trueppm/trueppm/api:$BIGTAG" \
         "registry.example.com/trueppm/trueppm/web:$BIGTAG"
 set +e
-OUT="$(cd "$BIGREPO" && CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+OUT="$(cd "$BIGREPO" && CI_REGISTRY_IMAGE="$FIXTURE_REGISTRY_IMAGE" \
   RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
   bash "$GATE" 2>&1)"
 RC=$?
@@ -179,9 +183,9 @@ check "resolved the version-sorted newest tag, not an arbitrary one" \
 echo "check-release-images: RELEASE_IMAGES override"
 present "registry.example.com/trueppm/trueppm/api:v0.3.0-alpha.3"
 set +e
-OUT="$(CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+OUT="$(CI_REGISTRY_IMAGE="$FIXTURE_REGISTRY_IMAGE" \
   RELEASE_IMAGES="api" RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
-  bash "$GATE" "v0.3.0-alpha.3" 2>&1)"
+  bash "$GATE" "$FIXTURE_TAG" 2>&1)"
 RC=$?
 set -e
 check "exits 0 when the narrowed image set is fully present" \
@@ -197,11 +201,11 @@ echo "check-release-images: ACCEPTED_GAPS skips only the named image:tag pair"
 present  # registry serves nothing — api is skipped, web must still fail
 set +e
 OUT="$(
-  CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+  CI_REGISTRY_IMAGE="$FIXTURE_REGISTRY_IMAGE" \
   RELEASE_IMAGE_PROBE="$TMP/probe.sh" \
   PRESENT_FILE="$TMP/present" \
   ACCEPTED_GAPS="api:v0.3.0-alpha.3" \
-  bash "$GATE" "v0.3.0-alpha.3" 2>&1
+  bash "$GATE" "$FIXTURE_TAG" 2>&1
 )"
 RC=$?
 set -e
@@ -218,7 +222,7 @@ echo "check-release-images: ACCEPTED_GAPS does not match a different tag"
 present  # registry serves nothing
 set +e
 OUT="$(
-  CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+  CI_REGISTRY_IMAGE="$FIXTURE_REGISTRY_IMAGE" \
   RELEASE_IMAGE_PROBE="$TMP/probe.sh" \
   PRESENT_FILE="$TMP/present" \
   ACCEPTED_GAPS="api:v0.3.0-alpha.3" \

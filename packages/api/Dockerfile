@@ -121,8 +121,8 @@ ARG PSYCOPG_EXTRA=c
 # the dependency graph (trueppm-api itself and trueppm-scheduler) are both
 # excluded above (--no-emit-project, --no-emit-package).
 COPY packages/api/pyproject.toml packages/api/uv.lock /build/api/
-RUN cd /build/api && \
-    uv export --frozen --no-dev --no-emit-project \
+WORKDIR /build/api
+RUN uv export --frozen --no-dev --no-emit-project \
       --no-emit-package trueppm-scheduler \
       --extra "${PSYCOPG_EXTRA}" \
       -o /build/requirements.txt && \

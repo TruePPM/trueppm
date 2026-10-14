@@ -77,6 +77,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Shared sed program: indent a block of offender/diagnostic output by 4 spaces
+# for the echoed report, used by both the self-test probe below and every
+# offender-count block in the real gate.
+SED_INDENT4='s/^/    /'
+
 # ── Self-test (#3195) ───────────────────────────────────────────────────────
 # This gate carries two INTERNAL self-tests already (hex_pat_self_test,
 # pipeline_self_test) and they are good ones — but both assert against string
@@ -111,7 +116,7 @@ if [ "${1:-}" = "--self-test" ]; then
       {
         echo "SELF-TEST FAILED: $1 — the gate exited $st_ec without producing its count line."
         echo "  It crashed instead of running (missing interpreter, syntax error, unset var). Output:"
-        printf '%s\n' "$st_out" | sed 's/^/    /'
+        printf '%s\n' "$st_out" | sed "$SED_INDENT4"
       } >&2
       st_rc=1
       return
@@ -772,34 +777,34 @@ pipeline_self_test() {
   # $WEB_SRC, so these fixture paths must be too — otherwise the whole pattern
   # self-test hard-fails the moment a scan root is injected, and its verdict would
   # be about the prefix rather than the filter.
-  local W="$WEB_SRC"
+  local web_src="$WEB_SRC"
   # -- tiny text: MUST be reported --
   # The last four are the #3475 fixtures: the retired StatusBar carve-out, a
   # fractional size outside settings, and a fractional size BELOW the settings
   # floor (which the settings carve-out must not swallow just because it starts
   # with a 9 — the floor is a value, not a leading digit).
   for s in \
-    "$W"'/components/linkPresentation.tsx:61:  className="text-[11px] font-medium"' \
-    "$W"'/features/assets/AssetsPage.tsx:515:  className="px-1.5 text-[11px]"' \
-    "$W"'/features/settings/X.tsx:9:  className="text-[9px]"' \
-    "$W"'/features/shell/StatusBar.tsx:1:  className="text-[10px]"' \
-    "$W"'/features/foo/Bar.tsx:3:  className="text-[10px]"' \
-    "$W"'/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
-    "$W"'/features/me/MyWorkFocusCards.tsx:64:  className="text-[10.5px]"' \
-    "$W"'/features/board/QueueLayout.tsx:498:  className="text-[9.5px]"' \
-    "$W"'/features/settings/X.tsx:9:  className="text-[9.5px]"'; do
+    "$web_src"'/components/linkPresentation.tsx:61:  className="text-[11px] font-medium"' \
+    "$web_src"'/features/assets/AssetsPage.tsx:515:  className="px-1.5 text-[11px]"' \
+    "$web_src"'/features/settings/X.tsx:9:  className="text-[9px]"' \
+    "$web_src"'/features/shell/StatusBar.tsx:1:  className="text-[10px]"' \
+    "$web_src"'/features/foo/Bar.tsx:3:  className="text-[10px]"' \
+    "$web_src"'/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
+    "$web_src"'/features/me/MyWorkFocusCards.tsx:64:  className="text-[10.5px]"' \
+    "$web_src"'/features/board/QueueLayout.tsx:498:  className="text-[9.5px]"' \
+    "$web_src"'/features/settings/X.tsx:9:  className="text-[9.5px]"'; do
     grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       || { echo "::error:: tiny-text pipeline MISSED an offender: $s" >&2; rc=1; }
   done
   # -- tiny text: MUST NOT be reported --
   for s in \
-    "$W"'/features/settings/X.tsx:9:  className="text-[11px]"' \
-    "$W"'/features/settings/X.tsx:9:  className="text-[10px]"' \
-    "$W"'/features/settings/X.tsx:9:  className="text-[10.5px]"' \
-    "$W"'/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
-    "$W"'/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
-    "$W"'/features/foo/Bar.tsx:3:  className="text-[12.5px]"' \
-    "$W"'/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
+    "$web_src"'/features/settings/X.tsx:9:  className="text-[11px]"' \
+    "$web_src"'/features/settings/X.tsx:9:  className="text-[10px]"' \
+    "$web_src"'/features/settings/X.tsx:9:  className="text-[10.5px]"' \
+    "$web_src"'/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
+    "$web_src"'/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
+    "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12.5px]"' \
+    "$web_src"'/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
     grep -q . <<<"$(printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter)" \
       && { echo "::error:: tiny-text pipeline COUNTED a sanctioned line: $s" >&2; rc=1; }
   done
@@ -875,14 +880,14 @@ sem_tint=$(sem_tint_offenders | wc -l | tr -d ' ')
 query_error=$(query_error_offenders | wc -l | tr -d ' ')
 skeleton_stall=$(skeleton_stall_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0)"
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0)" >&2
 
 if (( arb > BASELINE_ARBITRARY )); then
   {
     echo "::error:: $arb arbitrary Tailwind color value classes (baseline $BASELINE_ARBITRARY)."
     echo "  Use a Design System token, not bg-[#...]/text-[#...]. New offenders:"
     grep -rInE "(bg|text|border|ring|fill|stroke|from|to|via|divide|outline|decoration|shadow)-\[#" \
-      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed "$SED_INDENT4"
   } >&2
   fail=1
 elif (( arb < BASELINE_ARBITRARY )); then
@@ -904,7 +909,7 @@ if (( shadow > BASELINE_SHADOW )); then
     echo "::error:: $shadow off-token box-shadows (baseline $BASELINE_SHADOW) — v2 is borders-over-shadows (rule 1)."
     echo "  Use 'border border-neutral-border' to separate; reserve shadow-card/shadow-pop for popover/drawer/modal/palette/toast. Offenders:"
     grep -rInE "\bshadow-(sm|md|lg|xl|2xl|inner)\b|shadow-\[" \
-      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed "$SED_INDENT4"
   } >&2
   fail=1
 elif (( shadow < BASELINE_SHADOW )); then
@@ -916,7 +921,7 @@ if (( black > BASELINE_BLACK )); then
     echo "::error:: $black inline rgba(0,0,0,α) color values (baseline $BASELINE_BLACK) — the black-on-blue antipattern (issue 1638)."
     echo "  A fixed black value renders invisible on the dark navy surfaces. Use a mode-aware token (var(--color-*) / a COLOR_DARK palette entry). Offenders:"
     grep -rInE "rgba\(0, ?0, ?0, ?[0-9]?\.[0-9]" \
-      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed "$SED_INDENT4"
   } >&2
   fail=1
 elif (( black < BASELINE_BLACK )); then
@@ -927,7 +932,7 @@ if (( dark_chrome > 0 )); then
   {
     echo "::error:: $dark_chrome dark-chrome-on-light occurrence(s) in $SHELL_SRC (ADR-0126 §4 — never a dark sidebar on a light app)."
     echo "  Shell chrome must use the adaptive 'bg-chrome-surface' token (it swaps with the .dark class), not a raw dark navy fill. Offenders:"
-    dark_chrome_offenders | sed 's/^/    /'
+    dark_chrome_offenders | sed "$SED_INDENT4"
   } >&2
   fail=1
 fi
@@ -936,7 +941,7 @@ if (( tiny_text > BASELINE_TINY_TEXT )); then
   {
     echo "::error:: $tiny_text sub-floor type occurrence(s) (baseline $BASELINE_TINY_TEXT) — the type floor is text-xs (12px, rule 50)."
     echo "  text-[10px] is permitted only inside features/settings (rule 118); text-[9px] and below are prohibited everywhere. Offenders:"
-    tiny_text_offenders | sed 's/^/    /'
+    tiny_text_offenders | sed "$SED_INDENT4"
   } >&2
   fail=1
 elif (( tiny_text < BASELINE_TINY_TEXT )); then
@@ -947,7 +952,7 @@ if (( bare_suspense > 0 )); then
   {
     echo "::error:: $bare_suspense bare text node(s) used as a Suspense fallback (rule 248)."
     echo "  Render a skeleton that mirrors the surface's shape so the layout does not jump when the chunk lands. Offenders:"
-    bare_suspense_fallback_offenders | sed 's/^/    /'
+    bare_suspense_fallback_offenders | sed "$SED_INDENT4"
   } >&2
   fail=1
 fi
@@ -956,7 +961,7 @@ if (( sem_tint > 0 )); then
   {
     echo "::error:: $sem_tint resting bg-semantic-{state}/N tint(s) (rule 8b) — use the pre-computed -bg token."
     echo "  bg-semantic-warning/10 is NOT bg-semantic-warning-bg: the base token is the AA-safe TEXT color and the -bg token is the brand fill, a different hue in both modes (globals.css). Swap to bg-semantic-{state}-bg, or bg-semantic-{state} at full strength for a solid indicator. Interaction-state washes (hover:/focus:/…) are exempt. Offenders:"
-    sem_tint_offenders | sed 's/^/    /'
+    sem_tint_offenders | sed "$SED_INDENT4"
   } >&2
   fail=1
 fi
@@ -965,7 +970,7 @@ if (( query_error > BASELINE_QUERY_ERROR )); then
   {
     echo "::error:: $query_error query destructure(s) taking isLoading but never error/isError (baseline $BASELINE_QUERY_ERROR, rule 246)."
     echo "  A failed fetch then renders as an empty or perpetually-skeletal surface — indistinguishable from 'nothing here yet' (#1764/#1937/#1942/#2858). Destructure error/isError and render <QueryErrorState/>. Offenders:"
-    query_error_offenders | sed 's/^/    /'
+    query_error_offenders | sed "$SED_INDENT4"
   } >&2
   fail=1
 elif (( query_error < BASELINE_QUERY_ERROR )); then
@@ -976,7 +981,7 @@ if (( skeleton_stall > 0 )); then
   {
     echo "::error:: $skeleton_stall query value(s) gating a loading skeleton whose query reads no error/isError (rule 246, #3351)."
     echo "  A failed fetch pins the value at undefined, so the guard NEVER clears and the surface pulses forever — no error, no retry. Destructure isError + refetch and render <QueryErrorState/> ABOVE the skeleton guard (see ProgramCalendarPage / ProjectMethodologyPage). Offenders:"
-    skeleton_stall_offenders | sed 's/^/    /'
+    skeleton_stall_offenders | sed "$SED_INDENT4"
   } >&2
   fail=1
 fi

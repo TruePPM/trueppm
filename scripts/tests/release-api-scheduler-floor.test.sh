@@ -8,8 +8,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUMP="$REPO_ROOT/scripts/bump-api-scheduler-floor.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fail=0
-check() { if [[ "$2" -ne 0 ]]; then echo "  FAIL: $1"; fail=$((fail + 1)); fi; }
-expect() { local name="$1"; shift; if ! "$@"; then echo "  FAIL: $name"; fail=$((fail + 1)); fi; }
+check() { if [[ "$2" -ne 0 ]]; then echo "  FAIL: $1"; fail=$((fail + 1)); fi; return 0; }
+expect() { local name="$1"; shift; if ! "$@"; then echo "  FAIL: $name"; fail=$((fail + 1)); fi; return 0; }
 
 mkdir -p "$TMP/a/packages/api"
 printf 'dependencies = [\n    "trueppm-scheduler>=0.4.0b4,<0.5",\n    "django>=5.2,<6.0",\n]\n' >"$TMP/a/packages/api/pyproject.toml"

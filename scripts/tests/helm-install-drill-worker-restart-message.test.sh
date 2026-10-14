@@ -48,6 +48,7 @@ check() { # check "<description>" <expect-pattern> <actual>
     echo "    actual:  $actual"
     fail_count=$((fail_count + 1))
   fi
+  return 0
 }
 
 # A genuine OOMKilled reason still names #2571 — the fix for that regression is

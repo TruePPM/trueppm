@@ -149,7 +149,7 @@ trap_calls() {
 # Prints "path::ref" for every unkeyed trap in a file that also renders a
 # pending-flag `disabled=`. Prints nothing otherwise.
 unkeyed_traps_in_file() {
-  local file="$1" rel="$2" calls line lineno ref nargs
+  local file="$1" rel="$2" calls lineno ref nargs
   calls="$(trap_calls "$file")"
   [ -z "$calls" ] && return 0
   # Cheap gate first: no pending-flag disable in the file, nothing to report.

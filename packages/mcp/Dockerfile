@@ -80,8 +80,8 @@ RUN pip install --only-binary :all: --no-cache-dir "uv==0.9.5"
 # carry a hash, which holds here since the only hash-less member of the
 # dependency graph (trueppm-mcp itself) is excluded above.
 COPY pyproject.toml uv.lock /build/mcp-lock/
-RUN cd /build/mcp-lock && \
-    uv export --frozen --no-dev --no-emit-project \
+WORKDIR /build/mcp-lock
+RUN uv export --frozen --no-dev --no-emit-project \
       -o /build/requirements.txt && \
     pip uninstall -y uv && \
     pip install --no-cache-dir --require-hashes -r /build/requirements.txt

@@ -36,6 +36,9 @@ WT="$REPO_ROOT/scripts/wt"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# The shared dev DB name every catalog fixture below asserts is never touched.
+DEV_DB="trueppm"
+
 fail=0
 pass=0
 check() { # check "<description>" <condition-exit-code>
@@ -158,7 +161,7 @@ catalog \
   "test_trueppm_wt_9101_thing_gw1" \
   "test_trueppm_wt_9102_other" \
   "test_trueppm" \
-  "trueppm"
+  "$DEV_DB"
 : > "$DB_STUB_CONNS"; : > "$DB_STUB_LOG"
 ( cd "$D1" && TRUEPPM_WT_BASE="$B1" PATH="$STUB_BIN:$PATH" bash "$WT" remove 9101 >/dev/null 2>&1 ) || true
 check "base DB dropped"                  "$(! in_catalog test_trueppm_wt_9101_thing; echo $?)"
@@ -276,7 +279,7 @@ catalog \
   "test_trueppm_wt_9504_dead" \
   "test_trueppm_wt_9505_dead" \
   "test_trueppm" \
-  "trueppm"
+  "$DEV_DB"
 printf 'test_trueppm_wt_9503_busy 1\n' > "$DB_STUB_CONNS"
 : > "$DB_STUB_LOG"
 ( cd "$D5" && TRUEPPM_WT_BASE="$B5" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes >/dev/null 2>&1 ) || true
@@ -293,7 +296,7 @@ check "shared test_trueppm spared"      "$(in_catalog test_trueppm; echo $?)"
 check "dev DB trueppm spared"           "$(in_catalog trueppm; echo $?)"
 
 # Without --yes it must not drop anything on a declined prompt.
-catalog "test_trueppm_wt_9502_dead" "trueppm"
+catalog "test_trueppm_wt_9502_dead" "$DEV_DB"
 ( cd "$D5" && TRUEPPM_WT_BASE="$B5" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs </dev/null >/dev/null 2>&1 ) || true
 check "declined prompt drops nothing"   "$(in_catalog test_trueppm_wt_9502_dead; echo $?)"
 
@@ -316,7 +319,7 @@ mk_wt "$D7" "$B7" "feat/9601-live" "9601-live" "test_trueppm_wt_9601_live"
 : > "$DB_STUB_CONNS"
 
 # 7a — every database is owned: nothing to drop, and it must still exit 0.
-catalog "test_trueppm_wt_9601_live" "trueppm"
+catalog "test_trueppm_wt_9601_live" "$DEV_DB"
 rc7a=0
 ( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes </dev/null >/dev/null 2>&1 ) || rc7a=$?
 check "prune-dbs exits 0 when all DBs are owned"   "$([[ "$rc7a" -eq 0 ]]; echo $?)"
@@ -335,7 +338,7 @@ check "doctor reaches its final WIP line"          "$(grep -q 'WIP:' "$TMP/doc7.
 # 7b — an orphan present, but an OWNED name sorts last. The orphan must still be
 # dropped: the abort used to happen on the final iteration, after the earlier
 # ones had run, so a bare "did it drop anything" check would pass regardless.
-catalog "test_trueppm_wt_9600_dead" "test_trueppm_wt_9601_live" "trueppm"
+catalog "test_trueppm_wt_9600_dead" "test_trueppm_wt_9601_live" "$DEV_DB"
 rc7c=0
 ( cd "$D7" && TRUEPPM_WT_BASE="$B7" PATH="$STUB_BIN:$PATH" bash "$WT" prune-dbs --yes </dev/null >/dev/null 2>&1 ) || rc7c=$?
 check "prune-dbs exits 0 with an owned DB sorting last" "$([[ "$rc7c" -eq 0 ]]; echo $?)"

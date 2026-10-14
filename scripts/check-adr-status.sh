@@ -63,6 +63,8 @@ if [ "${1:-}" = "--self-test" ]; then
   # shellcheck disable=SC2064  # expand now, not at trap time
   trap "rm -rf '$st_tmp'" EXIT
   st_rc=0
+  # The expected-failure reason for every ADR-9999 "still Proposed" fixture below.
+  proposed_9999_msg="ADR-9999 is cited by shipped source but Status is 'Proposed'"
 
   st_probe() { # <name> <expect-pass|expect-fail> <root> [expected-output-substring]
     # The optional fourth argument pins *why* a case failed. Exit status alone cannot
@@ -132,25 +134,25 @@ Accepted — status corrected 2026-01-01 after ADR audit (#9998, verified: shipp
 Proposed'
   st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — '## Status' block header" expect-fail "$d" \
-    "ADR-9999 is cited by shipped source but Status is 'Proposed'"
+    "$proposed_9999_msg"
 
   d="$st_tmp/proposed-inline"; st_src "$d" 9999
   st_adr "$d" 9999 '## Status: Proposed'
   st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — '## Status:' inline header" expect-fail "$d" \
-    "ADR-9999 is cited by shipped source but Status is 'Proposed'"
+    "$proposed_9999_msg"
 
   d="$st_tmp/proposed-bullet"; st_src "$d" 9999
   st_adr "$d" 9999 '- **Status:** Proposed'
   st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — bullet front-matter header" expect-fail "$d" \
-    "ADR-9999 is cited by shipped source but Status is 'Proposed'"
+    "$proposed_9999_msg"
 
   d="$st_tmp/proposed-bold"; st_src "$d" 9999
   st_adr "$d" 9999 '**Status:** Proposed'
   st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR cited from source — bold inline header" expect-fail "$d" \
-    "ADR-9999 is cited by shipped source but Status is 'Proposed'"
+    "$proposed_9999_msg"
 
   # The `Implementation status` blockquote convention (SKILL.md) is only safe if the
   # parser skips `>` lines *structurally*, not because authors put the blockquote
@@ -166,7 +168,7 @@ Proposed'
 Proposed'
   st_ok_index "$d" 1 9999 9999 0 0
   st_probe "Proposed ADR whose status text sits below an Implementation-status blockquote" \
-    expect-fail "$d" "ADR-9999 is cited by shipped source but Status is 'Proposed'"
+    expect-fail "$d" "$proposed_9999_msg"
 
   # The documented non-failure: a citation pointing at no ADR is a broken
   # reference, a different defect from status drift, and is WARNed not failed.

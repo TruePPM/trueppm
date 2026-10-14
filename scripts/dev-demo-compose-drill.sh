@@ -89,6 +89,10 @@
 # and python3 on PATH.
 set -euo pipefail
 
+# Shared sed program for indenting diagnostic output (compose ps/logs, curl
+# bodies) by 2 spaces when it is echoed to stderr.
+SED_INDENT2='s/^/  /'
+
 DRILL_MODE="${DRILL_MODE:-}"
 case "${DRILL_MODE}" in
   dev|demo) ;;
@@ -173,12 +177,12 @@ sync_checkout_to_daemon() {
 
 dump_diagnostics() {
   echo "======== DIAGNOSTICS (${DRILL_MODE} compose stack did not reach a healthy state) ========" >&2
-  compose ps -a 2>&1 | sed 's/^/  /' >&2 || true
+  compose ps -a 2>&1 | sed "$SED_INDENT2" >&2 || true
   local services
   services="$(compose config --services 2>/dev/null || true)"
   for svc in ${services}; do
     echo "---- logs: ${svc} ----" >&2
-    compose logs --tail=120 "${svc}" 2>&1 | sed 's/^/  /' >&2 || true
+    compose logs --tail=120 "${svc}" 2>&1 | sed "$SED_INDENT2" >&2 || true
   done
 }
 
@@ -233,7 +237,7 @@ wait_http_200() {
   deadline=$(( $(date +%s) + timeout ))
   until [ "$(http_code "${url}")" = "200" ]; do
     [ "$(date +%s)" -lt "${deadline}" ] || {
-      curl -s "${url}" | sed 's/^/  /' >&2 || true
+      curl -s "${url}" | sed "$SED_INDENT2" >&2 || true
       fail "GET ${url} did not return 200 within ${timeout}s"
     }
     sleep 3
@@ -309,7 +313,7 @@ if [ "${DRILL_MODE}" = "dev" ]; then
   deadline=$(( $(date +%s) + BEAT_TIMEOUT ))
   until [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${API_BASE_URL}/api/v1/health/beat/")" = "200" ]; do
     [ "$(date +%s)" -lt "${deadline}" ] || {
-      compose logs --tail=60 celery-beat 2>&1 | sed 's/^/  /' >&2 || true
+      compose logs --tail=60 celery-beat 2>&1 | sed "$SED_INDENT2" >&2 || true
       fail "/api/v1/health/beat/ never returned 200 within ${BEAT_TIMEOUT}s — celery-beat is declared but not dispatching"
     }
     sleep 5

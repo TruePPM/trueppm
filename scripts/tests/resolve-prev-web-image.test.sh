@@ -28,6 +28,7 @@ check() { # check "<description>" <expected> <actual>
     echo "  FAIL: $1 — expected '$2', got '$3'"
     fail_count=$((fail_count + 1))
   fi
+  return 0
 }
 
 [ -f "$SCRIPT" ] || { echo "FAIL: $SCRIPT not found" >&2; exit 1; }
@@ -44,6 +45,7 @@ run() {
   RC=$?
   ERR="$(cat "$errf")"
   rm -f "$errf"
+  return 0
 }
 
 PREFIX="ghcr.io/trueppm/web@"

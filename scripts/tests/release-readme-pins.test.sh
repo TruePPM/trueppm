@@ -23,6 +23,7 @@ fail=0
 pass=0
 check() { # check "<description>" <exit-code>
   if [[ "$2" -eq 0 ]]; then pass=$((pass + 1)); else echo "  FAIL: $1"; fail=$((fail + 1)); fi
+  return 0
 }
 
 mkfixture() { # mkfixture <dir>
@@ -46,9 +47,10 @@ EOF
   cat >"$d/packages/mcp/README.md" <<'EOF'
 Run it with uvx trueppm-mcp. No version pin here.
 EOF
+  return 0
 }
 
-run_bump() { REPO_ROOT="$1" bash "$BUMP" 0.4.0b3 0.4.0b4 0.4.0-beta.3 0.4.0-beta.4; }
+run_bump() { REPO_ROOT="$1" bash "$BUMP" 0.4.0b3 0.4.0b4 0.4.0-beta.3 0.4.0-beta.4; return $?; }
 
 echo "Case 1: pins and the tag mapping move to the new version"
 F1="$TMP/f1"; mkfixture "$F1"

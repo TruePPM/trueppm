@@ -69,7 +69,7 @@ run_check() {
     fi
 
     if [ ! -f "$html" ]; then
-      echo "  VIOLATION: $rel has $fences mermaid fence(s) but ${html#"$dist"/} was not emitted"
+      echo "  VIOLATION: $rel has $fences mermaid fence(s) but ${html#"$dist"/} was not emitted" >&2
       fail=1
       continue
     fi
@@ -77,7 +77,7 @@ run_check() {
     rendered="$(grep -o 'aria-roledescription' "$html" | wc -l | tr -d ' ' || true)"
     if [ "$rendered" -lt "$fences" ]; then
       ids="$(grep -o 'id="mermaid' "$html" | wc -l | tr -d ' ' || true)"
-      echo "  VIOLATION: $rel has $fences mermaid fence(s) but only $rendered rendered diagram(s) in ${html#"$dist"/} (mermaid ids: $ids)"
+      echo "  VIOLATION: $rel has $fences mermaid fence(s) but only $rendered rendered diagram(s) in ${html#"$dist"/} (mermaid ids: $ids)" >&2
       fail=1
     fi
   done < <(grep -rl '^```mermaid' "$docs" || true)
@@ -98,7 +98,7 @@ run_check() {
       return 2
     fi
     if grep -q '\[ERROR\]' "$log"; then
-      echo "  VIOLATION: the website build logged [ERROR] lines despite exiting 0:"
+      echo "  VIOLATION: the website build logged [ERROR] lines despite exiting 0:" >&2
       grep '\[ERROR\]' "$log" | sed -n 1,20p | sed 's/^/      /'
       fail=1
     fi

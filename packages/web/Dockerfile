@@ -71,7 +71,6 @@ FROM ${DOCKERHUB_PREFIX}/nginxinc/nginx-unprivileged:alpine@sha256:884e0b7f42f30
 # `apt-get update && apt-get upgrade`. The base image's default user is already
 # non-root (101), so this needs an explicit `USER root` first.
 USER root
-RUN apk upgrade --no-cache
 
 # worker_shutdown_timeout (#4359): a MAIN-context nginx directive, so it
 # cannot live in the chart-mounted/compose-mounted default.conf (included
@@ -101,7 +100,8 @@ RUN apk upgrade --no-cache
 # the client), just later. 20s bounds that drain window inside the 25s that
 # remains after preStop, so the SIGKILL case is reached sooner and more
 # predictably rather than always eating the full remaining grace.
-RUN sed -i '1i worker_shutdown_timeout 20s;' /etc/nginx/nginx.conf
+RUN apk upgrade --no-cache \
+ && sed -i '1i worker_shutdown_timeout 20s;' /etc/nginx/nginx.conf
 
 # Prior release's assets first, then this build on top. Content-hashed names
 # mean a file in both is byte-identical, so the order only matters for the

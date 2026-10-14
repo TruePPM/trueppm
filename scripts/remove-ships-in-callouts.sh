@@ -85,6 +85,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROADMAP_DEFAULT="packages/website/src/content/docs/overview/roadmap.md"
 DOCS_ROOT_DEFAULT="packages/website/src/content/docs"
+# One of the two MODE values run_scan takes (the other is "apply").
+MODE_DRY_RUN="dry-run"
 
 # ── Roadmap parsing (mirrors scripts/check-version-status.sh) ──────────────
 # Extract the set of shipped major.minor versions from the roadmap's
@@ -336,6 +338,9 @@ self_test() {
   # shellcheck disable=SC2064  # expand $tmp now, not at trap time.
   trap "rm -rf '$tmp'" EXIT
   local failures=0
+  # The dry-run report's per-block marker (see run_scan's REMOVE print), and
+  # the awk program that pulls shasum's hash out of its "<hash>  <path>" line.
+  local remove_marker='  REMOVE  ' awk_first_field='{print $1}'
 
   # ── Roadmap guard ─────────────────────────────────────────────────────
   local roadmap="$tmp/roadmap.md"
@@ -403,9 +408,9 @@ MD
     printf '%s' "$content" > "$case_docs/sub/page.md"
 
     local dry_out before_sum after_sum
-    before_sum="$(shasum "$case_docs/sub/page.md" | awk '{print $1}')"
-    dry_out="$(run_scan "0.4" "dry-run" "$case_docs")"
-    after_sum="$(shasum "$case_docs/sub/page.md" | awk '{print $1}')"
+    before_sum="$(shasum "$case_docs/sub/page.md" | awk "$awk_first_field")"
+    dry_out="$(run_scan "0.4" "$MODE_DRY_RUN" "$case_docs")"
+    after_sum="$(shasum "$case_docs/sub/page.md" | awk "$awk_first_field")"
 
     if [ "$before_sum" != "$after_sum" ]; then
       echo "SELF-TEST FAILED: $name — dry-run mutated the file." >&2
@@ -413,7 +418,7 @@ MD
     fi
 
     local got_blocks got_ambiguous
-    got_blocks="$(printf '%s\n' "$dry_out" | grep -c '  REMOVE  ' || true)"
+    got_blocks="$(printf '%s\n' "$dry_out" | grep -c "$remove_marker" || true)"
     got_ambiguous="$(printf '%s\n' "$dry_out" | grep -c '  FLAG    ' || true)"
 
     if [ "$got_blocks" = "$expect_blocks" ]; then
@@ -431,7 +436,7 @@ MD
     fi
 
     run_scan "0.4" "apply" "$case_docs" >/dev/null
-    after_sum="$(shasum "$case_docs/sub/page.md" | awk '{print $1}')"
+    after_sum="$(shasum "$case_docs/sub/page.md" | awk "$awk_first_field")"
 
     if [ "$expect_unchanged" = "1" ]; then
       if [ "$before_sum" = "$after_sum" ]; then
@@ -449,9 +454,9 @@ MD
       fi
       # Re-scanning after apply must find zero remaining removable blocks.
       local rescan
-      rescan="$(run_scan "0.4" "dry-run" "$case_docs")"
+      rescan="$(run_scan "0.4" "$MODE_DRY_RUN" "$case_docs")"
       local remaining
-      remaining="$(printf '%s\n' "$rescan" | grep -c '  REMOVE  ' || true)"
+      remaining="$(printf '%s\n' "$rescan" | grep -c "$remove_marker" || true)"
       if [ "$remaining" = "0" ]; then
         echo "SELF-TEST OK: $name — no removable blocks remain after apply."
       else
@@ -547,9 +552,9 @@ Rest of the page.
 ' > "$case_docs/getting-started/try-it.md"
 
     local before after dry_out
-    before="$(shasum "$case_docs/getting-started/try-it.md" | awk '{print $1}')"
-    dry_out="$(run_scan "0.4" "dry-run" "$case_docs")"
-    if grep -q '  REMOVE  ' <<<"$dry_out"; then
+    before="$(shasum "$case_docs/getting-started/try-it.md" | awk "$awk_first_field")"
+    dry_out="$(run_scan "0.4" "$MODE_DRY_RUN" "$case_docs")"
+    if grep -q "$remove_marker" <<<"$dry_out"; then
       echo "SELF-TEST FAILED: try-it.md — a block was reported as removable; it must always be excluded." >&2
       failures=$((failures + 1))
     else
@@ -563,7 +568,7 @@ Rest of the page.
     fi
 
     run_scan "0.4" "apply" "$case_docs" >/dev/null
-    after="$(shasum "$case_docs/getting-started/try-it.md" | awk '{print $1}')"
+    after="$(shasum "$case_docs/getting-started/try-it.md" | awk "$awk_first_field")"
     if [ "$before" = "$after" ]; then
       echo "SELF-TEST OK: try-it.md — --apply left the file byte-for-byte unchanged."
     else
@@ -590,8 +595,8 @@ The installable PWA follows in 0.5, so this line must not be reported.
 ' > "$readme"
 
     local before after dry_out flags
-    before="$(shasum "$readme" | awk '{print $1}')"
-    dry_out="$(run_scan "0.4" "dry-run" "$case_docs" "$readme")"
+    before="$(shasum "$readme" | awk "$awk_first_field")"
+    dry_out="$(run_scan "0.4" "$MODE_DRY_RUN" "$case_docs" "$readme")"
 
     flags="$(printf '%s\n' "$dry_out" | grep -c '  FLAG    ' || true)"
     if [ "$flags" = "2" ]; then
@@ -601,7 +606,7 @@ The installable PWA follows in 0.5, so this line must not be reported.
       failures=$((failures + 1))
     fi
 
-    if grep -q '  REMOVE  ' <<<"$dry_out"; then
+    if grep -q "$remove_marker" <<<"$dry_out"; then
       echo "SELF-TEST FAILED: README — a removable block was reported; it must never be edited." >&2
       failures=$((failures + 1))
     else
@@ -609,7 +614,7 @@ The installable PWA follows in 0.5, so this line must not be reported.
     fi
 
     run_scan "0.4" "apply" "$case_docs" "$readme" >/dev/null
-    after="$(shasum "$readme" | awk '{print $1}')"
+    after="$(shasum "$readme" | awk "$awk_first_field")"
     if [ "$before" = "$after" ]; then
       echo "SELF-TEST OK: README — --apply left the file byte-for-byte unchanged."
     else
@@ -619,7 +624,7 @@ The installable PWA follows in 0.5, so this line must not be reported.
 
     # A missing README must be a silent no-op, not a crash: run_scan is called
     # with a path that may legitimately not exist in a stripped checkout.
-    if run_scan "0.4" "dry-run" "$case_docs" "$tmp/no-such-README.md" >/dev/null 2>&1; then
+    if run_scan "0.4" "$MODE_DRY_RUN" "$case_docs" "$tmp/no-such-README.md" >/dev/null 2>&1; then
       echo "SELF-TEST OK: README — a missing path is a no-op."
     else
       echo "SELF-TEST FAILED: README — a missing path made the scan fail." >&2
@@ -644,7 +649,7 @@ main() {
     fi
   fi
 
-  local version="" mode="dry-run"
+  local version="" mode="$MODE_DRY_RUN"
   if [ $# -eq 0 ]; then
     usage
     return 1
@@ -652,7 +657,7 @@ main() {
   version="$1"
   shift || true
   case "${1:-}" in
-    ""|--dry-run) mode="dry-run" ;;
+    ""|--dry-run) mode="$MODE_DRY_RUN" ;;
     --apply) mode="apply" ;;
     *)
       echo "error: unrecognized argument '$1'" >&2

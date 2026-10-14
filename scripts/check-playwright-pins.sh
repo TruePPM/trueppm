@@ -159,6 +159,8 @@ EOF
 # image bump that leaves the npm pins behind (the same outage, inverted).
 self_test() {
   local tmp status
+  # The agreeing-everywhere fixture values most cases below start from.
+  local base_tag="v1.58.2-noble" pin="1.58.2"
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064  # expand $tmp now, not at trap time
   trap "rm -rf '$tmp'" EXIT
@@ -180,7 +182,7 @@ self_test() {
   }
 
   # Case 1: everything agrees. Must pass.
-  _fixture "v1.58.2-noble" "1.58.2" "1.58.2" "1.58.2" "1.58.2"
+  _fixture "$base_tag" "$pin" "$pin" "$pin" "$pin"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 0 ]; then
     echo "SELF-TEST FAIL: a fully-agreeing tree was reported as drifted (exit $status)" >&2
@@ -188,7 +190,7 @@ self_test() {
   fi
 
   # Case 2: #2797 exactly — website lockfile floated above its own declaration.
-  _fixture "v1.58.2-noble" "1.58.2" "1.58.2" "^1.58.2" "1.61.1"
+  _fixture "$base_tag" "$pin" "$pin" "^$pin" "1.61.1"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 1 ]; then
     echo "SELF-TEST FAIL: a lockfile floated to 1.61.1 under a v1.58.2 image was not caught (exit $status)" >&2
@@ -196,7 +198,7 @@ self_test() {
   fi
 
   # Case 3: image bumped, npm pins left behind — the same outage, inverted.
-  _fixture "v1.61.1-noble" "1.58.2" "1.58.2" "1.58.2" "1.58.2"
+  _fixture "v1.61.1-noble" "$pin" "$pin" "$pin" "$pin"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 1 ]; then
     echo "SELF-TEST FAIL: an image bump with stale npm pins was not caught (exit $status)" >&2
@@ -206,7 +208,7 @@ self_test() {
   # Case 4: a caret that currently happens to resolve correctly is STILL a
   # violation — it is one `npm install` away from case 2, which is the state
   # packages/web was in when #2797 was found.
-  _fixture "v1.58.2-noble" "^1.58.2" "1.58.2" "1.58.2" "1.58.2"
+  _fixture "$base_tag" "^$pin" "$pin" "$pin" "$pin"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 1 ]; then
     echo "SELF-TEST FAIL: a caret range resolving correctly today was not flagged (exit $status)" >&2
@@ -216,8 +218,8 @@ self_test() {
   # Case 5: a digest-pinned ARG (`:tag@sha256:…`, the house convention under
   # Renovate `pinDigests`) is correct hardening and must NOT be reported as
   # drift — a gate that fails on a security improvement gets disabled.
-  _fixture "v1.58.2-noble" "1.58.2" "1.58.2" "1.58.2" "1.58.2"
-  printf 'ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:v1.58.2-noble@sha256:abc123\n' \
+  _fixture "$base_tag" "$pin" "$pin" "$pin" "$pin"
+  printf 'ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:%s@sha256:abc123\n' "$base_tag" \
     > "$tmp/$DOCKERFILE"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 0 ]; then
@@ -226,7 +228,7 @@ self_test() {
   fi
 
   # Case 6: a pinned file that has moved must error, not silently pass.
-  _fixture "v1.58.2-noble" "1.58.2" "1.58.2" "1.58.2" "1.58.2"
+  _fixture "$base_tag" "$pin" "$pin" "$pin" "$pin"
   rm "$tmp/$SITE_LOCK"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 2 ]; then

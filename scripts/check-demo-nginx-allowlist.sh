@@ -562,7 +562,7 @@ CONF
   # security-review note). Skipped if yq is not on PATH (same local-only
   # fallback as the real run).
   if command -v yq >/dev/null 2>&1; then
-    local empty_render empty_conf empty_rc=0
+    local empty_render empty_conf
     empty_render="$tmp/empty_configmap.yaml"
     cat >"$empty_render" <<'YAML'
 apiVersion: v1
