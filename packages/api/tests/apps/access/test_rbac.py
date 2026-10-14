@@ -1971,12 +1971,18 @@ class TestProjectScopedViewSet:
         view = _scoped_viewset(Task.objects.all(), SimpleNamespace(user=user))
         assert view.get_queryset().count() == 0
 
-    def test_org_level_model_falls_through_unfiltered(
+    def test_org_level_model_opted_in_is_unfiltered(self, user: object, calendar: Calendar) -> None:
+        """Calendars are org-shared — a viewset opts in explicitly (M2, #4007)."""
+        view = _scoped_viewset(Calendar.objects.all(), SimpleNamespace(user=user))
+        view.unscoped_queryset = True
+        assert calendar.pk in set(view.get_queryset().values_list("pk", flat=True))
+
+    def test_org_level_model_without_opt_in_fails_closed(
         self, user: object, calendar: Calendar
     ) -> None:
-        """Calendars are org-shared — scoping them is documented as intentional (M2)."""
+        """No project path and no opt-in -> empty, never the whole table (#4007)."""
         view = _scoped_viewset(Calendar.objects.all(), SimpleNamespace(user=user))
-        assert calendar.pk in set(view.get_queryset().values_list("pk", flat=True))
+        assert view.get_queryset().count() == 0
 
 
 # ---------------------------------------------------------------------------

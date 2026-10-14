@@ -3027,7 +3027,20 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
     Idempotency-Key header. The mixin precedes GenericViewSet in the MRO so its
     initial()/finalize_response()/handle_exception() overrides run inside the
     ATOMIC_REQUESTS transaction. Opt out with ``idempotency_exempt = True``.
+
+    Fails closed: a model with no ``project`` / ``predecessor`` FK (and that is not
+    ``Project``) gets ``qs.none()`` from this base. A new task-scoped subclass that
+    calls ``super().get_queryset()`` would otherwise be silently unscoped, a
+    cross-project IDOR with no warning. A viewset whose model is deliberately not
+    project-scoped (an org-level shared resource such as ``Calendar``) must opt in
+    with ``unscoped_queryset = True``; a subclass that reaches its project through a
+    longer path must apply its own membership filter on top of an opted-in base.
+    Enterprise subclasses inherit the same default and must opt in explicitly.
     """
+
+    #: Opt-in for models that are intentionally not project-scoped. Default False so
+    #: the base fails closed rather than open.
+    unscoped_queryset: bool = False
 
     def get_queryset(self) -> QuerySet[Any]:
         qs = super().get_queryset()
@@ -3059,7 +3072,9 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
         # on every other project lookup (#1111).
         if model.__name__ == "Project":
             return qs.filter(pk__in=member_project_ids, is_deleted=False)
-        # Calendar and other non-project-scoped models: fall through unfiltered.
-        # Calendars are org-level shared resources; scoping is documented as
-        # intentional for the OSS single-tenant model (M2 decision: accept).
-        return qs
+        # No recognizable project path. Fail closed unless the viewset explicitly
+        # declared the model non-project-scoped (Calendars are org-level shared
+        # resources; M2 decision: accept for the OSS single-tenant model).
+        if self.unscoped_queryset:
+            return qs
+        return qs.none()

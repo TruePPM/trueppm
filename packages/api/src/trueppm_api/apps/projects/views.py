@@ -1066,6 +1066,9 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # Calendars are an org-level library with no project FK; opt out of the
+    # base class's fail-closed `qs.none()` (#4007).
+    unscoped_queryset = True
     # Exempt from the archived-write invariant (#3414). A Calendar belongs to no
     # project — `get_queryset` returns the whole org library and `get_permissions`
     # replaces the class-level project gate with `IsWorkspaceAdminStrict` on every
@@ -9030,6 +9033,10 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
 
     serializer_class = TaskRecurrenceRuleSerializer
     queryset = TaskRecurrenceRule.objects.select_related("task").filter(is_deleted=False)
+    # The model reaches its project only via `task`, which the base cannot see; the
+    # `get_queryset` below applies the `task__project_id__in` membership filter
+    # itself, so the base's fail-closed `none()` would only empty the list (#4007).
+    unscoped_queryset = True
 
     def get_queryset(self) -> QuerySet[TaskRecurrenceRule]:
         user = getattr(self.request, "user", None)
