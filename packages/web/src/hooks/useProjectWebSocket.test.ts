@@ -11,6 +11,7 @@ import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
+import { SEQ_REORDER_WINDOW_MS } from './wsSeqGate';
 import { useProjectWebSocket } from './useProjectWebSocket';
 import { useAuthStore } from '@/stores/authStore';
 import { useReconcileStore } from '@/stores/reconcileStore';
@@ -1667,6 +1668,7 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
 
     // Process a persisted (seq-bearing) event.
     dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 7 });
+    flushReorderWindow();
     flushDebounce();
 
     // Trigger a retryable close → backoff reconnect.
@@ -1681,11 +1683,20 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
     expect(MockWebSocket.instances[1].url).toContain('&since=7');
   });
 
+  // A fresh (unbaselined) client holds its first frame for the reorder window
+  // unless it is seq 1 (ADR-1285, #4386) — wait it out before asserting the cursor.
+  function flushReorderWindow() {
+    act(() => {
+      vi.advanceTimersByTime(SEQ_REORDER_WINDOW_MS);
+    });
+  }
+
   it('drops an event whose seq was already processed (replay↔live dedup)', () => {
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
     // Advance the cursor to 5 via a task event.
     dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 5 });
+    flushReorderWindow();
     flushDebounce();
 
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
@@ -1700,6 +1711,7 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
     dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 9 });
+    flushReorderWindow();
     flushDebounce();
     // A seq-less presence frame processes normally and must NOT bump the cursor.
     dispatch({ event_type: 'presence_join', payload: { user_id: 'u2', display_name: 'Bo' } });
@@ -1740,6 +1752,93 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
       vi.advanceTimersByTime(1000);
     });
     expect(MockWebSocket.instances[1].url).toContain('&since=42');
+  });
+
+  // #4386: two events committed 10 then 11 but delivered 11-first. The old
+  // high-water gate applied 11 and dropped 10 as a duplicate, leaving the Gantt on
+  // stale dates. Both must now apply, in seq order, with no wait once 10 lands.
+  it('applies both frames of a reversed pair instead of dropping the earlier one', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    // Baseline the cursor to 9, as a reconnect's resync would.
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 9 }, seq: null });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    // 11 overtakes 10: it is held, not applied, while 10 is still owed.
+    dispatch({ event_type: 'dependency_created', payload: { id: 'd1' }, seq: 11 });
+    flushDebounce();
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    // 10 lands: both apply (seq order itself is pinned in wsSeqGate.test.ts).
+    dispatch({ event_type: 'project_updated', payload: { id: 'proj-1' }, seq: 10 });
+    flushDebounce();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dependencies', 'proj-1'] });
+
+    // The cursor is 11: a reconnect asks for nothing it already applied.
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(MockWebSocket.instances[1].url).toContain('&since=11');
+  });
+
+  // #4386 round 2: a socket that drops while a frame is held must not let the
+  // 750 ms window flush it during the >= 1 s backoff. That would move the cursor
+  // past the hole, and the reconnect's ?since= would never replay event 10.
+  // The 4001 re-mint path reconnects through connect() without the backoff timer,
+  // and its ticket fetch can take longer than the 750 ms window. The held frame
+  // must already be gone when that window would have expired.
+  it('drops a held frame on a 4001 re-mint so the reconnect replays the hole', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 9 }, seq: null });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    dispatch({ event_type: 'project_updated', payload: { id: 'proj-1' }, seq: 11 });
+    wsTicketControl.mode = 'defer';
+    try {
+      act(() => {
+        MockWebSocket.instances[0].dispatch('close', { code: 4001 });
+      });
+      // The re-mint is in flight; the reorder window would expire meanwhile.
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+
+      act(() => {
+        wsTicketControl.deferredResolve?.('fresh-ticket');
+      });
+      expect(MockWebSocket.instances.length).toBe(2);
+      expect(MockWebSocket.instances[1].url).toContain('&since=9');
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    } finally {
+      wsTicketControl.mode = 'success';
+      wsTicketControl.deferredResolve = null;
+      wsTicketControl.deferredReject = null;
+    }
+  });
+
+  it('drops a held frame on a retryable close so the reconnect replays the hole', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 9 }, seq: null });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    // 11 overtakes 10 and is held; then the socket drops before 10 arrives.
+    dispatch({ event_type: 'project_updated', payload: { id: 'proj-1' }, seq: 11 });
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000); // past the 750 ms window and the first backoff
+    });
+
+    // 11 was never applied, and the reconnect asks for everything after 9.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(MockWebSocket.instances[1].url).toContain('&since=9');
   });
 });
 

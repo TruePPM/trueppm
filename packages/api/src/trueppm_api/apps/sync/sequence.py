@@ -369,3 +369,120 @@ def register_sequence_receivers() -> None:
         dispatch_uid="sync_sequence_project_calendar_link",
         weak=False,
     )
+
+
+def allocate_board_event_seq(project_id: Any) -> int | None:
+    """Draw the next WebSocket replay ``seq`` for ``project_id`` (ADR-1285, #4386).
+
+    **Must run inside the same ``transaction.atomic()`` as the ``BoardEvent``
+    INSERT that carries the value.** The ``UPDATE … RETURNING`` takes the
+    project's :class:`~trueppm_api.apps.sync.models.BoardEventSequence` row lock
+    and holds it until that transaction commits, so a second event on the project
+    waits for the first to commit before drawing — commit order equals allocation
+    order — and a rolled-back event takes its value back with it, so the committed
+    values stay dense.
+
+    The counter row is created lazily on a project's first replayable event. Two
+    concurrent first events are safe: ``get_or_create`` resolves the INSERT race
+    inside its own savepoint, and both then serialize on the row lock.
+
+    Returns ``None`` when the project does not exist (a broadcast that names a
+    deleted or non-project id): the caller then broadcasts without a ``seq``,
+    exactly as for an ephemeral event.
+    """
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.sync.models import BoardEventSequence
+    from trueppm_api.core.db import increment_returning
+
+    seq = increment_returning(BoardEventSequence, "value", project_id)
+    if seq is not None:
+        return seq
+    # Checked before the INSERT rather than left to the FK: Django's FKs are
+    # DEFERRABLE INITIALLY DEFERRED, so a missing project would only fail at the
+    # outermost COMMIT — outside any except clause the caller can put around this.
+    if not Project.objects.filter(pk=project_id).exists():
+        return None
+    BoardEventSequence.objects.get_or_create(project_id=project_id)
+    return increment_returning(BoardEventSequence, "value", project_id)
+
+
+#: Gap placed between the old global ``BoardEvent`` id space and every project's new
+#: per-project ``seq`` space by the #4386 migration (ADR-1285 §6).
+#:
+#: Seeding a project at its highest old id is not enough on its own. During a
+#: rolling update the old pods keep minting *global* ids from the same identity
+#: sequence, just above that seed, while the new pods hand out per-project values
+#: in the same range. A client fed by both could then hold a cursor equal to a
+#: project's head while having skipped one of its seqs, and the replay would owe it
+#: nothing. Shifting every seed up by 2**32 puts the two spaces about four billion
+#: apart: no id an old pod can mint during a minutes-long window reaches a
+#: project's seq space, and every pre-upgrade cursor sits below its project's seed.
+#:
+#: Range: the column is a signed 64-bit ``BIGINT`` (max 2**63 - 1), and the web
+#: client compares seqs as JavaScript numbers, exact up to 2**53 - 1. A seed is
+#: an existing id plus 2**32 (about 4.3e9), so both limits are many orders of
+#: magnitude away. The allocator's ``value + 1`` and the ``(project, seq)``
+#: uniqueness work on the shifted values exactly as on small ones.
+BOARD_EVENT_SEQ_UPGRADE_OFFSET = 2**32
+
+
+def seed_board_event_sequences(
+    board_event_model: type[models.Model],
+    sequence_model: type[models.Model],
+    project_model: type[models.Model],
+    connection: Any,
+) -> None:
+    """Start every project's replay counter above any cursor an old client can hold.
+
+    Run once by the migration that introduced ``BoardEvent.seq`` (ADR-1285, #4386).
+    It takes the models as arguments so the migration can pass its historical ones,
+    and so the outcome is testable without importing a migration module.
+
+    Before #4386 a client's cursor was a *global* ``BoardEvent`` id. The existing
+    rows are deliberately **not** renumbered: they keep ``seq = NULL`` and stay
+    live-only, so the replay never serves them. Instead each project's counter is
+    seeded at the project's highest old global id plus
+    :data:`BOARD_EVENT_SEQ_UPGRADE_OFFSET`. Every global id, whether it was issued
+    before the upgrade or by an old pod during the rolling update, is then below its
+    project's seed. On reconnect, ``head - since`` exceeds the number of rows that
+    carry a ``seq``, so **every pre-upgrade cursor gets exactly one
+    ``resync_required``** and continues from ``latest_seq``.
+
+    Renumbering the old rows per project, the first design, was wrong. A rank ``r``
+    is at most the old id ``c`` it replaced, so a cursor ``c`` that landed at or
+    below the new head replayed ``(c, head]`` and silently skipped ranks
+    ``r + 1 .. c``.
+
+    A project with no surviving rows still needs a seed: a client may hold a cursor
+    from rows the purge has since removed. Any id ever assigned is at most the
+    table's identity sequence value, so those projects are seeded there, plus the
+    same offset. For their members that one constant reveals how many events the
+    installation had written by the upgrade. It is a single fixed number, not the
+    ongoing per-frame volume the old design leaked.
+    """
+    events = board_event_model._meta.db_table
+    q_events = connection.ops.quote_name(events)
+    q_sequences = connection.ops.quote_name(sequence_model._meta.db_table)
+    q_projects = connection.ops.quote_name(project_model._meta.db_table)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_get_serial_sequence(%s, 'id')", [events])
+        row = cursor.fetchone()
+        id_sequence = row[0] if row else None
+        global_floor = 0
+        if id_sequence:
+            # The name comes from the catalog, already schema-qualified and quoted.
+            # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+            cursor.execute(
+                f"SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM {id_sequence}"  # nosec B608
+            )
+            global_floor = int(cursor.fetchone()[0])
+        # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+        cursor.execute(
+            f"INSERT INTO {q_sequences} (project_id, value) "  # nosec B608 - names from _meta
+            f"SELECT p.id, COALESCE(m.max_id, %s) + %s FROM {q_projects} AS p "
+            f"LEFT JOIN (SELECT project_id, MAX(id) AS max_id FROM {q_events} "
+            f"GROUP BY project_id) AS m ON m.project_id = p.id "
+            f"ON CONFLICT (project_id) DO UPDATE "
+            f"SET value = GREATEST({q_sequences}.value, EXCLUDED.value)",
+            [global_floor, BOARD_EVENT_SEQ_UPGRADE_OFFSET],
+        )

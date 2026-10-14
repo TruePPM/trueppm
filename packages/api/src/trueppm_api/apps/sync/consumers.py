@@ -287,8 +287,14 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         the sync delta on reconnect (see ``broadcast.py``). (#1108)
         """
         try:
-            from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
+            from trueppm_api.apps.sync.broadcast import SEQ_SCOPE_PROJECT, WS_PROTOCOL_VERSION
 
+            # Forward a seq only when the sender marked it as the per-project
+            # sequence (ADR-1285, #4386). A pre-#4386 pod in a rolling update sends
+            # its global row id unmarked; adopting that as a cursor would put the
+            # client in the wrong number space, so it goes out as an unsequenced
+            # frame instead — applied, never gated.
+            seq = event.get("seq") if event.get("seq_scope") == SEQ_SCOPE_PROJECT else None
             await self.send_json(
                 {
                     "protocol_version": event.get("protocol_version", WS_PROTOCOL_VERSION),
@@ -298,7 +304,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                     # ones (presence / task-run progress). The client advances its
                     # last-seen ``seq`` off this and requests ``?since=`` on
                     # reconnect (ADR-0236).
-                    "seq": event.get("seq"),
+                    "seq": seq,
                 }
             )
         except RuntimeError:
@@ -310,53 +316,68 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     async def _replay_missed_events(self, since: int) -> None:
         """Stream buffered BoardEvents with ``seq > since``, or signal a resync.
 
-        Gap detection (ADR-0236): the purge deletes a contiguous low-``id`` prefix
-        (``created_at`` is monotonic with ``id`` at 24 h granularity), so the
-        smallest surviving global ``id`` is a valid watermark. If the first event
-        the client wants (``since + 1``) is older than that watermark — i.e.
-        ``since < oldest - 1`` — some missed events were purged and completeness
-        can't be guaranteed, so we send a single ``resync_required`` frame (the
-        client refetches) rather than a partial replay. The same fallback fires
-        when the client is further behind than ``_REPLAY_CAP`` (cheaper to refetch
-        than to stream).
+        ``seq`` is dense per project (ADR-1285, #4386), so completeness is a count,
+        not a guess: the project's counter value is the head, the client is owed
+        exactly ``head - since`` events, and a replay is sent only when exactly that
+        many rows survive. Anything else gets one ``resync_required`` frame and the
+        client refetches:
+
+        - ``since > head`` — a cursor the project's sequence never reached. One
+          example is a global id an old pod issued during the #4386 rolling update
+          for a project created in that window, whose counter starts at 0.
+          ``latest_seq`` re-baselines it.
+        - A global-id cursor from before or during the #4386 upgrade, for a project
+          that existed at the upgrade, is below the project's seed
+          (``seed_board_event_sequences``, offset by
+          ``BOARD_EVENT_SEQ_UPGRADE_OFFSET``). It is owed more events than carry a
+          ``seq``, so it falls into the "fewer rows than owed" case below and
+          resyncs.
+        - ``head - since > _REPLAY_CAP`` — cheaper to refetch than to stream.
+        - fewer rows than owed — the purge reaped part of the gap.
+
+        ``since == head`` replays nothing and needs no resync. The row query is
+        bounded above by the head it was counted against, so an event committed
+        between the two reads cannot inflate the count; it reaches the client live,
+        because the socket joined the group before this ran.
+
+        Every value read here is scoped to this project. The old global-id design
+        had to read a *global* minimum id to detect purge gaps; the density check
+        needs nothing outside the project, so no instance-wide figure reaches a
+        member.
         """
         from channels.db import database_sync_to_async
 
         from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
 
         @database_sync_to_async  # type: ignore[untyped-decorator]
-        def _fetch() -> tuple[list[dict[str, Any]], int | None, int | None]:
-            from trueppm_api.apps.sync.models import BoardEvent
+        def _fetch() -> tuple[list[dict[str, Any]], int]:
+            from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
 
-            # oldest is GLOBAL by design: gap detection relies on the purge
-            # trimming a contiguous global low-id prefix, so the smallest surviving
-            # id across all projects is the valid retention watermark. latest, by
-            # contrast, is scoped to THIS project — it only baselines the client's
-            # cursor after a resync, and a global max would leak the instance-wide
-            # event-counter (cross-tenant activity volume) to any single member.
-            oldest = BoardEvent.objects.order_by("id").values_list("id", flat=True).first()
-            latest = (
-                BoardEvent.objects.filter(project_id=self.project_pk)
-                .order_by("-id")
-                .values_list("id", flat=True)
+            head = (
+                BoardEventSequence.objects.filter(project_id=self.project_pk)
+                .values_list("value", flat=True)
                 .first()
-            )
-            # Fetch one past the cap so we can detect truncation cheaply.
+            ) or 0
+            owed = head - since
+            if owed <= 0 or owed > _REPLAY_CAP:
+                return [], head
             rows = cast(
                 "list[dict[str, Any]]",
                 list(
-                    BoardEvent.objects.filter(project_id=self.project_pk, id__gt=since)
-                    .order_by("id")
-                    .values("id", "event_type", "payload")[: _REPLAY_CAP + 1]
+                    BoardEvent.objects.filter(
+                        project_id=self.project_pk, seq__gt=since, seq__lte=head
+                    )
+                    .order_by("seq")
+                    .values("seq", "event_type", "payload")
                 ),
             )
-            return rows, oldest, latest
+            return rows, head
 
-        rows, oldest, latest = await _fetch()
-
-        purged_gap = oldest is None or since < oldest - 1
-        truncated = len(rows) > _REPLAY_CAP
-        if purged_gap or truncated:
+        rows, head = await _fetch()
+        owed = head - since
+        if owed == 0:
+            return
+        if owed < 0 or len(rows) != owed:
             await self.send_json(
                 {
                     "protocol_version": WS_PROTOCOL_VERSION,
@@ -364,7 +385,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                     # latest_seq lets the client baseline its last-seen sequence to
                     # the buffer head after it refetches, so the next reconnect
                     # doesn't re-request the purged gap.
-                    "payload": {"latest_seq": latest},
+                    "payload": {"latest_seq": head},
                     "seq": None,
                 }
             )
@@ -376,7 +397,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                     "protocol_version": WS_PROTOCOL_VERSION,
                     "event_type": row["event_type"],
                     "payload": row["payload"],
-                    "seq": row["id"],
+                    "seq": row["seq"],
                     "replayed": True,
                 }
             )

@@ -705,6 +705,71 @@ them back or re-mint the token under a member account. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 
+### WebSocket replay `seq` becomes per-project (`sync.0006`)
+
+The `seq` on a real-time board event is now a per-project, dense counter instead of
+the replay buffer's global row id (#4386). Operators have nothing to configure.
+
+**What the migration does.** `sync.0006_boardevent_per_project_seq` does three things:
+
+- It adds a nullable `seq` column to `sync_boardevent`. It does not rewrite any
+  existing rows; they keep `seq` empty and are delivered live but never replayed.
+- It creates the per-project counter table. It seeds each project's counter at the
+  highest replay id that project used plus 2³². The pods still running the old
+  release keep issuing global ids during the rollout. The offset keeps those ids, and
+  every cursor saved before the upgrade, below the new per-project numbers.
+- It replaces the `(project, id)` index with a `(project, seq)` unique constraint.
+
+Building that index scans the table. The whole migration runs in one transaction
+and holds an `ACCESS EXCLUSIVE` lock on `sync_boardevent` until it commits. The
+table holds at most `TRUEPPM_BOARD_EVENT_RETENTION_HOURS` of events (24 h by
+default). We measured about 0.12 s for 300,000 rows across 500 projects on a
+developer laptop, local PostgreSQL 16. That figure is from one machine. Expect it to
+scale roughly with row count, and to be slower on shared or network storage.
+
+Near the end of the migration, the counter table's foreign key to projects is
+created. That takes a `SHARE ROW EXCLUSIVE` lock on `projects_project`, held from
+then until the migration commits. The locks are taken in this order:
+`sync_boardevent`, then `projects_project`. While they are held, old pods that are
+still serving wait on them:
+
+- a board-event broadcast or a reconnect replay, for the whole migration;
+- an `INSERT`, `UPDATE` or `DELETE` on a project row, for the tail of the migration.
+  This includes the sync-cursor bump each sync upload makes, and project edits.
+  Plain `SELECT … FOR UPDATE` on a project row does not wait.
+
+Each pauses for that long, then continues. Nothing fails. We found no old-pod
+transaction that writes a project row and then touches `sync_boardevent`, so a
+deadlock is not expected. This is not guaranteed by construction.
+
+**During a rolling update** (`replicaCount >= 2`, as in `values-prod.yaml`), pods on
+the old and new code run side by side for a few minutes, using two different `seq`
+number spaces:
+
+- A browser can briefly miss live updates or apply them late.
+- A tab whose socket is still on an old pod can receive one event from a new pod.
+  This applies to a newly loaded tab as well as an existing one. After that event,
+  the tab ignores further events from old pods. Changes old pods make from then on
+  are not shown until the data is refetched or the page is reloaded. Reconnecting
+  to a new pod does not correct this on its own.
+- Events written by an old pod during the window are delivered live but are not
+  replayable after a reconnect.
+
+Reloading the page clears all of these. Every client that was connected across
+the upgrade refetches its project data once, on its first reconnect. If you script
+against the WebSocket API, any cursor saved before the upgrade gets one
+`resync_required` the first time you reconnect with it. See
+[Sequence numbers and reconnect replay](/api/websockets/#sequence-numbers-and-reconnect-replay).
+
+**Rollback:** the migration is reversible. Unapplying it drops the column and the
+counter table. After a rollback, reload every open browser tab.
+
+The reload is required because a tab still holds a per-project cursor above 2³²,
+far above every global id the rolled-back release issues. The rolled-back server
+neither replays to such a cursor nor resyncs it. The tab then drops every live
+board event as already seen, until it is reloaded. For a scripted client, discard
+any cursor saved since the upgrade.
+
 ### Upgrading across the #4359 readiness-probe change
 
 **Helm only — sets a floor on the `web` image, not just the chart.** The web
