@@ -1156,9 +1156,18 @@ def parse_mpp(mpp_content: bytes) -> ProjectData:
     """
     jar_path = getattr(settings, "MPXJ_JAR_PATH", "/opt/mpxj/mpxj-cli.jar")
     if not os.path.isfile(jar_path):
+        # The path and setting name are operator detail; the user-facing
+        # RuntimeError carries only a reference id that maps to this log line.
+        error_id = uuid.uuid4().hex[:12]
+        logger.error(
+            "msproject.mpxj_jar_missing error_id=%s expected_path=%s "
+            "(.mpp import needs Java and the MPXJ CLI JAR; set MPXJ_JAR_PATH)",
+            error_id,
+            jar_path,
+        )
         raise RuntimeError(
-            "MPXJ JAR not found. .mpp import requires Java and the MPXJ CLI JAR. "
-            f"Expected at: {jar_path}. Set MPXJ_JAR_PATH in settings to override."
+            ".mpp import is not available on this server "
+            f"(reference {error_id}). Contact your administrator."
         )
 
     max_output = getattr(settings, "MPXJ_MAX_OUTPUT_MB", 512) * 1024 * 1024

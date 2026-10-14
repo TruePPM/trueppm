@@ -402,3 +402,14 @@ class TestMpxjStderrDrain:
             parse_mpp(b"fake-mpp-bytes")
         assert time.monotonic() - started < 20
         assert "EEEE" not in str(exc.value)
+
+
+class TestMpxjJarMissingHidesPath:
+    @override_settings(MPXJ_JAR_PATH="/srv/secret/mpxj-cli.jar")
+    def test_missing_jar_message_has_no_path_but_log_does(self, caplog: Any) -> None:
+        with caplog.at_level("ERROR"), pytest.raises(RuntimeError) as exc:
+            parse_mpp(b"fake-mpp-bytes")
+        msg = str(exc.value)
+        assert "/srv/secret" not in msg and "MPXJ_JAR_PATH" not in msg
+        assert "reference" in msg
+        assert "/srv/secret/mpxj-cli.jar" in caplog.text
