@@ -551,6 +551,8 @@ def _send_invite_email(
     )
     try:
         msg.send(fail_silently=False)
+    # TODO(#4421): swallows SoftTimeLimitExceeded; the drain-loop guard
+    # is ineffective until this is fixed
     except Exception:
         logger.warning("drain_invite_emails: SMTP send failed for invite %s", inv.pk, exc_info=True)
         return False

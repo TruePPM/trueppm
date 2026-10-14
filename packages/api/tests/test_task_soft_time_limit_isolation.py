@@ -10,7 +10,8 @@ The rule enforced here, over **every** module under ``trueppm_api`` (not only
 bundles and so on): inside any ``for``/``while`` loop, every ``except Exception`` /
 bare ``except`` handler must be preceded, in the same ``try``, by
 ``except SoftTimeLimitExceeded: raise``, unless the handler itself re-raises
-(bare ``raise``). ``contextlib.suppress(Exception)`` in a loop is flagged too.
+(bare ``raise``); ``try`` and ``try``/``except*`` are treated alike.
+``contextlib.suppress(Exception)`` in a loop is flagged too.
 A new unguarded loop anywhere fails here. Exempt functions live in ``_EXEMPT``
 with an exact handler count and a reason; some are *known* unguarded and tracked
 in #4421, so green here means "no NEW unguarded handler", not "every task-module
@@ -148,7 +149,7 @@ def violations_in(source: str, *, helpers: set[str] | None = None) -> list[tuple
             if in_loop or (helpers and fn in helpers):
                 found.append((node.lineno, fn))
             continue
-        if not isinstance(node, ast.Try):
+        if not isinstance(node, ast.Try | ast.TryStar):
             continue
         in_loop, fn = _context(node, parents)
         if not (in_loop or (helpers and fn in helpers)):
@@ -232,6 +233,12 @@ def test_negative_controls() -> None:
         "        try:\n            f(x)\n        except Exception:\n            raise\n"
     )
     suppressed = _t("        with contextlib.suppress(Exception):\n            f(x)\n")
+    trystar = _t("        try:\n            f(x)\n        except* Exception:\n            pass\n")
+    trystar_guarded = _t(
+        "        try:\n            f(x)\n"
+        "        except* SoftTimeLimitExceeded:\n            raise\n"
+        "        except* Exception:\n            pass\n"
+    )
     suppress_narrow = _t("        with contextlib.suppress(KeyError):\n            f(x)\n")
     assert violations_in(unguarded) == [(5, "t")]
     assert violations_in(guarded) == []
@@ -239,3 +246,5 @@ def test_negative_controls() -> None:
     assert violations_in(bare_reraise) == []
     assert violations_in(suppressed) == [(3, "t")]
     assert violations_in(suppress_narrow) == []
+    assert violations_in(trystar) == [(5, "t")]
+    assert violations_in(trystar_guarded) == []

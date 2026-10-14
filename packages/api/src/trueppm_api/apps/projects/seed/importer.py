@@ -1661,6 +1661,8 @@ class _SeedImporter:
                 continue
             try:
                 upsert_burndown_for_sprint(sprint)
+            # TODO(#4421): swallows SoftTimeLimitExceeded; the drain-loop guard
+            # is ineffective until this is fixed
             except Exception:
                 logger.exception("seed import: burndown upsert failed for sprint=%s", sprint.pk)
 
