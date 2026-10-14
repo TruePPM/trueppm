@@ -314,6 +314,91 @@ class TestMpxjStdoutBound:
         with (
             patch("os.path.isfile", return_value=True),
             patch("subprocess.Popen", return_value=popen),
-            pytest.raises(RuntimeError, match="MPXJ conversion failed"),
+            pytest.raises(RuntimeError, match="MPXJ could not convert"),
         ):
             parse_mpp(b"fake-mpp-bytes")
+
+
+class _InstantTimer:
+    """Timer that fires its callback synchronously on start() — deterministic timeout."""
+
+    def __init__(self, _interval: float, fn: Any) -> None:
+        self._fn = fn
+
+    def start(self) -> None:
+        self._fn()
+
+    def cancel(self) -> None:
+        pass
+
+
+class TestMpxjStderrDrain:
+    """#4385 — stderr drained concurrently and never surfaced to the user."""
+
+    @override_settings(MPXJ_JAR_PATH="/tmp/fake-mpxj.jar", MPXJ_MAX_OUTPUT_MB=1)
+    def test_nonzero_exit_hides_stderr_and_logs_it(self, caplog: Any) -> None:
+        popen = _FakePopen([b""], returncode=1)
+        popen.stderr = _FakeStream([b"at com.secret.Internal /opt/mpxj/x.jar"])
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("subprocess.Popen", return_value=popen),
+            caplog.at_level("WARNING"),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            parse_mpp(b"fake-mpp-bytes")
+        msg = str(exc.value)
+        assert "com.secret" not in msg and "/opt/mpxj" not in msg
+        assert "reference" in msg
+        assert "com.secret.Internal" in caplog.text
+
+    @override_settings(MPXJ_JAR_PATH="/tmp/fake-mpxj.jar", MPXJ_MAX_OUTPUT_MB=1)
+    def test_over_cap_error_has_no_stderr(self) -> None:
+        popen = _FakePopen([b"x" * 65536 for _ in range(32)])
+        popen.stderr = _FakeStream([b"SECRET-STDERR"])
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("subprocess.Popen", return_value=popen),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            parse_mpp(b"fake-mpp-bytes")
+        assert "SECRET-STDERR" not in str(exc.value)
+
+    @override_settings(MPXJ_JAR_PATH="/tmp/fake-mpxj.jar", MPXJ_MAX_OUTPUT_MB=1)
+    def test_timeout_error_has_no_stderr(self) -> None:
+        popen = _FakePopen([b""], returncode=-9)
+        popen.stderr = _FakeStream([b"SECRET-STDERR"])
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("subprocess.Popen", return_value=popen),
+            patch("trueppm_api.apps.msproject.parser.threading.Timer", _InstantTimer),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            parse_mpp(b"fake-mpp-bytes")
+        assert "SECRET-STDERR" not in str(exc.value)
+
+    @override_settings(MPXJ_JAR_PATH="/tmp/fake-mpxj.jar", MPXJ_MAX_OUTPUT_MB=1)
+    def test_chatty_stderr_does_not_deadlock_real_process(self, tmp_path: Any) -> None:
+        """A real child writing 1 MB to stderr before stdout must return promptly."""
+        import sys
+        import time
+
+        script = tmp_path / "fake_java.py"
+        script.write_text(
+            "import sys\nsys.stderr.write('E' * 1048576)\nsys.stderr.flush()\nsys.exit(1)\n"
+        )
+        import subprocess as sp
+
+        real_popen = sp.Popen
+
+        def _popen(_cmd: list[str], **kw: Any) -> Any:
+            return real_popen([sys.executable, str(script)], **kw)
+
+        started = time.monotonic()
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("subprocess.Popen", side_effect=_popen),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            parse_mpp(b"fake-mpp-bytes")
+        assert time.monotonic() - started < 20
+        assert "EEEE" not in str(exc.value)
