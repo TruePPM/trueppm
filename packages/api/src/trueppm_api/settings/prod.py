@@ -45,6 +45,9 @@ DEBUG = False
 # Prefix for every import-time boot-guard failure below.
 _REFUSING_TO_START = "Refusing to start: "
 
+# Logger name shared by every import-time boot-guard warning below (python:S1192).
+_SETTINGS_LOGGER_NAME = "trueppm.settings"
+
 # Force single-line JSON logs in production so a collector (Loki/ELK/CloudWatch)
 # can index each record's fields — including the OTel trace_id/span_id/request_id
 # the filter injects (ADR-0223, #1899) — for log-to-trace correlation. The base
@@ -67,7 +70,7 @@ _wildcard_host_errors = validate_allowed_hosts(
 if _wildcard_host_errors:
     raise RuntimeError(_REFUSING_TO_START + "; ".join(str(e.msg) for e in _wildcard_host_errors))
 if ALLOW_WILDCARD_ALLOWED_HOSTS and "*" in ALLOWED_HOSTS:
-    logging.getLogger("trueppm.settings").warning(
+    logging.getLogger(_SETTINGS_LOGGER_NAME).warning(
         "ALLOWED_HOSTS contains the wildcard '*', so Django performs no host "
         "validation. Absolute URLs the API builds (the OIDC redirect_uri and the "
         "inbound Git-webhook URL) will follow whatever host the caller sends. "
@@ -84,7 +87,7 @@ if ALLOW_WILDCARD_ALLOWED_HOSTS and "*" in ALLOWED_HOSTS:
 # workspace-invite emails have no accept link.
 _frontend_base_url_warnings = validate_frontend_base_url(FRONTEND_BASE_URL, debug=DEBUG)
 for _frontend_base_url_warning in _frontend_base_url_warnings:
-    logging.getLogger("trueppm.settings").warning(str(_frontend_base_url_warning.msg))
+    logging.getLogger(_SETTINGS_LOGGER_NAME).warning(str(_frontend_base_url_warning.msg))
 
 SECRET_KEY = env("SECRET_KEY")  # required; no default in prod
 
@@ -232,7 +235,7 @@ if _db_url_raw:
     _db_url_qs = urllib.parse.parse_qs(urllib.parse.urlparse(_db_url_raw).query)
     if "sslmode" not in _db_url_qs:
         if ALLOW_UNENCRYPTED_DB:
-            logging.getLogger("trueppm.settings").warning(
+            logging.getLogger(_SETTINGS_LOGGER_NAME).warning(
                 "DATABASE_URL does not include sslmode=require. "
                 "Database connections may use unencrypted transport. "
                 "Proceeding because TRUEPPM_ALLOW_UNENCRYPTED_DB=true is set; "

@@ -51,12 +51,15 @@ import {
  *
  * The names stay for the cheatsheet and the `⌥→` binding that import them.
  */
-// Imported as well as re-exported: this module uses both names internally, and
-// a bare `export … from` re-exports without binding them in local scope.
-import { LINK_TYPES, cycleLinkType, type CanonicalLinkType } from '../deps/linkTypes';
+// `cycleLinkType` is imported (not just re-exported): `cycleDependencyType`
+// below is used internally by `cycleDependencyTypeInDraft`, and a bare
+// `export … from` re-exports without binding a local name to call. `LINK_TYPES`
+// has no internal consumer in this file, so `DEPENDENCY_TYPE_CYCLE` re-exports
+// it directly instead.
+import { cycleLinkType, type CanonicalLinkType } from '../deps/linkTypes';
 import { DEFAULT_HOURS_PER_DAY, safeHoursPerDay } from '../duration/durationUnit';
 
-export const DEPENDENCY_TYPE_CYCLE = LINK_TYPES;
+export { LINK_TYPES as DEPENDENCY_TYPE_CYCLE } from '../deps/linkTypes';
 export const cycleDependencyType = cycleLinkType;
 export type DependencyType = CanonicalLinkType;
 

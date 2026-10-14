@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { test as base, expect } from '@playwright/test';
+import { test as base } from '@playwright/test';
 
 /**
  * E2E coverage capture (issue #2117). Extends Playwright's base `test` with one
@@ -76,5 +76,4 @@ export const test = base.extend<{ collectCoverage: void }>({
   ],
 });
 
-export { expect };
 export * from '@playwright/test';

@@ -57,7 +57,7 @@ export function stubCoarsePointer(initial: boolean) {
   previousMatchMedia = { had: 'matchMedia' in g, value: g.matchMedia };
   g.matchMedia = (query: string) => {
     if (/pointer:\s*coarse/.test(query)) return mql;
-    return { ...mql, matches: /^\(min-width:/.test(query), media: query };
+    return { ...mql, matches: query.startsWith('(min-width:'), media: query };
   };
 
   // The module listener is registered at import time, long before this stub

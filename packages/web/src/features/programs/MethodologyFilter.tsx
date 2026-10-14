@@ -113,7 +113,7 @@ export function MethodologyFilter<
   // stripping the whole radiogroup from the tab order while a filter is still in
   // force. Falling back to 0 keeps a way in.
   useEffect(() => {
-    setFocusIdx(selectedIdx >= 0 ? selectedIdx : 0);
+    setFocusIdx(Math.max(selectedIdx, 0));
   }, [selectedIdx, options.length]);
 
   function moveFocus(next: number) {

@@ -8,8 +8,9 @@ import { PhaseUncertaintyBlock } from '../PhaseUncertaintyBlock';
 
 /**
  * Estimates section — wraps the existing EstimatesTab. Defaults to estimation
- * mode 'open' (matching previous drawer default) until project-level
- * methodology lookup is wired (TODO follow-up). Gates the EstimatesTab write
+ * mode 'open' (matching previous drawer default); nothing yet derives this
+ * from project-level methodology, so every project reads as 'open' here
+ * regardless of its own governance setting. Gates the EstimatesTab write
  * access on the threaded `canEdit` verdict + role floor (see below).
  *
  * Passes sprintIsActive so EstimatesTab can gate the remaining-points input

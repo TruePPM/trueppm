@@ -21,6 +21,11 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 logger = logging.getLogger(__name__)
 
+#: Shared across every project-token authority check below (python:S1192) — the
+#: three raise sites are independent guards, not one call site, so the string
+#: must stay byte-identical across them rather than collapse to one raise.
+TOKEN_PROJECT_AUTHORITY_ERROR = "Token does not authorize this project."
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -2009,7 +2014,7 @@ class IsTokenForProject(BasePermission):
                 # seed/reset tooling — so this is inconsistent data. Fail
                 # closed: no record of a role is no authority.
                 if minter_role is None or minter_role < Role.MEMBER:
-                    raise AuthenticationFailed("Token does not authorize this project.")
+                    raise AuthenticationFailed(TOKEN_PROJECT_AUTHORITY_ERROR)
             # created_by NULL (minter's account deleted, SET_NULL): nothing to
             # check here. That token is NOT usable on the write endpoints,
             # though — ProjectApiTokenAuthentication resolves request.user to
@@ -2031,7 +2036,7 @@ class IsTokenForProject(BasePermission):
                 program_id=token.program_id,
                 is_deleted=False,
             ).exists():
-                raise AuthenticationFailed("Token does not authorize this project.")
+                raise AuthenticationFailed(TOKEN_PROJECT_AUTHORITY_ERROR)
 
             # #4324: program-level authority (being able to mint a program token
             # at all) is not project-level authority. Intersect with the
@@ -2070,7 +2075,7 @@ class IsTokenForProject(BasePermission):
                 .first()
             )
             if minter_role is None or minter_role < Role.MEMBER:
-                raise AuthenticationFailed("Token does not authorize this project.")
+                raise AuthenticationFailed(TOKEN_PROJECT_AUTHORITY_ERROR)
             return True
 
         # Defense in depth: the DB CheckConstraint guarantees at least one of

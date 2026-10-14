@@ -16,7 +16,7 @@ import { useEffect } from 'react';
 import { useReconcileStore } from '@/stores/reconcileStore';
 import type { Task } from '@/types';
 
-import { PREVIEW_TTL_MS, type ReconcileObservation } from './reconcileState';
+import type { ReconcileObservation } from './reconcileState';
 
 /** How often an idle view re-checks for previews that timed out. */
 const PRUNE_INTERVAL_MS = 15_000;
@@ -34,8 +34,10 @@ export function useScheduleReconciliation(projectId: string | null, tasks: Task[
     if (!tasks) return;
     const observations: ReconcileObservation[] = [];
     for (const t of tasks) {
-      observations.push({ taskId: t.id, field: 'start', value: t.start || null });
-      observations.push({ taskId: t.id, field: 'finish', value: t.finish || null });
+      observations.push(
+        { taskId: t.id, field: 'start', value: t.start || null },
+        { taskId: t.id, field: 'finish', value: t.finish || null },
+      );
     }
     observe(observations);
     prune(new Set(tasks.map((t) => t.id)));
@@ -51,4 +53,4 @@ export function useScheduleReconciliation(projectId: string | null, tasks: Task[
   }, [prune]);
 }
 
-export { PREVIEW_TTL_MS };
+export { PREVIEW_TTL_MS } from './reconcileState';

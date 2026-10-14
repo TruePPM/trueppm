@@ -27,7 +27,7 @@ def default_summary(text: str) -> str:
         if line.strip() == "## [Unreleased]":
             found = True
             continue
-        if found and (line.startswith("### ") or line.startswith("## [")):
+        if found and line.startswith(("### ", "## [")):
             break
         if found and line.strip() != PLACEHOLDER:
             buf.append(line)

@@ -325,11 +325,9 @@ function dateOrderStatement({
     );
   }
   return (
-    <>
-      <b>
-        Reading dates in {columns} as {shortName(resolved)}.
-      </b>
-    </>
+    <b>
+      Reading dates in {columns} as {shortName(resolved)}.
+    </b>
   );
 }
 

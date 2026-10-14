@@ -57,10 +57,10 @@ export interface FieldDeviation {
    *  accessible name, so never pass a server-derived string through it. */
   scope: string;
   /** The value this row would inherit, unformatted (the cell formats it). */
-  inherited: string | number | null;
+  inherited: BulkFieldValue;
   /** This row's own stored value. Equals `effective` except under a lock, where the
    *  workspace value is in force but the unreconciled stored value is what differs. */
-  own: string | number | null;
+  own: BulkFieldValue;
 }
 
 /** Effective (in-force) value of a field on one row + whether it's an explicit override. */

@@ -1478,6 +1478,7 @@ if _NUM_PROXIES < 0:
 _STANDARD_RATE = "60/min"
 _MODERATE_RATE = "20/min"
 _STRICT_RATE = "10/min"
+_RELAXED_RATE = "120/min"
 _STRICTEST_RATE = "5/min"
 
 REST_FRAMEWORK = {
@@ -1629,12 +1630,12 @@ REST_FRAMEWORK = {
         # and the suggestion once per debounced keystroke on a create form, so
         # 120/min never trips a person — and it bounds using either endpoint as a
         # scan engine over the key namespace (the accepted existence oracle).
-        "resolve": env("TRUEPPM_THROTTLE_RESOLVE_RATE", default="120/min"),
+        "resolve": env("TRUEPPM_THROTTLE_RESOLVE_RATE", default=_RELAXED_RATE),
         # WebSocket connection tickets (#818, ADR-0141). One ticket is minted per
         # socket open (and per reconnect, since tickets are single-use); 120/min
         # covers aggressive reconnect storms without letting one account flood
         # Redis with 30-second ticket keys.
-        "ws_ticket": "120/min",
+        "ws_ticket": _RELAXED_RATE,
         # Invite-email resend (#969, ADR-0149). Each request re-issues a token and
         # re-queues an email; 5/min per admin bounds email-bomb abuse while leaving
         # ample room for a human clicking "Resend" on a handful of stuck invites.
@@ -1773,7 +1774,7 @@ REST_FRAMEWORK = {
         # Env-tunable so an operator can widen the budget for a trusted agent fleet
         # or tighten it under load. OSS ships basic per-token limits; per-agent
         # budgets and anomaly auto-suspend are Phase 4 / Enterprise.
-        "mcp_read": env("TRUEPPM_THROTTLE_MCP_READ_RATE", default="120/min"),
+        "mcp_read": env("TRUEPPM_THROTTLE_MCP_READ_RATE", default=_RELAXED_RATE),
         "mcp_read_compute": env("TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE", default="12/min"),
         # Public board share-link endpoints (#283, ADR-0245). "share_mint" bounds
         # how fast one Admin account can spray share links; "share_access" bounds
