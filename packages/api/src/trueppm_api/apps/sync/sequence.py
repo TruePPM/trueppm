@@ -406,41 +406,69 @@ def allocate_board_event_seq(project_id: Any) -> int | None:
     return increment_returning(BoardEventSequence, "value", project_id)
 
 
-def renumber_board_events(
+def seed_board_event_sequences(
     board_event_model: type[models.Model],
     sequence_model: type[models.Model],
+    project_model: type[models.Model],
     connection: Any,
 ) -> None:
-    """Rewrite the replay buffer onto per-project dense sequences (ADR-1285, #4386).
+    """Start every project's replay counter above any cursor an old client holds.
 
-    Run once by the migration that introduced ``BoardEvent.seq``; it takes the
-    models as arguments so the migration can pass its historical ones, and so the
-    outcome is testable without importing a migration module.
+    Run once by the migration that introduced ``BoardEvent.seq`` (ADR-1285, #4386).
+    It takes the models as arguments so the migration can pass its historical ones,
+    and so the outcome is testable without importing a migration module.
 
-    Every surviving row gets ``seq = ROW_NUMBER() OVER (PARTITION BY project ORDER
-    BY id)`` — the old global id order *is* the old per-project order, so replay
-    order is preserved — and each project's counter starts at its highest
-    renumbered value, so the next live event continues the dense run.
+    Before #4386 a client's cursor was a *global* ``BoardEvent`` id. The existing
+    rows are deliberately **not** renumbered: they keep ``seq = NULL`` and stay
+    live-only, so the replay never serves them. Instead each project's counter is
+    seeded at the project's highest old global id. Every new per-project ``seq`` is
+    then above any cursor an old client can hold for that project, which makes the
+    consumer's density check settle every pre-upgrade cursor correctly:
 
-    A client that crossed the upgrade still holds a cursor drawn from the old
-    global id space. Nothing here translates it: the consumer answers a ``since``
-    above the project's head with ``resync_required`` (see
-    ``ProjectConsumer._replay_missed_events``), and one below it either replays
-    idempotent events or fails the density check and resyncs.
+    - ``since < seed``: ``head - since`` is more than the surviving sequenced rows
+      (only new rows carry a ``seq``), so the client gets ``resync_required``.
+    - ``since == seed``: the client had seen everything up to the upgrade, and the
+      replay serves exactly the new events.
+    - ``since > seed``: only reachable from a global id an old pod handed out
+      during the rolling update. It is almost always above the head too, so the
+      client is re-baselined; the residual case is the disclosed rolling-update
+      risk (upgrade notes).
+
+    Renumbering the old rows per project, the first design, was wrong. A rank ``r``
+    is at most the old id ``c`` it replaced, so a cursor ``c`` that landed at or
+    below the new head replayed ``(c, head]`` and silently skipped ranks
+    ``r + 1 .. c``.
+
+    A project with no surviving rows still needs a seed: a client may hold a cursor
+    from rows the purge has since removed. Any id ever assigned is at most the
+    table's identity sequence value, so those projects are seeded there. For their
+    members that one constant reveals how many events the installation had written
+    by the upgrade. It is a single fixed number, not the ongoing per-frame volume
+    the old design leaked.
     """
-    events = connection.ops.quote_name(board_event_model._meta.db_table)
-    sequences = connection.ops.quote_name(sequence_model._meta.db_table)
+    events = board_event_model._meta.db_table
+    q_events = connection.ops.quote_name(events)
+    q_sequences = connection.ops.quote_name(sequence_model._meta.db_table)
+    q_projects = connection.ops.quote_name(project_model._meta.db_table)
     with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_get_serial_sequence(%s, 'id')", [events])
+        row = cursor.fetchone()
+        id_sequence = row[0] if row else None
+        global_floor = 0
+        if id_sequence:
+            # The name comes from the catalog, already schema-qualified and quoted.
+            # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
+            cursor.execute(
+                f"SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM {id_sequence}"  # nosec B608
+            )
+            global_floor = int(cursor.fetchone()[0])
         # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
         cursor.execute(
-            f"UPDATE {events} AS e SET seq = r.rn "  # nosec B608 - table names from _meta
-            f"FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY id) AS rn "
-            f"FROM {events}) AS r WHERE e.id = r.id"
-        )
-        # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
-        cursor.execute(
-            f"INSERT INTO {sequences} (project_id, value) "  # nosec B608 - table names from _meta
-            f"SELECT project_id, MAX(seq) FROM {events} GROUP BY project_id "
+            f"INSERT INTO {q_sequences} (project_id, value) "  # nosec B608 - names from _meta
+            f"SELECT p.id, COALESCE(m.max_id, %s) FROM {q_projects} AS p "
+            f"LEFT JOIN (SELECT project_id, MAX(id) AS max_id FROM {q_events} "
+            f"GROUP BY project_id) AS m ON m.project_id = p.id "
             f"ON CONFLICT (project_id) DO UPDATE "
-            f"SET value = GREATEST({sequences}.value, EXCLUDED.value)"
+            f"SET value = GREATEST({q_sequences}.value, EXCLUDED.value)",
+            [global_floor],
         )

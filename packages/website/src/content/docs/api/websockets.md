@@ -247,13 +247,17 @@ The set is open-ended and grows as features land; current event types include:
 > frozen-contract guarantee, and the steps to register a new event are documented
 > in [WebSocket event conventions](/architecture/websocket-events/).
 
-Treat broadcast delivery as **best-effort**: events may be missed during a
-reconnect, so a client should refetch the affected resource on reconnect rather
-than rely on having seen every event. Event payloads are intentionally minimal
-(usually `{ "id": "<uuid>" }` or a small id set) — fetch the resource for the
-full state.
+Live delivery is **best-effort**: a frame sent while your socket is down never
+reaches it. Do not refetch everything on every reconnect, though. Reconnect with
+`?since=<cursor>`, as described below. The server either replays exactly the events
+you missed or tells you, with `resync_required`, that it cannot. Refetch only in
+that case. Event payloads are intentionally minimal (usually `{ "id": "<uuid>" }`
+or a small id set): fetch the resource for its full state.
 
 ### Sequence numbers and reconnect replay
+
+The replay contract below (`seq`, `?since=` and `resync_required`) is a supported
+part of the WebSocket API, not an internal detail of the web client.
 
 A replayable event also carries a `seq` field; an ephemeral one (`presence_*`,
 `task_run_*`) carries `"seq": null`. `seq` is **per project, dense and
@@ -266,13 +270,21 @@ events 10 and 11 in that order and still deliver 11 first. A client should
 therefore keep the highest `seq` it has applied with nothing missing below it, and
 then handle each frame like this:
 
-- **`seq` ≤ that cursor**: the event was already applied. Drop it.
+- **`seq` ≤ that cursor**: drop it. Normally the event was already applied. It can
+  also be an event that arrived after you stopped waiting for it (next bullet).
 - **`seq` = cursor + 1**: apply it, then apply any held frames that are now
   contiguous.
 - **`seq` > cursor + 1**: an earlier event is still in flight or was lost. Hold
   the frame briefly (the web client waits 750 ms). If the missing event arrives,
   apply the run in order. If it does not, apply what you hold in order and move
   on. Do not drop a frame because it arrived early.
+
+The wait is a bound, not a guarantee. An event that arrives later than the wait is
+lost. Your cursor has already moved past it, so it falls under the first rule. A
+reconnect does not recover it either, because `?since=` starts above the hole. The
+web client currently recovers such an event only through a later refetch of the
+data it affects. A gap signal that triggers a resync is planned
+([#2848](https://gitlab.com/trueppm/trueppm/-/issues/2848)).
 
 To resume after a disconnect, reconnect with `?since=<cursor>`. The server sends
 the events you are owed (`seq > since`, in order, each with `"replayed": true`)
@@ -288,10 +300,12 @@ After a `resync_required`, refetch your project-scoped state and set your
 cursor to `latest_seq`.
 
 :::caution[Cursors saved before the per-project sequence]
-Before #4386, `seq` was the replay buffer's global row id. A cursor saved under
-that scheme is not comparable with the per-project sequence. Expect one
-`resync_required` the first time you reconnect with it, then continue from
-`latest_seq`. Do not persist a cursor across projects.
+Before #4386, `seq` was the replay buffer's global row id. The upgrade starts each
+project's sequence above the highest old id that project used, so an old cursor
+is never mistaken for a newer one. The first time you reconnect with an old
+cursor, you get one `resync_required` and continue from `latest_seq`. The one
+exception is a cursor that was fully up to date at the upgrade: it is replayed
+exactly the events since the upgrade. Do not reuse a cursor across projects.
 :::
 
 An event's payload may be richer at some emitting sites than others, but **all

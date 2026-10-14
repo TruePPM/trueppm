@@ -146,10 +146,11 @@ class BoardEvent(models.Model):
     make the client drop the other as a duplicate, and the delta between frames
     leaked instance-wide event volume to every project member.
 
-    ``seq`` is nullable for one reason: a pod running the pre-#4386 code during a
-    rolling update INSERTs without it. Such a row is live-only — the replay query
-    filters ``seq`` non-null and the allocator never counted it, so it neither
-    creates a false gap nor gets replayed. Rows are reaped past
+    ``seq`` is NULL on two kinds of row: those written before the #4386 migration,
+    which deliberately did not renumber them (``seed_board_event_sequences``), and
+    those a pod still running the old code INSERTs during a rolling update. Both are
+    live-only. The replay query filters ``seq`` non-null and the allocator never
+    counted them, so they neither create a false gap nor get replayed. Rows are reaped past
     ``TRUEPPM_BOARD_EVENT_RETENTION_HOURS`` (default 24h) by the
     ``sync.purge_board_events`` Beat task (the ADR-0081 purge convention).
     """

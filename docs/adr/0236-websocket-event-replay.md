@@ -1,7 +1,7 @@
 # ADR-0236: WebSocket event replay — sequence numbers, gap detection, resync on reconnect
 
 ## Status
-Accepted
+Accepted. **§2 (sequence allocation), §4's purge-gap watermark and §5's client seq-gate are superseded by [ADR-1285](1285-per-project-websocket-replay-sequence.md)** (2026-10-14, #4386). §1, §3, §4's handshake and ordering-safety argument, and §6 stand.
 
 ## Context
 Real-time collaboration is delivered over Django Channels. `broadcast_board_event(project_id, event_type, payload)` (`apps/sync/broadcast.py`) fans an envelope out to the `project_{id}` channel group; the frontend `useProjectWebSocket` hook maps ~60 event types to (mostly idempotent) TanStack Query invalidations, with `task_dates_updated` and the `task_run_*` progress store as the only *incremental-apply* handlers.
@@ -59,6 +59,13 @@ Rationale for a *denylist* rather than an allowlist: every one of the ~60 mutati
 The sequence is threaded into the **live** payload: persist first, then `group_send` with `seq=row.id`. Because callers already run `broadcast_board_event` inside `transaction.on_commit()`, the INSERT happens post-commit in autocommit — the row is the durable truth; the broadcast is the best-effort echo.
 
 ### 4. Consumer replay protocol (`ProjectConsumer`)
+
+> **Partly superseded by [ADR-1285](1285-per-project-websocket-replay-sequence.md) §3 (2026-10-14, #4386).**
+> The global `oldest`-id watermark below assumed `created_at` was monotonic with the global
+> id and could not tell a purged gap from other projects' interleaved ids. The consumer now
+> reads the project's head and replays only when exactly `head - since` rows survive; any
+> other outcome is a `resync_required`. The `?since=` handshake and the ordering-safety
+> argument below still hold.
 `?since=<seq>` is parsed from the query string (reusing `ws_auth._parse_query`; it is not a credential, so it is read after auth). The replay runs **inside `websocket_connect`, after `group_add` and after `super().websocket_connect()` (ACCEPT)**:
 
 - **`since` absent or `≤ 0`** → no replay (a fresh client loads via REST); stream live only.
@@ -69,6 +76,11 @@ The sequence is threaded into the **live** payload: persist first, then `group_s
 **Ordering safety:** while `websocket_connect` runs, `AsyncJsonWebsocketConsumer`'s `await_many_dispatch` loop is blocked, so no live `board_event` is dispatched until it returns. `group_add` happens *before* the replay read, so any event broadcast mid-replay is queued and delivered *after* the replay frames — replayed (older `seq`) always precede live (newer `seq`). A row persisted-but-also-queued during the `group_add`↔read race is delivered twice (once replayed, once live) at the *same* `seq`; the client dedups on `seq` (below).
 
 ### 5. Frontend contract (`useProjectWebSocket`)
+
+> **The seq-gate below is superseded by [ADR-1285](1285-per-project-websocket-replay-sequence.md) §4 (2026-10-14, #4386).**
+> A high-water `seq <= lastSeqRef` gate dropped the earlier of two frames that arrived in
+> the reverse of commit order. The client now keeps a contiguous cursor and holds an early
+> frame for up to 750 ms. The `?since=` reconnect and `resync_required` handling still hold.
 - Track `lastSeqRef` (highest `seq` processed for the current project; reset on project change).
 - Every frame carrying a numeric `seq`: **drop it if `seq ≤ lastSeqRef`** (already processed — handles the replay/live dup and any duplicate replay), else process and set `lastSeqRef = seq`. Frames **without** `seq` (presence, `task_run_*`) always process — the seq-gate applies only to seq-bearing frames.
 - `(re)connect` appends `&since=${lastSeqRef}` to the socket URL; `openSocket` takes `since` as a third argument so a reconnect carries the last-processed sequence, not the mount-time value.

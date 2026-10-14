@@ -15,8 +15,10 @@
  *   up to `windowMs`; if the predecessor arrives the run drains in order, so a
  *   reversed pair is applied in seq order rather than one of them being dropped.
  *   If the window expires (or the buffer fills) the buffered frames are applied in
- *   ascending order and the cursor jumps past the hole — a frame is never dropped
- *   for being early.
+ *   ascending order and the cursor jumps past the hole, so a frame is not dropped
+ *   for being early. The window is the bound: a predecessor arriving later than
+ *   `windowMs` meets `seq <= cursor` and is dropped, and `?since=` cannot replay
+ *   it, because the cursor is already past the hole (gap → resync is #2848).
  *
  * A cursor of 0 means "not yet baselined" (a fresh mount that has never seen a
  * frame and holds no `since`). Unless that first frame is seq 1 — the project's

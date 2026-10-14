@@ -60,7 +60,10 @@ a per-project `seq` (ADR-0236, ADR-1285). The mechanism:
   applies `cursor + 1` immediately. It holds a frame that overtook its predecessor
   for a short window (`SEQ_REORDER_WINDOW_MS`, `packages/web/src/hooks/wsSeqGate.ts`).
   When the window expires, it applies the held frames in order rather than dropping
-  them.
+  them, and moves the cursor past the hole. That window is the bound: a predecessor
+  arriving more than 750 ms late finds `seq <= cursor` and is dropped. A reconnect
+  cannot recover it, because `?since=` starts above the hole. Until #2848 adds a
+  gap → resync, only a later refetch repairs it.
 - **The handshake** — on reconnect the client opens the socket with
   `?since=<cursor>`. The consumer reads the project's head (its counter value).
   The client is owed exactly `head - since` events, and the consumer streams them

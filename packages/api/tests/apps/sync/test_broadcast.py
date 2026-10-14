@@ -263,47 +263,108 @@ def test_concurrent_allocation_on_one_project_is_dense_and_unique(replay_project
     assert stored == list(range(1, 25))
 
 
+@pytest.mark.django_db(transaction=True)
+def test_a_second_event_waits_for_the_first_to_commit(replay_project: Any) -> None:
+    """Commit order equals allocation order (ADR-1285 §1). Event A has drawn its seq
+    and is still inside its transaction, held just before its INSERT. Event B on the
+    same project must block on the counter row until A commits, then draw the next
+    value. If the allocation ran outside A's transaction, B would draw 2 at once and
+    could commit first: the reversed commit order the per-project seq exists to
+    exclude. The dense-and-unique test above cannot see that difference."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import wait as wait_futures
+
+    from django.db import connection as main_connection
+    from django.db import connections
+
+    from trueppm_api.apps.sync.broadcast import _persist_board_event
+    from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
+
+    pid = str(replay_project.pk)
+    # Pre-create the counter so both events take the UPDATE row-lock path.
+    BoardEventSequence.objects.create(project=replay_project)
+    main_connection.close()
+
+    real_create = BoardEvent.objects.create
+    a_ident: dict[str, int] = {}
+    a_holding = threading.Event()
+    release_a = threading.Event()
+
+    def _create(**kwargs: Any) -> Any:
+        if threading.get_ident() == a_ident.get("id"):
+            a_holding.set()
+            assert release_a.wait(10)
+        return real_create(**kwargs)
+
+    def _event_a() -> int | None:
+        a_ident["id"] = threading.get_ident()
+        try:
+            return _persist_board_event(pid, "task_dates_updated", {"tasks": []})
+        finally:
+            connections.close_all()
+
+    def _event_b() -> int | None:
+        try:
+            return _persist_board_event(pid, "task_updated", {"id": "t1"})
+        finally:
+            connections.close_all()
+
+    with (
+        patch.object(BoardEvent.objects, "create", side_effect=_create),
+        ThreadPoolExecutor(max_workers=2) as pool,
+    ):
+        future_a = pool.submit(_event_a)
+        assert a_holding.wait(10), "event A never reached its INSERT"
+        future_b = pool.submit(_event_b)
+        done, _ = wait_futures([future_b], timeout=1.0)
+        b_finished_while_a_was_open = future_b in done
+        release_a.set()
+        seq_a, seq_b = future_a.result(10), future_b.result(10)
+
+    assert not b_finished_while_a_was_open, "B allocated without waiting for A to commit"
+    assert (seq_a, seq_b) == (1, 2)
+
+
 @pytest.mark.django_db
-def test_renumber_board_events_backfills_dense_per_project_sequences(
+def test_seed_board_event_sequences_starts_counters_above_old_global_ids(
     replay_project: Any,
 ) -> None:
-    """The #4386 migration's backfill: rows that predate ``seq`` are renumbered per
-    project in their original (global id) order, and each project's counter resumes
-    at its own head so the next live event continues the run."""
+    """The #4386 migration's seeding: pre-upgrade rows keep ``seq = NULL``, and each
+    project's counter starts at that project's highest old global id, so every new
+    per-project seq sits above any cursor an old client can hold for it."""
     from django.db import connection
 
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.sync.broadcast import _persist_board_event
     from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
-    from trueppm_api.apps.sync.sequence import renumber_board_events
+    from trueppm_api.apps.sync.sequence import seed_board_event_sequences
 
     other = Project.objects.create(
         name="Other", start_date=date(2026, 1, 1), calendar=replay_project.calendar
     )
-    # Pre-#4386 rows: no seq, interleaved across two projects in global id order.
-    a1 = BoardEvent.objects.create(project=replay_project, event_type="a1", payload={})
-    BoardEvent.objects.create(project=other, event_type="b1", payload={})
+    quiet = Project.objects.create(
+        name="Quiet", start_date=date(2026, 1, 1), calendar=replay_project.calendar
+    )
+    # Pre-#4386 rows, interleaved across two projects in global id order.
+    BoardEvent.objects.create(project=replay_project, event_type="a1", payload={})
+    b1 = BoardEvent.objects.create(project=other, event_type="b1", payload={})
     a2 = BoardEvent.objects.create(project=replay_project, event_type="a2", payload={})
-    BoardEvent.objects.create(project=other, event_type="b2", payload={})
-    BoardEvent.objects.create(project=other, event_type="b3", payload={})
+    b2 = BoardEvent.objects.create(project=other, event_type="b2", payload={})
 
-    renumber_board_events(BoardEvent, BoardEventSequence, connection)
+    seed_board_event_sequences(BoardEvent, BoardEventSequence, Project, connection)
 
-    def _seqs(project: Any) -> list[tuple[str, int | None]]:
-        return list(
-            BoardEvent.objects.filter(project=project)
-            .order_by("id")
-            .values_list("event_type", "seq")
-        )
-
-    assert _seqs(replay_project) == [("a1", 1), ("a2", 2)]
-    assert _seqs(other) == [("b1", 1), ("b2", 2), ("b3", 3)]
-    assert a1.pk < a2.pk
-    assert BoardEventSequence.objects.get(project=replay_project).value == 2
-    assert BoardEventSequence.objects.get(project=other).value == 3
-    # The next live event continues each project's run.
-    assert _persist_board_event(str(replay_project.pk), "a3", {}) == 3
-    assert _persist_board_event(str(other.pk), "b4", {}) == 4
+    # Old rows are not renumbered.
+    assert set(BoardEvent.objects.values_list("seq", flat=True)) == {None}
+    assert BoardEventSequence.objects.get(project=replay_project).value == a2.pk
+    assert BoardEventSequence.objects.get(project=other).value == b2.pk
+    # A project whose rows were all purged is seeded at the identity sequence, which
+    # bounds every id ever assigned, so a cursor from a purged row is still below it.
+    assert BoardEventSequence.objects.get(project=quiet).value >= b2.pk
+    # Live events continue above the seed, densely.
+    assert _persist_board_event(str(replay_project.pk), "a3", {}) == a2.pk + 1
+    assert _persist_board_event(str(other.pk), "b3", {}) == b2.pk + 1
+    assert b1.pk < b2.pk
 
 
 @pytest.mark.django_db

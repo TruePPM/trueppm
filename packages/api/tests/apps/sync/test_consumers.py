@@ -1195,6 +1195,99 @@ async def test_replay_beyond_the_cap_resyncs(user: object, project: Project) -> 
     assert sent[0]["payload"] == {"latest_seq": 4}
 
 
+def _upgrade_with_old_rows(project: Project, other: Project) -> dict[str, int]:
+    """Write pre-#4386 rows (global ids, no seq), then run the migration's seeding.
+
+    Mirrors the reproduction from the completeness audit: rows ``other:1``, ``P:2``,
+    ``P:3`` (the client saw this one), ``P:4`` (the client missed it). Returns the
+    global ids, which are what an old client holds as its cursor.
+    """
+    from django.db import connection
+
+    from trueppm_api.apps.sync.models import BoardEvent, BoardEventSequence
+    from trueppm_api.apps.sync.sequence import seed_board_event_sequences
+
+    ids = {
+        "other": BoardEvent.objects.create(project=other, event_type="x", payload={}).pk,
+        "p2": BoardEvent.objects.create(project=project, event_type="a", payload={}).pk,
+        "p3_seen": BoardEvent.objects.create(project=project, event_type="b", payload={}).pk,
+        "p4_missed": BoardEvent.objects.create(project=project, event_type="c", payload={}).pk,
+    }
+    seed_board_event_sequences(BoardEvent, BoardEventSequence, Project, connection)
+    return ids
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pre_upgrade_cursor_that_missed_an_event_gets_a_resync(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """The completeness-audit reproduction. A client last saw P's third old event and
+    missed the fourth. Under the first (renumbering) design its old cursor landed at
+    or below the new head and the replay returned nothing, so the missed event was
+    lost silently. Seeding above the old ids makes every such cursor resync."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    other = await database_sync_to_async(Project.objects.create)(
+        name="Other", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    ids = await database_sync_to_async(_upgrade_with_old_rows)(project, other)
+    # Some new events after the upgrade, too.
+    await database_sync_to_async(_persist)(project, "task_updated", {"id": "t1"})
+
+    sent = await _connect_capturing(str(project.pk), user, since=ids["p3_seen"])
+
+    assert [f["event_type"] for f in sent] == ["resync_required"]
+    assert sent[0]["payload"]["latest_seq"] == ids["p4_missed"] + 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pre_upgrade_cursor_before_any_new_event_gets_a_resync(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """The same missed-event cursor with no new events yet: still a resync, never []."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    other = await database_sync_to_async(Project.objects.create)(
+        name="Other", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    ids = await database_sync_to_async(_upgrade_with_old_rows)(project, other)
+
+    sent = await _connect_capturing(str(project.pk), user, since=ids["p3_seen"])
+    assert [f["event_type"] for f in sent] == ["resync_required"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pre_upgrade_cursor_at_the_seed_replays_exactly_the_new_events(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """A client that had seen every old event (cursor == P's highest old id, the
+    seed) is owed only what happened after the upgrade, and gets exactly that."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    other = await database_sync_to_async(Project.objects.create)(
+        name="Other", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    ids = await database_sync_to_async(_upgrade_with_old_rows)(project, other)
+    persist = database_sync_to_async(_persist)
+    s1 = await persist(project, "task_created", {"id": "n1"})
+    s2 = await persist(project, "task_updated", {"id": "n1"})
+    seed = ids["p4_missed"]
+    assert (s1, s2) == (seed + 1, seed + 2)
+
+    sent = await _connect_capturing(str(project.pk), user, since=seed)
+
+    assert [(f["event_type"], f["seq"], f.get("replayed")) for f in sent] == [
+        ("task_created", seed + 1, True),
+        ("task_updated", seed + 2, True),
+    ]
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_no_since_skips_replay_entirely(user: object, project: Project) -> None:

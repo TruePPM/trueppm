@@ -2,13 +2,15 @@
 
 """Per-project, commit-ordered WebSocket replay sequence (ADR-1285, #4386).
 
-Adds ``BoardEvent.seq`` and the per-project ``BoardEventSequence`` allocator, then
-renumbers the surviving replay buffer onto dense per-project sequences before the
-``(project, seq)`` unique constraint is built over it (CLAUDE.md migration rule 7).
+Adds ``BoardEvent.seq`` and the per-project ``BoardEventSequence`` allocator, and
+seeds each project's counter at that project's highest existing global id so every
+new per-project ``seq`` sits above any cursor a pre-upgrade client holds (see
+``seed_board_event_sequences``).
 
-``seq`` stays nullable so a pod still running the previous release during a
-rolling update can keep INSERTing (it does not know the column); those rows are
-live-only and never replayed. The window is disclosed in the upgrade notes.
+Existing rows are not renumbered: they keep ``seq = NULL`` and stay live-only. The
+same holds for rows a pod still running the previous release INSERTs during a
+rolling update (it does not know the column). The window is disclosed in the
+upgrade notes.
 """
 
 from typing import Any
@@ -17,12 +19,13 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
-def _renumber(apps: Any, schema_editor: Any) -> None:
-    from trueppm_api.apps.sync.sequence import renumber_board_events
+def _seed(apps: Any, schema_editor: Any) -> None:
+    from trueppm_api.apps.sync.sequence import seed_board_event_sequences
 
-    renumber_board_events(
+    seed_board_event_sequences(
         apps.get_model("sync", "BoardEvent"),
         apps.get_model("sync", "BoardEventSequence"),
+        apps.get_model("projects", "Project"),
         schema_editor.connection,
     )
 
@@ -55,12 +58,14 @@ class Migration(migrations.Migration):
             name="seq",
             field=models.BigIntegerField(blank=True, editable=False, null=True),
         ),
-        # Reverse is a no-op: removing the column on unapply discards the values.
-        migrations.RunPython(_renumber, migrations.RunPython.noop),
+        # Reverse is a no-op: unapplying CreateModel drops the counter table.
+        migrations.RunPython(_seed, migrations.RunPython.noop),
         migrations.RemoveIndex(
             model_name="boardevent",
             name="boardevent_project_seq_idx",
         ),
+        # safe-constraint: seq was added by this migration and nothing writes it, so
+        # every existing row is NULL, and NULLs never collide in a unique index.
         migrations.AddConstraint(
             model_name="boardevent",
             constraint=models.UniqueConstraint(

@@ -65,8 +65,13 @@ transaction as the event's INSERT, and committed before the `group_send`. That
 row stays locked until the event commits, so each project's sequence is dense
 and in commit order. The consumer can then prove a replay is complete by
 counting rows. That row is separate from the `Project` row, which sync uploads
-hold locked for a whole batch. A broadcast therefore never waits behind a
-domain transaction, and it never takes part in a lock cycle with one. Until
+hold locked for a whole batch, so a broadcast does not queue behind a sync upload
+to *allocate*. It is not fully independent of the project row, though. The
+INSERT's deferred foreign-key check takes `FOR KEY SHARE` on the project at
+COMMIT. That conflicts with the plain `select_for_update()` some domain
+transactions take on `Project`. A broadcast committing while one of those runs
+waits for it, holding its counter lock, so other broadcasts on that project wait
+too. It cannot deadlock: those transactions never touch the counter row. Until
 #4386 the table's global primary key was the `seq`. The next frame on a project
 was then almost never `last + 1`, and the gaps revealed instance-wide event
 volume.

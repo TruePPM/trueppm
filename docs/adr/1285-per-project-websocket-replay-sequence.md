@@ -3,10 +3,11 @@
 ## Status
 Accepted (2026-10-14)
 
-Supersedes §2 ("Sequence allocation — the global `BigAutoField` PK **is** the
-sequence") of [ADR-0236](0236-websocket-event-replay.md). The rest of ADR-0236
-(buffer model, denylist persist policy, `?since=` handshake, `resync_required`, purge)
-stands.
+Supersedes three parts of [ADR-0236](0236-websocket-event-replay.md): §2 (the global
+`BigAutoField` PK as the sequence), §4's global `oldest`-id purge watermark, and §5's
+high-water `seq <= lastSeqRef` client gate. The rest of ADR-0236 stands: the buffer
+model (§1), the denylist persist policy (§3), the `?since=` handshake, the
+`resync_required` frame and the ordering-safety argument (§4), and purge (§6).
 
 ## Context
 
@@ -61,9 +62,18 @@ replay query.
 run in `on_commit` callbacks. If the allocator were on the project row, every broadcast
 would wait behind those transactions, and a transport counter would be coupled to
 domain locking. A dedicated row is locked only for one INSERT, and nothing else ever
-locks it. A broadcast's transaction takes that row lock plus the FK `KEY SHARE` on the
-project, which does not conflict with `FOR NO KEY UPDATE`. So it cannot form a lock
-cycle with a holder of the project row.
+locks it.
+
+That does not make a broadcast entirely independent of the project row. The `BoardEvent`
+INSERT's deferred FK check takes `FOR KEY SHARE` on the project at COMMIT. `KEY SHARE`
+does not conflict with `FOR NO KEY UPDATE` (an ordinary `UPDATE` of the row, which is how
+`last_sync_version` is taken). It does conflict with plain `FOR UPDATE`, which several
+domain transactions take on `Project` with `select_for_update()` — for example
+`commit_moment.py`, `access/services.py`, `projects/services.py` and the seed importer.
+A broadcast that commits while one of those holds the row waits at COMMIT, still holding
+its counter lock, so other broadcasts on that project queue behind it for that time.
+There is still no lock cycle: those holders never touch the counter row, so nothing
+they wait on is held by the broadcast.
 
 The counter row is created lazily on a project's first replayable event. A concurrent
 first event is resolved by `get_or_create`'s savepoint. A project id with no `Project`
@@ -76,7 +86,8 @@ The consumer reads the project's head (the counter value). The client is owed ex
 `head - since` events. The consumer replays only when exactly that many rows survive in
 `(since, head]`. In every other case it sends one `resync_required {latest_seq: head}`:
 
-- `since > head`: a cursor from another number space, such as a pre-upgrade global id;
+- `since > head`: a cursor from another number space, such as a global id an old pod
+  handed out during a rolling update;
 - `head - since > _REPLAY_CAP`;
 - fewer rows than owed, because the purge reaped part of the gap.
 
@@ -93,8 +104,13 @@ the cursor:
 - `seq === cursor + 1`: apply it, then drain any buffered successors.
 - `seq > cursor + 1`: buffer it for `SEQ_REORDER_WINDOW_MS` (750 ms), bounded at 256
   frames. If the predecessor lands, the run applies in order. On expiry, the held
-  frames apply in ascending order and the cursor moves past the hole. **A frame is
-  never dropped for arriving early.**
+  frames apply in ascending order and the cursor moves past the hole. A frame is not
+  dropped for arriving early.
+
+**The bound is 750 ms, and past it the skipped event is lost.** A predecessor that
+arrives more than 750 ms late finds the cursor already past it, so the gate drops it as
+`seq <= cursor`. A reconnect cannot recover it either, because `?since=` starts above
+the hole. Until #2848 lands, the only recovery is a later refetch of the affected data.
 
 A cursor of 0 means the client is not yet baselined. Its first frame waits out the
 window unless it is `seq 1`, so a reversed pair at page load is still ordered.
@@ -106,8 +122,8 @@ docstring. Neither belongs in this change.
 
 ### 5. Rolling-update compatibility
 
-`seq` is nullable because an old pod does not know the column and INSERTs without it.
-Its rows are live-only: the replay filters `seq` non-null and the allocator never
+`seq` is nullable because the existing rows are left unnumbered (§6) and because an old
+pod does not know the column and INSERTs without it. Both kinds of row are live-only: the replay filters `seq` non-null and the allocator never
 counted them, so they create no false gap. Old pods `group_send` the global id as
 `seq`. New pods add a channel-layer-internal `seq_scope: "project"` marker, and the
 consumer forwards `seq` only when the marker is present, so a client never adopts a
@@ -119,20 +135,39 @@ disclosed in the 0.4 upgrade notes (CLAUDE.md migration rule 8(c)):
 
 Each recovers on its next reconnect via the `since > head` resync.
 
-### 6. Migration
+### 6. Migration and pre-upgrade cursors
 
-`sync.0006_boardevent_per_project_seq` does four things, in this order:
+A client that crossed the upgrade holds a cursor `c` that is a *global* id. The protocol
+must never let such a cursor silently skip an event. Renumbering the old rows per
+project (this ADR's first draft) did exactly that: a project-local rank `r` is at most
+the global id `c` it replaced, so a cursor that landed at or below the new head
+replayed `(c, head]` and never sent ranks `r + 1 .. c`. The independent completeness
+check reproduced it: rows `other:1`, `P:2`, `P:3` (seen), `P:4` (missed) renumber to a
+head of 3, and `since=3` returns nothing.
 
-1. adds the column and the counter table;
-2. renumbers the surviving buffer with `ROW_NUMBER() OVER (PARTITION BY project ORDER
-   BY id)`;
-3. seeds each counter at its project's max;
-4. builds the unique constraint.
+So `sync.0006_boardevent_per_project_seq` does **not** renumber. It does three things:
 
-The data repair precedes the constraint (rule 7). The renumber logic lives in
-`sequence.py::renumber_board_events` so it can be tested without importing a migration
-module (rule 3). Renumbering, rather than starting new values above the global max,
-avoids publishing one instance-wide figure to every project.
+1. adds the nullable `seq` column and the counter table; every existing row keeps
+   `seq = NULL` and stays live-only;
+2. seeds every project's counter at **that project's highest existing global id**. A
+   project with no surviving rows is seeded at the table's identity-sequence value,
+   which bounds every id ever assigned, because a client can hold a cursor from rows
+   the purge has since removed;
+3. replaces the `(project, id)` index with the `(project, seq)` unique constraint. Every
+   existing row is NULL there, so the constraint cannot be violated
+   (`# safe-constraint`, rule 7).
+
+Every new per-project `seq` is then above any cursor an old client can hold, and the
+density check of §3 handles every case. A cursor below the seed is owed more events than
+carry a `seq`, so it gets `resync_required`. A cursor equal to the seed had seen
+everything, and it replays exactly the new events. The seeding lives in
+`sequence.py::seed_board_event_sequences`, so it is tested without importing a migration
+module (rule 3).
+
+What this publishes: for a project with surviving rows the seed is an id its members
+already received. For a project with none, the seed reveals once how many events the
+installation had written by the upgrade. That is a single fixed number, not the
+per-frame volume the old design leaked continuously.
 
 ## Alternatives Considered
 
@@ -142,7 +177,8 @@ avoids publishing one instance-wide figure to every project.
 | B. Keep the global id, document "monotonic, not dense, may arrive out of order", and gate on a bounded seen-set | No migration | Gap detection (#2848) stays impossible; the leak stays; a seen-set must also be persisted across reconnects to be correct |
 | Allocator column on `Project` | No new table | Broadcasts wait behind sync uploads and `select_for_update` holders of the project row; a transport counter is coupled to domain locks |
 | PostgreSQL `SEQUENCE` per project | No row lock | Non-transactional: holes on rollback, and allocation order is not commit order, so this is the same bug as a race |
-| Start new per-project values above the old global max | Old in-memory cursors keep working without a resync | Publishes the instance's cumulative event count to every member; the `since > head` resync already recovers old cursors |
+| Renumber the surviving buffer per project (first draft) | Sequences start at 1; no instance figure is published | A pre-upgrade cursor at or below the new head replays from the wrong point and silently skips events (§6) |
+| Seed every project at the global identity value | One rule for every project | Publishes the instance's cumulative event count to every member, not only members of projects with no surviving rows |
 
 ## Consequences
 
@@ -160,6 +196,7 @@ avoids publishing one instance-wide figure to every project.
   rolled-back write. Now it can also cost a real one. The contract is unchanged; the
   price of breaking it went up.
 - **Risk: rolling-update window.** See Decision §5.
+- **Risk: a frame more than 750 ms late is lost** until #2848 adds gap → resync (§4).
 - **Wire contract:** the field name and type are unchanged. Its meaning changed from
   "global, gap-tolerant" to "per-project, dense". Integrators holding a cursor see one
   `resync_required`. This is documented on the WebSocket API page.
