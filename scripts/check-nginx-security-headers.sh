@@ -8,7 +8,12 @@
 #   2. nginx/app-http.conf.template   compose prod, plain HTTP
 #   3. nginx/demo.conf.template       compose public demo
 #   4. packages/web/nginx.conf        BAKED INTO the published web image
-#   5. packages/helm/templates/web/configmap.yaml  (prod + demo branches)
+#   5. packages/helm/templates/web/configmap.yaml  (prod + demo branches — three
+#      mutually exclusive `default.conf` renders: production, demo share-link
+#      (demo.enabled), demo interactive (demo.interactive, #4426) — each checked
+#      via its own `check_helm` call in run_check(); all three, not two, or a
+#      real regression in whichever one is left out renders unchecked by the
+#      actual gate while still passing --self-test's synthesized fixtures)
 #
 # Two defects came straight out of that: the Helm production branch — the path
 # the docs recommend for production — served index.html and every JS bundle with
@@ -87,8 +92,9 @@
 #      mutually exclusive `default.conf`, so one map per branch is one map per file,
 #      not three.)
 #
-# The Helm renders are included by shelling out to `helm template`. If helm is
-# not on PATH the static configs are still checked and the Helm halves are
+# The Helm renders (all THREE branches — production, demo share-link, demo
+# interactive, #4426) are included by shelling out to `helm template`. If helm
+# is not on PATH the static configs are still checked and the Helm renders are
 # reported as SKIPPED — the CI job runs in an image that has helm, so the full
 # set is always covered there.
 #
@@ -477,15 +483,32 @@ run_check() {
 
   if command -v helm >/dev/null 2>&1; then
     check_helm "helm production"
-    check_helm "helm demo" \
+    check_helm "helm demo (share-link)" \
       -f "$CHART/values-demo.yaml" \
       --set demo.baseUrl=https://demo.example.com \
       --set demo.shareToken.schedule=ci-schedule-token \
       --set demo.shareToken.board=ci-board-token \
       --set networkPolicy.ingressControllerConfirmed=true
+    # demo.interactive (ADR-1197) is its own branch of the ConfigMap, not a
+    # variant of the share-link one above — and it is the branch ADR-0658 D9
+    # / ADR-1197 say try.trueppm.com actually runs. Omitting this call left
+    # the #4426 production topology completely unrendered by the REAL (non
+    # --self-test) run: the self-test's synthesized fixtures proved the
+    # assertions work in the abstract, but nothing proved they ever looked at
+    # this branch's actual rendered bytes (#4426 completeness-check finding).
+    # Args mirror scripts/check-helm-nginx-syntax.sh's own demo-interactive render.
+    check_helm "helm demo (interactive)" \
+      -f "$CHART/values-demo.yaml" \
+      --set demo.baseUrl=https://demo.example.com \
+      --set demo.shareToken.schedule=ci-schedule-token \
+      --set demo.shareToken.board=ci-board-token \
+      --set demo.interactive=true \
+      --set demo.loginHint.username=atlas-visitor \
+      --set demo.loginHint.password=ci-demo-password \
+      --set networkPolicy.ingressControllerConfirmed=true
   else
     skipped_helm=1
-    echo "WARNING: helm is not on PATH — the two Helm-rendered configs were NOT checked." >&2
+    echo "WARNING: helm is not on PATH — the three Helm-rendered configs were NOT checked." >&2
     echo "         The nginx:headers CI job runs in an image that has helm." >&2
   fi
 
