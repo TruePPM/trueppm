@@ -184,6 +184,23 @@ before it.**
    the publish jobs (an image never inherits from itself, even on a re-run), and
    `--at-or-below <package.json version>` for per-commit builds, whose version
    is the last cut release.
+
+   **Superseded in part (2026-10-15, #4347).** The "same list and default as
+   `SKIP_PREV_CHART_VERSIONS`" claim no longer holds: #4347 removed
+   `SKIP_PREV_CHART_VERSIONS` from the Helm drill entirely once 0.4.0-beta.8
+   published, because that resolver has no `--below`-style self-exclusion
+   mode — it is only ever called "at or below HEAD" — so SemVer precedence
+   alone already kept beta.8 ahead of the withdrawn beta.7 everywhere it is
+   used, with no skip required. `SKIP_PREV_WEB_VERSIONS` here was **not**
+   removed: this script's `--below` mode exists specifically so a release's
+   own publish job never inherits from itself on a re-run, and retrying
+   `web:publish`/`web:publish:arm64` against the `v0.4.0-beta.8` tag after
+   that tag's image already reached the registry would exclude beta.8 and,
+   without the skip, fall through to beta.7. That risk is tied to the
+   specific already-tagged version, not to "whatever is currently withdrawn",
+   so it has no release-shaped condition that retires it the way the chart
+   side's did. The two resolvers' withdrawn-release handling is therefore
+   intentionally no longer symmetric.
 2. **Releases before `asset-manifest.json` (step 2).** The manifest arrived
    with !2965, after beta.7, so the first image built under this ADR has no
    prior manifest to copy by. When the prior image has no file list (as

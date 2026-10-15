@@ -466,18 +466,22 @@ resolve_previous_chart_version() {
   fi
   [ -n "$versions" ] || fail "no chart versions found in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} — is the registry readable?"
 
-  # Published versions no operator is left running, so upgrading FROM one tests
-  # a path nobody takes. 0.4.0-beta.7 blank-screened every visitor (#4338) and
-  # installs stayed on beta.6, so beta.6 -> HEAD is the real path until beta.8
-  # publishes; the highest-version rule below then picks beta.8 on its own and
-  # this entry becomes inert (#4346). `-` not `:-`, so a test can set it empty.
-  # TODO(#4347): remove this default after beta.8 is cut, before 0.4.0-rc.1.
-  local skip_versions="${SKIP_PREV_CHART_VERSIONS-0.4.0-beta.7}" v
-  for v in $skip_versions; do
-    versions="$(printf '%s\n' "$versions" | grep -vxF -- "$v" || true)"
-  done
-  [ -n "$versions" ] || fail "every published chart version in ${CHART_GHCR_HOST}/${CHART_OCI_REPO} is in SKIP_PREV_CHART_VERSIONS (${skip_versions})"
-
+  # #4346 withdrew 0.4.0-beta.7 (it blank-screened every visitor, #4338) and
+  # temporarily skipped it here so this leg kept testing beta.6 -> HEAD, the
+  # path installs actually took, instead of the untaken beta.7 -> HEAD one.
+  # That skip is gone (#4347): this function always picks the highest
+  # published version <= HEAD (below), and once beta.8 published it already
+  # outranks beta.7 under SemVer precedence, so the skip had gone inert on
+  # its own before removal. Unlike resolve-prev-web-image.sh's
+  # SKIP_PREV_WEB_VERSIONS (which this function's withdrawn-release handling
+  # is otherwise meant to mirror, per CLAUDE.md), this resolver has no
+  # strictly-below-HEAD self-exclusion mode for a tag build to rediscover
+  # beta.7 through — it is only ever called with "at or below HEAD", from
+  # helm:upgrade/helm:demo-upgrade on MR/main/schedule pipelines, never from a
+  # release tag's own publish job. There is therefore no reachable path back
+  # to beta.7 here, so nothing takes its place; if a future release is ever
+  # withdrawn the same way, reintroduce an equivalent skip list then.
+  #
   # Pick the highest published version <= HEAD under SemVer precedence, in
   # POSIX awk rather than `sort -V`: GNU sort -V ranks 0.4.0 BELOW 0.4.0-beta.1
   # (the registry does carry a bare 0.4.0, #3914), and the busybox sort in the
@@ -1759,16 +1763,16 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
   log "previous release ${PREV_CHART_VERSION} (demo mode) rolled out — asserting the install-time demo-seed hook before upgrading"
   wait_for_demo_seed_hook "the install-time hook on previous chart ${PREV_CHART_VERSION} (#4340)"
   check_admin_password
-  # manifest_check=0: ${PREV_CHART_VERSION} is a previously published chart,
-  # which predates the #4341 asset-manifest.json pass and has no manifest to
-  # find — that is a fact about the release being probed, not a finding. The
-  # missing-/assets/ 404 probe is likewise a property of HEAD's web image
-  # (#4341); the published chart here may predate it too, so this leg checks
-  # only that the old release serves its own referenced assets (#4346). The
-  # post-upgrade check below runs the full script with both checks enabled.
-  # TODO(#4347): drop this opt-out after beta.8 is cut, before 0.4.0-rc.1.
-  SERVED_ASSETS_MISSING_PROBE=0 \
-    check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}" 0
+  # #4346 opted this leg's PRE-upgrade check out of the manifest pass
+  # (manifest_check=0) and the missing-/assets/ 404 probe
+  # (SERVED_ASSETS_MISSING_PROBE=0), because PREV_CHART_VERSION then resolved
+  # to beta.6 or the withdrawn beta.7, both of which predate #4341 (the
+  # asset-manifest.json pass and the missing-path probe it added) and so had
+  # neither to check. #4347 removes that opt-out: PREV_CHART_VERSION now
+  # always resolves to the highest published chart at or below HEAD, which
+  # ships #4341, so this leg runs the full check — same as the post-upgrade
+  # check below.
+  check_served_assets "$demo_web_svc" default "demo-upgrade PRE-upgrade (chart ${PREV_CHART_VERSION})" "/share/schedule/${DEMO_SCHEDULE_TOKEN}"
   PRIOR_WEB_ASSETS_DIR="$(mktemp -d)"
   capture_prior_web_assets "$demo_web_svc" "$PRIOR_WEB_ASSETS_DIR"
   kubectl get pods -o wide
@@ -1819,20 +1823,24 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
   kubectl wait --for=condition=Ready pod/rollout-asset-probe -n ingress-nginx --timeout=60s \
     || fail "rollout-asset-probe pod never became Ready (#4353)"
 
-  # TODO(#4347): PREV_CHART_VERSION resolves to a published chart (beta.6 or
-  # beta.7 today, per SKIP_PREV_CHART_VERSIONS above) that predates #4341
-  # (ADR-1249's prior-release asset carryover) and is KNOWN to serve
-  # skewed/missing assets mid-rollout against ITSELF — see this leg's own
-  # SERVED_ASSETS_MISSING_PROBE=0 opt-out a few lines up. That is the
-  # accepted, already-tracked condition #4347 exists to retire, not a HEAD
-  # regression this probe should fail main for. So the mid-rollout probe
-  # below is reported, never fatal, while this default stays 0. Flip it to 1
-  # once resolve_previous_chart_version() picks a chart that already ships
-  # BOTH #4341 (the clean /assets/ 404) and #4408 (public/boot-guard.js) — at
-  # that point a failing round really does mean HEAD regressed. #4408 matters
-  # because boot-guard.js is an unhashed root file: a pod from a release
-  # without it answers the new index.html's request for it with the SPA
-  # fallback (200 text/html), which rollout mode rightly still fails.
+  # #4346 reported this probe rather than failing on it, because
+  # resolve_previous_chart_version() then resolved to beta.6 or the withdrawn
+  # beta.7, both of which predate #4341 (ADR-1249's prior-release asset
+  # carryover) and so were KNOWN to serve skewed/missing assets mid-rollout
+  # against themselves — an accepted, already-tracked condition, not a HEAD
+  # regression this probe should fail main for.
+  #
+  # #4347 flips the default to strict: PREV_CHART_VERSION now always resolves
+  # to the highest published chart at or below HEAD, which ships all three
+  # preconditions a failing round needs to mean a real HEAD regression —
+  # #4341 (the clean /assets/ 404), #4408 (public/boot-guard.js: an unhashed
+  # root file, so a pod from a release without it answers the new index.html's
+  # request for it with the SPA fallback, 200 text/html, which rollout mode
+  # rightly still fails), and #4410 (SERVED_ASSETS_ROLLOUT=1 below, which is
+  # what makes a strict run passable at all — see next paragraph). The knob
+  # itself stays: a future withdrawn release predating one of these would need
+  # ROLLOUT_ASSET_PROBE_STRICT=0 again until a chart shipping all three is
+  # published, exactly as beta.7 did here.
   #
   # SERVED_ASSETS_ROLLOUT=1 (#4410) is what makes a strict run passable at
   # all: a round that got the new index.html and asked an old pod for one of
@@ -1842,7 +1850,7 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
   # fallback, a prior-release file not served, or a wrong type. The strict
   # post-rollout check further down is what catches a file genuinely missing
   # from the new build, which rollout mode cannot tell apart from skew.
-  ROLLOUT_ASSET_PROBE_STRICT="${ROLLOUT_ASSET_PROBE_STRICT:-0}"
+  ROLLOUT_ASSET_PROBE_STRICT="${ROLLOUT_ASSET_PROBE_STRICT:-1}"
 
   rollout_probe_dir="$(mktemp -d)"
   rollout_probe_log="$rollout_probe_dir/log"
@@ -1863,15 +1871,15 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
       # loop keeps polling instead of `set -e` killing this background
       # subshell on the very first text/html round it is here to catch.
       rc=0
-      # SERVED_ASSETS_MANIFEST=0, mirroring this leg's own PRE-upgrade check
-      # above: some rounds land on the still-rolling-out PREV_CHART_VERSION
-      # pod, which (pre-#4341) has no asset-manifest.json at all — a known,
-      # already-reported gap, not the text/html SPA-fallback skew this probe
-      # exists to catch. Leaving it at the default would drown that signal
-      # in manifest-missing noise on every single round. TODO(#4347): drop
-      # this override once PREV_CHART_VERSION ships #4341.
+      # #4346 set SERVED_ASSETS_MANIFEST=0 here, mirroring this leg's own
+      # PRE-upgrade check: some rounds land on the still-rolling-out
+      # PREV_CHART_VERSION pod, which (pre-#4341) had no asset-manifest.json
+      # at all — a known, already-reported gap, not the text/html
+      # SPA-fallback skew this probe exists to catch. #4347 drops that
+      # override: PREV_CHART_VERSION now always ships #4341, so every round
+      # has a manifest to find and the default (on) is correct.
       kubectl exec -i rollout-asset-probe -n ingress-nginx -- \
-        env SERVED_ASSETS_ROUNDS=1 SERVED_ASSETS_MANIFEST=0 SERVED_ASSETS_ROLLOUT=1 sh -s "$probe_url" \
+        env SERVED_ASSETS_ROUNDS=1 SERVED_ASSETS_ROLLOUT=1 sh -s "$probe_url" \
         < scripts/check-served-assets.sh >> "$rollout_probe_log" 2>&1 || rc=$?
       [ "$rc" -eq 0 ] || echo "#4353 ROUND FAILED rc=${rc} at $(date -u +%H:%M:%S)" >> "$rollout_probe_log"
       # #4378: same cadence as the served-asset probe above, against the web
@@ -1918,7 +1926,7 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
       fail "mid-rollout served-asset probe caught ${rollout_probe_failures} failing round(s) during the demo-upgrade rollout (#4353). Probe log:
 $(cat "$rollout_probe_log")"
     else
-      log "WARNING (reported, not fatal — TODO(#4347)): mid-rollout served-asset probe caught ${rollout_probe_failures} failing round(s) during the demo-upgrade rollout. EXPECTED while PREV_CHART_VERSION (${PREV_CHART_VERSION}) predates #4341 — set ROLLOUT_ASSET_PROBE_STRICT=1 once it no longer does. Probe log:
+      log "WARNING (reported, not fatal — ROLLOUT_ASSET_PROBE_STRICT=0 override): mid-rollout served-asset probe caught ${rollout_probe_failures} failing round(s) during the demo-upgrade rollout. Strict is now the default (#4347) because PREV_CHART_VERSION (${PREV_CHART_VERSION}) ships #4341/#4408/#4410; this branch only runs when something has explicitly set ROLLOUT_ASSET_PROBE_STRICT=0, e.g. to probe a future withdrawn release predating one of them. Probe log:
 $(cat "$rollout_probe_log")"
     fi
   else
@@ -2515,7 +2523,7 @@ elif [ "$DRILL_LEG" = "$LEG_WALKTHROUGH" ]; then
 elif [ "$DRILL_LEG" = "demo" ]; then
   log "HELM DEMO DRILL GREEN — values-demo.yaml boots, seed hook completed, served assets verified (#4338), allowlist matrix holds (200 on /, /share/*, /api/v1/share/*; 404 elsewhere incl. admin/projects/auth/users/ws/schema; 403 demo_read_only on writes; traversal/double-slash variants 404; case variants fall to the SPA), per-visitor throttle buckets distinct (#4017), admin retrievable, worker pinned+Ready+serving, guards fail closed"
 elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
-  log "HELM DEMO-UPGRADE DRILL GREEN (#4340, #4353, #4378) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml, web tier forced to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas (overriding its own replicas.web/web.replicaCount pin of 1, #4348/#4378) so the rollout below has a real old+new overlap to exercise, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart (web tier pinned to the same ${DEMO_WEB_ROLLOUT_REPLICAS}) WITHOUT --wait, overlapping the post-upgrade demo-seed hook re-fire with an in-cluster mid-rollout served-asset probe (${rollout_probe_failures:-0} failing round(s), $( [ "$ROLLOUT_ASSET_PROBE_STRICT" = "1" ] && echo "STRICT" || echo "reported-only, TODO(#4347)" )) AND a mid-rollout web-pod window probe that asserted >1 old AND >1 new web pod were Ready at the same time at least once (${window_old} old / ${window_new} new observed, #4378); then kubectl rollout status confirmed every Deployment and the allowlist/throttle matrix + final served-asset check both held against the fully-upgraded release (closing the #3941 gap that let #4339 ship); HEAD still served every asset of the pre-upgrade release (ADR-1249); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
+  log "HELM DEMO-UPGRADE DRILL GREEN (#4340, #4353, #4378) — previous chart ${PREV_CHART_VERSION} installed with values-demo.yaml, web tier forced to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas (overriding its own replicas.web/web.replicaCount pin of 1, #4348/#4378) so the rollout below has a real old+new overlap to exercise, install-time demo-seed hook completed and served assets verified pre-upgrade; upgraded to HEAD chart (web tier pinned to the same ${DEMO_WEB_ROLLOUT_REPLICAS}) WITHOUT --wait, overlapping the post-upgrade demo-seed hook re-fire with an in-cluster mid-rollout served-asset probe (${rollout_probe_failures:-0} failing round(s), $( [ "$ROLLOUT_ASSET_PROBE_STRICT" = "1" ] && echo "STRICT" || echo "reported-only, ROLLOUT_ASSET_PROBE_STRICT=0 override" )) AND a mid-rollout web-pod window probe that asserted >1 old AND >1 new web pod were Ready at the same time at least once (${window_old} old / ${window_new} new observed, #4378); then kubectl rollout status confirmed every Deployment and the allowlist/throttle matrix + final served-asset check both held against the fully-upgraded release (closing the #3941 gap that let #4339 ship); HEAD still served every asset of the pre-upgrade release (ADR-1249); admin retrievable (pre-upgrade pod), admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 else
   log "HELM INSTALL DRILL GREEN — chart boots, admin retrievable, admin denied at edge, worker pinned+Ready+serving, guards fail closed"
 fi

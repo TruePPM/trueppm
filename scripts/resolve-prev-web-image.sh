@@ -32,8 +32,34 @@
 # separated). 0.4.0-beta.7 blank-screened every visitor and installs were rolled
 # back to beta.6, so nobody holds beta.7's index.html; carrying its assets would
 # help no one, while dropping beta.6's would strand every tab that is actually
-# out there. Same list, same default, same reason as SKIP_PREV_CHART_VERSIONS in
-# helm-install-drill.sh (#4346). `-` not `:-`, so a test can set it empty.
+# out there. `-` not `:-`, so a test can set it empty.
+#
+# This default (#4347) no longer tracks helm-install-drill.sh's analogous
+# SKIP_PREV_CHART_VERSIONS, which #4347 removed outright — that resolver is
+# only ever called "at or below HEAD" (no self-exclusion mode at all), so
+# once beta.8 published it already outranked beta.7 under SemVer precedence
+# with no skip needed. The `--at-or-below` mode here is the same kind of
+# call and is just as unaffected: ci:build-deploy-images and the
+# ci:arm64-smoke job's web leg both resolve "at or below" packages/web's own
+# last-cut-release version, which is beta.8 once it ships, and beta.8 beats
+# beta.7 on its own.
+#
+# `--below` is different, and is why this default cannot simply follow
+# SKIP_PREV_CHART_VERSIONS into removal: web:publish / web:publish:arm64
+# (below) run it with `--below "$VERSION"`, VERSION being the tag THEIR OWN
+# job is publishing, specifically so a re-run never inherits from an image
+# that job itself already pushed. Retrying either job on the v0.4.0-beta.8
+# tag pipeline *after* that tag's image already reached the registry excludes
+# beta.8 from the candidate set and, without this skip, falls through to
+# beta.7 — the next-highest published version, and exactly the withdrawn
+# release this skip exists to keep untouched. That risk is tied to the
+# beta.8 tag specifically, not to "the latest tag" in general: cutting
+# 0.4.0-rc.1 does not retire it, because GitLab can still retry an old tag
+# pipeline's jobs long after a newer tag has shipped. So, unlike
+# SKIP_PREV_CHART_VERSIONS, this default has no release-shaped condition
+# that makes it safe to drop — only removing it once nothing can ever again
+# retry a pre-rc.1 publish job does, which is not a thing to assert from
+# code. Leave it set.
 #
 # Nothing published below HEAD (the first-ever release) prints nothing and
 # exits 0 with a logged "no prior assets": the build then carries only its own
@@ -104,9 +130,9 @@ versions="$(printf '%s\n' "$tags" \
     | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' \
     | grep -Ev -- '-(amd64|arm64)$' || true)"
 
-# TODO(#4347): drop this default together with SKIP_PREV_CHART_VERSIONS'. The
-# two must change in the same commit: the demo-upgrade drill asserts HEAD serves
-# the assets of the release it installed first, so they must name the same one.
+# See the header comment (#4347) for why this default stays set — unlike
+# SKIP_PREV_CHART_VERSIONS, which #4347 removed, this one still guards a live
+# `--below` self-exclusion path (web:publish / web:publish:arm64 below).
 skip="${SKIP_PREV_WEB_VERSIONS-0.4.0-beta.7}"
 for v in $skip; do
     versions="$(printf '%s\n' "$versions" | grep -vxF -- "$v" || true)"
