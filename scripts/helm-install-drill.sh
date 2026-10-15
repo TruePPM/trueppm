@@ -1735,7 +1735,13 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
   # plateau on the way from old=3/new=0 to old=0/new=3 (verified by hand
   # against the documented algorithm while fixing #4378 — the controller
   # must scale new up to 2 and wait for both replicas Ready before minAvail=3
-  # lets it drop old below 2). At 2, maxUnavailable rounds down to 0 too, but
+  # lets it drop old below 2). The both-Ready part of that plateau is NOT a
+  # full pod startup long (#4427): new=2 spends its startup with one pod
+  # still unready, and the controller deletes an old pod as soon as the
+  # second new pod turns Ready. What keeps old=2 Ready after that is the
+  # deleted pod passing its readiness probe through the web tier's preStop
+  # sleep (lifecycle.web.preStopSleepSeconds, 5s), so the window is about
+  # that long and the sampler has to poll well inside it. At 2, maxUnavailable rounds down to 0 too, but
   # maxSurge is only 1 pod total above a base of 2 — the single-pod cadence
   # it forces never lands on a sample where BOTH sides are above 1 at once
   # (verified the same way: the only reachable states are old=2/new=1 and
@@ -1743,11 +1749,10 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
   # which lets the controller scale old down by MORE than one pod in a
   # single step whenever slack allows (avail-minAvailable can reach 2, not
   # just 1) — an overlap still occurs (old can still land on 2 while new is
-  # at 3), but the one-pod cadence that makes 3's plateau last a full pod
-  # STARTUP duration no longer holds, so 4's window can collapse to however
-  # long it takes two new pods to both finish starting at nearly the same
-  # moment — bounded only by controller sync latency, not by a startup
-  # probe's own timing. That makes 4 a LESS reliable target for a ~1s-
+  # at 3), but the one-pod cadence that guarantees 3's old=2/new=2 step no
+  # longer holds, so 4 can skip the step where both sides sit at 2+ with
+  # one deleted old pod still draining — bounded only by controller sync
+  # latency. That makes 4 a LESS reliable target for a ~1s-
   # cadence poll than 3, not a safer margin above it. 3 is therefore the
   # smallest replica count whose rounding FORCES (not just permits) a
   # plateau wide enough for this leg's poll interval to reliably sample.
@@ -1855,8 +1860,8 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
   rollout_probe_dir="$(mktemp -d)"
   rollout_probe_log="$rollout_probe_dir/log"
   rollout_probe_stop="$rollout_probe_dir/stop"
-  # #4378: a second, independent log from the SAME loop iteration below —
-  # one "<old_ready> <new_ready>" web-pod-count line per poll, fed to
+  # #4378: a second, independent log — one "<old_ready> <new_ready>"
+  # web-pod-count line per sample, written by its OWN loop below and fed to
   # web_rollout_window_evaluate once the rollout finishes. Kept separate
   # from rollout_probe_log (the served-asset probe's own output) rather than
   # interleaved into it, so the pure line-oriented parser never has to tell
@@ -1882,25 +1887,39 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
         env SERVED_ASSETS_ROUNDS=1 SERVED_ASSETS_ROLLOUT=1 sh -s "$probe_url" \
         < scripts/check-served-assets.sh >> "$rollout_probe_log" 2>&1 || rc=$?
       [ "$rc" -eq 0 ] || echo "#4353 ROUND FAILED rc=${rc} at $(date -u +%H:%M:%S)" >> "$rollout_probe_log"
-      # #4378: same cadence as the served-asset probe above, against the web
-      # Deployment's OWN pods directly rather than through the Service — the
-      # whole point is counting how many of EACH generation are Ready at
-      # once, which the Service's load-balanced response can never reveal.
+      sleep 1
+    done
+  ) &
+  rollout_probe_pid=$!
+  # #4378 / #4427: the web-pod window sampler runs in its OWN loop, not as a
+  # tail step of the served-asset round above. A round is a full
+  # check-served-assets.sh pass over every asset (manifest pass included
+  # since #4347), several seconds each, so sharing that loop sampled pod
+  # counts roughly every 9s. The old=2/new=2-Ready overlap is far shorter
+  # than a pod's startup: it opens when the second new pod turns Ready and
+  # closes once the old pod the controller then deletes stops reporting
+  # Ready, which is about the web tier's preStopSleepSeconds (5s by default)
+  # because the container keeps passing its readiness probe while preStop
+  # sleeps. A 9s cadence stepped straight from "2 1" to "1 2" over it. One
+  # `kubectl get` plus `sleep 1` samples every ~1-1.5s, inside that window.
+  (
+    while [ ! -e "$rollout_probe_stop" ]; do
+      # Counts the web Deployment's OWN pods directly rather than going
+      # through the Service — the whole point is how many of EACH generation
+      # are Ready at once, which a load-balanced response can never reveal.
       # `|| true` on the whole pipeline (not just kubectl): under `set -e
       # -o pipefail` a transient kubectl error (API server hiccup, or no
       # pods yet matched) would make the PIPELINE's exit status nonzero and
-      # kill this background subshell's while loop outright — exactly the
-      # failure mode the served-asset probe's own `|| rc=$?` above exists to
-      # avoid. A skipped sample here costs nothing but one data point; the
-      # next one a second later picks the rollout back up.
+      # kill this background subshell's while loop outright. A skipped
+      # sample costs one data point; the next one picks the rollout back up.
       kubectl get pods -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=web" \
           -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.spec.containers[0].image}{" "}{.status.containerStatuses[0].ready}{"\n"}{end}' 2>/dev/null \
         | web_rollout_window_parse "$PREV_WEB_IMAGE" "$WEB_IMAGE" >> "$rollout_window_log" || true
       sleep 1
     done
   ) &
-  rollout_probe_pid=$!
-  log "mid-rollout asset probe loop started (pid ${rollout_probe_pid}) — polling ${probe_url} roughly every second via rollout-asset-probe, and sampling web-pod Ready counts by image (old=${PREV_WEB_IMAGE}, new=${WEB_IMAGE}) on the same cadence (#4378)"
+  rollout_window_pid=$!
+  log "mid-rollout probe loops started — served-asset rounds against ${probe_url} via rollout-asset-probe (pid ${rollout_probe_pid}), and an independent ~1s sampler of web-pod Ready counts by image (old=${PREV_WEB_IMAGE}, new=${WEB_IMAGE}) (pid ${rollout_window_pid}, #4378/#4427)"
 
   log "helm upgrade ${RELEASE} -> HEAD chart WITH HEAD's own values-demo.yaml (image tag ${RELEASE_IMAGE_TAG}), web tier forced to ${DEMO_WEB_ROLLOUT_REPLICAS} replicas (#4378), WITHOUT --wait (#4353) — the rollout and the mid-rollout probes above now genuinely overlap; helm still blocks here on the post-upgrade demo-seed hook (always synchronous — see wait_for_demo_seed_hook), exactly as a real operator's own upgrade would"
   helm upgrade "$RELEASE" "$CHART" \
@@ -1918,6 +1937,7 @@ elif [ "$DRILL_LEG" = "$LEG_DEMO_UPGRADE" ]; then
 
   : > "$rollout_probe_stop"
   wait "$rollout_probe_pid" 2>/dev/null || true
+  wait "$rollout_window_pid" 2>/dev/null || true
   rollout_probe_failures="$(grep -c '^#4353 ROUND FAILED' "$rollout_probe_log" || true)"
   rollout_probe_skew="$(grep -c '^check-served-assets: SKEW ' "$rollout_probe_log" || true)"
   log "mid-rollout served-asset probe: ${rollout_probe_skew:-0} forward-skew 404(s) tolerated (#4410)"
