@@ -379,8 +379,21 @@ rolling-update version-skew investigation.
   else the latest published tag of the immediately previous line — the fallback is
   what makes a minor-to-minor jump covered, not just a beta/rc bump within one line.
 - **Withdrawn releases do not count.** `scripts/resolve-prev-web-image.sh` drops
-  `SKIP_PREV_WEB_VERSIONS` (default `0.4.0-beta.7`) before picking, in lockstep with
-  the Helm drill's `SKIP_PREV_CHART_VERSIONS`. Change the two together.
+  `SKIP_PREV_WEB_VERSIONS` (default `0.4.0-beta.7`) before picking. The Helm
+  drill's analogous `SKIP_PREV_CHART_VERSIONS` was removed in #4347 once
+  0.4.0-beta.8 published and SemVer precedence alone kept beta.8 ahead of the
+  withdrawn beta.7 on every call site that resolver has — it has no
+  self-exclusion mode, so there was never a path back to beta.7 once a newer
+  version existed. `SKIP_PREV_WEB_VERSIONS` did **not** go with it: this
+  resolver's `--below` mode is used by the release tag's own publish job
+  (`web:publish` / `web:publish:arm64`) specifically to exclude *itself* from
+  the candidate set on a re-run, and retrying that job against the
+  `v0.4.0-beta.8` tag after its image is already published would otherwise
+  fall through to beta.7 — the next-highest published version — with no
+  release-shaped condition that retires the risk. See
+  `scripts/resolve-prev-web-image.sh`'s header comment for the full
+  reasoning. The two scripts are therefore no longer required to change in
+  lockstep.
 - **Partly enforced.** The resolver's previous-line fallback is unit-tested
   (`scripts/tests/resolve-prev-web-image.test.sh`), `ci:build-deploy-images` builds
   every MR's web image with the prior release's assets and requires them served,
