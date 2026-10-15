@@ -35,6 +35,30 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
+# Preserve an upstream load balancer's X-Forwarded-Proto instead of overwriting
+# it (#3191 finding #4, reopened #4426).
+#
+# docker-compose.demo.yml documents this template's nginx service as "TLS is
+# terminated upstream" — this listener is plain HTTP on purpose. $scheme here
+# is therefore always "http", even when the visitor's own connection was TLS
+# (e.g. a Cloudflare Tunnel in front of try.trueppm.com). Sending
+# `X-Forwarded-Proto $scheme` told Django "this request arrived over plain
+# HTTP" on every request, which made SECURE_PROXY_SSL_HEADER's https check
+# fail: request.is_secure() was always False, so the same-origin check behind
+# the token-refresh endpoint rejected a genuinely same-origin refresh with a
+# 403 on every page reload (#4426's repro) — this config carried the same
+# unpatched pattern #3191 already fixed in nginx/app-http.conf.template.
+#
+# Trust an incoming value only when one is present; fall back to $scheme when
+# it is absent, so a direct-to-nginx deployment is unchanged. Only set this in
+# front of a proxy you control — X-Forwarded-Proto is client-spoofable
+# otherwise, and TRUEPPM_NUM_PROXIES governs how far up the X-Forwarded-For
+# chain the app trusts.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $scheme;
+    ~.      $http_x_forwarded_proto;
+}
+
 # Rate-limit zone for the Django admin login, matching the production template's
 # 5r/m + burst 2. The demo's /admin/ is already loopback-only, but the allowlist
 # and the throttle are independent controls and the production sibling carries
@@ -143,7 +167,7 @@ server {
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         proxy_read_timeout 30s;
     }
 
@@ -155,7 +179,7 @@ server {
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Proto $forwarded_proto;
     }
 
     # Everything else under /api/ — auth/token, every project viewset, the
@@ -186,7 +210,7 @@ server {
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
     location /static/ {
