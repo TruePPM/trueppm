@@ -16,6 +16,10 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.0b8] - 2026-10-15
+
 ### Fixed
 
 - **A weekend project finish no longer costs milestone predecessors a day of
@@ -679,7 +683,8 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b7...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b8...main
+[0.4.0b8]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b7...scheduler-v0.4.0b8
 [0.4.0b7]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b6...scheduler-v0.4.0b7
 [0.4.0b6]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b5...scheduler-v0.4.0b6
 [0.4.0b5]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b4...scheduler-v0.4.0b5

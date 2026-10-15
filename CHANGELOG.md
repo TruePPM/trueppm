@@ -15,6 +15,304 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-beta.8] — 2026-10-15
+
+TruePPM 0.4.0-beta.8 supersedes 0.4.0-beta.7. **0.4.0-beta.7 was known-broken and was never fit to deploy** — its web image blank-screened every page for every visitor, and its Helm demo-seed hook failed deterministically on some anchor dates. This release is the fix for both and for the rolling-upgrade blank-screen class the first bug belongs to, plus a round of real access-control fixes and a cluster of scheduler criticality/float corrections.
+
+**Should you upgrade? Yes — this release fixes a security issue and a release-breaking bug.** If you are on 0.4.0-beta.7, move to this release, not back to beta.6 — beta.7's images and chart remain published (so their signatures and SBOMs stay intact) but are marked known-broken on their GitLab Release page. If you are on 0.4.0-beta.6 or earlier, this is also the first release with real protection against the blank-screen class during any rolling upgrade.
+
+**Upgrading from 0.4.0-beta.6 or earlier? Read this first.**
+
+- The root cause of beta.7's blank screen was never an incomplete build — every asset was present in both the amd64 and arm64 images. The actual mechanism is a web-tier rolling-upgrade version-skew window: a browser tab open before the upgrade can request a chunk that only the pod it's talking to no longer has. CI now boots every published web image and proves it serves every asset `index.html` and the Vite asset manifest reference — including lazy route chunks — before anything is pushed (#4338, #4341). The image also now serves the previous release's hashed assets so an old tab keeps working, and the app itself retries with backoff and shows an explicit "being updated" message instead of staying blank if a pod still answers 404 (#4408).
+- A real single-web-replica deployment is **not** immune to this window — Kubernetes' default rolling update starts the new pod before stopping the old one even at `replicaCount: 1`. The Helm demo overlay's `replicaCount: 3` silently applied to the web tier too, so every demo upgrade carried a three-pod version of this window; it's now pinned to 1 web replica (#4348). Docs and the chart's values reference are corrected to stop claiming single-replica immunity (#4409).
+- Two other Helm chart defects shipped in beta.7 and earlier are fixed here: the `values-prod.yaml` Ingress placeholder had no `service:` key on its `/` path, so the shipped default silently routed every request — including the SPA itself — to the API (#4349); and explicit `0`/`false` overrides (`replicas.web: 0`, a PDB's `maxUnavailable: 0`, disabling OTLP) were clobbered back to the chart default by `| default`'s Sprig semantics (#4351).
+- Real-time board events (`seq`) are now a gapless per-project counter instead of a global id, fixing a same-millisecond ordering bug that could show stale Gantt dates until the next refetch. **Integrators:** existing cursors get one `resync_required` on first reconnect after the upgrade; projects that existed before the upgrade get new `seq` values starting above 2³² so they can't collide with old ids (#4386).
+
+Security: seven fixes. `ProjectScopedViewSet` and the MCP read mixin now fail closed (empty queryset) for a model with no project path, closing a latent cross-project IDOR for any future viewset that relies on the base queryset (#4007). Program- and project-scoped API token write paths now floor the minter's live project role at Member+, re-checked on every request, instead of only at mint time or not at all — a Viewer-level minter could previously still create/update tasks or flip acceptance criteria through an already-minted token (#4331, #4334). Generic seed import no longer binds a shared calendar by name, closing a path to injecting non-working exceptions into a calendar the caller doesn't own (#4369). Project export job list/poll/download are now scoped to the requesting admin, not just the project (#4370). The `mcp` image now patches Debian OS packages at build time like the `api` and `web` images already do (#4337). The MS Project `.mpp` import no longer deadlocks the import worker on a large JVM stderr write, and no longer leaks the JVM path or stderr in the client-facing error (#4385).
+
+Fixed: a cluster of scheduler correctness fixes — a 100%-complete task with no actual dates no longer hides its predecessors' criticality on the backward pass (#4343); a project finish landing on a non-working day no longer manufactures false criticals ahead of a milestone (#4344); a milestone's predecessors no longer lose free float through a successor that started on a non-working day (#4345). A task duration edited mid-recalculation is no longer silently reverted (#4371). Fourteen more dialog focus traps are closed (#4085). Muted/informational text contrast now meets WCAG 1.4.3 AA (#4379). The roles & permissions matrix no longer mislabels community audit-log access as Enterprise-only (#4380). An undisclosed MPL-2.0 transitive dependency (`certifi`) in the published API/MCP images and packages now carries its required notice (#4377). Several periodic Celery sweeps no longer silently swallow a soft time-limit signal. Full details in the dated section below.
+
+### Added
+- **Scheduler**: checked the SF (start-to-finish) link's positive-lag behavior against real MS-Project-saved schedules in four independently-corroborated date alignments. All four agree with MS Project, including the Monday-start, weekend-adjacent-anchor case #4333 reported and #4333's fix (!2950) resolved — this adds external file evidence for that fix beyond its own hand-built regression test. A second, separate divergence remains open (#2534): the engine's calendar-day lag still diverges from MS Project's working-day lag once a lag reaches a second weekend from its anchor, past where #4333's fix covers.
+- **Web image builds now prove the image serves its own assets before
+  release**: every web image build in CI (the release publish legs, the
+  multi-arch probes, and the per-commit image the deploy drills use) now starts
+  the just-built container and fetches every script, module preload, and
+  stylesheet its `index.html` references before anything is pushed. A missing
+  or wrongly typed asset fails the build. The same check,
+  `scripts/check-served-assets.sh <url>`, can be pointed at a running
+  deployment. Set `SERVED_ASSETS_ROUNDS` to repeat it. That can catch replicas
+  serving different releases, but only when the load balancer happens to send
+  a request to each, so one passing run does not rule a mix out.
+- The 0.4.0-beta.7 blank screen on try.trueppm.com that prompted this was not
+  an incomplete image: both architectures of the published image contain and
+  serve every asset. The symptom was reproduced with 0.4.0-beta.6 and
+  0.4.0-beta.7 replicas behind one load balancer. That is not yet confirmed as
+  the production mechanism, which is tracked in #4341.
+- **Operator note:** a rolling upgrade of a web tier with two or more replicas
+  can still blank-screen clients that load the page mid-rollout, until they
+  reload. See the Troubleshooting page, "The browser shows a blank page".
+- **Helm: rollout strategy knobs for the api, worker, and web tiers**: `rollout.<tier>.strategy`, `maxSurge`, `maxUnavailable`, `minReadySeconds`, and `progressDeadlineSeconds` are now settable per tier — the closed chart schema previously refused all five outright, and a post-render patch was the only way to express them. Every field ships empty/`null` and renders nothing until set, so a stock install stays byte-identical to before. `strategy: Recreate` cannot be combined with `maxSurge`/`maxUnavailable`; the chart fails the render rather than accept the combination. Celery Beat is unchanged — it keeps its own fixed `Recreate` strategy and has no settable `rollout.beat` entry, since allowing `RollingUpdate` there would let two Beats run briefly together and double-fire every periodic task.
+
+### Fixed
+- **Dependency cycle refusal now matches its documented contract**: the direct
+  `POST`/`PATCH` `/dependencies/` cycle refusal omitted the stable `code` field
+  and named its id list `cycle` instead of `offending`, so an integrator
+  branching on the documented `{code, offending}` shape could not. The refusal
+  now carries `code: "cyclic_dependency"` and `offending` alongside the
+  previous `detail`/`cycle` keys, which are kept for one minor as deprecated
+  legacy aliases.
+- **Dialog focus traps (14 dialogs)**: fixed Tab leaking behind the scrim on
+  the Personal Access Tokens create/revoke dialogs, Connected Accounts
+  connect/rotate/revoke/disconnect dialogs, the program move/assign pickers,
+  the phase-gate and ceremony dialogs, the status picker, the schedule
+  backlog-demote / before-project-start / progress-auto-status confirms, the
+  resource heatmap drawer, and the build-mode shortcuts cheatsheet. Each now
+  traps keyboard focus via `useFocusTrap` (WCAG 2.4.3 / 2.1.2) instead of a
+  hand-rolled or missing Escape/Tab handler. A new gate
+  (`scripts/check-aria-modal-focus-trap.sh`, wired into `make pre-push` and CI)
+  now fails any future `aria-modal="true"` dialog that ships without a focus
+  trap, an inline waiver, or a `<BottomSheet>` shell.
+- **Sample reloads no longer fail after days of `demo-reset`**: each reload of a
+  bundled sample on a new day added that day's copy of every sample calendar
+  exception (PTO, holidays, shutdowns) beside the previous days' copies, because
+  calendars outlive the sample teardown and the exceptions were matched on their
+  resolved dates. After a few weeks of daily resets the stale copies formed a
+  solid run of non-working days, which pushed a sprint's start and finish onto
+  the same day and aborted the import on the `sprint_finish_after_start` check —
+  failing the Helm `demo-seed` hook and the `demo-reset` CronJob. Reloading a
+  bundled sample now replaces its own exceptions instead of adding to them, and
+  clears the copies an earlier version left behind. The cleanup runs only for
+  bundled samples, and never on a calendar that the workspace, a program, a
+  non-sample project, or an assigned resource uses — those calendars keep every
+  row, as before. The `ga-launch` sample's calendar is renamed
+  "GA Launch Standard (5-day)" so it no longer shares the generic
+  "Standard 5-day" name with real calendars.
+- **Seed sprints swallowed by non-working days no longer abort the import**:
+  when a sprint's authored window falls entirely on weekends or calendar
+  exceptions, so that its start and finish snap onto the same working day, the
+  finish now moves to the next working day after the start instead of failing
+  the whole import. This applies to bundled samples and to any seed imported
+  through the API. A sprint authored with its finish on or before its start is
+  still rejected.
+- **Rolling-upgrade asset drill now sees lazy-loaded route chunks**: the web image's publish gate (`scripts/check-served-assets.sh`) previously only checked assets `index.html` eagerly references (script/modulepreload/stylesheet tags), so a route loaded behind a lazy `import()` and never modulepreloaded could be missing from an image without the gate noticing. The build now emits a Vite asset manifest (`asset-manifest.json`) and the gate cross-checks every file it names — including lazy route chunks and their own assets — against what the running web tier actually serves, so a missing lazy chunk fails the check before the image ships.
+- **Tabs opened before a web-tier upgrade no longer blank-screen**: the web
+  image now also serves the previous release's hashed `/assets/` files, so a
+  browser tab still holding the old `index.html` keeps loading its own chunks
+  from the new pods. It reaches back one release, not counting a withdrawn
+  one; the first image built this way carries 0.4.0-beta.6's files, since
+  0.4.0-beta.7 was withdrawn. An upgrade that skips a release still falls back
+  to the one automatic reload. During a rolling upgrade, a route chunk that
+  fails to load is now retried twice before the app reloads itself, and never
+  while the browser is offline (ADR-1249, #4341).
+During a rolling upgrade, a request for a web asset that no longer exists now returns a real 404 instead of the app's index page, and the app reloads itself once when a chunk fails to load, instead of leaving a blank screen.
+- **`helm:walkthrough`'s celery-worker restart check no longer blames a closed issue on
+  every restart**: `scripts/helm-install-drill.sh` reported any nonzero celery-worker
+  restart count as "likely the OOMKill loop from an unpinned prefork pool (#2571)" even
+  when the pod's own `lastState.terminated` evidence showed something else entirely (a
+  failed probe under CI-host contention — `reason=Error`, `exit=137`, zero
+  `memory.events` OOM kills anywhere on the node). The check now reads that evidence and
+  reports the real reason/exit code, reserving the #2571 attribution for an actual
+  `reason=OOMKilled`.
+- **Scheduler — a 100%-complete task with no actual dates no longer hides its
+  predecessors' criticality**: such a task was placed after its predecessors going
+  forward but treated as out of the network going backward, so every predecessor's
+  total float was measured against a successor that never constrained it. Work that
+  drove the finish read as slack and dropped off the critical path, Monte Carlo
+  under-reported the risk behind it, and the schedule derivation cited a
+  predecessor's date as the project start. Every completed task is now pinned the
+  same way in both directions, in the Python and Rust/WASM engines and the drag
+  preview: one with no actuals sits at the project start, or at its start no
+  earlier than date when that is later, and no predecessor moves it. A completed
+  milestone with no actual dates stays a milestone at the start of that day, so
+  the work after it starts exactly where it would after a live milestone. Such a
+  task (reachable through MS Project/CSV import, seed data, or marking a card 100%
+  before 0.4) can move earlier on the next recalculation when a predecessor was
+  holding it later, and its predecessors' float may shrink to its true value
+  (#4343).
+- **Scheduler: no false criticals before a weekend project finish**: when the
+  project finish fell on a non-working day — typically a completed task whose
+  actual finish was a Saturday or Sunday — a milestone reached by a
+  finish-to-start link, and every task feeding it, reported one working day less
+  total float than it had. A task with one day of float was marked critical and
+  listed on the critical path. The milestone may now sit at the end of the last
+  working day before the finish, so its float and its predecessors' float are
+  correct. Both the server engine (`trueppm-scheduler`) and the in-browser
+  engine are fixed.
+- **Scheduler: a milestone's predecessors no longer lose free float to a
+  successor that started on a non-working day (#4345).** Free float read a work
+  successor's Saturday `actual_start` at the next working day (#4332), but the
+  bound on how far a milestone may move before that successor moves still read
+  the raw Saturday, so a predecessor whose free float is bounded through the
+  milestone reported less `free_float` than it can slip (one working day across
+  a plain weekend). Both now read the same working-day start, in the Python
+  engine and the Rust/WASM engine alike.
+- **Helm demo overlay**: pinned `replicas.web` to 1 in `values-demo.yaml`. The
+  demo runs `replicaCount: 3`, and the web tier silently followed it, carrying
+  a three-pod blank-screen rollout window from #4341 on every demo upgrade.
+  Upgrade docs now also call out that an operator upgrading from
+  `0.4.0-beta.7` with more than one web replica should scale the web tier to 1
+  before starting that specific upgrade, because beta.7 web pods cannot serve
+  the next release's assets cleanly during the rollout.
+- **Helm `values-prod.yaml` Ingress placeholder routed the SPA to the API**: the
+  shipped prod overlay's `ingress.hosts` carried a single bare `/` path with no
+  `service:` key, which `templates/ingress.yaml` defaults to `api` — every
+  request, including `/`, was routed to the Django API Service, and the web
+  Service, though rendered, was unreachable. The placeholder now mirrors
+  `values.yaml`'s default `/api`, `/ws` → API and `/` → web split with explicit
+  `service:` keys, so filling in only `host` (as documented) yields a working
+  SPA.
+- **nginx caching headers on the SPA shell and hashed assets**: every nginx
+  rendering (Helm production/demo/interactive-demo, both Docker Compose
+  templates, the public-demo template, and the baked `web` image) now sets
+  `Cache-Control: no-cache` on `index.html` and the SPA fallback, `public,
+  max-age=31536000, immutable` on a `/assets/*` hit, and `no-store` on a
+  `/assets/*` miss. Previously none of these responses carried any
+  `Cache-Control` header, so a browser's or CDN's own heuristics could keep
+  serving a pre-upgrade shell, or cache a transient 404 for a chunk a
+  still-rolling pod had not finished serving yet, long after a rollout ended.
+- **Helm: explicit `0`/`false` overrides are no longer clobbered back to the chart default**. Sprig's `| default` treats `0` and `false` as unset, so setting `replicas.web: 0`, `podDisruptionBudget.{api,worker,web}.maxUnavailable: 0`, `observability.otlp.{enabled,tracesEnabled,metricsEnabled}: false`, or `demo.backoffLimit: 0` silently rendered the opposite of what was configured. These four values — two related alert thresholds found during the fix (`alerts.thresholds.outboxDepth`, `alerts.thresholds.outboxOldestAgeSeconds`), `alerts.thresholds.volumeAvailablePercent` (where `0` is now a legitimate value: it disables the `TruePPMVolumeFillingUp` alert specifically, since the comparison it drives becomes unsatisfiable), and four probe `initialDelaySeconds` fields (`probes.{api,web}.{readiness,liveness}InitialDelaySeconds`, where `0` legitimately means "probe immediately") — now render the explicit value. The fix uses a presence-check guard rather than bare dot-access, so the chart's documented null-to-delete override idiom (setting a key to `null` to drop it) still falls back to the chart's own default instead of rendering empty, and an empty string (`podDisruptionBudget.*.maxUnavailable: ""`, this chart's other unset sentinel) is also still honored.
+- **Helm: `alerts.thresholds.{backup,demoReset}.staleAfterSeconds` must now be greater than 0**. These values are typed with `exclusiveMinimum: 0` in `values.schema.json`, so a `helm upgrade` with either set to `0` or a negative number now fails validation instead of silently rendering an alert that fires permanently from the first successful run onward. Any existing values file with a positive number is unaffected.
+- **Upgrade guide now documents the real behavior of `helm rollback` across a release
+  that added migrations**: rolling back previously read as a single, uniform step. In
+  fact the web tier rolls back immediately (a version-skew window in reverse), the api
+  tier's rolled-back pods are deliberately held `NotReady` by the readiness probe's
+  `migration_state: ahead` check and the api Deployment therefore stalls on the
+  **newer** version, and the Celery worker — which has no migration gate at all — rolls
+  back and starts consuming tasks against the newer schema immediately. `helm rollback`
+  without `--wait` returns success before any of this is visible. The [Helm
+  rollback](/getting-started/upgrade/#helm-rollback) section now documents the stall,
+  the `TRUEPPM_READYZ_ALLOW_DB_AHEAD` override that resolves it for an additive-only
+  release, and the restore-from-backup path for a destructive one.
+- **Helm demo-mode seed hook**: the install/upgrade seed Job had no
+  `activeDeadlineSeconds`, so a hung migration-lock wait could run past Helm's
+  default 5-minute `--timeout` with the api/web/worker Deployments already
+  rolled out, leaving the release reporting `failed` and the hook Job orphaned
+  until the next upgrade deleted it. The Job now carries a bounded
+  `demo.activeDeadlineSeconds` (default `720`s), and the docs now recommend
+  `helm upgrade --wait --timeout 15m` (explicitly not `--atomic`) for
+  demo-mode installs and upgrades.
+- **Concurrent-index migrations could leave an index silently INVALID after a crash during an upgrade**: `projects.0090`, `projects.0100`, and `projects.0105` build the sync hot-path and changelog indexes with `CREATE INDEX CONCURRENTLY IF NOT EXISTS`. If the `migrate_locked` lock-holding pod died mid-build, PostgreSQL left the index present but INVALID, and the `IF NOT EXISTS` guard on a retry let the migration finish and record applied with the index still broken and unused by the planner. Each migration now repairs an INVALID index of its own name before (re)building it, so a crash-and-retry self-heals on the next attempt. See the "A sync or login query is slow after an upgrade" section of https://docs.trueppm.com/administration/troubleshooting/ for recovering a database already stuck in that state from a crash before this fix.
+- **Docs**: documented that rotating a key in the Helm chart's application
+  Secret (`SECRET_KEY`, `JWT_SIGNING_KEY`, `DATABASE_URL`,
+  `INTEGRATION_ENCRYPTION_KEY`, …) does not restart any pod — only the `web`
+  tier carries a pod-template checksum annotation, and that one guards its
+  nginx ConfigMap. The Security page now gives the `kubectl rollout restart`
+  command for the three Deployments (`api`, `celery-worker`, `celery-beat`)
+  that read the Secret via `envFrom` and otherwise keep serving the old value
+  indefinitely, and notes that the demo-reset CronJob and demo-seed Job need
+  no restart since each run starts a fresh pod. A chart-rendered checksum
+  annotation that automates this rollout is tracked in #3405.
+- **Helm (web tier)**: the web pod's readiness probe checked `GET /`, which
+  the SPA's fallback route answers with `index.html` on any pod that merely
+  has nginx up — proving nothing about whether that pod's html root actually
+  holds this release's build. Readiness now checks `GET /asset-manifest.json`,
+  a build-specific file the web ConfigMap gives its own `=404`-on-a-miss
+  location so a broken deploy fails the probe instead of silently passing it.
+  Liveness stays on `GET /` deliberately, since a missing bundle is a static
+  condition a restart cannot fix. **Upgrade note:** this requires a `web`
+  image built from this release or later — an image pinned to `v0.4.0-beta.7`
+  or earlier has no `asset-manifest.json` at its html root, so readiness
+  would 404 forever and a fresh install or `helm upgrade --wait` would hang.
+  Also added `worker_shutdown_timeout 20s;` to the `trueppm/web` image's own
+  nginx config, reaching the Helm chart (the web Deployment's container runs
+  this image's nginx directly). The chart's production web ConfigMap branch
+  proxies `/ws/` with an 86400s read timeout (both demo branches 404 `/ws/`
+  and are unaffected), and on a topology that routes `/ws` through the web
+  tier rather than straight to the api Service, nginx's graceful `SIGQUIT`
+  shutdown previously waited for those connections to close on their own,
+  holding a terminating pod open until Kubernetes' termination grace ran out
+  and SIGKILLed it. The client sees the same abrupt close either way (nginx
+  sends no WebSocket close frame on this path) — the fix bounds how long the
+  pod's own shutdown can be held hostage to an open connection, not the close
+  code. Docker Compose is unaffected: in both compose stacks the `trueppm/web`
+  image is only used by a one-shot init container that copies the static
+  bundle out and exits, so its (patched) nginx never runs as a server;
+  `docker-compose.prod.yml`'s separate, unmodified `nginx:1.27-alpine`
+  front door has the same underlying `/ws/` issue and is tracked separately in
+  `#4366` — `docker-compose.demo.yml`'s nginx already returns 404 for `/ws/`
+  and has nothing to fix.
+- **A task duration edited while the schedule recalculates is no longer reverted**:
+  the schedule recalculation wrote every task's duration back with the value it
+  read when it started, so changing a task's duration while a recalculation was
+  running (a window of several seconds on a large project or program) silently
+  restored the old duration. The task history and the edit's response showed the
+  new value, and offline clients were never told the stored value had changed.
+  Recalculation now writes duration only for summary tasks, whose duration it
+  computes; a work task's duration is left as the user set it. The same applies
+  to a summary task whose last child is removed during a recalculation: it keeps
+  the estimate it gets back instead of the rolled-up span. The live schedule
+  update sent to connected clients also now carries the saved duration and
+  planned start, so an edit no longer briefly flickers back to its old value.
+- **"Remove sample data" now notifies every open tab a torn-down project is
+  gone**: tearing down a sample program hard-deleted every project in it but
+  broadcast only the undeliverable `program_deleted` event (no program WS
+  channel exists yet, #836) — a tab left open on one of the deleted projects
+  never learned the project was gone. The `project_hard_deleted` broadcast duty
+  moved into the shared hard-delete helper (`hard_delete_projects()` /
+  `hard_delete_program()`, `broadcast=True`) and now covers all five hard-delete
+  call sites: "Remove sample data", the seed-replace hard delete, `?force=true`
+  project delete, and the soft-delete retention purge (closes #3860, the one
+  sibling that was still missing it).
+- **Viewers no longer reconnect to a live-update socket that always refuses them**:
+  a Viewer's open project tab used to mint a WebSocket ticket and retry the
+  handshake every 30 seconds for as long as it stayed open, re-pull the whole
+  schedule and the Monte Carlo result every 30 seconds, and show "Connection
+  lost" in the status bar. The project WebSocket now refuses after accepting the
+  handshake, so a browser receives close codes `4001` and `4003` instead of a bare
+  `1006`. The web app treats `4003` as final, reads the project's new
+  `can_subscribe_live` field (the same rule the socket enforces) to skip the socket
+  for roles it would refuse, shows a neutral **No live updates** status instead of
+  "Connection lost", and refreshes the task list and the forecast every 5 minutes
+  instead of every 30 seconds. A first `4001` now gets a fresh ticket before the
+  session is treated as expired.
+  The Program Schedule page's per-project live channels follow the same rules: each
+  lane of `GET /programs/{id}/schedule/` now carries `can_subscribe_live`, the page
+  opens no socket for a member project that would refuse the caller, a `4003` is
+  never re-dialed (including after an access-token refresh), and an aged ticket
+  (`4001`) is re-minted once instead of silently ending that project's live
+  updates. Mid-session eviction now keys on the same rule as the connect gate.
+- **`errors.md` now documents nine `code` values that were already shipped**:
+  `calendar_has_no_working_day`, `not_a_sample`, `no_anchor_recorded`,
+  `seed_import_concurrency_limit` (400/429), `already_committed`,
+  `wbs_path_occupied`, `structure_role_contradicted`, `seed_slug_taken` (409),
+  and the `assignment_not_unit_tracked` 2xx warning were on the wire and
+  absent from the API error-code reference. A new CI gate
+  (`docs:error-codes`, `make error-codes-documented-check`) now fails when a
+  `code` the API emits is missing from `errors.md` and not recorded as
+  internal-only in `scripts/error-code-internal-allowlist.txt`, or when a
+  documented code is no longer emitted anywhere.
+- **Undisclosed MPL-2.0 dependency in the API and MCP runtime closures**: `certifi` (MPL-2.0), pulled in transitively via `requests`/`httpx`, is redistributed in the published `trueppm-api` and `trueppm-mcp` container images and PyPI packages with no license notice or source-availability statement. `NOTICES` and `licenses/MPL-2.0.txt` now carry the required disclosure, and `trueppm-api`/`trueppm-mcp` each ship a package-scoped `NOTICES`/`licenses/` copy via `license-files` so the notice travels with every distributed artifact (Docker image and PyPI sdist/wheel alike) — not just the ones built from the repository root. No dependency version or behavior changed.
+- **Muted/informational text contrast (WCAG 1.4.3)**: `--neutral-text-disabled` was
+  2.70:1 on white / 3.33:1 on the dark surface — below the 4.5:1 AA floor for normal
+  text — while being used for informational text (status labels, "Applied"/"Steel"
+  badges, Enterprise-gated hints) across the app, not only on disabled controls.
+  Darkened to `#686663` (light) and lightened to `#7F93B0` (dark); both now clear
+  4.5:1 on every neutral surface in both themes. Disabled controls remain
+  distinguishable via non-color cues (opacity, cursor, `aria-disabled`).
+- **Roles & permissions matrix mislabeled the audit log**: "View audit log" showed
+  as an Enterprise-only, Owner-only capability, though the community API serves
+  `GET /workspace/audit-events/` to Admin and Owner (`IsWorkspaceAuditViewer`,
+  ADR-0157). The row now shows the correct community grant, and a new
+  "Tamper-evident audit retention" row carries the Enterprise badge instead.
+  The disabled "View change history" button on Workspace → General, previously
+  badged Enterprise, now links to the audit log documentation.
+The sprint-burndown, recurring-occurrence, daily-forecast-floor and scheduled-digest sweeps no longer swallow `SoftTimeLimitExceeded` in their per-item `except Exception`: the signal stops the task, items are processed in a fixed order, and a WARNING names how many items were not reached and the first few ids. Most other Celery drain loops now re-raise it too, without the WARNING. The unreached tail is still unprocessed on every run (tracked in #4420). Some handlers still swallow the signal and are tracked in #4421: the retention-purge run, saga compensation, the Task `post_save` receivers in `projects/receivers.py` and `dispatch_extension_signal`'s `send_robust` (a sweep's per-item writes reach them), the email send helpers (so the email drain loops' guards are ineffective until those helpers are fixed), and seed import. A test fails on any new unguarded per-item handler in a loop under `trueppm_api`.
+Real-time updates no longer drop an event that arrives just after a later one. Before this fix, an event could be lost when two server workers sent events on the same project in the reverse of the order they were saved. The Gantt could then show stale dates until the next refetch. A board event's `seq` is now a per-project counter with no gaps, in the order events were saved (it was a global id). The client holds a frame that arrives early for up to 750 ms, waiting for the frame before it, instead of discarding that earlier frame. An event later than that is still skipped until gap detection lands (#2848). **Integrators:** `seq` values are now numbered per project. On projects that existed before the upgrade they start above 2³² (each project's highest old id plus 2³²), so they cannot collide with the old global ids. Every cursor saved before this release gets one `resync_required` (re-baseline to its `latest_seq`) the first time you reconnect with it. Frame gaps no longer reveal how many events the whole installation produced (#4386).
+A browser that loaded the page during a web-tier rollout could stay blank when the app's own entry script, or a file it needs to start, came from a pod still on the previous release and answered 404. The app's chunk-reload recovery lives inside that entry, so it never ran. A small script outside the bundle now reloads the page with backoff (1, 3, 8 and 15 seconds) until it starts. If the page still has not started, it shows "TruePPM is being updated" with a Reload button instead of a blank page (#4408).
+- **Docs (Helm)**: the values reference no longer says that a single web replica closes the rolling-update version-skew window. Kubernetes' default rolling update starts the new web pod before it stops the old one, so the window opens briefly even at one replica. The `rollout.web` entry now spells out the `Recreate` / `maxSurge: 0` trade-off: no skew, but a full UI outage on every rollout (#4409).
+- **`scripts/check-served-assets.sh`**: new `SERVED_ASSETS_ROLLOUT=1` mode for probing a web tier while it is mid-rollout. A `404` on a hashed `/assets/` file named by the same round's `index.html` is reported as `SKEW` rather than a failure. That case is forward version skew, which is inherent to any multi-pod rollout and which the client recovers from. The SPA fallback, a wrong content type, a 404 on an unhashed root file, and a previous-release file not served all still fail. The Helm demo-upgrade drill's mid-rollout probe uses it, so turning on its strict mode (#4347) no longer fails on every run (#4410).
+
+### Security
+- **`ProjectScopedViewSet` now fails closed for models with no project path**: the base queryset returned every row for a model lacking a `project`/`predecessor` foreign key, so a future task-scoped viewset calling `super().get_queryset()` would have been a silent cross-project IDOR. It now returns an empty queryset unless the viewset opts in with `unscoped_queryset = True`. No behavior change for existing endpoints; a private subclass that relied on the old fall-through must set `unscoped_queryset = True` or it will return an empty list.
+- **`McpReadableViewMixin` now fails closed too**: its project-opt-out filter returned a queryset unfiltered for a model with no project path. It now returns `qs.none()`. Unlike `ProjectScopedViewSet` the mixin has no opt-in, and no current view is affected.
+- **Program-scoped API token write paths now require Member+ on the minter's project membership**: a program-scoped API token's inbound task-sync and CI acceptance-result ingest endpoints checked that the token's minter held a *live* `ProjectMembership` on the target project (#4324), but admitted that membership at any role. A Program Admin whose own `ProjectMembership` on a member project was Viewer-only could still mint a program-scoped token and use it to create/update tasks or flip acceptance criteria on that project — writes a Viewer can never make through the UI. These write paths now additionally require the minter's live membership to be Member or above, checked at request time, so a minter demoted below Member loses write authority on an already-minted token's very next request.
+- **Project-scoped API token write paths now floor the minter's last recorded role, with an org-asset carve-out**: `IsTokenForProject`'s project-scoped branch previously did not re-check its minter at all — a minter demoted to Viewer, or removed from the project, kept full write authority through an already-minted project token on the task-sync and acceptance-results endpoints. Each request now applies the Member+ floor to the role on the minter's most recent `ProjectMembership` row for the token's project, live or removed. A minter demoted to Viewer loses write authority on the very next request. A minter removed while still Member or above keeps a working token, preserving the documented org-asset, survives-off-boarding contract. A minter demoted and then removed — including by removing themselves — stays refused, so leaving the project cannot undo a demotion. A token whose minter's account was deleted was already refused on both endpoints (it authenticates as no user and fails `IsAuthenticated`); that is unchanged.
+- **`mcp` image now patches Debian OS packages at build time**: `packages/mcp/Dockerfile` had no equivalent of the `api` image's `apt-get upgrade` in either stage, so a CVE fixed by the Debian security team in the pinned `python:3.11-slim` base sat unpatched with no way to pick it up short of the base image being rebuilt. Both stages now run `apt-get update && apt-get upgrade` before anything else, the same rationale as the api image and the `web` image's Alpine fix (#4335).
+- **Generic seed import no longer binds a shared calendar by name**: `POST /api/v1/programs/import/` resolved each seed's `calendars[]` entry against the global calendar catalog by name alone and could inject non-working exceptions into a real calendar the caller does not own — corrupting CPM dates on every project scheduled against it. The generic (non-sample) import path now always creates a fresh calendar, mirroring the existing resource-isolation fix (#1004); the bundled-sample reload path is unaffected.
+- **Project export jobs are now requester-scoped**: the async project export job list, poll, and download endpoints (`/api/v1/projects/{id}/export/jobs/...`) were scoped only to the project, not to the admin who requested the job — any project Admin could list, poll, or download another admin's export job, including emails withheld from them and blocker text withheld from them. Jobs are now also scoped to `requested_by`, and a second admin's queue request no longer de-dupes onto another admin's in-flight job. The download scoping and the per-requester de-dupe mirror the equivalent fix already shipped for program export jobs (#4310); the project list and poll endpoints go further than #4310 did, additionally hiding another admin's job metadata rather than only its download link — the two export-job surfaces now behave differently on purpose.
+The MS Project `.mpp` import no longer deadlocks the import worker when the MPXJ JVM writes a large amount to stderr, and neither JVM stderr nor the server-side JAR path is shown in the import error; both are logged server-side behind a reference id.
+
 ## [0.4.0-beta.7] — 2026-10-09
 
 TruePPM 0.4.0-beta.7 supersedes 0.4.0-beta.6.
