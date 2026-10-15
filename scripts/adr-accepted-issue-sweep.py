@@ -32,7 +32,9 @@ from glob import glob
 
 PROJECT = "trueppm%2Ftrueppm"
 ADR_REF = re.compile(r"ADR-(\d{3,4})")
-STATUS_SECTION = re.compile(r"^##\s*Status\s*$(.*?)(?=^##\s|\Z)", re.M | re.S)
+# Tempered-greedy body, not `(.*?)(?=^##\s|\Z)`: any alternation holding an anchor
+# trips Sonar S5850 ungrouped and S6395 grouped, and the two rules ping-ponged.
+STATUS_SECTION = re.compile(r"^##\s*Status\s*$((?:(?!^##\s).)*)", re.M | re.S)
 ACCEPTED = re.compile(r"\bAccepted\b|\bRATIFIED\b", re.I)
 DATE = re.compile(r"(20\d\d-\d\d-\d\d)")
 
