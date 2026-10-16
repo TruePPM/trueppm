@@ -4514,13 +4514,18 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
             mutated; a new :class:`Project` with a new task list is returned.
         task_id: Id of the task to perturb.
         delta_days: Signed day offset. Positive slips the task later, negative pulls
-            it in. Durations floor at zero, and so do story points — a shift that
+            it in. Durations floor at zero (on an in-progress task, at its elapsed
+            working days, since done work cannot be undone), and so do story
+            points — a shift that
             would zero the remaining points drops the task to its deterministic
             duration, the honest reading of "this work no longer takes a sprint".
 
     Returns:
         A new :class:`Project`, identical to ``project`` except for the target
-        task's shifted duration inputs.
+        task's shifted duration inputs. On an in-progress task that includes a
+        rescaled ``percent_complete``; on a pull-in that consumes all remaining
+        work it also sets ``actual_finish`` and may move ``actual_start`` earlier
+        (see :func:`_shift_remaining_work`).
 
     Raises:
         InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent

@@ -447,7 +447,9 @@ def test_pulling_in_all_remaining_work_completes_the_task() -> None:
 )
 @pytest.mark.parametrize("status_date", [date(2027, 3, 1), None], ids=["data-date", "no-data-date"])
 @pytest.mark.parametrize(
-    ("duration_days", "pct"), [(10, 99.0), (5, 50.0), (7, 33.3)], ids=["10d@99", "5d@50", "7d@33"]
+    ("duration_days", "pct"),
+    [(10, 99.0), (5, 50.0), (7, 33.3), (5, 10.0)],
+    ids=["10d@99", "5d@50", "7d@33", "5d@10-zero-elapsed"],
 )
 @pytest.mark.parametrize("overshoot", [0, 50])
 def test_an_exhausting_pull_in_moves_the_finish_earlier_by_exactly_the_remaining_days(

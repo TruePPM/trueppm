@@ -252,11 +252,14 @@ the work that is *left*. The working days already completed stay fixed. The task
 percent complete is adjusted internally so that its completed days stay the same.
 On a critical task, a slip of `+N` days moves `cpm_finish` by `N` working days, and a
 pull-in of `-N` days moves it `N` working days earlier, whatever its percent
-complete. A pull-in can move the finish less than this if another path becomes
+complete. This holds when the task's outgoing links have no lag. A lag counted in
+calendar days can gain or lose weekend days, so the shift can then differ from `N`.
+A pull-in can move the finish less than this if another path becomes
 critical first. Completed work cannot be undone, so the largest possible pull-in equals
 the remaining working days. A bigger pull-in has the same effect as that one. The
 what-if then treats the task as finished on the working day before its remaining
-work would have started, so the finish moves earlier by exactly the remaining days.
+work would have started. With no lag on its outgoing links, the finish then moves
+earlier by exactly the remaining days.
 Its duration is never set below the days already completed. Before the fix
 ([#4432](https://gitlab.com/trueppm/trueppm/-/issues/4432)), the change was spread
 over both the done and the remaining share of the task. A `+1` slip on a task that

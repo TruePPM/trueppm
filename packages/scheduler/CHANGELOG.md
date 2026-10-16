@@ -25,11 +25,12 @@ change between releases. Pin an exact version (e.g.
   moved the finish by zero, and `-N` and `+N` were not mirror images.
   `percent_complete` is now rescaled so the elapsed working days stay constant,
   and a critical task slipped or pulled in by `N` days moves the CPM finish and
-  the Monte Carlo bands by `N` working days. The duration never drops below the
+  the Monte Carlo bands by `N` working days (on links with no lag; a lag counted
+  in calendar days can gain or lose weekend days). The duration never drops below the
   elapsed days. A pull-in that consumes all remaining work (or more) returns the
   task at 100% with `actual_finish` set to the working day before its remaining
   work would have started in the unperturbed schedule. `actual_start` is clamped
-  to that day if it was later. The finish therefore moves earlier by exactly the
+  to that day if it was later. With no lag, the finish therefore moves earlier by exactly the
   remaining working days; it is never laid out later from `actual_start` or the
   project start.
 
