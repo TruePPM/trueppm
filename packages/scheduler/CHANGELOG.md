@@ -16,7 +16,18 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`monte_carlo()` no longer reports P50/P80/P95 before `schedule()` under
+  per-task calendars (#4429).** A task on a calendar sparser than its successor's
+  (a four-day week, Monday-only, a long shutdown exception) spans more than its
+  duration in working days of the denser calendar, but every calendar's
+  working-day index was sized by one sum of working-day durations. The successor
+  ran past its index end and was silently clamped to the last indexed date, so
+  even a zero-variance simulation forecast a finish days to months early. The
+  index is now sized from a calendar-date bound (a serial walk over each task's
+  own calendar), and an offset past an index end raises `InvalidScheduleInput`
+  instead of clamping.
 
 ## [0.4.0b8] - 2026-10-15
 

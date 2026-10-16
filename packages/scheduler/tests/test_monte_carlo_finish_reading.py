@@ -293,3 +293,46 @@ def test_no_start_of_day_finish_reports_the_pre_4204_dates(project: Project) -> 
         for o in np.percentile(shown, [50, 80, 95])
     ]
     assert [mc.p50, mc.p80, mc.p95] == old
+
+
+_WD = [MONDAY + timedelta(days=i) for i in range(5)]  # Mon..Fri
+_WD_ORD = np.array([d.toordinal() for d in _WD], dtype=np.int64)
+
+
+class TestIndexOverrunIsRefused:
+    """An offset past a working-day index end raises; it is never clamped (#4429).
+
+    The clamp onto the last indexed day is what let an undersized index report a
+    plausible, silently early finish. The index is now sized to hold every reachable
+    offset, so these paths are a backstop that a correct bound never reaches — which
+    is why they are pinned directly rather than through ``monte_carlo()``.
+    """
+
+    def test_offset_to_date_refuses_past_the_end(self) -> None:
+        # Exclusive EF == len is the last indexed day; one past it is off the index.
+        assert engine._offset_to_date(5.0, _WD, None) == _WD[-1]
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            engine._offset_to_date(6.0, _WD, None)
+
+    def test_lag_term_refuses_past_the_end(self) -> None:
+        delta = np.zeros(5, dtype=np.int32)
+        assert engine._lag_term(delta, np.array([4.0])).tolist() == [0.0]
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            engine._lag_term(delta, np.array([1.0, 5.0]))
+
+    def test_reference_offset_refuses_past_the_end(self) -> None:
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            engine._to_reference_offset(np.array([6.0]), _WD_ORD, _WD_ORD)
+
+    def test_index_offset_refuses_a_date_past_the_end(self) -> None:
+        offset_of = {d: i for i, d in enumerate(_WD)}
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            engine._index_offset(_WD[-1] + timedelta(days=3), offset_of, _WD)
+
+    def test_milestone_lookups_refuse_past_the_end(self) -> None:
+        idx = engine._McIndex([_WD_ORD], [engine.Calendar(working_days=0b0011111)])
+        past = np.array([_WD_ORD[-1] + 3], dtype=np.int64)
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            idx.next_wd_offset(0, past)
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            idx.ordinal_at(0, np.array([5.0]))
