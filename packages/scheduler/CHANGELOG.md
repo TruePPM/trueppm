@@ -18,6 +18,13 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **`expand_summary_dependencies` no longer depends on dependency list order
+  (#4434).** When two links expanded onto the same leaf pair — `A → C` plus
+  `S(A, B) → C` with a 7-day lag — the first one listed was kept and the other
+  silently dropped, so the binding summary lag was lost whenever the leaf link
+  came first. Same-type collisions now keep the largest (most binding) lag;
+  collisions of different dependency types raise `InvalidScheduleInput` naming
+  both source links, since one edge per pair cannot represent both.
 - **A start-to-finish link into a milestone no longer overstates its
   predecessor's float (#4431).** #4344 capped the latest instant a milestone may
   take for its finish-to-start and start-to-start predecessors, but an SF

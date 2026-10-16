@@ -470,6 +470,12 @@ expansion.tasks         # input tasks with summaries removed — leaves only
 expansion.dependencies  # leaf-level edges, self-links skipped and deduplicated
 ```
 
+When two links resolve to the same leaf pair — say `build → test` and
+`phase-1 → test` with a 7-day lag — they merge into one edge that keeps the
+**largest** lag, so the result never depends on the order of `dependencies`. If the
+two links have *different* types (one `FS`, one `FF`), no single edge can hold both,
+and the call raises `InvalidScheduleInput` naming both links.
+
 `SummaryExpansion` also unpacks as a pair for backward compatibility:
 `leaf_tasks, expanded_deps = expand_summary_dependencies(...)`.
 
