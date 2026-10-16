@@ -8,7 +8,12 @@
 #   2. nginx/app-http.conf.template   compose prod, plain HTTP
 #   3. nginx/demo.conf.template       compose public demo
 #   4. packages/web/nginx.conf        BAKED INTO the published web image
-#   5. packages/helm/templates/web/configmap.yaml  (prod + demo branches)
+#   5. packages/helm/templates/web/configmap.yaml  (prod + demo branches — three
+#      mutually exclusive `default.conf` renders: production, demo share-link
+#      (demo.enabled), demo interactive (demo.interactive, #4426) — each checked
+#      via its own `check_helm` call in run_check(); all three, not two, or a
+#      real regression in whichever one is left out renders unchecked by the
+#      actual gate while still passing --self-test's synthesized fixtures)
 #
 # Two defects came straight out of that: the Helm production branch — the path
 # the docs recommend for production — served index.html and every JS bundle with
@@ -64,9 +69,32 @@
 #        - the named location `/assets/`'s `try_files` falls back to on a
 #          miss (never a bare `=404` — nginx cannot attach a header to that):
 #          `Cache-Control: no-store`, and it must still `return 404`.
+#   E. X-Forwarded-Proto overwrite guard (#4426 — reopens #3191 finding #4). A
+#      plain-HTTP listener (no `listen … ssl`) in every config this script checks
+#      ships behind SOME TLS-terminating upstream the operator controls (a compose
+#      load balancer, a Cloudflare Tunnel, a Helm ingress) — see each template's own
+#      comment for which. `proxy_set_header X-Forwarded-Proto $scheme` there
+#      unconditionally overwrites whatever that upstream already set with "http",
+#      because this nginx's own $scheme is never "https" on a plain-HTTP listener.
+#      That is not a hardening gap, it is a correctness bug: Django's
+#      SECURE_PROXY_SSL_HEADER then disagrees with the browser's actual scheme, and
+#      the same-origin check behind token refresh 403s on every reload behind such a
+#      proxy. A `listen … ssl` block is the opposite case — nginx terminates TLS
+#      itself there, so $scheme is already correct, and trusting a client-supplied
+#      header instead would let a plain-HTTP client spoof "https".
+#   F. Map definition parity (#4426). Anywhere a config proxies with
+#      `X-Forwarded-Proto $forwarded_proto` it must also define
+#      `map $http_x_forwarded_proto $forwarded_proto { … }` — an undefined nginx
+#      variable is a startup error, not a soft failure — and that map must be
+#      defined exactly ONCE per rendered file: `map` is http-context only, so a
+#      second definition in the same file is also a startup error, this time from a
+#      duplicate. (Each of the Helm ConfigMap's three branches renders its own,
+#      mutually exclusive `default.conf`, so one map per branch is one map per file,
+#      not three.)
 #
-# The Helm renders are included by shelling out to `helm template`. If helm is
-# not on PATH the static configs are still checked and the Helm halves are
+# The Helm renders (all THREE branches — production, demo share-link, demo
+# interactive, #4426) are included by shelling out to `helm template`. If helm
+# is not on PATH the static configs are still checked and the Helm renders are
 # reported as SKIPPED — the CI job runs in an image that has helm, so the full
 # set is always covered there.
 #
@@ -193,6 +221,37 @@ assert_location_header_set() {
   fi
 }
 
+# (E, #4426) A plain-HTTP server block must never overwrite X-Forwarded-Proto
+# with $scheme — see invariant E in the header comment for why. A TLS-terminating
+# block is the opposite case and is expected to set $scheme; that direction is
+# not asserted here (not every TLS block proxies /api/, and the absence of a
+# header is not this gate's concern — #2849/#2569 already cover what TLS blocks
+# must set).
+assert_forwarded_proto_not_overwritten() {
+  local label="$1" idx="$2" body="$3" has_tls="$4"
+  [ "$has_tls" = "1" ] && return
+  grep -qE 'X-Forwarded-Proto[ \t]+\$scheme[ \t]*;' <<<"$body" \
+    && viol "$label" "server block #$idx sets \`X-Forwarded-Proto \$scheme\` on a plain-HTTP listener — this OVERWRITES a correct value from a TLS-terminating upstream with \"http\" (#3191 finding #4, reopened #4426). Use the \$forwarded_proto map instead."
+  return 0
+}
+
+# (F, #4426) Map definition parity, checked over the WHOLE config text (map is
+# http-context, not server-context, so this runs once per file/variant rather
+# than per server block).
+assert_forwarded_proto_map() {
+  local label="$1" text="$2"
+  local uses map_count
+  uses="$(grep -cE 'X-Forwarded-Proto[ \t]+\$forwarded_proto' <<<"$text" || true)"
+  map_count="$(grep -cE '^[ \t]*map[ \t]+\$http_x_forwarded_proto[ \t]+\$forwarded_proto[ \t]*\{' <<<"$text" || true)"
+  if [ "$uses" -gt 0 ] && [ "$map_count" -eq 0 ]; then
+    viol "$label" "proxies with \$forwarded_proto but defines no \`map \$http_x_forwarded_proto \$forwarded_proto { … }\` — nginx fails to start on an undefined variable (#4426)."
+  fi
+  if [ "$map_count" -gt 1 ]; then
+    viol "$label" "defines the \$forwarded_proto map $map_count time(s) in one file — \`map\` is http-context only, so more than one definition is an nginx startup error, not a harmless duplicate (#4426)."
+  fi
+  return 0
+}
+
 # ── Per-config assertions ────────────────────────────────────────────────────
 # Every assertion feeds grep with a here-string, never `printf "$x" | grep -q`.
 # Under `set -o pipefail` the pipe form reports a PRESENT line as missing: grep
@@ -201,6 +260,9 @@ assert_location_header_set() {
 # different header each time (#3758). The self-test scans for the pattern.
 check_config() {
   local label="$1" text="$2"
+
+  # (F, #4426) Over the WHOLE file, not per server block — `map` is http-context.
+  assert_forwarded_proto_map "$label" "$text"
 
   local blocks
   blocks="$(printf '%s\n' "$text" | split_server_blocks)"
@@ -272,6 +334,9 @@ check_config() {
       grep -qE 'add_header[ \t]+Strict-Transport-Security' <<<"$body" \
         || viol "$label" "SPA server block #$idx terminates TLS but sets no Strict-Transport-Security."
     fi
+
+    # (E, #4426) X-Forwarded-Proto must not be overwritten on a plain-HTTP block.
+    assert_forwarded_proto_not_overwritten "$label" "$idx" "$body" "$has_tls"
 
     # (D, #4350) Caching parity, checked per location — see the header comment.
     local idxhtml assets fallback assets404
@@ -418,15 +483,32 @@ run_check() {
 
   if command -v helm >/dev/null 2>&1; then
     check_helm "helm production"
-    check_helm "helm demo" \
+    check_helm "helm demo (share-link)" \
       -f "$CHART/values-demo.yaml" \
       --set demo.baseUrl=https://demo.example.com \
       --set demo.shareToken.schedule=ci-schedule-token \
       --set demo.shareToken.board=ci-board-token \
       --set networkPolicy.ingressControllerConfirmed=true
+    # demo.interactive (ADR-1197) is its own branch of the ConfigMap, not a
+    # variant of the share-link one above — and it is the branch ADR-0658 D9
+    # / ADR-1197 say try.trueppm.com actually runs. Omitting this call left
+    # the #4426 production topology completely unrendered by the REAL (non
+    # --self-test) run: the self-test's synthesized fixtures proved the
+    # assertions work in the abstract, but nothing proved they ever looked at
+    # this branch's actual rendered bytes (#4426 completeness-check finding).
+    # Args mirror scripts/check-helm-nginx-syntax.sh's own demo-interactive render.
+    check_helm "helm demo (interactive)" \
+      -f "$CHART/values-demo.yaml" \
+      --set demo.baseUrl=https://demo.example.com \
+      --set demo.shareToken.schedule=ci-schedule-token \
+      --set demo.shareToken.board=ci-board-token \
+      --set demo.interactive=true \
+      --set demo.loginHint.username=atlas-visitor \
+      --set demo.loginHint.password=ci-demo-password \
+      --set networkPolicy.ingressControllerConfirmed=true
   else
     skipped_helm=1
-    echo "WARNING: helm is not on PATH — the two Helm-rendered configs were NOT checked." >&2
+    echo "WARNING: helm is not on PATH — the three Helm-rendered configs were NOT checked." >&2
     echo "         The nginx:headers CI job runs in an image that has helm." >&2
   fi
 
@@ -648,6 +730,101 @@ $(cache_locations "$noreferrer_headers")
 }
 CONF
 
+  # ── X-Forwarded-Proto fixtures (E, F — #4426) ──────────────────────────────
+
+  # GOOD: plain-HTTP listener, map defined once, proxies with $forwarded_proto.
+  cat >"$tmp/good_xfp.conf" <<CONF
+map \$http_x_forwarded_proto \$forwarded_proto {
+    default \$scheme;
+    ~.      \$http_x_forwarded_proto;
+}
+server {
+    listen 8080;
+$good_headers
+$(cache_locations "$good_headers")
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+    location /api/ {
+        proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-Proto \$forwarded_proto;
+    }
+}
+CONF
+
+  # GOOD: a TLS-terminating listener setting X-Forwarded-Proto from $scheme is
+  # correct (this nginx IS the client-facing edge) and must NOT be flagged.
+  cat >"$tmp/good_xfp_tls.conf" <<CONF
+server {
+    listen 443 ssl;
+    add_header Strict-Transport-Security "max-age=63072000" always;
+$good_headers
+$(cache_locations "$(printf '%s\n%s' "$good_headers" "$hsts_line")")
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+    location /api/ {
+        proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+CONF
+
+  # BAD (E): the exact #4426 defect — a plain-HTTP listener overwriting
+  # X-Forwarded-Proto with its own (always "http") $scheme.
+  cat >"$tmp/bad_xfp_overwrite.conf" <<CONF
+server {
+    listen 8080;
+$good_headers
+$(cache_locations "$good_headers")
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+    location /api/ {
+        proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+CONF
+
+  # BAD (F): $forwarded_proto is used but the map that defines it is missing —
+  # nginx fails to start on an undefined variable.
+  cat >"$tmp/bad_xfp_no_map.conf" <<CONF
+server {
+    listen 8080;
+$good_headers
+$(cache_locations "$good_headers")
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+    location /api/ {
+        proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-Proto \$forwarded_proto;
+    }
+}
+CONF
+
+  # BAD (F): the map is defined twice in the same file — `map` is http-context
+  # only, so a second definition is an nginx startup error, not a harmless
+  # duplicate.
+  cat >"$tmp/bad_xfp_double_map.conf" <<CONF
+map \$http_x_forwarded_proto \$forwarded_proto {
+    default \$scheme;
+    ~.      \$http_x_forwarded_proto;
+}
+map \$http_x_forwarded_proto \$forwarded_proto {
+    default \$scheme;
+    ~.      \$http_x_forwarded_proto;
+}
+server {
+    listen 8080;
+$good_headers
+$(cache_locations "$good_headers")
+    location / { try_files \$uri \$uri/ /index.html; }
+    location /admin/ { return 404; }
+    location /api/ {
+        proxy_pass http://api:8000;
+        proxy_set_header X-Forwarded-Proto \$forwarded_proto;
+    }
+}
+CONF
+
   # BAD (#4350): the SPA shell has no `location = /index.html` at all — a
   # browser applies heuristic freshness to a shell with no Cache-Control.
   cat >"$tmp/bad_cache_noindex.conf" <<CONF
@@ -807,6 +984,11 @@ CONF
   probe bad_cache_404_no_store.conf   1 "named 404 fallback with no Cache-Control at all rejected (#4350)"
   probe good_noreferrer.conf        0 "Referrer-Policy: no-referrer accepted"
   probe bad_noreferrer.conf         1 "SPA served with no Referrer-Policy rejected"
+  probe good_xfp.conf          0 "plain-HTTP listener proxying with \$forwarded_proto + its map accepted (#4426)"
+  probe good_xfp_tls.conf      0 "TLS-terminating listener setting X-Forwarded-Proto from \$scheme accepted (#4426)"
+  probe bad_xfp_overwrite.conf 1 "plain-HTTP listener overwriting X-Forwarded-Proto with \$scheme rejected — the #4426 defect (#3191 finding #4)"
+  probe bad_xfp_no_map.conf    1 "\$forwarded_proto used with no map definition rejected (#4426)"
+  probe bad_xfp_double_map.conf 1 "\$forwarded_proto map defined twice in one file rejected — nginx map is http-context only (#4426)"
   probe bad_referrer_value.conf     1 "Referrer-Policy: unsafe-url rejected"
   probe bad_referrer_downgrade.conf 1 "Referrer-Policy: no-referrer-when-downgrade rejected"
   probe bad_referrer_notalways.conf 1 "Referrer-Policy without \`always\` rejected"

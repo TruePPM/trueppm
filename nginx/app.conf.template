@@ -122,6 +122,14 @@ server {
     }
 
     # REST API
+    #
+    # X-Forwarded-Proto $scheme (not the $forwarded_proto map nginx/app-http.conf.template
+    # and nginx/demo.conf.template use, #4426): THIS config terminates TLS itself
+    # (`listen 443 ssl` above) — $scheme is already correct here, because nginx is the
+    # client-facing edge. Trusting an incoming X-Forwarded-Proto header instead would let a
+    # plain-HTTP client on this same listener simply claim "https" and spoof a secure
+    # request. The overwrite bug #4426 fixed only applies behind a TLS-terminating
+    # upstream (TLS_MODE=none → nginx/app-http.conf.template), which this template is not.
     location /api/ {
         proxy_pass         http://api:8000;
         proxy_set_header   Host              $host;

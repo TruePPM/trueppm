@@ -163,7 +163,7 @@ controller, or a cloud load balancer — owns the certificate.
 | Topology | TLS terminates at | Must forward | `TRUEPPM_SECURE_SSL_REDIRECT` | HSTS owner |
 |---|---|---|---|---|
 | **Compose + bundled nginx** (`TLS_MODE=letsencrypt` / `selfsigned`) | the stack's nginx, on `:443` | nothing to configure — `nginx/app.conf.template` already sets `Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto` and the WebSocket upgrade headers | leave `false` — nginx already 301s `:80` → `:443` | the nginx template (`max-age=63072000; includeSubDomains`) |
-| **Compose behind an external LB** (`TLS_MODE=none`) | your load balancer | LB → nginx: `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`, `Upgrade`, `Connection`. **See the caveat below** — the HTTP template overwrites `X-Forwarded-Proto` | leave `false` — the LB does the redirect | the load balancer |
+| **Compose behind an external LB** (`TLS_MODE=none`) | your load balancer | LB → nginx: `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`, `Upgrade`, `Connection`. **See the caveat below** — an old copy of the HTTP template may still overwrite `X-Forwarded-Proto` | leave `false` — the LB does the redirect | the load balancer |
 | **Helm + ingress-nginx** | the `Ingress` (`ingress.tls[].secretName`) | ingress-nginx sets `X-Forwarded-For` / `X-Forwarded-Proto` and preserves `Host` itself; add the WebSocket timeout annotations from [WebSockets](#websockets-behind-a-proxy) | leave `false` — set `nginx.ingress.kubernetes.io/ssl-redirect: "true"` instead (it is the controller default when a TLS block exists) | ingress-nginx (`hsts: true` in its ConfigMap) and `web.securityHeaders.strictTransportSecurity` for the SPA document |
 | **Helm behind a cloud LB** (ALB / GCLB), Ingress in HTTP mode | the cloud load balancer | the LB must send `X-Forwarded-Proto: https` and preserve `Host`. ALB and GCLB both do by default. Keep the backend protocol on **HTTP/1.1** so the WebSocket upgrade survives | leave `false` | the cloud LB, plus `web.securityHeaders.strictTransportSecurity` |
 | **Helm + cert-manager** | the `Ingress`, with the Secret provisioned automatically | as ingress-nginx above | leave `false` | as ingress-nginx above |
@@ -214,14 +214,25 @@ Whatever `Host` does arrive must be in `ALLOWED_HOSTS` — see
 [Host names you must include](/administration/configuration/#host-names-you-must-include).
 :::
 
-:::note[The Compose HTTP template no longer overwrites the scheme]
-If you copied `nginx/app-http.conf.template` (selected by `TLS_MODE=none`, the
-template used behind an external load balancer) before this was fixed, your copy
-may still contain `proxy_set_header X-Forwarded-Proto $scheme` — which replaces
-your load balancer's `https` with `http`, so TruePPM emits no HSTS, builds
-`http://` absolute URLs, and would 301-loop if `TRUEPPM_SECURE_SSL_REDIRECT` were
-on. The shipped template now honors an inbound value through a `map` and falls
-back to `$scheme` only when none is present:
+:::note[Every plain-HTTP path now preserves the scheme]
+Any config whose listener is plain HTTP — because TLS terminates somewhere in
+front of it, not at this nginx — needs the inbound `X-Forwarded-Proto` preserved,
+not overwritten: `nginx/app-http.conf.template` (`TLS_MODE=none`, behind an
+external load balancer), `nginx/demo.conf.template` (the Compose public demo),
+and the two demo branches of the Helm web tier's rendered ConfigMap
+(`demo.enabled` / `demo.interactive` — this is the path try.trueppm.com uses,
+behind a Cloudflare Tunnel). `nginx/app.conf.template` and the Helm production
+branch are the opposite case: they either terminate TLS themselves or document
+no `X-Forwarded-Proto` override at all, so they are unaffected.
+
+If you copied one of the affected configs before this was fixed (#3191 finding
+#4, closed for all four paths by #4426), your copy may still contain
+`proxy_set_header X-Forwarded-Proto $scheme`, which replaces your proxy's
+`https` with this nginx's own (always `http`) scheme — so TruePPM emits no HSTS,
+builds `http://` absolute URLs, would 301-loop if `TRUEPPM_SECURE_SSL_REDIRECT`
+were on, and rejects a same-origin token refresh with a 403 on every page reload.
+The shipped templates now honor an inbound value through a `map` and fall back
+to `$scheme` only when none is present:
 
 ```nginx
 map $http_x_forwarded_proto $forwarded_proto {
@@ -230,10 +241,10 @@ map $http_x_forwarded_proto $forwarded_proto {
 }
 ```
 
-Re-copy the template, or add the `map` and use `$forwarded_proto` on every
-`proxy_set_header X-Forwarded-Proto` line. Either way this is only safe when the
-load balancer is the *only* way in — a client that reaches nginx directly can set
-the header too.
+Re-copy the template (or upgrade the chart), or add the `map` yourself and use
+`$forwarded_proto` on every `proxy_set_header X-Forwarded-Proto` line. Either way
+this is only safe when the proxy in front is the *only* way in — a client that
+reaches nginx directly can set the header too.
 :::
 
 `X-Forwarded-For` has a quieter failure, and it has **two** causes that look

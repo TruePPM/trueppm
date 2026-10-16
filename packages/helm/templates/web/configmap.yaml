@@ -59,6 +59,32 @@ data:
   reachable-but-404 rather than proxied away.
 */}}
   default.conf: |
+    # Preserve an upstream load balancer's X-Forwarded-Proto instead of
+    # overwriting it (#3191 finding #4, reopened #4426).
+    #
+    # This pod's listener is always plain HTTP (see containerPort below) and
+    # this mode is reached only through an operator-controlled
+    # ingress/tunnel that terminates TLS (ADR-1197; try.trueppm.com fronts it
+    # with a Cloudflare Tunnel per ADR-0658 D9), so $scheme here is always
+    # "http" even when the visitor's own connection was TLS. Sending
+    # `X-Forwarded-Proto $scheme` told Django "this request arrived over
+    # plain HTTP" on every request, which made SECURE_PROXY_SSL_HEADER's
+    # https check fail — request.is_secure() was always False, so the
+    # same-origin check behind /api/v1/auth/token/refresh/ rejected a
+    # genuinely same-origin refresh with a 403 on every page reload. This
+    # ConfigMap carried the same unpatched pattern #3191 already fixed in
+    # nginx/app-http.conf.template.
+    #
+    # Trust an incoming value only when one is present; fall back to $scheme
+    # otherwise. Only safe in front of a proxy you control — this chart
+    # branch always is (see above) — because X-Forwarded-Proto is otherwise
+    # client-spoofable; TRUEPPM_NUM_PROXIES governs how far up the
+    # X-Forwarded-For chain the app trusts.
+    map $http_x_forwarded_proto $forwarded_proto {
+        default $scheme;
+        ~.      $http_x_forwarded_proto;
+    }
+
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
              valid container port, so there is no legitimate explicit value
@@ -161,21 +187,21 @@ data:
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
             proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         }
         location = /api/v1/auth/token/refresh/ {
             proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
             proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         }
         location = /api/v1/auth/logout/ {
             proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
             proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         }
 
         # Everything else under /api/: GET/HEAD/OPTIONS pass through — this is
@@ -198,7 +224,7 @@ data:
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
             proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Forwarded-Proto $forwarded_proto;
             proxy_read_timeout 30s;
         }
 
@@ -259,6 +285,18 @@ data:
       kubectl port-forward svc/<release>-trueppm-api 8000:8000
 */}}
   default.conf: |
+    # Preserve an upstream load balancer's X-Forwarded-Proto instead of
+    # overwriting it (#3191 finding #4, reopened #4426) — same reasoning as
+    # the demo.interactive branch above: this pod's listener is always plain
+    # HTTP, this mode is reached only through an operator-controlled
+    # ingress/tunnel that terminates TLS, and $scheme here is always "http"
+    # even when the visitor's connection was TLS. Fall back to $scheme so a
+    # direct-to-nginx deployment is unchanged.
+    map $http_x_forwarded_proto $forwarded_proto {
+        default $scheme;
+        ~.      $http_x_forwarded_proto;
+    }
+
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
              valid container port, so there is no legitimate explicit value
@@ -388,7 +426,7 @@ data:
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
             proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto $scheme;
+            proxy_set_header   X-Forwarded-Proto $forwarded_proto;
             proxy_read_timeout 30s;
         }
 
@@ -400,7 +438,7 @@ data:
             proxy_set_header Host              $host;
             proxy_set_header X-Real-IP         $remote_addr;
             proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
         }
 
         # Everything else under /api/ is intentionally absent from the demo.
