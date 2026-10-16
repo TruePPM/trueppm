@@ -74,7 +74,7 @@ issue_state() {
   if [ -z "$rows" ]; then
     echo missing
   else
-    printf '%s\n' "$rows" | head -n1 | cut -f2
+    awk -F'\t' 'NR == 1 { print $2 }' <<<"$rows"
   fi
 }
 

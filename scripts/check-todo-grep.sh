@@ -289,7 +289,7 @@ if [ -n "$todo_refs" ]; then
         fi
         continue
       fi
-      row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i' | head -n1 || true)
+      row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i && !f { print; f = 1 }' || true)
       if [ -z "$row" ]; then
         echo "ERROR: TODO(#${iid}) references an issue that does not exist or is not readable (deleted, moved, or confidential)." >&2
         unresolved_count=$((unresolved_count + 1))

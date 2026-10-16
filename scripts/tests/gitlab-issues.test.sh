@@ -27,7 +27,7 @@ status=$(sed -n "${n}p" "$MOCK_DIR/script")
 code="${status%% *}"
 retry=""
 [ "$code" != "$status" ] && retry="${status#* }"
-if [ "${MOCK_REJECT_TOKEN:-}" = 1 ] && printf '%s' "$*" | grep -q 'PRIVATE-TOKEN'; then
+if [ "${MOCK_REJECT_TOKEN:-}" = 1 ] && grep -q 'PRIVATE-TOKEN' <<<"$*"; then
   code=401
   retry=""
 fi
@@ -54,7 +54,7 @@ reset 200
 out=$(gitlab_issue_states https://api 1 "" 10 20 30 40)
 [ "$(calls)" = 1 ] || fail "4 iids took $(calls) requests, want 1"
 [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 4 ] || fail "want 4 rows, got: $out"
-printf '%s\n' "$out" | grep -qx $'30\topened\tt ab' || fail "row shape wrong (tab in title must not split): $out"
+grep -qx $'30\topened\tt ab' <<<"$out" || fail "row shape wrong (tab in title must not split): $out"
 ok
 
 # 2. More than 100 iids page in chunks of 100.
@@ -92,8 +92,8 @@ ok
 reset 200
 err=$(MOCK_REJECT_TOKEN=1 gitlab_issue_states https://api 1 tok 5 2>&1 >/dev/null) || fail "token fallback should succeed"
 [ "$(calls)" = 2 ] || fail "want 2 requests, got $(calls)"
-sed -n 1p "$tmp/calls" | grep -q 'PRIVATE-TOKEN: tok' || fail "first call did not send the token"
-sed -n 2p "$tmp/calls" | grep -q 'PRIVATE-TOKEN' && fail "fallback call still sent the token"
+grep -q 'PRIVATE-TOKEN: tok' <<<"$(sed -n 1p "$tmp/calls")" || fail "first call did not send the token"
+grep -q 'PRIVATE-TOKEN' <<<"$(sed -n 2p "$tmp/calls")" && fail "fallback call still sent the token"
 grep -q 'WARN: .*401' <<<"$err" || fail "no warning on token fallback: $err"
 ok
 

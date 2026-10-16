@@ -153,7 +153,7 @@ if ! states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $issues); then
 fi
 
 for iid in $issues; do
-  row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i' | head -n1 || true)
+  row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i && !f { print; f = 1 }' || true)
   if [ -z "$row" ]; then
     echo ""
     echo "STALE SUPPRESSION: #${iid} could not be read (missing, moved, or no access)."

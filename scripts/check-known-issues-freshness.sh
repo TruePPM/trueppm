@@ -209,7 +209,7 @@ if [ -n "$ref_rows" ]; then
       fi
       continue
     fi
-    row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i' | head -n1 || true)
+    row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i && !f { print; f = 1 }' || true)
     if [ -z "$row" ]; then
       echo "ERROR: issue #${iid} (line ${line_no}) does not exist or is not readable (deleted, moved, or confidential)." >&2
       violations=$((violations + 1))
