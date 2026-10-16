@@ -34,9 +34,12 @@
 # Auth: same reasoning as check-todo-grep.sh (#3043) — CI_JOB_TOKEN cannot
 # authenticate against the Issues API on any endpoint, so a JOB-TOKEN header
 # only ever turns a public project's anonymous 200 into a guaranteed 401. No
-# auth header is sent unless KNOWN_ISSUES_TOKEN (a project/group access
-# token with read_api) is set; it is not required for trueppm/trueppm itself
-# because this project's issue tracker is public.
+# auth header is sent unless KNOWN_ISSUES_TOKEN or the shared ISSUES_API_TOKEN
+# (a project/group access token with read_api) is set. The tracker is public,
+# so the token is not needed for access — it is there for the authenticated
+# rate limit: anonymous lookups share one per-IP budget across every runner
+# job and 429'd main (#4452). All references resolve in one batched call with
+# 429 retry; see scripts/lib/gitlab-issues.sh.
 #
 # A gate that cannot reach its oracle must go red, not silently pass.
 # KNOWN_ISSUES_ALLOW_UNRESOLVED=1 is the explicit opt-out for a context where
@@ -54,19 +57,23 @@ if [ "${1:-}" = "--self-test" ]; then
   trap 'rm -rf "$tmp"' EXIT
 
   # A fake `curl` ahead of PATH drives the real fetch/parse/decide code below
-  # without hitting the network. KNOWN_ISSUES_MOCK_MODE picks the response:
-  #   open      -> {"state":"opened"}          200
-  #   closed    -> {"state":"closed", "title":"..."}  200
+  # without hitting the network. It answers the batched list call
+  # (`issues?iids[]=…`, #4452) with one issue per requested iid.
+  # KNOWN_ISSUES_MOCK_MODE picks the response:
+  #   open      -> every iid "opened"
+  #   closed    -> every iid "closed"
   #   unfetchable -> curl "fails" (no output, matching a real network error)
   mkdir -p "$tmp/bin"
   cat >"$tmp/bin/curl" <<'CURLMOCK'
 #!/usr/bin/env bash
+url="${*: -1}"
+iids=$(printf '%s' "$url" | grep -oE 'iids\[\]=[0-9]+' | cut -d= -f2)
 case "${KNOWN_ISSUES_MOCK_MODE:-open}" in
-  open)
-    printf '%s\n%s\n' '{"state":"opened","title":"an open issue"}' "200"
-    ;;
-  closed)
-    printf '%s\n%s\n' '{"state":"closed","title":"a closed issue"}' "200"
+  open | closed)
+    state=opened
+    [ "$KNOWN_ISSUES_MOCK_MODE" = closed ] && state=closed
+    printf '%s\n' $iids | jq -R --arg s "$state" '{iid: tonumber, state: $s, title: "an issue"}' | jq -sc .
+    printf '200 \n'
     ;;
   unfetchable)
     printf '\n%s\n' "000"
@@ -76,6 +83,7 @@ CURLMOCK
   chmod +x "$tmp/bin/curl"
   export PATH="$tmp/bin:$PATH"
   export CI_PROJECT_ID="1"
+  export GITLAB_ISSUES_SLEEP_OVERRIDE=0
 
   # --- Case 1: an open issue reference passes ---
   cat >"$tmp/open.md" <<'EOF'
@@ -154,18 +162,18 @@ if [ -z "$PROJECT" ]; then
 fi
 
 API="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
-CURL_AUTH_ARGS=()
-if [ -n "${KNOWN_ISSUES_TOKEN:-}" ]; then
-  CURL_AUTH_ARGS=(--header "PRIVATE-TOKEN: ${KNOWN_ISSUES_TOKEN}")
-fi
-# No `else` branch: a JOB-TOKEN header cannot authenticate against this
-# endpoint (#3043) and only turns a potential anonymous 200 into a
-# guaranteed 401, so the no-token case sends no auth header at all.
+# shellcheck source-path=SCRIPTDIR source=lib/gitlab-issues.sh
+. "$(dirname "$0")/lib/gitlab-issues.sh"
+# No JOB-TOKEN fallback: it cannot authenticate against this endpoint (#3043).
+TOKEN="${KNOWN_ISSUES_TOKEN:-${ISSUES_API_TOKEN:-}}"
 
 ALLOW_UNRESOLVED="${KNOWN_ISSUES_ALLOW_UNRESOLVED:-0}"
 
 violations=0
 line_no=0
+# One `line<TAB>iid<TAB>has_marker` row per reference, resolved in one batched
+# call below rather than one request per reference (#4452).
+ref_rows=""
 
 while IFS= read -r line || [ -n "$line" ]; do
   line_no=$((line_no + 1))
@@ -180,36 +188,44 @@ while IFS= read -r line || [ -n "$line" ]; do
 
   while IFS= read -r iid; do
     [ -z "$iid" ] && continue
+    ref_rows+="${line_no}"$'\t'"${iid}"$'\t'"${has_marker}"$'\n'
+  done <<<"$refs"
+done <"$PAGE"
 
-    url="${API}/projects/${PROJECT}/issues/${iid}"
-    # Status code on its own trailing line rather than relying on `curl -f`'s
-    # exit status alone — see check-todo-grep.sh for why that ambiguity (401
-    # vs 404 vs 000) makes a red gate expensive to diagnose.
-    resp=$(curl -s -w $'\n%{http_code}' "${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"}" "$url" || true)
-    http_code="${resp##*$'\n'}"
-    body="${resp%$'\n'*}"
+if [ -n "$ref_rows" ]; then
+  unique_iids=$(printf '%s' "$ref_rows" | cut -f2 | sort -un)
+  states_ok=1
+  # shellcheck disable=SC2086
+  states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $unique_iids) || states_ok=0
 
-    if [ "$http_code" != "200" ]; then
+  while IFS=$'\t' read -r line_no iid has_marker; do
+    [ -z "$iid" ] && continue
+    if [ "$states_ok" -ne 1 ]; then
       if [ "$ALLOW_UNRESOLVED" = "1" ]; then
-        echo "WARN: could not fetch issue #${iid} (HTTP ${http_code:-000}) — skipping (KNOWN_ISSUES_ALLOW_UNRESOLVED=1)." >&2
+        echo "WARN: could not fetch issue #${iid} — skipping (KNOWN_ISSUES_ALLOW_UNRESOLVED=1)." >&2
       else
-        echo "ERROR: could not fetch issue #${iid} from GitLab API (HTTP ${http_code:-000}) — cannot verify line ${line_no}." >&2
+        echo "ERROR: could not fetch issue #${iid} from GitLab API — cannot verify line ${line_no}." >&2
         violations=$((violations + 1))
       fi
       continue
     fi
-
-    state=$(printf '%s' "$body" | jq -r '.state // "unknown"')
+    row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i && !f { print; f = 1 }' || true)
+    if [ -z "$row" ]; then
+      echo "ERROR: issue #${iid} (line ${line_no}) does not exist or is not readable (deleted, moved, or confidential)." >&2
+      violations=$((violations + 1))
+      continue
+    fi
+    state=$(printf '%s' "$row" | cut -f2)
     if [ "$state" = "closed" ] && [ "$has_marker" -ne 1 ]; then
-      title=$(printf '%s' "$body" | jq -r '.title // ""')
+      title=$(printf '%s' "$row" | cut -f3-)
       echo "ERROR: line ${line_no} references closed issue #${iid} (${title}) with no ack marker." >&2
       echo "  Either verify the entry against main and remove/reword it, or — only if the" >&2
       echo "  reference is a deliberate closed-issue citation, verified against main — add" >&2
       echo "  ${ACK_MARKER} to the SAME line." >&2
       violations=$((violations + 1))
     fi
-  done <<<"$refs"
-done <"$PAGE"
+  done <<<"$ref_rows"
+fi
 
 if [ "$violations" -gt 0 ]; then
   echo "" >&2

@@ -29,6 +29,7 @@ fi
 # (exit 2) rather than silently skipping when that happens, so if this job is
 # green, BOUNDARY_CHECK_TOKEN (or an equivalent group-level variable) is
 # actually configured; do not treat the fallback as a working substitute.
+BOUNDARY_CHECK_TOKEN="${BOUNDARY_CHECK_TOKEN:-${ISSUES_API_TOKEN:-}}"
 if [ -n "${BOUNDARY_CHECK_TOKEN:-}" ]; then
   AUTH_HEADER="PRIVATE-TOKEN: ${BOUNDARY_CHECK_TOKEN}"
 else
