@@ -171,6 +171,61 @@ def test_export_writes_an_end_of_day_milestone_at_the_calendar_finish_time(
     assert to_times == {"16:00:00"}
 
 
+@pytest.mark.django_db
+def test_export_writes_a_closed_after_work_milestones_actuals_at_the_day_end(
+    project: Project,
+) -> None:
+    """#4433: a milestone closed after work keeps its end-of-day edge, and so must
+    its actuals in the file.
+
+    MS Project reads a 100%-complete task's Finish from its ActualFinish. With
+    Start/Finish at the day's finish time but ActualStart/ActualFinish at
+    midnight, the re-imported gate would sit at the start of Friday and Build
+    would start that same day instead of Monday."""
+    from trueppm_api.apps.msproject.exporter import export_project_xml
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    _recalculated(project)
+    Task.objects.filter(project=project, name="Design").update(
+        status=TaskStatus.COMPLETE,
+        percent_complete=100,
+        actual_start=date(2026, 1, 5),
+        actual_finish=date(2026, 1, 9),
+    )
+    Task.objects.filter(project=project, name="Design gate").update(
+        status=TaskStatus.COMPLETE, percent_complete=100, actual_finish=date(2026, 1, 9)
+    )
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+    gate = Task.objects.get(project=project, name="Design gate")
+    assert (gate.early_finish, gate.milestone_at_day_end) == (date(2026, 1, 9), True)
+
+    root = ET.fromstring(export_project_xml(str(project.pk)))
+    ns = {"m": _NS}
+    el = next(
+        t
+        for t in root.findall("m:Tasks/m:Task", ns)
+        if t.findtext("m:Name", namespaces=ns) == "Design gate"
+    )
+    assert {
+        key: el.findtext(f"m:{key}", namespaces=ns) for key in ("Start", "Finish", "ActualFinish")
+    } == {
+        "Start": "2026-01-09T16:00:00",
+        "Finish": "2026-01-09T16:00:00",
+        "ActualFinish": "2026-01-09T16:00:00",
+    }
+    # Work keeps the exporter's midnight, actuals included.
+    design = next(
+        t
+        for t in root.findall("m:Tasks/m:Task", ns)
+        if t.findtext("m:Name", namespaces=ns) == "Design"
+    )
+    assert design.findtext("m:ActualFinish", namespaces=ns) == "2026-01-09T00:00:00"
+
+
 def _exported_dates(
     project: Project,
 ) -> tuple[dict[str | None, tuple[str | None, str | None]], ET.Element]:

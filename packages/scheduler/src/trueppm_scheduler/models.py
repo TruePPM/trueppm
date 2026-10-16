@@ -222,8 +222,8 @@ class Task:
     # (project start, SNET, data date, recorded actual start) or an SS link from
     # work, or a lag lands it on or just after non-working time and it is shown at
     # the start of the next working day (#4173) — and for every task that is not a
-    # milestone. A completed milestone with recorded actuals keeps the edge its
-    # predecessor links give it live (#4433): ``True`` when it follows work. The
+    # milestone. A completed milestone with recorded actuals keeps the edge it had
+    # live (#4433): ``True`` when work finishing on its recorded day placed it. The
     # end of a Friday and the start of the next Monday are the same point in
     # working time, so the shown day can hop a weekend with no working-time move:
     # never diff two shown days as a slip (#4178, see ``ScheduleResult``).

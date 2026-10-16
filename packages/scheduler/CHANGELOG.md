@@ -25,9 +25,10 @@ change between releases. Pin an exact version (e.g.
   working day later than after the same milestone live, or completed with no
   actuals (#4343). It now stays an instant on its `actual_finish` day (else its
   `actual_start` day), shown and linked from that day, at the edge of the day
-  it had live: the start when no work precedes it, the end when it follows work
-  (`milestone_at_day_end` is now `True` for such a closed milestone, where it
-  was always `False` for one pinned by actuals). A `planned_start` no longer
+  it had live: the end only when work finishing that day placed it, the start
+  when nothing precedes it or a floor (data date, `planned_start`) held it
+  (`milestone_at_day_end` is now `True` for a closed milestone on the end edge,
+  where it was always `False` for one pinned by actuals). A `planned_start` no longer
   binds once actuals are recorded. `monte_carlo` inherits the same placement,
   and the Rust/WASM engine mirrors it.
 

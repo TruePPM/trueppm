@@ -403,12 +403,12 @@ pub fn forward_pass(
         if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal, start_base)? {
             // A completed milestone stays an instant (#4343, #4433), on the edge of
             // its day it would have been read at live.
-            let live_start = if tasks[i].duration_days() == 0
-                && (tasks[i].actual_start.is_some() || tasks[i].actual_finish.is_some())
-            {
-                live_milestone_edge(idx, tasks, pg, deps, cals, &links)?
-            } else {
-                true
+            let recorded = tasks[i].actual_finish.or(tasks[i].actual_start);
+            let live_start = match recorded {
+                Some(day) if tasks[i].duration_days() == 0 => {
+                    live_milestone_edge(idx, tasks, pg, deps, cals, &links, day)?
+                }
+                _ => true,
             };
             let t = &mut tasks[i];
             t.early_start = Some(es);
@@ -612,14 +612,16 @@ fn pinned_placement(
     Ok(Some((es, finish_from_start(es, full_days, calendar)?)))
 }
 
-/// Whether a completed milestone would be read at the *start* of its day live (#4433).
+/// Whether a closed milestone sits at the *start* of its recorded day (#4433).
 ///
-/// A floor or an SS link proposes a day start; an FS link from work proposes the
-/// end of the work's finish day (`place_milestone`). Completing the milestone
-/// records when it happened, not a different kind of instant, so it keeps the
-/// edge its predecessor links propose; with no predecessor, the start of its day.
-/// Floors are left out: the date comes from the actuals, only the kind of anchor
-/// is carried over. Mirrors the Python `_live_milestone_edge`.
+/// A floor (project start, data date, SNET) proposes a day start, an FS link from
+/// work the end of the work's finish day (`place_milestone`); closing the
+/// milestone keeps that edge ("preserve the live edge"). The recorded day is
+/// offered as a start-of-day floor alongside the links — what a data-date or
+/// SNET floor that placed it live amounts to once the actuals supply the date —
+/// so the end of the day wins only when an FS proposal from work reaches past the
+/// start of the recorded day. With no predecessor, the start of its day. Mirrors
+/// the Python `_live_milestone_edge`.
 fn live_milestone_edge(
     idx: NodeIndex,
     tasks: &[Task],
@@ -627,6 +629,7 @@ fn live_milestone_edge(
     deps: &[Dependency],
     cals: &PassCalendars,
     links: &[Option<Instant>],
+    recorded: NaiveDate,
 ) -> Result<bool, String> {
     if pg
         .graph
@@ -636,7 +639,7 @@ fn live_milestone_edge(
     {
         return Ok(true);
     }
-    let (shown, _, _) = place_milestone(idx, tasks, pg, deps, cals, &[], None, links)?;
+    let (shown, _, _) = place_milestone(idx, tasks, pg, deps, cals, &[recorded], None, links)?;
     Ok(shown.1)
 }
 
@@ -647,9 +650,10 @@ fn live_milestone_edge(
 /// predecessors — the SNET binds `link`; the project start only bounds where it
 /// is shown (#4225). With actuals the day is the recorded one (`actual_finish`,
 /// else `actual_start`), shown and linked from alike, on the edge of that day the
-/// milestone had live (`live_start`, `live_milestone_edge`): the start with no
-/// work predecessor, the end — the next midnight, read like an FS proposal from
-/// work — when it follows work (#4433). Mirrors the Python
+/// milestone had live (`live_start`, `live_milestone_edge`): the start when
+/// nothing precedes it or a floor held it, the end — the next midnight, read like
+/// an FS proposal from work — when work finishing that day placed it (#4433).
+/// Mirrors the Python
 /// `_pinned_milestone_instant`.
 fn pinned_milestone_instant(
     task: &Task,

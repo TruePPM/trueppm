@@ -2812,6 +2812,66 @@ class TestCompletedNoActualsIsPinned:
         mc = monte_carlo(p, runs=20, seed=0)
         assert mc.p50 == mc.p95 == r.project_finish
 
+    @pytest.mark.parametrize(
+        ("status_date", "live_kw", "closed_day", "finish"),
+        [
+            # Data-date floor: A finished Monday, M is signed off Wednesday (the data
+            # date). Live, the data date holds M at the start of Wednesday.
+            pytest.param(date(2027, 3, 3), {}, date(2027, 3, 3), date(2027, 3, 4), id="data-date"),
+            # SNET: M is held to Thursday by its planned_start, well after A.
+            pytest.param(
+                date(2027, 3, 1),
+                {"planned_start": date(2027, 3, 4)},
+                date(2027, 3, 4),
+                date(2027, 3, 5),
+                id="snet",
+            ),
+        ],
+    )
+    def test_a_floor_held_milestone_after_work_closes_at_the_start_of_its_day(
+        self,
+        status_date: date,
+        live_kw: dict[str, object],
+        closed_day: date,
+        finish: date,
+    ) -> None:
+        """#4433 round 2: an FS predecessor does not make the live edge end-of-day
+        when a FLOOR, not the work, placed the milestone.
+
+        ``A(1d, done Mon) -> M -> B(2d)``. Live, a floor holds M at the start of its
+        day; closing it on that day must keep it there. Reading the edge off the
+        links alone put it at the end of the day and slipped B and the project
+        finish by a working day — the #4433 bug in another position."""
+
+        def build(m_kw: dict[str, object]) -> Project:
+            return Project(
+                id="p",
+                name="p",
+                start_date=date(2027, 3, 1),
+                status_date=status_date,
+                tasks=[
+                    Task(
+                        id="A",
+                        name="A",
+                        duration=timedelta(days=1),
+                        actual_start=date(2027, 3, 1),
+                        actual_finish=date(2027, 3, 1),
+                    ),
+                    Task(id="M", name="M", duration=timedelta(0), **m_kw),  # type: ignore[arg-type]
+                    Task(id="B", name="B", duration=timedelta(days=2)),
+                ],
+                dependencies=[Dependency("A", "M"), Dependency("M", "B")],
+            )
+
+        live = schedule(build(live_kw))
+        closed = schedule(build({**live_kw, "actual_finish": closed_day}))
+        for r in (live, closed):
+            by_id = {t.id: t for t in r.tasks}
+            assert by_id["M"].early_finish == closed_day
+            assert by_id["M"].milestone_at_day_end is False
+            assert by_id["B"].early_start == closed_day
+            assert r.project_finish == finish
+
     def test_a_completed_milestone_with_actuals_ignores_its_snet(self) -> None:
         """Actuals are truth: a completed milestone with a recorded ``actual_finish``
         is linked from that day, not from a later ``planned_start`` (#4433). The

@@ -157,6 +157,61 @@
       "free_float": 259200.0,
       "is_critical": false,
       "scheduled_start": "2027-03-04"
+    },
+    {
+      "id": "X",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-01",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-01",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "Y",
+      "early_start": "2027-03-03",
+      "early_finish": "2027-03-03",
+      "late_start": "2027-03-03",
+      "late_finish": "2027-03-03",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-03"
+    },
+    {
+      "id": "Z",
+      "early_start": "2027-03-03",
+      "early_finish": "2027-03-03",
+      "late_start": "2027-03-09",
+      "late_finish": "2027-03-09",
+      "total_float": 345600.0,
+      "free_float": 345600.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-03"
+    },
+    {
+      "id": "K",
+      "early_start": "2027-03-04",
+      "early_finish": "2027-03-04",
+      "late_start": "2027-03-04",
+      "late_finish": "2027-03-04",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-04"
+    },
+    {
+      "id": "L",
+      "early_start": "2027-03-04",
+      "early_finish": "2027-03-04",
+      "late_start": "2027-03-09",
+      "late_finish": "2027-03-09",
+      "total_float": 259200.0,
+      "free_float": 259200.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-04"
     }
   ],
   "critical_path": [
@@ -167,6 +222,11 @@
     {
       "predecessor_id": "B",
       "successor_id": "C",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "K",
+      "successor_id": "L",
       "dep_type": "FS"
     },
     {
@@ -197,6 +257,11 @@
     {
       "predecessor_id": "U",
       "successor_id": "G",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "Y",
+      "successor_id": "Z",
       "dep_type": "FS"
     }
   ]
