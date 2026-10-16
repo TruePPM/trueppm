@@ -26,8 +26,10 @@ change between releases. Pin an exact version (e.g.
   ran past its index end and was silently clamped to the last indexed date, so
   even a zero-variance simulation forecast a finish days to months early. The
   index is now sized from a calendar-date bound (a serial walk over each task's
-  own calendar), and an offset past an index end raises `InvalidScheduleInput`
-  instead of clamping.
+  own calendar). Every Monte Carlo index lookup that used to clamp a
+  past-the-end offset or date onto the last indexed day — lag deltas, ES floors,
+  verbatim actuals, milestone lookups, the multi-calendar reference ruler and the
+  finish read-out — now raises `InvalidScheduleInput` instead.
 
 ## [0.4.0b8] - 2026-10-15
 

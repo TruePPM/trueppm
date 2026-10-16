@@ -57,6 +57,7 @@ from trueppm_scheduler import (
     Project,
     SchedulerError,
     Task,
+    engine,
     expand_summary_dependencies,
     find_cycle,
     monte_carlo,
@@ -584,7 +585,8 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
     days — on the Monday-only calendar that is years — every link type and lag sign
     is drawn, and an ``actual_start`` is drawn on both sides of the project start (a
     pre-start actual is an anomalous but accepted data state). An ``actual_finish``
-    is drawn at or after the project start only, until #4430 is fixed.
+    that reads before the project start on the task's own calendar is not drawn
+    until #4430 is fixed.
     """
     start = _PLAUSIBLE_ANCHOR
     shutdown_from = draw(st.dates(min_value=start, max_value=start + timedelta(days=200)))
@@ -597,6 +599,7 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
         ),
         "seven": Calendar(working_days=0b1111111),
     }
+    project_cal = Calendar(working_days=0b0011111)
     actual_dates = st.dates(
         min_value=start - timedelta(days=120), max_value=start + timedelta(days=400)
     )
@@ -604,24 +607,30 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
     ids = [f"t{i}" for i in range(n)]
     tasks = []
     for tid in ids:
+        calendar_id = draw(st.none() | st.sampled_from(_ZERO_VAR_CAL_IDS))
+        own_cal = project_cal if calendar_id is None else calendars[calendar_id]
         actual_start = draw(st.none() | actual_dates)
         actual_finish = None
         if actual_start is not None:
-            # TODO(#4430): let the finish fall before the project start too. A task
-            # COMPLETED pre-start still clamps to the index's first offset, so its
-            # finish reads as the project start — a separate open defect.
             actual_finish = draw(
-                st.none()
-                | st.dates(
-                    min_value=max(actual_start, start), max_value=start + timedelta(days=500)
-                )
+                st.none() | st.dates(min_value=actual_start, max_value=start + timedelta(days=500))
             )
+            # TODO(#4430): drop this carve-out. A completed task whose finish reads
+            # before the project start — its actual_finish, or the working day before
+            # it on its OWN calendar when the finish itself is a non-working day —
+            # still clamps to the index's first offset and reads as the project
+            # start: a separate open defect, so it is not drawn here.
+            if (
+                actual_finish is not None
+                and engine._prev_working_day(actual_finish, own_cal) < start
+            ):
+                actual_finish = None
         tasks.append(
             Task(
                 id=tid,
                 name="t",
                 duration=timedelta(days=draw(st.integers(min_value=0, max_value=300))),
-                calendar_id=draw(st.none() | st.sampled_from(_ZERO_VAR_CAL_IDS)),
+                calendar_id=calendar_id,
                 actual_start=actual_start,
                 actual_finish=actual_finish,
                 planned_start=draw(st.none() | _plausible_date),
@@ -644,7 +653,7 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
         start_date=start,
         tasks=tasks,
         dependencies=deps,
-        calendar=Calendar(working_days=0b0011111),
+        calendar=project_cal,
         calendars=calendars,
         status_date=draw(_opt_plausible_date),
     )

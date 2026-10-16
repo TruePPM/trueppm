@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from unittest.mock import patch
 
+import networkx as nx
 import numpy as np
 import pytest
 from hypothesis import example, given
@@ -336,3 +337,172 @@ class TestIndexOverrunIsRefused:
             idx.next_wd_offset(0, past)
         with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
             idx.ordinal_at(0, np.array([5.0]))
+
+    def test_lag_delta_snap_past_the_successor_index_is_refused(self) -> None:
+        # FS +10 from the last cells snaps past a 5-day index: stored as the overrun
+        # sentinel, and refused only when a run actually reads that cell.
+        k = np.arange(5, dtype=np.float64)
+        delta = engine._build_lag_delta(
+            DependencyType.FS, timedelta(days=10), _WD_ORD, _WD_ORD, k, 5, 4, 0
+        )
+        assert (delta == engine._LAG_DELTA_OVERRUN).any()
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            engine._lag_term(delta, np.array([4.0]))
+
+    def test_floor_snaps_refuse_past_the_end(self) -> None:
+        offset_of = {d: i for i, d in enumerate(_WD)}
+        cal = engine.Calendar(working_days=0b0011111)
+        assert engine._snapped_offset(_WD[0], cal, offset_of, 4.0) == 0.0
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            engine._snapped_offset(_WD[-1] + timedelta(days=3), cal, offset_of, 4.0)
+
+    def test_sf_linked_floor_snap_refuses_past_the_end(self) -> None:
+        # _mc_es_floors' own snap, taken only by an SF-linked task (#4218).
+        cal = engine.Calendar(working_days=0b0011111)
+        task = Task(id="B", name="B", duration=timedelta(days=1), planned_start=_WD[-1])
+        project = Project(id="p", name="p", start_date=MONDAY, tasks=[task])
+        key = id(cal)
+        args = (project, {"B": task}, {"B": cal}, {"B": key})
+        offset_of = {key: {d: i for i, d in enumerate(_WD)}}
+        assert engine._mc_es_floors(*args, offset_of, {key: _WD}, frozenset({"B"}))["B"] == 4.0
+        late = Task(
+            id="B", name="B", duration=timedelta(days=1), planned_start=_WD[-1] + timedelta(days=3)
+        )
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            engine._mc_es_floors(
+                project,
+                {"B": late},
+                {"B": cal},
+                {"B": key},
+                offset_of,
+                {key: _WD},
+                frozenset({"B"}),
+            )
+
+
+def _horizon(project: Project) -> date:
+    """``engine._mc_horizon`` for a single-calendar ``project``."""
+    g = engine._build_graph(project)
+    topo = list(nx.lexicographical_topological_sort(g, key=str))
+    return engine._mc_horizon(
+        project, {t.id: t for t in project.tasks}, g, topo, {t: project.calendar for t in topo}
+    )
+
+
+def _chain(**b_fields: object) -> Project:
+    """``A`` (5d) -FS-> ``B`` (5d) on a Mon-Fri week starting ``MONDAY``.
+
+    ``lag``, ``dep_type`` and ``status_date`` go to the link / project; every other
+    keyword is a field of ``B``.
+    """
+    lag = b_fields.pop("lag", timedelta(0))
+    dep_type = b_fields.pop("dep_type", DependencyType.FS)
+    status_date = b_fields.pop("status_date", None)
+    return Project(
+        id="p",
+        name="p",
+        start_date=MONDAY,
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=5)),
+            Task(id="B", name="B", duration=timedelta(days=5), **b_fields),  # type: ignore[arg-type]
+        ],
+        dependencies=[Dependency("A", "B", dep_type=dep_type, lag=lag)],  # type: ignore[arg-type]
+        status_date=status_date,  # type: ignore[arg-type]
+    )
+
+
+class TestMcHorizon:
+    """Direct checks of the calendar-date bound the Monte Carlo index is sized to (#4429).
+
+    Each input that can push a finish later — a positive lag, an SNET pin, the data
+    date, a far-future recorded actual — must move the horizon on its own, and the
+    horizon must never precede what ``schedule()`` computes for the same project.
+    """
+
+    def test_baseline_covers_the_deterministic_finish(self) -> None:
+        project = _chain()
+        assert _horizon(project) >= schedule(project).project_finish
+
+    def test_positive_lag_extends_the_horizon(self) -> None:
+        lagged = _chain(lag=timedelta(days=40))
+        a_finish = next(t for t in schedule(lagged).tasks if t.id == "A").early_finish
+        assert a_finish is not None
+        # B cannot start until 40 calendar days after A finishes.
+        assert _horizon(lagged) >= a_finish + timedelta(days=40)
+        assert _horizon(lagged) > _horizon(_chain())
+        assert _horizon(lagged) >= schedule(lagged).project_finish
+
+    def test_snet_pin_extends_the_horizon(self) -> None:
+        pin = MONDAY + timedelta(days=200)
+        pinned = _chain(planned_start=pin)
+        # Five working days laid out from the pin: at least four calendar days later.
+        assert _horizon(pinned) >= pin + timedelta(days=4)
+        assert _horizon(pinned) >= schedule(pinned).project_finish
+
+    def test_status_date_extends_the_horizon(self) -> None:
+        status = MONDAY + timedelta(days=150)
+        floored = _chain(status_date=status)
+        assert _horizon(floored) >= status + timedelta(days=4)
+        assert _horizon(floored) >= schedule(floored).project_finish
+
+    def test_far_future_actual_finish_extends_the_horizon(self) -> None:
+        finish = MONDAY + timedelta(days=400)
+        done = _chain(actual_start=MONDAY + timedelta(days=7), actual_finish=finish)
+        assert _horizon(done) >= finish
+        assert _horizon(done) >= schedule(done).project_finish
+
+
+class TestMcIndexSize:
+    """``_mc_index_size`` counts the DENSEST calendar's working days to the horizon."""
+
+    def test_sized_by_the_densest_calendar(self) -> None:
+        horizon = MONDAY + timedelta(days=69)  # ten full weeks
+        mondays = engine.Calendar(working_days=0b0000001)
+        seven = engine.Calendar(working_days=0b1111111)
+        assert engine._mc_index_size(horizon, MONDAY, [mondays], 0) == 10 + 30
+        assert engine._mc_index_size(horizon, MONDAY, [mondays, seven], 0) == 70 + 30
+        assert engine._mc_index_size(horizon, MONDAY, [seven], 3) == 70 + 3 + 30
+
+    def test_every_calendar_index_reaches_the_horizon(self) -> None:
+        horizon = MONDAY + timedelta(days=69)
+        cals = [
+            engine.Calendar(working_days=0b0000001),
+            engine.Calendar(working_days=0b0001111),
+            engine.Calendar(working_days=0b1111111),
+        ]
+        size = engine._mc_index_size(horizon, MONDAY, cals, 0)
+        for cal in cals:
+            assert engine._build_working_day_index(MONDAY, cal, size)[-1] >= horizon
+
+
+class TestUndersizedIndexRaisesEndToEnd:
+    """Force an undersized index through ``monte_carlo()``: it must raise, never report.
+
+    The pre-#4429 failure was exactly this — a bound too small for the project — and
+    it surfaced as a plausible early date. With the bound patched down, every input
+    that reaches past the index (an SNET floor, a far-future actual, a long chain)
+    has to hit a backstop instead of a clamp.
+    """
+
+    @pytest.mark.parametrize(
+        "b_fields",
+        [
+            {"planned_start": MONDAY + timedelta(days=200)},
+            {"status_date": MONDAY + timedelta(days=200)},
+            {
+                "actual_start": MONDAY + timedelta(days=7),
+                "actual_finish": MONDAY + timedelta(days=200),
+            },
+            {"lag": timedelta(days=200)},
+            # An SF-linked task floors through _mc_es_floors' own snap (#4218 path).
+            {"dep_type": DependencyType.SF, "planned_start": MONDAY + timedelta(days=200)},
+        ],
+        ids=["snet", "status-date", "actual-finish", "lag", "sf-snet"],
+    )
+    def test_patched_small_bound_raises(self, b_fields: dict[str, object]) -> None:
+        project = _chain(**b_fields)
+        with (
+            patch.object(engine, "_mc_index_size", return_value=20),
+            pytest.raises(engine.InvalidScheduleInput, match="engine bug"),
+        ):
+            monte_carlo(project, runs=4, seed=1)

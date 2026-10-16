@@ -4690,9 +4690,23 @@ def _link_lower_bound(
 def _snapped_offsets(
     wd_ord: np.ndarray, last_off: int, anchor_ords: np.ndarray, shift_days: int
 ) -> np.ndarray:
-    """Vectorised ``_offset_after``: offsets of next_working_day(anchor + shift)."""
-    off = np.searchsorted(wd_ord, anchor_ords + shift_days, side="left")
-    return np.clip(off, 0, last_off).astype(np.float64)
+    """Vectorised ``_offset_after``: offsets of next_working_day(anchor + shift).
+
+    A snap that lands past the index end (``> last_off``) comes back as NaN rather
+    than clamped onto the last cell (#4429). The delta table covers every anchor
+    cell, including tail cells no run can reach, so producing one is not an error;
+    :func:`_build_lag_delta` stores it as :data:`_LAG_DELTA_OVERRUN`, and
+    :func:`_lag_term` refuses a run that actually reads it.
+    """
+    off = np.searchsorted(wd_ord, anchor_ords + shift_days, side="left").astype(np.float64)
+    off[off > last_off] = np.nan
+    return off
+
+
+# Lag-delta cell whose snapped successor offset lies past the successor's index end
+# (#4429). Real cells are bounded by MAX_LAG_DAYS + MAX_CALENDAR_SCAN_DAYS (~73k), so
+# the int32 minimum can never collide with one.
+_LAG_DELTA_OVERRUN = int(np.iinfo(np.int32).min)
 
 
 def _build_lag_delta(
@@ -4769,7 +4783,9 @@ def _build_lag_delta(
     # Every cell is a whole working-day offset difference, bounded by
     # MAX_LAG_DAYS + MAX_CALENDAR_SCAN_DAYS (~73k), so int32 is exact and halves
     # the table's footprint (#4129). The float64 scratch above is one array at a
-    # time; only the int32 copy is retained.
+    # time; only the int32 copy is retained. A cell whose snap ran off the index is
+    # NaN (:func:`_snapped_offsets`) and is stored as the overrun sentinel, in place.
+    np.nan_to_num(arr, copy=False, nan=float(_LAG_DELTA_OVERRUN))
     return arr.astype(np.int32)
 
 
@@ -4862,13 +4878,17 @@ def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
     unchanged).
 
     An anchor past the index end is refused, not clamped: clamping it to the last
-    cell is how an undersized index used to masquerade as a date (#4429).
+    cell is how an undersized index used to masquerade as a date (#4429). So is an
+    anchor whose lagged snap ran off the successor's index (a cell holding
+    :data:`_LAG_DELTA_OVERRUN`).
     """
     idx = np.rint(anchor).astype(np.int64)
     if idx.size and int(idx.max()) > len(delta_arr) - 1:
         _raise_mc_index_overrun()
-    idx = np.maximum(idx, 0)
-    return np.asarray(delta_arr[idx], dtype=np.float64)
+    picked = delta_arr[np.maximum(idx, 0)]
+    if (picked == _LAG_DELTA_OVERRUN).any():
+        _raise_mc_index_overrun()
+    return np.asarray(picked, dtype=np.float64)
 
 
 def _raise_mc_index_overrun() -> NoReturn:
@@ -5160,13 +5180,18 @@ def _mc_es_floors(
     """
 
     def _snap_offset(d: date, tid: str) -> float:
-        """Offset of the next working day on ``tid``'s own calendar, index-clamped."""
+        """Offset of the next working day on ``tid``'s own calendar.
+
+        Clamped to the index start below it; past its end it raises (#4429).
+        """
         cal_key = cal_key_of[tid]
         snapped = _next_working_day(d, cal_of[tid])
         off = offset_of_by_cal[cal_key].get(snapped)
         if off is not None:
             return float(off)
         index = wd_index_by_cal[cal_key]
+        if snapped > index[-1]:
+            _raise_mc_index_overrun()
         return 0.0 if snapped < index[0] else float(len(index) - 1)
 
     es_floor: dict[str, float] = {}
@@ -5316,10 +5341,12 @@ def _mc_verbatim_actuals(
 
 
 def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: float) -> float:
-    """Offset of the next working day at or after ``d``, clamped to ``last``.
+    """Offset of the next working day at or after ``d``.
 
-    The same lookup :func:`_mc_es_floors` floors a task with, so the offsets
-    :func:`_mc_verbatim_actuals` compares against are the ones the forward pass holds.
+    Clamped to the index start below it; past the index end it raises rather than
+    clamping to ``last`` (#4429). The same lookup :func:`_mc_es_floors` floors a task
+    with, so the offsets :func:`_mc_verbatim_actuals` compares against are the ones the
+    forward pass holds.
     """
     snapped = _next_working_day(d, cal)
     off = offset_of.get(snapped)
@@ -5327,6 +5354,8 @@ def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: fl
         return float(off)
     # Below the index only for a pre-start date on an SF-linked task (#4218), which
     # the pad was sized to hold; the index's first day is the safe side to clamp to.
+    if snapped > max(offset_of, default=snapped):
+        _raise_mc_index_overrun()
     return 0.0 if snapped < min(offset_of, default=snapped) else last
 
 
