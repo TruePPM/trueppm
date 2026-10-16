@@ -156,6 +156,15 @@ def test_values_row_reading_mirrors_the_task_rule() -> None:
     assert values_finish_at_day_start({**row, "is_milestone": False}) is False
     # No finish, no edge to read.
     assert values_finish_at_day_start({**row, "early_finish": None}) is None
+    # A milestone pinned by recorded actuals is recorded as the end of its day —
+    # the edge the schedule-variance metrics read an actual finish at (#4433) —
+    # though the forecast reading now puts it at the start.
+    assert values_finish_at_day_start({**row, "actual_finish": MON}) is False
+    assert (
+        values_finish_at_day_start({**row, "actual_start": MON, "percent_complete": 100}) is False
+    )
+    # Complete with no actuals stays the forecast reading (#4343).
+    assert values_finish_at_day_start({**row, "percent_complete": 100}) is True
 
 
 @pytest.mark.django_db
@@ -381,6 +390,32 @@ def test_task_list_schedule_variance_matches_the_program_rollup(
     # A real lateness is still reported: finished the Monday after = +3.
     Task.objects.filter(pk=m.pk).update(actual_finish=MON)
     assert _task_row(client, project, m)["schedule_variance_days"] == 3
+
+
+@pytest.mark.django_db
+def test_a_milestone_baselined_after_it_closed_has_no_schedule_variance(
+    client: APIClient, project: Project, network: tuple[Task, Dependency]
+) -> None:
+    """#4433 collateral: capture a baseline AFTER the milestone closed on Monday.
+
+    The engine now places the closed milestone at the START of its actual_finish
+    day, but the schedule-variance metrics read an actual finish as the END of
+    its day. The baseline must record that same edge, or the milestone reads
+    three days late against its own snapshot.
+    """
+    from trueppm_api.apps.projects.program_rollup import _schedule_variance_by_project
+
+    m, _dep = network
+    Task.objects.filter(pk=m.pk).update(
+        status=TaskStatus.COMPLETE, actual_finish=MON, percent_complete=100
+    )
+    _recompute(project)
+    m.refresh_from_db()
+    assert (m.early_finish, m.milestone_at_day_end) == (MON, False)
+    baseline = _capture_baseline(client, project)
+    assert BaselineTask.objects.get(baseline=baseline, task_id=m.pk).finish_at_day_start is False
+    assert _task_row(client, project, m)["schedule_variance_days"] == 0
+    assert _schedule_variance_by_project([project.pk]) == {project.pk: 0.0}
 
 
 @pytest.mark.django_db

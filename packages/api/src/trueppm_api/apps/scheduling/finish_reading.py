@@ -44,6 +44,16 @@ FINISH_READING_FIELDS: tuple[str, ...] = (
     "milestone_at_day_end",
 )
 
+#: The ``Task`` columns :func:`values_finish_at_day_start` reads: the forecast
+#: reading's, plus the actuals that decide whether the baseline records a
+#: completed milestone's finish as a recorded day (#4433).
+BASELINE_FINISH_READING_FIELDS: tuple[str, ...] = (
+    *FINISH_READING_FIELDS,
+    "actual_start",
+    "actual_finish",
+    "percent_complete",
+)
+
 
 def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = None) -> bool:
     """Whether a task's ``early_finish`` is the *start* of that day.
@@ -80,14 +90,27 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
 
 
 def values_finish_at_day_start(row: Mapping[str, Any]) -> bool | None:
-    """:func:`task_finish_at_day_start` for a ``Task`` ``.values()`` row (#4197).
+    """The edge of the day a baseline records for a ``Task`` ``.values()`` row (#4197).
 
     ``None`` when the row has no ``early_finish`` — there is no finish to read an
-    edge of. The row must carry :data:`FINISH_READING_FIELDS`. Used at baseline
-    capture, whose task read is a ``.values()`` query.
+    edge of. The row must carry :data:`BASELINE_FINISH_READING_FIELDS`. Used at
+    baseline capture, whose task read is a ``.values()`` query.
+
+    :func:`task_finish_at_day_start`'s forecast reading, except for a milestone
+    pinned by recorded actuals (complete, with an ``actual_finish`` or
+    ``actual_start``): its finish is a recorded day, and the baseline records it
+    as the end of that day (False). The schedule-variance metrics read an actual
+    finish as the end of its day (``get_schedule_variance_days``,
+    ``program_rollup._schedule_variance_by_project``, the sprint milestone slip);
+    recording the engine's start-of-day instant here instead (#4433) made a
+    milestone captured after it closed read three days late against itself.
     """
     if row.get("early_finish") is None:
         return None
+    actual_finish = row["actual_finish"]
+    complete = actual_finish is not None or (row["percent_complete"] or 0) >= 100
+    if row["is_milestone"] and complete and (actual_finish is not None or row["actual_start"]):
+        return False
     return task_finish_at_day_start(SimpleNamespace(**{f: row[f] for f in FINISH_READING_FIELDS}))
 
 

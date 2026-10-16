@@ -122,9 +122,12 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
             "actual_finish",
             "story_points",
             "_span_start",
-            # FINISH_READING_FIELDS: what values_finish_at_day_start reads (#4197).
+            # With actual_start/actual_finish above: the
+            # BASELINE_FINISH_READING_FIELDS values_finish_at_day_start reads
+            # (#4197, #4433).
             "is_milestone",
             "milestone_at_day_end",
+            "percent_complete",
         )
     )
     has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
