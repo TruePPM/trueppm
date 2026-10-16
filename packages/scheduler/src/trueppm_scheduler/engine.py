@@ -4402,13 +4402,14 @@ def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
     return shifted if shifted > timedelta(0) else timedelta(0)
 
 
-def _shift_remaining_work(task: Task, delta_days: int) -> tuple[timedelta, float]:
+def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task:
     """Shift an in-progress task's remaining work, holding its elapsed days constant.
 
-    Returns the new ``(duration, percent_complete)`` pair. Elapsed working days are
-    ``floor(duration * pct / 100)`` — the rule :func:`_effective_duration_days` and
-    Monte Carlo both apply — and work already done cannot be undone by a what-if, so
-    the new duration is ``elapsed + max(0, remaining + delta_days)``.
+    Returns ``task`` with a new ``duration`` and ``percent_complete`` (and, when the
+    shift consumes every remaining day, an ``actual_finish``). Elapsed working days
+    are ``floor(duration * pct / 100)`` — the rule :func:`_effective_duration_days`
+    and Monte Carlo both apply — and work already done cannot be undone by a
+    what-if, so the new duration is ``elapsed + max(0, remaining + delta_days)``.
 
     The new percentage is placed at the *midpoint* of the band that floors to
     ``elapsed`` — ``(elapsed + 0.5) / new_duration`` — rather than at its lower
@@ -4417,21 +4418,46 @@ def _shift_remaining_work(task: Task, delta_days: int) -> tuple[timedelta, float
     100, so the task stays in progress. The original percentage is kept whenever it
     already yields the same elapsed count, so a zero delta changes nothing.
 
-    A pull-in that consumes all remaining work leaves the task at 100%: it is
-    complete, and the engine lays a completed task out at its full (now elapsed-only)
-    duration from its actuals (ADR-0136) — "nothing left to do" rather than a
-    zero-remaining in-progress task the integer rule cannot express.
+    A pull-in that consumes all remaining work cannot be expressed as an in-progress
+    task (the integer rule needs ``pct < 100`` and so always leaves a day), so the
+    task becomes complete. A bare 100% is not enough: the engine lays a completed
+    task out at its full duration *from its actuals or the project start* (ADR-0136),
+    which is a statement about history, not "finished as of now" — it moved the
+    finish *later* on a task whose elapsed days outran its ``actual_start``, or that
+    had none. The completed task is therefore pinned to finish on the working day
+    before the baseline's remaining-work window began: zero remaining days end
+    exactly where they would have started, so successors keep the start they would
+    have had with nothing left to do. ``actual_start`` is kept unless it falls after
+    that finish; when unset, the engine derives it from the finish.
     """
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
     elapsed = int(duration_days * pct / 100.0)
     remaining = max(0, duration_days - elapsed + delta_days)
     new_days = elapsed + remaining
-    if remaining == 0:
-        return timedelta(days=new_days), 100.0
-    if int(new_days * pct / 100.0) == elapsed:
-        return timedelta(days=new_days), pct
-    return timedelta(days=new_days), (elapsed + 0.5) * 100.0 / new_days
+    if remaining > 0:
+        if int(new_days * pct / 100.0) != elapsed:
+            pct = (elapsed + 0.5) * 100.0 / new_days
+        return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
+
+    # The remaining-work window's start in the unperturbed schedule. Only this task
+    # changes, so nothing upstream of it — its predecessors, the data-date floor —
+    # can move that start. Run once, only on this rare exhausting branch.
+    window_start = next(t for t in schedule(project).tasks if t.id == task.id).early_start
+    assert window_start is not None
+    calendars = _resolve_task_calendars(project)
+    cal = calendars[task.id] if calendars is not None else project.calendar
+    finish = _scan_for_working_day(window_start, cal, forward=False)
+    actual_start = task.actual_start
+    if actual_start is not None and actual_start > finish:
+        actual_start = finish
+    return replace(
+        task,
+        duration=timedelta(days=new_days),
+        percent_complete=100.0,
+        actual_start=actual_start,
+        actual_finish=finish,
+    )
 
 
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
@@ -4523,13 +4549,12 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
 
     # ``duration`` is non-optional on Task, so the shift is never None here.
     new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
-    percent_complete = target.percent_complete
-    if not _is_complete(target) and percent_complete and percent_complete > 0:
-        new_duration, percent_complete = _shift_remaining_work(target, delta_days)
+    if not _is_complete(target) and target.percent_complete and target.percent_complete > 0:
+        shifted = _shift_remaining_work(project, target, delta_days)
+    else:
+        shifted = replace(target, duration=new_duration)
     perturbed = replace(
-        target,
-        duration=new_duration,
-        percent_complete=percent_complete,
+        shifted,
         optimistic_duration=_shift_duration(target.optimistic_duration, delta_days),
         most_likely_duration=_shift_duration(target.most_likely_duration, delta_days),
         pessimistic_duration=_shift_duration(target.pessimistic_duration, delta_days),

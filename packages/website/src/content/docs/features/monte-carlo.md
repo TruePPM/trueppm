@@ -248,13 +248,16 @@ of your change rather than run-to-run noise, and the same query always returns t
 same answer.
 
 **In-progress tasks.** On a task that is already partly done, the change applies to
-the work that is *left*. The working days already completed stay fixed, so a critical
-task slipped by `+N` days moves `cpm_finish` by `N` working days, and `-N` moves it by
-`N` the other way, whatever its percent complete. The task's percent complete is
-adjusted internally so that its completed days stay the same. Completed work cannot
-be undone, so a pull-in larger than the remaining work stops when that work is done.
-At that point the task is treated as complete, and its duration is never set below
-the days already completed. Before the fix
+the work that is *left*. The working days already completed stay fixed. The task's
+percent complete is adjusted internally so that its completed days stay the same.
+On a critical task, a slip of `+N` days moves `cpm_finish` by `N` working days, and a
+pull-in of `-N` days moves it `N` working days earlier, whatever its percent
+complete. A pull-in can move the finish less than this if another path becomes
+critical first. Completed work cannot be undone, so the largest possible pull-in equals
+the remaining working days. A bigger pull-in has the same effect as that one. The
+what-if then treats the task as finished on the working day before its remaining
+work would have started, so the finish moves earlier by exactly the remaining days.
+Its duration is never set below the days already completed. Before the fix
 ([#4432](https://gitlab.com/trueppm/trueppm/-/issues/4432)), the change was spread
 over both the done and the remaining share of the task. A `+1` slip on a task that
 was 50% done could report no impact.

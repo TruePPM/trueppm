@@ -434,6 +434,59 @@ def test_pulling_in_all_remaining_work_completes_the_task() -> None:
 
     assert target.duration == timedelta(days=2)
     assert target.percent_complete == 100.0
+    # Pinned to finish the working day before its remaining work would have started
+    # (Friday before the Monday data date), not laid out from its actual start.
+    assert target.actual_finish == date(2027, 2, 26)
+
+
+# actual_start 2027-02-24 leaves 3 working days before the data date; 2027-02-26
+# leaves one, fewer than either shape's elapsed days, so laying the full elapsed
+# duration out from it would land past the data date.
+@pytest.mark.parametrize(
+    "actual_start", [date(2027, 2, 24), date(2027, 2, 26), None], ids=["early", "late", "none"]
+)
+@pytest.mark.parametrize("status_date", [date(2027, 3, 1), None], ids=["data-date", "no-data-date"])
+@pytest.mark.parametrize(
+    ("duration_days", "pct"), [(10, 99.0), (5, 50.0), (7, 33.3)], ids=["10d@99", "5d@50", "7d@33"]
+)
+@pytest.mark.parametrize("overshoot", [0, 50])
+def test_an_exhausting_pull_in_moves_the_finish_earlier_by_exactly_the_remaining_days(
+    actual_start: date | None,
+    status_date: date | None,
+    duration_days: int,
+    pct: float,
+    overshoot: int,
+) -> None:
+    """Pulling in all remaining work (or more) on a critical task moves the finish
+    earlier by the remaining working days — never later. A bare 100% with no
+    ``actual_finish`` was laid out at full duration from ``actual_start`` or the
+    project start: a 10-day task at 99% pulled in by one day moved the finish
+    +5 working days with an actual start and +8 without one."""
+    a = Task(
+        id="A",
+        name="A",
+        duration=timedelta(days=duration_days),
+        percent_complete=pct,
+        actual_start=actual_start,
+    )
+    baseline = Project(
+        id="p",
+        name="P",
+        start_date=date(2027, 3, 1),
+        status_date=status_date,
+        tasks=[a, Task(id="B", name="B", duration=timedelta(days=3))],
+        dependencies=[Dependency("A", "B")],
+        calendar=Calendar(),
+    )
+    remaining = duration_days - _elapsed_days(a)
+    base = schedule(baseline).project_finish
+    perturbed = perturb_task_duration(baseline, "A", -remaining - overshoot)
+
+    assert _working_day_shift(base, schedule(perturbed).project_finish) == -remaining
+    # Monte Carlo agrees: the task is deterministic, so P50 moves with the CPM finish.
+    b50 = monte_carlo(baseline, runs=50, seed=SEED).p50
+    p50 = monte_carlo(perturbed, runs=50, seed=SEED).p50
+    assert _working_day_shift(b50, p50) == -remaining
 
 
 def test_in_progress_pert_bands_move_by_the_remaining_work_shift() -> None:
