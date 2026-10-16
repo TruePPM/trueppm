@@ -62,6 +62,7 @@
 set -euo pipefail
 
 if [ "${1:-}" = "--self-test" ]; then
+  export GITLAB_ISSUES_SLEEP_OVERRIDE=0
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
 
@@ -79,25 +80,24 @@ PY
   echo "SELF-TEST OK: STUB: marker correctly rejected."
 
   # A fake `curl` ahead of PATH lets the remaining scenarios drive the REAL
-  # fetch/parse/decide code path in rule 2 (the curl call, the jq state
+  # fetch/parse/decide code path in rule 2 (the batched list call, the state
   # parse, the closed/unresolved branches) without hitting the network. It
-  # emulates the `-w '\n%{http_code}'` contract the caller relies on: body,
-  # then the status on its own trailing line. TODO_GREP_MOCK_MODE=fail
-  # simulates a 401 so the unresolved-lookup path is exercised for real too.
+  # answers `issues?iids[]=…` (#4452) with issue 1 closed and every other
+  # requested iid open, then the status on its own trailing line.
+  # TODO_GREP_MOCK_MODE=fail simulates a 401 so the unresolved-lookup path is
+  # exercised for real too.
   mkdir -p "$tmp/bin"
   cat >"$tmp/bin/curl" <<'CURLMOCK'
 #!/usr/bin/env bash
 url="${*: -1}"
-iid=$(printf '%s' "$url" | grep -oE '[0-9]+$')
 if [ "${TODO_GREP_MOCK_MODE:-}" = "fail" ]; then
-  printf '{"message":"401 Unauthorized"}\n401'
+  printf '{"message":"401 Unauthorized"}\n401 '
   exit 0
 fi
-if [ "$iid" = "1" ]; then
-  printf '{"state":"closed","title":"Closed fixture issue"}\n200'
-else
-  printf '{"state":"opened","title":"Open fixture issue"}\n200'
-fi
+printf '%s' "$url" | grep -oE 'iids\[\]=[0-9]+' | cut -d= -f2 |
+  jq -R 'tonumber | {iid: ., state: (if . == 1 then "closed" else "opened" end), title: "fixture issue"}' |
+  jq -sc .
+printf '200 \n'
 CURLMOCK
   chmod +x "$tmp/bin/curl"
 
@@ -268,49 +268,38 @@ if [ -n "$todo_refs" ]; then
     echo "WARN: CI_PROJECT_ID not set — skipping TODO(#NNN) open/closed check." >&2
     echo "      (This script is intended to run in CI; locally, only STUB:/WIP: are checked.)" >&2
   else
-    CURL_AUTH_ARGS=()
-    if [ -n "${TODO_GREP_TOKEN:-}" ]; then
-      CURL_AUTH_ARGS=(--header "PRIVATE-TOKEN: ${TODO_GREP_TOKEN}")
-    fi
-    # No `else` branch: see the header comment. A JOB-TOKEN header cannot
-    # authenticate against this endpoint and only turns a potential
-    # anonymous 200 (public project) into a guaranteed 401, so the
-    # no-token case sends no auth header at all.
+    # shellcheck source-path=SCRIPTDIR source=lib/gitlab-issues.sh
+    . "$(dirname "$0")/lib/gitlab-issues.sh"
+    # No JOB-TOKEN fallback: see the header comment (#3043).
+    TOKEN="${TODO_GREP_TOKEN:-${ISSUES_API_TOKEN:-}}"
     closed_count=0
     unresolved_count=0
-    while IFS= read -r ref; do
-      iid=$(printf '%s' "$ref" | grep -oE '[0-9]+')
-      [ -z "$iid" ] && continue
-      url="${API}/projects/${PROJECT}/issues/${iid}"
-      # The status code is appended on its own line rather than relying on
-      # `curl -f`'s exit status: "could not fetch" alone cannot distinguish a
-      # 401 (an auth header is being sent that should not be) from a 404
-      # (wrong project id) or a 000 (no egress), and that ambiguity is what
-      # makes a red gate expensive to diagnose. 000 is what curl reports when
-      # the request never completed.
-      #
-      # The "+" expansion (not a bare "${CURL_AUTH_ARGS[@]}") is required so
-      # this does not trip "unbound variable" under `set -u` on bash 3.2
-      # (macOS's default /usr/bin/env bash) when the array is empty.
-      resp=$(curl -s -w $'\n%{http_code}' "${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"}" "$url" || true)
-      http_code="${resp##*$'\n'}"
-      body="${resp%$'\n'*}"
-      if [ "$http_code" != "200" ]; then
+    unique_iids=$(printf '%s\n' "$todo_refs" | grep -oE '[0-9]+' | sort -un || true)
+    # One batched call with 429 retry instead of one GET per TODO (#4452).
+    states_ok=1
+    # shellcheck disable=SC2086  # one iid per word is the intent
+    states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $unique_iids) || states_ok=0
+    for iid in $unique_iids; do
+      if [ "$states_ok" -ne 1 ]; then
         if [ "$ALLOW_UNRESOLVED" = "1" ]; then
-          echo "WARN: could not fetch issue #${iid} from GitLab API (HTTP ${http_code:-000}) — skipping (TODO_GREP_ALLOW_UNRESOLVED=1)." >&2
+          echo "WARN: could not fetch issue #${iid} from GitLab API — skipping (TODO_GREP_ALLOW_UNRESOLVED=1)." >&2
         else
-          echo "ERROR: could not fetch issue #${iid} from GitLab API (HTTP ${http_code:-000}) — cannot verify TODO(#${iid})." >&2
+          echo "ERROR: could not fetch issue #${iid} from GitLab API — cannot verify TODO(#${iid})." >&2
           unresolved_count=$((unresolved_count + 1))
         fi
         continue
       fi
-      state=$(printf '%s' "$body" | jq -r '.state // "unknown"')
-      if [ "$state" = "closed" ]; then
-        title=$(printf '%s' "$body" | jq -r '.title // ""')
-        echo "ERROR: TODO(#${iid}) references a closed issue: ${title}" >&2
+      row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i' | head -n1 || true)
+      if [ -z "$row" ]; then
+        echo "ERROR: TODO(#${iid}) references an issue that does not exist or is not readable (deleted, moved, or confidential)." >&2
+        unresolved_count=$((unresolved_count + 1))
+        continue
+      fi
+      if [ "$(printf '%s' "$row" | cut -f2)" = "closed" ]; then
+        echo "ERROR: TODO(#${iid}) references a closed issue: $(printf '%s' "$row" | cut -f3-)" >&2
         closed_count=$((closed_count + 1))
       fi
-    done <<<"$todo_refs"
+    done
     if [ "$closed_count" -gt 0 ]; then
       {
         echo ""
@@ -324,7 +313,7 @@ if [ -n "$todo_refs" ]; then
         echo ""
         echo "${unresolved_count} TODO(#NNN) reference(s) could not be verified against the GitLab"
         echo "API. A gate that cannot reach its oracle must go red, not skip silently. Set"
-        echo "TODO_GREP_TOKEN (a masked, protected project/group access token with read_api)"
+        echo "TODO_GREP_TOKEN or ISSUES_API_TOKEN (a masked project/group access token with read_api)"
         echo "so this check can actually run, or set TODO_GREP_ALLOW_UNRESOLVED=1 to"
         echo "explicitly accept the risk (do not set that in this repo's own CI)."
         echo ""

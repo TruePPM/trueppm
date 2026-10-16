@@ -690,6 +690,8 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
+        - scripts/lib/gitlab-issues.sh
+        - scripts/tests/gitlab-issues.test.sh
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
@@ -740,6 +742,8 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
+        - scripts/lib/gitlab-issues.sh
+        - scripts/tests/gitlab-issues.test.sh
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
@@ -798,6 +802,7 @@ scripts:test:
     - bash scripts/tests/backup-media.test.sh
     - bash scripts/tests/check-enterprise-imports.test.sh
     - bash scripts/tests/check-suppression-issues.test.sh
+    - bash scripts/tests/gitlab-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
     - bash scripts/tests/helm-celery-probe-overrides.test.sh
     - bash scripts/tests/helm-install-drill-worker-restart-message.test.sh
@@ -964,6 +969,9 @@ lint:todo-grep:
   # An issue-state lookup that fails (network error, private project with no
   # token) fails the job — TODO_GREP_ALLOW_UNRESOLVED=1 is the explicit,
   # opt-out escape hatch, not set here.
+  #
+  # Issue states resolve in one batched call with 429 retry; ISSUES_API_TOKEN
+  # is the shared fallback for TODO_GREP_TOKEN (#4452).
   #
   # Runs on every MR pipeline. ~5–10s incl. issue-state lookups.
   stage: lint
@@ -1424,8 +1432,14 @@ docs:known-issues-freshness:
   # KNOWN_ISSUES_ALLOW_UNRESOLVED=1 is the explicit opt-out, not set here — a
   # tracker-API timeout should retry the JOB, not red main and not go quiet.
   #
-  # Runs on every MR pipeline and on main. ~5-15s incl. issue-state lookups
-  # (one per unique reference; the page has ~25).
+  # Rate limit (#4452): all references resolve in ONE batched list call with
+  # 429/Retry-After retry (scripts/lib/gitlab-issues.sh). The shared
+  # ISSUES_API_TOKEN project variable (read_api, masked) buys the
+  # authenticated limit; anonymous calls share one per-IP budget across every
+  # runner job and 429'd main. Same for lint:todo-grep, lint:mr-followups and
+  # the suppression gate.
+  #
+  # Runs on every MR pipeline and on main. ~2-5s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:

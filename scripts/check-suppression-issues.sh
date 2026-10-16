@@ -114,11 +114,11 @@ if [ -z "$PROJECT" ] && [ -z "$LIST_ONLY" ]; then
   exit 2
 fi
 
-if [ -n "${BOUNDARY_CHECK_TOKEN:-}" ]; then
-  AUTH_HEADER="PRIVATE-TOKEN: ${BOUNDARY_CHECK_TOKEN}"
-else
-  AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN:-}"
-fi
+# shellcheck source-path=SCRIPTDIR source=lib/gitlab-issues.sh
+. "$(dirname "$0")/lib/gitlab-issues.sh"
+# No JOB-TOKEN fallback: the single-issue reads this gate used to make 401 on
+# any JOB-TOKEN header (#3043); the shared reader goes anonymous instead.
+TOKEN="${BOUNDARY_CHECK_TOKEN:-${ISSUES_API_TOKEN:-}}"
 
 # Collect `path:line:` per marker. --exclude-dir keeps the scan off vendored
 # trees; `|| true` because grep exits 1 on no matches, which is a clean pass.
@@ -138,26 +138,33 @@ if [ -n "$LIST_ONLY" ]; then
   exit 0
 fi
 
-# Unique issue numbers across all markers — one API call each, not one per site.
+# Unique issue numbers across all markers, resolved in one batched call with
+# 429 retry rather than one request each (#4452).
 issues=$(echo "$markers" | grep -oE 'SUPPRESSED-UNTIL\(#[0-9]+\)' \
   | grep -oE '[0-9]+' | sort -un)
 
 stale=0
 checked=0
 
+# shellcheck disable=SC2086  # one iid per word is the intent
+if ! states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $issues); then
+  echo "ERROR: could not read suppression issues from the GitLab API." >&2
+  exit 2
+fi
+
 for iid in $issues; do
-  url="${API}/projects/${PROJECT}/issues/${iid}"
-  if ! result=$(curl -sf --header "$AUTH_HEADER" "$url" 2>/dev/null); then
+  row=$(printf '%s\n' "$states" | awk -F'\t' -v i="$iid" '$1 == i' | head -n1 || true)
+  if [ -z "$row" ]; then
     echo ""
     echo "STALE SUPPRESSION: #${iid} could not be read (missing, moved, or no access)."
     echo "$markers" | grep -E "SUPPRESSED-UNTIL\(#${iid}\)" | sed 's/^/  /'
     stale=$((stale + 1))
     continue
   fi
-  state=$(echo "$result" | jq -r '.state')
+  state=$(printf '%s' "$row" | cut -f2)
   checked=$((checked + 1))
   if [ "$state" != "opened" ]; then
-    title=$(echo "$result" | jq -r '.title')
+    title=$(printf '%s' "$row" | cut -f3-)
     echo ""
     echo "STALE SUPPRESSION: #${iid} is ${state} — \"${title}\""
     echo "$markers" | grep -E "SUPPRESSED-UNTIL\(#${iid}\)" | sed 's/^/  /'

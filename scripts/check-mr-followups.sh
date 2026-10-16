@@ -31,8 +31,8 @@
 #   CI_MERGE_REQUEST_DESCRIPTION  fallback when the API read fails
 #
 # Issue state is read from the public tracker with no auth header, exactly as
-# scripts/check-todo-grep.sh does and for the same reason (#3043); MR_FOLLOWUPS_TOKEN
-# (read_api) is only for a private fork. An unresolvable lookup fails the job;
+# scripts/check-todo-grep.sh does and for the same reason (#3043). MR_FOLLOWUPS_TOKEN
+# or the shared ISSUES_API_TOKEN (read_api) buys the authenticated rate limit (#4452). An unresolvable lookup fails the job;
 # MR_FOLLOWUPS_ALLOW_UNRESOLVED=1 is the explicit escape hatch.
 #
 # Usage:  scripts/check-mr-followups.sh [--file <path>] | --self-test
@@ -42,9 +42,12 @@ set -euo pipefail
 TRIGGER_RE='follow[- ]?ups?|deferr(ed|ing)|defer(s)? (to|until)|left open|out of (this|the) (mr|issue|change)'"'"'s scope|out of scope (for|of|in) (this|the) (mr|issue|change)|not (yet )?(fixed|addressed|covered)|tracked (separately|later)|punt(ed|ing)?'
 
 API="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
+# shellcheck source-path=SCRIPTDIR source=lib/gitlab-issues.sh
+. "$(dirname "$0")/lib/gitlab-issues.sh"
+TOKEN="${MR_FOLLOWUPS_TOKEN:-${ISSUES_API_TOKEN:-}}"
 auth_args=()
-if [ -n "${MR_FOLLOWUPS_TOKEN:-}" ]; then
-  auth_args=(--header "PRIVATE-TOKEN: ${MR_FOLLOWUPS_TOKEN}")
+if [ -n "$TOKEN" ]; then
+  auth_args=(--header "PRIVATE-TOKEN: ${TOKEN}")
 fi
 
 # Strip fenced code blocks and inline code spans, then join hard-wrapped lines into
@@ -63,18 +66,16 @@ prose() {
       END { flush() }'
 }
 
-# issue_state <iid> -> prints opened|closed|missing, or returns 2 when unresolvable
+# issue_state <iid> -> prints opened|closed|missing, or returns 2 when unresolvable.
+# Goes through the shared reader for its 429 retry (#4452).
 issue_state() {
-  local resp code body
-  resp="$(curl -s -w $'\n%{http_code}' "${auth_args[@]+"${auth_args[@]}"}" \
-    "${API}/projects/${CI_PROJECT_ID}/issues/$1" || true)"
-  code="${resp##*$'\n'}"
-  body="${resp%$'\n'*}"
-  case "$code" in
-    200) printf '%s' "$body" | jq -r '.state // "unknown"' ;;
-    404) echo missing ;;
-    *) return 2 ;;
-  esac
+  local rows
+  rows="$(gitlab_issue_states "$API" "$CI_PROJECT_ID" "$TOKEN" "$1")" || return 2
+  if [ -z "$rows" ]; then
+    echo missing
+  else
+    printf '%s\n' "$rows" | head -n1 | cut -f2
+  fi
 }
 
 check_text() {
@@ -168,6 +169,7 @@ fetch_description() {
 }
 
 if [ "${1:-}" = "--self-test" ]; then
+  export GITLAB_ISSUES_SLEEP_OVERRIDE=0
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   mkdir -p "$tmp/bin"
@@ -176,10 +178,10 @@ if [ "${1:-}" = "--self-test" ]; then
 #!/usr/bin/env bash
 url="${*: -1}"
 case "$url" in
-  */issues/100) printf '{"state":"opened"}\n200' ;;
-  */issues/200) printf '{"state":"closed"}\n200' ;;
-  */issues/300) printf '{"message":"404 Not found"}\n404' ;;
-  *) printf '\n000' ;;
+  *'iids[]=100'*) printf '[{"iid":100,"state":"opened","title":"t"}]\n200 ' ;;
+  *'iids[]=200'*) printf '[{"iid":200,"state":"closed","title":"t"}]\n200 ' ;;
+  *'iids[]=300'*) printf '[]\n200 ' ;;
+  *) printf '\n000 ' ;;
 esac
 CURLMOCK
   chmod +x "$tmp/bin/curl"
