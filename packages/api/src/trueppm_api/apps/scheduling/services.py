@@ -998,7 +998,11 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
     from django.utils import timezone
 
     from trueppm_api.apps.projects.models import Task, TaskStatus
-    from trueppm_api.apps.scheduling.finish_reading import latest_finish, task_finish_at_day_start
+    from trueppm_api.apps.scheduling.finish_reading import (
+        FINISH_READING_FIELDS,
+        latest_finish,
+        task_finish_at_day_start,
+    )
     from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
 
     # One aggregate query for the whole-project schedule shape. cpm_finish is the
@@ -1052,15 +1056,7 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
     if agg["cpm_finish"] is not None:
         on_finish_day = Task.committed.filter(
             project_id=project_id, early_finish=agg["cpm_finish"]
-        ).only(
-            "early_finish",
-            "wbs_path",
-            "is_milestone",
-            "milestone_at_day_end",
-            "actual_start",
-            "actual_finish",
-            "percent_complete",
-        )
+        ).only("early_finish", "wbs_path", *FINISH_READING_FIELDS)
         reading = latest_finish(
             (t.early_finish, task_finish_at_day_start(t), t.wbs_path) for t in on_finish_day
         )

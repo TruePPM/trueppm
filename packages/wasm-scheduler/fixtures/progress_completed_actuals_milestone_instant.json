@@ -10,13 +10,19 @@
     {"id": "N", "name": "Milestone, actual_finish only", "duration": 0.0, "percent_complete": 100.0, "actual_finish": "2027-03-03"},
     {"id": "D", "name": "Live successor of N", "duration": 172800.0},
     {"id": "S", "name": "Milestone, actual_finish before a later SNET: the actual wins", "duration": 0.0, "percent_complete": 100.0, "planned_start": "2027-03-08", "actual_finish": "2027-03-03"},
-    {"id": "E", "name": "Live successor of S", "duration": 86400.0}
+    {"id": "E", "name": "Live successor of S", "duration": 86400.0},
+    {"id": "R", "name": "Milestone, 100% with actual_start only: the actual_start day", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2027-03-04"},
+    {"id": "F", "name": "Live successor of R", "duration": 86400.0},
+    {"id": "U", "name": "Milestone, actual_start before actual_finish: the actual_finish day wins", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2027-03-01", "actual_finish": "2027-03-04"},
+    {"id": "G", "name": "Live successor of U", "duration": 86400.0}
   ],
   "dependencies": [
     {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
     {"predecessor_id": "B", "successor_id": "C", "dep_type": "FS", "lag": 0.0},
     {"predecessor_id": "N", "successor_id": "D", "dep_type": "FS", "lag": 0.0},
-    {"predecessor_id": "S", "successor_id": "E", "dep_type": "FS", "lag": 0.0}
+    {"predecessor_id": "S", "successor_id": "E", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "R", "successor_id": "F", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "U", "successor_id": "G", "dep_type": "FS", "lag": 0.0}
   ],
   "calendar": {
     "working_days": 31,

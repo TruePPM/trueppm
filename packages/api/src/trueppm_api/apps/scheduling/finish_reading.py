@@ -42,9 +42,6 @@ Finish = tuple[date, bool | None]
 FINISH_READING_FIELDS: tuple[str, ...] = (
     "is_milestone",
     "milestone_at_day_end",
-    "actual_start",
-    "actual_finish",
-    "percent_complete",
 )
 
 

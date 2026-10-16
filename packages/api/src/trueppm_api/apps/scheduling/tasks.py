@@ -651,14 +651,10 @@ def _recalc_project_aggregates(
     each finish a ``(day, at_day_start)`` pair (:mod:`.finish_reading`, #4178) so
     the delta can be measured in working time. ``old_day_end`` is each task's
     ``milestone_at_day_end`` before the writeback overwrote it; a task missing
-    from it is read with its current flag.
+    from it is read with its current flag. The reading depends on nothing else
+    (:func:`.finish_reading.task_finish_at_day_start` reads no actuals since
+    #4433), so the prior reading is exact.
 
-    Known limit: the prior reading's "pinned by actuals" test reads the task's
-    *current* ``actual_start``/``actual_finish``/``percent_complete``. The CPM
-    writeback never changes those, but a user edit between two recalculations
-    does, and the row no longer holds the old values — so recording a milestone's
-    actual finish in the same pass that moves it can misread the prior edge of
-    the day by one reading, for that one pass only.
     WHY grouped strictly per ``project_id`` and not globally: this feeds a helper
     shared by the program-scoped writeback, where ``tasks_to_update`` spans several
     member projects in one call. A single program-wide count stamped onto every row
