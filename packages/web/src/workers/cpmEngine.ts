@@ -558,8 +558,9 @@ function toTaskState(t: CpmTask): TaskState {
     // Placeholder; `runCpmForwardPass` reads the real instant once it knows
     // which milestones follow work. A completed milestone stays an instant
     // whether or not actuals are recorded (#4343, #4433), as it does
-    // server-side — it just never relaxes. Pinned by actuals, its early window
-    // collapses onto the `actual_finish` day the server's instant sits on.
+    // server-side — it just never relaxes. Pinned by actuals, it keeps the edge
+    // of its day it had live (#4433); the server's `milestoneAtDayEnd` says
+    // which, and is read below exactly as for a live milestone.
     instantMs: t.durationDays === 0 ? earlyFinishMs : null,
     startDisplay: false,
     atDayEndHint: t.milestoneAtDayEnd,

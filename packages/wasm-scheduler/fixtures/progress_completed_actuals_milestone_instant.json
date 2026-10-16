@@ -1,6 +1,6 @@
 {
   "id": "p-progress-completed-actuals-milestone-instant",
-  "name": "Completed milestones with recorded actuals stay instants at the start of the recorded day: an FS successor starts that same day, as after the same milestone live (#4433)",
+  "name": "Completed milestones with recorded actuals keep the edge of the recorded day they had live: start of day with no work predecessor (an FS successor starts that same day), end of day after work (#4433)",
   "start_date": "2027-03-01",
   "status_date": "2027-03-03",
   "tasks": [
@@ -14,7 +14,10 @@
     {"id": "R", "name": "Milestone, 100% with actual_start only: the actual_start day", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2027-03-04"},
     {"id": "F", "name": "Live successor of R", "duration": 86400.0},
     {"id": "U", "name": "Milestone, actual_start before actual_finish: the actual_finish day wins", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2027-03-01", "actual_finish": "2027-03-04"},
-    {"id": "G", "name": "Live successor of U", "duration": 86400.0}
+    {"id": "G", "name": "Live successor of U", "duration": 86400.0},
+    {"id": "W", "name": "Completed work, Mon..Wed", "duration": 259200.0, "percent_complete": 100.0, "actual_start": "2027-03-01", "actual_finish": "2027-03-03"},
+    {"id": "Q", "name": "Milestone after work, closed the day the work finished: keeps its live end-of-day edge", "duration": 0.0, "percent_complete": 100.0, "actual_finish": "2027-03-03"},
+    {"id": "H", "name": "Live successor of Q: starts the day after, not the same day", "duration": 86400.0}
   ],
   "dependencies": [
     {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
@@ -22,7 +25,9 @@
     {"predecessor_id": "N", "successor_id": "D", "dep_type": "FS", "lag": 0.0},
     {"predecessor_id": "S", "successor_id": "E", "dep_type": "FS", "lag": 0.0},
     {"predecessor_id": "R", "successor_id": "F", "dep_type": "FS", "lag": 0.0},
-    {"predecessor_id": "U", "successor_id": "G", "dep_type": "FS", "lag": 0.0}
+    {"predecessor_id": "U", "successor_id": "G", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "W", "successor_id": "Q", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "Q", "successor_id": "H", "dep_type": "FS", "lag": 0.0}
   ],
   "calendar": {
     "working_days": 31,

@@ -131,10 +131,16 @@ Rules:
   so an FS successor starts that same day and nothing downstream moves relative to the
   live case (#4343). Its `planned_start` binds the instant its successors measure from;
   the project start only bounds where it is shown (#4225).
-- **A completed milestone with recorded actuals stays an instant too (#4433).** The
-  instant is the start of its `actual_finish` day, else its `actual_start` day, and it
-  is both shown and linked from — actuals are truth, so a `planned_start` no longer
-  binds. (Superseded rule, before #4433: "A milestone pinned by recorded actuals is
+- **A completed milestone with recorded actuals stays an instant too, and keeps its live
+  edge (#4433).** The instant is on its `actual_finish` day, else its `actual_start`
+  day, and it is both shown and linked from — actuals are truth, so a `planned_start`
+  no longer binds. Which edge of that day it sits on is the edge its predecessor links
+  give it live, with floors left out: the **start** when no work precedes it, the
+  **end** when it follows work (`milestone_at_day_end` True), so closing a milestone on
+  the day it was forecast moves nothing downstream either way. (Decided 2026-10-16,
+  "preserve the live edge": an earlier draft put every closed milestone at the start
+  of its day, which pulled a successor of a milestone that follows work into the day
+  that work was still finishing.) (Superseded rule, before #4433: "A milestone pinned by recorded actuals is
   unchanged: it is laid out as ordinary work, ending at the end of its day." Because
   `COMPLETE` stamps `actual_finish`, that rule made closing a milestone slip every FS
   successor, and the project finish, a working day later than the same milestone live

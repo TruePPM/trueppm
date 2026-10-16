@@ -396,20 +396,28 @@ pub fn forward_pass(
         let node_cal = cals.for_node(i);
         let (start_base, start, data_floor) =
             start_floors_for(&mut floors_by_cal, node_cal, project_start, status_date)?;
-        // Only a network-placed milestone can sit at the end of its day (#4079);
+        // Only a milestone can sit at the end of its day (#4079, #4433);
         // reset first so an input carrying a previous run's value cannot leak.
         tasks[i].milestone_at_day_end = false;
 
         if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal, start_base)? {
+            // A completed milestone stays an instant (#4343, #4433), on the edge of
+            // its day it would have been read at live.
+            let live_start = if tasks[i].duration_days() == 0
+                && (tasks[i].actual_start.is_some() || tasks[i].actual_finish.is_some())
+            {
+                live_milestone_edge(idx, tasks, pg, deps, cals, &links)?
+            } else {
+                true
+            };
             let t = &mut tasks[i];
             t.early_start = Some(es);
             t.early_finish = Some(ef);
             if t.duration_days() == 0 {
-                // A completed milestone stays an instant, with actuals (#4433) or
-                // without (#4343).
-                let (shown, link) = pinned_milestone_instant(t, node_cal, es)?;
+                let (shown, link) = pinned_milestone_instant(t, node_cal, es, live_start)?;
                 instants[i] = Some(shown);
                 links[i] = Some(link);
+                t.milestone_at_day_end = !shown.1;
             }
             t.scheduled_start = Some(compute_scheduled_start(t, node_cal)?);
             continue;
@@ -604,24 +612,58 @@ fn pinned_placement(
     Ok(Some((es, finish_from_start(es, full_days, calendar)?)))
 }
 
+/// Whether a completed milestone would be read at the *start* of its day live (#4433).
+///
+/// A floor or an SS link proposes a day start; an FS link from work proposes the
+/// end of the work's finish day (`place_milestone`). Completing the milestone
+/// records when it happened, not a different kind of instant, so it keeps the
+/// edge its predecessor links propose; with no predecessor, the start of its day.
+/// Floors are left out: the date comes from the actuals, only the kind of anchor
+/// is carried over. Mirrors the Python `_live_milestone_edge`.
+fn live_milestone_edge(
+    idx: NodeIndex,
+    tasks: &[Task],
+    pg: &ProjectGraph,
+    deps: &[Dependency],
+    cals: &PassCalendars,
+    links: &[Option<Instant>],
+) -> Result<bool, String> {
+    if pg
+        .graph
+        .edges_directed(idx, Direction::Incoming)
+        .next()
+        .is_none()
+    {
+        return Ok(true);
+    }
+    let (shown, _, _) = place_milestone(idx, tasks, pg, deps, cals, &[], None, links)?;
+    Ok(shown.1)
+}
+
 /// `(shown, link)` for a completed milestone pinned on `day` (#4343, #4433).
 ///
-/// Pinning takes the milestone out of the network but not out of being a
-/// milestone: it is an instant at the start of its day, as a live milestone with
-/// no links is, so a successor reads it at that midnight rather than at the end
-/// of the day. With actuals recorded the instant is the recorded day
-/// (`actual_finish`, else `actual_start`), both shown and linked from — actuals
-/// are truth, so the SNET no longer binds (#4433). With none, the pair is what
-/// `place_milestone` returns with no predecessors on `day`: the SNET binds
-/// `link`; the project start only bounds where it is shown (#4225).
-/// Mirrors the Python `_pinned_milestone_instant`.
+/// With no actuals it is an instant at the start of its pinned day, as a live
+/// milestone with no links is (#4343): the pair `place_milestone` returns with no
+/// predecessors — the SNET binds `link`; the project start only bounds where it
+/// is shown (#4225). With actuals the day is the recorded one (`actual_finish`,
+/// else `actual_start`), shown and linked from alike, on the edge of that day the
+/// milestone had live (`live_start`, `live_milestone_edge`): the start with no
+/// work predecessor, the end — the next midnight, read like an FS proposal from
+/// work — when it follows work (#4433). Mirrors the Python
+/// `_pinned_milestone_instant`.
 fn pinned_milestone_instant(
     task: &Task,
     calendar: &Calendar,
     day: NaiveDate,
+    live_start: bool,
 ) -> Result<(Instant, Instant), String> {
     if let Some(recorded) = task.actual_finish.or(task.actual_start) {
-        let actual = (recorded, true);
+        let actual = if live_start {
+            (recorded, true)
+        } else {
+            let raw = checked_offset_days(recorded, 1)?;
+            (raw, start_reading(raw, false, calendar)?)
+        };
         return Ok((actual, actual));
     }
     let shown = (day, true);

@@ -44,16 +44,6 @@ FINISH_READING_FIELDS: tuple[str, ...] = (
     "milestone_at_day_end",
 )
 
-#: The ``Task`` columns :func:`values_finish_at_day_start` reads: the forecast
-#: reading's, plus the actuals that decide whether the baseline records a
-#: completed milestone's finish as a recorded day (#4433).
-BASELINE_FINISH_READING_FIELDS: tuple[str, ...] = (
-    *FINISH_READING_FIELDS,
-    "actual_start",
-    "actual_finish",
-    "percent_complete",
-)
-
 
 def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = None) -> bool:
     """Whether a task's ``early_finish`` is the *start* of that day.
@@ -61,12 +51,13 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     Mirrors the engine's own rule (``trueppm_scheduler.engine._finish_instant``):
     a milestone the engine did not put at the end of its day
     (``milestone_at_day_end`` False) ends at the start of its day, and work always
-    ends at the end of its finish day. That holds for a completed milestone too:
-    the engine pins it (``_pinned_placement``) but keeps it an instant at the start
-    of its day — its ``actual_finish`` (else ``actual_start``) day when actuals are
-    recorded (#4433), its pinned day when none are (#4343) — so it reads like a
-    live milestone. (Before #4433 a milestone pinned by actuals was laid out as
-    ordinary work and read here as the end of its day.)
+    ends at the end of its finish day. That holds for a completed milestone too,
+    and the flag alone decides it: the engine pins it (``_pinned_placement``) but
+    keeps it an instant — with no actuals at the start of its pinned day (#4343);
+    with actuals on its recorded day, at the edge of that day it had live (#4433),
+    so the end of the day when it follows work and the start when it does not.
+    (Before #4433 the engine never flagged a milestone pinned by actuals, and this
+    function derived an end-of-day reading from its actuals instead.)
 
     This is the engine's *forecast* reading. The schedule-variance metrics read a
     recorded ``actual_finish`` as the end of its day on purpose — a variance
@@ -90,27 +81,14 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
 
 
 def values_finish_at_day_start(row: Mapping[str, Any]) -> bool | None:
-    """The edge of the day a baseline records for a ``Task`` ``.values()`` row (#4197).
+    """:func:`task_finish_at_day_start` for a ``Task`` ``.values()`` row (#4197).
 
     ``None`` when the row has no ``early_finish`` — there is no finish to read an
-    edge of. The row must carry :data:`BASELINE_FINISH_READING_FIELDS`. Used at
-    baseline capture, whose task read is a ``.values()`` query.
-
-    :func:`task_finish_at_day_start`'s forecast reading, except for a milestone
-    pinned by recorded actuals (complete, with an ``actual_finish`` or
-    ``actual_start``): its finish is a recorded day, and the baseline records it
-    as the end of that day (False). The schedule-variance metrics read an actual
-    finish as the end of its day (``get_schedule_variance_days``,
-    ``program_rollup._schedule_variance_by_project``, the sprint milestone slip);
-    recording the engine's start-of-day instant here instead (#4433) made a
-    milestone captured after it closed read three days late against itself.
+    edge of. The row must carry :data:`FINISH_READING_FIELDS`. Used at baseline
+    capture, whose task read is a ``.values()`` query.
     """
     if row.get("early_finish") is None:
         return None
-    actual_finish = row["actual_finish"]
-    complete = actual_finish is not None or (row["percent_complete"] or 0) >= 100
-    if row["is_milestone"] and complete and (actual_finish is not None or row["actual_start"]):
-        return False
     return task_finish_at_day_start(SimpleNamespace(**{f: row[f] for f in FINISH_READING_FIELDS}))
 
 

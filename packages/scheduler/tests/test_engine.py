@@ -2760,6 +2760,58 @@ class TestCompletedNoActualsIsPinned:
         mc = monte_carlo(p, runs=20, seed=0)
         assert mc.p50 == mc.p95 == r.project_finish
 
+    @pytest.mark.parametrize(
+        "milestone",
+        [
+            pytest.param({}, id="live"),
+            pytest.param({"actual_finish": date(2027, 3, 3)}, id="done-actual-finish"),
+            pytest.param(
+                {"actual_start": date(2027, 3, 3), "actual_finish": date(2027, 3, 3)},
+                id="done-both-actuals",
+            ),
+        ],
+    )
+    def test_a_closed_milestone_after_work_keeps_its_live_end_of_day_edge(
+        self, milestone: dict[str, object]
+    ) -> None:
+        """#4433 round 1: ``A(Mon..Wed, done) -> M -> B(2)``, data date Wed.
+
+        Live, M follows A and sits at the END of Wednesday, so B starts Thursday.
+        Closing M on Wednesday keeps that edge — the decision was "preserve the
+        live edge" — so B and the project finish do not move. Pinning every closed
+        milestone at the start of its day pulled B into Wednesday, the day its
+        predecessor's work was still finishing."""
+        wed = date(2027, 3, 3)
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2027, 3, 1),
+            status_date=wed,
+            tasks=[
+                Task(
+                    id="A",
+                    name="A",
+                    duration=timedelta(days=3),
+                    actual_start=date(2027, 3, 1),
+                    actual_finish=wed,
+                ),
+                Task(id="M", name="M", duration=timedelta(0), **milestone),  # type: ignore[arg-type]
+                Task(id="B", name="B", duration=timedelta(days=2)),
+            ],
+            dependencies=[Dependency("A", "M"), Dependency("M", "B")],
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert by_id["M"].early_finish == wed
+        assert by_id["M"].milestone_at_day_end is True
+        assert (by_id["B"].early_start, by_id["B"].early_finish) == (
+            date(2027, 3, 4),
+            date(2027, 3, 5),
+        )
+        assert r.project_finish == date(2027, 3, 5)
+        mc = monte_carlo(p, runs=20, seed=0)
+        assert mc.p50 == mc.p95 == r.project_finish
+
     def test_a_completed_milestone_with_actuals_ignores_its_snet(self) -> None:
         """Actuals are truth: a completed milestone with a recorded ``actual_finish``
         is linked from that day, not from a later ``planned_start`` (#4433). The
