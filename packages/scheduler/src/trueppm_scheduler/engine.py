@@ -4402,6 +4402,38 @@ def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
     return shifted if shifted > timedelta(0) else timedelta(0)
 
 
+def _shift_remaining_work(task: Task, delta_days: int) -> tuple[timedelta, float]:
+    """Shift an in-progress task's remaining work, holding its elapsed days constant.
+
+    Returns the new ``(duration, percent_complete)`` pair. Elapsed working days are
+    ``floor(duration * pct / 100)`` — the rule :func:`_effective_duration_days` and
+    Monte Carlo both apply — and work already done cannot be undone by a what-if, so
+    the new duration is ``elapsed + max(0, remaining + delta_days)``.
+
+    The new percentage is placed at the *midpoint* of the band that floors to
+    ``elapsed`` — ``(elapsed + 0.5) / new_duration`` — rather than at its lower
+    edge, so float rounding in ``elapsed / new_duration * 100`` can never truncate
+    one day short. With at least one remaining day that value is strictly below
+    100, so the task stays in progress. The original percentage is kept whenever it
+    already yields the same elapsed count, so a zero delta changes nothing.
+
+    A pull-in that consumes all remaining work leaves the task at 100%: it is
+    complete, and the engine lays a completed task out at its full (now elapsed-only)
+    duration from its actuals (ADR-0136) — "nothing left to do" rather than a
+    zero-remaining in-progress task the integer rule cannot express.
+    """
+    duration_days = task.duration.days
+    pct = min(task.percent_complete or 0.0, 100.0)
+    elapsed = int(duration_days * pct / 100.0)
+    remaining = max(0, duration_days - elapsed + delta_days)
+    new_days = elapsed + remaining
+    if remaining == 0:
+        return timedelta(days=new_days), 100.0
+    if int(new_days * pct / 100.0) == elapsed:
+        return timedelta(days=new_days), pct
+    return timedelta(days=new_days), (elapsed + 0.5) * 100.0 / new_days
+
+
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
     """Return a copy of ``project`` with one task's duration shifted by ``delta_days``.
 
@@ -4435,6 +4467,18 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
       points per working day). The band then moves by ``delta_days`` in expectation,
       quantized to whole sprints, which is what a sprint-delivered task's schedule
       genuinely does.
+
+    On an **in-progress** task the offset applies to the *remaining* work only
+    (#4432). The engine reads ``percent_complete`` against ``duration`` to split a
+    task into elapsed and remaining working days (:func:`_effective_duration_days`,
+    and the same integer rule in Monte Carlo's elapsed subtraction), so shifting
+    ``duration`` with ``percent_complete`` held would grow the elapsed share along
+    with it and swallow part of the delta — a +1-day slip on a critical 50%-complete
+    task moved the finish by zero. ``percent_complete`` is therefore rescaled so the
+    elapsed working days stay exactly constant; see :func:`_shift_remaining_work`.
+    The PERT legs need no extra handling: Monte Carlo subtracts that same constant
+    elapsed count from every sampled value, so shifting each leg by ``delta_days``
+    shifts the sampled remaining work by ``delta_days``.
 
     Sampling semantics are untouched: this only changes what the engine is asked
     about, never how it answers.
@@ -4479,9 +4523,13 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
 
     # ``duration`` is non-optional on Task, so the shift is never None here.
     new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
+    percent_complete = target.percent_complete
+    if not _is_complete(target) and percent_complete and percent_complete > 0:
+        new_duration, percent_complete = _shift_remaining_work(target, delta_days)
     perturbed = replace(
         target,
         duration=new_duration,
+        percent_complete=percent_complete,
         optimistic_duration=_shift_duration(target.optimistic_duration, delta_days),
         most_likely_duration=_shift_duration(target.most_likely_duration, delta_days),
         pessimistic_duration=_shift_duration(target.pessimistic_duration, delta_days),

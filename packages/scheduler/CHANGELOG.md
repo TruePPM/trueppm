@@ -16,7 +16,17 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`perturb_task_duration` on an in-progress task now shifts remaining work
+  only (#4432).** It shifted `duration` while holding `percent_complete`, so the
+  elapsed share `floor(duration * pct / 100)` grew or shrank with the shift and
+  absorbed part of the delta. A `+1` day slip on a critical 50%-complete task
+  moved the finish by zero, and `-N` and `+N` were not mirror images.
+  `percent_complete` is now rescaled so the elapsed working days stay constant.
+  The duration never drops below the elapsed days, and a pull-in that consumes
+  all remaining work returns the task at 100%. A critical task slipped by `N`
+  days now moves the CPM finish and the Monte Carlo bands by `N` working days.
 
 ## [0.4.0b8] - 2026-10-15
 
