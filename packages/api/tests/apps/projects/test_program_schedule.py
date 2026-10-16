@@ -378,6 +378,35 @@ def test_schedule_invalid_task_redacts_reason_for_inaccessible_project(
 
 
 @pytest.mark.django_db
+def test_schedule_summary_expansion_conflict_returns_422_not_500(calendar: Calendar) -> None:
+    """Summary expansion raising on member-project data must reach the structured 422.
+
+    ``A -FF-> C`` plus ``S(A, B) -FS+7d-> C`` both resolve to the leaf pair A → C with
+    different types, which ``expand_summary_dependencies`` rejects (#4434). The
+    expansion used to run outside the ``SchedulerError`` → 422 mapping, so this
+    ordinary data shape 500'd the whole program view.
+    """
+    program = Program.objects.create(name="Atlas Platform Launch")
+    proj = Project.objects.create(
+        name="Core API", start_date=START, calendar=calendar, program=program
+    )
+    summary = Task.objects.create(project=proj, name="Build", duration=3, wbs_path="1")
+    a = Task.objects.create(project=proj, name="Backend", duration=2, wbs_path="1.1")
+    Task.objects.create(project=proj, name="Frontend", duration=1, wbs_path="1.2")
+    c = Task.objects.create(project=proj, name="Release", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=a, successor=c, dep_type="FF", lag=0)
+    Dependency.objects.create(predecessor=summary, successor=c, dep_type="FS", lag=7)
+    user = User.objects.create_user(username="pm", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+
+    assert resp.status_code == 422, resp.data
+    assert resp.data["code"] == "program_schedule_invalid_input"
+
+
+@pytest.mark.django_db
 def test_gather_background_path_reraises_raw_scheduler_error(calendar: Calendar) -> None:
     """The persisted background pass (``enforce_max=False``) must let the raw
     ``SchedulerError`` propagate to its TaskRunTracker (which marks the run FAILED)

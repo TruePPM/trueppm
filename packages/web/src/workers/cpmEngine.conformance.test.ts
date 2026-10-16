@@ -207,6 +207,14 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // seven-day calendar.
   milestone_end_of_day_cap_seven_day_sunday_finish:
     'adapter: 3 source tasks; engine gap: per-task calendars not modeled',
+  // #4431. The SF twin of `milestone_end_of_day_cap_weekend_finish`: W (done on
+  // a Saturday) sets project_finish beside the X->M and Y->N SF chains.
+  milestone_sf_end_of_day_cap_weekend_finish:
+    'adapter: 3 source tasks; adapter: does not thread actuals/status date',
+  // #4431. The SF twin of `milestone_end_of_day_cap_own_calendar`: W, X and a
+  // planned_start-pinned Y are three sources, and M/N sit on a Mon-Thu calendar.
+  milestone_sf_end_of_day_cap_own_calendar:
+    'adapter: 3 source tasks; engine gap: per-task calendars not modeled',
 };
 
 interface FixtureTask {

@@ -115,7 +115,7 @@ from __future__ import annotations
 
 import copy
 import math
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any, NoReturn
@@ -1336,6 +1336,25 @@ def _link_start_ref(
     return _start_read_cap(start_ref, base_display, succ_cal, project_finish)
 
 
+def _link_finish_ref(
+    late: date, dep_type: DependencyType, succ_cal: Calendar, project_finish: date
+) -> date:
+    """The milestone ``finish_ref`` one SF link into it may use (#4431).
+
+    The SF twin of :func:`_link_start_ref`. An SF proposal into a milestone is read
+    like FS from work — end of day, or start of day just after non-working time
+    (:func:`_milestone_proposal`) — so the latest instant it may propose is
+    :func:`_start_read_cap` of the late instant for the end-of-day reading, and the
+    reference is the day *that* instant closes (:func:`_milestone_refs`). Inverting
+    against the uncapped instant gave an SF predecessor one working day of float
+    that, used, showed the milestone past ``project_finish``. Every other type
+    inverts against the start reference, so its finish reference is left raw.
+    """
+    if dep_type != DependencyType.SF:
+        return _milestone_refs(late)[1]
+    return _milestone_refs(_start_read_cap(late, False, succ_cal, project_finish))[1]
+
+
 def _float_late_instant(late: date, early: _Instant, cal: Calendar, project_finish: date) -> date:
     """The late instant a milestone's *own* total float is measured to (#4183).
 
@@ -2383,18 +2402,20 @@ def _late_refs(
     """``(start_ref, finish_ref)`` a live successor's late window offers its predecessor.
 
     ``link`` is ``(dep, pred_is_milestone, project_finish)``: a milestone successor's
-    start reference depends on how that link would show it (:func:`_link_start_ref`).
+    start reference depends on how that link would show it (:func:`_link_start_ref`),
+    and so does the finish reference an SF link inverts against
+    (:func:`_link_finish_ref`, #4431).
     """
     late = late_instants.get(succ_id)
     if late is not None:
         succ_cal = cal_for(succ_id)
-        start_ref, finish_ref = _milestone_refs(late)
+        start_ref = _milestone_refs(late)[0]
         dep, pred_is_milestone, project_finish = link
         return (
             _link_start_ref(
                 start_ref, dep.dep_type, dep.lag, pred_is_milestone, succ_cal, project_finish
             ),
-            finish_ref,
+            _link_finish_ref(late, dep.dep_type, succ_cal, project_finish),
         )
     assert succ.late_start is not None and succ.late_finish is not None
     return succ.late_start, succ.late_finish
@@ -3029,7 +3050,9 @@ def expand_summary_dependencies(
     task list. Dependencies involving summary tasks are fanned out to all
     their leaf descendants, producing a cross-product of edges. Self-referencing
     edges (where predecessor == successor after expansion) are skipped.
-    Duplicate edges are deduplicated.
+    Links that expand onto the same leaf pair are merged by meaning, not list
+    order: same type keeps the largest (most binding) lag; different types
+    raise :class:`InvalidScheduleInput` (#4434).
 
     Args:
         tasks: All tasks including summaries.
@@ -3129,29 +3152,62 @@ def _check_expansion_bound(deps: list[Dependency], leaves: dict[str, list[str]])
 def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -> list[Dependency]:
     """Fan each edge out to the cross product of its endpoints' leaves.
 
-    Self-referencing edges (predecessor == successor after expansion) are skipped and
-    duplicates are collapsed, so two summary edges that expand onto the same leaf pair
-    yield one dependency.
+    Self-referencing edges (predecessor == successor after expansion) are skipped.
+
+    Two source links can expand onto the same leaf pair — ``A -FS-> C`` plus
+    ``S(A, B) -FS+7d-> C`` both yield ``A → C``. The engine graph holds one edge per
+    pair, so the collision must be resolved, and it must be resolved by *meaning*,
+    never by list order (#4434): the API passes DB row order, so "first seen wins"
+    let two recalcs of one project produce different finishes and silently dropped
+    the binding summary link whenever the leaf link happened to come first.
+
+    - **Same dep type:** both constraints read ``succ_X >= pred_Y + lag`` on the same
+      anchors, so the larger lag implies the smaller one. Keep the largest lag — the
+      merged edge is exactly the conjunction of both links.
+    - **Different dep types:** the two constrain different anchors and neither
+      implies the other, so no single edge can represent both. Reject with
+      :class:`InvalidScheduleInput` naming both source links rather than silently
+      dropping one.
+
+    The surviving edge keeps the position of the pair's first occurrence, so the
+    output order is stable for a given input while its *content* is order-independent.
     """
-    seen: set[tuple[str, str]] = set()
-    expanded: list[Dependency] = []
+    chosen: dict[tuple[str, str], tuple[Dependency, Dependency]] = {}
 
     for dep in deps:
         for p in leaves[dep.predecessor_id]:
             for s in leaves[dep.successor_id]:
-                if p == s or (p, s) in seen:
+                if p == s:
                     continue
-                seen.add((p, s))
-                expanded.append(
+                prior = chosen.get((p, s))
+                if prior is not None:
+                    _, prior_source = prior
+                    if prior_source.dep_type != dep.dep_type:
+                        raise InvalidScheduleInput(
+                            f"Dependencies {_describe_link(prior_source)} and "
+                            f"{_describe_link(dep)} both resolve to leaf link {p!r} → "
+                            f"{s!r} with different types ({prior_source.dep_type.value} vs "
+                            f"{dep.dep_type.value}); a task pair can hold only one "
+                            "dependency type. Remove one link or change its type to match."
+                        )
+                    if dep.lag <= prior_source.lag:
+                        continue
+                    # A dict update keeps the key's original insertion position.
+                chosen[(p, s)] = (
                     Dependency(
-                        predecessor_id=p,
-                        successor_id=s,
-                        dep_type=dep.dep_type,
-                        lag=dep.lag,
-                    )
+                        predecessor_id=p, successor_id=s, dep_type=dep.dep_type, lag=dep.lag
+                    ),
+                    dep,
                 )
 
-    return expanded
+    return [edge for edge, _ in chosen.values()]
+
+
+def _describe_link(dep: Dependency) -> str:
+    """Render a source link for an error message, e.g. ``'S' → 'C' (FS, lag 7d)``."""
+    return (
+        f"{dep.predecessor_id!r} → {dep.successor_id!r} ({dep.dep_type.value}, lag {dep.lag.days}d)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4182,6 +4238,13 @@ def _build_working_day_index(start: date, calendar: Calendar, n_working_days: in
     :class:`InvalidScheduleInput` rather than spinning to an ``OverflowError``.
     This is the Monte Carlo counterpart to the snap that guards :func:`schedule`'s
     forward pass — without it the MC path had no calendar-reachability guard.
+
+    ``n_working_days`` counts working days of *this* calendar, so the calendar-day
+    span the index reaches depends on how sparse the calendar is. ``monte_carlo``
+    passes :func:`_mc_index_size`, the most working days any of its calendars has up
+    to :func:`_mc_horizon`'s date bound, so every calendar's index reaches that date
+    (#4429). A working-day count summed over task durations does not: on a denser
+    calendar it ends before a sparse predecessor's work does.
     """
     result: list[date] = []
     if n_working_days <= 0:
@@ -4469,6 +4532,64 @@ def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
     return shifted if shifted > timedelta(0) else timedelta(0)
 
 
+def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task:
+    """Shift an in-progress task's remaining work, holding its elapsed days constant.
+
+    Returns ``task`` with a new ``duration`` and ``percent_complete`` (and, when the
+    shift consumes every remaining day, an ``actual_finish``). Elapsed working days
+    are ``floor(duration * pct / 100)`` — the rule :func:`_effective_duration_days`
+    and Monte Carlo both apply — and work already done cannot be undone by a
+    what-if, so the new duration is ``elapsed + max(0, remaining + delta_days)``.
+
+    The new percentage is placed at the *midpoint* of the band that floors to
+    ``elapsed`` — ``(elapsed + 0.5) / new_duration`` — rather than at its lower
+    edge, so float rounding in ``elapsed / new_duration * 100`` can never truncate
+    one day short. With at least one remaining day that value is strictly below
+    100, so the task stays in progress. The original percentage is kept whenever it
+    already yields the same elapsed count, so a zero delta changes nothing.
+
+    A pull-in that consumes all remaining work cannot be expressed as an in-progress
+    task (the integer rule needs ``pct < 100`` and so always leaves a day), so the
+    task becomes complete. A bare 100% is not enough: the engine lays a completed
+    task out at its full duration *from its actuals or the project start* (ADR-0136),
+    which is a statement about history, not "finished as of now" — it moved the
+    finish *later* on a task whose elapsed days outran its ``actual_start``, or that
+    had none. The completed task is therefore pinned to finish on the working day
+    before the baseline's remaining-work window began: zero remaining days end
+    exactly where they would have started, so successors keep the start they would
+    have had with nothing left to do. ``actual_start`` is kept unless it falls after
+    that finish; when unset, the engine derives it from the finish.
+    """
+    duration_days = task.duration.days
+    pct = min(task.percent_complete or 0.0, 100.0)
+    elapsed = int(duration_days * pct / 100.0)
+    remaining = max(0, duration_days - elapsed + delta_days)
+    new_days = elapsed + remaining
+    if remaining > 0:
+        if int(new_days * pct / 100.0) != elapsed:
+            pct = (elapsed + 0.5) * 100.0 / new_days
+        return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
+
+    # The remaining-work window's start in the unperturbed schedule. Only this task
+    # changes, so nothing upstream of it — its predecessors, the data-date floor —
+    # can move that start. Run once, only on this rare exhausting branch.
+    window_start = next(t for t in schedule(project).tasks if t.id == task.id).early_start
+    assert window_start is not None
+    calendars = _resolve_task_calendars(project)
+    cal = calendars[task.id] if calendars is not None else project.calendar
+    finish = _scan_for_working_day(window_start, cal, forward=False)
+    actual_start = task.actual_start
+    if actual_start is not None and actual_start > finish:
+        actual_start = finish
+    return replace(
+        task,
+        duration=timedelta(days=new_days),
+        percent_complete=100.0,
+        actual_start=actual_start,
+        actual_finish=finish,
+    )
+
+
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
     """Return a copy of ``project`` with one task's duration shifted by ``delta_days``.
 
@@ -4503,6 +4624,18 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
       quantized to whole sprints, which is what a sprint-delivered task's schedule
       genuinely does.
 
+    On an **in-progress** task the offset applies to the *remaining* work only
+    (#4432). The engine reads ``percent_complete`` against ``duration`` to split a
+    task into elapsed and remaining working days (:func:`_effective_duration_days`,
+    and the same integer rule in Monte Carlo's elapsed subtraction), so shifting
+    ``duration`` with ``percent_complete`` held would grow the elapsed share along
+    with it and swallow part of the delta — a +1-day slip on a critical 50%-complete
+    task moved the finish by zero. ``percent_complete`` is therefore rescaled so the
+    elapsed working days stay exactly constant; see :func:`_shift_remaining_work`.
+    The PERT legs need no extra handling: Monte Carlo subtracts that same constant
+    elapsed count from every sampled value, so shifting each leg by ``delta_days``
+    shifts the sampled remaining work by ``delta_days``.
+
     Sampling semantics are untouched: this only changes what the engine is asked
     about, never how it answers.
 
@@ -4511,13 +4644,18 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
             mutated; a new :class:`Project` with a new task list is returned.
         task_id: Id of the task to perturb.
         delta_days: Signed day offset. Positive slips the task later, negative pulls
-            it in. Durations floor at zero, and so do story points — a shift that
+            it in. Durations floor at zero (on an in-progress task, at its elapsed
+            working days, since done work cannot be undone), and so do story
+            points — a shift that
             would zero the remaining points drops the task to its deterministic
             duration, the honest reading of "this work no longer takes a sprint".
 
     Returns:
         A new :class:`Project`, identical to ``project`` except for the target
-        task's shifted duration inputs.
+        task's shifted duration inputs. On an in-progress task that includes a
+        rescaled ``percent_complete``; on a pull-in that consumes all remaining
+        work it also sets ``actual_finish`` and may move ``actual_start`` earlier
+        (see :func:`_shift_remaining_work`).
 
     Raises:
         InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent
@@ -4546,9 +4684,12 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
 
     # ``duration`` is non-optional on Task, so the shift is never None here.
     new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
+    if not _is_complete(target) and target.percent_complete and target.percent_complete > 0:
+        shifted = _shift_remaining_work(project, target, delta_days)
+    else:
+        shifted = replace(target, duration=new_duration)
     perturbed = replace(
-        target,
-        duration=new_duration,
+        shifted,
         optimistic_duration=_shift_duration(target.optimistic_duration, delta_days),
         most_likely_duration=_shift_duration(target.most_likely_duration, delta_days),
         pessimistic_duration=_shift_duration(target.pessimistic_duration, delta_days),
@@ -4560,61 +4701,97 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     )
 
 
-def _mc_index_size(
-    project: Project, task_map: dict[str, Task], g: nx.DiGraph[str], n_tasks: int
-) -> int:
-    """Bound the working-day index length that covers the longest completion offset.
+def _mc_horizon(
+    project: Project,
+    task_map: dict[str, Task],
+    g: nx.DiGraph[str],
+    topo_order: list[str],
+    cal_of: dict[str, Calendar],
+) -> date:
+    """A calendar DATE no task finishes after in any Monte Carlo run.
 
-    The longest possible completion offset is bounded by the sum of the largest
-    per-task durations plus all positive lags, plus whichever of a ``planned_start``
-    pin, the data date, or a recorded actual sits furthest out; pad by the task
-    count and a small buffer. The same index is reused for the offset→date
-    conversion, so it must cover every pinned as well as sampled finish.
+    The bound is a serial walk in topological order over real calendars: a cursor
+    starts at the latest of the project start, every ``planned_start`` pin (SNET,
+    #1068), the data date (ADR-0132) and every recorded actual (#1821), and each task
+    is then laid out on **its own** calendar from the working day after
+    ``cursor + its largest positive incoming lag``, over its longest possible sampled
+    duration (the pessimistic estimate and the velocity sampler's ``max_sprints``
+    clamp, #1067), advancing the cursor to its finish.
+
+    Why it is an upper bound: by induction over the topological order the cursor is
+    at or after every already-walked task's latest possible finish — and so after
+    every anchor a link out of one can take (a start, a finish, or the day before a
+    start, #4145). A task's real start is the latest of its link proposals and its
+    floors; each proposal is at most ``cursor + lag`` and every floor is at most the
+    cursor's opening value, so its start is at most the walk's start and, since
+    laying out a fixed working-day duration is monotone in the start, its finish at
+    most the walk's finish. An FF/SF successor's finish is pinned at most
+    ``cursor + lag`` too, which the walk's finish already clears.
+
+    Why it is a DATE and not a working-day count (#4429): a duration of D working
+    days on a sparse calendar — a four-day week, Monday-only, a 16-week plant
+    shutdown — spans many more than D working days of a denser calendar. The
+    previous bound summed working-day durations and used that one count as the length
+    of *every* calendar's index, so a successor on a denser calendar ran past its
+    index end, where the lookups silently clamped to the last entry and Monte Carlo
+    reported P50/P95 weeks to months before ``schedule()``. Expressed as a date, the
+    bound is re-counted in each calendar's own working days by :func:`_mc_index_size`.
     """
-    dur_upper = 0
-    snet_upper = 0
-    actual_upper = 0
+    cursor = project.start_date
+    if project.status_date is not None:
+        cursor = max(cursor, project.status_date)
     for t in task_map.values():
+        for pinned in (t.planned_start, t.actual_start, t.actual_finish):
+            if pinned is not None:
+                cursor = max(cursor, pinned)
+    for tid in topo_order:
+        t = task_map[tid]
         d_days = t.duration.days
         if t.pessimistic_duration is not None:
             d_days = max(d_days, t.pessimistic_duration.days)
-        # Velocity-sampled scrum durations are bounded by the sampler's
-        # max_sprints clamp, not by duration/pessimistic — without this term a
-        # scrum task's completion offsets ran past the index end and were
-        # silently clamped to its last entry, reporting finish dates months
-        # early (#1067).
-        d_days = max(d_days, _velocity_worst_case_days(t, project))
-        dur_upper += max(0, d_days)
-        # A planned_start pin (SNET, #1068) can push a task past every
-        # duration-derived bound; cover the furthest pin (calendar days are a
-        # safe over-estimate of working-day offsets).
-        if t.planned_start is not None:
-            snet_upper = max(snet_upper, (t.planned_start - project.start_date).days)
-        # Recorded actuals (ADR-0132/0136) pin a completed task's offset pair to a
-        # constant, and an actual far in the *future* (a task that finished long
-        # after its planned duration) is often the project's latest finish. Without
-        # covering it the pin mapped past the index end and was silently clamped to
-        # the last entry, so monte_carlo() reported a finish months before schedule()
-        # on the same completed project (#1821). Cover the furthest future actual
-        # (calendar days over-estimate working-day offsets, as snet/status do). A
-        # pre-start actual is not covered here — the forward index opens at the
-        # project start, or earlier by _mc_pre_start_pad_days when an SF-linked task
-        # exists (#4218); _completed_offsets clamps a date before the index to its
-        # first offset (an anomalous data state: a task completed before the project
-        # began).
-        for actual in (t.actual_start, t.actual_finish):
-            if actual is not None:
-                actual_upper = max(actual_upper, (actual - project.start_date).days)
-    lag_upper = sum(
-        data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
-    )
-    # The data date (ADR-0132) floors remaining/not-started work, so a not-started
-    # task can finish as late as status_date + its duration. Cover the status date
-    # like a planned-start pin (calendar days over-estimate working-day offsets).
-    status_upper = 0
-    if project.status_date is not None:
-        status_upper = max(0, (project.status_date - project.start_date).days)
-    return int(dur_upper + lag_upper + snet_upper + status_upper + actual_upper + n_tasks + 30)
+        d_days = max(0, d_days, _velocity_worst_case_days(t, project))
+        lag_days = max(
+            (g[pred][tid]["dep"].lag.days for pred in g.predecessors(tid)),
+            default=0,
+        )
+        start = _next_working_day(
+            _safe_offset(cursor, timedelta(days=1 + max(0, lag_days))), cal_of[tid]
+        )
+        cursor = max(cursor, _finish_from_start(start, d_days, cal_of[tid]))
+    return cursor
+
+
+def _count_working_days(start: date, end: date, calendar: Calendar) -> int:
+    """Working days of ``calendar`` in the closed range ``[start, end]``."""
+    count = 0
+    day = start
+    while day <= end:
+        if calendar.is_working_day(day):
+            count += 1
+        day = _safe_offset(day, _ONE_DAY)
+    return count
+
+
+def _mc_index_size(
+    horizon: date,
+    index_origin: date,
+    calendars: Iterable[Calendar],
+    n_tasks: int,
+) -> int:
+    """The working-day index length that holds every offset on EVERY calendar.
+
+    Every calendar's index is built with this one length, so it is the largest count
+    of any calendar's own working days in ``[index_origin, horizon]`` — the densest
+    calendar needs the most cells to span the same calendar days — plus the task
+    count and a small buffer. ``horizon`` (:func:`_mc_horizon`) is a calendar date
+    no run finishes after, so each index then spans at least to it in calendar days,
+    whatever its working week (#4429). A working-day count summed across calendars
+    cannot be that bound: D working days on a sparse calendar are far more than D
+    working days of a dense one. ``index_origin`` already includes the pre-start pad
+    (:func:`_mc_pre_start_pad_days`), so the pad needs no separate allowance.
+    """
+    widest = max(_count_working_days(index_origin, horizon, cal) for cal in calendars)
+    return widest + n_tasks + 30
 
 
 # Calendar days of slack added below the earliest pre-start placement the pad bound
@@ -4714,9 +4891,23 @@ def _link_lower_bound(
 def _snapped_offsets(
     wd_ord: np.ndarray, last_off: int, anchor_ords: np.ndarray, shift_days: int
 ) -> np.ndarray:
-    """Vectorised ``_offset_after``: offsets of next_working_day(anchor + shift)."""
-    off = np.searchsorted(wd_ord, anchor_ords + shift_days, side="left")
-    return np.clip(off, 0, last_off).astype(np.float64)
+    """Vectorised ``_offset_after``: offsets of next_working_day(anchor + shift).
+
+    A snap that lands past the index end (``> last_off``) comes back as NaN rather
+    than clamped onto the last cell (#4429). The delta table covers every anchor
+    cell, including tail cells no run can reach, so producing one is not an error;
+    :func:`_build_lag_delta` stores it as :data:`_LAG_DELTA_OVERRUN`, and
+    :func:`_lag_term` refuses a run that actually reads it.
+    """
+    off = np.searchsorted(wd_ord, anchor_ords + shift_days, side="left").astype(np.float64)
+    off[off > last_off] = np.nan
+    return off
+
+
+# Lag-delta cell whose snapped successor offset lies past the successor's index end
+# (#4429). Real cells are bounded by MAX_LAG_DAYS + MAX_CALENDAR_SCAN_DAYS (~73k), so
+# the int32 minimum can never collide with one.
+_LAG_DELTA_OVERRUN = int(np.iinfo(np.int32).min)
 
 
 def _build_lag_delta(
@@ -4793,7 +4984,9 @@ def _build_lag_delta(
     # Every cell is a whole working-day offset difference, bounded by
     # MAX_LAG_DAYS + MAX_CALENDAR_SCAN_DAYS (~73k), so int32 is exact and halves
     # the table's footprint (#4129). The float64 scratch above is one array at a
-    # time; only the int32 copy is retained.
+    # time; only the int32 copy is retained. A cell whose snap ran off the index is
+    # NaN (:func:`_snapped_offsets`) and is stored as the overrun sentinel, in place.
+    np.nan_to_num(arr, copy=False, nan=float(_LAG_DELTA_OVERRUN))
     return arr.astype(np.int32)
 
 
@@ -4884,9 +5077,36 @@ def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
     loop uses the anchor directly, skipping a runs-sized zeros allocation plus a
     no-op add per edge (#1860 — adding zeros is exact in float64, so results are
     unchanged).
+
+    An anchor past the index end is refused, not clamped: clamping it to the last
+    cell is how an undersized index used to masquerade as a date (#4429). So is an
+    anchor whose lagged snap ran off the successor's index (a cell holding
+    :data:`_LAG_DELTA_OVERRUN`).
     """
-    idx = np.clip(np.rint(anchor).astype(np.int64), 0, len(delta_arr) - 1)
-    return np.asarray(delta_arr[idx], dtype=np.float64)
+    idx = np.rint(anchor).astype(np.int64)
+    if idx.size and int(idx.max()) > len(delta_arr) - 1:
+        _raise_mc_index_overrun()
+    picked = delta_arr[np.maximum(idx, 0)]
+    if (picked == _LAG_DELTA_OVERRUN).any():
+        _raise_mc_index_overrun()
+    return np.asarray(picked, dtype=np.float64)
+
+
+def _raise_mc_index_overrun() -> NoReturn:
+    """Refuse a Monte Carlo offset past its working-day index end (#4429).
+
+    The index is sized by :func:`_mc_index_size` to hold every offset a run can
+    reach, so this is unreachable on a correct bound. It exists because the clamp it
+    replaces turned an undersized index into a plausible, silently early finish date.
+    It raises the documented :class:`InvalidScheduleInput` rather than a bare error so
+    an embedder's exception contract still holds, and the message says it is an
+    engine fault rather than a fault in the caller's input.
+    """
+    raise InvalidScheduleInput(
+        "Internal Monte Carlo error: a simulated date ran past the working-day index "
+        "built for it. This is an engine bug, not a problem with the project; please "
+        "report it with the project that triggered it."
+    )
 
 
 def _completed_dates(
@@ -4976,10 +5196,16 @@ def _completed_dates(
 
 
 def _index_offset(d: date, offset_of: dict[date, int], wd_index: list[date]) -> float:
-    """Working-day offset of ``d``, clamped to the index when it falls outside."""
+    """Working-day offset of ``d``, clamped to the index start when it falls before it.
+
+    A date past the index end raises (#4429): clamping it to the last entry reported
+    an undersized index as a plausible, silently early date.
+    """
     off = offset_of.get(d)
     if off is not None:
         return float(off)
+    if d > wd_index[-1]:
+        _raise_mc_index_overrun()
     return 0.0 if d < wd_index[0] else float(len(wd_index) - 1)
 
 
@@ -5160,13 +5386,18 @@ def _mc_es_floors(
     """
 
     def _snap_offset(d: date, tid: str) -> float:
-        """Offset of the next working day on ``tid``'s own calendar, index-clamped."""
+        """Offset of the next working day on ``tid``'s own calendar.
+
+        Clamped to the index start below it; past its end it raises (#4429).
+        """
         cal_key = cal_key_of[tid]
         snapped = _next_working_day(d, cal_of[tid])
         off = offset_of_by_cal[cal_key].get(snapped)
         if off is not None:
             return float(off)
         index = wd_index_by_cal[cal_key]
+        if snapped > index[-1]:
+            _raise_mc_index_overrun()
         return 0.0 if snapped < index[0] else float(len(index) - 1)
 
     es_floor: dict[str, float] = {}
@@ -5316,10 +5547,12 @@ def _mc_verbatim_actuals(
 
 
 def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: float) -> float:
-    """Offset of the next working day at or after ``d``, clamped to ``last``.
+    """Offset of the next working day at or after ``d``.
 
-    The same lookup :func:`_mc_es_floors` floors a task with, so the offsets
-    :func:`_mc_verbatim_actuals` compares against are the ones the forward pass holds.
+    Clamped to the index start below it; past the index end it raises rather than
+    clamping to ``last`` (#4429). The same lookup :func:`_mc_es_floors` floors a task
+    with, so the offsets :func:`_mc_verbatim_actuals` compares against are the ones the
+    forward pass holds.
     """
     snapped = _next_working_day(d, cal)
     off = offset_of.get(snapped)
@@ -5327,6 +5560,8 @@ def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: fl
         return float(off)
     # Below the index only for a pre-start date on an SF-linked task (#4218), which
     # the pad was sized to hold; the index's first day is the safe side to clamp to.
+    if snapped > max(offset_of, default=snapped):
+        _raise_mc_index_overrun()
     return 0.0 if snapped < min(offset_of, default=snapped) else last
 
 
@@ -5419,7 +5654,11 @@ class _McIndex:
     def next_wd_offset(self, col: int, ordinals: np.ndarray) -> np.ndarray:
         """Offset, in ``col``'s space, of the first working day at or after each ordinal."""
         wd = self.wd_ord_of_col[col]
-        return np.clip(np.searchsorted(wd, ordinals, side="left"), 0, len(wd) - 1)
+        off = np.searchsorted(wd, ordinals, side="left")
+        # Past the index end is an undersized index, not a date: refuse it (#4429).
+        if off.size and int(off.max()) > len(wd) - 1:
+            _raise_mc_index_overrun()
+        return off
 
     def prev_wd_ordinal(self, col: int, ordinals: np.ndarray) -> np.ndarray:
         """The last working day at or before each ordinal, on ``col``'s calendar.
@@ -5427,9 +5666,13 @@ class _McIndex:
         The index starts at the project start, but a milestone at the start of the
         project measures SF links, and FF links with no lag or a lead, from the
         working day *before* it (#4273), so a lookup
-        that falls off the front is resolved against the calendar itself.
+        that falls off the front is resolved against the calendar itself. An ordinal
+        past the index end raises (#4429): the index cannot tell whether a working
+        day lies between its last entry and the ordinal, so ``wd[-1]`` would be a guess.
         """
         wd = self.wd_ord_of_col[col]
+        if ordinals.size and int(ordinals.max()) > int(wd[-1]):
+            _raise_mc_index_overrun()
         raw_idx = np.searchsorted(wd, ordinals, side="right") - 1
         out = np.asarray(wd[np.clip(raw_idx, 0, len(wd) - 1)], dtype=np.int64)
         before = raw_idx < 0
@@ -5460,8 +5703,10 @@ class _McIndex:
     def ordinal_at(self, col: int, offsets: np.ndarray) -> np.ndarray:
         """The working day at each (rounded) offset in ``col``'s space."""
         wd = self.wd_ord_of_col[col]
-        idx = np.clip(np.rint(offsets).astype(np.int64), 0, len(wd) - 1)
-        return np.asarray(wd[idx], dtype=np.int64)
+        idx = np.rint(offsets).astype(np.int64)
+        if idx.size and int(idx.max()) > len(wd) - 1:
+            _raise_mc_index_overrun()  # #4429: never clamp past the index end
+        return np.asarray(wd[np.maximum(idx, 0)], dtype=np.int64)
 
 
 def _mc_forward_pass(
@@ -5875,7 +6120,12 @@ def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.nda
     distribution the percentiles interpolate over.
     """
     k = np.rint(ef)
-    ki = np.clip(k.astype(np.int64), 0, len(wd_ord_own))
+    ki = k.astype(np.int64)
+    # An exclusive EF past the index end is an undersized index; refuse it rather
+    # than clamp it onto the last indexed day (#4429).
+    if ki.size and int(ki.max()) > len(wd_ord_own):
+        _raise_mc_index_overrun()
+    ki = np.maximum(ki, 0)
     # Inclusive last working day of the task, mirroring _offset_to_date's key - 1.
     own_ord = wd_ord_own[np.clip(ki - 1, 0, len(wd_ord_own) - 1)]
     # side="right" counts the reference working days at or before that date, which
@@ -5905,7 +6155,9 @@ def _offset_to_date(
 ) -> date:
     """Map a working-day completion offset back to a calendar date.
 
-    Clamps to the final index entry, so an offset at the very edge is safe.
+    An offset past the final index entry raises rather than clamping to it (#4429):
+    the index is sized to hold every reachable offset, and a clamp there reported an
+    undersized index as a plausible, silently early finish date.
 
     ``completed_finish_floor`` is the latest verbatim ``early_finish`` across the
     project's completed tasks, which ``schedule()`` keeps unsnapped even on a
@@ -5922,7 +6174,10 @@ def _offset_to_date(
     """
     # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1 to get the
     # last working day of the task, matching CPM's inclusive EF.
-    idx = max(0, min(round(offset) - 1, len(wd_index) - 1))
+    idx = round(offset) - 1
+    if idx > len(wd_index) - 1:
+        _raise_mc_index_overrun()
+    idx = max(0, idx)
     resolved = wd_index[idx]
     if completed_finish_floor is not None and completed_finish_floor > resolved:
         return completed_finish_floor
@@ -6203,8 +6458,7 @@ def monte_carlo(
     # in each run — matching deterministic CPM, which snaps ``predecessor date +
     # lag`` to the next working day per task rather than against a single
     # reference date (issue #824). The same index is reused for the offset→date
-    # conversion below.
-    index_size = _mc_index_size(project, task_map, g, n_tasks)
+    # conversion below. It is sized further down, once each task's calendar is known.
 
     # Per-task calendars (ADR-0120 D3, #1385): one working-day index per *distinct*
     # calendar, keyed by object identity — Calendar holds a mutable exceptions list
@@ -6225,11 +6479,18 @@ def monte_carlo(
     # task, leaving every index — and so every offset — exactly as before.
     pad_days, sf_linked_ids = _mc_pre_start_pad_days(project, task_map, topo_order, g, cal_of)
     index_origin = _safe_offset(project.start_date, timedelta(days=-pad_days))
-    # The pad's calendar days hold at most as many working days, so adding them to
-    # the forward bound is enough.
-    index_size += pad_days
-    # Each index is sized by the same project-wide bound, so every calendar's index
-    # spans at least as many calendar days as the offsets ever reach.
+    # Every index has the same length: the most working days ANY calendar has between
+    # the index origin and a calendar date no run finishes after (#4429). The bound is
+    # a date, not a working-day count, because working days are not comparable across
+    # calendars — D days on a four-day week span more than D days of a five-day one,
+    # so a count summed over task durations undersized every denser calendar's index.
+    # Sized by its densest calendar, each index therefore reaches that date.
+    index_size = _mc_index_size(
+        _mc_horizon(project, task_map, g, topo_order, cal_of),
+        index_origin,
+        distinct_cals.values(),
+        n_tasks,
+    )
     wd_index_by_cal = {
         key: _build_working_day_index(index_origin, cal, index_size)
         for key, cal in distinct_cals.items()

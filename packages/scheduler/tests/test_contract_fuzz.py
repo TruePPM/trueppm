@@ -57,6 +57,7 @@ from trueppm_scheduler import (
     Project,
     SchedulerError,
     Task,
+    engine,
     expand_summary_dependencies,
     find_cycle,
     monte_carlo,
@@ -565,6 +566,155 @@ def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
             f"{cpm.project_finish} — the simulation sampled a window schedule() rejected"
         )
     assert mc.p50 <= mc.p80 <= mc.p95, "percentiles must be monotonically non-decreasing"
+
+
+#: Per-task calendars the zero-variance property draws from (#4429). Each is sparser
+#: than the five-day project week in a different way — fewer working weekdays, one
+#: working weekday, a long closure — plus a denser seven-day week, because the
+#: defect lived in working-day counts that are not comparable across calendars.
+_ZERO_VAR_CAL_IDS = ["fourday", "mondays", "plant", "seven"]
+
+
+@st.composite
+def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
+    """A project with no three-point estimate whose tasks sit on mixed calendars.
+
+    Zero variance by construction: no ``optimistic/most_likely/pessimistic`` triple
+    and no scrum velocity, so every Monte Carlo run samples ``Task.duration`` and
+    must reproduce ``schedule()`` exactly. Durations reach a few hundred working
+    days — on the Monday-only calendar that is years — every link type and lag sign
+    is drawn, and an ``actual_start`` is drawn on both sides of the project start (a
+    pre-start actual is an anomalous but accepted data state). An ``actual_finish``
+    that reads before the project start on the task's own calendar is not drawn
+    until #4430 is fixed.
+    """
+    start = _PLAUSIBLE_ANCHOR
+    shutdown_from = draw(st.dates(min_value=start, max_value=start + timedelta(days=200)))
+    shutdown_days = draw(st.integers(min_value=1, max_value=200))
+    calendars = {
+        "fourday": Calendar(working_days=0b0001111),  # Mon-Thu
+        "mondays": Calendar(working_days=0b0000001),  # Monday only
+        "plant": Calendar(
+            exceptions=[DateRange(shutdown_from, shutdown_from + timedelta(days=shutdown_days - 1))]
+        ),
+        "seven": Calendar(working_days=0b1111111),
+    }
+    project_cal = Calendar(working_days=0b0011111)
+    actual_dates = st.dates(
+        min_value=start - timedelta(days=120), max_value=start + timedelta(days=400)
+    )
+    n = draw(st.integers(min_value=1, max_value=6))
+    ids = [f"t{i}" for i in range(n)]
+    tasks = []
+    for tid in ids:
+        calendar_id = draw(st.none() | st.sampled_from(_ZERO_VAR_CAL_IDS))
+        own_cal = project_cal if calendar_id is None else calendars[calendar_id]
+        actual_start = draw(st.none() | actual_dates)
+        actual_finish = None
+        if actual_start is not None:
+            actual_finish = draw(
+                st.none() | st.dates(min_value=actual_start, max_value=start + timedelta(days=500))
+            )
+            # TODO(#4430): drop this carve-out. A completed task whose finish reads
+            # before the project start — its actual_finish, or the working day before
+            # it on its OWN calendar when the finish itself is a non-working day —
+            # still clamps to the index's first offset and reads as the project
+            # start: a separate open defect, so it is not drawn here.
+            if (
+                actual_finish is not None
+                and engine._prev_working_day(actual_finish, own_cal) < start
+            ):
+                actual_finish = None
+        tasks.append(
+            Task(
+                id=tid,
+                name="t",
+                duration=timedelta(days=draw(st.integers(min_value=0, max_value=300))),
+                calendar_id=calendar_id,
+                actual_start=actual_start,
+                actual_finish=actual_finish,
+                planned_start=draw(st.none() | _plausible_date),
+            )
+        )
+    pairs = [(ids[i], ids[j]) for i in range(n) for j in range(i + 1, n)]
+    chosen = draw(st.lists(st.sampled_from(pairs), max_size=6, unique=True)) if pairs else []
+    deps = [
+        Dependency(
+            predecessor_id=u,
+            successor_id=v,
+            dep_type=draw(st.sampled_from(list(DependencyType))),
+            lag=timedelta(days=draw(st.integers(min_value=-5, max_value=30))),
+        )
+        for u, v in chosen
+    ]
+    return Project(
+        id="p",
+        name="p",
+        start_date=start,
+        tasks=tasks,
+        dependencies=deps,
+        calendar=project_cal,
+        calendars=calendars,
+        status_date=draw(_opt_plausible_date),
+    )
+
+
+def _sparse_feeds_dense(sparse: Calendar, days: int) -> Project:
+    """``A`` on a sparse per-task calendar feeding ``B`` on the five-day project week."""
+    return Project(
+        id="p",
+        name="p",
+        start_date=_PLAUSIBLE_ANCHOR,
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=days), calendar_id="sparse"),
+            Task(id="B", name="B", duration=timedelta(days=30)),
+        ],
+        dependencies=[Dependency("A", "B")],
+        calendar=Calendar(working_days=0b0011111),
+        calendars={"sparse": sparse},
+    )
+
+
+@example(project=_sparse_feeds_dense(Calendar(working_days=0b0000001), 40))  # #4429 Monday-only
+@example(project=_sparse_feeds_dense(Calendar(working_days=0b0001111), 180))  # #4429 Mon-Thu
+@example(
+    project=_sparse_feeds_dense(  # #4429 plant calendar with a 16-week shutdown
+        Calendar(exceptions=[DateRange(date(2026, 3, 9), date(2026, 6, 26))]), 20
+    )
+)
+@given(project=_per_task_calendar_projects())
+def test_monte_carlo_zero_variance_equals_cpm_under_per_task_calendars(project: Project) -> None:
+    """With no estimates, P50 == P80 == P95 == ``schedule().project_finish`` (#4429).
+
+    Two-sided, unlike :func:`test_monte_carlo_never_precedes_cpm`: with zero
+    variance there is no risk premium, so a later percentile is as wrong as an
+    earlier one, and the equality holds on FF/SF networks too (no duration varies,
+    so the non-monotonicity that scopes that test does not arise).
+
+    #4429 survived because nothing drew per-task calendars. ``monte_carlo()`` sized
+    every calendar's working-day index by one sum of working-day durations, but D
+    working days on a sparse calendar (four-day week, Monday-only, a long shutdown)
+    span far more than D working days of a denser one. A successor on the denser
+    calendar ran past its index end, the lookup silently clamped to the last cell,
+    and the forecast came back weeks to months before the deterministic finish.
+
+    If ``schedule()`` accepts the project, ``monte_carlo()`` must too: the overrun
+    backstop raises ``InvalidScheduleInput``, which a blanket ``except
+    SchedulerError`` would read as "no comparable pair" and so hide.
+    """
+    try:
+        with _time_limit(HANG_SECONDS):
+            cpm = schedule(project)
+    except SchedulerError:
+        return
+    except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
+        raise AssertionError(f"schedule: HANG — {exc}") from exc
+    with _time_limit(HANG_SECONDS):
+        mc = monte_carlo(project, runs=8, seed=3, max_runs=None, max_tasks=None)
+    assert mc.p50 == mc.p80 == mc.p95 == cpm.project_finish, (
+        f"zero-variance Monte Carlo P50/P80/P95 {mc.p50}/{mc.p80}/{mc.p95} != "
+        f"schedule() finish {cpm.project_finish}"
+    )
 
 
 #: Two shapes that must be tried on every run, not left to the search (#3963).

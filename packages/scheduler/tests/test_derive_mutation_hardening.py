@@ -242,27 +242,32 @@ def test_milestone_total_float_is_measured_between_instants() -> None:
 
 
 def test_a_milestone_successors_sf_reference_is_the_raw_day_its_instant_closes() -> None:
-    # M runs on a Mon-Thu calendar and its late instant is Saturday midnight. An
-    # SF link into M proposes a raw instant (#4272), so the finish reference A's
-    # late start inverts against is the day that instant closes — Friday — not the
-    # last working day before it on M's calendar (Thursday). Snapping it to
-    # Thursday, as the engine did before #4272, cited A's late start a day early.
+    # M runs on a Mon-Thu calendar and its late instant is Saturday midnight 01-10,
+    # held there by ``M -FS+2-> B``. An SF link into M proposes a raw instant
+    # (#4272), so the finish reference A's late start inverts against is the day
+    # that instant closes — Friday — not the last working day before it on M's
+    # calendar (Thursday). Snapping it to Thursday, as the engine did before #4272,
+    # cited A's late start a day early.
+    #
+    # The instant sits a week before the Friday 01-16 finish, so the end-of-day
+    # read cap (#4344, #4431) cannot bind: at the finish it would legitimately move
+    # the reference back to Thursday and hide the #4272 snap behind it.
     project = _project(
-        [_task("A", 1, calendar_id="four"), _task("M", 0, calendar_id="four"), _task("L", 5)],
-        [_dep("A", "M", DependencyType.SF, 4)],
+        [_task("A", 1, calendar_id="four"), _task("M", 0, calendar_id="four"), _task("B", 5)],
+        [_dep("A", "M", DependencyType.SF, 4), _dep("M", "B", DependencyType.FS, 2)],
         calendars={"four": FOUR},
     )
     assert _rows(project, "A", Quantity.LATE_START) == (
         "2026-01-06",
         [
-            ("project_finish", None, "2026-01-08", None, False),
+            ("project_finish", None, "2026-01-15", None, False),
             ("successor_sf", "M", "2026-01-06", None, True),
         ],
     )
     assert _rows(project, "A", Quantity.LATE_FINISH) == (
         "2026-01-06",
         [
-            ("project_finish", None, "2026-01-08", None, False),
+            ("project_finish", None, "2026-01-15", None, False),
             ("successor_sf", "M", "2026-01-06", None, False),
             ("duration_from_late_start", "M", "2026-01-06", 1, True),
         ],
