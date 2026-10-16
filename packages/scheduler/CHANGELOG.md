@@ -18,6 +18,18 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **`monte_carlo()` no longer reports P50/P80/P95 before `schedule()` under
+  per-task calendars (#4429).** A task on a calendar sparser than its successor's
+  (a four-day week, Monday-only, a long shutdown exception) spans more than its
+  duration in working days of the denser calendar, but every calendar's
+  working-day index was sized by one sum of working-day durations. The successor
+  ran past its index end and was silently clamped to the last indexed date, so
+  even a zero-variance simulation forecast a finish days to months early. The
+  index is now sized from a calendar-date bound (a serial walk over each task's
+  own calendar). Every Monte Carlo index lookup that used to clamp a
+  past-the-end offset or date onto the last indexed day — lag deltas, ES floors,
+  verbatim actuals, milestone lookups, the multi-calendar reference ruler and the
+  finish read-out — now raises `InvalidScheduleInput` instead.
 - **`expand_summary_dependencies` no longer depends on dependency list order
   (#4434).** When two links expanded onto the same leaf pair — `A → C` plus
   `S(A, B) → C` with a 7-day lag — the first one listed was kept and the other
