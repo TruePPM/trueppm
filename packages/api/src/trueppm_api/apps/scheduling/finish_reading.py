@@ -42,9 +42,6 @@ Finish = tuple[date, bool | None]
 FINISH_READING_FIELDS: tuple[str, ...] = (
     "is_milestone",
     "milestone_at_day_end",
-    "actual_start",
-    "actual_finish",
-    "percent_complete",
 )
 
 
@@ -52,15 +49,22 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     """Whether a task's ``early_finish`` is the *start* of that day.
 
     Mirrors the engine's own rule (``trueppm_scheduler.engine._finish_instant``):
-    only a network-placed milestone the engine did not put at the end of its day
-    (``milestone_at_day_end`` False) ends at the start of its day. Work always ends
-    at the end of its finish day, and so does a milestone pinned by recorded
-    actuals — the engine lays it out as ordinary work and resets
-    ``milestone_at_day_end`` to False, so the flag alone would misread it. Pinned
-    by actuals means complete (``actual_finish`` set, or ``percent_complete`` at
-    100) with an actual date to anchor on. A completed milestone with no actuals is
-    pinned too (``_pinned_placement``) but stays an instant at the start of its day
-    (#4343), so it reads like a live milestone.
+    a milestone the engine did not put at the end of its day
+    (``milestone_at_day_end`` False) ends at the start of its day, and work always
+    ends at the end of its finish day. That holds for a completed milestone too,
+    and the flag alone decides it: the engine pins it (``_pinned_placement``) but
+    keeps it an instant — with no actuals at the start of its pinned day (#4343);
+    with actuals on its recorded day, at the edge of that day it had live (#4433),
+    so the end of the day when work finishing that day placed it, the start when
+    nothing precedes it or a floor (data date, SNET) held it.
+    (Before #4433 the engine never flagged a milestone pinned by actuals, and this
+    function derived an end-of-day reading from its actuals instead.)
+
+    This is the engine's *forecast* reading. The schedule-variance metrics read a
+    recorded ``actual_finish`` as the end of its day on purpose — a variance
+    convention shared by ``ProjectTaskSerializer.get_schedule_variance_days``,
+    ``program_rollup._schedule_variance_by_project`` and the sprint-close
+    milestone slip — and do not call this function for it.
 
     ``milestone_at_day_end`` overrides the task's own flag, for reading a finish
     the task held before a recalculation overwrote it.
@@ -74,13 +78,7 @@ def task_finish_at_day_start(task: Any, *, milestone_at_day_end: bool | None = N
     is_milestone = getattr(task, "is_milestone", None)
     if is_milestone is None:
         is_milestone = getattr(task, "duration", None) == timedelta(0)
-    if not is_milestone or milestone_at_day_end:
-        return False
-    actual_finish = getattr(task, "actual_finish", None)
-    actual_start = getattr(task, "actual_start", None)
-    complete = actual_finish is not None or (getattr(task, "percent_complete", 0) or 0) >= 100
-    pinned = complete and (actual_finish is not None or actual_start is not None)
-    return not pinned
+    return bool(is_milestone) and not milestone_at_day_end
 
 
 def values_finish_at_day_start(row: Mapping[str, Any]) -> bool | None:

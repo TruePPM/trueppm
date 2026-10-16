@@ -215,10 +215,14 @@ def _add_task_dates(task_el: ET.Element, task: Any, day_end_time: str = "00:00:0
         _sub_text(task_el, "ConstraintDate", _format_date(task.planned_start))
     else:
         _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_AS_SOON_AS_POSSIBLE))
+    # A milestone closed after work keeps its end-of-day edge (#4433), and MS
+    # Project reads a 100%-complete task's Finish from its ActualFinish: the
+    # actuals carry the same time of day as Start/Finish, or the re-imported
+    # milestone sits at the start of its day and its successors land a day early.
     if task.actual_start:
-        _sub_text(task_el, "ActualStart", _format_date(task.actual_start))
+        _sub_text(task_el, "ActualStart", _format_date(task.actual_start, time_of_day))
     if task.actual_finish:
-        _sub_text(task_el, "ActualFinish", _format_date(task.actual_finish))
+        _sub_text(task_el, "ActualFinish", _format_date(task.actual_finish, time_of_day))
 
 
 def _add_task_element(

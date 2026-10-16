@@ -717,7 +717,13 @@ class TestMilestoneAtDayEnd:
         assert by_id["M1"].milestone_at_day_end is True
         assert by_id["M2"].milestone_at_day_end is True
 
-    def test_work_and_pinned_milestones_are_never_flagged(self) -> None:
+    def test_work_is_never_flagged_and_a_closed_milestone_keeps_its_live_edge(self) -> None:
+        """A milestone closed with actuals keeps the edge it had live (#4433).
+
+        ``A -FS-> M``: live, M sits at the end of A's finish day, and closing it on
+        that day keeps it there — so it is flagged, as the live one is. Before
+        #4433 a milestone pinned by actuals was never flagged and the API derived
+        its end-of-day reading from the actuals itself."""
         done = Task(
             id="M",
             name="M",
@@ -726,8 +732,11 @@ class TestMilestoneAtDayEnd:
             actual_finish=date(2026, 1, 9),
             percent_complete=100.0,
         )
+        live = _by_id(_project([_task("A", 5), _task("M", 0), _task("B", 1)], [_dep("A", "M")]))
         by_id = _by_id(_project([_task("A", 5), done, _task("B", 1)], [_dep("A", "M")]))
-        assert not any(t.milestone_at_day_end for t in by_id.values())
+        assert live["M"].milestone_at_day_end is True
+        assert by_id["M"].milestone_at_day_end is True
+        assert not by_id["A"].milestone_at_day_end and not by_id["B"].milestone_at_day_end
 
     def test_a_stale_input_value_is_overwritten(self) -> None:
         stale = Task(id="M", name="M", duration=timedelta(0), milestone_at_day_end=True)

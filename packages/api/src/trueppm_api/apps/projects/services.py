@@ -1904,7 +1904,14 @@ def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
     # Measured in working time (#4197): a milestone baselined at the end of a
     # Friday and now forecast at the start of the next Monday has not slipped. An
     # actual finish is a recorded day, read as its end; a forecast carries the
-    # engine's edge of the day.
+    # engine's edge of the day. The end-of-day reading of an actual is the
+    # schedule-variance convention get_schedule_variance_days and
+    # program_rollup._schedule_variance_by_project share, so it stays even though
+    # the engine keeps a closed milestone at the edge of its actual_finish day it
+    # had live (#4433) — the start of the day when a floor or nothing placed it —
+    # and changing it here alone would make this slip disagree with those two. The
+    # cost is accepted and tracked in #4460: a milestone with a start-of-day edge
+    # hit exactly on its baselined day reads one working day late in this family.
     base = (baseline_finish, baseline_row[1])
     forecast = (
         forecast_finish,

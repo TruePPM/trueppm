@@ -1,0 +1,47 @@
+{
+  "id": "p-progress-completed-actuals-milestone-instant",
+  "name": "Completed milestones with recorded actuals keep the edge of the recorded day they had live: start of day when no work predecessor or when a floor (data date, SNET) held it, end of day when work finishing that day placed it (#4433)",
+  "start_date": "2027-03-01",
+  "status_date": "2027-03-03",
+  "tasks": [
+    {"id": "M", "name": "Milestone, actual_start = actual_finish = data date", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2027-03-03", "actual_finish": "2027-03-03"},
+    {"id": "B", "name": "Live successor of M", "duration": 172800.0},
+    {"id": "C", "name": "Live successor of B", "duration": 259200.0},
+    {"id": "N", "name": "Milestone, actual_finish only", "duration": 0.0, "percent_complete": 100.0, "actual_finish": "2027-03-03"},
+    {"id": "D", "name": "Live successor of N", "duration": 172800.0},
+    {"id": "S", "name": "Milestone, actual_finish before a later SNET: the actual wins", "duration": 0.0, "percent_complete": 100.0, "planned_start": "2027-03-08", "actual_finish": "2027-03-03"},
+    {"id": "E", "name": "Live successor of S", "duration": 86400.0},
+    {"id": "R", "name": "Milestone, 100% with actual_start only: the actual_start day", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2027-03-04"},
+    {"id": "F", "name": "Live successor of R", "duration": 86400.0},
+    {"id": "U", "name": "Milestone, actual_start before actual_finish: the actual_finish day wins", "duration": 0.0, "percent_complete": 100.0, "actual_start": "2027-03-01", "actual_finish": "2027-03-04"},
+    {"id": "G", "name": "Live successor of U", "duration": 86400.0},
+    {"id": "W", "name": "Completed work, Mon..Wed", "duration": 259200.0, "percent_complete": 100.0, "actual_start": "2027-03-01", "actual_finish": "2027-03-03"},
+    {"id": "Q", "name": "Milestone after work, closed the day the work finished: keeps its live end-of-day edge", "duration": 0.0, "percent_complete": 100.0, "actual_finish": "2027-03-03"},
+    {"id": "H", "name": "Live successor of Q: starts the day after, not the same day", "duration": 86400.0},
+    {"id": "X", "name": "Completed work, Monday only", "duration": 86400.0, "percent_complete": 100.0, "actual_start": "2027-03-01", "actual_finish": "2027-03-01"},
+    {"id": "Y", "name": "Milestone after X, signed off on the data date: the data-date floor held it at the start of Wednesday live, and it stays there", "duration": 0.0, "percent_complete": 100.0, "actual_finish": "2027-03-03"},
+    {"id": "Z", "name": "Live successor of Y: starts Wednesday", "duration": 86400.0},
+    {"id": "K", "name": "Milestone after X, SNET Thursday, closed Thursday: the SNET held it at the start of Thursday live", "duration": 0.0, "percent_complete": 100.0, "planned_start": "2027-03-04", "actual_finish": "2027-03-04"},
+    {"id": "L", "name": "Live successor of K: starts Thursday", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "N", "successor_id": "D", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "S", "successor_id": "E", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "R", "successor_id": "F", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "U", "successor_id": "G", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "W", "successor_id": "Q", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "Q", "successor_id": "H", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "X", "successor_id": "Y", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "Y", "successor_id": "Z", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "X", "successor_id": "K", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "K", "successor_id": "L", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

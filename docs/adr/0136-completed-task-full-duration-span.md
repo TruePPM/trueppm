@@ -130,9 +130,25 @@ Rules:
   at the **start** of its pinned day, exactly what a live milestone with no links gets,
   so an FS successor starts that same day and nothing downstream moves relative to the
   live case (#4343). Its `planned_start` binds the instant its successors measure from;
-  the project start only bounds where it is shown (#4225). A milestone pinned by
-  **recorded actuals** is unchanged: it is laid out as ordinary work, ending at the end
-  of its day.
+  the project start only bounds where it is shown (#4225).
+- **A completed milestone with recorded actuals stays an instant too, and keeps its live
+  edge (#4433).** The instant is on its `actual_finish` day, else its `actual_start`
+  day, and it is both shown and linked from — actuals are truth, so a `planned_start`
+  no longer binds. Which edge of that day it sits on is the edge it had live: its
+  predecessor links compete with the recorded day as a start-of-day floor, exactly as
+  the data date or an SNET would have, so it sits at the **end** of the day
+  (`milestone_at_day_end` True) only when work finishing that day (or later) placed
+  it, and at the **start** when no work precedes it or a floor held it. Closing a
+  milestone on the day it was forecast therefore moves nothing downstream. (Decided
+  2026-10-16, "preserve the live edge": an earlier draft put every closed milestone
+  at the start of its day, which pulled a successor of a milestone that follows work
+  into the day that work was still finishing; a later one read the edge off the links
+  alone, which put a milestone held by the data date or an SNET at the end of its day
+  and slipped its successors again.) (Superseded rule, before #4433: "A milestone pinned by recorded actuals is
+  unchanged: it is laid out as ordinary work, ending at the end of its day." Because
+  `COMPLETE` stamps `actual_finish`, that rule made closing a milestone slip every FS
+  successor, and the project finish, a working day later than the same milestone live
+  or completed without actuals.)
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

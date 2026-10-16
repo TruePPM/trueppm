@@ -99,8 +99,14 @@ links, or a lead, the same way is **unverified** (#4319). :func:`monte_carlo` wi
 its working-day index backwards to hold the same placements
 (:func:`_mc_pre_start_pad_days`).
 
-Tasks pinned out of network logic by recorded actuals (ADR-0136) keep their
-recorded dates and are treated as ordinary work by their successors. ``monte_carlo``
+Completed tasks are pinned out of network logic (ADR-0136) and keep their recorded
+dates. A pinned task with work is ordinary work to its successors; a pinned
+zero-duration task stays a milestone, an instant. With no actuals it sits at the
+start of its pinned day (#4343). With actuals it sits on its ``actual_finish`` (else
+``actual_start``) day, at the edge of that day it had live (#4433): the end only when
+work finishing that day placed it, the start when nothing precedes it or a floor
+(data date, SNET) held it — so closing a milestone on the day it was forecast moves
+none of its successors. ``monte_carlo``
 carries each run's milestone instant as a date (:func:`_mc_milestone_bounds`), and
 the Rust/WASM engine mirrors the rule (``packages/wasm-scheduler/src/forward.rs``).
 """
@@ -1865,9 +1871,10 @@ def _forward_pass(
     (#4079, see the module docstring). Returns ``{task_id: (instant,
     start_display)}`` for each of them (:data:`_Instant`), which the backward pass,
     float computation and Monte Carlo's completed-task constraints read to invert
-    and extend the same rule. A task pinned by recorded actuals is absent: it is
-    ordinary work to its successors. A completed milestone with *no* actuals is
-    present: it stays an instant at its pinned day (:func:`_pinned_milestone_instant`).
+    and extend the same rule. A completed task with work is absent: it is ordinary
+    work to its successors. A completed milestone is present, with or without
+    actuals: it stays an instant (:func:`_pinned_milestone_instant`, #4343), on the
+    edge of its day it had live when actuals are recorded (#4433).
 
     ``link_instants``, when given, is filled with the instant each of those
     milestones' successors measure from (:func:`_place_milestone`'s ``link``). It
@@ -1889,17 +1896,24 @@ def _forward_pass(
         # calendar). With no per-task calendars this is always ``calendar``.
         cal = calendar if task_calendars is None else task_calendars.get(node_id, calendar)
         start_base, start, data_floor = _calendar_floors(cal, project_start, status_date, floors)
-        # Only a network-placed milestone can sit at the end of its day (#4079);
+        # Only a milestone can sit at the end of its day (#4079, #4433);
         # reset first so an input carrying a previous run's value cannot leak.
         task.milestone_at_day_end = False
 
         pinned = _pinned_placement(task, cal, start_base)
         if pinned is not None:
             task.early_start, task.early_finish = pinned
-            if task.duration.days == 0 and task.actual_start is None and task.actual_finish is None:
-                # A completed milestone with no actuals stays an instant (#4343):
-                # exactly what _place_milestone gives a milestone with no links.
-                instants[node_id], links[node_id] = _pinned_milestone_instant(task, cal, pinned[0])
+            if task.duration.days == 0:
+                # A completed milestone stays an instant (#4343, #4433), on the
+                # edge of its day it would have been read at live.
+                recorded = task.actual_finish or task.actual_start
+                live_start = recorded is None or _live_milestone_edge(
+                    node_id, task_map, g, cal, links, cal_for, recorded
+                )
+                instants[node_id], links[node_id] = _pinned_milestone_instant(
+                    task, cal, pinned[0], live_start
+                )
+                task.milestone_at_day_end = not instants[node_id][1]
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 
@@ -2160,19 +2174,72 @@ def _pinned_placement(task: Task, cal: Calendar, start_base: date) -> tuple[date
     return start, _finish_from_start(start, full_days, cal)
 
 
-def _pinned_milestone_instant(task: Task, cal: Calendar, day: date) -> tuple[_Instant, _Instant]:
-    """``(shown, link)`` for a completed milestone with no actuals, pinned on ``day`` (#4343).
+def _live_milestone_edge(
+    node_id: str,
+    task_map: dict[str, Task],
+    g: nx.DiGraph[str],
+    cal: Calendar,
+    links: dict[str, _Instant],
+    cal_for: Callable[[str], Calendar],
+    recorded: date,
+) -> bool:
+    """Whether a closed milestone sits at the *start* of its recorded day (#4433).
+
+    The edge of the day a live milestone sits on is set by whatever places it: a
+    floor (project start, data date, SNET) proposes the start of its day, an FS
+    link from work the end of the work's finish day (:func:`_place_milestone`).
+    Closing it records *when* it happened, not a different kind of instant, so it
+    keeps that edge — "preserve the live edge".
+
+    The recorded day is offered as a start-of-day floor alongside the links, which
+    is what a data-date or SNET floor that placed the milestone live amounts to
+    once the actuals supply the date: the end of the day wins only when an FS
+    proposal from work reaches past the start of the recorded day — the work
+    finished that day (or later). Asking the links alone read every milestone
+    with an FS predecessor as end-of-day, so one whose work finished days before
+    it was signed off, or held by a later SNET, slipped its successors a working
+    day when it was closed — the #4433 bug again. With no predecessor nothing but
+    a floor can place it: the start of its day.
+    """
+    if not any(True for _ in g.predecessors(node_id)):
+        return True
+    shown, _, _ = _place_milestone(node_id, task_map, g, cal, [recorded], links, cal_for)
+    return shown[1]
+
+
+def _pinned_milestone_instant(
+    task: Task, cal: Calendar, day: date, live_start: bool = True
+) -> tuple[_Instant, _Instant]:
+    """``(shown, link)`` for a completed milestone pinned on ``day`` (#4343, #4433).
 
     Pinning takes the milestone out of the network, but not out of being a
-    milestone: it is an instant at the start of ``day``, as a live milestone with
-    no links is, so a successor reads it at that midnight rather than at the end
-    of the day. Dropping it to ordinary work moved every FS successor a working
-    day later than the identical live milestone does. The pair is what
+    milestone. With no actuals it is an instant at the start of its pinned day,
+    as a live milestone with no links is (#4343); the pair is what
     :func:`_place_milestone` returns with no predecessors: the SNET is a fact
     about when the milestone happens and binds ``link``; the project start only
     bounds where it is shown (#4225), so ``link`` falls back to it only when no
     SNET is set.
+
+    With actuals recorded — the API's normal path, since ``COMPLETE`` stamps
+    ``actual_finish`` — the day is the recorded one (``actual_finish``, else
+    ``actual_start``), shown and linked from alike, and the edge of that day is
+    the one the milestone had live (``live_start``, :func:`_live_milestone_edge`).
+    A milestone that nothing precedes, or that a floor held, stays at the start of
+    its day: laying it out as ordinary work, ending at the end of the day, slipped
+    every FS successor a working day the moment the milestone was closed (#4433).
+    One placed by work finishing that day stays at the end of it, so closing it
+    then does not pull its successors into the day the work was still finishing.
     """
+    recorded = task.actual_finish if task.actual_finish is not None else task.actual_start
+    if recorded is not None:
+        if live_start:
+            actual: _Instant = (recorded, True)
+        else:
+            # The end of the recorded day is the next midnight, read the way an FS
+            # proposal from work is (_start_reading: a weekend actual snaps forward).
+            raw = _safe_offset(recorded, _ONE_DAY)
+            actual = (raw, _start_reading(raw, False, cal))
+        return actual, actual
     shown: _Instant = (day, True)
     if task.planned_start is None:
         return shown, shown
@@ -5065,10 +5132,15 @@ def _completed_dates(
     than its deterministic position and the percentiles under-reported risk.
 
     Every completed task is pinned out of the network (:func:`_pinned_placement`,
-    #4343), including one with no actuals, so each date read here is a function of the
-    task's own fields and the project start alone — never of a predecessor's sampled
-    duration. That is what makes the pin a true constant across runs, the property the
-    Monte Carlo fast path relies on: no run can move a completed task. (Before #4343
+    #4343), including one with no actuals, so each *date* read here is a function of
+    the task's own fields and the project start alone. A closed milestone's *instant*
+    is not quite: which edge of its recorded day it sits on is read off its
+    predecessors' positions in this one deterministic pass (#4433,
+    :func:`_live_milestone_edge` — an FS or SS predecessor that lands later can flip
+    it). It is read once, here, and frozen; no run re-derives it from a sampled
+    predecessor duration. That is what makes the pin a true constant across runs,
+    the property the Monte Carlo fast path relies on: no run can move a completed
+    task. (Before #4343
     the no-actuals task was placed through the network in ``schedule()``, so pinning it
     at its deterministic position here froze a position that in fact depended on its
     predecessors' durations, and the percentiles under-reported risk downstream of it.)

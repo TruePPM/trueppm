@@ -421,6 +421,73 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
       expect(byId('B').earlyFinish).toBe('2026-01-07');
     });
 
+    it('keeps a milestone completed WITH actuals and no work predecessor at the start of its day', () => {
+      // #4433. COMPLETE stamps `actual_finish`; a closed milestone with no work
+      // predecessor stays an instant at the START of that day server-side
+      // (milestoneAtDayEnd false), so B starts on M's day, not the day after.
+      // Before, the preview read M as ordinary work and put B a working day
+      // later than the server would on commit.
+      const m = {
+        ...task('M', '2026-01-05', '2026-01-05', {
+          isMilestone: true,
+          isComplete: true,
+          durationDays: 0,
+          actualFinish: '2026-01-05',
+        }),
+        milestoneAtDayEnd: false,
+      };
+      const tasks: CpmTask[] = [
+        task('P', '2026-01-05', '2026-01-09'),
+        m,
+        task('B', '2026-01-05', '2026-01-07'),
+      ];
+      const edges: CpmEdge[] = [edge('M', 'B', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-03-02');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('M').earlyStart).toBe('2026-01-05');
+      expect(byId('M').deltaDays).toBe(0);
+      expect(byId('B').earlyStart).toBe('2026-01-05');
+      expect(byId('B').earlyFinish).toBe('2026-01-07');
+      expect(byId('B').deltaDays).toBe(0);
+    });
+
+    it('keeps a milestone completed WITH actuals after work at the end of its day', () => {
+      // #4433, "preserve the live edge": P -> M -> B with M closed on P's finish
+      // day. The server keeps M at the END of that day, as it was live
+      // (milestoneAtDayEnd true), so B starts the next working day — not on M's
+      // own day, which would start B while P was still finishing.
+      const m = {
+        ...task('M', '2026-01-09', '2026-01-09', {
+          isMilestone: true,
+          isComplete: true,
+          durationDays: 0,
+          actualFinish: '2026-01-09',
+        }),
+        milestoneAtDayEnd: true,
+      };
+      const tasks: CpmTask[] = [
+        task('P', '2026-01-05', '2026-01-09', {
+          isComplete: true,
+          actualStart: '2026-01-05',
+          actualFinish: '2026-01-09',
+        }),
+        m,
+        task('B', '2026-01-12', '2026-01-13'),
+        task('X', '2026-01-05', '2026-01-05'),
+      ];
+      const edges: CpmEdge[] = [edge('P', 'M', 'FS'), edge('M', 'B', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'X', '2026-01-06');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('M').earlyStart).toBe('2026-01-09');
+      expect(byId('B').earlyStart).toBe('2026-01-12');
+      expect(byId('B').earlyFinish).toBe('2026-01-13');
+      expect(byId('B').deltaDays).toBe(0);
+    });
+
     it('still moves a complete-without-actuals task when it is the drag target', () => {
       // The drop lands as `planned_start`, which the server's pin honors for a
       // task with no actuals — so unlike an actuals-pinned task, it moves, keeps

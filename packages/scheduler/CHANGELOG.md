@@ -18,6 +18,19 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **Closing a milestone no longer slips its successors a working day (#4433).**
+  A completed zero-duration task with recorded actuals (`actual_finish`, or
+  `actual_start`) was laid out as ordinary work ending at the end of its day,
+  so every finish-to-start successor — and the project finish — landed one
+  working day later than after the same milestone live, or completed with no
+  actuals (#4343). It now stays an instant on its `actual_finish` day (else its
+  `actual_start` day), shown and linked from that day, at the edge of the day
+  it had live: the end only when work finishing that day placed it, the start
+  when nothing precedes it or a floor (data date, `planned_start`) held it
+  (`milestone_at_day_end` is now `True` for a closed milestone on the end edge,
+  where it was always `False` for one pinned by actuals). A `planned_start` no longer
+  binds once actuals are recorded. `monte_carlo` inherits the same placement,
+  and the Rust/WASM engine mirrors it.
 - **`monte_carlo()` no longer reports P50/P80/P95 before `schedule()` under
   per-task calendars (#4429).** A task on a calendar sparser than its successor's
   (a four-day week, Monday-only, a long shutdown exception) spans more than its
