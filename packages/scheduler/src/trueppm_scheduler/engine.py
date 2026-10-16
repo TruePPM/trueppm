@@ -2962,7 +2962,9 @@ def expand_summary_dependencies(
     task list. Dependencies involving summary tasks are fanned out to all
     their leaf descendants, producing a cross-product of edges. Self-referencing
     edges (where predecessor == successor after expansion) are skipped.
-    Duplicate edges are deduplicated.
+    Links that expand onto the same leaf pair are merged by meaning, not list
+    order: same type keeps the largest (most binding) lag; different types
+    raise :class:`InvalidScheduleInput` (#4434).
 
     Args:
         tasks: All tasks including summaries.
@@ -3062,29 +3064,62 @@ def _check_expansion_bound(deps: list[Dependency], leaves: dict[str, list[str]])
 def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -> list[Dependency]:
     """Fan each edge out to the cross product of its endpoints' leaves.
 
-    Self-referencing edges (predecessor == successor after expansion) are skipped and
-    duplicates are collapsed, so two summary edges that expand onto the same leaf pair
-    yield one dependency.
+    Self-referencing edges (predecessor == successor after expansion) are skipped.
+
+    Two source links can expand onto the same leaf pair — ``A -FS-> C`` plus
+    ``S(A, B) -FS+7d-> C`` both yield ``A → C``. The engine graph holds one edge per
+    pair, so the collision must be resolved, and it must be resolved by *meaning*,
+    never by list order (#4434): the API passes DB row order, so "first seen wins"
+    let two recalcs of one project produce different finishes and silently dropped
+    the binding summary link whenever the leaf link happened to come first.
+
+    - **Same dep type:** both constraints read ``succ_X >= pred_Y + lag`` on the same
+      anchors, so the larger lag implies the smaller one. Keep the largest lag — the
+      merged edge is exactly the conjunction of both links.
+    - **Different dep types:** the two constrain different anchors and neither
+      implies the other, so no single edge can represent both. Reject with
+      :class:`InvalidScheduleInput` naming both source links rather than silently
+      dropping one.
+
+    The surviving edge keeps the position of the pair's first occurrence, so the
+    output order is stable for a given input while its *content* is order-independent.
     """
-    seen: set[tuple[str, str]] = set()
-    expanded: list[Dependency] = []
+    chosen: dict[tuple[str, str], tuple[Dependency, Dependency]] = {}
 
     for dep in deps:
         for p in leaves[dep.predecessor_id]:
             for s in leaves[dep.successor_id]:
-                if p == s or (p, s) in seen:
+                if p == s:
                     continue
-                seen.add((p, s))
-                expanded.append(
+                prior = chosen.get((p, s))
+                if prior is not None:
+                    _, prior_source = prior
+                    if prior_source.dep_type != dep.dep_type:
+                        raise InvalidScheduleInput(
+                            f"Dependencies {_describe_link(prior_source)} and "
+                            f"{_describe_link(dep)} both resolve to leaf link {p!r} → "
+                            f"{s!r} with different types ({prior_source.dep_type.value} vs "
+                            f"{dep.dep_type.value}); a task pair can hold only one "
+                            "dependency type. Remove one link or change its type to match."
+                        )
+                    if dep.lag <= prior_source.lag:
+                        continue
+                    # A dict update keeps the key's original insertion position.
+                chosen[(p, s)] = (
                     Dependency(
-                        predecessor_id=p,
-                        successor_id=s,
-                        dep_type=dep.dep_type,
-                        lag=dep.lag,
-                    )
+                        predecessor_id=p, successor_id=s, dep_type=dep.dep_type, lag=dep.lag
+                    ),
+                    dep,
                 )
 
-    return expanded
+    return [edge for edge, _ in chosen.values()]
+
+
+def _describe_link(dep: Dependency) -> str:
+    """Render a source link for an error message, e.g. ``'S' → 'C' (FS, lag 7d)``."""
+    return (
+        f"{dep.predecessor_id!r} → {dep.successor_id!r} ({dep.dep_type.value}, lag {dep.lag.days}d)"
+    )
 
 
 # ---------------------------------------------------------------------------
