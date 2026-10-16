@@ -311,6 +311,33 @@ class TestDuplicateLeafPairResolution:
             assert "'A' → 'C' (FF, lag 0d)" in msg
             assert "'S' → 'C' (FS, lag 7d)" in msg
 
+    def test_nested_summaries_with_many_colliding_links(self) -> None:
+        """Nested summaries and 3+ links on one pair: largest lag wins in every order.
+
+        ``O ⊃ {I, X}``, ``I ⊃ {A, B}``. ``O → C`` (1d), ``I → C`` (5d), ``A → C`` at -3d
+        and +2d all land on ``A → C``; ``O`` and ``I`` both land on ``B → C``. Adding one
+        FF link on the same pair must reject in every order.
+        """
+        tasks = [task(t) for t in ("O", "I", "X", "A", "B", "C")]
+        children_map = {"O": ["I", "X"], "I": ["A", "B"]}
+        deps = [
+            Dependency(predecessor_id="O", successor_id="C", lag=timedelta(days=1)),
+            Dependency(predecessor_id="I", successor_id="C", lag=timedelta(days=5)),
+            Dependency(predecessor_id="A", successor_id="C", lag=timedelta(days=-3)),
+            Dependency(predecessor_id="A", successor_id="C", lag=timedelta(days=2)),
+        ]
+
+        for perm in itertools.permutations(deps):
+            _, expanded = expand_summary_dependencies(tasks, list(perm), children_map)
+            lags = {(d.predecessor_id, d.successor_id): d.lag.days for d in expanded}
+            assert lags == {("A", "C"): 5, ("B", "C"): 5, ("X", "C"): 1}, perm
+            assert all(d.dep_type == DependencyType.FS for d in expanded)
+
+        mixed = Dependency(predecessor_id="A", successor_id="C", dep_type=DependencyType.FF)
+        for perm in itertools.permutations([deps[0], deps[1], mixed]):
+            with pytest.raises(InvalidScheduleInput, match="different types"):
+                expand_summary_dependencies(tasks, list(perm), children_map)
+
     @pytest.mark.parametrize(
         ("deps", "children_map"),
         [
