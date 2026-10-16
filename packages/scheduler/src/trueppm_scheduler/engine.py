@@ -1330,6 +1330,25 @@ def _link_start_ref(
     return _start_read_cap(start_ref, base_display, succ_cal, project_finish)
 
 
+def _link_finish_ref(
+    late: date, dep_type: DependencyType, succ_cal: Calendar, project_finish: date
+) -> date:
+    """The milestone ``finish_ref`` one SF link into it may use (#4431).
+
+    The SF twin of :func:`_link_start_ref`. An SF proposal into a milestone is read
+    like FS from work — end of day, or start of day just after non-working time
+    (:func:`_milestone_proposal`) — so the latest instant it may propose is
+    :func:`_start_read_cap` of the late instant for the end-of-day reading, and the
+    reference is the day *that* instant closes (:func:`_milestone_refs`). Inverting
+    against the uncapped instant gave an SF predecessor one working day of float
+    that, used, showed the milestone past ``project_finish``. Every other type
+    inverts against the start reference, so its finish reference is left raw.
+    """
+    if dep_type != DependencyType.SF:
+        return _milestone_refs(late)[1]
+    return _milestone_refs(_start_read_cap(late, False, succ_cal, project_finish))[1]
+
+
 def _float_late_instant(late: date, early: _Instant, cal: Calendar, project_finish: date) -> date:
     """The late instant a milestone's *own* total float is measured to (#4183).
 
@@ -2316,18 +2335,20 @@ def _late_refs(
     """``(start_ref, finish_ref)`` a live successor's late window offers its predecessor.
 
     ``link`` is ``(dep, pred_is_milestone, project_finish)``: a milestone successor's
-    start reference depends on how that link would show it (:func:`_link_start_ref`).
+    start reference depends on how that link would show it (:func:`_link_start_ref`),
+    and so does the finish reference an SF link inverts against
+    (:func:`_link_finish_ref`, #4431).
     """
     late = late_instants.get(succ_id)
     if late is not None:
         succ_cal = cal_for(succ_id)
-        start_ref, finish_ref = _milestone_refs(late)
+        start_ref = _milestone_refs(late)[0]
         dep, pred_is_milestone, project_finish = link
         return (
             _link_start_ref(
                 start_ref, dep.dep_type, dep.lag, pred_is_milestone, succ_cal, project_finish
             ),
-            finish_ref,
+            _link_finish_ref(late, dep.dep_type, succ_cal, project_finish),
         )
     assert succ.late_start is not None and succ.late_finish is not None
     return succ.late_start, succ.late_finish
