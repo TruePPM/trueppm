@@ -193,7 +193,11 @@ fn late_display(
 /// `(start_ref, finish_ref)` a live successor's late window offers its predecessor
 /// along `dep`, and the type to invert the link as: FF into a milestone is FS
 /// ([`milestone_link`], #4272). A milestone successor's start reference is capped
-/// per link ([`link_start_ref`], #4183).
+/// per link ([`link_start_ref`], #4183), and so is the finish reference an SF link
+/// inverts against (#4431): an SF proposal into a milestone reads like FS from
+/// work, so its latest instant is [`start_read_cap`] of the late instant for the
+/// end-of-day reading, and the reference is the day that instant closes. Mirrors
+/// the Python `_late_refs`.
 fn late_refs(
     succ_idx: usize,
     succ: &Task,
@@ -205,8 +209,12 @@ fn late_refs(
     match late_instants[succ_idx] {
         Some(x) => {
             let succ_cal = cals.for_node(succ_idx);
-            let (start_ref, finish_ref) = milestone_refs(x)?;
+            let (start_ref, mut finish_ref) = milestone_refs(x)?;
             let seen = milestone_link(dep.dep_type);
+            if seen == DependencyType::SF {
+                let capped = start_read_cap(x, false, succ_cal, project_finish)?;
+                finish_ref = milestone_refs(capped)?.1;
+            }
             Ok((
                 link_start_ref(
                     start_ref,

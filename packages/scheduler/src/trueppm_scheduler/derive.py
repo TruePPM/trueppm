@@ -47,6 +47,7 @@ from trueppm_scheduler.engine import (
     _instant_day,
     _is_complete,
     _late_display,
+    _link_finish_ref,
     _link_start_ref,
     _milestone_finish_bound,
     _milestone_instants,
@@ -1250,12 +1251,15 @@ def _milestone_context(
         late = late_instants.get(succ.id)
         if late is None:
             return _late_dates(succ)
-        # The same per-link cap the backward pass applies (#4183).
+        # The same per-link caps the backward pass applies (#4183, #4431).
         succ_cal = cal_of(succ.id)
-        start_ref, finish_ref = _milestone_refs(late)
+        start_ref = _milestone_refs(late)[0]
         pf = result.project_finish
         is_milestone = own is not None
-        return _link_start_ref(start_ref, dep_type, lag, is_milestone, succ_cal, pf), finish_ref
+        return (
+            _link_start_ref(start_ref, dep_type, lag, is_milestone, succ_cal, pf),
+            _link_finish_ref(late, dep_type, succ_cal, pf),
+        )
 
     def early_refs(succ: Task, dep_type: DependencyType, lag: timedelta) -> tuple[date, date]:
         assert succ.early_start is not None and succ.early_finish is not None
