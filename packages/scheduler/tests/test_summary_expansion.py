@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+import itertools
+from datetime import date, timedelta
 
 import pytest
 
-from trueppm_scheduler import Dependency, DependencyType, Task, expand_summary_dependencies
-from trueppm_scheduler.engine import InvalidScheduleInput
+from trueppm_scheduler import (
+    Dependency,
+    DependencyType,
+    Project,
+    Task,
+    expand_summary_dependencies,
+    schedule,
+)
+from trueppm_scheduler.engine import InvalidScheduleInput, ScheduleResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -233,3 +241,169 @@ class TestRejectStartLinksFromSummary:
 
         edges = {(d.predecessor_id, d.successor_id) for d in expanded}
         assert edges == {("T", "S1"), ("T", "S2")}
+
+
+class TestDuplicateLeafPairResolution:
+    """#4434: two source links landing on one leaf pair merge by meaning, not list order.
+
+    ``A -FS-> C`` plus ``S(A, B) -FS+7d-> C`` both expand onto ``A → C``. The old
+    dedup kept whichever was listed first, so the binding summary lag was dropped
+    whenever the leaf link came first — and the API passes DB row order, so two
+    recalcs of one project could produce different finishes.
+    """
+
+    MON = date(2027, 3, 1)
+
+    @staticmethod
+    def _tasks() -> list[Task]:
+        return [task("S", days=0), task("A", days=2), task("B", days=1), task("C", days=1)]
+
+    def _run(self, deps: list[Dependency], children_map: dict[str, list[str]]) -> ScheduleResult:
+        leaf_tasks, leaf_deps = expand_summary_dependencies(self._tasks(), deps, children_map)
+        return schedule(
+            Project(id="p", name="p", start_date=self.MON, tasks=leaf_tasks, dependencies=leaf_deps)
+        )
+
+    def test_issue_repro_binding_summary_lag_wins_in_both_orders(self) -> None:
+        """The exact #4434 repro: C must wait 7 days after A whichever link is listed first."""
+        leaf = Dependency(predecessor_id="A", successor_id="C")
+        summary = Dependency(predecessor_id="S", successor_id="C", lag=timedelta(days=7))
+        children_map = {"S": ["A", "B"]}
+
+        for deps in ([leaf, summary], [summary, leaf]):
+            result = self._run(deps, children_map)
+            by_id = {t.id: t for t in result.tasks}
+            assert by_id["C"].early_start == date(2027, 3, 10)
+            assert result.project_finish == date(2027, 3, 10)
+
+            _, expanded = expand_summary_dependencies(self._tasks(), deps, children_map)
+            edges = {(d.predecessor_id, d.successor_id): d.lag.days for d in expanded}
+            assert edges == {("A", "C"): 7, ("B", "C"): 7}
+
+    @pytest.mark.parametrize("dep_type", list(DependencyType))
+    def test_same_type_keeps_largest_lag(self, dep_type: DependencyType) -> None:
+        """Same-type collision keeps the most binding (largest) lag, including over a lead."""
+        children_map = {"S": ["A", "B"]}
+        succ_summary = Dependency(
+            predecessor_id="C", successor_id="S", dep_type=dep_type, lag=timedelta(days=-2)
+        )
+        leaf = Dependency(
+            predecessor_id="C", successor_id="A", dep_type=dep_type, lag=timedelta(days=3)
+        )
+        tasks = [task("S"), task("A"), task("B"), task("C")]
+
+        for deps in ([succ_summary, leaf], [leaf, succ_summary]):
+            _, expanded = expand_summary_dependencies(tasks, deps, children_map)
+            lags = {(d.predecessor_id, d.successor_id): d.lag.days for d in expanded}
+            assert lags == {("C", "A"): 3, ("C", "B"): -2}
+            assert all(d.dep_type == dep_type for d in expanded)
+
+    def test_different_types_on_one_pair_rejected_naming_both_links(self) -> None:
+        """No single edge can hold FS and FF together — reject instead of dropping one."""
+        children_map = {"S": ["A", "B"]}
+        leaf = Dependency(predecessor_id="A", successor_id="C", dep_type=DependencyType.FF)
+        summary = Dependency(predecessor_id="S", successor_id="C", lag=timedelta(days=7))
+
+        for deps in ([leaf, summary], [summary, leaf]):
+            with pytest.raises(InvalidScheduleInput) as exc:
+                expand_summary_dependencies(self._tasks(), deps, children_map)
+            msg = str(exc.value)
+            assert "'A' → 'C' (FF, lag 0d)" in msg
+            assert "'S' → 'C' (FS, lag 7d)" in msg
+
+    def test_nested_summaries_with_many_colliding_links(self) -> None:
+        """Nested summaries and 3+ links on one pair: largest lag wins in every order.
+
+        ``O ⊃ {I, X}``, ``I ⊃ {A, B}``. ``O → C`` (1d), ``I → C`` (5d), ``A → C`` at -3d
+        and +2d all land on ``A → C``; ``O`` and ``I`` both land on ``B → C``. Adding one
+        FF link on the same pair must reject in every order.
+        """
+        tasks = [task(t) for t in ("O", "I", "X", "A", "B", "C")]
+        children_map = {"O": ["I", "X"], "I": ["A", "B"]}
+        deps = [
+            Dependency(predecessor_id="O", successor_id="C", lag=timedelta(days=1)),
+            Dependency(predecessor_id="I", successor_id="C", lag=timedelta(days=5)),
+            Dependency(predecessor_id="A", successor_id="C", lag=timedelta(days=-3)),
+            Dependency(predecessor_id="A", successor_id="C", lag=timedelta(days=2)),
+        ]
+
+        for perm in itertools.permutations(deps):
+            _, expanded = expand_summary_dependencies(tasks, list(perm), children_map)
+            lags = {(d.predecessor_id, d.successor_id): d.lag.days for d in expanded}
+            assert lags == {("A", "C"): 5, ("B", "C"): 5, ("X", "C"): 1}, perm
+            assert all(d.dep_type == DependencyType.FS for d in expanded)
+
+        mixed = Dependency(predecessor_id="A", successor_id="C", dep_type=DependencyType.FF)
+        for perm in itertools.permutations([deps[0], deps[1], mixed]):
+            with pytest.raises(InvalidScheduleInput, match="different types"):
+                expand_summary_dependencies(tasks, list(perm), children_map)
+
+    @pytest.mark.parametrize(
+        ("deps", "children_map"),
+        [
+            pytest.param(
+                [
+                    Dependency(predecessor_id="A", successor_id="C"),
+                    Dependency(predecessor_id="S", successor_id="C", lag=timedelta(days=7)),
+                ],
+                {"S": ["A", "B"]},
+                id="issue-repro",
+            ),
+            pytest.param(
+                [
+                    Dependency(predecessor_id="S", successor_id="C", lag=timedelta(days=1)),
+                    Dependency(predecessor_id="S", successor_id="C", lag=timedelta(days=4)),
+                    Dependency(predecessor_id="B", successor_id="C", lag=timedelta(days=2)),
+                    Dependency(predecessor_id="A", successor_id="B"),
+                ],
+                {"S": ["A", "B"]},
+                id="stacked-summary-and-leaf-lags",
+            ),
+            pytest.param(
+                [
+                    Dependency(
+                        predecessor_id="S",
+                        successor_id="C",
+                        dep_type=DependencyType.FF,
+                        lag=timedelta(days=2),
+                    ),
+                    Dependency(
+                        predecessor_id="B",
+                        successor_id="C",
+                        dep_type=DependencyType.FF,
+                        lag=timedelta(days=5),
+                    ),
+                    Dependency(predecessor_id="A", successor_id="B", dep_type=DependencyType.SS),
+                ],
+                {"S": ["A", "B"]},
+                id="ff-collision",
+            ),
+            pytest.param(
+                [
+                    Dependency(predecessor_id="C", successor_id="S", lag=timedelta(days=1)),
+                    Dependency(predecessor_id="C", successor_id="B", lag=timedelta(days=3)),
+                    Dependency(predecessor_id="C", successor_id="A"),
+                ],
+                {"S": ["A", "B"]},
+                id="leaf-into-summary",
+            ),
+        ],
+    )
+    def test_schedule_is_independent_of_dependency_order(
+        self, deps: list[Dependency], children_map: dict[str, list[str]]
+    ) -> None:
+        """Property: every permutation of ``deps`` yields an identical schedule."""
+        baseline = self._run(deps, children_map)
+        expected = (
+            baseline.project_finish,
+            {t.id: t for t in baseline.tasks},
+            set(baseline.critical_path),
+        )
+        for perm in itertools.permutations(deps):
+            result = self._run(list(perm), children_map)
+            got = (
+                result.project_finish,
+                {t.id: t for t in result.tasks},
+                set(result.critical_path),
+            )
+            assert got == expected, f"order {perm} changed the schedule"

@@ -430,29 +430,33 @@ def gather_program_schedule(
         if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
     ]
 
-    leaf_tasks, expanded_deps = expand_summary_dependencies(
-        all_sched_tasks, sched_deps, all_children_map
-    )
-
     start_date = min(p.start_date for p in member_projects)
-    merged = SchedProject(
-        id=str(program.pk),
-        name=program.name,
-        start_date=start_date,
-        tasks=leaf_tasks,
-        dependencies=expanded_deps,
-        # Per-task calendar_id drives each task's working-day math; this default
-        # is only a fallback for tasks with no calendar_id (none here).
-        calendar=SchedCalendar(),
-        calendars=calendars,
-        # Earliest-possible dates: per-project status_dates differ across the
-        # program, so a single merged data date would be arbitrary. The program
-        # forecast view shows the earliest honest schedule (ADR-0132 parity with a
-        # null status_date), not a data-date floor.
-        status_date=None,
-    )
 
     try:
+        # Expansion sits inside the try with the CPM pass: it raises
+        # ``InvalidScheduleInput`` on ordinary member-project data (SS/SF from a
+        # summary, the cross-product bound, two links of different types resolving
+        # to one leaf pair — #4434), and outside this block that reached the client
+        # as an unhandled 500 instead of the structured 422 below.
+        leaf_tasks, expanded_deps = expand_summary_dependencies(
+            all_sched_tasks, sched_deps, all_children_map
+        )
+        merged = SchedProject(
+            id=str(program.pk),
+            name=program.name,
+            start_date=start_date,
+            tasks=leaf_tasks,
+            dependencies=expanded_deps,
+            # Per-task calendar_id drives each task's working-day math; this default
+            # is only a fallback for tasks with no calendar_id (none here).
+            calendar=SchedCalendar(),
+            calendars=calendars,
+            # Earliest-possible dates: per-project status_dates differ across the
+            # program, so a single merged data date would be arbitrary. The program
+            # forecast view shows the earliest honest schedule (ADR-0132 parity with
+            # a null status_date), not a data-date floor.
+            status_date=None,
+        )
         result = schedule(merged)
     except SchedulerError as exc:
         # Only the on-read HTTP path (``enforce_max``) converts a degenerate-data

@@ -30,6 +30,38 @@ change between releases. Pin an exact version (e.g.
   past-the-end offset or date onto the last indexed day — lag deltas, ES floors,
   verbatim actuals, milestone lookups, the multi-calendar reference ruler and the
   finish read-out — now raises `InvalidScheduleInput` instead.
+- **`expand_summary_dependencies` no longer depends on dependency list order
+  (#4434).** When two links expanded onto the same leaf pair — `A → C` plus
+  `S(A, B) → C` with a 7-day lag — the first one listed was kept and the other
+  silently dropped, so the binding summary lag was lost whenever the leaf link
+  came first. Same-type collisions now keep the largest (most binding) lag;
+  collisions of different dependency types raise `InvalidScheduleInput` naming
+  both source links, since one edge per pair cannot represent both.
+- **A start-to-finish link into a milestone no longer overstates its
+  predecessor's float (#4431).** #4344 capped the latest instant a milestone may
+  take for its finish-to-start and start-to-start predecessors, but an SF
+  predecessor still inverted against the uncapped instant. Where that instant
+  would show the milestone past `project_finish` — a milestone on its own
+  calendar that does not work the finish day, or a completed task with a weekend
+  `actual_finish` — the SF predecessor reported one working day too much
+  `total_float`, slipping it by that float moved the finish, and a critical
+  milestone could have a non-critical sole driver. Fixed in the Python engine and
+  the Rust/WASM engine alike.
+- **`perturb_task_duration` on an in-progress task now shifts remaining work
+  only (#4432).** It shifted `duration` while holding `percent_complete`, so the
+  elapsed share `floor(duration * pct / 100)` grew or shrank with the shift and
+  absorbed part of the delta. A `+1` day slip on a critical 50%-complete task
+  moved the finish by zero, and `-N` and `+N` were not mirror images.
+  `percent_complete` is now rescaled so the elapsed working days stay constant,
+  and a critical task slipped or pulled in by `N` days moves the CPM finish and
+  the Monte Carlo bands by `N` working days (on links with no lag; a lag counted
+  in calendar days can gain or lose weekend days). The duration never drops below the
+  elapsed days. A pull-in that consumes all remaining work (or more) returns the
+  task at 100% with `actual_finish` set to the working day before its remaining
+  work would have started in the unperturbed schedule. `actual_start` is clamped
+  to that day if it was later. With no lag, the finish therefore moves earlier by exactly the
+  remaining working days; it is never laid out later from `actual_start` or the
+  project start.
 
 ## [0.4.0b8] - 2026-10-15
 

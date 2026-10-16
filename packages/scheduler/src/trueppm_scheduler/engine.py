@@ -1330,6 +1330,25 @@ def _link_start_ref(
     return _start_read_cap(start_ref, base_display, succ_cal, project_finish)
 
 
+def _link_finish_ref(
+    late: date, dep_type: DependencyType, succ_cal: Calendar, project_finish: date
+) -> date:
+    """The milestone ``finish_ref`` one SF link into it may use (#4431).
+
+    The SF twin of :func:`_link_start_ref`. An SF proposal into a milestone is read
+    like FS from work — end of day, or start of day just after non-working time
+    (:func:`_milestone_proposal`) — so the latest instant it may propose is
+    :func:`_start_read_cap` of the late instant for the end-of-day reading, and the
+    reference is the day *that* instant closes (:func:`_milestone_refs`). Inverting
+    against the uncapped instant gave an SF predecessor one working day of float
+    that, used, showed the milestone past ``project_finish``. Every other type
+    inverts against the start reference, so its finish reference is left raw.
+    """
+    if dep_type != DependencyType.SF:
+        return _milestone_refs(late)[1]
+    return _milestone_refs(_start_read_cap(late, False, succ_cal, project_finish))[1]
+
+
 def _float_late_instant(late: date, early: _Instant, cal: Calendar, project_finish: date) -> date:
     """The late instant a milestone's *own* total float is measured to (#4183).
 
@@ -2316,18 +2335,20 @@ def _late_refs(
     """``(start_ref, finish_ref)`` a live successor's late window offers its predecessor.
 
     ``link`` is ``(dep, pred_is_milestone, project_finish)``: a milestone successor's
-    start reference depends on how that link would show it (:func:`_link_start_ref`).
+    start reference depends on how that link would show it (:func:`_link_start_ref`),
+    and so does the finish reference an SF link inverts against
+    (:func:`_link_finish_ref`, #4431).
     """
     late = late_instants.get(succ_id)
     if late is not None:
         succ_cal = cal_for(succ_id)
-        start_ref, finish_ref = _milestone_refs(late)
+        start_ref = _milestone_refs(late)[0]
         dep, pred_is_milestone, project_finish = link
         return (
             _link_start_ref(
                 start_ref, dep.dep_type, dep.lag, pred_is_milestone, succ_cal, project_finish
             ),
-            finish_ref,
+            _link_finish_ref(late, dep.dep_type, succ_cal, project_finish),
         )
     assert succ.late_start is not None and succ.late_finish is not None
     return succ.late_start, succ.late_finish
@@ -2962,7 +2983,9 @@ def expand_summary_dependencies(
     task list. Dependencies involving summary tasks are fanned out to all
     their leaf descendants, producing a cross-product of edges. Self-referencing
     edges (where predecessor == successor after expansion) are skipped.
-    Duplicate edges are deduplicated.
+    Links that expand onto the same leaf pair are merged by meaning, not list
+    order: same type keeps the largest (most binding) lag; different types
+    raise :class:`InvalidScheduleInput` (#4434).
 
     Args:
         tasks: All tasks including summaries.
@@ -3062,29 +3085,62 @@ def _check_expansion_bound(deps: list[Dependency], leaves: dict[str, list[str]])
 def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -> list[Dependency]:
     """Fan each edge out to the cross product of its endpoints' leaves.
 
-    Self-referencing edges (predecessor == successor after expansion) are skipped and
-    duplicates are collapsed, so two summary edges that expand onto the same leaf pair
-    yield one dependency.
+    Self-referencing edges (predecessor == successor after expansion) are skipped.
+
+    Two source links can expand onto the same leaf pair — ``A -FS-> C`` plus
+    ``S(A, B) -FS+7d-> C`` both yield ``A → C``. The engine graph holds one edge per
+    pair, so the collision must be resolved, and it must be resolved by *meaning*,
+    never by list order (#4434): the API passes DB row order, so "first seen wins"
+    let two recalcs of one project produce different finishes and silently dropped
+    the binding summary link whenever the leaf link happened to come first.
+
+    - **Same dep type:** both constraints read ``succ_X >= pred_Y + lag`` on the same
+      anchors, so the larger lag implies the smaller one. Keep the largest lag — the
+      merged edge is exactly the conjunction of both links.
+    - **Different dep types:** the two constrain different anchors and neither
+      implies the other, so no single edge can represent both. Reject with
+      :class:`InvalidScheduleInput` naming both source links rather than silently
+      dropping one.
+
+    The surviving edge keeps the position of the pair's first occurrence, so the
+    output order is stable for a given input while its *content* is order-independent.
     """
-    seen: set[tuple[str, str]] = set()
-    expanded: list[Dependency] = []
+    chosen: dict[tuple[str, str], tuple[Dependency, Dependency]] = {}
 
     for dep in deps:
         for p in leaves[dep.predecessor_id]:
             for s in leaves[dep.successor_id]:
-                if p == s or (p, s) in seen:
+                if p == s:
                     continue
-                seen.add((p, s))
-                expanded.append(
+                prior = chosen.get((p, s))
+                if prior is not None:
+                    _, prior_source = prior
+                    if prior_source.dep_type != dep.dep_type:
+                        raise InvalidScheduleInput(
+                            f"Dependencies {_describe_link(prior_source)} and "
+                            f"{_describe_link(dep)} both resolve to leaf link {p!r} → "
+                            f"{s!r} with different types ({prior_source.dep_type.value} vs "
+                            f"{dep.dep_type.value}); a task pair can hold only one "
+                            "dependency type. Remove one link or change its type to match."
+                        )
+                    if dep.lag <= prior_source.lag:
+                        continue
+                    # A dict update keeps the key's original insertion position.
+                chosen[(p, s)] = (
                     Dependency(
-                        predecessor_id=p,
-                        successor_id=s,
-                        dep_type=dep.dep_type,
-                        lag=dep.lag,
-                    )
+                        predecessor_id=p, successor_id=s, dep_type=dep.dep_type, lag=dep.lag
+                    ),
+                    dep,
                 )
 
-    return expanded
+    return [edge for edge, _ in chosen.values()]
+
+
+def _describe_link(dep: Dependency) -> str:
+    """Render a source link for an error message, e.g. ``'S' → 'C' (FS, lag 7d)``."""
+    return (
+        f"{dep.predecessor_id!r} → {dep.successor_id!r} ({dep.dep_type.value}, lag {dep.lag.days}d)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4409,6 +4465,64 @@ def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
     return shifted if shifted > timedelta(0) else timedelta(0)
 
 
+def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task:
+    """Shift an in-progress task's remaining work, holding its elapsed days constant.
+
+    Returns ``task`` with a new ``duration`` and ``percent_complete`` (and, when the
+    shift consumes every remaining day, an ``actual_finish``). Elapsed working days
+    are ``floor(duration * pct / 100)`` — the rule :func:`_effective_duration_days`
+    and Monte Carlo both apply — and work already done cannot be undone by a
+    what-if, so the new duration is ``elapsed + max(0, remaining + delta_days)``.
+
+    The new percentage is placed at the *midpoint* of the band that floors to
+    ``elapsed`` — ``(elapsed + 0.5) / new_duration`` — rather than at its lower
+    edge, so float rounding in ``elapsed / new_duration * 100`` can never truncate
+    one day short. With at least one remaining day that value is strictly below
+    100, so the task stays in progress. The original percentage is kept whenever it
+    already yields the same elapsed count, so a zero delta changes nothing.
+
+    A pull-in that consumes all remaining work cannot be expressed as an in-progress
+    task (the integer rule needs ``pct < 100`` and so always leaves a day), so the
+    task becomes complete. A bare 100% is not enough: the engine lays a completed
+    task out at its full duration *from its actuals or the project start* (ADR-0136),
+    which is a statement about history, not "finished as of now" — it moved the
+    finish *later* on a task whose elapsed days outran its ``actual_start``, or that
+    had none. The completed task is therefore pinned to finish on the working day
+    before the baseline's remaining-work window began: zero remaining days end
+    exactly where they would have started, so successors keep the start they would
+    have had with nothing left to do. ``actual_start`` is kept unless it falls after
+    that finish; when unset, the engine derives it from the finish.
+    """
+    duration_days = task.duration.days
+    pct = min(task.percent_complete or 0.0, 100.0)
+    elapsed = int(duration_days * pct / 100.0)
+    remaining = max(0, duration_days - elapsed + delta_days)
+    new_days = elapsed + remaining
+    if remaining > 0:
+        if int(new_days * pct / 100.0) != elapsed:
+            pct = (elapsed + 0.5) * 100.0 / new_days
+        return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
+
+    # The remaining-work window's start in the unperturbed schedule. Only this task
+    # changes, so nothing upstream of it — its predecessors, the data-date floor —
+    # can move that start. Run once, only on this rare exhausting branch.
+    window_start = next(t for t in schedule(project).tasks if t.id == task.id).early_start
+    assert window_start is not None
+    calendars = _resolve_task_calendars(project)
+    cal = calendars[task.id] if calendars is not None else project.calendar
+    finish = _scan_for_working_day(window_start, cal, forward=False)
+    actual_start = task.actual_start
+    if actual_start is not None and actual_start > finish:
+        actual_start = finish
+    return replace(
+        task,
+        duration=timedelta(days=new_days),
+        percent_complete=100.0,
+        actual_start=actual_start,
+        actual_finish=finish,
+    )
+
+
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
     """Return a copy of ``project`` with one task's duration shifted by ``delta_days``.
 
@@ -4443,6 +4557,18 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
       quantized to whole sprints, which is what a sprint-delivered task's schedule
       genuinely does.
 
+    On an **in-progress** task the offset applies to the *remaining* work only
+    (#4432). The engine reads ``percent_complete`` against ``duration`` to split a
+    task into elapsed and remaining working days (:func:`_effective_duration_days`,
+    and the same integer rule in Monte Carlo's elapsed subtraction), so shifting
+    ``duration`` with ``percent_complete`` held would grow the elapsed share along
+    with it and swallow part of the delta — a +1-day slip on a critical 50%-complete
+    task moved the finish by zero. ``percent_complete`` is therefore rescaled so the
+    elapsed working days stay exactly constant; see :func:`_shift_remaining_work`.
+    The PERT legs need no extra handling: Monte Carlo subtracts that same constant
+    elapsed count from every sampled value, so shifting each leg by ``delta_days``
+    shifts the sampled remaining work by ``delta_days``.
+
     Sampling semantics are untouched: this only changes what the engine is asked
     about, never how it answers.
 
@@ -4451,13 +4577,18 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
             mutated; a new :class:`Project` with a new task list is returned.
         task_id: Id of the task to perturb.
         delta_days: Signed day offset. Positive slips the task later, negative pulls
-            it in. Durations floor at zero, and so do story points — a shift that
+            it in. Durations floor at zero (on an in-progress task, at its elapsed
+            working days, since done work cannot be undone), and so do story
+            points — a shift that
             would zero the remaining points drops the task to its deterministic
             duration, the honest reading of "this work no longer takes a sprint".
 
     Returns:
         A new :class:`Project`, identical to ``project`` except for the target
-        task's shifted duration inputs.
+        task's shifted duration inputs. On an in-progress task that includes a
+        rescaled ``percent_complete``; on a pull-in that consumes all remaining
+        work it also sets ``actual_finish`` and may move ``actual_start`` earlier
+        (see :func:`_shift_remaining_work`).
 
     Raises:
         InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent
@@ -4486,9 +4617,12 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
 
     # ``duration`` is non-optional on Task, so the shift is never None here.
     new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
+    if not _is_complete(target) and target.percent_complete and target.percent_complete > 0:
+        shifted = _shift_remaining_work(project, target, delta_days)
+    else:
+        shifted = replace(target, duration=new_duration)
     perturbed = replace(
-        target,
-        duration=new_duration,
+        shifted,
         optimistic_duration=_shift_duration(target.optimistic_duration, delta_days),
         most_likely_duration=_shift_duration(target.most_likely_duration, delta_days),
         pessimistic_duration=_shift_duration(target.pessimistic_duration, delta_days),
