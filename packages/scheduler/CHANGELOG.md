@@ -16,7 +16,17 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **Closing a milestone no longer slips its successors a working day (#4433).**
+  A completed zero-duration task with recorded actuals (`actual_finish`, or
+  `actual_start`) was laid out as ordinary work ending at the end of its day,
+  so every finish-to-start successor — and the project finish — landed one
+  working day later than after the same milestone live, or completed with no
+  actuals (#4343). It now stays an instant at the start of its `actual_finish`
+  day (else its `actual_start` day), shown and linked from that day; a
+  `planned_start` no longer binds once actuals are recorded. `monte_carlo`
+  inherits the same placement, and the Rust/WASM engine mirrors it.
 
 ## [0.4.0b8] - 2026-10-15
 

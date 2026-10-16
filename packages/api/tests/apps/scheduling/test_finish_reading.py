@@ -72,12 +72,13 @@ def test_only_an_unpinned_start_of_day_milestone_finishes_at_its_day_start() -> 
     assert task_finish_at_day_start(_row(is_milestone=True, milestone_at_day_end=True)) is False
     # Work ends at the end of its finish day, whatever the flag says.
     assert task_finish_at_day_start(_row()) is False
-    # A milestone pinned by recorded actuals is laid out as ordinary work: the
-    # engine resets the flag to False, but it ends at the end of its day.
-    assert task_finish_at_day_start(_row(is_milestone=True, actual_finish=FRI)) is False
+    # A milestone pinned by recorded actuals stays an instant at the start of its
+    # day (#4433), exactly as one complete with no actuals does (#4343). Before
+    # #4433 the engine laid it out as ordinary work and these read False.
+    assert task_finish_at_day_start(_row(is_milestone=True, actual_finish=FRI)) is True
     assert (
         task_finish_at_day_start(_row(is_milestone=True, actual_start=FRI, percent_complete=100))
-        is False
+        is True
     )
     # A milestone complete by percent alone, with no actuals, is pinned but stays
     # an instant at the start of its day (#4343).
@@ -494,6 +495,48 @@ def test_program_pass_real_boundary_breach_still_raises_a_conflict(
     m.refresh_from_db()
     assert (m.early_finish, m.milestone_at_day_end) == (MON, True)
     assert CrossProjectSlipConflict.objects.filter(sprint=sprint, task=m).exists()
+
+
+@pytest.mark.parametrize(
+    "actuals",
+    [
+        pytest.param({"actual_finish": date(2026, 3, 4)}, id="actual-finish"),
+        pytest.param(
+            {"actual_start": date(2026, 3, 4), "actual_finish": date(2026, 3, 4)},
+            id="actual-start-and-finish",
+        ),
+        pytest.param({"actual_start": date(2026, 3, 4)}, id="actual-start-100pct"),
+    ],
+)
+def test_a_completed_milestone_with_actuals_reads_as_the_engine_places_it(
+    actuals: dict[str, date],
+) -> None:
+    """Engine-backed (#4433): a 100%-complete milestone WITH actuals, after work.
+
+    The engine pins it on its recorded day but keeps it an instant at the start
+    of that day, as it does one with no actuals (#4343) — the reading must agree,
+    or a project ending on a closed milestone reads a phantom working day later.
+    """
+    from trueppm_scheduler import Dependency, Project, Task, schedule
+    from trueppm_scheduler.engine import _milestone_instants
+
+    project = Project(
+        "p",
+        "p",
+        date(2026, 3, 2),
+        [
+            Task("A", "A", timedelta(days=3)),
+            Task("M", "M", timedelta(0), percent_complete=100.0, **actuals),  # type: ignore[arg-type]
+        ],
+        [Dependency("A", "M")],
+        SchedCalendar(),
+    )
+    m = next(t for t in schedule(project).tasks if t.id == "M")
+    assert m.early_finish == date(2026, 3, 4)
+    assert m.milestone_at_day_end is False
+    # The engine's own instant: the start (True) of the recorded day.
+    assert _milestone_instants(project)[0]["M"] == (date(2026, 3, 4), True)
+    assert task_finish_at_day_start(m) is True
 
 
 def test_a_completed_milestone_without_actuals_reads_as_the_engine_places_it() -> None:
