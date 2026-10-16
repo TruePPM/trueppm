@@ -1,0 +1,80 @@
+{
+  "project_id": "p-milestone-sf-end-of-day-cap-weekend-finish",
+  "project_start": "2027-03-01",
+  "project_finish": "2027-03-06",
+  "tasks": [
+    {
+      "id": "W",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-06",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-06",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "X",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-01",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-01",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "M",
+      "early_start": "2027-03-05",
+      "early_finish": "2027-03-05",
+      "late_start": "2027-03-05",
+      "late_finish": "2027-03-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-05",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "Y",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-01",
+      "late_start": "2027-03-02",
+      "late_finish": "2027-03-02",
+      "total_float": 86400.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "N",
+      "early_start": "2027-03-04",
+      "early_finish": "2027-03-04",
+      "late_start": "2027-03-05",
+      "late_finish": "2027-03-05",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-04",
+      "milestone_at_day_end": true
+    }
+  ],
+  "critical_path": [
+    "X",
+    "M"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "X",
+      "successor_id": "M",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "Y",
+      "successor_id": "N",
+      "dep_type": "SF"
+    }
+  ]
+}

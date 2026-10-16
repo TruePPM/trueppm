@@ -1,0 +1,25 @@
+{
+  "id": "p-milestone-sf-end-of-day-cap-own-calendar",
+  "name": "SF link into a Mon-Thu milestone against a Friday finish: capped finish reference (#4431)",
+  "start_date": "2027-03-01",
+  "tasks": [
+    {"id": "W", "name": "Long pole ending Friday", "duration": 432000.0},
+    {"id": "X", "name": "SF+2d driver", "duration": 86400.0},
+    {"id": "M", "name": "Mon-Thu gate", "duration": 0.0, "calendar_id": "four"},
+    {"id": "Y", "name": "SF+2d driver at zero float", "duration": 86400.0, "planned_start": "2027-03-03"},
+    {"id": "N", "name": "Mon-Thu gate after Y", "duration": 0.0, "calendar_id": "four"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "X", "successor_id": "M", "dep_type": "SF", "lag": 172800.0},
+    {"predecessor_id": "Y", "successor_id": "N", "dep_type": "SF", "lag": 172800.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "four": {"working_days": 15, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+  }
+}

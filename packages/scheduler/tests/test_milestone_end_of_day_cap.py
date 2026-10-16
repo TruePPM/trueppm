@@ -23,7 +23,16 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from trueppm_scheduler import Calendar, Dependency, DependencyType, Project, Task, schedule
+from trueppm_scheduler import (
+    Calendar,
+    Dependency,
+    DependencyType,
+    Project,
+    Quantity,
+    Task,
+    derive_value,
+    schedule,
+)
 
 # Monday. Default calendar is Mon-Fri.
 MON = date(2026, 3, 2)
@@ -272,3 +281,170 @@ def test_milestone_on_its_own_calendar_float_runs_to_friday_midnight() -> None:
     assert by["A"].total_float == timedelta(days=12)
     assert by["A"].late_finish == date(2026, 3, 19)
     assert by["M"].late_start == date(2026, 3, 19)
+
+
+# --- SF links into a milestone (#4431) -------------------------------------------
+#
+# An SF proposal into a milestone is read like FS from work, so the finish
+# reference it inverts against takes the same cap the FS/SS start reference does.
+# Before #4431 only ``start_ref`` was capped, so an SF predecessor reported one
+# working day of float that, used, showed the milestone past ``project_finish``.
+
+
+def _sf_mixed_calendar(x_planned_start: date | None = None) -> Project:
+    """The issue's repro: ``X(1d) -SF+2d-> M`` with M on a Mon-Thu calendar.
+
+    ``W(5d)`` ends the project at the end of Friday 2027-03-05. ``M`` at Saturday
+    midnight would read as the start of Monday on its calendar (Friday is not a
+    working day there) and move the finish, so its latest admissible instant is
+    Friday midnight, shown as the end of Thursday.
+    """
+    return Project(
+        "p",
+        "p",
+        date(2027, 3, 1),
+        [
+            Task("W", "W", timedelta(days=5)),
+            Task("X", "X", timedelta(days=1), planned_start=x_planned_start),
+            Task("M", "M", timedelta(0), calendar_id="four"),
+        ],
+        [Dependency("X", "M", dep_type=DependencyType.SF, lag=timedelta(days=2))],
+        Calendar(),
+        calendars={"four": Calendar(working_days=0b0001111)},
+    )
+
+
+def test_sf_into_milestone_on_its_own_calendar_float_is_not_overstated() -> None:
+    """X's TF is 2 (was 3): a three-day slip shows M on Monday, past the finish."""
+    result = schedule(_sf_mixed_calendar())
+    by = {t.id: t for t in result.tasks}
+    assert result.project_finish == date(2027, 3, 5)
+    assert by["X"].total_float == timedelta(days=2)
+    assert by["X"].late_start == date(2027, 3, 3)
+    assert by["M"].total_float == timedelta(days=2)
+
+
+def test_sf_into_milestone_sole_driver_is_critical_with_its_milestone() -> None:
+    """Slipped by its two days of float, X is critical together with M."""
+    result = schedule(_sf_mixed_calendar(date(2027, 3, 3)))
+    by = {t.id: t for t in result.tasks}
+    assert result.project_finish == date(2027, 3, 5)
+    assert by["X"].total_float == timedelta(0)
+    assert by["M"].total_float == timedelta(0)
+    assert by["X"].is_critical
+    assert by["M"].is_critical
+
+
+@pytest.mark.parametrize(
+    "x_planned_start", [None, date(2027, 3, 2), date(2027, 3, 3), date(2027, 3, 4)]
+)
+def test_sf_into_milestone_on_its_own_calendar_slip_oracle(x_planned_start: date | None) -> None:
+    _assert_slip_oracle(_sf_mixed_calendar(x_planned_start))
+
+
+def _sf_weekend_finish(lag_days: int) -> Project:
+    """One project calendar: ``X(1d) -SF+lag-> M`` beside W, done on a Saturday.
+
+    The API writes a weekend ``actual_finish`` whenever a card is closed on a
+    weekend, so ``project_finish`` is Saturday 2027-03-06 with no per-task
+    calendars. The end-of-day cap is Saturday midnight, shown Friday.
+    """
+    return Project(
+        "p",
+        "p",
+        date(2027, 3, 1),
+        [
+            Task(
+                "W",
+                "W",
+                timedelta(days=5),
+                actual_start=date(2027, 3, 1),
+                actual_finish=date(2027, 3, 6),
+            ),
+            Task("X", "X", timedelta(days=1)),
+            Task("M", "M", timedelta(0)),
+        ],
+        [Dependency("X", "M", dep_type=DependencyType.SF, lag=timedelta(days=lag_days))],
+        Calendar(),
+    )
+
+
+def test_sf_into_milestone_weekend_finish_critical_milestone_has_critical_driver() -> None:
+    """SF+5: M is critical, so its only driver X must be too (TF was reported 1)."""
+    result = schedule(_sf_weekend_finish(5))
+    by = {t.id: t for t in result.tasks}
+    assert result.project_finish == date(2027, 3, 6)
+    assert by["M"].total_float == timedelta(0)
+    assert by["X"].total_float == timedelta(0)
+    assert by["M"].is_critical
+    assert by["X"].is_critical
+
+
+@pytest.mark.parametrize("lag_days", [2, 3, 4, 5])
+def test_sf_into_milestone_weekend_finish_slip_oracle(lag_days: int) -> None:
+    _assert_slip_oracle(_sf_weekend_finish(lag_days))
+
+
+@st.composite
+def _sf_into_milestones_finishing_on_a_weekend(draw: st.DrawFn) -> Project:
+    """Work tasks linked SF (with a lag) into milestones beside a weekend finish."""
+    n = draw(st.integers(min_value=1, max_value=4))
+    tasks: list[Task] = []
+    deps: list[Dependency] = []
+    for i in range(n):
+        tasks.append(Task(f"X{i}", f"X{i}", timedelta(days=draw(st.sampled_from([1, 2, 3])))))
+        tasks.append(Task(f"M{i}", f"M{i}", timedelta(0)))
+        deps.append(
+            Dependency(
+                f"X{i}",
+                f"M{i}",
+                dep_type=DependencyType.SF,
+                lag=timedelta(days=draw(st.integers(min_value=0, max_value=12))),
+            )
+        )
+    weeks = draw(st.integers(min_value=1, max_value=2))
+    finish = MON + timedelta(days=7 * weeks + draw(st.sampled_from([4, 5, 6])))
+    tasks.append(
+        Task(
+            "Z",
+            "Z",
+            timedelta(days=3),
+            actual_start=finish - timedelta(days=4),
+            actual_finish=finish,
+        )
+    )
+    return Project("p", "p", MON, tasks, deps, Calendar())
+
+
+@pytest.mark.fuzz
+@given(_sf_into_milestones_finishing_on_a_weekend())
+def test_sf_into_milestone_total_float_is_the_slip_the_finish_absorbs(p: Project) -> None:
+    _assert_slip_oracle(p)
+
+
+@pytest.mark.parametrize(
+    "project",
+    [
+        _sf_mixed_calendar(),
+        _sf_mixed_calendar(date(2027, 3, 3)),
+        _sf_weekend_finish(4),
+        _sf_weekend_finish(5),
+    ],
+    ids=["mixed", "mixed-pinned", "weekend-sf4", "weekend-sf5"],
+)
+def test_sf_into_milestone_derivation_explains_the_engines_float(project: Project) -> None:
+    """``derive_value`` re-inverts the same link, so it must take the same cap (#4431).
+
+    ``derive.py`` carries its own copy of the backward pass's successor references;
+    capping only the engine's left the SF term imposing the old, overstated late
+    start while still being marked binding on a value it does not produce.
+    """
+    result = schedule(project)
+    x = next(t for t in result.tasks if t.id == "X")
+    derivation = derive_value(project, "X", Quantity.LATE_START, result)
+    assert str(derivation.value) == x.late_start.isoformat()
+    assert derivation.binding is not None
+    assert derivation.binding.kind == "successor_sf"
+    assert derivation.binding.imposed_date == x.late_start
+    total_float = derive_value(project, "X", Quantity.TOTAL_FLOAT, result)
+    assert str(total_float.value) == str(x.total_float.days)

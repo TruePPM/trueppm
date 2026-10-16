@@ -18,6 +18,16 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A start-to-finish link into a milestone no longer overstates its
+  predecessor's float (#4431).** #4344 capped the latest instant a milestone may
+  take for its finish-to-start and start-to-start predecessors, but an SF
+  predecessor still inverted against the uncapped instant. Where that instant
+  would show the milestone past `project_finish` — a milestone on its own
+  calendar that does not work the finish day, or a completed task with a weekend
+  `actual_finish` — the SF predecessor reported one working day too much
+  `total_float`, slipping it by that float moved the finish, and a critical
+  milestone could have a non-critical sole driver. Fixed in the Python engine and
+  the Rust/WASM engine alike.
 - **`perturb_task_duration` on an in-progress task now shifts remaining work
   only (#4432).** It shifted `duration` while holding `percent_complete`, so the
   elapsed share `floor(duration * pct / 100)` grew or shrank with the shift and
