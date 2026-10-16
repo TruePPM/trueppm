@@ -5460,9 +5460,13 @@ class _McIndex:
         The index starts at the project start, but a milestone at the start of the
         project measures SF links, and FF links with no lag or a lead, from the
         working day *before* it (#4273), so a lookup
-        that falls off the front is resolved against the calendar itself.
+        that falls off the front is resolved against the calendar itself. An ordinal
+        past the index end raises (#4429): the index cannot tell whether a working
+        day lies between its last entry and the ordinal, so ``wd[-1]`` would be a guess.
         """
         wd = self.wd_ord_of_col[col]
+        if ordinals.size and int(ordinals.max()) > int(wd[-1]):
+            _raise_mc_index_overrun()
         raw_idx = np.searchsorted(wd, ordinals, side="right") - 1
         out = np.asarray(wd[np.clip(raw_idx, 0, len(wd) - 1)], dtype=np.int64)
         before = raw_idx < 0

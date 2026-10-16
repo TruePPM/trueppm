@@ -337,6 +337,9 @@ class TestIndexOverrunIsRefused:
             idx.next_wd_offset(0, past)
         with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
             idx.ordinal_at(0, np.array([5.0]))
+        assert idx.prev_wd_ordinal(0, _WD_ORD[-1:]).tolist() == [int(_WD_ORD[-1])]
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            idx.prev_wd_ordinal(0, past)
 
     def test_lag_delta_snap_past_the_successor_index_is_refused(self) -> None:
         # FS +10 from the last cells snaps past a 5-day index: stored as the overrun
