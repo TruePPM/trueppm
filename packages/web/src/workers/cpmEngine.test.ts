@@ -421,6 +421,38 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
       expect(byId('B').earlyFinish).toBe('2026-01-07');
     });
 
+    it('keeps a milestone completed WITH actuals an instant its successor reads at the start of its day', () => {
+      // #4433, the with-actuals sibling of the case above. COMPLETE stamps
+      // `actual_finish`, and the server now keeps such a milestone an instant
+      // at the start of that day too — so B starts on M's day, not the day
+      // after. Before, the preview read M as ordinary work and put B a working
+      // day later than the server would on commit.
+      const m = {
+        ...task('M', '2026-01-05', '2026-01-05', {
+          isMilestone: true,
+          isComplete: true,
+          durationDays: 0,
+          actualFinish: '2026-01-05',
+        }),
+        milestoneAtDayEnd: false,
+      };
+      const tasks: CpmTask[] = [
+        task('P', '2026-01-05', '2026-01-09'),
+        m,
+        task('B', '2026-01-05', '2026-01-07'),
+      ];
+      const edges: CpmEdge[] = [edge('P', 'M', 'FS'), edge('M', 'B', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-03-02');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('M').earlyStart).toBe('2026-01-05');
+      expect(byId('M').deltaDays).toBe(0);
+      expect(byId('B').earlyStart).toBe('2026-01-05');
+      expect(byId('B').earlyFinish).toBe('2026-01-07');
+      expect(byId('B').deltaDays).toBe(0);
+    });
+
     it('still moves a complete-without-actuals task when it is the drag target', () => {
       // The drop lands as `planned_start`, which the server's pin honors for a
       // task with no actuals — so unlike an actuals-pinned task, it moves, keeps

@@ -2711,6 +2711,79 @@ class TestCompletedNoActualsIsPinned:
         for tid in ("P", "B"):
             assert _float_slip_oracle(p, tid) == (True, True), tid
 
+    @pytest.mark.parametrize(
+        "milestone",
+        [
+            pytest.param({"planned_start": date(2027, 3, 3)}, id="live-snet"),
+            pytest.param({"actual_start": date(2027, 3, 3)}, id="live-actual-start"),
+            pytest.param(
+                {"planned_start": date(2027, 3, 3), "percent_complete": 100.0},
+                id="done-no-actuals",
+            ),
+            pytest.param(
+                {"actual_start": date(2027, 3, 3), "actual_finish": date(2027, 3, 3)},
+                id="done-actual-start-and-finish",
+            ),
+            pytest.param({"actual_finish": date(2027, 3, 3)}, id="done-actual-finish-only"),
+        ],
+    )
+    def test_a_completed_milestone_with_actuals_stays_an_instant(
+        self, milestone: dict[str, object]
+    ) -> None:
+        """#4433, the with-actuals sibling of #4343. ``M(0) -> B(2) -> C(3)``,
+        project start Mon 03-01, data date Wed 03-03; M is reached on Wed and the
+        variants differ only in how that is recorded. Every one must place B on
+        Wed..Thu and finish Tue 03-09 — recording ``actual_finish`` (what the API's
+        ``COMPLETE`` does) used to drop M to ordinary work and slip B, and the
+        project finish, a working day to Wed 03-10."""
+        wed = date(2027, 3, 3)
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2027, 3, 1),
+            status_date=wed,
+            tasks=[
+                Task(id="M", name="M", duration=timedelta(0), **milestone),  # type: ignore[arg-type]
+                Task(id="B", name="B", duration=timedelta(days=2)),
+                Task(id="C", name="C", duration=timedelta(days=3)),
+            ],
+            dependencies=[Dependency("M", "B"), Dependency("B", "C")],
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert (by_id["M"].early_start, by_id["M"].early_finish) == (wed, wed)
+        assert by_id["M"].milestone_at_day_end is False
+        assert (by_id["B"].early_start, by_id["B"].early_finish) == (wed, date(2027, 3, 4))
+        assert r.project_finish == date(2027, 3, 9)
+        # Zero variance: Monte Carlo reads the same instant through _completed_dates,
+        # so every run lands on the deterministic finish.
+        mc = monte_carlo(p, runs=20, seed=0)
+        assert mc.p50 == mc.p95 == r.project_finish
+
+    def test_a_completed_milestone_with_actuals_ignores_its_snet(self) -> None:
+        """Actuals are truth: a completed milestone with a recorded ``actual_finish``
+        is linked from that day, not from a later ``planned_start`` (#4433). The
+        no-actuals branch lets the SNET bind the link (#4225); a recorded close
+        overrides it, exactly as it overrides the pinned span."""
+        p = make_project(
+            tasks=[
+                task(
+                    "M",
+                    "M",
+                    0,
+                    percent_complete=100.0,
+                    planned_start=date(2026, 3, 9),
+                    actual_finish=date(2026, 3, 4),
+                ),
+                task("B", "B", 2),
+            ],
+            dependencies=[Dependency("M", "B")],
+            start=date(2026, 3, 2),
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["M"].early_start == by_id["M"].early_finish == date(2026, 3, 4)
+        assert by_id["B"].early_start == date(2026, 3, 4)
+
     def test_snet_pins_a_completed_task_past_its_predecessor_independent_of_it(
         self,
     ) -> None:

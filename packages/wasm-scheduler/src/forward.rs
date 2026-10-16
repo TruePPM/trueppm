@@ -364,8 +364,8 @@ fn apply_ef_constraints(
 /// Zero-duration tasks scheduled through the network are placed as instants
 /// (#4079, `place_milestone`); the returned [`MilestoneInstants`] holds each
 /// one's shown and link [`Instant`] by node index (`None` for ordinary work and
-/// for tasks pinned by actuals; a completed milestone with no actuals keeps its
-/// instant, #4343), which the backward pass and float computation
+/// for completed tasks with work; a completed milestone keeps its instant, with
+/// actuals #4433 or without #4343), which the backward pass and float computation
 /// read to invert the same rule.
 ///
 /// Tasks are carried in a `Vec<Task>` indexed by node position (#1535); each
@@ -404,8 +404,9 @@ pub fn forward_pass(
             let t = &mut tasks[i];
             t.early_start = Some(es);
             t.early_finish = Some(ef);
-            if t.duration_days() == 0 && t.actual_start.is_none() && t.actual_finish.is_none() {
-                // A completed milestone with no actuals stays an instant (#4343).
+            if t.duration_days() == 0 {
+                // A completed milestone stays an instant, with actuals (#4433) or
+                // without (#4343).
                 let (shown, link) = pinned_milestone_instant(t, node_cal, es)?;
                 instants[i] = Some(shown);
                 links[i] = Some(link);
@@ -603,19 +604,26 @@ fn pinned_placement(
     Ok(Some((es, finish_from_start(es, full_days, calendar)?)))
 }
 
-/// `(shown, link)` for a completed milestone with no actuals, pinned on `day` (#4343).
+/// `(shown, link)` for a completed milestone pinned on `day` (#4343, #4433).
 ///
 /// Pinning takes the milestone out of the network but not out of being a
-/// milestone: it is an instant at the start of `day`, as a live milestone with no
-/// links is, so a successor reads it at that midnight rather than at the end of
-/// the day. The pair is what `place_milestone` returns with no predecessors: the
-/// SNET binds `link`; the project start only bounds where it is shown (#4225).
+/// milestone: it is an instant at the start of its day, as a live milestone with
+/// no links is, so a successor reads it at that midnight rather than at the end
+/// of the day. With actuals recorded the instant is the recorded day
+/// (`actual_finish`, else `actual_start`), both shown and linked from — actuals
+/// are truth, so the SNET no longer binds (#4433). With none, the pair is what
+/// `place_milestone` returns with no predecessors on `day`: the SNET binds
+/// `link`; the project start only bounds where it is shown (#4225).
 /// Mirrors the Python `_pinned_milestone_instant`.
 fn pinned_milestone_instant(
     task: &Task,
     calendar: &Calendar,
     day: NaiveDate,
 ) -> Result<(Instant, Instant), String> {
+    if let Some(recorded) = task.actual_finish.or(task.actual_start) {
+        let actual = (recorded, true);
+        return Ok((actual, actual));
+    }
     let shown = (day, true);
     match task.planned_start {
         None => Ok((shown, shown)),
