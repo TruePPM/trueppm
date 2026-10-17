@@ -277,6 +277,7 @@ class Task:
             d["total_float"] = _parse_timedelta(d.get("total_float", 0))
             d["free_float"] = _parse_timedelta(d.get("free_float", 0))
             _check_finite(d, "percent_complete")
+            _check_percent_range(d)
             _check_finite(d, "story_points")
             _coerce_task_dates(d)
             _coerce_pert_durations(d)
@@ -304,6 +305,17 @@ def _require_str(d: dict[str, Any], field_name: str, owner: str) -> None:
             f"{owner} {field_name} must be a string (got {type(d[field_name]).__name__}: "
             f"{d[field_name]!r})."
         )
+
+
+def _check_percent_range(d: dict[str, Any]) -> None:
+    """Reject a ``percent_complete`` outside [0, 100] (#4513).
+
+    Mirrors the engine's ``_validate_task_numerics`` so the document path refuses at
+    parse time, as it already does for a non-finite value.
+    """
+    value = d.get("percent_complete")
+    if value is not None and not 0 <= float(value) <= 100:
+        raise ValueError("percent_complete must be between 0 and 100.")
 
 
 def _check_finite(d: dict[str, Any], field_name: str) -> None:

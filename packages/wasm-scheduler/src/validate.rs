@@ -216,7 +216,21 @@ fn validate_tasks(project: &Project) -> Result<(), String> {
         }
         check_pert_ordering(t)?;
         check_actual_ordering(t)?;
+        check_percent_complete_range(t)?;
         check_planned_start_bound(t, project.start_date)?;
+    }
+    Ok(())
+}
+
+/// `percent_complete` must lie in [0, 100] (#4513, mirrors Python's
+/// `_validate_task_numerics`). Both passes clamp an out-of-range value, so a
+/// sign-flipped or x100 import bug would otherwise schedule plausibly and silently.
+fn check_percent_complete_range(t: &Task) -> Result<(), String> {
+    if !(0.0..=100.0).contains(&t.percent_complete) {
+        return Err(format!(
+            "Task {:?} percent_complete must be between 0 and 100 (got {}).",
+            t.id, t.percent_complete
+        ));
     }
     Ok(())
 }
@@ -636,6 +650,22 @@ mod tests {
     fn rejects_negative_duration() {
         let p = project(vec![task("A", -1)], vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn percent_complete_range_is_enforced() {
+        for bad in [-1.0, 100.01, 150.0, 1e6] {
+            let mut t = task("A", 1);
+            t.percent_complete = bad;
+            let p = project(vec![t], vec![], Calendar::default());
+            assert!(validate_project(&p).is_err(), "{bad} must be rejected");
+        }
+        for ok in [0.0, 50.0, 100.0] {
+            let mut t = task("A", 1);
+            t.percent_complete = ok;
+            let p = project(vec![t], vec![], Calendar::default());
+            assert!(validate_project(&p).is_ok(), "{ok} must be accepted");
+        }
     }
 
     #[test]
