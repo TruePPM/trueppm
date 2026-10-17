@@ -129,7 +129,7 @@ executable documentation:
 | `01-cpm-quickstart.ipynb` | Project definition, CPM, float table, cycle detection |
 | `02-monte-carlo.ipynb` | PERT estimates, Monte Carlo, P50/P80/P95 |
 | `03-calendar-aware.ipynb` | Custom working weeks, holiday exceptions, lag |
-| `04-incremental-scheduling.ipynb` | Incremental CPM, fallback behaviour, bench targets |
+| `04-performance-bench.ipynb` | Full-recompute benchmark, determinism check, bench target |
 
 Run them locally:
 
@@ -185,9 +185,10 @@ packages/scheduler/
    `seed` is provided. Do not introduce sources of non-determinism outside the
    PERT sampler.
 
-4. **Incremental results must match full recompute.** Any change to the
-   incremental path must pass `tests/test_incremental_equivalence.py`, which
-   asserts result equality across 1000 random scenarios.
+4. **Incremental results must match full recompute.** There is no incremental
+   path today; `schedule()` always recomputes the whole project. If one lands
+   (ADR-0027, #235), it must produce results identical to a full recompute,
+   enforced by a randomized equivalence test.
 
 ## Commit and MR conventions
 
