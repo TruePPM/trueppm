@@ -129,7 +129,7 @@ executable documentation:
 | `01-cpm-quickstart.ipynb` | Project definition, CPM, float table, cycle detection |
 | `02-monte-carlo.ipynb` | PERT estimates, Monte Carlo, P50/P80/P95 |
 | `03-calendar-aware.ipynb` | Custom working weeks, holiday exceptions, lag |
-| `04-incremental-scheduling.ipynb` | Incremental CPM, fallback behaviour, bench targets |
+| `04-performance-bench.ipynb` | Full-recompute benchmark, determinism check, bench target |
 
 Run them locally:
 
