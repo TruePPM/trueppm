@@ -126,6 +126,11 @@ export interface ProgramSchedule {
  *   which the page renders as the empty state from `tasks.length === 0`. This
  *   mapping exists so that if a 409 is ever introduced it degrades to the empty
  *   state rather than a hard error.
+ * - `throttled` (429): the per-account `program_schedule` rate limit. Each read
+ *   runs a merged CPM pass on the server, so it is bounded (#2839). Transient: the
+ *   page keeps the last schedule it loaded and the next live update (or a manual
+ *   refresh) retries. Not auto-retried, since an immediate retry would hit the
+ *   same full bucket.
  * - `unknown`: network / 5xx — render a retryable inline error.
  */
 export type ProgramScheduleErrorKind =
@@ -133,6 +138,7 @@ export type ProgramScheduleErrorKind =
   | 'too-large'
   | 'invalid-input'
   | 'forbidden'
+  | 'throttled'
   | 'unknown';
 
 /** Machine-readable body shape of a `program_schedule_invalid_input` 422 (#1981). */
@@ -165,6 +171,8 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
           : 'too-large';
       case 403:
         return 'forbidden';
+      case 429:
+        return 'throttled';
       default:
         return 'unknown';
     }
@@ -176,6 +184,28 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
  * Extract the structured invalid-input body (offending project/task) from an
  * axios error, or `null` if it is not a `program_schedule_invalid_input` 422.
  */
+/** Longest wait before the automatic refetch after a 429 (also the default). */
+export const THROTTLED_REFETCH_MAX_MS = 60_000;
+
+/**
+ * Milliseconds to wait before the one automatic refetch after a throttled (429)
+ * read (#2839), or `null` when `error` is not a 429.
+ *
+ * A 429 is not retried by the query (an immediate retry hits the same full
+ * bucket), and DRF's sliding window does not count refused requests, so once a
+ * burst of edits ends nothing else would ever refresh a chart left showing
+ * "live updates paused". Honors the server's `Retry-After` (seconds), capped at
+ * {@link THROTTLED_REFETCH_MAX_MS}; an absent or unparseable header waits the cap.
+ */
+export function throttledRefetchDelayMs(error: unknown): number | null {
+  if (!isAxiosError(error) || error.response?.status !== 429) return null;
+  const headers = error.response.headers as Record<string, unknown> | undefined;
+  const raw = headers?.['retry-after'];
+  const seconds = typeof raw === 'string' || typeof raw === 'number' ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(seconds) || seconds < 0) return THROTTLED_REFETCH_MAX_MS;
+  return Math.min(Math.ceil(seconds * 1000), THROTTLED_REFETCH_MAX_MS);
+}
+
 export function getProgramScheduleInvalidInput(
   error: unknown,
 ): ProgramScheduleInvalidInputDetail | null {
@@ -197,9 +227,7 @@ export function getProgramScheduleInvalidInput(
  * 409/422/403 are surfaced via {@link classifyProgramScheduleError}; the query
  * does not retry on those (they are stable states, not transient failures).
  */
-export function useProgramSchedule(
-  programId: string | undefined,
-): UseQueryResult<ProgramSchedule> {
+export function useProgramSchedule(programId: string | undefined): UseQueryResult<ProgramSchedule> {
   return useQuery({
     queryKey: ['programs', programId, 'schedule'],
     queryFn: async () => {

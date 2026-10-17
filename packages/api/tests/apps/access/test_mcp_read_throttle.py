@@ -232,3 +232,21 @@ def test_human_session_not_compute_throttled(
         assert statuses == [404] * 3, statuses
     finally:
         cache.clear()
+
+
+def test_compute_heavy_action_stacks_only_on_that_action() -> None:
+    """``mcp_compute_heavy_actions`` puts one viewset action on the compute bucket (#2839).
+
+    ``ProgramViewSet.schedule`` runs a merged-program CPM pass per read; its cheap
+    CRUD siblings must stay on the baseline bucket alone.
+    """
+    from trueppm_api.apps.projects.program_views import ProgramViewSet
+
+    def throttle_types(action: str) -> set[type]:
+        view = ProgramViewSet()
+        view.action = action
+        return {type(t) for t in view.get_throttles()}
+
+    assert McpTokenComputeThrottle in throttle_types("schedule")
+    assert McpTokenComputeThrottle not in throttle_types("retrieve")
+    assert McpTokenReadThrottle in throttle_types("retrieve")

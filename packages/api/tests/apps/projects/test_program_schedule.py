@@ -509,3 +509,31 @@ def test_schedule_lane_duration_is_working_days_across_its_span(calendar: Calend
 
     lanes = {lane["id"]: lane for lane in resp.data["projects"]}
     assert lanes[str(proj.pk)]["duration"] == 5
+
+
+@pytest.mark.django_db
+def test_schedule_is_throttled_per_account(
+    calendar: Calendar, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each read runs a merged CPM pass, so a human caller has a dedicated bucket (#2839).
+
+    The rate is patched on the shared ``THROTTLE_RATES`` dict (DRF binds it at
+    import, so a settings override never reaches it); the cache holds the history.
+    """
+    from django.core.cache import cache
+    from rest_framework.throttling import SimpleRateThrottle
+
+    program, *_ = _program_with_cross_edge(calendar, accepted=True)
+    user = User.objects.create_user(username="pm_throttle", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    monkeypatch.setitem(SimpleRateThrottle.THROTTLE_RATES, "program_schedule", "2/min")
+    cache.clear()
+    try:
+        client = _client(user)
+        url = f"/api/v1/programs/{program.pk}/schedule/"
+        statuses = [client.get(url).status_code for _ in range(3)]
+        assert statuses == [200, 200, 429]
+        # The bucket is the schedule action's alone: a plain program read is unaffected.
+        assert client.get(f"/api/v1/programs/{program.pk}/").status_code == 200
+    finally:
+        cache.clear()

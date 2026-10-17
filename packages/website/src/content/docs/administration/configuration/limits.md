@@ -46,6 +46,14 @@ A few behaviors are worth knowing:
   keep only that specific limit; the general default does not add to it.
 - **Exceeding a limit returns `429 Too Many Requests`** with a standard
   `Retry-After` header telling the client how many seconds to wait.
+- **Reads that run the scheduling engine have their own, lower limits.** The
+  schedule derivation (`TRUEPPM_THROTTLE_CPM_ON_READ_RATE`, 60/min) and the merged
+  program schedule (`TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE`, 60/min) recompute the
+  critical path on every call. A program schedule read at the 5,000-task program
+  limit took about 470 ms in testing, so one account at 60/min keeps about half a
+  CPU core busy at most. At the general 1000/min limit it would be nearly eight
+  cores. Lower these rates further on small API workers. See
+  [Optional and advanced settings](/administration/configuration/advanced/).
 
 The throttle count lives in the configured cache (Valkey/Redis in production),
 so the limit is shared across all API replicas rather than per-process.
@@ -128,11 +136,12 @@ throttles apply:
 | Variable | Default | Buckets by | Applies to |
 |----------|---------|------------|------------|
 | `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | API token | Every MCP-readable endpoint |
-| `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | API token | The four compute-heavy tools only |
+| `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | API token | The compute-heavy reads only |
 
-The four **compute-heavy** tools — what-if, latest Monte Carlo, forecast, and
-sprint-forecast — each run a CPM + Monte Carlo recompute per call, so they stack
-the tighter `mcp_read_compute` bucket **on top of** the baseline `mcp_read` one.
+The **compute-heavy** reads — what-if, latest Monte Carlo, forecast,
+sprint-forecast, the schedule derivation (the "why" behind a computed date), and
+the merged program schedule — each run a CPM or Monte Carlo pass per call, so
+they stack the tighter `mcp_read_compute` bucket **on top of** the baseline `mcp_read` one.
 A token calling one of them is bounded by whichever limit it hits first.
 
 A few behaviors are worth knowing:
@@ -369,7 +378,7 @@ rejected with a `400` naming the field.
 ## Monte Carlo simulation caps
 
 The Community (OSS) tier bounds [Monte Carlo risk analysis](/features/monte-carlo/)
-with three caps. Like the email settings above, these are **Django settings
+with the caps below. Like the email settings above, these are **Django settings
 constants, not environment variables** — override them in a Django settings
 module; setting bare env vars of the same name has no effect. The Enterprise
 edition raises or removes them.
@@ -379,6 +388,8 @@ edition raises or removes them.
 | `MC_SIMULATION_CAP` | `1000` | Maximum simulation runs (iterations) per request. The Monte Carlo run endpoint rejects an `n_simulations` above this. |
 | `MC_TASK_CAP` | `5000` | Largest project — by task count — Monte Carlo will run on. The vectorized NumPy path handles 5000 tasks × 1000 runs in a few seconds; a larger project is refused rather than run unbounded. |
 | `MC_LAG_DELTA_CELL_CAP` | `5000000` | Ceiling on the lag-delta table a synchronous Monte Carlo request may build: distinct dependency type/lag combinations × the project's working-day span, at 4 bytes per cell (5M cells is about 20 MB). A project with too many distinct lag values for its span is refused with HTTP 400 rather than allowed to spike API memory. Set to `None` to fall back to the scheduler library's 50M-cell default. |
+| `MC_CELL_CAP` | `2500000` | Ceiling on **runs × tasks** for one synchronous simulation. The two caps above bound each dimension, but memory and run time follow their product: a 5,000-task × 1,000-run simulation (5M cells) peaks around 234 MB of NumPy working set (about 336 MB of process memory), on the API worker that also serves every WebSocket, and a what-if runs two in a row. At 2.5M cells, a project of up to 2,500 tasks still gets the full 1,000 runs, and a 5,000-task project gets 500. When `n_simulations` is omitted, the run uses the largest count that fits, and the response's `runs` field reports the count actually simulated. An explicit `n_simulations` above that count is refused with HTTP 400 (`simulation_cell_cap_exceeded`, carrying `max_runs`), never quietly reduced. Set to `None` for no product cap. |
+| `MC_MAX_CONCURRENT` | `2` | Monte Carlo simulations one API process runs at once. Concurrent requests run on separate threads, so without a bound their memory stacks. A request waits up to 10 seconds for a free slot, then gets HTTP 503 (`simulation_busy`) with a `Retry-After` header. The limit applies per process, so N API workers admit up to N × this value. Set to `None` for no limit. |
 | `MC_HISTORY_CAP` | `100` | Forecast-history rows kept per project. The nightly purge trims each project to its newest `MC_HISTORY_CAP` `MonteCarloRun` rows. |
 
 :::note[Added in 0.3]
@@ -389,6 +400,14 @@ Monte Carlo engine landed in 0.1.
 
 Set any cap to `None` for unlimited — the Enterprise default, where unbounded
 forecast history plus cross-program rollup is part of the portfolio tier.
+`MC_CELL_CAP` and `MC_MAX_CONCURRENT` are the exception. They protect the API
+worker's memory rather than gating a tier, so size them to your hardware. In the
+measured 5M-cell run, the NumPy working set was about 234 MB (about 47 bytes per
+cell), and the process's peak resident memory was about 336 MB (about 67 bytes per
+cell). Container memory limits
+apply to resident memory, so size against the larger figure: keep `MC_CELL_CAP` ×
+67 bytes × `MC_MAX_CONCURRENT` well inside the API container's memory limit,
+leaving room for everything else the worker holds.
 Operators on constrained hardware can lower `MC_TASK_CAP` to keep simulations
 cheap.
 

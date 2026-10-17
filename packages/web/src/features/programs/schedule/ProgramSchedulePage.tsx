@@ -16,6 +16,7 @@ import { useProgram } from '@/hooks/useProgram';
 import {
   useProgramSchedule,
   classifyProgramScheduleError,
+  throttledRefetchDelayMs,
   getProgramScheduleInvalidInput,
   type ProgramScheduleExternalTask,
 } from '../hooks/useProgramSchedule';
@@ -97,6 +98,20 @@ export function ProgramSchedulePage() {
     engine?.rowMetricsChanged();
   }, [engine, rowHeight]);
 
+  // After a 429, refetch once when the server says the window has room again
+  // (#2839). Nothing else would: the query does not retry a 429, and once a
+  // burst of edits ends no live event arrives to invalidate. Keyed on the error
+  // object, so each throttled response schedules exactly one follow-up; refetch
+  // is read through a ref so a re-render cannot restart the wait.
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const delay = throttledRefetchDelayMs(error);
+    if (delay === null) return;
+    const timer = setTimeout(() => void refetchRef.current(), delay);
+    return () => clearTimeout(timer);
+  }, [error]);
+
   const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
   useEffect(() => {
     if (!engine) return;
@@ -146,6 +161,10 @@ export function ProgramSchedulePage() {
     );
   }
 
+  // A 429 on a refetch is transient (#2839): keep charting the schedule already
+  // loaded instead of replacing it with an error, and say the view is not live.
+  const staleOnThrottle = !!error && !!data && classifyProgramScheduleError(error) === 'throttled';
+
   const header = (
     <div className="shrink-0 border-b border-neutral-border px-4 py-2">
       <div className="flex items-center justify-between gap-4">
@@ -174,22 +193,46 @@ export function ProgramSchedulePage() {
             </p>
           )}
         </div>
-        {data && data.tasks.length > 0 && (
-          <ZoomControl onFit={() => engine?.fitToProject()} />
-        )}
+        {data && data.tasks.length > 0 && <ZoomControl onFit={() => engine?.fitToProject()} />}
       </div>
       {data && data.tasks.length > 0 && (
         <div className="mt-2">
           <ProgramScheduleLegend hasExternalTasks={externalById.size > 0} />
         </div>
       )}
+      {/* Throttled-refetch notice (#2839). The live region is mounted permanently
+          and collapses to `sr-only` when empty (web rule 429, as OfflineBanner):
+          a region mounted at the same instant as its text is not reliably
+          announced (#2203). Only the message is inside it, so the Refresh label
+          flipping to "Refreshing…" is not re-announced. Deliberately quieter than
+          the shell's tinted banners: it is page-scoped and the chart is still
+          usable, only not live. */}
+      <div
+        className={staleOnThrottle ? 'mt-2 flex items-center gap-3' : undefined}
+        data-testid="program-schedule-throttle-notice"
+      >
+        <p
+          role="status"
+          aria-live="polite"
+          className={staleOnThrottle ? 'text-[13px] text-neutral-text-secondary' : 'sr-only'}
+        >
+          {staleOnThrottle
+            ? 'Live updates are paused for a moment. Showing the last loaded schedule.'
+            : null}
+        </p>
+        {staleOnThrottle && (
+          <Button variant="secondary" onClick={() => void refetch()} disabled={isRefetching}>
+            {isRefetching ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
   let body: ReactNode;
   if (isLoading) {
     body = <LoadingSkeleton />;
-  } else if (error) {
+  } else if (error && !staleOnThrottle) {
     body = (
       <ProgramScheduleErrorBody
         error={error}
@@ -256,9 +299,7 @@ export function ProgramSchedulePage() {
             />
           </div>
         </div>
-        {hovered && (
-          <ExternalTaskHoverCard task={hovered.task} x={hovered.x} y={hovered.y} />
-        )}
+        {hovered && <ExternalTaskHoverCard task={hovered.task} x={hovered.x} y={hovered.y} />}
         {/* Live updates: one socket per member project → invalidate this query. */}
         <ProgramScheduleLiveSync programId={programId ?? ''} projectIds={memberProjectIds} />
       </div>
@@ -333,7 +374,10 @@ function ProgramScheduleErrorBody({
         title="This program is too large to chart live"
         description="This program has more tasks than the live program schedule can compute on demand. Open an individual project's schedule to view its critical path."
         action={
-          <Button variant="secondary" onClick={() => void navigate(`/programs/${programId}/projects`)}>
+          <Button
+            variant="secondary"
+            onClick={() => void navigate(`/programs/${programId}/projects`)}
+          >
             Go to Projects
           </Button>
         }
@@ -343,6 +387,19 @@ function ProgramScheduleErrorBody({
 
   if (kind === 'invalid-input') {
     return <InvalidInputEmptyState error={error} programId={programId} navigate={navigate} />;
+  }
+
+  if (kind === 'throttled') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6">
+        <p role="alert" className="text-sm text-neutral-text-secondary">
+          The program schedule is being refreshed too often. Try again in a moment.
+        </p>
+        <Button variant="secondary" onClick={() => void refetch()} disabled={isRefetching}>
+          {isRefetching ? 'Retrying…' : 'Retry'}
+        </Button>
+      </div>
+    );
   }
 
   if (kind === 'forbidden') {
@@ -406,7 +463,10 @@ function InvalidInputEmptyState({
             Open {projectName ?? 'project'} schedule
           </Button>
         ) : (
-          <Button variant="secondary" onClick={() => void navigate(`/programs/${programId}/projects`)}>
+          <Button
+            variant="secondary"
+            onClick={() => void navigate(`/programs/${programId}/projects`)}
+          >
             Go to Projects
           </Button>
         )

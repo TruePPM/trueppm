@@ -72,6 +72,7 @@ from trueppm_api.apps.scheduling.forecast_staleness import (
     forecast_staleness_for_payload,
     forecast_staleness_from_run,
 )
+from trueppm_api.apps.scheduling.mc_admission import admit_runs, busy_response, simulation_slot
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     FailedTaskStatus,
@@ -629,7 +630,26 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
         ),
         400: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
-            description="Cyclic dependency, invalid input, or out-of-range project span.",
+            description=(
+                "Cyclic dependency, invalid input, or out-of-range project span; or "
+                "an explicit n_simulations whose runs x tasks product exceeds "
+                "MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, "
+                "message, max_runs, task_count}, where max_runs is the largest count "
+                "this project admits. An omitted n_simulations is never refused for "
+                "size: it runs max_runs iterations and the 200 body's `runs` reports "
+                "the count actually simulated."
+            ),
+            examples=[
+                OpenApiExample(
+                    "simulation_cell_cap_exceeded",
+                    value={
+                        "error": "simulation_cell_cap_exceeded",
+                        "message": "1000 simulation runs over 5000 tasks exceeds ...",
+                        "max_runs": 500,
+                        "task_count": 5000,
+                    },
+                ),
+            ],
         ),
         402: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
@@ -659,6 +679,14 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
         404: OpenApiResponse(
             response=OpenApiTypes.OBJECT,
             description="Project does not exist.",
+        ),
+        503: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "This API process is already running MC_MAX_CONCURRENT simulations "
+                "and none finished within the wait window (#2839). Body {error: "
+                "simulation_busy, message}; retry after the Retry-After header."
+            ),
         ),
     },
 )
@@ -695,8 +723,8 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     span, not with runs, and was the one factor no request cap bounded (a project
     inside every other cap peaked near 630 MB), so it is now capped at
     MC_LAG_DELTA_CELL_CAP and the table stays at ~20 MB per simulation.
-    Concurrent-request admission across a pod is a separate concern (#2839).
-    A project that breaches the edge
+    Concurrent-request admission is bounded per process by MC_MAX_CONCURRENT
+    (#2839, below). A project that breaches the edge
     cap is rejected as InvalidScheduleInput (a ValueError) and surfaces below as a
     clean 400 rather than a stalled worker.
 
@@ -707,14 +735,23 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     until ``monte_carlo()`` is already called. Without that, the expensive per-edge
     step would run ahead of the cheap guard that is supposed to bound it.
 
+    The per-dimension caps still let ``runs x tasks`` reach 5M cells (~234 MB traced
+    per simulation), so admission also caps that product (MC_CELL_CAP) and the
+    simulations one process runs at once (MC_MAX_CONCURRENT) — see
+    ``mc_admission`` (#2839).
+
     Request body (all optional):
-        n_simulations (int): Number of simulation runs. Defaults to
-            settings.MC_SIMULATION_CAP. Must not exceed the cap.
+        n_simulations (int): Number of simulation runs. Defaults to the largest
+            count this project's size admits — settings.MC_SIMULATION_CAP, or
+            fewer under MC_CELL_CAP on a large project; the response's ``runs``
+            reports the count simulated. An explicit value is honored exactly or
+            refused; it must not exceed either cap.
 
     Returns 200 on success, 402 if the OSS simulation cap is exceeded,
     400 if the schedule input is invalid (e.g. the dependency-edge cap is
-    breached), 404 if the project does not exist, 403 if the caller lacks
-    read access.
+    breached) or an explicit n_simulations breaches MC_CELL_CAP, 503 if the
+    process has no free simulation slot, 404 if the project does not exist,
+    403 if the caller lacks read access.
     """
     from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
     from trueppm_scheduler.models import Project as SchedProject
@@ -753,6 +790,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # documented as fully optional, so fall back to the default rather than
     # letting None.get(...) raise AttributeError → 500 (#2310).
     body = request.data if isinstance(request.data, dict) else {}
+    # Absent means "the admissible maximum for this project's size" (#2839), which
+    # `admit_runs` resolves once the network size is known; an explicit value is
+    # honored exactly or refused, never silently shrunk.
+    n_explicit = "n_simulations" in body
     raw_n = body.get("n_simulations", cap or 1_000)
     # int() coerces without raising on a JSON bool (bool is an int subtype) or a
     # JSON float (silently truncated) — neither is the documented integer
@@ -848,6 +889,13 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # substitution happened inline and was never recorded anywhere.
     mc_status_date = project.status_date or timezone.localdate()
 
+    # runs x n_tasks admission (#2839): the per-dimension caps let the product reach
+    # 5M cells (~234 MB traced per simulation); MC_CELL_CAP bounds the product.
+    admission = admit_runs(len(graph.tasks), n_simulations if n_explicit else None)
+    if admission.refusal is not None:
+        return admission.refusal
+    n_simulations = admission.runs
+
     sched_project = SchedProject(
         id=str(project.pk),
         name=project.name,
@@ -863,14 +911,18 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     try:
         # Manual Monte Carlo span (#709): times the simulation inline in the request
         # cycle and records the run count; a no-op span unless OTel is configured.
-        with monte_carlo_span(pk, simulation_count=n_simulations):
-            mc_result = monte_carlo(
-                sched_project,
-                runs=n_simulations,
-                max_runs=cap,
-                max_tasks=settings.MC_TASK_CAP,
-                **_mc_lag_delta_kwargs(),
-            )
+        # The slot bounds how many simulations this process runs at once (#2839).
+        with simulation_slot() as admitted:
+            if not admitted:
+                return busy_response()
+            with monte_carlo_span(pk, simulation_count=n_simulations):
+                mc_result = monte_carlo(
+                    sched_project,
+                    runs=n_simulations,
+                    max_runs=cap,
+                    max_tasks=settings.MC_TASK_CAP,
+                    **_mc_lag_delta_kwargs(),
+                )
     except SimulationCapExceeded as exc:
         return Response(
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
@@ -1280,7 +1332,14 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             OpenApiParameter(
                 "n_simulations",
                 OpenApiTypes.INT,
-                description="Monte Carlo iterations; defaults to MC_SIMULATION_CAP, capped there.",
+                description=(
+                    "Monte Carlo iterations. Defaults to the largest count this "
+                    "project's size admits: MC_SIMULATION_CAP, or fewer under "
+                    "MC_CELL_CAP (runs x tasks) on a large project — `runs` in the "
+                    "response reports the count simulated. An explicit value is "
+                    "honored exactly or refused (402 above MC_SIMULATION_CAP, 400 "
+                    "above the size-derived maximum)."
+                ),
             ),
         ],
         responses={
@@ -1295,7 +1354,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, "
                     "positive = later/worse, null when a date is missing; every field is measured "
                     "in working time (#4178, #4204), so a finish that only moves from the end of "
-                    "a Friday to the start of the next Monday is 0); runs (n_simulations); "
+                    "a Friday to the start of the next Monday is 0); runs (the iteration "
+                    "count actually simulated per leg — may be below MC_SIMULATION_CAP when "
+                    "n_simulations is omitted on a large project, #2839); "
                     "seed (fixed RNG seed shared by both runs so the delta isolates the change); "
                     "cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the "
                     "CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, "
@@ -1312,7 +1373,10 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "duration_delta/new_duration, task_id not a committed task in this "
                     "project, a milestone (zero-duration) target, a summary (phase) target "
                     "whose span is rolled up from its children and so cannot be perturbed, "
-                    "a cyclic dependency, or an out-of-range project span."
+                    "a cyclic dependency, or an out-of-range project span; or an explicit "
+                    "n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — "
+                    "body {error: simulation_cell_cap_exceeded, message, max_runs, "
+                    "task_count}."
                 ),
             ),
             402: OpenApiResponse(
@@ -1322,6 +1386,14 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             404: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description="Project does not exist.",
+            ),
+            503: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "No free Monte Carlo slot in this API process (MC_MAX_CONCURRENT, "
+                    "#2839). Body {error: simulation_busy, message}; retry after "
+                    "Retry-After."
+                ),
             ),
         },
     )
@@ -1364,7 +1436,11 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         self.check_object_permissions(request, project)
 
         cap: int | None = settings.MC_SIMULATION_CAP
-        n_simulations = int(params.get("n_simulations", cap or 1_000))
+        # None = "the admissible maximum for this project's size" (#2839), resolved by
+        # `admit_runs` once the leaf network is built below.
+        requested_runs: int | None = (
+            int(params["n_simulations"]) if "n_simulations" in params else None
+        )
 
         # Build the baseline scheduler input exactly as run_monte_carlo does, through
         # the shared converters (ADR-0132/#1491) so the what-if forecast is computed on
@@ -1437,6 +1513,13 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         leaf_tasks = graph.tasks
         leaf_deps = graph.dependencies
 
+        # runs x n_tasks admission (#2839). Both simulations below share one network
+        # size (a duration perturbation adds no task), so one admission covers both.
+        admission = admit_runs(len(leaf_tasks), requested_runs)
+        if admission.refusal is not None:
+            return admission.refusal
+        n_simulations = admission.runs
+
         velocity_samples, sprint_length_days = scheduler_velocity_inputs(
             project.pk, sched_calendar.working_days
         )
@@ -1469,36 +1552,40 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             # One shared Monte Carlo span (#709) over the full what-if computation —
             # baseline + perturbed CPM and simulation — through the same helper the
             # real forecast uses, so the span name and attributes cannot drift.
-            with monte_carlo_span(pk, simulation_count=n_simulations):
-                # The ENGINE owns the perturbation (#3533). Which input a task's
-                # sampled duration comes from is the engine's own priority rule
-                # (velocity → PERT triple → deterministic); an API-side shift of
-                # the fields this view happens to know about moved the CPM finish
-                # while leaving a velocity-sampled task's bands exactly where they
-                # were, and reported both. Passing the fully-built project — with
-                # the velocity signal on it — is what lets the engine reach the
-                # input it will actually sample.
-                perturbed_tasks = perturb_task_duration(
-                    _make_project(leaf_tasks, cpm_status_date), task_id, delta_days
-                ).tasks
-                baseline_cpm = schedule(_make_project(leaf_tasks, cpm_status_date))
-                perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
-                baseline_mc = monte_carlo(
-                    _make_project(leaf_tasks, mc_status_date),
-                    runs=n_simulations,
-                    seed=WHATIF_MC_SEED,
-                    max_runs=cap,
-                    max_tasks=settings.MC_TASK_CAP,
-                    **_mc_lag_delta_kwargs(),
-                )
-                perturbed_mc = monte_carlo(
-                    _make_project(perturbed_tasks, mc_status_date),
-                    runs=n_simulations,
-                    seed=WHATIF_MC_SEED,
-                    max_runs=cap,
-                    max_tasks=settings.MC_TASK_CAP,
-                    **_mc_lag_delta_kwargs(),
-                )
+            # One process slot (#2839) covers both simulations: they run in sequence.
+            with simulation_slot() as admitted:
+                if not admitted:
+                    return busy_response()
+                with monte_carlo_span(pk, simulation_count=n_simulations):
+                    # The ENGINE owns the perturbation (#3533). Which input a task's
+                    # sampled duration comes from is the engine's own priority rule
+                    # (velocity → PERT triple → deterministic); an API-side shift of
+                    # the fields this view happens to know about moved the CPM finish
+                    # while leaving a velocity-sampled task's bands exactly where they
+                    # were, and reported both. Passing the fully-built project — with
+                    # the velocity signal on it — is what lets the engine reach the
+                    # input it will actually sample.
+                    perturbed_tasks = perturb_task_duration(
+                        _make_project(leaf_tasks, cpm_status_date), task_id, delta_days
+                    ).tasks
+                    baseline_cpm = schedule(_make_project(leaf_tasks, cpm_status_date))
+                    perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
+                    baseline_mc = monte_carlo(
+                        _make_project(leaf_tasks, mc_status_date),
+                        runs=n_simulations,
+                        seed=WHATIF_MC_SEED,
+                        max_runs=cap,
+                        max_tasks=settings.MC_TASK_CAP,
+                        **_mc_lag_delta_kwargs(),
+                    )
+                    perturbed_mc = monte_carlo(
+                        _make_project(perturbed_tasks, mc_status_date),
+                        runs=n_simulations,
+                        seed=WHATIF_MC_SEED,
+                        max_runs=cap,
+                        max_tasks=settings.MC_TASK_CAP,
+                        **_mc_lag_delta_kwargs(),
+                    )
         except SimulationCapExceeded as exc:
             return Response(
                 # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
@@ -2558,6 +2645,14 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
     # nothing. Declared per view because `pk` means something else on other routes.
     project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    # A CPM quantity runs a full ``schedule()`` pass inside ``derive_value`` on every
+    # call (no precomputed result is passed), so this is as compute-heavy as its
+    # Monte Carlo siblings and was missed by #1808's enumeration (#2839). The scope
+    # bounds human callers; ``mcp_compute_heavy`` stacks the tighter per-token bucket.
+    mcp_compute_heavy = True
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "cpm_on_read"
 
     @extend_schema(
         operation_id="project_schedule_derivation",

@@ -69,10 +69,11 @@ class McpTokenReadThrottle(_McpTokenThrottle):
 class McpTokenComputeThrottle(_McpTokenThrottle):
     """Tighter per-token cap for the compute-heavy MCP tools.
 
-    Stacked on top of :class:`McpTokenReadThrottle` for the four tools whose read
-    triggers a CPM + Monte Carlo recompute per call (whatif, monte-carlo/latest,
-    forecast, sprint-forecast), so a token loop that could burn CPU is bounded
-    well below the baseline read rate.
+    Stacked on top of :class:`McpTokenReadThrottle` for the reads that trigger a
+    CPM or Monte Carlo recompute per call — whatif, monte-carlo/latest, forecast,
+    sprint-forecast, schedule derivation, and the program schedule action
+    (``mcp_compute_heavy`` / ``mcp_compute_heavy_actions``) — so a token loop that
+    could burn CPU is bounded well below the baseline read rate.
 
     Unlike its base class, this one applies to **every** ``ApiToken`` regardless of
     scope (#2877). The distinction is what each cap is *for*: ``mcp_read`` is an agent

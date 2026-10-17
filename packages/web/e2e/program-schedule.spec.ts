@@ -143,7 +143,11 @@ async function setup(page: Page, scheduleResponse: { status: number; body: unkno
   );
   // Live-sync mints a ws ticket per member project; satisfy it so no 401 fires.
   await page.route('**/api/v1/ws/ticket/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ ticket: 't', expires_in: 30 }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ ticket: 't', expires_in: 30 }),
+    }),
   );
 }
 
@@ -154,15 +158,91 @@ test.describe('Program schedule view', () => {
 
     // Page-rendered gate: the heading appears only after the schedule resolves.
     await expect(page.getByRole('heading', { name: 'Program Schedule' })).toBeVisible();
-    await expect(
-      page.getByText(/Cross-project critical path across 2 projects/),
-    ).toBeVisible();
+    await expect(page.getByText(/Cross-project critical path across 2 projects/)).toBeVisible();
 
     // The legend lets a first-time viewer read the chart.
     const legend = page.getByRole('list', { name: 'Schedule legend' });
     await expect(legend.getByText('Critical path')).toBeVisible();
     await expect(legend.getByText('Cross-project link')).toBeVisible();
     await expect(legend.getByText('Milestone')).toBeVisible();
+  });
+
+  test('throttled state: a 429 shows a retryable message, and Retry loads the chart (#2839)', async ({
+    page,
+  }) => {
+    // Each read runs a merged CPM pass on the server, so it carries a per-account
+    // rate limit. The first load here is throttled; the retry is served.
+    await setup(page, { status: 200, body: FIXTURE_SCHEDULE });
+    let calls = 0;
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/schedule/`, async (r) => {
+      calls += 1;
+      await r.fulfill(
+        calls === 1
+          ? {
+              status: 429,
+              contentType: 'application/json',
+              headers: { 'Retry-After': '1' },
+              body: JSON.stringify({
+                detail: 'Request was throttled. Expected available in 1 second.',
+              }),
+            }
+          : {
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify(FIXTURE_SCHEDULE),
+            },
+      );
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/schedule`);
+
+    await expect(page.getByRole('alert')).toContainText(/refreshed too often/i);
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.getByText(/Cross-project critical path across 2 projects/)).toBeVisible();
+    await expect(page.getByText(/refreshed too often/i)).toHaveCount(0);
+  });
+
+  test('a throttled live refetch keeps the chart and says updates are paused (#2839)', async ({
+    page,
+  }) => {
+    await setup(page, { status: 200, body: FIXTURE_SCHEDULE });
+    let calls = 0;
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/schedule/`, async (r) => {
+      calls += 1;
+      await r.fulfill(
+        calls === 1
+          ? { status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_SCHEDULE) }
+          : {
+              status: 429,
+              contentType: 'application/json',
+              headers: { 'Retry-After': '30' },
+              body: JSON.stringify({
+                detail: 'Request was throttled. Expected available in 30 seconds.',
+              }),
+            },
+      );
+    });
+    const sockets: import('@playwright/test').WebSocketRoute[] = [];
+    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+      sockets.push(ws);
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/schedule`);
+
+    const summary = page.getByText(/Cross-project critical path across 2 projects/);
+    await expect(summary).toBeVisible();
+    // One socket per member project.
+    await expect.poll(() => sockets.length).toBe(2);
+
+    // A schedule-affecting event on BOTH member projects in the same window: the
+    // page's shared debounce sends one refetch, and the server throttles it.
+    for (const ws of sockets) ws.send(JSON.stringify({ event_type: 'task_updated' }));
+
+    await expect(
+      page.getByRole('status').filter({ hasText: /Live updates are paused/ }),
+    ).toBeVisible();
+    await expect(summary).toBeVisible();
+    await expect(page.getByTestId('program-schedule-canvas-scroll')).toBeVisible();
+    await expect(page.getByText(/refreshed too often/i)).toHaveCount(0);
+    expect(calls).toBe(2);
   });
 
   test('empty state: no member project has a computed schedule yet', async ({ page }) => {

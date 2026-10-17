@@ -100,7 +100,14 @@ Content-Type: application/json
 ```
 
 The `n_simulations` field is optional; it defaults to the server's
-`MC_SIMULATION_CAP` setting (1,000 on OSS; operators can raise it). The
+`MC_SIMULATION_CAP` setting (1,000 on OSS; operators can raise it). On a large
+project the default is lower: runs × tasks is capped (`MC_CELL_CAP`, 2.5M on OSS),
+so a 5,000-task project gets 500 runs. The response's `runs` field always reports
+how many runs were simulated. An explicit `n_simulations` that is too large for the
+project returns HTTP 400 with the largest count allowed (`max_runs`); it is never
+reduced without telling you. If the server is already running its limit of
+simultaneous simulations, it returns HTTP 503 with a `Retry-After` header. See
+[Monte Carlo simulation caps](/administration/configuration/limits/#monte-carlo-simulation-caps). The
 endpoint is synchronous and fast — about 60–100 ms of engine time for a 200-task
 project at 10,000 runs on a current laptop CPU, more on slower server hardware.
 
@@ -227,8 +234,9 @@ Supply exactly one of:
 | `duration_delta` | Signed day offset applied to the task's current duration (`5` slips it a week later, `-2` pulls it in). |
 | `new_duration` | Absolute day count to set the task's duration to (`>= 0`). |
 
-An optional `n_simulations` controls the iteration count (default and cap are the
-same `MC_SIMULATION_CAP` as a normal run). The response will carry:
+An optional `n_simulations` controls the iteration count (default and caps are the
+same as a normal run, including the runs × tasks cap; `runs` in the response reports
+the count simulated). The response will carry:
 
 | Field | Meaning |
 |---|---|

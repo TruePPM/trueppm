@@ -173,6 +173,41 @@ class SeedImportThrottle(_SeedImporterThrottle):
     scope = "seed_import"
 
 
+class ProgramScheduleThrottle(UserRateThrottle):
+    """Caps on-read program schedule computes per account (#2839).
+
+    ``GET /programs/{id}/schedule/`` runs the deterministic CPM over every member
+    project's merged graph (up to ``MAX_PROGRAM_TASKS``) on each read, uncached, so
+    on the 1000/min account default a scripted loop is a compute amplifier.
+
+    Measured cost: a 5,000-task merged read (MAX_PROGRAM_TASKS, one or five member
+    projects) takes ~460-480 ms end to end on a developer laptop against local
+    Postgres. The default is 60/min, the same tier as the schedule derivation's
+    ``cpm_on_read`` scope, whose single-project pass is cheaper: one account at the
+    ceiling is 1 read/s x ~0.47 s, about half a core, against ~7.8 cores at the
+    1000/min default.
+
+    That is below the live page's theoretical ceiling, on purpose. The page's
+    member-project sockets share ONE 300 ms debounce, so an open tab sends at most
+    one refetch per window (200/min, whatever the member count). One edit fires
+    ``task_updated`` at once and, when the async CPM pass commits,
+    ``cpm_complete`` + ``task_dates_updated`` (sometimes ``task_run_completed``)
+    together, so about 2-3 refetches per edit: 60/min trips at roughly 20-30
+    schedule edits a minute across the whole program, per viewing account. The
+    bucket is per account, so several open tabs (or programs viewed at once) share
+    it. When it trips, the page keeps rendering its last schedule with a "live
+    updates paused" notice and refetches once after ``Retry-After`` (at most 60 s),
+    or sooner on the next live event — a stale chart for up to a minute, the right
+    trade against a merged CPM pass per edit event.
+
+    ``UserRateThrottle`` for the same reason as the importer throttles above: it is
+    attached through ``@action(throttle_classes=[…])``, where ``ScopedRateThrottle``
+    would find no ``throttle_scope`` on the view and silently allow everything.
+    """
+
+    scope = "program_schedule"
+
+
 class SampleDownloadThrottle(UserRateThrottle):
     """Caps bundled-fixture downloads per account (#2490).
 
@@ -694,6 +729,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     # task_search, resource_contention — which the row filter cannot reach. Each
     # scopes explicitly; see ADR-0678 threat-model finding T1.
     mcp_scope = McpScope.AGGREGATE
+
+    # `schedule` runs the deterministic CPM over every member project's merged graph
+    # on each read (#2839), so an mcp:read token gets the compute bucket on that
+    # action; the cheap CRUD reads stay on the baseline mcp_read bucket.
+    mcp_compute_heavy_actions = frozenset({"schedule"})
 
     serializer_class = ProgramSerializer
     pagination_class = DirectoryPagination
@@ -3025,7 +3065,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="Compute the program-true cross-project schedule",
         responses={200: ProgramScheduleSerializer},
     )
-    @action(detail=True, methods=["get"], url_path="schedule")
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="schedule",
+        throttle_classes=[ProgramScheduleThrottle],
+    )
     def schedule(self, request: Request, pk: str | None = None) -> Response:
         """Merged, program-true critical path across the program's projects.
 

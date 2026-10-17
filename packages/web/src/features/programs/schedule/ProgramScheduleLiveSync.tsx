@@ -69,25 +69,24 @@ const SCHEDULE_AFFECTING_EVENTS: ReadonlySet<string> = new Set([
 ]);
 
 interface MemberProjectScheduleChannelProps {
-  programId: string;
   projectId: string;
   /** True once this project's socket refused the caller (4003) on this page. */
   isRefused: (projectId: string) => boolean;
   /** Record a 4003 so no later effect run (e.g. a token refresh) re-dials it. */
   onRefused: (projectId: string) => void;
+  /** Report a schedule-affecting event; the parent's shared debounce coalesces them. */
+  onScheduleAffecting: () => void;
 }
 
 /** One socket to a single member project's channel; invalidates the program schedule. */
 function MemberProjectScheduleChannel({
-  programId,
   projectId,
   isRefused,
   onRefused,
+  onScheduleAffecting,
 }: MemberProjectScheduleChannelProps) {
-  const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
   const mountedRef = useRef(true);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -99,19 +98,11 @@ function MemberProjectScheduleChannel({
     // A 4001 since the last socket that delivered a frame — see the close handler.
     let authRejected = false;
 
-    const scheduleInvalidate = () => {
-      if (debounceRef.current !== null) return;
-      debounceRef.current = setTimeout(() => {
-        debounceRef.current = null;
-        void queryClient.invalidateQueries({ queryKey: ['programs', programId, 'schedule'] });
-      }, INVALIDATE_DEBOUNCE_MS);
-    };
-
     const handleMessage = (event: MessageEvent<string>) => {
       try {
         const envelope = JSON.parse(event.data) as { event_type?: string };
         if (envelope.event_type && SCHEDULE_AFFECTING_EVENTS.has(envelope.event_type)) {
-          scheduleInvalidate();
+          onScheduleAffecting();
         }
       } catch {
         // Ignore malformed frames.
@@ -192,16 +183,12 @@ function MemberProjectScheduleChannel({
     return () => {
       mountedRef.current = false;
       if (retryTimer !== null) clearTimeout(retryTimer);
-      if (debounceRef.current !== null) {
-        clearTimeout(debounceRef.current);
-        debounceRef.current = null;
-      }
       if (ws) {
         ws.removeEventListener('message', handleMessage);
         ws.close();
       }
     };
-  }, [programId, projectId, accessToken, queryClient, isRefused, onRefused]);
+  }, [projectId, accessToken, isRefused, onRefused, onScheduleAffecting]);
 
   return null;
 }
@@ -220,6 +207,30 @@ export interface ProgramScheduleLiveSyncProps {
  */
 export function ProgramScheduleLiveSync({ programId, projectIds }: ProgramScheduleLiveSyncProps) {
   const queryClient = useQueryClient();
+  // ONE debounce for every member project's socket (#2839). Each refetch is a
+  // merged CPM pass on the server, rate-limited per account; a per-channel timer
+  // let N busy projects send N refetches per window, so the page's ceiling grew
+  // with the program's size. Shared, it is one refetch per window per open tab
+  // (<= 200/min at 300 ms), whatever N is. The first event in a window starts the
+  // timer and later ones ride along; the refetch fires when the window closes, so
+  // it still starts after every event in it.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onScheduleAffecting = useCallback(() => {
+    if (debounceRef.current !== null) return;
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      void queryClient.invalidateQueries({ queryKey: ['programs', programId, 'schedule'] });
+    }, INVALIDATE_DEBOUNCE_MS);
+  }, [queryClient, programId]);
+  useEffect(
+    () => () => {
+      if (debounceRef.current !== null) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    },
+    [programId],
+  );
   // Projects whose socket refused this caller (4003) during this page's life. Held
   // here, above the per-project channels, so it survives both a channel's effect
   // re-run and a channel remount when the lane list changes (#4375).
@@ -239,10 +250,10 @@ export function ProgramScheduleLiveSync({ programId, projectIds }: ProgramSchedu
       {projectIds.map((projectId) => (
         <MemberProjectScheduleChannel
           key={projectId}
-          programId={programId}
           projectId={projectId}
           isRefused={isRefused}
           onRefused={onRefused}
+          onScheduleAffecting={onScheduleAffecting}
         />
       ))}
     </>

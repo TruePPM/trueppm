@@ -73,7 +73,9 @@ class TestEngine extends GanttEngineStub {
 
   /** Fire a subscribed engine event, as the real renderer would. */
   emit<K extends keyof GanttEngineEventMap>(event: K, payload: GanttEngineEventMap[K]): void {
-    const handler = this.handlers.get(event) as ((payload: GanttEngineEventMap[K]) => void) | undefined;
+    const handler = this.handlers.get(event) as
+      | ((payload: GanttEngineEventMap[K]) => void)
+      | undefined;
     handler?.(payload);
   }
 
@@ -316,6 +318,106 @@ describe('ProgramSchedulePage', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
+  it('keeps charting the last schedule when a refetch is throttled (429, #2839)', async () => {
+    const refetch = vi.fn();
+    useProgramSchedule.mockReturnValue(
+      queryResult({ data: GOLDEN, error: axiosError(429), refetch }),
+    );
+    renderPage();
+    // The chart stays — a 429 is transient and must not blank the view.
+    expect(screen.getByTestId('canvas-timeline')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/Live updates are paused/i);
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches exactly once after Retry-After when a refetch is throttled (#2839)', () => {
+    vi.useFakeTimers();
+    try {
+      const refetch = vi.fn();
+      const error = {
+        isAxiosError: true,
+        response: { status: 429, data: {}, headers: { 'retry-after': '5' } },
+      };
+      useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN, error, refetch }));
+      renderPage();
+      act(() => {
+        vi.advanceTimersByTime(4_999);
+      });
+      expect(refetch).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(refetch).toHaveBeenCalledTimes(1);
+      // One follow-up per throttled response, not a polling loop.
+      act(() => {
+        vi.advanceTimersByTime(120_000);
+      });
+      expect(refetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not schedule a refetch for a non-throttled error', () => {
+    vi.useFakeTimers();
+    try {
+      const refetch = vi.fn();
+      useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(500), refetch }));
+      renderPage();
+      act(() => {
+        vi.advanceTimersByTime(120_000);
+      });
+      expect(refetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the throttle live region mounted and empty while the schedule is live (rule 429)', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    renderPage();
+    // Present before any 429, so the later message lands in an existing region.
+    const region = screen.getByRole('status');
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(region).toHaveClass('sr-only');
+    expect(region).toBeEmptyDOMElement();
+    expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument();
+  });
+
+  it('fills the same live region in place when a refetch is throttled', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    const { rerender } = renderPage();
+    const before = screen.getByRole('status');
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN, error: axiosError(429) }));
+    rerender(
+      <MemoryRouter initialEntries={['/programs/prog-1/schedule']}>
+        <Routes>
+          <Route path="/programs/:programId/schedule" element={<ProgramSchedulePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const after = screen.getByRole('status');
+    // The same node, now carrying the message: not unmounted and remounted.
+    expect(after).toBe(before);
+    expect(after).toHaveTextContent(/Live updates are paused/);
+    expect(after).not.toHaveClass('sr-only');
+  });
+
+  it('shows a retryable throttled message when the first load is a 429', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(429) }));
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent(/refreshed too often/i);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('still replaces the chart for a non-transient error even with cached data', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN, error: axiosError(403) }));
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent(/don.t have access/i);
+  });
+
   // ----- Error-panel actions -------------------------------------------------
 
   it('refetches when Retry is clicked, and locks the button while a retry is in flight', async () => {
@@ -477,8 +579,20 @@ describe('ProgramSchedulePage', () => {
         data: {
           ...GOLDEN,
           projects: [
-            { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 10, can_subscribe_live: false },
-            { id: 'proj-b', name: 'Helios Mobile', accessible: true, duration: 8, can_subscribe_live: true },
+            {
+              id: 'proj-a',
+              name: 'Helios Platform',
+              accessible: true,
+              duration: 10,
+              can_subscribe_live: false,
+            },
+            {
+              id: 'proj-b',
+              name: 'Helios Mobile',
+              accessible: true,
+              duration: 8,
+              can_subscribe_live: true,
+            },
             // Verdict unknown (older server): subscribe — the server enforces.
             { id: 'proj-c', name: 'Helios Ops', accessible: true, duration: 3 },
           ],
