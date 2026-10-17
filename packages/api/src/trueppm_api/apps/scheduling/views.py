@@ -1264,6 +1264,33 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
 WHATIF_MC_SEED = 993_993
 
 
+def _target_kind_refusal(task: Task) -> Response | None:
+    """400 for a what-if target that cannot be perturbed, else ``None``.
+
+    A milestone is a zero-duration gate. A completed task (#4515) is read with the
+    engine's ``_is_complete`` predicate (ADR-0136): an ``actual_finish`` or 100%.
+    Completed work is pinned by its actuals, so a duration shift would hand back an
+    unmoved forecast as a zero-impact what-if. The engine refuses too; this earlier
+    check keeps the 400 ahead of run admission and the busy slot.
+    """
+    if task.is_milestone:
+        return Response(
+            {"detail": "A milestone is a zero-duration gate and cannot be perturbed."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if task.actual_finish is None and (task.percent_complete or 0) < 100:
+        return None
+    return Response(
+        {
+            "detail": (
+                "A completed task's dates are actuals, so a duration change "
+                "cannot move the forecast; pick a task that still has work left."
+            )
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     """Non-mutating Monte Carlo what-if: perturb one task's duration, recompute (#993).
 
@@ -1465,11 +1492,11 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 {"detail": "task_id is not a committed task in this project."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if target_db.is_milestone:
-            return Response(
-                {"detail": "A milestone is a zero-duration gate and cannot be perturbed."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+
+        # Milestone and completed refusals; checked before admission so the 400 wins over run
+        # admission (402/413) and a busy slot (503); see `_target_kind_refusal`.
+        if (refusal := _target_kind_refusal(target_db)) is not None:
+            return refusal
 
         base_duration_days = int(target_db.duration)
         if "duration_delta" in params:

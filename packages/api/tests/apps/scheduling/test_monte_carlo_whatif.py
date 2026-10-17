@@ -493,6 +493,26 @@ class TestWhatIfErrors:
         assert r.status_code == 400
         assert "complete" in r.data["detail"].lower()
 
+    def test_completed_target_400_wins_over_admission_and_busy_gates(
+        self,
+        member_client: APIClient,
+        project: Project,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Like the milestone/summary refusals, the completed-task 400 fires before
+        run admission and the simulation slot, so a done task never reads as 402/503."""
+        from trueppm_api.apps.scheduling import views
+
+        def _refuse(*_a: object, **_k: object) -> object:
+            raise AssertionError("admission must not be reached")
+
+        monkeypatch.setattr(views, "admit_runs", _refuse)
+        monkeypatch.setattr(views, "simulation_slot", _refuse)
+        task = Task.objects.create(project=project, name="Done", duration=5, percent_complete=100)
+        r = member_client.get(_url(project), {"task_id": str(task.pk), "duration_delta": 3})
+        assert r.status_code == 400
+        assert "complete" in r.data["detail"].lower()
+
     def test_cap_exceeded_returns_402(
         self,
         member_client: APIClient,
