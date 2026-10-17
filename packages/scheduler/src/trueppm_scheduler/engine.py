@@ -4667,11 +4667,23 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
         InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent
             no-op is the failure this function exists to prevent, so an unknown id
             is refused rather than returning an unperturbed project that the caller
-            would report as a zero-impact what-if.
+            would report as a zero-impact what-if. A **completed** task (an
+            ``actual_finish`` recorded or ``percent_complete`` at 100, the
+            :func:`_is_complete` predicate) is refused for the same reason: its dates
+            are actuals, so a duration shift would leave both :func:`schedule` and
+            :func:`monte_carlo` exactly where they were (#4515).
     """
     target = next((t for t in project.tasks if t.id == task_id), None)
     if target is None:
         raise InvalidScheduleInput(f"Task {task_id!r} is not in project {project.id!r}.")
+    if _is_complete(target):
+        # Completed work is pinned by its actuals and laid out at full duration
+        # regardless of what ``duration`` says, so any offset is a silent zero-impact
+        # what-if — refuse it like the unknown id above.
+        raise InvalidScheduleInput(
+            f"Task {task_id!r} is complete; its dates are actuals and a duration "
+            "change cannot move the forecast."
+        )
 
     story_points = target.story_points
     # Gate the points conversion on the same predicate the sampler uses, so a task
@@ -4690,7 +4702,7 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
 
     # ``duration`` is non-optional on Task, so the shift is never None here.
     new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
-    if not _is_complete(target) and target.percent_complete and target.percent_complete > 0:
+    if target.percent_complete and target.percent_complete > 0:
         shifted = _shift_remaining_work(project, target, delta_days)
     else:
         shifted = replace(target, duration=new_duration)

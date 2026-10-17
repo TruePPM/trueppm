@@ -248,8 +248,9 @@ the count simulated). The response will carry:
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 
 A perturbation target must be a real unit of work: a milestone (zero duration by
-definition) and a phase (whose span is rolled up from its children) will both be
-rejected with a `400`. Point it at a leaf task instead.
+definition), a phase (whose span is rolled up from its children) and a completed task
+(its dates are actuals, so a duration change could not move the forecast) are all
+rejected with a `400`. Point it at a leaf task that still has work left instead.
 
 Both forecasts sample with the same fixed RNG seed, so the delta isolates the effect
 of your change rather than run-to-run noise, and the same query always returns the

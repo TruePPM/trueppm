@@ -478,6 +478,21 @@ class TestWhatIfErrors:
         assert r.status_code == 400
         assert "milestone" in r.data["detail"].lower()
 
+    @pytest.mark.parametrize(
+        "done",
+        [{"percent_complete": 100}, {"actual_finish": date(2026, 1, 9)}],
+        ids=["percent_complete_100", "actual_finish"],
+    )
+    def test_completed_target_returns_400(
+        self, member_client: APIClient, project: Project, done: dict[str, object]
+    ) -> None:
+        """A done task's dates are actuals: the what-if would report "no impact" for a
+        change it cannot apply (#4515), so it is refused like a milestone."""
+        task = Task.objects.create(project=project, name="Done", duration=5, **done)
+        r = member_client.get(_url(project), {"task_id": str(task.pk), "duration_delta": 3})
+        assert r.status_code == 400
+        assert "complete" in r.data["detail"].lower()
+
     def test_cap_exceeded_returns_402(
         self,
         member_client: APIClient,

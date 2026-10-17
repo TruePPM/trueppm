@@ -1371,7 +1371,8 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 description=(
                     "Invalid input: malformed/absent params, both or neither of "
                     "duration_delta/new_duration, task_id not a committed task in this "
-                    "project, a milestone (zero-duration) target, a summary (phase) target "
+                    "project, a milestone (zero-duration) target, a completed task (its "
+                    "dates are actuals), a summary (phase) target "
                     "whose span is rolled up from its children and so cannot be perturbed, "
                     "a cyclic dependency, or an out-of-range project span; or an explicit "
                     "n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — "
