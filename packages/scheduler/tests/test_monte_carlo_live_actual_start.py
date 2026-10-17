@@ -216,6 +216,54 @@ def test_uncertain_milestone_only_sometimes_on_its_weekend_actual_rounds_later()
     assert cpm <= mc.p50 <= mc.p80 <= mc.p95
 
 
+#: Hard floors that put a live milestone's link instant before the project start
+#: (#4510): a recorded actual start, an SNET pin and a data date, each on Mon
+#: 2025-11-03 — four months before START.
+_PRE_START = date(2025, 11, 3)
+
+
+@pytest.mark.parametrize(
+    ("milestone_kw", "project_kw"),
+    [
+        pytest.param({"actual_start": _PRE_START}, {}, id="actual_start"),
+        pytest.param({"planned_start": _PRE_START}, {}, id="planned_start"),
+        pytest.param({}, {"status_date": _PRE_START}, id="status_date"),
+    ],
+)
+def test_sf_from_a_pre_start_floored_milestone_matches_cpm(
+    milestone_kw: dict[str, object], project_kw: dict[str, object]
+) -> None:
+    """An SF successor of a milestone whose hard floor is pre-start is placed there (#4510).
+
+    M is shown on the project start, but its link instant is its 2025-11-03 floor,
+    so SF+18 finishes X on Thu 2025-11-20 and the project finishes on M, Mon 03-02.
+    The Monte Carlo index was padded from M's links only, so it opened two weeks
+    before the start; X's finish fell below it, clamped to offset 0, and its twelve
+    days ran to Tue 03-03 — one working day after ``schedule()``.
+    """
+    project = _project(
+        [_ms("M", **milestone_kw), _work("X", 12)],
+        [_dep("M", "X", DependencyType.SF, 18)],
+        **project_kw,
+    )
+    assert schedule(project).tasks[1].early_finish == date(2025, 11, 20)
+    assert _assert_mc_matches_cpm(project) == START
+
+
+def test_sf_from_a_milestone_downstream_of_a_pre_start_floor_matches_cpm() -> None:
+    """The pre-start link instant carries through an FS hop into a second milestone.
+
+    M's actual start is 2025-11-03, so N's link instant is 11-05 and SF+18 finishes
+    X on Mon 11-24; the pad bound for N reads M's bound, so it must include M's floor.
+    """
+    project = _project(
+        [_ms("M", actual_start=_PRE_START), _ms("N"), _work("X", 12)],
+        [_dep("M", "N", DependencyType.FS, 2), _dep("N", "X", DependencyType.SF, 18)],
+    )
+    assert schedule(project).tasks[2].early_finish == date(2025, 11, 24)
+    assert _assert_mc_matches_cpm(project) == START
+
+
 # ---------------------------------------------------------------------------
 # Property: deterministic projects with progress simulate to the CPM finish
 # ---------------------------------------------------------------------------
