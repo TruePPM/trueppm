@@ -53,7 +53,7 @@ export const LANDING_CHOICES: ReadonlyArray<{
   label: string;
   /** Per-choice helper line shown beneath the option label. */
   description: string;
-  /** Enterprise-reserved in the community edition (rule-122 stub treatment). */
+  /** Enterprise-reserved — omitted entirely in the community edition (rule 231(c), #4477). */
   enterprise?: boolean;
 }> = [
   { value: 'my_work', label: 'My Work', description: 'Your cross-project task list.' },

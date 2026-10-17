@@ -22,10 +22,11 @@ vi.mock('@/hooks/useDefaultLanding', () => ({
   useUpdateDefaultLanding: () => ({ mutate, ...mutationState }),
 }));
 
-// The shared radio group renders an EnterpriseBadge for the gated Portfolio
-// option, which reads useEdition — keep it community so the gate applies.
+// The shared radio group omits the Portfolio option entirely in the community
+// edition (rule 231(c), #4477) — it reads useEdition to decide.
+let mockEdition: 'community' | 'enterprise' = 'community';
 vi.mock('@/hooks/useEdition', () => ({
-  useEdition: () => ({ edition: 'community', isLoading: false }),
+  useEdition: () => ({ edition: mockEdition, isLoading: false }),
 }));
 
 function autoUser(intent = 'project_overview') {
@@ -45,6 +46,7 @@ beforeEach(() => {
   mutationState = { isPending: false, isError: false };
   useCurrentUser.mockReset();
   useCurrentUser.mockReturnValue(autoUser());
+  mockEdition = 'community';
 });
 
 afterEach(() => {
@@ -115,22 +117,30 @@ describe('LandingPrimaryUsePrompt (ADR-0129, #1181)', () => {
     expect(mutate.mock.calls[0][0]).toBe('my_work');
   });
 
-  it('selecting Portfolio is blocked in community (disabled radio)', () => {
+  it('Portfolio is omitted entirely in community — no radio, no EnterpriseBadge (rule 231(c), #4477)', () => {
     render(<LandingPrimaryUsePrompt />);
-    const portfolio = screen.getByRole('radio', { name: /Portfolio/i });
-    expect(portfolio).toBeDisabled();
+    expect(screen.queryByRole('radio', { name: /Portfolio/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Enterprise')).not.toBeInTheDocument();
   });
 
-  it('all four options are in a single role="radiogroup" (items 1+2, WCAG 1.3.1)', () => {
+  it('Portfolio renders enabled (no badge) when the edition is enterprise', () => {
+    mockEdition = 'enterprise';
+    render(<LandingPrimaryUsePrompt />);
+    const portfolio = screen.getByRole('radio', { name: /Portfolio/i });
+    expect(portfolio).not.toBeDisabled();
+    expect(screen.queryByText('Enterprise')).not.toBeInTheDocument();
+  });
+
+  it('all options are in a single role="radiogroup" (items 1+2, WCAG 1.3.1)', () => {
     render(<LandingPrimaryUsePrompt />);
     // There must be exactly ONE radiogroup so AT can arrow between all options.
     const groups = screen.getAllByRole('radiogroup');
     expect(groups).toHaveLength(1);
     // Auto is inside that group.
     expect(screen.getByRole('radio', { name: /Auto \(recommended\)/i })).toBeInTheDocument();
-    // All four radios: My Work, project overview, Portfolio, Auto.
+    // Three radios in community: My Work, project overview, Auto (Portfolio omitted).
     const radios = screen.getAllByRole('radio');
-    expect(radios).toHaveLength(4);
+    expect(radios).toHaveLength(3);
   });
 
   it('on save success it marks seen and announces Saved', () => {

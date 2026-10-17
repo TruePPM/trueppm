@@ -22,8 +22,9 @@ vi.mock('@/hooks/useDefaultLanding', () => ({
   useUpdateDefaultLanding: () => ({ mutate, ...mutationState }),
 }));
 
+let mockEdition: 'community' | 'enterprise' = 'community';
 vi.mock('@/hooks/useEdition', () => ({
-  useEdition: () => ({ edition: 'community', isLoading: false }),
+  useEdition: () => ({ edition: mockEdition, isLoading: false }),
 }));
 
 function userWith(defaultLanding: string, intent = 'project_overview') {
@@ -42,6 +43,7 @@ beforeEach(() => {
   mutationState = { isPending: false, isError: false };
   useCurrentUser.mockReset();
   useCurrentUser.mockReturnValue(userWith('auto'));
+  mockEdition = 'community';
 });
 
 describe('MyGeneralPreferencesPage (ADR-0129, #1181)', () => {
@@ -101,5 +103,32 @@ describe('MyGeneralPreferencesPage (ADR-0129, #1181)', () => {
     fireEvent.click(screen.getByRole('radio', { name: /My Work/i }));
     expect(mutate).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  it('omits the Portfolio option entirely in the community edition — no disabled radio, no EnterpriseBadge (rule 231(c), #4477)', () => {
+    renderWithRouter(<MyGeneralPreferencesPage />);
+    expect(screen.queryByRole('radio', { name: /Portfolio/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Enterprise')).not.toBeInTheDocument();
+  });
+
+  it('renders Portfolio enabled with no badge in the enterprise edition', () => {
+    mockEdition = 'enterprise';
+    renderWithRouter(<MyGeneralPreferencesPage />);
+    const portfolio = screen.getByRole('radio', { name: /Portfolio/i });
+    expect(portfolio).not.toBeDisabled();
+    expect(screen.queryByText('Enterprise')).not.toBeInTheDocument();
+  });
+
+  it('a community user whose stored preference is "portfolio" sees Auto checked, not a disabled checked radio (defensive fallback, #4477)', () => {
+    useCurrentUser.mockReturnValue(userWith('portfolio'));
+    renderWithRouter(<MyGeneralPreferencesPage />);
+    expect(screen.getByRole('radio', { name: /Auto \(recommended\)/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // The stored preference behaves exactly like Auto in community (the server
+    // falls through to the role policy), so the Auto card echoes the live intent.
+    expect(screen.getByText(/Right now this opens a project's Dashboard/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /Portfolio/i })).not.toBeInTheDocument();
   });
 });

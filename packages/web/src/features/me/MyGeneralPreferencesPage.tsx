@@ -12,12 +12,22 @@
  * is role-aware: while the stored preference is "auto" it echoes the live
  * resolved intent; once a concrete preference is set it explains what "auto"
  * would do.
+ *
+ * Defensive fallback (#4477): `LandingChoiceRadioGroup` omits any `enterprise:
+ * true` option (Portfolio) in the community edition, so a stored preference of
+ * "portfolio" — inherited from an enterprise install, or written directly
+ * against the API — would otherwise match no rendered option and leave nothing
+ * checked. Treat it as Auto instead: the server already falls through to the
+ * role policy whenever an explicit preference is unreachable
+ * (`profiles/services.py`'s `resolve_landing`), so Auto's live-intent echo
+ * describes exactly what this preference already does in community.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { MeSettingsSubNav } from '@/features/me/MeSettingsSubNav';
 import { useCurrentUser, type DefaultLanding, type RoleContext } from '@/hooks/useCurrentUser';
 import { useUpdateDefaultLanding } from '@/hooks/useDefaultLanding';
 import { useUpdateRoleContext } from '@/hooks/useRoleContext';
+import { useEdition } from '@/hooks/useEdition';
 import { LANDING_CHOICES, humanizeIntent } from '@/features/me/landing';
 import {
   LandingChoiceRadioGroup,
@@ -32,6 +42,7 @@ const SAVED_TOAST_MS = 3000;
 
 export function MyGeneralPreferencesPage() {
   const { user } = useCurrentUser();
+  const { edition } = useEdition();
   const updateLanding = useUpdateDefaultLanding();
   // Optimistic selection — seeded from the server value, reverted on error.
   const [selected, setSelected] = useState<DefaultLanding | null>(null);
@@ -43,7 +54,10 @@ export function MyGeneralPreferencesPage() {
   const [selectedFocus, setSelectedFocus] = useState<RoleContext | null>(null);
   const [focusSavedAt, setFocusSavedAt] = useState<number | null>(null);
 
-  const serverValue = user?.default_landing ?? 'auto';
+  const rawServerValue = user?.default_landing ?? 'auto';
+  // Defensive fallback (#4477) — see the module doc comment above.
+  const serverValue: DefaultLanding =
+    edition === 'community' && rawServerValue === 'portfolio' ? 'auto' : rawServerValue;
   const value: DefaultLanding = selected ?? serverValue;
 
   const focusServerValue: RoleContext = user?.role_context ?? 'unified';
