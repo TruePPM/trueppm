@@ -4820,8 +4820,10 @@ def _mc_pre_start_pad_days(
     raise it (#4220) — over its *longest*
     possible sampled duration, measured from that lower bound on the predecessor —
     the SF bound is monotone in the predecessor's start and the back-solve is
-    monotone in both arguments. Floors (data date, SNET) only raise the true start,
-    so leaving them out keeps the bound safe.
+    monotone in both arguments. An SF-linked task's own floors (data date, SNET, a
+    recorded actual start) only raise its true start, so leaving them out of *its*
+    bound keeps that bound safe. A milestone's floors are different — they can lower
+    the instant its successors measure from — and are handled below.
 
     A milestone that is not SF-linked is *shown* no earlier than the project start,
     but its successors measure from its link instant, which the project-start floor
@@ -4835,6 +4837,14 @@ def _mc_pre_start_pad_days(
     the milestone from its links alone left that successor below the index, where its
     finish clamped to offset 0 and Monte Carlo finished a working day after
     ``schedule()`` (#4510).
+
+    A milestone's bound is always recorded in ``lo`` (a successor reads it, possibly
+    through further milestones), but it widens the index only when the milestone has
+    an SF successor of its own. Any other reader of its link instant either resolves
+    it in date space or is floored at the project start, and a downstream SF-linked
+    task widens the index by its own bound. Without that guard, a typo-year
+    ``actual_start`` on any milestone of a project with one unrelated SF link grew
+    the index by centuries of cells.
     """
     sf_linked = frozenset(tid for tid in topo_order if _sf_linked(tid, g))
     if not sf_linked:
@@ -4857,7 +4867,13 @@ def _mc_pre_start_pad_days(
                 ]
                 if proposals:
                     lo[tid] = min(lo[tid], max(proposals))
-                    earliest = min(earliest, lo[tid])
+                    # Only an SF successor turns this instant into a cell anyone reads;
+                    # without one, widening for it would cost index cells for nothing.
+                    if any(
+                        g[tid][succ]["dep"].dep_type is DependencyType.SF
+                        for succ in g.successors(tid)
+                    ):
+                        earliest = min(earliest, lo[tid])
             continue
         bound = max(
             _next_working_day(
