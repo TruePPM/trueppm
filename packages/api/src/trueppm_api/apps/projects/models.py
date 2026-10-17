@@ -2803,6 +2803,53 @@ def sync_structure_shadow_values(task: Task, *, is_container: bool | None = None
     return False
 
 
+def resync_structural_parent_after_delete(parent: Task | None) -> Task | None:
+    """Revert an accidental container's rollup after its last live child is deleted.
+
+    Factored out of the REST ``TaskViewSet.perform_destroy`` delete path (#2950)
+    so every delete path shares the exact same repair — originally only REST ran
+    it; the mobile sync upload delete (``_apply_deleted_row``, #4463) skipped it
+    entirely, leaving an accidental container's ``auto_container``/rolled-up
+    ``duration`` in place. The CPM write-back (``apps/scheduling/tasks.py``)
+    then found what looked like a still-has-children row and never repaired it
+    (the #4371 lost-update class, reached through a sibling path).
+
+    ``parent`` must be the task's structural parent, captured by the caller with
+    :func:`structural_parent` — before or after the child's own
+    ``soft_delete()`` both work (the parent lookup does not depend on the
+    child's delete state), but capturing it before mirrors every other call
+    site and reads clearer next to the delete it precedes.
+
+    A declared container stays declared and becomes an empty lane; only a
+    container that was promoted by accident (never declared by the user)
+    reverts to its own estimate — see :func:`sync_structure_shadow_values`.
+
+    Returns the saved parent when its shadow values actually changed, so a
+    caller that must version/broadcast the write (the sync upload path does —
+    an offline client needs the corrected duration on its next pull; REST's
+    full-list cache invalidation does not) can tell whether one happened.
+    Returns ``None`` for a root task (no parent), an already-stale reference,
+    or a container that is still legitimately a container (nothing to revert).
+    """
+    if parent is None:
+        return None
+    parent.refresh_from_db()
+    if not sync_structure_shadow_values(parent):
+        return None
+    parent.save(
+        update_fields=[
+            "status",
+            "duration",
+            "structure_role",
+            "auto_container",
+            "own_status",
+            "own_estimate",
+            "server_version",
+        ]
+    )
+    return parent
+
+
 #: Columns a **promotion** writes: the declaration and the parked copies. It reads
 #: ``status`` / ``duration`` and does not touch them, so they are deliberately absent —
 #: naming a column the branch cannot change would silently revert a concurrent PATCH

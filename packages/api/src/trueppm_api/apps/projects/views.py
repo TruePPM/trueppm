@@ -156,6 +156,7 @@ from trueppm_api.apps.projects.models import (
     TaskType,
     format_short_id_display,
     resync_container_declarations,
+    resync_structural_parent_after_delete,
     structural_parent,
     sync_structure_shadow_values,
 )
@@ -6706,21 +6707,10 @@ class TaskViewSet(
         # ACCIDENTAL container reverts and gets its own estimate back; a DECLARED
         # one stays declared and becomes an empty lane — silently un-declaring
         # somebody's phase because its last task was deleted is the same silent
-        # identity change structure_role exists to remove.
-        if parent is not None:
-            parent.refresh_from_db()
-            if sync_structure_shadow_values(parent):
-                parent.save(
-                    update_fields=[
-                        "status",
-                        "duration",
-                        "structure_role",
-                        "auto_container",
-                        "own_status",
-                        "own_estimate",
-                        "server_version",
-                    ]
-                )
+        # identity change structure_role exists to remove. Shared with the sync
+        # upload delete path (``_apply_deleted_row``, #4463) so both delete
+        # surfaces run the identical repair.
+        resync_structural_parent_after_delete(parent)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
