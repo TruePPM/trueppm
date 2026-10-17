@@ -20516,7 +20516,7 @@
         "/api/v1/projects/{id}/monte-carlo/": {
             "post": {
                 "operationId": "v1_projects_monte_carlo_create",
-                "description": "Run a Monte Carlo probabilistic schedule simulation synchronously.\n\nMonte Carlo is fast (< 100 ms vectorised) so this runs in the request/\nresponse cycle rather than via Celery; the result is returned directly. The\nper-project ``mc_latest`` read cache is refreshed for every caller, but a\npersisted, author-attributed drift-history row (MonteCarloRun) is written\nonly for Scheduler+ — the forecast read is Member-level, its record is not\n(#1502). Requests are rate-limited per user via the ``monte_carlo`` scope.\n\nSynchronous-by-design decision (#1203): keeping this inline is only safe\nbecause *every* multiplicative cost factor the run depends on is now bounded\nby the engine — tasks (MC_TASK_CAP), simulation runs (MC_SIMULATION_CAP),\nraw dependency edges (MAX_DEPENDENCIES), expanded edges (MAX_EXPANDED_EDGES),\nthe distinct-lag delta arrays (MC_LAG_DELTA_CELL_CAP, 5M int32 cells = ~20 MB —\nthe library's 50M-cell MAX_LAG_DELTA_CELLS is a batch-caller default), and the\nvelocity horizon (MAX_VELOCITY_SPRINTS) — and #1201 vectorised the previously O(edges x span)\nper-edge lag precompute. With the input space bounded and the hot path\nvectorised, the worst-case wall time stays within the request budget, so\nmoving to a Celery job (extra latency, result polling, a new failure surface)\nwould add cost without removing a real risk. The argument is about memory as\nwell as wall time (#4129): the lag-delta table scales with distinct lags x\nspan, not with runs, and was the one factor no request cap bounded (a project\ninside every other cap peaked near 630 MB), so it is now capped at\nMC_LAG_DELTA_CELL_CAP and the table stays at ~20 MB per simulation.\nConcurrent-request admission across a pod is a separate concern (#2839).\nA project that breaches the edge\ncap is rejected as InvalidScheduleInput (a ValueError) and surfaces below as a\nclean 400 rather than a stalled worker.\n\nThat argument depends on cap *order*, which #3527 had to preserve deliberately.\nSummary expansion moved onto this path, and it walks the edge list — so it now\nruns behind ``build_sched_graph``'s own O(1) ``MAX_DEPENDENCIES`` length check\nrather than waiting for ``_validate_project``, which the engine does not reach\nuntil ``monte_carlo()`` is already called. Without that, the expensive per-edge\nstep would run ahead of the cheap guard that is supposed to bound it.\n\nRequest body (all optional):\n    n_simulations (int): Number of simulation runs. Defaults to\n        settings.MC_SIMULATION_CAP. Must not exceed the cap.\n\nReturns 200 on success, 402 if the OSS simulation cap is exceeded,\n400 if the schedule input is invalid (e.g. the dependency-edge cap is\nbreached), 404 if the project does not exist, 403 if the caller lacks\nread access.",
+                "description": "Run a Monte Carlo probabilistic schedule simulation synchronously.\n\nMonte Carlo is fast (< 100 ms vectorised) so this runs in the request/\nresponse cycle rather than via Celery; the result is returned directly. The\nper-project ``mc_latest`` read cache is refreshed for every caller, but a\npersisted, author-attributed drift-history row (MonteCarloRun) is written\nonly for Scheduler+ — the forecast read is Member-level, its record is not\n(#1502). Requests are rate-limited per user via the ``monte_carlo`` scope.\n\nSynchronous-by-design decision (#1203): keeping this inline is only safe\nbecause *every* multiplicative cost factor the run depends on is now bounded\nby the engine — tasks (MC_TASK_CAP), simulation runs (MC_SIMULATION_CAP),\nraw dependency edges (MAX_DEPENDENCIES), expanded edges (MAX_EXPANDED_EDGES),\nthe distinct-lag delta arrays (MC_LAG_DELTA_CELL_CAP, 5M int32 cells = ~20 MB —\nthe library's 50M-cell MAX_LAG_DELTA_CELLS is a batch-caller default), and the\nvelocity horizon (MAX_VELOCITY_SPRINTS) — and #1201 vectorised the previously O(edges x span)\nper-edge lag precompute. With the input space bounded and the hot path\nvectorised, the worst-case wall time stays within the request budget, so\nmoving to a Celery job (extra latency, result polling, a new failure surface)\nwould add cost without removing a real risk. The argument is about memory as\nwell as wall time (#4129): the lag-delta table scales with distinct lags x\nspan, not with runs, and was the one factor no request cap bounded (a project\ninside every other cap peaked near 630 MB), so it is now capped at\nMC_LAG_DELTA_CELL_CAP and the table stays at ~20 MB per simulation.\nConcurrent-request admission is bounded per process by MC_MAX_CONCURRENT\n(#2839, below). A project that breaches the edge\ncap is rejected as InvalidScheduleInput (a ValueError) and surfaces below as a\nclean 400 rather than a stalled worker.\n\nThat argument depends on cap *order*, which #3527 had to preserve deliberately.\nSummary expansion moved onto this path, and it walks the edge list — so it now\nruns behind ``build_sched_graph``'s own O(1) ``MAX_DEPENDENCIES`` length check\nrather than waiting for ``_validate_project``, which the engine does not reach\nuntil ``monte_carlo()`` is already called. Without that, the expensive per-edge\nstep would run ahead of the cheap guard that is supposed to bound it.\n\nThe per-dimension caps still let ``runs x tasks`` reach 5M cells (~234 MB traced\nper simulation), so admission also caps that product (MC_CELL_CAP) and the\nsimulations one process runs at once (MC_MAX_CONCURRENT) — see\n``mc_admission`` (#2839).\n\nRequest body (all optional):\n    n_simulations (int): Number of simulation runs. Defaults to the largest\n        count this project's size admits — settings.MC_SIMULATION_CAP, or\n        fewer under MC_CELL_CAP on a large project; the response's ``runs``\n        reports the count simulated. An explicit value is honored exactly or\n        refused; it must not exceed either cap.\n\nReturns 200 on success, 402 if the OSS simulation cap is exceeded,\n400 if the schedule input is invalid (e.g. the dependency-edge cap is\nbreached) or an explicit n_simulations breaches MC_CELL_CAP, 503 if the\nprocess has no free simulation slot, 404 if the project does not exist,\n403 if the caller lacks read access.",
                 "parameters": [
                     {
                         "in": "path",
@@ -20580,10 +20580,21 @@
                                 "schema": {
                                     "type": "object",
                                     "additionalProperties": {}
+                                },
+                                "examples": {
+                                    "SimulationCellCapExceeded": {
+                                        "value": {
+                                            "error": "simulation_cell_cap_exceeded",
+                                            "message": "1000 simulation runs over 5000 tasks exceeds ...",
+                                            "max_runs": 500,
+                                            "task_count": 5000
+                                        },
+                                        "summary": "simulation_cell_cap_exceeded"
+                                    }
                                 }
                             }
                         },
-                        "description": "Cyclic dependency, invalid input, or out-of-range project span."
+                        "description": "Cyclic dependency, invalid input, or out-of-range project span; or an explicit n_simulations whose runs x tasks product exceeds MC_CELL_CAP (#2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}, where max_runs is the largest count this project admits. An omitted n_simulations is never refused for size: it runs max_runs iterations and the 200 body's `runs` reports the count actually simulated."
                     },
                     "402": {
                         "content": {
@@ -20627,6 +20638,17 @@
                             }
                         },
                         "description": "Project does not exist."
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "This API process is already running MC_MAX_CONCURRENT simulations and none finished within the wait window (#2839). Body {error: simulation_busy, message}; retry after the Retry-After header."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -20827,7 +20849,7 @@
                         "schema": {
                             "type": "integer"
                         },
-                        "description": "Monte Carlo iterations; defaults to MC_SIMULATION_CAP, capped there."
+                        "description": "Monte Carlo iterations. Defaults to the largest count this project's size admits: MC_SIMULATION_CAP, or fewer under MC_CELL_CAP (runs x tasks) on a large project — `runs` in the response reports the count simulated. An explicit value is honored exactly or refused (402 above MC_SIMULATION_CAP, 400 above the size-derived maximum)."
                     },
                     {
                         "in": "query",
@@ -20874,7 +20896,7 @@
                                 }
                             }
                         },
-                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, their *_at_day_start readings, cpm_finish (ISO-8601 or null), cpm_finish_at_day_start, critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing; every field is measured in working time (#4178, #4204), so a finish that only moves from the end of a Friday to the start of the next Monday is 0); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, or today when unset) fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
+                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, their *_at_day_start readings, cpm_finish (ISO-8601 or null), cpm_finish_at_day_start, critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing; every field is measured in working time (#4178, #4204), so a finish that only moves from the end of a Friday to the start of the next Monday is 0); runs (the iteration count actually simulated per leg — may be below MC_SIMULATION_CAP when n_simulations is omitted on a large project, #2839); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, or today when unset) fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
                     },
                     "400": {
                         "content": {
@@ -20885,7 +20907,7 @@
                                 }
                             }
                         },
-                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span."
+                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span; or an explicit n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — body {error: simulation_cell_cap_exceeded, message, max_runs, task_count}."
                     },
                     "402": {
                         "content": {
@@ -20908,6 +20930,17 @@
                             }
                         },
                         "description": "Project does not exist."
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "No free Monte Carlo slot in this API process (MC_MAX_CONCURRENT, #2839). Body {error: simulation_busy, message}; retry after Retry-After."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

@@ -2584,9 +2584,21 @@ class McpReadableViewMixin(_McpViewBase):
     """Set ``True`` on a subclass whose read triggers a CPM/Monte Carlo recompute.
 
     Adds the tighter :class:`~trueppm_api.apps.access.throttles.McpTokenComputeThrottle`
-    bucket on top of the baseline per-token read throttle for the four compute-heavy
-    tools — ``whatif``, ``monte-carlo/latest``, ``forecast``, ``sprint-forecast``
-    (#1808 finding F4). Leave ``False`` for the cheap metadata reads.
+    bucket on top of the baseline per-token read throttle for the compute-heavy
+    reads — ``whatif``, ``monte-carlo/latest``, ``forecast``, ``sprint-forecast``
+    (#1808 finding F4) and ``schedule/derivation`` (#2839). The
+    ``test_inline_compute_throttle_coverage`` conformance test fails any view that
+    runs the engine inline without it. Leave ``False`` for the cheap metadata reads.
+    """
+
+    mcp_compute_heavy_actions: ClassVar[frozenset[str]] = frozenset()
+    """ViewSet actions that are compute-heavy when the viewset as a whole is not.
+
+    :attr:`mcp_compute_heavy` is class-wide, which is wrong for a viewset whose
+    cheap list/retrieve reads share a class with one action that runs a CPM pass
+    (``ProgramViewSet.schedule``, #2839): marking the class would put every program
+    read on the compute bucket. Naming the action here stacks the compute throttle
+    on that action alone.
     """
 
     def get_authenticators(self) -> list[BaseAuthentication]:
@@ -2613,7 +2625,10 @@ class McpReadableViewMixin(_McpViewBase):
 
         throttles = list(super().get_throttles())
         throttles.append(McpTokenReadThrottle())
-        if self.mcp_compute_heavy:
+        if (
+            self.mcp_compute_heavy
+            or getattr(self, "action", None) in self.mcp_compute_heavy_actions
+        ):
             throttles.append(McpTokenComputeThrottle())
         return throttles
 

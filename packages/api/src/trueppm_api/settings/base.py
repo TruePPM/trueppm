@@ -1302,6 +1302,29 @@ MC_TASK_CAP: int | None = 5_000
 # cap the run is refused as a 400 naming the lag variety. None = the library default.
 MC_LAG_DELTA_CELL_CAP: int | None = 5_000_000
 
+# Request-path ceiling on the PRODUCT runs x n_tasks (#2839). MC_SIMULATION_CAP and
+# MC_TASK_CAP bound each dimension, but the simulation keeps three (runs, n_tasks)
+# float64 matrices live at once plus temporaries, so its memory and its (vectorized,
+# ~linear) wall time follow the product. At 5,000 x 1,000 = 5M cells one simulation
+# peaked at ~234 MB traced / ~336 MB RSS, on the single default API worker
+# (processes.api.workers: 1, 2 GiB limit) that also serves every WebSocket, and the
+# what-if endpoint runs two back to back. 2.5M cells halves that (~117 MB traced),
+# still runs the full 1,000 iterations up to 2,500 tasks, and gives a project at
+# MC_TASK_CAP 500 — the percentile resolution of a 500-sample run is 0.2%, well
+# inside the day granularity the forecast reports. An omitted n_simulations scales
+# down to fit (the response's `runs` reports it); an explicit one above the
+# size-derived maximum is refused 400 rather than silently shrunk. Not an edition
+# gate: it protects the worker, so Enterprise keeps it unless its hardware differs.
+# None = no product cap.
+MC_CELL_CAP: int | None = 2_500_000
+
+# Simulations one API process runs at once (#2839). Sync views run one thread per
+# request under ASGI, so concurrent runs in one worker are real; MC_CELL_CAP bounds
+# each, this bounds how many stack. 2 x ~117 MB keeps a full-size burst far inside
+# the 2 GiB default worker limit. A request waits up to 10 s for a slot, then gets
+# 503 + Retry-After. Per process, so N workers admit N x this. None = unbounded.
+MC_MAX_CONCURRENT: int | None = 2
+
 # Project Monte Carlo run-history retention (ADR-0175, #961): the nightly purge
 # keeps the newest MC_HISTORY_CAP MonteCarloRun rows per project so a PM can read
 # finish-date forecast drift over time. None = unlimited (Enterprise overrides it
@@ -1719,6 +1742,14 @@ REST_FRAMEWORK = {
         # scope each. 60/min is far above what the Reports page generates —
         # useBurnChart has a 5-minute staleTime.
         "burn": env("TRUEPPM_THROTTLE_BURN_RATE", default=_STANDARD_RATE),
+        # On-read CPM derivation (#2839). GET /projects/<pk>/schedule/derivation/ runs
+        # a full schedule() pass inside derive_value on every CPM-quantity call — the
+        # compute class #1808 bounded on its Monte Carlo siblings but missed here, so
+        # it fell through to the general 1000/min account default. One CPM pass is
+        # far cheaper than a simulation, so this sits at the general read tier rather
+        # than the 10/min monte_carlo tier: a person clicking through the "why" of a
+        # dozen values never trips it, a scripted loop is held to one pass a second.
+        "cpm_on_read": env("TRUEPPM_THROTTLE_CPM_ON_READ_RATE", default=_STANDARD_RATE),
         # Bundled-sample demo loader (#2402). POST /programs/load-sample/ is the
         # most expensive single write in the API: it hard-deletes the caller's
         # prior program with the same code (memberships -> projects -> cascade)
@@ -1768,8 +1799,9 @@ REST_FRAMEWORK = {
         # get_cache_key returns None for non-token callers, so DRF skips them; see
         # apps/access/throttles.py). "mcp_read" is the baseline cap every
         # MCP-readable view applies per token; "mcp_read_compute" is the tighter
-        # bucket the four compute-heavy tools (whatif, monte-carlo/latest, forecast,
-        # sprint-forecast) STACK on top, since each triggers a CPM + Monte Carlo
+        # bucket the compute-heavy reads (whatif, monte-carlo/latest, forecast,
+        # sprint-forecast, schedule derivation #2839, and the program schedule
+        # action) STACK on top, since each triggers a CPM or Monte Carlo
         # recompute per call and a read-only token loop must not burn arbitrary CPU.
         # Env-tunable so an operator can widen the budget for a trusted agent fleet
         # or tighten it under load. OSS ships basic per-token limits; per-agent

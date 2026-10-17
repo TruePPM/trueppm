@@ -695,6 +695,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     # scopes explicitly; see ADR-0678 threat-model finding T1.
     mcp_scope = McpScope.AGGREGATE
 
+    # `schedule` runs the deterministic CPM over every member project's merged graph
+    # on each read (#2839), so an mcp:read token gets the compute bucket on that
+    # action; the cheap CRUD reads stay on the baseline mcp_read bucket.
+    mcp_compute_heavy_actions = frozenset({"schedule"})
+
     serializer_class = ProgramSerializer
     pagination_class = DirectoryPagination
     # Parity with ProjectViewSet: name/code substring search so the program

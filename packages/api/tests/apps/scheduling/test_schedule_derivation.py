@@ -304,3 +304,59 @@ class TestScheduleDerivationResponseSchema:
 
         declared = set(ScheduleMonteCarloDerivationSerializer().fields)
         assert set(data.keys()) == declared
+
+
+@pytest.mark.django_db
+class TestScheduleDerivationThrottle:
+    """A CPM quantity runs a full schedule() pass per call (#2839) — it is throttled.
+
+    Rates are patched on the shared ``THROTTLE_RATES`` dict: DRF binds it at import,
+    so a settings override never reaches the already-bound throttle classes.
+    """
+
+    def test_session_caller_is_throttled_by_cpm_on_read(
+        self,
+        member_client: APIClient,
+        project: Project,
+        chain: dict[str, Task],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from rest_framework.throttling import ScopedRateThrottle
+
+        monkeypatch.setitem(ScopedRateThrottle.THROTTLE_RATES, "cpm_on_read", "2/min")
+        params = {"task_id": str(chain["B"].pk), "quantity": "early_start"}
+        statuses = [member_client.get(url(project.pk), params).status_code for _ in range(3)]
+        assert statuses == [200, 200, 429]
+
+    def test_mcp_token_is_throttled_by_compute_bucket(
+        self,
+        user: object,
+        project: Project,
+        chain: dict[str, Task],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import secrets
+
+        from rest_framework.throttling import ScopedRateThrottle
+
+        from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+        from trueppm_api.apps.projects.models import SCOPE_MCP_READ, ApiToken
+
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        ApiToken.objects.create(
+            owner=user,
+            name="mcp",
+            scopes=[SCOPE_MCP_READ],
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=user,
+        )
+        # Only the compute bucket is tight: the human scope stays generous, so the
+        # 429 can only come from mcp_compute_heavy stacking McpTokenComputeThrottle.
+        monkeypatch.setitem(ScopedRateThrottle.THROTTLE_RATES, "mcp_read_compute", "1/min")
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        params = {"task_id": str(chain["B"].pk), "quantity": "early_start"}
+        statuses = [client.get(url(project.pk), params).status_code for _ in range(2)]
+        assert statuses == [200, 429]

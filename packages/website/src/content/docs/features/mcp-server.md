@@ -239,7 +239,8 @@ is a pure read/compute modeled as a `GET`.
   that would name a resource you are not allowed to read are deliberately
   withheld — you still get the reason, just not the detail that would leak.
 - **A rate limit says how long to wait.** The compute-heavy tools — `whatif`,
-  the latest Monte Carlo, and the two forecast tools — share a tighter per-token
+  the latest Monte Carlo, the two forecast tools, and the schedule derivation
+  (the "why" behind a date) — share a tighter per-token
   bucket (`TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`, default **12/min**) than the
   general read bucket (`TRUEPPM_THROTTLE_MCP_READ_RATE`, default 120/min),
   because each one runs the engine. Exploring a schedule in a burst can reach it.
