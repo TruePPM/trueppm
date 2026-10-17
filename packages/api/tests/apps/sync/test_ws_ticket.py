@@ -113,7 +113,11 @@ def test_ticket_refused_for_personal_access_token(user: object) -> None:
     )
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
-    with patch("trueppm_api.apps.sync.views.issue_ticket") as mint:
+    # return_value is set so that a regressed guard fails this test fast and
+    # cleanly (a 200 with a real ticket, tripping the status/call assertions
+    # below) rather than leaving an unconfigured Mock to hang the response
+    # pipeline until pytest's own timeout.
+    with patch("trueppm_api.apps.sync.views.issue_ticket", return_value="should-not-mint") as mint:
         resp = client.post(_URL)
     assert resp.status_code == 403, resp.data
     mint.assert_not_called()

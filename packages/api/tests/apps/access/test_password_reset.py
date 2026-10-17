@@ -269,6 +269,10 @@ def test_confirm_evicts_every_live_project_socket(user, django_capture_on_commit
     keeps streaming until it disconnects on its own, so a reset must also close
     it. One evict is scheduled per project the user holds a live membership in
     (the same loop account deactivation uses, #2850).
+
+    Two *live* memberships, not one — a ``.first()``-style regression in the
+    shared eviction helper would still pass a single-membership fixture, and
+    that regression is exactly the shape this test exists to catch.
     """
     from datetime import date
 
@@ -278,9 +282,11 @@ def test_confirm_evicts_every_live_project_socket(user, django_capture_on_commit
     cal = Calendar.objects.create(name="Std")
     project_a = Project.objects.create(name="A", start_date=date(2026, 1, 5), calendar=cal)
     project_b = Project.objects.create(name="B", start_date=date(2026, 1, 5), calendar=cal)
+    project_c = Project.objects.create(name="C", start_date=date(2026, 1, 5), calendar=cal)
     ProjectMembership.objects.create(project=project_a, user=user, role=Role.MEMBER)
-    membership_b = ProjectMembership.objects.create(project=project_b, user=user, role=Role.MEMBER)
-    membership_b.soft_delete()  # already evicted at revocation time; must not double-evict
+    ProjectMembership.objects.create(project=project_b, user=user, role=Role.MEMBER)
+    membership_c = ProjectMembership.objects.create(project=project_c, user=user, role=Role.MEMBER)
+    membership_c.soft_delete()  # already evicted at revocation time; must not double-evict
 
     uid, token = _uid_token(user)
     with (
@@ -294,7 +300,9 @@ def test_confirm_evicts_every_live_project_socket(user, django_capture_on_commit
         )
     assert resp.status_code == 200
 
-    evict.assert_called_once_with(str(project_a.pk), str(user.pk))
+    evicted = {call.args[0] for call in evict.call_args_list}
+    assert evicted == {str(project_a.pk), str(project_b.pk)}
+    assert all(call.args[1] == str(user.pk) for call in evict.call_args_list)
 
 
 @pytest.mark.django_db
