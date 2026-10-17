@@ -42,6 +42,7 @@ You are auditing a new dependency before it is added to TruePPM.
 - [ ] Package has >1 maintainer or a reputable org behind it
 - [ ] Package is not a typosquat of a popular package (verify the exact name)
 - [ ] Pinned to a version range that allows patch updates but locks major version
+- [ ] **Every CVE suppression's stated reason is still true.** For each entry in `osv-scanner.toml` (or another advisory allow-list), re-check the reason against the upstream advisory on every audit. "No fix exists" goes stale the day upstream ships a patch, and the suppression then hides a fixable advisory with a green scan. Flag any suppression whose reason no longer holds, and any whose re-review date has passed.
 
 ### Size and Complexity
 - [ ] The package does not pull in a large transitive dependency graph

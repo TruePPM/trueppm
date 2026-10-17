@@ -54,6 +54,9 @@ You are auditing TruePPM's role-based access control for a new or modified endpo
 - [ ] `read_only_fields` covers server-computed values (`server_version`, CPM outputs)
 - [ ] User-controlled FK fields validate the related object belongs to the same project
 
+### Gate parity across write paths
+- [ ] For every model with more than one write path (REST, sync upload, importers, service helpers), the create/update/delete role gate is identical on every path, or the difference is documented at both sites. A gate added to REST later (e.g. a plan-author check) is the usual source of drift; enumerate the writers by grepping `.objects.create(`/`.save(`/`.soft_delete(` for the model, not by recalling them.
+
 ### Privilege Escalation
 - [ ] Users cannot assign themselves a higher role than they currently hold
 - [ ] Bulk operations enforce per-object permission checks, not just list-level

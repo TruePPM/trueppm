@@ -321,6 +321,16 @@ The answers must appear verbatim in the ADR's `### Durable Execution` subsection
    - If using the outbox pattern: what status does the outbox row enter on permanent
      failure? Who can re-trigger it?
 
+## Field and vocabulary consistency across the public schema
+
+The same concept must have one wire shape. Before adding a field, enum, or query parameter, grep `docs/api/openapi.json` for the concept across **all** schemas:
+- one field name with different types (`actor` as an integer in one schema and an object in another)
+- one vocabulary spelled differently in sibling enums (UPPER vs snake vs kebab)
+- one concept under different query-param names (`from`/`to` vs `start`/`end`; `q` vs `search`)
+- one sub-resource spelled several ways under the same parent
+
+This is mechanical; count the variants rather than eyeballing one schema. A new endpoint that adds a variant makes the next freeze more expensive. Report it even when the endpoint itself is internally consistent.
+
 ## Key Architectural Constraints
 
 - **PostgreSQL is the only database.** No graph DB, no MongoDB, no DynamoDB.

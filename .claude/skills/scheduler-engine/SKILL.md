@@ -23,6 +23,12 @@ You are working on trueppm-scheduler, a pure Python library with ZERO Django dep
 - **Deterministic by default.** Same input = same output (Monte Carlo uses seeded RNG for reproducibility in tests).
 - **networkx for graph operations.** DAG construction, topological sort, cycle detection.
 - **numpy for Monte Carlo.** Vectorized sampling across all simulations for performance.
+- **Every export is a commitment for the 1.x line, so review its shape, not only its behavior.** For each name in `trueppm_scheduler.__all__`, check:
+  - Dataclasses that take positional arguments freeze their field *order*; prefer `kw_only=True` before 1.0.
+  - Field semantics belong in a Google `Attributes:` section. A `#` comment is invisible to `help()`, IDE hovers, and generated API docs.
+  - A parameter or exported constant named after an implementation detail (cells, an index span, a table size) locks the algorithm. Expose a budget or behavior instead, or mark it provisional.
+  - A result type built from parallel fixed fields (`p50`/`p80`/`p95` plus matching flags) cannot grow without multiplying fields. Decide the extensible shape before the first extension lands.
+  - The package's own declared dependency floors are exercised by a `lowest-direct` CI run.
 
 ## CPM Algorithm Spec
 1. Build DiGraph from tasks (nodes) + dependencies (edges)

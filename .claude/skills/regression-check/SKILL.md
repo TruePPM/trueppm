@@ -114,6 +114,9 @@ checklist inline:
 - [ ] Migration is reversible (`./manage.py migrate app 0001` works after applying)
 - [ ] `server_version` auto-increment is not broken by the model change
 
+### Sibling write-path parity
+- When the diff adds a side effect to one write path (parent resync, rollup, broadcast, audit row) or adds a gate to it, list every other path that writes the same model (REST, sync upload, importers, service helpers) and confirm each got the same change, or is tracked as a deliberate divergence. A fix landed on one path only is a regression waiting on whichever client uses the other.
+
 ### Stale Mocks
 - [ ] If a module's exported API changed (new function, renamed arg, removed export),
   every test file that mocks that module has been updated

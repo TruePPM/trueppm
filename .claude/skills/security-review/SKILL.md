@@ -125,11 +125,32 @@ same question:
   share links. Build the matrix of {termination path} × {credential class} and find the
   empty cells. Cells are routinely missed because each path was written when fewer
   credential classes existed.
+  - **The rows are not only off-boarding.** Include every *compromise-response* lever: a
+    password reset, revoking one token, and any operator-wide revocation sweep. In these the
+    victim stays an **active** member, so a check that re-validates "is the registrant still
+    an active member" passes them, though it correctly stops off-boarding.
+  - **Derive the columns from the models, not from the existing sweep helper.** A credential
+    class is anything that keeps acting with a user's authority after the request that
+    created it: every model with a `created_by`/`configured_by`/owner FK that grants access
+    *or keeps receiving data*. That includes outbound subscriptions, such as a webhook
+    delivering payloads to a URL the creator chose. A revocation helper's own docstring
+    ("the two durable grants") is a list that froze when it was written; treat it as the
+    thing under audit, not the denominator.
+  - Check the matrix against the user-facing claim too. If the docs promise a reset "signs
+    the account out of every device", every live-session column must be ✔ for that row.
 - **Deployment renderings** — the same config rendered by chart, compose, and a baked image
   will drift. Check the *recommended production path* explicitly; it is frequently the least
   hardened, because hardening lands on whichever rendering the reporter was using.
 - **Read vs write gates on the same resource** — a policy enforced when serving is not
   necessarily enforced when minting, and vice versa.
+- **Write paths to the same model** — REST viewset, sync upload, CSV/Jira/MS Project import,
+  template apply, and service-layer helpers can each create, update, or delete the same rows.
+  Each must apply the same permission gates **and** the same post-write side effects:
+  parent/rollup resyncs, shadow-value restores, broadcasts, audit rows. When a gate or a
+  post-write hook is added to one path, grep for every other writer of that model and confirm
+  the change landed there too, or that the divergence is deliberate and documented at both
+  sites. Distrust a comment that claims parity ("matches TaskViewSet create"). It records the
+  peer as it was when written, and the peer may have gained a gate since.
 
 **Scope a termination guard to the credential's actual authority.** Not every credential
 derives authority from a human account: an org- or project-scoped token is an asset of the
