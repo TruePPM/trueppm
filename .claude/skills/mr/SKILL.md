@@ -107,6 +107,17 @@ Rules for the description:
 - **Any follow-up, deferral, or "left open" sentence names an open issue on the same
   line.** `lint:mr-followups` fails the pipeline otherwise; mark a line that owes nothing
   with `followup-ok` (e.g. `<!-- followup-ok -->`)
+- **Never write "follow-up commit" (or "deferred"/"left open"/"out of scope") to describe
+  a second commit that is already on *this* branch** — e.g. a `completeness-check` or
+  `completeness-check/fix-diff` round that landed its fix in a later commit of the same
+  MR. The gate's regex has no concept of "already done here"; its only backward-looking
+  carve-out is a literal `follow-up to !N` / `follows up #N` reference to a *different*
+  MR or issue, so plain prose like "a follow-up commit fixes the gap" is read as an
+  untracked, forward-looking deferral and fails the job even though nothing is owed.
+  Say what actually happened instead — "commit `<sha>`, on this branch, fixed …" — rather
+  than reaching for `followup-ok` on a sentence that was never a deferral. Recurred twice
+  (!2841/#4186, then MR !3025/#4426) before this line was added; see
+  `scripts/check-mr-followups.sh`'s own header for the regex and its carve-out.
 - Link closing issues with `Closes #N` on a line after the Notes section if applicable
 - If it's a UI change, add a Screenshots section placeholder: `## Screenshots\n<!-- attach before/after -->`
 - Do not pad with filler text
