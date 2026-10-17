@@ -328,11 +328,53 @@ Each webhook reports its own delivery health:
 |---|---|
 | `consecutive_failures` | Terminal failures since the last success. Any success resets it to `0`. |
 | `last_failure_at`, `last_failure_reason` | When the most recent terminal failure happened, and why. |
-| `disabled_at`, `disabled_reason` | Set **only** when the automatic guard deactivated the subscription. A webhook an admin paused by hand has `disabled_at: null`. |
+| `disabled_at`, `disabled_reason` | Set when the automatic guard deactivated the subscription, **or** when a security sweep revoked the credentials of its registrant, or of anyone who has ever set its URL or secret (see [Containment](#containment) below). A webhook an admin paused by hand has `disabled_at: null`. |
 
 All five are read-only. To resume deliveries, fix the receiver and re-enable the
 webhook — `PATCH {"is_active": true}` clears the failure record in the same write,
 so the guard starts counting again from zero.
+
+### Containment
+
+A webhook is also deactivated — not deleted — when the credentials of **anyone
+who registered it, or has ever set its URL or secret**, are contained: a
+password reset, an admin off-boarding that account, or an operator's
+[`revoke_api_tokens --all`](/administration/management-commands/#maintenance-commands)
+sweep. This closes the gap where a leaked personal access token, or a hijacked
+session, belonging to a project Admin who is **still active** could keep a webhook
+delivering every subscribed event — to wherever it currently points — after the
+documented compromise-response steps ran for that Admin. Two cases, both covered:
+
+- The registrant's own credentials are contained — dispatch's own membership
+  re-check (above) already catches a registrant who has actually lost Admin+
+  access; this sweep is what catches one whose credentials were merely stolen
+  while access was not.
+- **A different Admin's** credentials are contained after that Admin repointed
+  someone else's project webhook (any project Admin may edit any project
+  webhook — see [Permissions](#permissions)). The webhook is still swept, even
+  though its registrant is untouched, because every account that has ever set
+  `url` or `secret` stays eligible for the sweep — **permanently, not only
+  until the next edit.** A routine, unrelated edit by someone else afterward
+  (a secret rotation, or even a write that only means to change `events`, since
+  the API re-submits the current `url` either way) does not remove the
+  attacker-controlled admin from that set. Program webhooks cannot hit this
+  case: only the registrant may edit a program webhook (see
+  [Permissions](#permissions)).
+
+See [Revoking a token](/features/personal-access-tokens/#revoking-a-token) for the
+full containment picture.
+
+**Before re-enabling a webhook this sweep deactivated, verify `url` and rotate
+`secret` — do not just `PATCH {"is_active": true}`.** Unlike an automatic
+deactivation (the receiver was failing, not hostile), a credential-sweep
+deactivation can mean the stored `url` still points at an attacker's host: the
+sweep stops *delivery*, it does not revert the repoint. Re-check the delivery
+settings, rotate the secret, confirm with the team which admin should own the
+webhook going forward, and only then `PATCH {"is_active": true}`. Re-enabling
+is itself tracked the same way a URL or secret change is: whoever flips a
+disabled webhook back on also becomes eligible for this sweep going forward,
+because re-enabling restarts delivery to wherever the webhook currently
+points, URL and secret untouched or not.
 
 For operators: a terminally failed delivery is also recorded in the
 [dead-letter queue](/administration/dead-letter-alerting/), which is where alerting
@@ -393,3 +435,10 @@ Viewer following the first row of this table can list webhooks but receives `403
 from the `deliveries` endpoint.
 
 The same roles apply at each scope: project Viewer/Admin for project-scoped webhooks, program Viewer/Admin for program-scoped ones.
+
+**Create and update require a session or JWT — a personal access token is refused**,
+even an Admin's. Minting a webhook's signing secret, or repointing its delivery URL
+or rotating that secret via update, is a durable grant a leaked token must not be
+able to extend itself with — the same rule applied to minting a public share link or
+rotating a git-automation secret. List, read, delete, and test-ping remain reachable
+with a token.

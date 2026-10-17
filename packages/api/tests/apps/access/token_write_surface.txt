@@ -29,6 +29,20 @@
 # or rotate the IdP secret, and one SSO login at the widened domain then mints a
 # durable ADMIN session that revoking the token does not touch.
 #
+# Three more left the set in #4461, which also fixed the walker: it read only
+# class-level `permission_classes`, so a guard added per-action through a
+# hand-rolled `get_permissions` (exactly what `WebhookViewSet`/
+# `ProgramWebhookViewSet` do for `create`/`update`/`partial_update`, and what
+# `ProjectShareLinkListCreateView` already did for its POST branch since #2939)
+# was invisible to it — the same blind spot #2877 recorded above, from the other
+# side. `projects/<project_pk>/webhooks/$` and `programs/<program_pk>/webhooks/$`
+# left the set because POST — their only unsafe method — now refuses a token
+# caller; their detail/`test/` routes stay listed below because DELETE and the
+# test-ping POST remain token-reachable on purpose. `projects/<project_pk>/
+# share-links/` left the set too: its POST has refused a token caller since
+# #2939, but the old walker could not see that either, so this line had been
+# stale since before #4461 touched anything.
+#
 # One more left the set in #4462: `ws/ticket/`. Minting a WebSocket ticket is
 # session/JWT-only since `IsNotTokenAuthenticated` was added to
 # `WebSocketTicketView` — a ticket opens a live socket the consumer authenticates
@@ -73,7 +87,6 @@ api/v1/^programs/(?P<pk>[^/.]+)/risk-policy/$
 api/v1/^programs/(?P<pk>[^/.]+)/rollup-config/$
 api/v1/^programs/(?P<pk>[^/.]+)/split/$
 api/v1/^programs/(?P<pk>[^/.]+)/transfer-sponsorship/$
-api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/$
 api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$
 api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/test/$
 api/v1/^programs/bulk-fields/$
@@ -97,7 +110,6 @@ api/v1/^projects/(?P<pk>[^/.]+)/restore/$
 api/v1/^projects/(?P<pk>[^/.]+)/transfer/$
 api/v1/^projects/(?P<pk>[^/.]+)/unarchive/$
 api/v1/^projects/(?P<pk>[^/.]+)/visit/$
-api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/$
 api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$
 api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/test/$
 api/v1/^recurrence-rules/$
@@ -200,7 +212,6 @@ api/v1/projects/<project_pk>/risks/
 api/v1/projects/<project_pk>/risks/<pk>/
 api/v1/projects/<project_pk>/risks/<risk_pk>/comments/
 api/v1/projects/<project_pk>/risks/import/
-api/v1/projects/<project_pk>/share-links/
 api/v1/projects/<project_pk>/share-links/<link_id>/revoke/
 api/v1/projects/<project_pk>/signal-privacy/
 api/v1/projects/<project_pk>/signal-privacy/ceiling-proposals/<proposal_pk>/vote/

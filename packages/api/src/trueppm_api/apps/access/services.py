@@ -671,17 +671,51 @@ def revoke_all_personal_access_tokens(
     return revoked
 
 
-def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tuple[int, int]:
-    """Revoke the two non-token durable grants a PAT (or a live session) can mint (#2939).
+def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tuple[int, int, int]:
+    """Revoke the three non-token durable grants a PAT (or a live session) can mint.
 
-    ``IsNotTokenAuthenticated`` (#2878) now blocks *minting* a ``ShareLink`` or
-    rotating a ``BoardAutomation`` webhook secret through a bearer token, but a
-    grant minted **before** that guard existed, or minted through a live session by
-    someone who is now being contained, is exactly as durable as a personal access
-    token and sits outside every existing revocation lever
-    (``revoke_all_personal_access_tokens``, password reset, off-boarding). This
-    closes that gap for the two grants #2939 scoped: a project's public share
-    links and its git-automation webhook secret.
+    ``IsNotTokenAuthenticated`` (#2878) now blocks *minting* a ``ShareLink``,
+    rotating a ``BoardAutomation`` webhook secret, or registering/repointing an
+    outbound ``Webhook`` through a bearer token, but a grant minted **before**
+    that guard existed, or minted through a live session by someone who is now
+    being contained, is exactly as durable as a personal access token and sits
+    outside every existing revocation lever (``revoke_all_personal_access_tokens``,
+    password reset, off-boarding). This closes that gap for the three grants
+    #2939 and #4461 scoped: a project's public share links, its git-automation
+    webhook secret, and any outgoing webhook the user registered.
+
+    The webhook case is distinct from the other two: dispatch already stops for
+    an off-boarded *registrant* because it re-checks Admin+ membership on every
+    delivery (#4325/#4330) — ``created_by`` only, never the editors set below.
+    What that membership re-check cannot see at all is a *credential*
+    compromise — a leaked PAT or hijacked session belonging to a registrant who
+    is still an active Admin — and it cannot see an editor who is not the
+    registrant in any case, compromised or not. Deactivating the webhook here
+    is belt-and-suspenders for the registrant's own credential compromise, and
+    the *only* control that reaches an editor who never registered the row.
+
+    The webhook sweep matches ``created_by=user`` **or** ``user`` appearing in
+    ``webhook.editors`` (:class:`~trueppm_api.apps.webhooks.models.WebhookEditor`,
+    an additive, append-only record of every user who has ever set ``url`` or
+    ``secret`` on the row, or re-enabled it while disabled) — not ``created_by``
+    alone, and not a single mutable "last modified by" field either. A project
+    webhook's update has no
+    registrant check — any project Admin may repoint any project webhook's URL
+    or rotate its secret (``WebhookViewSet.perform_update``) — so a hijacked
+    session belonging to Admin B could repoint Admin A's webhook to an
+    attacker's host, and B's own password reset or off-boarding must still
+    catch that row even after a later, unrelated edit by A or anyone else. A
+    mutable field would lose B's attribution the moment someone else's edit
+    overwrote it (including a PUT that only changes ``events`` but still
+    carries the unchanged ``url`` in its body); an append-only membership does
+    not have that failure mode, because nothing removes a row from it. This is
+    exactly the "grant minted through a live session by someone who is now
+    being contained" case two paragraphs up, for an update rather than a
+    create. Program webhooks record an editor too, for symmetry, but it is
+    always the same user as ``created_by`` there because
+    ``ProgramWebhookViewSet`` already restricts update to the creator
+    (ADR-0076/#4310) — so this clause adds real coverage only on the
+    project-scoped path.
 
     ``user=None`` means instance-wide — every active grant, not one person's —
     which is what the ``revoke_api_tokens --all`` full-compromise lever needs;
@@ -690,19 +724,24 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
     Revoking a share link is cheap for a team to recover from (an Admin mints a
     new one); clearing a webhook secret degrades ``GitWebhookIngestView`` to its
     existing "no secret set" 404 refusal (fail-closed by construction, not a new
-    code path) until an Admin rotates a fresh one. Both are lower-disruption than
-    the project-/program-scoped *API tokens* this module deliberately leaves alone
+    code path) until an Admin rotates a fresh one; deactivating an outgoing
+    ``Webhook`` stops dispatch immediately (``dispatch_webhooks`` only fans out to
+    ``is_active=True`` rows) and an Admin re-enables it once the credential issue
+    is resolved, which also clears the delivery-health counters (see
+    ``WebhookSerializer.update``). All three are lower-disruption than the
+    project-/program-scoped *API tokens* this module deliberately leaves alone
     on off-boarding (see ``_revoke_offboarded_credentials``) — those are shared
     integration credentials embedded in other people's scripts and CI, not a
     single admin's config action.
 
-    Returns ``(share_links_revoked, automation_secrets_cleared)``.
+    Returns ``(share_links_revoked, automation_secrets_cleared, webhooks_deactivated)``.
     """
-    # Local import: projects/integrations import from access, so importing these
-    # at module top would create a circular dependency (mirrors the ApiToken
+    # Local import: projects/integrations/webhooks import from access, so importing
+    # these at module top would create a circular dependency (mirrors the ApiToken
     # import above).
     from trueppm_api.apps.integrations.models import BoardAutomation
     from trueppm_api.apps.projects.models import ShareLink
+    from trueppm_api.apps.webhooks.models import Webhook
 
     now = timezone.now()
 
@@ -716,4 +755,19 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
         secrets_qs = secrets_qs.filter(configured_by=user)
     secrets_cleared = secrets_qs.update(secret_ciphertext=b"", secret_set_at=None)
 
-    return links_revoked, secrets_cleared
+    webhooks_qs = Webhook.objects.filter(is_active=True)
+    if user is not None:
+        webhooks_qs = webhooks_qs.filter(models.Q(created_by=user) | models.Q(editors__user=user))
+    # Deliberately neutral: this fires whenever EITHER leg above matches, and the
+    # editors leg means the row's registrant may be a different, untouched account
+    # (#4461) — "the registrant's credentials were revoked" would misattribute the
+    # cause on exactly that path. The UI/docs tell the admin to verify url/secret
+    # before re-enabling regardless of which leg fired, so the reason does not need
+    # to (and cannot cheaply) distinguish them.
+    webhooks_deactivated = webhooks_qs.update(
+        is_active=False,
+        disabled_at=now,
+        disabled_reason="Deactivated: a security sweep revoked a credential tied to this webhook.",
+    )
+
+    return links_revoked, secrets_cleared, webhooks_deactivated

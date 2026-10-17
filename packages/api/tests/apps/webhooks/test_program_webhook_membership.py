@@ -458,6 +458,11 @@ def test_member_creator_can_patch_then_loses_edit_on_revocation(
 
     ok = client.patch(url, {"url": "https://example.com/new-hook"}, format="json")
     assert ok.status_code == 200, ok.content
+    hook.refresh_from_db()
+    # #4461: an editor row is recorded, but — unlike a project webhook, whose
+    # update has no registrant check — it is always the registrant here,
+    # because only the creator can ever reach this PATCH (_can_edit above).
+    assert set(hook.editors.values_list("user_id", flat=True)) == {member_owner.pk}
 
     membership.is_deleted = True
     membership.save(update_fields=["is_deleted"])

@@ -361,6 +361,57 @@ def test_confirm_revokes_share_links_and_git_automation_secret(user) -> None:
 
 
 @pytest.mark.django_db
+def test_confirm_deactivates_webhooks_the_user_registered(user) -> None:
+    """#4461: an outgoing webhook is exactly as durable as a PAT, and a leaked PAT
+    or hijacked session could otherwise keep one delivering every subscribed
+    event after the owner reset their password. A co-admin's own webhook on the
+    same project must survive untouched.
+    """
+    from datetime import date
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import Calendar, Project
+    from trueppm_api.apps.webhooks.models import Webhook
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(name="P", start_date=date(2026, 1, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+
+    coadmin = User.objects.create_user(username="coadmin_pwreset_wh", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    user_webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook-user",
+        secret="user-secret-12345678901234567890",
+        events=["task.created"],
+        created_by=user,
+    )
+    coadmin_webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook-coadmin",
+        secret="coadmin-secret-1234567890123456789",
+        events=["task.created"],
+        created_by=coadmin,
+    )
+
+    uid, token = _uid_token(user)
+    resp = APIClient().post(
+        _CONFIRM_URL,
+        {"uid": uid, "token": token, "new_password": _NEW_PASSWORD},
+        format="json",
+    )
+    assert resp.status_code == 200
+
+    user_webhook.refresh_from_db()
+    coadmin_webhook.refresh_from_db()
+    assert user_webhook.is_active is False
+    assert user_webhook.disabled_at is not None
+    assert coadmin_webhook.is_active is True
+    assert coadmin_webhook.disabled_at is None
+
+
+@pytest.mark.django_db
 def test_confirm_revoked_share_link_serves_410_after_reset(user) -> None:
     """The revoked-row effect is observable from the public serve path, not just
 

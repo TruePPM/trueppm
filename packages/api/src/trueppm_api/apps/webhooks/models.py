@@ -140,9 +140,10 @@ class Webhook(models.Model):
     #
     # ``consecutive_failures`` counts *terminal* failures (a delivery that will
     # never be attempted again), not individual attempts, and resets to 0 on the
-    # next success. ``disabled_at``/``disabled_reason`` are set only by the
-    # automatic guard, never by a human PATCH, so the UI can distinguish "an admin
-    # paused this" from "TruePPM gave up on this".
+    # next success. ``disabled_at``/``disabled_reason`` are set by the automatic
+    # guard OR by ``revoke_personal_durable_grants`` (#4461) — never by a human
+    # PATCH — so the UI can distinguish "an admin paused this" from "TruePPM gave
+    # up on this" from "the registrant's credentials were revoked".
     consecutive_failures = models.PositiveIntegerField(
         default=0,
         help_text="Terminal delivery failures since the last success. Resets to 0 "
@@ -153,8 +154,10 @@ class Webhook(models.Model):
     disabled_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When the automatic failure guard deactivated this subscription. "
-        "Null when it is active, or when an admin deactivated it by hand.",
+        help_text="When the automatic failure guard, or a credential-revocation "
+        "sweep (password reset, off-boarding, or revoke_api_tokens --all), "
+        "deactivated this subscription. Null when it is active, or when an "
+        "admin deactivated it by hand.",
     )
     disabled_reason = models.CharField(max_length=255, blank=True, default="")
     # Per-subscription monotonic counter for outgoing deliveries (#664). Lives on
@@ -292,6 +295,68 @@ class Webhook(models.Model):
             self.disabled_at = now
             self.disabled_reason = disabled_reason
         return bool(updated)
+
+
+class WebhookEditor(models.Model):
+    """Every user who has ever set a webhook's `url`/`secret`, or re-enabled it
+    while disabled (#4461).
+
+    **Additive by design — never overwritten.** `revoke_personal_durable_grants`'s
+    sweep must deactivate a webhook for every account whose credential compromise
+    could have put the webhook's *current* URL/secret in place, not only the one
+    who most recently touched it. A single mutable "last modified by" field looked
+    like the obvious shape and was tried first, and it broke on the very next
+    edit: a project webhook's update has no registrant check, so any project Admin
+    may edit any project webhook (ADR-0076's creator-only rule is program-scoped
+    only, #4310). Given a hijacked session (Admin B) repoints `url` to an
+    attacker's host, a single mutable field fails two ways once a *different*,
+    legitimate admin (A) later touches the row at all:
+
+    - A's own later secret rotation overwrites the stamp to A — B's own password
+      reset/off-boarding no longer matches, and the row survives it.
+    - Even a PUT that only changes `events` carries the (unchanged, still evil)
+      `url` in its body — DRF's serializer treats a present-but-unchanged field
+      as "set" — so the stamp flips to A on a write that touched neither field in
+      substance.
+
+    A row here is therefore inserted once per (webhook, user) and never deleted
+    or reassigned to someone else; a later editor can only ADD their own row, not
+    remove this one. `set_at` is refreshed on every qualifying edit by the same
+    user (informational — "last confirmed", not "only"), via `update_or_create`.
+    The sweep matches `created_by=user OR user in webhook.editors` — both legs,
+    because `created_by` is the registrant even if they never edited the row at
+    all, and this table is editors, not registrants.
+
+    A row is also inserted when a user flips a disabled webhook's `is_active`
+    back to `True` (``WebhookViewSet.perform_update``), even with `url`/`secret`
+    untouched: a webhook that is disabled still carries whatever `url`/`secret`
+    it had, so re-enabling it restarts delivery to wherever it currently
+    points. A second hijacked session that does nothing but re-enable the row
+    must be recorded, or its own future containment would miss it despite
+    being the one that restarted the leak. *Disabling* is deliberately NOT
+    recorded — it only shrinks what is live, the opposite shape.
+
+    Mirrors the shape of ``TaskLabel``/``CommentReaction`` (plain through model,
+    UUID PK, ``unique(webhook, user)``) rather than a ``ManyToManyField`` so the
+    upsert (``update_or_create``) and the `set_at` timestamp have somewhere to
+    live.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    webhook = models.ForeignKey(Webhook, on_delete=models.CASCADE, related_name="editors")
+    # CASCADE: a deleted user cannot be the subject of a future credential sweep
+    # anyway — unlike Webhook.created_by (SET_NULL), there is no "unattributed but
+    # still relevant" state to preserve here.
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    set_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["webhook", "user"], name="uniq_webhook_editor"),
+        ]
+
+    def __str__(self) -> str:
+        return f"WebhookEditor({self.webhook_id}, {self.user_id})"
 
 
 def _next_delivery_sequence(webhook_id: uuid.UUID | str) -> int:

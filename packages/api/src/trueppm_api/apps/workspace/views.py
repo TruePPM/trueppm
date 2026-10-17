@@ -506,13 +506,22 @@ def _revoke_offboarded_credentials(target: Any, *, actor: Any = None) -> None:
     path (``core/password_reset.py``), which revokes for the same reason.
 
     Scope: personal (``owner=target``) tokens and refresh tokens only, plus the
-    non-token durable grants ``target`` personally minted — their share links and
-    any git-automation webhook secret they configured (#2939;
-    ``revoke_personal_durable_grants``). ``revoke_all_personal_access_tokens``
-    deliberately leaves project- and program-scoped *tokens* alone — those are org
-    assets minted *by* the departing member for a team's integration, not their
-    personal credentials, and killing them would break a team's CI on an
-    unrelated person's off-boarding.
+    non-token durable grants ``target`` personally minted — their share links,
+    any git-automation webhook secret they configured, and (#4461) any outgoing
+    webhook they registered **or have ever set the URL/secret on, or re-enabled
+    while disabled** (#2939; ``revoke_personal_durable_grants``; see
+    ``WebhookEditor``). For a webhook ``target`` only registered (and never
+    edited), this sweep is belt-and-suspenders: dispatch already stops
+    delivering to an off-boarded registrant because it re-checks live Admin+
+    membership on every event (#4325/#4330). It is **not** redundant for a
+    webhook ``target`` only edited or re-enabled, since created by someone
+    else — dispatch's membership re-check reads only ``created_by``, never the
+    editors set, so this sweep is the *only* control that reaches that case.
+    ``revoke_all_personal_access_tokens`` deliberately leaves project- and
+    program-scoped *tokens* alone — those are org assets minted *by* the
+    departing member for a team's integration, not their personal credentials,
+    and killing them would break a team's CI on an unrelated person's
+    off-boarding.
 
     All three calls are plain DB updates and run **inside** the caller's
     ``transaction.atomic()`` block, not under ``transaction.on_commit()``: they

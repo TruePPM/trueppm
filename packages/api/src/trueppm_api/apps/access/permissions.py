@@ -2200,13 +2200,16 @@ class IsNotTokenAuthenticated(BasePermission):
     ``default_role``, and one SSO login at the widened domain then produces a real
     ADMIN session that revoking the token does not touch.
 
-    Since #2939, it also covers the two other routes that mint a durable grant of
-    some kind: ``GitAutomationRotateSecretView`` (rotates a project's git-automation
+    Since #2939, it also covers two other routes that mint a durable grant of some
+    kind: ``GitAutomationRotateSecretView`` (rotates a project's git-automation
     webhook secret) and the POST branch of ``ProjectShareLinkListCreateView`` (mints
-    a public share link). Both grants are also now swept by off-boarding and by
-    ``revoke_api_tokens --all`` (``revoke_personal_durable_grants``), closing the
-    gap where a leaked PAT belonging to a project Admin could mint one and outlive
-    every revocation lever.
+    a public share link). Since #4461, it also covers ``create``/``update``/
+    ``partial_update`` on ``WebhookViewSet``/``ProgramWebhookViewSet`` (mints an
+    outgoing webhook's signing secret, or repoints its delivery URL / rotates that
+    secret). All three grants are also now swept by password reset, off-boarding,
+    and ``revoke_api_tokens --all`` (``revoke_personal_durable_grants``), closing
+    the gap where a leaked PAT belonging to a project Admin could mint one and
+    outlive every revocation lever.
 
     Since #4462, it also covers ``WebSocketTicketView`` (``POST /ws/ticket/``). A
     minted ticket opens a live socket that the consumer authenticates exactly once,
@@ -2223,8 +2226,8 @@ class IsNotTokenAuthenticated(BasePermission):
     only record of it. Do not read the list as exhaustive either; ``tests/apps/access/
     token_write_surface.txt`` is the inventory and this docstring is not a second copy
     of it. So "revoke the token and you are contained" is true for the credential,
-    sign-in-configuration, share-link and git-automation surfaces and is not a
-    whole-system property — say the narrower thing in operator docs.
+    sign-in-configuration, share-link, git-automation, and outgoing-webhook surfaces
+    and is not a whole-system property — say the narrower thing in operator docs.
 
     **The predicate is ``request.auth``, and that is only sound because it runs as a
     permission.** An identity refusal is raised by the *authenticator*, so on that
