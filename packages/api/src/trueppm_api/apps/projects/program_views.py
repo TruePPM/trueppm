@@ -178,13 +178,20 @@ class ProgramScheduleThrottle(UserRateThrottle):
 
     ``GET /programs/{id}/schedule/`` runs the deterministic CPM over every member
     project's merged graph (up to ``MAX_PROGRAM_TASKS``) on each read, uncached, so
-    on the 1000/min account default a scripted loop is a compute amplifier. The
-    rate is sized above the live page's own cadence: each member project's socket
-    debounces invalidations to at most one per 300 ms (200/min per channel at the
-    theoretical ceiling), and real editing produces a few refetches per edit. The
-    default 240/min clears one channel's ceiling and a dozen concurrently active
-    editors, while holding a loop to four merged passes a second. On a 429 the page
-    keeps rendering its last schedule rather than blanking it.
+    on the 1000/min account default a scripted loop is a compute amplifier.
+
+    Measured cost: a 5,000-task merged read (MAX_PROGRAM_TASKS, one or five member
+    projects) takes ~460-480 ms end to end on a developer laptop against local
+    Postgres. The default 240/min therefore still lets one account at the ceiling
+    keep about two cores busy; it bounds abuse relative to the 1000/min default
+    (about 8 cores), it does not make one account cheap.
+
+    The rate is sized from the live page's own cadence. The page's member-project
+    sockets share ONE 300 ms debounce, so an open tab sends at most one refetch per
+    window — 200/min at the theoretical ceiling, whatever the member count — and
+    real editing produces a few refetches per edit. The bucket is per account, so
+    several open tabs (or several programs viewed at once) share it. On a 429 the
+    page keeps rendering its last schedule rather than blanking it.
 
     ``UserRateThrottle`` for the same reason as the importer throttles above: it is
     attached through ``@action(throttle_classes=[…])``, where ``ScopedRateThrottle``

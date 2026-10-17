@@ -78,6 +78,42 @@ describe('ProgramScheduleLiveSync — per-project close codes (#4375)', () => {
     );
   }
 
+  it('coalesces events from every member project into one refetch per window (#2839)', () => {
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    mount(['proj-a', 'proj-b', 'proj-c'], qc);
+    const frame = { data: JSON.stringify({ event_type: 'task_updated' }) };
+    act(() => {
+      for (const id of ['proj-a', 'proj-b', 'proj-c']) socketsFor(id)[0].dispatch('message', frame);
+    });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    // Three channels, one window: exactly one refetch, not one per channel.
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['programs', 'prog-1', 'schedule'] });
+
+    // A later window refetches again.
+    act(() => {
+      socketsFor('proj-b')[0].dispatch('message', frame);
+      vi.advanceTimersByTime(300);
+    });
+    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores events that cannot move the schedule', () => {
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    mount(['proj-a'], qc);
+    act(() => {
+      socketsFor('proj-a')[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'comment_created' }),
+      });
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
   it('a 4003 on one member project is terminal for that project only', () => {
     mount(['viewer-proj', 'member-proj']);
     expect(socketsFor('viewer-proj')).toHaveLength(1);

@@ -1752,10 +1752,11 @@ REST_FRAMEWORK = {
         # dozen values never trips it, a scripted loop is held to one pass a second.
         "cpm_on_read": env("TRUEPPM_THROTTLE_CPM_ON_READ_RATE", default=_STANDARD_RATE),
         # On-read merged program CPM (#2839), GET /programs/<pk>/schedule/. Sized
-        # above the live page's refetch cadence, not at the read tier: each member
-        # project's socket debounces to <= 1 refetch / 300 ms (200/min ceiling per
-        # channel), so 240/min never 429s one busy project and still holds a loop
-        # to four merged passes a second (vs the 1000/min account default). See
+        # above the live page's refetch cadence, not at the read tier: the page's
+        # member-project sockets share one 300 ms debounce, so one open tab sends at
+        # most 200/min however many projects the program has. Per account, so
+        # several tabs share it. A 5,000-task pass measured ~470 ms, so this bounds a
+        # loop to ~2 cores rather than ~8 at the 1000/min default. See
         # ProgramScheduleThrottle.
         "program_schedule": env("TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE", default="240/min"),
         # Bundled-sample demo loader (#2402). POST /programs/load-sample/ is the

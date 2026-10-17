@@ -201,6 +201,50 @@ test.describe('Program schedule view', () => {
     await expect(page.getByText(/refreshed too often/i)).toHaveCount(0);
   });
 
+  test('a throttled live refetch keeps the chart and says updates are paused (#2839)', async ({
+    page,
+  }) => {
+    await setup(page, { status: 200, body: FIXTURE_SCHEDULE });
+    let calls = 0;
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/schedule/`, async (r) => {
+      calls += 1;
+      await r.fulfill(
+        calls === 1
+          ? { status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_SCHEDULE) }
+          : {
+              status: 429,
+              contentType: 'application/json',
+              headers: { 'Retry-After': '30' },
+              body: JSON.stringify({
+                detail: 'Request was throttled. Expected available in 30 seconds.',
+              }),
+            },
+      );
+    });
+    const sockets: import('@playwright/test').WebSocketRoute[] = [];
+    await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+      sockets.push(ws);
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/schedule`);
+
+    const summary = page.getByText(/Cross-project critical path across 2 projects/);
+    await expect(summary).toBeVisible();
+    // One socket per member project.
+    await expect.poll(() => sockets.length).toBe(2);
+
+    // A schedule-affecting event on BOTH member projects in the same window: the
+    // page's shared debounce sends one refetch, and the server throttles it.
+    for (const ws of sockets) ws.send(JSON.stringify({ event_type: 'task_updated' }));
+
+    await expect(
+      page.getByRole('status').filter({ hasText: /Live updates are paused/ }),
+    ).toBeVisible();
+    await expect(summary).toBeVisible();
+    await expect(page.getByTestId('program-schedule-canvas-scroll')).toBeVisible();
+    await expect(page.getByText(/refreshed too often/i)).toHaveCount(0);
+    expect(calls).toBe(2);
+  });
+
   test('empty state: no member project has a computed schedule yet', async ({ page }) => {
     // The endpoint returns 200 with an empty payload (lanes present, no scheduled
     // tasks) — not an error code — when nothing has been computed yet.
