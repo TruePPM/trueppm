@@ -271,3 +271,66 @@ class TestStrictDateFormat:
         )
         assert p.start_date == date(2026, 4, 2)
         assert p.status_date == date(2026, 4, 10)
+
+
+class TestFromDictRejectsCoercedScalars:
+    """Numeric strings and non-bool flags are refused, as the Rust engine does (#4512)."""
+
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "duration",
+            "total_float",
+            "free_float",
+            "optimistic_duration",
+            "most_likely_duration",
+            "pessimistic_duration",
+            "percent_complete",
+            "story_points",
+        ],
+    )
+    @pytest.mark.parametrize("bad", ["259200", "2.592e5", " 86400 ", "259_200", True, [1]])
+    def test_task_numeric_field_rejects_non_number(self, field: str, bad: object) -> None:
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        doc = {"id": "A", "name": "A", "duration": 86400.0, field: bad}
+        with pytest.raises(InvalidScheduleInput):
+            Task.from_dict(doc)
+
+    @pytest.mark.parametrize("bad", ["86400", "1e5", True])
+    def test_dependency_lag_rejects_non_number(self, bad: object) -> None:
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        with pytest.raises(InvalidScheduleInput):
+            Dependency.from_dict({"predecessor_id": "A", "successor_id": "B", "lag": bad})
+
+    @pytest.mark.parametrize("field", ["is_critical", "milestone_at_day_end"])
+    @pytest.mark.parametrize("bad", ["yes", "x", 1, 0])
+    def test_task_bool_field_rejects_non_bool(self, field: str, bad: object) -> None:
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        with pytest.raises(InvalidScheduleInput):
+            Task.from_dict({"id": "A", "name": "A", "duration": 86400.0, field: bad})
+
+    def test_velocity_sample_rejects_numeric_string(self) -> None:
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        with pytest.raises(InvalidScheduleInput):
+            Project.from_dict(
+                {
+                    "id": "p",
+                    "name": "p",
+                    "start_date": "2026-04-02",
+                    "velocity_samples": ["3"],
+                }
+            )
+
+    def test_real_numbers_and_bools_still_accepted(self) -> None:
+        t = Task.from_dict(
+            {"id": "A", "name": "A", "duration": 86400, "total_float": 0.0, "is_critical": True}
+        )
+        assert t.duration == timedelta(days=1)
+        assert t.is_critical is True
+        assert Dependency.from_dict(
+            {"predecessor_id": "A", "successor_id": "B", "lag": 86400}
+        ).lag == timedelta(days=1)
