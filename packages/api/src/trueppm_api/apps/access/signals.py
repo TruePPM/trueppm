@@ -45,6 +45,22 @@ def _schedule_evict(project_id: Any, user_id: Any) -> None:
     transaction.on_commit(partial(evict_project_connection, str(project_id), str(user_id)))
 
 
+def evict_all_live_project_sockets(user_id: Any) -> None:
+    """Schedule an evict for every project ``user_id`` holds a live membership in.
+
+    Shared by :func:`_evict_on_account_deactivation` and the password-reset confirm
+    view (#4462) — both revoke all of a user's standing authority in one stroke and
+    must close the same set of sockets a membership-by-membership revoke would
+    eventually reach. Live memberships only: a soft-deleted one already evicted via
+    :func:`_evict_on_revocation`, and the consumer would refuse the reconnect anyway.
+    """
+    project_ids = ProjectMembership.objects.filter(user_id=user_id, is_deleted=False).values_list(
+        "project_id", flat=True
+    )
+    for project_id in project_ids:
+        _schedule_evict(project_id, user_id)
+
+
 def _discard_active_timers_on_revocation(project_id: Any, user_id: Any) -> None:
     """Delete the user's running timer(s) on this project's tasks (#4318).
 
@@ -152,10 +168,4 @@ def _evict_on_account_deactivation(sender: type, instance: Any, **kwargs: Any) -
     if not was_active:
         return  # already inactive — an unrelated save, not the transition
 
-    # Live memberships only: a soft-deleted one already evicted via _evict_on_revocation,
-    # and the consumer would refuse the reconnect anyway.
-    project_ids = ProjectMembership.objects.filter(
-        user_id=instance.pk, is_deleted=False
-    ).values_list("project_id", flat=True)
-    for project_id in project_ids:
-        _schedule_evict(project_id, instance.pk)
+    evict_all_live_project_sockets(instance.pk)

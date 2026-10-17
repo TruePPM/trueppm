@@ -442,6 +442,7 @@ class PasswordResetConfirmView(APIView):
             revoke_all_refresh_tokens,
             revoke_personal_durable_grants,
         )
+        from trueppm_api.apps.access.signals import evict_all_live_project_sockets
 
         with transaction.atomic():
             # Password already validated above by enforce_reset_password_policy(),
@@ -479,6 +480,12 @@ class PasswordResetConfirmView(APIView):
             # `actor=user` for the same reason: the reset itself is unauthenticated,
             # but it is the account owner asserting compromise.
             revoke_personal_durable_grants(user, actor=user)
+            # A reset revokes every credential above, but a socket opened before the
+            # reset stays open until it disconnects on its own — the WS consumer
+            # resolves identity once, at connect, and never re-checks it (#4462,
+            # the #2850 class). Same eviction loop _evict_on_account_deactivation
+            # uses, deferred to commit the same way.
+            evict_all_live_project_sockets(user.pk)
 
         return Response(
             {"detail": "Your password has been reset. Please sign in with your new password."},

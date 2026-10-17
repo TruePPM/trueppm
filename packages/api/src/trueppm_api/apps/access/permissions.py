@@ -2208,6 +2208,12 @@ class IsNotTokenAuthenticated(BasePermission):
     gap where a leaked PAT belonging to a project Admin could mint one and outlive
     every revocation lever.
 
+    Since #4462, it also covers ``WebSocketTicketView`` (``POST /ws/ticket/``). A
+    minted ticket opens a live socket that the consumer authenticates exactly once,
+    at connect — so a ticket minted by a PAT would have no termination path of its
+    own once the socket was open, unlike every other grant on this list, which a
+    later revocation sweep can still reach.
+
     Several membership routes have the same shape and are **not** covered — workspace
     invites, member role change, group membership and group→project grants,
     ``transfer-ownership`` (which hands OWNER away, and is therefore *above* the

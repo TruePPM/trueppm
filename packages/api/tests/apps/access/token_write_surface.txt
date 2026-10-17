@@ -29,6 +29,12 @@
 # or rotate the IdP secret, and one SSO login at the widened domain then mints a
 # durable ADMIN session that revoking the token does not touch.
 #
+# One more left the set in #4462: `ws/ticket/`. Minting a WebSocket ticket is
+# session/JWT-only since `IsNotTokenAuthenticated` was added to
+# `WebSocketTicketView` — a ticket opens a live socket the consumer authenticates
+# exactly once, at connect, so a PAT-minted ticket would have no later revocation
+# lever that could reach the open socket, unlike the grants above.
+#
 # None of these routes writes an AgentAction row (#2749). A machine-authored
 # write is attributed to the token's human owner via historicaltask.history_user.
 # That is the gap 0.5 (#2745, #2749) closes — this file is its checklist.
@@ -280,4 +286,3 @@ api/v1/workspace/invites/resend-all/
 api/v1/workspace/logo/
 api/v1/workspace/members/<int:user_id>/
 api/v1/workspace/transfer-ownership/
-api/v1/ws/ticket/
