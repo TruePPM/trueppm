@@ -25,6 +25,7 @@ from __future__ import annotations
 import random
 from datetime import date, timedelta
 
+import networkx as nx
 import pytest
 
 from trueppm_scheduler import (
@@ -34,6 +35,7 @@ from trueppm_scheduler import (
     DependencyType,
     Project,
     Task,
+    engine,
     monte_carlo,
     schedule,
 )
@@ -214,6 +216,154 @@ def test_uncertain_milestone_only_sometimes_on_its_weekend_actual_rounds_later()
     assert cpm == date(2026, 3, 8)
     mc = monte_carlo(project, runs=400, seed=7)
     assert cpm <= mc.p50 <= mc.p80 <= mc.p95
+
+
+#: Hard floors that put a live milestone's link instant before the project start
+#: (#4510): a recorded actual start, an SNET pin and a data date, each on Mon
+#: 2025-11-03 — four months before START.
+_PRE_START = date(2025, 11, 3)
+
+
+@pytest.mark.parametrize(
+    ("milestone_kw", "project_kw"),
+    [
+        pytest.param({"actual_start": _PRE_START}, {}, id="actual_start"),
+        pytest.param({"planned_start": _PRE_START}, {}, id="planned_start"),
+        pytest.param({}, {"status_date": _PRE_START}, id="status_date"),
+    ],
+)
+def test_sf_from_a_pre_start_floored_milestone_matches_cpm(
+    milestone_kw: dict[str, object], project_kw: dict[str, object]
+) -> None:
+    """An SF successor of a milestone whose hard floor is pre-start is placed there (#4510).
+
+    M is shown on the project start, but its link instant is its 2025-11-03 floor,
+    so SF+18 finishes X on Thu 2025-11-20 and the project finishes on M, Mon 03-02.
+    The Monte Carlo index was padded from M's links only, so it opened two weeks
+    before the start; X's finish fell below it, clamped to offset 0, and its twelve
+    days ran to Tue 03-03 — one working day after ``schedule()``.
+    """
+    project = _project(
+        [_ms("M", **milestone_kw), _work("X", 12)],
+        [_dep("M", "X", DependencyType.SF, 18)],
+        **project_kw,
+    )
+    assert schedule(project).tasks[1].early_finish == date(2025, 11, 20)
+    assert _assert_mc_matches_cpm(project) == START
+
+
+def test_sf_from_a_milestone_downstream_of_a_pre_start_floor_matches_cpm() -> None:
+    """The pre-start link instant carries through an FS hop into a second milestone.
+
+    M's actual start is 2025-11-03, so N's link instant is 11-05 and SF+18 finishes
+    X on Mon 11-24; the pad bound for N reads M's bound, so it must include M's floor.
+    """
+    project = _project(
+        [_ms("M", actual_start=_PRE_START), _ms("N"), _work("X", 12)],
+        [_dep("M", "N", DependencyType.FS, 2), _dep("N", "X", DependencyType.SF, 18)],
+    )
+    assert schedule(project).tasks[2].early_finish == date(2025, 11, 24)
+    assert _assert_mc_matches_cpm(project) == START
+
+
+@pytest.mark.parametrize(
+    ("lag_mn", "lag_nx", "days", "x_finish"),
+    [
+        pytest.param(18, 18, 12, date(2025, 12, 8), id="sf18-sf18"),
+        # The worst member found on the pre-#4510 engine: MC reported Fri 03-27,
+        # nineteen working days after schedule()'s Mon 03-02.
+        pytest.param(10, 40, 30, date(2025, 12, 22), id="sf10-sf40"),
+    ],
+)
+def test_sf_from_a_milestone_sf_linked_to_a_pre_start_floor_matches_cpm(
+    lag_mn: int, lag_nx: int, days: int, x_finish: date
+) -> None:
+    """An SF -> SF milestone chain from a pre-start actual start (#4510).
+
+    N is SF-linked, so its own bound is the back-solve from M's; M's was the project
+    start, which put N — and X behind it — well inside the index while ``schedule()``
+    placed both months before the start. X clamped to the index origin and its full
+    duration carried the finish weeks late.
+    """
+    project = _project(
+        [_ms("M", actual_start=_PRE_START), _ms("N"), _work("X", days)],
+        [
+            _dep("M", "N", DependencyType.SF, lag_mn),
+            _dep("N", "X", DependencyType.SF, lag_nx),
+        ],
+    )
+    assert schedule(project).tasks[2].early_finish == x_finish
+    assert _assert_mc_matches_cpm(project) == START
+
+
+def _pad_days(project: Project) -> int:
+    """``engine._mc_pre_start_pad_days`` for a single-calendar project."""
+    g = engine._build_graph(project)
+    topo = list(nx.lexicographical_topological_sort(g, key=str))
+    task_map = {t.id: t for t in project.tasks}
+    return engine._mc_pre_start_pad_days(
+        project, task_map, topo, g, {tid: project.calendar for tid in topo}
+    )[0]
+
+
+def test_floored_milestone_without_an_sf_successor_does_not_widen_the_pad() -> None:
+    """A pre-start floor widens the index only for a milestone that feeds an SF link.
+
+    M's FS successor is floored at the project start and never reads a cell before
+    it, so the unrelated SF pair elsewhere sets the pad on its own — exactly as if M
+    carried no actual start at all.
+    """
+
+    def build(**m_kw: object) -> Project:
+        return _project(
+            [_ms("M", **m_kw), _work("A", 3), _work("P", 2), _work("Q", 4)],
+            [_dep("M", "A", DependencyType.FS), _dep("P", "Q", DependencyType.SF, 2)],
+        )
+
+    floored = build(actual_start=_PRE_START)
+    assert _pad_days(floored) == _pad_days(build())
+    _assert_mc_matches_cpm(floored)
+
+
+def test_typo_year_actual_start_does_not_grow_the_index_for_an_unrelated_sf_link() -> None:
+    """A 200-task project with one SF link and a milestone dated 1100 keeps a small pad.
+
+    Before the guard above, the milestone's floor alone lowered the index origin by
+    nine centuries — ~330k calendar days of cells for every calendar and lag key —
+    although nothing reads them. The pad stays the SF pair's own (a few days plus the
+    fixed buffer).
+    """
+    tasks = [_ms("M", actual_start=date(1100, 1, 1))] + [_work(f"T{i}", 2) for i in range(199)]
+    deps = [_dep(f"T{i}", f"T{i + 1}", DependencyType.FS) for i in range(197)]
+    deps += [_dep("M", "T0", DependencyType.FS), _dep("T197", "T198", DependencyType.SF, 1)]
+    project = _project(tasks, deps)
+    assert _pad_days(project) <= 30
+    _assert_mc_matches_cpm(project)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="#4430: a completed task that finished before the project start clamps to "
+    "offset 0 — a different mechanism from #4510, still open",
+)
+def test_completed_task_finished_before_start_matches_cpm_4430() -> None:
+    """#4430's repro case A, pinned so that its fix is noticed (strict xfail).
+
+    This branch (#4510) widens the index for pre-start milestone floors only; a
+    completed task's pre-index finish is a separate clamp in ``_completed_offsets``.
+    """
+    project = _project(
+        [
+            _work(
+                "done",
+                3,
+                actual_start=date(2026, 2, 25),
+                actual_finish=date(2026, 2, 27),
+            )
+        ],
+        [],
+    )
+    assert _assert_mc_matches_cpm(project) == date(2026, 2, 27)
 
 
 # ---------------------------------------------------------------------------

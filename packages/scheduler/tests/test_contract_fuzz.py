@@ -682,6 +682,31 @@ def _sparse_feeds_dense(sparse: Calendar, days: int) -> Project:
         Calendar(exceptions=[DateRange(date(2026, 3, 9), date(2026, 6, 26))]), 20
     )
 )
+@example(
+    # #4510: a live milestone with a pre-start actual start links SF+18 into t1, which
+    # schedule() places before the project start. The index was padded from the
+    # milestone's links only, so t1 clamped to its first cell and MC finished a day late.
+    project=Project(
+        id="p",
+        name="p",
+        start_date=_PLAUSIBLE_ANCHOR,
+        tasks=[
+            Task(id="t0", name="t", duration=timedelta(0), actual_start=date(2025, 11, 2)),
+            Task(id="t1", name="t", duration=timedelta(days=12)),
+            Task(id="t2", name="t", duration=timedelta(0)),
+        ],
+        dependencies=[Dependency("t0", "t1", dep_type=DependencyType.SF, lag=timedelta(days=18))],
+        calendar=Calendar(working_days=31),
+        calendars={
+            "fourday": Calendar(working_days=15),
+            "mondays": Calendar(working_days=1),
+            "plant": Calendar(
+                working_days=31, exceptions=[DateRange(date(2026, 3, 2), date(2026, 3, 2))]
+            ),
+            "seven": Calendar(working_days=127),
+        },
+    )
+)
 @given(project=_per_task_calendar_projects())
 def test_monte_carlo_zero_variance_equals_cpm_under_per_task_calendars(project: Project) -> None:
     """With no estimates, P50 == P80 == P95 == ``schedule().project_finish`` (#4429).

@@ -4820,14 +4820,31 @@ def _mc_pre_start_pad_days(
     raise it (#4220) — over its *longest*
     possible sampled duration, measured from that lower bound on the predecessor —
     the SF bound is monotone in the predecessor's start and the back-solve is
-    monotone in both arguments. Floors (data date, SNET) only raise the true start,
-    so leaving them out keeps the bound safe.
+    monotone in both arguments. An SF-linked task's own floors (data date, SNET, a
+    recorded actual start) only raise its true start, so leaving them out of *its*
+    bound keeps that bound safe. A milestone's floors are different — they can lower
+    the instant its successors measure from — and are handled below.
 
     A milestone that is not SF-linked is *shown* no earlier than the project start,
     but its successors measure from its link instant, which the project-start floor
-    does not raise (#4225). Its bound is therefore the one any single incoming link
-    proves — the link instant is the latest proposal, so it is at least each of
-    them — and an SF-linked successor of it is bounded from there.
+    does not raise (#4225). Its bound is therefore the one any single proposal to
+    that instant proves — the link instant is the latest proposal, so it is at least
+    each of them — and an SF-linked successor of it is bounded from there. Its hard
+    floors (:func:`_milestone_hard_floors`: a recorded actual start, SNET, the data
+    date) are proposals too, and the earliest of them can lie before the project
+    start: a live milestone carrying a pre-start ``actual_start`` has its link instant
+    there, so its SF successor is placed before the project start as well. Bounding
+    the milestone from its links alone left that successor below the index, where its
+    finish clamped to offset 0 and Monte Carlo finished a working day after
+    ``schedule()`` (#4510).
+
+    A milestone's bound is always recorded in ``lo`` (a successor reads it, possibly
+    through further milestones), but it widens the index only when the milestone has
+    an SF successor of its own. Any other reader of its link instant either resolves
+    it in date space or is floored at the project start, and a downstream SF-linked
+    task widens the index by its own bound. Without that guard, a typo-year
+    ``actual_start`` on any milestone of a project with one unrelated SF link grew
+    the index by centuries of cells.
     """
     sf_linked = frozenset(tid for tid in topo_order if _sf_linked(tid, g))
     if not sf_linked:
@@ -4843,9 +4860,20 @@ def _mc_pre_start_pad_days(
             continue
         if tid not in sf_linked:
             lo[tid] = _next_working_day(project.start_date, cal)
-            if task.duration.days == 0 and any(True for _ in g.predecessors(tid)):
-                lo[tid] = min(lo[tid], max(_link_lower_bound(g, tid, lo, cal_of)))
-                earliest = min(earliest, lo[tid])
+            if task.duration.days == 0:
+                proposals = [
+                    *_milestone_hard_floors(task, cal, project.status_date),
+                    *_link_lower_bound(g, tid, lo, cal_of),
+                ]
+                if proposals:
+                    lo[tid] = min(lo[tid], max(proposals))
+                    # Only an SF successor turns this instant into a cell anyone reads;
+                    # without one, widening for it would cost index cells for nothing.
+                    if any(
+                        g[tid][succ]["dep"].dep_type is DependencyType.SF
+                        for succ in g.successors(tid)
+                    ):
+                        earliest = min(earliest, lo[tid])
             continue
         bound = max(
             _next_working_day(
@@ -5446,6 +5474,25 @@ later (#4220).
 """
 
 
+def _milestone_hard_floors(task: Task, cal: Calendar, status_date: date | None) -> list[date]:
+    """A live milestone's hard floors — the ``hard`` half of :data:`_MilestoneFloors`.
+
+    The data date and SNET snapped to the milestone's own working days, the recorded
+    actual start verbatim. One definition, because two readers must agree on it:
+    :func:`_mc_milestone_floors` places the link instant from these, and
+    :func:`_mc_pre_start_pad_days` bounds that instant from below with them (#4510) —
+    a pad bound computed from a different set could sit above the instant it bounds.
+    """
+    hard: list[date] = []
+    if status_date is not None:
+        hard.append(_next_working_day(status_date, cal))
+    if task.actual_start is not None:
+        hard.append(task.actual_start)
+    if task.planned_start is not None:
+        hard.append(_next_working_day(task.planned_start, cal))
+    return hard
+
+
 def _mc_milestone_floors(
     project: Project,
     task_map: dict[str, Task],
@@ -5461,17 +5508,9 @@ def _mc_milestone_floors(
     snapped to the milestone's own working days, the actual start verbatim.
     """
     out: dict[str, _MilestoneFloors] = {}
-    status_date = project.status_date
     for tid in milestone_ids:
-        t = task_map[tid]
         cal = cal_of[tid]
-        hard: list[date] = []
-        if status_date is not None:
-            hard.append(_next_working_day(status_date, cal))
-        if t.actual_start is not None:
-            hard.append(t.actual_start)
-        if t.planned_start is not None:
-            hard.append(_next_working_day(t.planned_start, cal))
+        hard = _milestone_hard_floors(task_map[tid], cal, project.status_date)
         out[tid] = (
             max(hard).toordinal() if hard else None,
             None if tid in sf_linked else _next_working_day(project.start_date, cal).toordinal(),
