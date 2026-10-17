@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { classifyProgramScheduleError, getProgramScheduleInvalidInput } from './useProgramSchedule';
+import {
+  classifyProgramScheduleError,
+  getProgramScheduleInvalidInput,
+  throttledRefetchDelayMs,
+  THROTTLED_REFETCH_MAX_MS,
+} from './useProgramSchedule';
 
 /** Minimal axios-shaped error — `isAxiosError(payload)` only checks the brand. */
 function axiosError(status: number | undefined, data?: unknown): unknown {
@@ -62,5 +67,30 @@ describe('getProgramScheduleInvalidInput', () => {
   it('returns null for non-422 and non-axios errors', () => {
     expect(getProgramScheduleInvalidInput(axiosError(500, INVALID_INPUT_BODY))).toBeNull();
     expect(getProgramScheduleInvalidInput(new Error('x'))).toBeNull();
+  });
+});
+
+describe('throttledRefetchDelayMs', () => {
+  const throttled = (headers?: Record<string, unknown>): unknown => ({
+    isAxiosError: true,
+    response: { status: 429, data: {}, headers },
+  });
+  it('is null for anything but a 429', () => {
+    expect(throttledRefetchDelayMs(axiosError(500))).toBeNull();
+    expect(throttledRefetchDelayMs(new Error('x'))).toBeNull();
+  });
+  it('honors Retry-After in seconds', () => {
+    expect(throttledRefetchDelayMs(throttled({ 'retry-after': '7' }))).toBe(7_000);
+  });
+  it('caps a long Retry-After at the maximum', () => {
+    expect(throttledRefetchDelayMs(throttled({ 'retry-after': '3600' }))).toBe(
+      THROTTLED_REFETCH_MAX_MS,
+    );
+  });
+  it('waits the maximum when the header is absent or unparseable', () => {
+    expect(throttledRefetchDelayMs(throttled())).toBe(THROTTLED_REFETCH_MAX_MS);
+    expect(throttledRefetchDelayMs(throttled({ 'retry-after': 'soon' }))).toBe(
+      THROTTLED_REFETCH_MAX_MS,
+    );
   });
 });

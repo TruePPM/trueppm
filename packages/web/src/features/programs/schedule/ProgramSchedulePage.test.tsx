@@ -332,6 +332,49 @@ describe('ProgramSchedulePage', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
+  it('refetches exactly once after Retry-After when a refetch is throttled (#2839)', () => {
+    vi.useFakeTimers();
+    try {
+      const refetch = vi.fn();
+      const error = {
+        isAxiosError: true,
+        response: { status: 429, data: {}, headers: { 'retry-after': '5' } },
+      };
+      useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN, error, refetch }));
+      renderPage();
+      act(() => {
+        vi.advanceTimersByTime(4_999);
+      });
+      expect(refetch).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(refetch).toHaveBeenCalledTimes(1);
+      // One follow-up per throttled response, not a polling loop.
+      act(() => {
+        vi.advanceTimersByTime(120_000);
+      });
+      expect(refetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not schedule a refetch for a non-throttled error', () => {
+    vi.useFakeTimers();
+    try {
+      const refetch = vi.fn();
+      useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(500), refetch }));
+      renderPage();
+      act(() => {
+        vi.advanceTimersByTime(120_000);
+      });
+      expect(refetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows a retryable throttled message when the first load is a 429', () => {
     useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(429) }));
     renderPage();

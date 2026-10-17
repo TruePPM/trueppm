@@ -16,6 +16,7 @@ import { useProgram } from '@/hooks/useProgram';
 import {
   useProgramSchedule,
   classifyProgramScheduleError,
+  throttledRefetchDelayMs,
   getProgramScheduleInvalidInput,
   type ProgramScheduleExternalTask,
 } from '../hooks/useProgramSchedule';
@@ -96,6 +97,20 @@ export function ProgramSchedulePage() {
   useEffect(() => {
     engine?.rowMetricsChanged();
   }, [engine, rowHeight]);
+
+  // After a 429, refetch once when the server says the window has room again
+  // (#2839). Nothing else would: the query does not retry a 429, and once a
+  // burst of edits ends no live event arrives to invalidate. Keyed on the error
+  // object, so each throttled response schedules exactly one follow-up; refetch
+  // is read through a ref so a re-render cannot restart the wait.
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    const delay = throttledRefetchDelayMs(error);
+    if (delay === null) return;
+    const timer = setTimeout(() => void refetchRef.current(), delay);
+    return () => clearTimeout(timer);
+  }, [error]);
 
   const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
   useEffect(() => {

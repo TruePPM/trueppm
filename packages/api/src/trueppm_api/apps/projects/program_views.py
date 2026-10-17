@@ -189,13 +189,16 @@ class ProgramScheduleThrottle(UserRateThrottle):
 
     That is below the live page's theoretical ceiling, on purpose. The page's
     member-project sockets share ONE 300 ms debounce, so an open tab sends at most
-    one refetch per window (200/min, whatever the member count); real editing
-    produces a few refetches per edit, far below that, but a sustained burst of
-    edits across a busy program can exceed 60/min. The bucket is per account, so
-    several open tabs (or programs viewed at once) share it. When it trips, the
-    page keeps rendering its last schedule with a "live updates paused" notice and
-    the next update after the window refreshes it — a stale chart for a few
-    seconds, which is the right trade against a merged CPM pass per edit event.
+    one refetch per window (200/min, whatever the member count). One edit fires
+    ``task_updated`` at once and, when the async CPM pass commits,
+    ``cpm_complete`` + ``task_dates_updated`` (sometimes ``task_run_completed``)
+    together, so about 2-3 refetches per edit: 60/min trips at roughly 20-30
+    schedule edits a minute across the whole program, per viewing account. The
+    bucket is per account, so several open tabs (or programs viewed at once) share
+    it. When it trips, the page keeps rendering its last schedule with a "live
+    updates paused" notice and refetches once after ``Retry-After`` (at most 60 s),
+    or sooner on the next live event — a stale chart for up to a minute, the right
+    trade against a merged CPM pass per edit event.
 
     ``UserRateThrottle`` for the same reason as the importer throttles above: it is
     attached through ``@action(throttle_classes=[…])``, where ``ScopedRateThrottle``

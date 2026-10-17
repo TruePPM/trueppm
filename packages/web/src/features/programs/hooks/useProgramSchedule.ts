@@ -184,6 +184,28 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
  * Extract the structured invalid-input body (offending project/task) from an
  * axios error, or `null` if it is not a `program_schedule_invalid_input` 422.
  */
+/** Longest wait before the automatic refetch after a 429 (also the default). */
+export const THROTTLED_REFETCH_MAX_MS = 60_000;
+
+/**
+ * Milliseconds to wait before the one automatic refetch after a throttled (429)
+ * read (#2839), or `null` when `error` is not a 429.
+ *
+ * A 429 is not retried by the query (an immediate retry hits the same full
+ * bucket), and DRF's sliding window does not count refused requests, so once a
+ * burst of edits ends nothing else would ever refresh a chart left showing
+ * "live updates paused". Honors the server's `Retry-After` (seconds), capped at
+ * {@link THROTTLED_REFETCH_MAX_MS}; an absent or unparseable header waits the cap.
+ */
+export function throttledRefetchDelayMs(error: unknown): number | null {
+  if (!isAxiosError(error) || error.response?.status !== 429) return null;
+  const headers = error.response.headers as Record<string, unknown> | undefined;
+  const raw = headers?.['retry-after'];
+  const seconds = typeof raw === 'string' || typeof raw === 'number' ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(seconds) || seconds < 0) return THROTTLED_REFETCH_MAX_MS;
+  return Math.min(Math.ceil(seconds * 1000), THROTTLED_REFETCH_MAX_MS);
+}
+
 export function getProgramScheduleInvalidInput(
   error: unknown,
 ): ProgramScheduleInvalidInputDetail | null {

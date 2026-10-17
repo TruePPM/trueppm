@@ -42,7 +42,7 @@ When a cross-project dependency reaches into a project you cannot open, the coun
 
 The view updates as the member projects change. When a teammate reschedules a task, edits a dependency, or a project's schedule recomputes, the program timeline refetches and redraws — no reload needed.
 
-Each refresh recomputes the critical path across every member project, so the server limits how often one account can request it (see `TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE` in [Optional and advanced settings](/administration/configuration/advanced/)). Ordinary editing stays well under the limit. A sustained burst of changes across a busy program can reach it, and the limit applies to your account, so several open tabs share it. If a refresh is limited, the view keeps showing the last schedule it loaded, says that live updates are paused, and offers **Refresh**.
+Each refresh recomputes the critical path across every member project, so the server limits how often one account can request it (see `TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE` in [Optional and advanced settings](/administration/configuration/advanced/)). Each schedule change causes about two or three refreshes, so with the default limit you would need roughly 20 to 30 changes a minute across the program to reach it. Comments and reactions do not count. The limit applies to your account, so several open tabs share it. If a refresh is limited, the view keeps showing the last schedule it loaded, says that live updates are paused, and offers **Refresh**. It also refreshes by itself once the limit window has passed, within a minute.
 
 ## Zoom and fit
 
