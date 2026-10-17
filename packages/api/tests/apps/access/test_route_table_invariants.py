@@ -1330,3 +1330,192 @@ def test_the_unresolvable_scope_scan_is_not_vacuous() -> None:
     assert (
         _scope_verdict(by_key["api/v1/sprints/<pk>/pulse/::pulse"]) == SCOPE_ALLOWED_BY_OBJECT_CHECK
     )
+
+
+# ---------------------------------------------------------------------------
+# Invariant 5 — IsProjectNotArchived's object hop resolves wherever it can fire
+# on a no-class-queryset route (#3587)
+# ---------------------------------------------------------------------------
+#
+# #3587 flipped `IsProjectNotArchived.has_object_permission`'s unresolvable branch
+# from `return True` (fail OPEN — the one survivor of the #2745/#3414/#3570 shape,
+# the other eleven `_get_project_id_from_obj` callers already fail closed) to
+# `return False` (fail CLOSED). That is strictly safer for a route the resolver
+# cannot reach — but it makes a route where the resolver *should* reach an object
+# and cannot into a correctness bug in the OTHER direction: a legitimate, properly
+# authorized write now 403s instead of silently succeeding.
+#
+# Invariant 3's `_object_hop_resolves` answers "nothing to judge" (True) for any
+# route with no class-level `queryset` — a plain APIView, or a ViewSet whose model
+# `_archived_enforcement_path` cannot see statically. That shortcut was adequate
+# while the branch it fed into was fail-open (an enforcement question — "was this
+# gated" — stayed correct even when the judgment was "I can't tell, assume yes").
+# It is not adequate for a fail-closed branch: the question is now "will this
+# route actually keep working", and "nothing to judge" cannot answer that.
+#
+# This invariant is the audited answer, pinned by (route, action) key so a new
+# no-class-queryset route carrying `IsProjectNotArchived` has to be triaged in this
+# file rather than silently inheriting a verdict nobody checked.
+
+#: `check_object_permissions(request, <expr>)` / `check_object_permissions(self.request,
+#: <expr>)` argument expressions, audited by hand against the model each resolves
+#: to, that `_get_project_id_from_obj` is confirmed to resolve a project id from:
+#:
+#: - `project` — a direct `Project` instance (`isinstance` branch).
+#: - `task` / `entry.task` — `Task.project` is a non-nullable FK.
+#: - `comment` — `TaskComment.project_id` is a property walking `task.project_id`.
+#: - `risk` — `Risk.project` is a non-nullable FK.
+#: - `sprint.project` / `session.sprint.project` — `Sprint.project` is a non-nullable
+#:   FK (the poker family: `PokerSession.sprint` -> `Sprint.project`).
+#: - `self._scope_object(obj)` — `WebhookViewSet._scope_object` returns the webhook's
+#:   `.project` (never `.program`: every route carrying `IsProjectNotArchived` is
+#:   served by `WebhookViewSet` itself, whose `get_queryset`/`perform_create` only
+#:   ever produce project-scoped rows — `ProgramWebhookViewSet` overrides
+#:   `get_permissions` to swap in `IsProgramNotClosed` and never carries this class).
+#: - `getattr(obj, self._scope_field)` — `ProjectApiTokenViewSet.get_object()`
+#:   (resolves to `obj.project`; `self._scope_field = "project"` on this class).
+#:   The call lives in `get_object()`, which `create` never reaches — DRF's
+#:   `CreateModelMixin` builds no existing object — so for the one action this
+#:   class carries `IsProjectNotArchived` on (`create`), the check never fires at
+#:   all; it is audited here anyway because `_own_source` reads the whole class
+#:   body, not per-action. The program-scoped sibling sets `_scope_field =
+#:   "program"` but is a different view with `IsProgramNotClosed`, not this class.
+#:
+#: Models with no direct FK that still resolve do so via a `project_id` **property**
+#: — `TaskAttachment`, `TaskNote`, `TaskLink`, `CommentReaction` — which is the
+#: established remedy (#3414) for a task-scoped model this resolver would otherwise
+#: miss; their viewsets pass `task`/`comment` to the object check directly rather
+#: than the attachment/note/link/reaction row, so those property definitions are not
+#: separately exercised through this expression list, but the models they live on
+#: are exactly the precedent a *new* unresolvable model should follow.
+_RESIDUAL_OBJECT_HOP_SAFE_ARGS: frozenset[str] = frozenset(
+    {
+        "project",
+        "task",
+        "entry.task",
+        "comment",
+        "risk",
+        "sprint.project",
+        "session.sprint.project",
+        "self._scope_object(obj)",
+        "getattr(obj, self._scope_field)",
+    }
+)
+
+#: The minimum number of (route, action) pairs this scan must enumerate. Measured at
+#: 88 on 2026-10-17; see `_MIN_PROJECT_SCOPED_WRITE_ENTRIES` for why a floor is here
+#: at all — a walker regression must fail loudly, not pass over nothing.
+_MIN_RESIDUAL_OBJECT_HOP_ENTRIES = 80
+
+#: One level of nested parens tolerated in the argument expression — needed for
+#: `self._scope_object(obj)` and `getattr(obj, self._scope_field)`, both real call
+#: sites in this codebase that a bare `[^)]+` would truncate at their own inner `)`.
+_COP_CALL_RE = re.compile(
+    r"check_object_permissions\(\s*(?:self\.)?request,\s*((?:[^()]|\([^()]*\))+)\)"
+)
+
+
+def _residual_no_queryset_entries() -> list[tuple[str, type]]:
+    """`(key, view class)` for every entry where `_object_hop_resolves` cannot judge.
+
+    Mirrors `_object_hop_resolves`'s own "nothing to judge" branch: a class-level
+    `queryset` of `None` is exactly the shape that function returns `True` for
+    without inspecting anything. This is every (route, action) where that shortcut
+    is reached while `IsProjectNotArchived` is effective.
+    """
+    seen: dict[str, type] = {}
+    for key, _path, entry, _action, effective, _why in _project_scoped_write_entries():
+        if "IsProjectNotArchived" not in effective:
+            continue
+        cls = _view_class(entry)
+        if cls is None or getattr(cls, "queryset", None) is not None:
+            continue
+        seen[key] = cls
+    return list(seen.items())
+
+
+def _object_hop_call_args(cls: type) -> set[str]:
+    """Every `check_object_permissions(request, <expr>)` argument expression findable
+    anywhere in `cls`'s MRO (our own code only — see `_own_source`).
+
+    An empty result means `has_object_permission` is never reached for this view by
+    this idiom — either the archived check already fires in `has_permission` off a
+    resolvable kwarg and no explicit object check exists, or (for an `@api_view`
+    function) DRF never calls object permissions at all and the body asserts the
+    lifecycle state directly (`assert_project_not_archived`). Either way,
+    `IsProjectNotArchived.has_object_permission`'s fail-closed branch cannot fire on
+    an unresolvable object it is never given.
+    """
+    return set(_COP_CALL_RE.findall(_own_source(cls)))
+
+
+def test_residual_object_hop_scan_is_not_vacuous() -> None:
+    """Guard the guard: the walker must still enumerate the no-class-queryset surface."""
+    entries = _residual_no_queryset_entries()
+    assert len(entries) >= _MIN_RESIDUAL_OBJECT_HOP_ENTRIES, (
+        f"only {len(entries)} no-class-queryset IsProjectNotArchived entries "
+        f"enumerated (expected >= {_MIN_RESIDUAL_OBJECT_HOP_ENTRIES}). The walker has "
+        "stopped seeing them — fix the discovery rather than lowering the floor."
+    )
+    # One probe per class shape, so a narrowing of either discovery signal fails
+    # loudly: a plain APIView gated at has_permission (no object check at all), and
+    # a ViewSetMixin whose own get_object() override checks an explicit expression.
+    keys = {key for key, _cls in entries}
+    assert "api/v1/projects/<pk>/tasks/bulk/::post" in keys
+    assert "api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<pk>/::destroy" in keys
+
+
+def test_residual_object_hop_resolves_or_never_fires() -> None:
+    """Every no-class-queryset `IsProjectNotArchived` route is reachable or inert.
+
+    `has_object_permission`'s unresolvable branch is fail-CLOSED (#3587): a route
+    where the object handed to it cannot resolve a project now 403s a legitimate
+    write. For each such route this asserts one of two things —
+
+    - `check_object_permissions` is never called against the view's own object (the
+      archived check runs at `has_permission` via a resolvable kwarg, or in the body
+      via `assert_project_not_archived`/the class's own explicit lifecycle guard),
+      so the fail-closed branch is never reached with an unresolvable object; or
+    - every expression it IS called with is in `_RESIDUAL_OBJECT_HOP_SAFE_ARGS`,
+      audited to resolve a project id.
+
+    An expression outside that set is unaudited — it might resolve, or #3587's flip
+    might have just turned a working endpoint into a permanent 403. Either way, this
+    must fail until a human looks: either add the expression to the safe set with
+    the model fact that makes it safe, or add a `project_id` property to the model
+    it resolves to (#3414's remedy) and then add it.
+    """
+    unaudited = []
+    for key, cls in _residual_no_queryset_entries():
+        args = _object_hop_call_args(cls)
+        unknown = args - _RESIDUAL_OBJECT_HOP_SAFE_ARGS
+        if unknown:
+            unaudited.append((key, cls.__name__, sorted(unknown)))
+    assert unaudited == [], (
+        "route(s) call check_object_permissions with an expression not audited as "
+        "resolving a project id — IsProjectNotArchived.has_object_permission's "
+        "fail-closed branch may now 403 a legitimate write on these:\n"
+        + "\n".join(f"    {k}  view={v}  expr={e}" for k, v, e in sorted(unaudited))
+        + "\n\nAudit the model each expression resolves to against "
+        "_get_project_id_from_obj (direct Project, a non-nullable project/project_id "
+        "FK, or a project_id property), then add the expression to "
+        "_RESIDUAL_OBJECT_HOP_SAFE_ARGS with a comment naming the model fact — or add "
+        "a project_id property to the model if it does not resolve (#3414's remedy; "
+        "never widen _get_project_id_from_obj itself)."
+    )
+
+
+def test_residual_object_hop_safe_args_are_all_used() -> None:
+    """A stale entry in `_RESIDUAL_OBJECT_HOP_SAFE_ARGS` would make this scan vacuous
+    for whichever route it was added to audit — if the route changed its expression
+    or disappeared, the audited fact no longer guards anything real.
+    """
+    observed: set[str] = set()
+    for _key, cls in _residual_no_queryset_entries():
+        observed |= _object_hop_call_args(cls)
+    stale = sorted(_RESIDUAL_OBJECT_HOP_SAFE_ARGS - observed)
+    assert stale == [], (
+        "_RESIDUAL_OBJECT_HOP_SAFE_ARGS names expression(s) no route calls "
+        f"check_object_permissions with any more: {stale}\n\nRemove them — a stale "
+        "entry audits nothing."
+    )
