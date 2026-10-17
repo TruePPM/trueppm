@@ -1531,7 +1531,22 @@ class IsProjectNotArchived(BasePermission):
 
         project_id = _get_project_id_from_obj(obj)
         if project_id is None:
-            return True
+            # Fail CLOSED (#3587), matching the other eleven callers of
+            # _get_project_id_from_obj. This class used to `return True` here — the
+            # one fail-open shape #2745/#3414/#3570 kept recurring in, because
+            # "declare the permission class" reads as a fix in review while this
+            # branch quietly waves every unresolvable object through. The route-table
+            # invariant (`test_residual_object_hop_resolves_or_never_fires` in
+            # `test_route_table_invariants.py`) pins the denominator of routes where
+            # this matters: every model that reaches this branch today either
+            # resolves (via a direct `project`/`project_id` FK or a `project_id`
+            # property) or never actually reaches
+            # `has_object_permission` at all (gated at `has_permission` via a URL
+            # kwarg, or a function view DRF never calls object permissions on). A
+            # model that genuinely cannot resolve a project should not widen
+            # `_get_project_id_from_obj` (#3414) — give it a `project_id` property
+            # instead, as `TaskAttachment`/`TaskComment`/`TaskSkillRequirement` do.
+            return False
         # Direct Project object: read the in-memory flag rather than re-querying.
         if isinstance(obj, Project):
             return not obj.is_archived

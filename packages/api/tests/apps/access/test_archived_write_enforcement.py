@@ -457,9 +457,13 @@ def test_the_skill_requirement_project_hop_is_what_the_gate_depends_on() -> None
     """``IsProjectNotArchived`` on the detail routes is only real because of the property.
 
     ``_get_project_id_from_obj`` walks ``project_id`` / ``project`` / ``predecessor`` and
-    returns ``None`` for anything else — and ``has_object_permission`` reads ``None`` as
-    permitted. Replacing the property with nothing would unhook every detail-route
-    refusal above while leaving the permission class in place and the diff looking inert.
+    returns ``None`` for anything else. Before #3587, ``has_object_permission`` read
+    ``None`` as *permitted* — replacing the property with nothing would have unhooked
+    every detail-route refusal above while leaving the permission class in place and
+    the diff looking inert. #3587 flipped that branch to refuse instead, so the same
+    removal would now 403 every detail-route write on this model unconditionally — a
+    different, louder failure, but the property is still what makes the refusal
+    *correct* rather than incidental.
     """
     from trueppm_api.apps.access.permissions import _get_project_id_from_obj
 

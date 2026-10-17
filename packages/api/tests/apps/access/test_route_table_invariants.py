@@ -17,8 +17,10 @@ that do not, which is the only place this class of defect lives.
 
 from __future__ import annotations
 
+import ast
 import inspect
 import re
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -619,11 +621,13 @@ def test_the_archive_bypass_is_scoped_to_the_project_viewset() -> None:
 #
 # 3. **A declared class does not count unless it can FIRE.** This is the whole point.
 #    `IsProjectNotArchived` on a route whose kwarg is `pk` with no `project_url_kwarg`
-#    resolves nothing and returns True (#2745); on a viewset whose model has no route to
-#    a project, `has_object_permission` resolves nothing and returns True; on a top-level
-#    `create`, DRF never calls `has_object_permission` at all. All three shapes shipped
-#    in this codebase with the class declared, which is why "add the permission class" is
-#    a review-proof false fix.
+#    resolves nothing and returns True in `has_permission` (#2745); on a viewset whose
+#    model has no route to a project, `has_object_permission` resolves nothing — before
+#    #3587 that also returned True (fail open); now it returns False (fail closed, see
+#    Invariant 5 below, which audits every route that shape could 403 a legitimate
+#    write on instead); on a top-level `create`, DRF never calls `has_object_permission`
+#    at all. All three shapes shipped in this codebase with the class declared, which is
+#    why "add the permission class" is a review-proof false fix.
 #
 # 4. **The denominator is pinned**, so the scan cannot go green by enumerating nothing.
 
@@ -734,9 +738,14 @@ def _own_source(cls: type | None) -> str:
 def _object_hop_resolves(cls: type) -> bool:
     """Can `_get_project_id_from_obj` reach a project from this viewset's model?
 
-    `has_object_permission` returns True when it cannot resolve a project id — a
-    fail-open — so a detail route on a model with no route to a project is NOT gated by
-    a declared `IsProjectNotArchived`, however it reads.
+    Before #3587, `has_object_permission` returned True when it could not resolve a
+    project id — a fail-open — so a detail route on a model with no route to a
+    project was not gated by a declared `IsProjectNotArchived`, however it read.
+    #3587 flipped that branch to fail CLOSED instead: an unresolvable object is now
+    refused, which is strictly safer for a route this function judges correctly, but
+    makes a route it judges *wrong* (the "nothing to judge" shortcut below, in
+    particular) a correctness bug in the other direction — see Invariant 5 further
+    down in this file, which audits every route that shortcut reaches.
 
     Two details, both load-bearing:
 
@@ -745,10 +754,11 @@ def _object_hop_resolves(cls: type) -> bool:
       (`RetroBoardItem.project_id` walks retro → sprint → project, `TaskResource`'s
       walks task → project). A `_meta.get_fields()` check would report those as
       unresolvable and demand exemptions for routes that are correctly gated.
-    - a NULLABLE concrete FK does not count. Django installs the descriptor on the class
-      either way, so `hasattr` is True while `obj.project_id` is `None` at runtime — and
-      `None` is the fail-open. A property cannot be inspected for nullability, so it is
-      taken at its word; a concrete field is checked.
+    - a NULLABLE concrete FK does not count. Django installs the descriptor on the
+      class either way, so `hasattr` is True while `obj.project_id` is `None` at
+      runtime — and `None` now fails CLOSED (#3587; it used to fail open). A property
+      cannot be inspected for nullability, so it is taken at its word; a concrete
+      field is checked.
     """
     queryset = getattr(cls, "queryset", None)
     if queryset is None:
@@ -1329,4 +1339,412 @@ def test_the_unresolvable_scope_scan_is_not_vacuous() -> None:
     assert _scope_verdict(by_key["api/v1/^tasks/$::create"]) == SCOPE_ALLOWED_BY_DECLARATION
     assert (
         _scope_verdict(by_key["api/v1/sprints/<pk>/pulse/::pulse"]) == SCOPE_ALLOWED_BY_OBJECT_CHECK
+    )
+
+
+# ---------------------------------------------------------------------------
+# Invariant 5 — IsProjectNotArchived's object hop resolves wherever it can fire
+# on a no-class-queryset route (#3587)
+# ---------------------------------------------------------------------------
+#
+# #3587 flipped `IsProjectNotArchived.has_object_permission`'s unresolvable branch
+# from `return True` (fail OPEN — the one survivor of the #2745/#3414/#3570 shape,
+# the other eleven `_get_project_id_from_obj` callers already fail closed) to
+# `return False` (fail CLOSED). That is strictly safer for a route the resolver
+# cannot reach — but it makes a route where the resolver *should* reach an object
+# and cannot into a correctness bug in the OTHER direction: a legitimate, properly
+# authorized write now 403s instead of silently succeeding.
+#
+# Invariant 3's `_object_hop_resolves` answers "nothing to judge" (True) for any
+# route with no class-level `queryset` — a plain APIView, or a ViewSet whose model
+# `_archived_enforcement_path` cannot see statically. That shortcut was adequate
+# while the branch it fed into was fail-open (an enforcement question — "was this
+# gated" — stayed correct even when the judgment was "I can't tell, assume yes").
+# It is not adequate for a fail-closed branch: the question is now "will this
+# route actually keep working", and "nothing to judge" cannot answer that.
+#
+# This invariant is the audited answer, pinned by (route, action) key so a new
+# no-class-queryset route carrying `IsProjectNotArchived` has to be triaged in this
+# file rather than silently inheriting a verdict nobody checked.
+
+#: `check_object_permissions(request, <expr>)` / `check_object_permissions(self.request,
+#: <expr>)` argument expressions, audited by hand against the model each resolves
+#: to, that `_get_project_id_from_obj` is confirmed to resolve a project id from:
+#:
+#: - `project` — a direct `Project` instance (`isinstance` branch).
+#: - `task` / `entry.task` — `Task.project` is a non-nullable FK.
+#: - `comment` — `TaskComment.project_id` is a property walking `task.project_id`.
+#: - `risk` — `Risk.project` is a non-nullable FK.
+#: - `sprint.project` / `session.sprint.project` — `Sprint.project` is a non-nullable
+#:   FK (the poker family: `PokerSession.sprint` -> `Sprint.project`).
+#: - `self._scope_object(obj)` — `WebhookViewSet._scope_object` returns the webhook's
+#:   `.project` (never `.program`: every route carrying `IsProjectNotArchived` is
+#:   served by `WebhookViewSet` itself, whose `get_queryset`/`perform_create` only
+#:   ever produce project-scoped rows — `ProgramWebhookViewSet` overrides
+#:   `get_permissions` to swap in `IsProgramNotClosed` and never carries this class).
+#: - `getattr(obj, self._scope_field)` — `ProjectApiTokenViewSet.get_object()`
+#:   (resolves to `obj.project`; `self._scope_field = "project"` on this class).
+#:   The call lives in `get_object()`, which `create` never reaches — DRF's
+#:   `CreateModelMixin` builds no existing object — so for the one action this
+#:   class carries `IsProjectNotArchived` on (`create`), the check never fires at
+#:   all; it is audited here anyway because `_own_source` reads the whole class
+#:   body, not per-action. The program-scoped sibling sets `_scope_field =
+#:   "program"` but is a different view with `IsProgramNotClosed`, not this class.
+#:
+#: Models with no direct FK that still resolve do so via a `project_id` **property**
+#: — `TaskAttachment`, `TaskNote`, `TaskLink`, `CommentReaction` — which is the
+#: established remedy (#3414) for a task-scoped model this resolver would otherwise
+#: miss; their viewsets pass `task`/`comment` to the object check directly rather
+#: than the attachment/note/link/reaction row, so those property definitions are not
+#: separately exercised through this expression list, but the models they live on
+#: are exactly the precedent a *new* unresolvable model should follow.
+_RESIDUAL_OBJECT_HOP_SAFE_ARGS: frozenset[str] = frozenset(
+    {
+        "project",
+        "task",
+        "entry.task",
+        "comment",
+        "risk",
+        "sprint.project",
+        "session.sprint.project",
+        "self._scope_object(obj)",
+        "getattr(obj, self._scope_field)",
+    }
+)
+
+#: View classes whose `get_object` resolves to DRF's own `GenericAPIView.get_object`
+#: — never overridden anywhere in our code (#3587 follow-up, completeness-check
+#: GAP 1). That matters because `GenericAPIView.get_object()` calls
+#: `self.check_object_permissions(self.request, obj)` **inside
+#: `rest_framework.generics`**, so no scan of our own source — `_own_source`,
+#: `_object_hop_call_args` below, or the regex this file used before — can ever see
+#: that call. A `destroy`/`update`/`partial_update` action DRF dispatches straight to
+#: its own `DestroyModelMixin`/`UpdateModelMixin` implementation (never overridden)
+#: reaches this silently; so does a custom `@action(detail=True)` that calls
+#: `self.get_object()` without any override of `get_object` itself. Audited by hand
+#: against the model `get_queryset()` returns:
+#:
+#: - `ProjectMembershipViewSet` -> `ProjectMembership.project` is a non-nullable FK.
+#: - `UserDefinedMentionGroupViewSet` -> `UserDefinedMentionGroup.project` is a
+#:   non-nullable FK (`destroy`/`partial_update`/`add_member`/`remove_member`/
+#:   `mute`/`unmute` all call `self.get_object()` with no override).
+#: - `CascadeClassificationOperationViewSet` -> the model's own `project` field is a
+#:   non-nullable FK (the `undo` action's `self.get_object()` is this viewset's
+#:   *only* lifecycle gate — no `project_pk` kwarg is in the URL at all).
+#: - `PasteManyOperationViewSet` -> same shape, `PasteManyOperation.project`.
+#: - `TemplateApplicationViewSet` -> same shape, `TemplateApplication.project`.
+#: - `TaskAttachmentViewSet` -> `TaskAttachment.project_id` is a property
+#:   (`task.project_id`) — `destroy` has no override and reaches it via
+#:   `DestroyModelMixin.destroy`'s own `self.get_object()`.
+#: - `TaskCommentViewSet` -> `TaskComment.project_id` is a property, same shape for
+#:   `destroy`/`partial_update` (its only override, `perform_create`, is a
+#:   *different* action and already covered by the `task` expression above).
+#: - `TaskNoteViewSet` -> `TaskNote.project_id` is a property, same shape.
+#: - `TaskLinkViewSet` -> `TaskLink.project_id` is a property, same shape for
+#:   `destroy`/`partial_update` (`refresh` is a custom detail action with the same
+#:   unoverridden `get_object()`).
+#: - `CommentReactionViewSet` -> `CommentReaction.project_id` is a property, same
+#:   shape for `destroy`.
+#: - `StructuralOperationViewSet` -> `StructuralOperation.project` is a
+#:   non-nullable FK. Its `undo` action calls `self.get_object()` (unoverridden,
+#:   hitting this class) **and then** an explicit
+#:   `self.check_object_permissions(request, project)` against the project it
+#:   separately resolves — both fire, so this class is in both this set and
+#:   `_RESIDUAL_OBJECT_HOP_SAFE_ARGS` by way of the `project` expression; neither
+#:   alone would be the whole story.
+#: - `RiskCommentViewSet` -> flagged here purely because `cls.get_object` is
+#:   DRF's default — the only action this class carries `IsProjectNotArchived`
+#:   on is `create`, whose `CreateModelMixin.create` never calls `get_object()`
+#:   at all, so the pseudo-arg can never actually fire for the one entry that
+#:   reaches this scan. Listed anyway because the check is class-level, not
+#:   action-level (`cls.get_object` is one function for every action), and
+#:   `Risk.project` is a non-nullable FK regardless, so the entry is doubly
+#:   safe: unreachable by this path, and would resolve even if it were not.
+_GET_OBJECT_AUDITED_CLASSES: frozenset[str] = frozenset(
+    {
+        "ProjectMembershipViewSet",
+        "UserDefinedMentionGroupViewSet",
+        "CascadeClassificationOperationViewSet",
+        "PasteManyOperationViewSet",
+        "TemplateApplicationViewSet",
+        "TaskAttachmentViewSet",
+        "TaskCommentViewSet",
+        "TaskNoteViewSet",
+        "TaskLinkViewSet",
+        "CommentReactionViewSet",
+        "StructuralOperationViewSet",
+        "RiskCommentViewSet",
+    }
+)
+
+#: Pseudo-argument standing in for "this (view, action) reaches DRF's own
+#: `get_object()`" — see `_GET_OBJECT_AUDITED_CLASSES`. Never a real expression
+#: `ast.unparse` could produce, so it can never collide with one.
+_GET_OBJECT_PSEUDO_ARG = "<get_object>"
+
+#: The minimum number of (route, action) pairs this scan must enumerate. Measured at
+#: 87 on 2026-10-17; see `_MIN_PROJECT_SCOPED_WRITE_ENTRIES` for why a floor is here
+#: at all — a walker regression must fail loudly, not pass over nothing.
+_MIN_RESIDUAL_OBJECT_HOP_ENTRIES = 80
+
+
+def _residual_no_queryset_entries() -> list[tuple[str, type, str | None]]:
+    """`(key, view class, action)` for every entry `_object_hop_resolves` cannot judge.
+
+    Mirrors `_object_hop_resolves`'s own "nothing to judge" branch: a class-level
+    `queryset` of `None` is exactly the shape that function returns `True` for
+    without inspecting anything. This is every (route, action) where that shortcut
+    is reached while `IsProjectNotArchived` is effective. `action` is carried
+    alongside the class because `_class_uses_drf_default_get_object` below answers a
+    class-level question (is `get_object` overridden at all), but a stale-arg check
+    still needs to know which action produced which call site.
+    """
+    seen: dict[str, tuple[type, str | None]] = {}
+    for key, _path, entry, action, effective, _why in _project_scoped_write_entries():
+        if "IsProjectNotArchived" not in effective:
+            continue
+        cls = _view_class(entry)
+        if cls is None or getattr(cls, "queryset", None) is not None:
+            continue
+        seen[key] = (cls, action)
+    return [(key, cls, action) for key, (cls, action) in seen.items()]
+
+
+def _class_uses_drf_default_get_object(cls: type) -> bool:
+    """True when `cls.get_object` is DRF's own, never overridden by our code.
+
+    `getattr(cls, "get_object", None)` resolves through the full MRO exactly as
+    Python attribute lookup does at runtime, so this is the same function any
+    action on this view would actually call — not a re-derivation of DRF's dispatch.
+    A module outside `trueppm_api` means nothing in our codebase intercepts the
+    call, so `rest_framework.generics.GenericAPIView.get_object`'s own
+    `self.check_object_permissions(self.request, obj)` is what runs, invisible to
+    any scan of our own source.
+    """
+    get_object = getattr(cls, "get_object", None)
+    module = getattr(get_object, "__module__", "")
+    return bool(module) and not module.startswith("trueppm_api")
+
+
+def _check_object_permissions_call_args(cls: type) -> tuple[set[str], int]:
+    """AST-exact scan for every `check_object_permissions(...)` call in `cls`'s own
+    MRO source (see `_own_source`), replacing an earlier regex-based reader that
+    silently skipped any call shape it did not anticipate (#3587 follow-up,
+    completeness-check GAP 2) — non-canonical argument names, keyword arguments, a
+    second level of nested parens, or a call outside the view's own class entirely
+    (e.g. a serializer-side `view.check_object_permissions(...)`, which is out of
+    `_own_source`'s reach regardless of how the argument is parsed).
+
+    Returns `(non-request argument expressions, total call-node count)`. The count
+    lets a caller prove every call it found was also captured by the argument set —
+    an `ast.Call` node is a parse-exact match, so a count mismatch can only mean a
+    target failed to parse at all (caught separately, not silently dropped), never
+    a shape the walk declined to recognize.
+
+    Each MRO target is parsed on its own — `_own_source` concatenates several
+    classes' source, and the result as a whole is not valid Python (two sibling
+    `class` bodies back to back with no blank-line separation can still parse by
+    accident, but nothing guarantees it) — so parsing per-target is both correct
+    and the only way to blame a specific class if a parse ever fails.
+    """
+    targets: list[Any] = [
+        k
+        for k in getattr(cls, "__mro__", [cls])
+        if getattr(k, "__module__", "").startswith("trueppm_api")
+    ]
+    targets += _wrapped_function_views(cls)
+    args: set[str] = set()
+    call_count = 0
+    for target in targets:
+        try:
+            src = inspect.getsource(target)
+        except (OSError, TypeError):
+            continue
+        try:
+            tree = ast.parse(textwrap.dedent(src))
+        except SyntaxError:
+            # A decorator or nested-class indentation quirk can make a single
+            # extracted target un-parseable standalone. Recorded, not swallowed:
+            # `test_residual_object_hop_scan_is_not_vacuous` asserts this never
+            # happens across the real residual set, so a future occurrence fails
+            # loudly there rather than silently undercounting here.
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else (func.id if isinstance(func, ast.Name) else None)
+            )
+            if name != "check_object_permissions":
+                continue
+            call_count += 1
+            for arg_node in (*node.args, *(kw.value for kw in node.keywords)):
+                text = ast.unparse(arg_node)
+                if text in ("request", "self.request"):
+                    continue
+                args.add(text)
+    return args, call_count
+
+
+def _residual_verdict(cls: type, action: str | None) -> tuple[set[str], int]:
+    """The audited-argument view of `(cls, action)`, folding in the `get_object()`
+    pseudo-arg when `cls` never overrides it (see `_GET_OBJECT_AUDITED_CLASSES`).
+
+    Returns `(args, call_count)` exactly like `_check_object_permissions_call_args`,
+    except `args` gains `_GET_OBJECT_PSEUDO_ARG` — which only
+    `_GET_OBJECT_AUDITED_CLASSES` can satisfy — whenever `cls.get_object` is DRF's
+    own. `action` is accepted for symmetry with the per-entry callers even though
+    the pseudo-arg is a class-level fact: `cls.get_object` is one function for every
+    action on the view, so there is nothing more specific to key it by.
+    """
+    args, call_count = _check_object_permissions_call_args(cls)
+    if _class_uses_drf_default_get_object(cls):
+        args = args | {_GET_OBJECT_PSEUDO_ARG}
+    return args, call_count
+
+
+def test_residual_object_hop_scan_is_not_vacuous() -> None:
+    """Guard the guard: the walker must still enumerate the no-class-queryset surface."""
+    entries = _residual_no_queryset_entries()
+    assert len(entries) >= _MIN_RESIDUAL_OBJECT_HOP_ENTRIES, (
+        f"only {len(entries)} no-class-queryset IsProjectNotArchived entries "
+        f"enumerated (expected >= {_MIN_RESIDUAL_OBJECT_HOP_ENTRIES}). The walker has "
+        "stopped seeing them — fix the discovery rather than lowering the floor."
+    )
+    # One probe per discovery signal, so a narrowing of any of them fails loudly: a
+    # plain APIView gated at has_permission (no object check at all), a ViewSetMixin
+    # whose own get_object() override checks an explicit expression, and a
+    # ViewSetMixin that never overrides get_object() at all.
+    keys = {key for key, _cls, _action in entries}
+    assert "api/v1/projects/<pk>/tasks/bulk/::post" in keys
+    assert "api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<pk>/::destroy" in keys
+    by_key = {key: cls for key, cls, _action in entries}
+    assert (
+        by_key["api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<pk>/::destroy"].__name__
+        == "TaskCommentViewSet"
+    )
+    assert _class_uses_drf_default_get_object(
+        by_key["api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<pk>/::destroy"]
+    )
+    # No target this scan reaches should ever fail to parse on its own — a parse
+    # failure inside `_check_object_permissions_call_args` is swallowed there (so
+    # one bad target cannot sink every other class's audit) but must be loud here.
+    unparseable = []
+    for _key, cls, _action in entries:
+        targets: list[Any] = [
+            k
+            for k in getattr(cls, "__mro__", [cls])
+            if getattr(k, "__module__", "").startswith("trueppm_api")
+        ]
+        for target in targets:
+            try:
+                src = inspect.getsource(target)
+            except (OSError, TypeError):
+                continue
+            try:
+                ast.parse(textwrap.dedent(src))
+            except SyntaxError:
+                unparseable.append((cls.__name__, getattr(target, "__qualname__", target)))
+    assert unparseable == [], f"target(s) failed to parse standalone: {unparseable}"
+
+
+def test_residual_object_hop_resolves_or_never_fires() -> None:
+    """Every no-class-queryset `IsProjectNotArchived` route is reachable or inert.
+
+    `has_object_permission`'s unresolvable branch is fail-CLOSED (#3587): a route
+    where the object handed to it cannot resolve a project now 403s a legitimate
+    write. For each such route this asserts one of three things —
+
+    - `check_object_permissions` is never called against the view's own object (the
+      archived check runs at `has_permission` via a resolvable kwarg, or in the body
+      via `assert_project_not_archived`/the class's own explicit lifecycle guard),
+      so the fail-closed branch is never reached with an unresolvable object; or
+    - every expression it IS called with, in OUR code, is in
+      `_RESIDUAL_OBJECT_HOP_SAFE_ARGS`, audited to resolve a project id; or
+    - the view's `get_object` is DRF's own (`_class_uses_drf_default_get_object`),
+      and the class is listed in `_GET_OBJECT_AUDITED_CLASSES` — audited to resolve
+      through `get_queryset()`'s model instead.
+
+    An expression outside the safe set, or a DRF-default `get_object()` on a class
+    not in the audited set, is unaudited — it might resolve, or #3587's flip might
+    have just turned a working endpoint into a permanent 403. Either way, this must
+    fail until a human looks: add the expression (or the class) with the model fact
+    that makes it safe, or add a `project_id` property to the model it resolves to
+    (#3414's remedy) and then add it.
+    """
+    unaudited = []
+    for key, cls, _action in _residual_no_queryset_entries():
+        args, _call_count = _residual_verdict(cls, _action)
+        if _GET_OBJECT_PSEUDO_ARG in args and cls.__name__ not in _GET_OBJECT_AUDITED_CLASSES:
+            unaudited.append((key, cls.__name__, [_GET_OBJECT_PSEUDO_ARG]))
+            continue
+        unknown = args - _RESIDUAL_OBJECT_HOP_SAFE_ARGS - {_GET_OBJECT_PSEUDO_ARG}
+        if unknown:
+            unaudited.append((key, cls.__name__, sorted(unknown)))
+    assert unaudited == [], (
+        "route(s) call check_object_permissions with an expression not audited as "
+        "resolving a project id — IsProjectNotArchived.has_object_permission's "
+        "fail-closed branch may now 403 a legitimate write on these:\n"
+        + "\n".join(f"    {k}  view={v}  expr={e}" for k, v, e in sorted(unaudited))
+        + "\n\nAudit the model each expression resolves to against "
+        "_get_project_id_from_obj (direct Project, a non-nullable project/project_id "
+        "FK, or a project_id property), then add the expression to "
+        "_RESIDUAL_OBJECT_HOP_SAFE_ARGS (or the class to "
+        "_GET_OBJECT_AUDITED_CLASSES, for the <get_object> pseudo-arg) with a comment "
+        "naming the model fact — or add a project_id property to the model if it "
+        "does not resolve (#3414's remedy; never widen _get_project_id_from_obj "
+        "itself)."
+    )
+
+
+def test_residual_object_hop_safe_args_are_all_used() -> None:
+    """A stale entry in `_RESIDUAL_OBJECT_HOP_SAFE_ARGS` or
+    `_GET_OBJECT_AUDITED_CLASSES` would make this scan vacuous for whichever route
+    it was added to audit — if the route changed its expression, stopped relying on
+    DRF's default `get_object()`, or disappeared, the audited fact no longer guards
+    anything real.
+    """
+    observed_args: set[str] = set()
+    observed_get_object_classes: set[str] = set()
+    for _key, cls, _action in _residual_no_queryset_entries():
+        args, _call_count = _residual_verdict(cls, _action)
+        observed_args |= args - {_GET_OBJECT_PSEUDO_ARG}
+        if _GET_OBJECT_PSEUDO_ARG in args:
+            observed_get_object_classes.add(cls.__name__)
+    stale_args = sorted(_RESIDUAL_OBJECT_HOP_SAFE_ARGS - observed_args)
+    stale_classes = sorted(_GET_OBJECT_AUDITED_CLASSES - observed_get_object_classes)
+    assert stale_args == [], (
+        "_RESIDUAL_OBJECT_HOP_SAFE_ARGS names expression(s) no route calls "
+        f"check_object_permissions with any more: {stale_args}\n\nRemove them — a "
+        "stale entry audits nothing."
+    )
+    assert stale_classes == [], (
+        "_GET_OBJECT_AUDITED_CLASSES names class(es) that no longer use DRF's "
+        f"default get_object(): {stale_classes}\n\nRemove them — a stale entry "
+        "audits nothing."
+    )
+
+
+def test_residual_object_hop_call_count_is_fully_parsed() -> None:
+    """Guard `_check_object_permissions_call_args` itself: every call-node AST found
+    must show up in the argument set it returns, one-for-one modulo de-duplication
+    (two call sites invoking `check_object_permissions(request, project)` collapse
+    to one entry in the set, which is correct — the set is "what expressions were
+    seen", not "how many times"). What this catches is the shape AST parsing cannot
+    produce: a call node where every one of its arguments happened to equal
+    `request`/`self.request` and therefore contributed nothing to the set. That is
+    exactly the "called with nothing but the request" bug this file exists to make
+    impossible to reintroduce unnoticed.
+    """
+    starved = []
+    for _key, cls, _action in _residual_no_queryset_entries():
+        args, call_count = _check_object_permissions_call_args(cls)
+        if call_count > 0 and not args:
+            starved.append(cls.__name__)
+    assert starved == [], (
+        "check_object_permissions is called with no non-request argument at all on: "
+        f"{sorted(set(starved))} — that call can never resolve a project id."
     )

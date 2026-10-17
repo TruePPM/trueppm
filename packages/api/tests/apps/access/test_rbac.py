@@ -1606,14 +1606,20 @@ class TestIsProjectNotArchived:
             is False
         )
 
-    def test_object_with_no_project_is_not_lifecycle_gated(self, user: object) -> None:
+    def test_object_with_no_project_fails_closed(self, user: object) -> None:
+        """Fails CLOSED (#3587), matching the other eleven ``_get_project_id_from_obj``
+        callers — this was the one remaining fail-open survivor of the
+        #2745/#3414/#3570 shape. See ``test_route_table_invariants.py``'s
+        ``test_residual_object_hop_resolves_or_never_fires`` for the proof that no
+        real route hands this branch an object that should have resolved.
+        """
         view = _make_view()
         view.action = "partial_update"
         assert (
             IsProjectNotArchived().has_object_permission(
                 _plain_request(user, "PATCH"), view, SimpleNamespace()
             )
-            is True
+            is False
         )
 
 
