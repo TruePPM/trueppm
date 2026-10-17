@@ -443,6 +443,16 @@ def _apply_deleted_row(del_id: Any, ctx: _ApplyContext, result: BatchApplyResult
     # and the call that removes the last live child is the one that fires.
     resynced_parent = resync_structural_parent_after_delete(parent)
     if resynced_parent is not None:
+        # Replace the batch's pre-fetch snapshot of this row with the resynced
+        # instance. Without this, a parent ALSO named in the same batch's own
+        # `deleted` bucket (deleting a container and its last live child
+        # together) would be soft-deleted off the STALE snapshot taken before
+        # this resync ran — `soft_delete()`'s `save()` carries no explicit
+        # `update_fields`, so `VersionedModel.save()` writes every column off
+        # that stale instance and silently re-clobbers the correction this very
+        # request just made. The row is then tombstoned with the wrong duration
+        # forever, invisible until someone restores it (#1113).
+        ctx.existing_by_id[str(resynced_parent.pk)] = resynced_parent
         # Report it the same way a created/updated row is reported: fold the
         # parent into the coalesced WS broadcast (connected web peers get a
         # prompt refetch rather than waiting on the deferred CPM recalc's own

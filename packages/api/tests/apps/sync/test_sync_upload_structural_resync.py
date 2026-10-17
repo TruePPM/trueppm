@@ -221,6 +221,51 @@ def test_sync_delete_of_every_child_in_one_batch_reverts_parent_once(
     assert child_b.is_deleted is True
 
 
+@pytest.mark.django_db
+def test_sync_delete_of_parent_and_its_only_child_together_does_not_resurrect_rollup(
+    admin_client: APIClient, project: Project
+) -> None:
+    """Deleting a container AND its last live child in one batch must not clobber
+    the resync with a stale full-row save of the container's own tombstone.
+
+    The child is listed FIRST so its delete fires the parent resync (which saves
+    the parent with its own fresh ``update_fields``) *before* the parent's own
+    `deleted`-bucket entry is processed. `_apply_deleted_row` reads every row off
+    the batch's single pre-fetch (``ctx.existing_by_id``), so the parent's own
+    tombstone write risks reusing that STALE snapshot (pre-resync `duration`) and
+    writing every field back via `soft_delete()`'s argument-less `save()` — which
+    would silently re-clobber the correction this very batch just made. The
+    parent is also tombstoned, so a wrong in-DB `duration` would only resurface
+    on a future `restore()` (#1113) — exactly the kind of lost update that stays
+    invisible until someone un-deletes the row.
+    """
+    parent = Task.objects.create(
+        project=project, name="Phase", duration=7, wbs_path="5", status=TaskStatus.NOT_STARTED
+    )
+    child = Task.objects.create(project=project, name="Leaf", duration=2, wbs_path="5.1")
+    _promote(parent)
+    assert parent.auto_container is True
+    assert parent.own_estimate == 7
+
+    resp = admin_client.post(
+        _url(project),
+        # Child first: its delete triggers the resync before the parent's own
+        # tombstone entry is processed later in the same bucket.
+        _delete_payload(str(child.pk), str(parent.pk)),
+        format="json",
+    )
+    assert resp.status_code == 200
+
+    parent.refresh_from_db()
+    assert parent.is_deleted is True
+    assert parent.auto_container is False, "tombstone write must not undo the resync"
+    assert parent.duration == 7, "own estimate, not the stale rolled-up value"
+    assert parent.own_estimate is None
+
+    child.refresh_from_db()
+    assert child.is_deleted is True
+
+
 @pytest.mark.django_db(transaction=True)
 def test_subsequent_recalc_preserves_restored_duration(
     admin_client: APIClient, project: Project
