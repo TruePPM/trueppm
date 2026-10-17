@@ -48,10 +48,11 @@ A few behaviors are worth knowing:
   `Retry-After` header telling the client how many seconds to wait.
 - **Reads that run the scheduling engine have their own, lower limits.** The
   schedule derivation (`TRUEPPM_THROTTLE_CPM_ON_READ_RATE`, 60/min) and the merged
-  program schedule (`TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE`, 240/min) recompute the
+  program schedule (`TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE`, 60/min) recompute the
   critical path on every call. A program schedule read at the 5,000-task program
-  limit took about 470 ms in testing, so one account at 240/min can still keep about
-  two CPU cores busy. Lower these rates on small API workers. See
+  limit took about 470 ms in testing, so one account at 60/min keeps about half a
+  CPU core busy at most. At the general 1000/min limit it would be nearly eight
+  cores. Lower these rates further on small API workers. See
   [Optional and advanced settings](/administration/configuration/advanced/).
 
 The throttle count lives in the configured cache (Valkey/Redis in production),

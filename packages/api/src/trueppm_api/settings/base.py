@@ -1751,14 +1751,14 @@ REST_FRAMEWORK = {
         # than the 10/min monte_carlo tier: a person clicking through the "why" of a
         # dozen values never trips it, a scripted loop is held to one pass a second.
         "cpm_on_read": env("TRUEPPM_THROTTLE_CPM_ON_READ_RATE", default=_STANDARD_RATE),
-        # On-read merged program CPM (#2839), GET /programs/<pk>/schedule/. Sized
-        # above the live page's refetch cadence, not at the read tier: the page's
-        # member-project sockets share one 300 ms debounce, so one open tab sends at
-        # most 200/min however many projects the program has. Per account, so
-        # several tabs share it. A 5,000-task pass measured ~470 ms, so this bounds a
-        # loop to ~2 cores rather than ~8 at the 1000/min default. See
+        # On-read merged program CPM (#2839), GET /programs/<pk>/schedule/. Same tier
+        # as cpm_on_read: a 5,000-task merged pass measured ~470 ms, MORE than the
+        # derivation's single-project pass, so it must not be laxer. 60/min holds a
+        # loop to ~0.5 core (vs ~7.8 at the 1000/min default). Per account, so tabs
+        # share it; one open tab can send up to 200/min (shared 300 ms debounce) in
+        # an edit storm, and on a 429 the page keeps its last chart. See
         # ProgramScheduleThrottle.
-        "program_schedule": env("TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE", default="240/min"),
+        "program_schedule": env("TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE", default=_STANDARD_RATE),
         # Bundled-sample demo loader (#2402). POST /programs/load-sample/ is the
         # most expensive single write in the API: it hard-deletes the caller's
         # prior program with the same code (memberships -> projects -> cascade)

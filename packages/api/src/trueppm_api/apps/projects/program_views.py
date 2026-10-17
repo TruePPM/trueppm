@@ -182,16 +182,20 @@ class ProgramScheduleThrottle(UserRateThrottle):
 
     Measured cost: a 5,000-task merged read (MAX_PROGRAM_TASKS, one or five member
     projects) takes ~460-480 ms end to end on a developer laptop against local
-    Postgres. The default 240/min therefore still lets one account at the ceiling
-    keep about two cores busy; it bounds abuse relative to the 1000/min default
-    (about 8 cores), it does not make one account cheap.
+    Postgres. The default is 60/min, the same tier as the schedule derivation's
+    ``cpm_on_read`` scope, whose single-project pass is cheaper: one account at the
+    ceiling is 1 read/s x ~0.47 s, about half a core, against ~7.8 cores at the
+    1000/min default.
 
-    The rate is sized from the live page's own cadence. The page's member-project
-    sockets share ONE 300 ms debounce, so an open tab sends at most one refetch per
-    window — 200/min at the theoretical ceiling, whatever the member count — and
-    real editing produces a few refetches per edit. The bucket is per account, so
-    several open tabs (or several programs viewed at once) share it. On a 429 the
-    page keeps rendering its last schedule rather than blanking it.
+    That is below the live page's theoretical ceiling, on purpose. The page's
+    member-project sockets share ONE 300 ms debounce, so an open tab sends at most
+    one refetch per window (200/min, whatever the member count); real editing
+    produces a few refetches per edit, far below that, but a sustained burst of
+    edits across a busy program can exceed 60/min. The bucket is per account, so
+    several open tabs (or programs viewed at once) share it. When it trips, the
+    page keeps rendering its last schedule with a "live updates paused" notice and
+    the next update after the window refreshes it — a stale chart for a few
+    seconds, which is the right trade against a merged CPM pass per edit event.
 
     ``UserRateThrottle`` for the same reason as the importer throttles above: it is
     attached through ``@action(throttle_classes=[…])``, where ``ScopedRateThrottle``
