@@ -4087,9 +4087,17 @@ scheduler:fuzz-deep:
   # that shard only, for the runs where it is still empty. When a file in
   # `other` grows properties expensive enough to need isolating, give it its
   # own shard the same way `oracle` got one (#3987).
+  #
+  # test_contract_fuzz.py is split by property NAME, not by file (#4511): at 8
+  # properties one shard ran 32-45 min against the 50-min timeout. `contract`
+  # takes the `*_conforms` input-shape contracts and `contract-semantic` takes
+  # everything else in the file (the Monte Carlo and window/walk properties), so
+  # a property added there lands in exactly one of the two whatever it is
+  # named. `--durations` prints the per-property cost, so the next split is
+  # read off the log instead of estimated.
   parallel:
     matrix:
-      - FUZZ_SHARD: [contract, milestone, oracle, other]
+      - FUZZ_SHARD: [contract, contract-semantic, milestone, oracle, other]
   timeout: 50m
   # Persist Hypothesis's example database across scheduled runs so the search
   # accumulates a shrinking corpus of interesting inputs rather than starting
@@ -4103,7 +4111,11 @@ scheduler:fuzz-deep:
     - <<: *scheduler-cache
       policy: pull
     - key: scheduler-fuzz-corpus-$FUZZ_SHARD
+      # contract-semantic's properties were fuzzed under the contract key
+      # until #4511; Hypothesis keys its database per test, so seeding one
+      # shard from another's corpus is harmless.
       fallback_keys:
+        - scheduler-fuzz-corpus-contract
         - scheduler-fuzz-corpus
       paths:
         - packages/scheduler/.hypothesis/
@@ -4115,14 +4127,15 @@ scheduler:fuzz-deep:
     - cd packages/scheduler
     - |
       case "$FUZZ_SHARD" in
-        contract)  set -- tests/test_contract_fuzz.py ;;
-        milestone) set -- tests/test_milestone_instant.py ;;
-        oracle)    set -- tests/test_cpm_oracle.py ;;
-        other)     set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py ;;
-        *) echo "unknown FUZZ_SHARD '$FUZZ_SHARD'"; exit 1 ;;
+        contract)          set -- tests/test_contract_fuzz.py -k conforms ;;
+        contract-semantic) set -- tests/test_contract_fuzz.py -k "not conforms" ;;
+        milestone)         set -- tests/test_milestone_instant.py ;;
+        oracle)            set -- tests/test_cpm_oracle.py ;;
+        other)             set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py ;;
+        *)                 echo "unknown FUZZ_SHARD '$FUZZ_SHARD'"; exit 1 ;;
       esac
       rc=0
-      pytest -m fuzz -p no:cacheprovider --no-cov "$@" || rc=$?
+      pytest -m fuzz -p no:cacheprovider --no-cov --durations=0 "$@" || rc=$?
       if [ "$rc" -eq 5 ] && [ "$FUZZ_SHARD" = other ]; then
         echo "No fuzz properties outside the named shards."
         rc=0
