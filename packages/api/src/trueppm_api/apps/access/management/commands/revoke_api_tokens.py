@@ -16,11 +16,12 @@ the missing half of that procedure.
     leaked" case. Leaves project- and program-scoped integration tokens alone, so team
     CI keeps working.
   * ``--all`` — every token of every kind, including integration tokens, **plus**
-    every active share link and configured git-automation webhook secret instance-
-    wide (#2939) — the other two durable grants a leaked token or compromised
-    session can mint that no other lever reaches. This *will* break every inbound
-    sync and public share link until an admin re-mints; it is the full-compromise
-    lever.
+    every active share link, configured git-automation webhook secret, and
+    registered outgoing webhook instance-wide (#2939, #4461) — the other three
+    durable grants a leaked token or compromised session can mint that no other
+    lever reaches. This *will* break every inbound sync, public share link, and
+    outgoing webhook delivery until an admin re-mints/re-enables; it is the
+    full-compromise lever.
 
 **Dry-run by default.** The command reports what it would revoke and exits; ``--commit``
 performs the revocation, prompting for confirmation unless ``--yes`` is given. Revocation
@@ -133,24 +134,27 @@ class Command(BaseCommand):
             kind = "personal" if token.owner_id else ("project" if token.project_id else "program")
             self.stdout.write(f"  {token.token_prefix}… ({kind}) {token.name}")
 
-    def _count_durable_grants(self, options: dict[str, Any]) -> tuple[int, int]:
-        """(links_matched, secrets_matched) for ``--all``'s blast-radius report.
+    def _count_durable_grants(self, options: dict[str, Any]) -> tuple[int, int, int]:
+        """(links_matched, secrets_matched, webhooks_matched) for ``--all``'s report.
 
-        --all is the full-compromise lever: also sweep the two non-token durable
-        grants a leaked token (or a compromised session) can mint (#2939). Counted
-        ahead of --commit so a dry run reports the whole blast radius, not just
-        the token count.
+        --all is the full-compromise lever: also sweep the three non-token durable
+        grants a leaked token (or a compromised session) can mint (#2939, #4461).
+        Counted ahead of --commit so a dry run reports the whole blast radius, not
+        just the token count.
         """
         if not options["all"]:
-            return 0, 0
+            return 0, 0, 0
         from trueppm_api.apps.integrations.models import BoardAutomation
         from trueppm_api.apps.projects.models import ShareLink
+        from trueppm_api.apps.webhooks.models import Webhook
 
         links_matched = ShareLink.objects.filter(revoked_at__isnull=True).count()
         secrets_matched = BoardAutomation.objects.exclude(secret_ciphertext=b"").count()
+        webhooks_matched = Webhook.objects.filter(is_active=True).count()
         self.stdout.write(f"Active share links matched: {links_matched}")
         self.stdout.write(f"Configured git-automation secrets matched: {secrets_matched}")
-        return links_matched, secrets_matched
+        self.stdout.write(f"Active outgoing webhooks matched: {webhooks_matched}")
+        return links_matched, secrets_matched, webhooks_matched
 
     def _confirm(self, options: dict[str, Any], total: int) -> None:
         if options["yes"]:
@@ -161,12 +165,12 @@ class Command(BaseCommand):
 
     def _commit_revocation(
         self, doomed: list[Any], options: dict[str, Any]
-    ) -> tuple[int, int, int]:
+    ) -> tuple[int, int, int, int]:
         """Revoke `doomed`, audit each one, and (under ``--all``) sweep durable grants.
 
         Returns (tokens revoked, share links revoked, git-automation secrets
-        cleared) — all in one transaction so the sweep and its audit trail commit
-        together.
+        cleared, outgoing webhooks deactivated) — all in one transaction so the
+        sweep and its audit trail commit together.
         """
         from trueppm_api.apps.projects.models import (
             ApiToken,
@@ -197,21 +201,23 @@ class Command(BaseCommand):
                     for token in doomed
                 ]
             )
-            links_revoked = secrets_cleared = 0
+            links_revoked = secrets_cleared = webhooks_deactivated = 0
             if options["all"]:
                 from trueppm_api.apps.access.services import revoke_personal_durable_grants
 
-                links_revoked, secrets_cleared = revoke_personal_durable_grants(actor=None)
-        return revoked, links_revoked, secrets_cleared
+                links_revoked, secrets_cleared, webhooks_deactivated = (
+                    revoke_personal_durable_grants(actor=None)
+                )
+        return revoked, links_revoked, secrets_cleared, webhooks_deactivated
 
     def handle(self, *args: Any, **options: Any) -> None:
         target_user = self._resolve_target_user(options)
         queryset, scope_label = self._resolve_scope(options, target_user)
         doomed = list(queryset.only("pk", "token_prefix", "name", "owner", "project", "program"))
         self._report_matched_tokens(doomed, scope_label)
-        links_matched, secrets_matched = self._count_durable_grants(options)
+        links_matched, secrets_matched, webhooks_matched = self._count_durable_grants(options)
 
-        if not doomed and not links_matched and not secrets_matched:
+        if not doomed and not links_matched and not secrets_matched and not webhooks_matched:
             self.stdout.write(self.style.SUCCESS("Nothing to revoke."))
             return
 
@@ -221,15 +227,18 @@ class Command(BaseCommand):
             )
             return
 
-        self._confirm(options, len(doomed) + links_matched + secrets_matched)
-        revoked, links_revoked, secrets_cleared = self._commit_revocation(doomed, options)
+        self._confirm(options, len(doomed) + links_matched + secrets_matched + webhooks_matched)
+        revoked, links_revoked, secrets_cleared, webhooks_deactivated = self._commit_revocation(
+            doomed, options
+        )
 
         self.stdout.write(self.style.SUCCESS(f"Revoked {revoked} token(s)."))
         if options["all"]:
             self.stdout.write(
                 self.style.SUCCESS(
                     f"Revoked {links_revoked} share link(s), cleared "
-                    f"{secrets_cleared} git-automation secret(s)."
+                    f"{secrets_cleared} git-automation secret(s), deactivated "
+                    f"{webhooks_deactivated} outgoing webhook(s)."
                 )
             )
         self.stdout.write(

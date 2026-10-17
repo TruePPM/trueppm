@@ -35,6 +35,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.access.permissions import (
+    IsNotTokenAuthenticated,
     IsProgramAdmin,
     IsProgramMember,
     IsProgramNotClosed,
@@ -169,7 +170,21 @@ class WebhookViewSet(
         if self.action == "deliveries":
             # A read. Archived projects stay readable, so no lifecycle gate here.
             return [IsAuthenticated(), IsProjectAdmin()]
-        if self.action in ("create", "update", "partial_update", "destroy", "test_ping"):
+        if self.action in ("create", "update", "partial_update"):
+            # IsNotTokenAuthenticated (#4461): create mints a durable HMAC signing
+            # secret, and update can repoint the delivery URL or rotate that secret
+            # — both are the same "a leaked PAT should not be able to extend itself
+            # with a new durable grant" shape #2939 already blocked for share links
+            # and git-automation secrets. destroy/test_ping stay token-reachable:
+            # deleting only shrinks what a leaked token can reach, and test_ping
+            # sends no new credential anywhere.
+            return [
+                IsAuthenticated(),
+                IsProjectAdmin(),
+                IsProjectNotArchived(),
+                IsNotTokenAuthenticated(),
+            ]
+        if self.action in ("destroy", "test_ping"):
             # IsProjectNotArchived fires in `has_permission` on these routes because the
             # URL names `project_pk` — the kwarg `_project_pk_from_view` reads (#3414).
             # `destroy` is gated like the rest since the archive bypass was scoped to
@@ -409,7 +424,15 @@ class ProgramWebhookViewSet(WebhookViewSet):
         # as program token revocation. `test_ping` and `deliveries` touch no program
         # state and stay available for diagnosing a still-live webhook.
         if self.action in ("create", "update", "partial_update"):
-            return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
+            # IsNotTokenAuthenticated (#4461): see WebhookViewSet.get_permissions —
+            # same durable-grant shape, mint/repoint/rotate only through a session
+            # or JWT.
+            return [
+                IsAuthenticated(),
+                IsProgramAdmin(),
+                IsProgramNotClosed(),
+                IsNotTokenAuthenticated(),
+            ]
         if self.action in ("destroy", "test_ping", "deliveries"):
             return [IsAuthenticated(), IsProgramAdmin()]
         return [IsAuthenticated(), IsProgramMember()]

@@ -6,15 +6,36 @@ covers the parallel ProgramWebhookViewSet at /api/v1/programs/<pk>/webhooks/.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, Role
-from trueppm_api.apps.projects.models import Program
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken, Program
 from trueppm_api.apps.webhooks.models import Webhook
 
 User = get_user_model()
+
+
+def _token_client(owner: object) -> APIClient:
+    """A session-less client bearing a live ``legacy:full`` personal token for
+    ``owner`` — mirrors ``test_webhooks.py``'s helper of the same name (#4461).
+    """
+    raw = f"{TOKEN_PREFIX}{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="leaked",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_LEGACY_FULL],
+    )
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return c
 
 
 @pytest.fixture
@@ -77,6 +98,25 @@ def test_program_member_cannot_create_webhook(member_client: APIClient, program:
         format="json",
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_program_admin_token_cannot_create_webhook(program: Program) -> None:
+    """Same durable-grant rule as the project-scoped viewset (#4461) — a leaked
+    PAT belonging to a Program Admin must not be able to mint an outgoing
+    webhook's signing secret.
+    """
+    admin = User.objects.create_user(username="prog_admin_token", password="pw")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.ADMIN)
+
+    resp = _token_client(admin).post(
+        _url(program),
+        {"url": "https://example.com/h", "secret": "s" * 32, "events": ["task.created"]},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.data
+    assert Webhook.objects.filter(program=program).count() == 0
+    assert _token_client(admin).get(_url(program)).status_code == 200
 
 
 @pytest.mark.django_db

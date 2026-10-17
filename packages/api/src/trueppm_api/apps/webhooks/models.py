@@ -140,9 +140,10 @@ class Webhook(models.Model):
     #
     # ``consecutive_failures`` counts *terminal* failures (a delivery that will
     # never be attempted again), not individual attempts, and resets to 0 on the
-    # next success. ``disabled_at``/``disabled_reason`` are set only by the
-    # automatic guard, never by a human PATCH, so the UI can distinguish "an admin
-    # paused this" from "TruePPM gave up on this".
+    # next success. ``disabled_at``/``disabled_reason`` are set by the automatic
+    # guard OR by ``revoke_personal_durable_grants`` (#4461) — never by a human
+    # PATCH — so the UI can distinguish "an admin paused this" from "TruePPM gave
+    # up on this" from "the registrant's credentials were revoked".
     consecutive_failures = models.PositiveIntegerField(
         default=0,
         help_text="Terminal delivery failures since the last success. Resets to 0 "
@@ -153,8 +154,10 @@ class Webhook(models.Model):
     disabled_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When the automatic failure guard deactivated this subscription. "
-        "Null when it is active, or when an admin deactivated it by hand.",
+        help_text="When the automatic failure guard, or a credential-revocation "
+        "sweep (password reset, off-boarding, or revoke_api_tokens --all), "
+        "deactivated this subscription. Null when it is active, or when an "
+        "admin deactivated it by hand.",
     )
     disabled_reason = models.CharField(max_length=255, blank=True, default="")
     # Per-subscription monotonic counter for outgoing deliveries (#664). Lives on

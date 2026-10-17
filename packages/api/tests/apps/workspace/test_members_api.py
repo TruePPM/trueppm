@@ -551,6 +551,53 @@ def test_deactivate_revokes_share_links_and_git_automation_secret_the_member_min
 
 
 @pytest.mark.django_db
+def test_deactivate_revokes_webhooks_the_member_registered(
+    superadmin: object, member: object
+) -> None:
+    """#4461: an outgoing webhook is exactly as durable as a PAT, and must go with
+    the rest of a departing member's credentials — but a co-admin's own webhook on
+    the same project must survive. Dispatch's own Admin+ membership re-check
+    (#4325/#4330) would already stop deliveries here; this sweep is the explicit,
+    observable deactivation an admin can see on the webhook itself.
+    """
+    from trueppm_api.apps.webhooks.models import Webhook
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(name="P", start_date=date(2026, 1, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=project, user=member, role=Role.ADMIN)
+
+    coadmin = User.objects.create_user(username="coadmin_offboard_wh", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    member_webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook-member",
+        secret="member-secret-123456789012345678",
+        events=["task.created"],
+        created_by=member,
+    )
+    coadmin_webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook-coadmin2",
+        secret="coadmin2-secret-12345678901234567",
+        events=["task.created"],
+        created_by=coadmin,
+    )
+
+    resp = _client(superadmin).patch(
+        _detail(member), {"status": MemberStatus.DEACTIVATED}, format="json"
+    )
+    assert resp.status_code == 200
+
+    member_webhook.refresh_from_db()
+    coadmin_webhook.refresh_from_db()
+    assert member_webhook.is_active is False
+    assert member_webhook.disabled_at is not None
+    assert coadmin_webhook.is_active is True
+    assert coadmin_webhook.disabled_at is None
+
+
+@pytest.mark.django_db
 def test_delete_revokes_personal_access_tokens_and_refresh_tokens(
     superadmin: object, member: object
 ) -> None:

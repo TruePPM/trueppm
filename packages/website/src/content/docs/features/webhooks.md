@@ -328,11 +328,25 @@ Each webhook reports its own delivery health:
 |---|---|
 | `consecutive_failures` | Terminal failures since the last success. Any success resets it to `0`. |
 | `last_failure_at`, `last_failure_reason` | When the most recent terminal failure happened, and why. |
-| `disabled_at`, `disabled_reason` | Set **only** when the automatic guard deactivated the subscription. A webhook an admin paused by hand has `disabled_at: null`. |
+| `disabled_at`, `disabled_reason` | Set when the automatic guard deactivated the subscription, **or** when the registrant's credentials were revoked (see [Containment](#containment) below). A webhook an admin paused by hand has `disabled_at: null`. |
 
 All five are read-only. To resume deliveries, fix the receiver and re-enable the
 webhook — `PATCH {"is_active": true}` clears the failure record in the same write,
 so the guard starts counting again from zero.
+
+### Containment
+
+A webhook is also deactivated — not deleted — when its registrant's credentials are
+contained: a password reset, an admin off-boarding that registrant, or an operator's
+[`revoke_api_tokens --all`](/administration/management-commands/#maintenance-commands)
+sweep. This closes the gap where a leaked personal access token, or a hijacked
+session, belonging to a registrant who is **still an active Admin** could keep a
+webhook delivering every subscribed event after the documented compromise-response
+steps ran — dispatch's own membership re-check (above) only catches a registrant who
+has actually lost Admin+ access, not one whose credentials were merely stolen. See
+[Revoking a token](/features/personal-access-tokens/#revoking-a-token) for the full
+containment picture. Re-enable the webhook with `PATCH {"is_active": true}` once the
+credential issue is resolved, exactly as after an automatic deactivation.
 
 For operators: a terminally failed delivery is also recorded in the
 [dead-letter queue](/administration/dead-letter-alerting/), which is where alerting
@@ -393,3 +407,10 @@ Viewer following the first row of this table can list webhooks but receives `403
 from the `deliveries` endpoint.
 
 The same roles apply at each scope: project Viewer/Admin for project-scoped webhooks, program Viewer/Admin for program-scoped ones.
+
+**Create and update require a session or JWT — a personal access token is refused**,
+even an Admin's. Minting a webhook's signing secret, or repointing its delivery URL
+or rotating that secret via update, is a durable grant a leaked token must not be
+able to extend itself with — the same rule applied to minting a public share link or
+rotating a git-automation secret. List, read, delete, and test-ping remain reachable
+with a token.

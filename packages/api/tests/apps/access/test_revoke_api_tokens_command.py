@@ -32,6 +32,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     ShareLink,
 )
+from trueppm_api.apps.webhooks.models import Webhook
 
 User = get_user_model()
 
@@ -176,9 +177,9 @@ def test_all_includes_integration_tokens(alice: Any, project: Project) -> None:
 def test_all_sweeps_share_links_and_git_automation_secrets_instance_wide(
     alice: Any, project: Project
 ) -> None:
-    """#2939: the full-compromise lever must also reach the two non-token durable
-    grants a leaked token or compromised session can mint — instance-wide, not
-    scoped to one account, matching every other effect of ``--all``.
+    """#2939/#4461: the full-compromise lever must also reach the three non-token
+    durable grants a leaked token or compromised session can mint — instance-wide,
+    not scoped to one account, matching every other effect of ``--all``.
     """
     link = ShareLink.objects.create(
         project=project,
@@ -189,16 +190,30 @@ def test_all_sweeps_share_links_and_git_automation_secrets_instance_wide(
     automation = BoardAutomation(project=project, enabled=True, configured_by=alice)
     automation.set_secret("s3cr3t-webhook-token")
     automation.save()
+    webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook",
+        secret="w3bhook-secret-1234567890123456789",
+        events=["task.created"],
+        created_by=alice,
+    )
 
     output = _run("--all", "--commit", "--yes")
 
     assert "Active share links matched: 1" in output
     assert "Configured git-automation secrets matched: 1" in output
-    assert "Revoked 1 share link(s), cleared 1 git-automation secret(s)." in output
+    assert "Active outgoing webhooks matched: 1" in output
+    assert (
+        "Revoked 1 share link(s), cleared 1 git-automation secret(s), "
+        "deactivated 1 outgoing webhook(s)." in output
+    )
     link.refresh_from_db()
     automation.refresh_from_db()
+    webhook.refresh_from_db()
     assert link.revoked_at is not None
     assert automation.has_secret is False
+    assert webhook.is_active is False
+    assert webhook.disabled_at is not None
 
 
 @pytest.mark.django_db
@@ -206,7 +221,10 @@ def test_all_personal_and_user_scope_leave_share_links_and_secrets_alone(
     alice: Any, project: Project
 ) -> None:
     """Only ``--all`` is the full-compromise lever; ``--user``/``--all-personal``
-    stay scoped to tokens, matching their own documented, narrower scope.
+    stay scoped to tokens, matching their own documented, narrower scope. This
+    must hold for webhooks (#4461) exactly as it already does for share links and
+    git-automation secrets (#2939) — a scoped revoke is not a "the registrant's
+    credentials were compromised" signal the way ``--all`` is.
     """
     link = ShareLink.objects.create(
         project=project,
@@ -217,14 +235,24 @@ def test_all_personal_and_user_scope_leave_share_links_and_secrets_alone(
     automation = BoardAutomation(project=project, enabled=True, configured_by=alice)
     automation.set_secret("s3cr3t-webhook-token")
     automation.save()
+    webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook2",
+        secret="w3bhook-secret-9876543210987654321",
+        events=["task.created"],
+        created_by=alice,
+    )
 
     _run("--all-personal", "--commit", "--yes")
     _run("--user", "alice", "--commit", "--yes")
 
     link.refresh_from_db()
     automation.refresh_from_db()
+    webhook.refresh_from_db()
     assert link.revoked_at is None
     assert automation.has_secret is True
+    assert webhook.is_active is True
+    assert webhook.disabled_at is None
 
 
 @pytest.mark.django_db

@@ -127,12 +127,15 @@ password reset, or by off-boarding. Treat revocation as cutting off the credenti
 then check what that credential did while it was live — your
 [token history](#your-token-history) is the starting point.
 
-A project admin's token can no longer rotate a git-automation webhook secret or mint
-a public share link — those routes now refuse token callers the same way token
-management itself does. A grant either was minted before that changed, and off-boarding
-or the operator's `revoke_api_tokens --all` sweep (see
+A project admin's token can no longer rotate a git-automation webhook secret, mint
+a public share link, or register/repoint an outgoing webhook — those routes now
+refuse token callers the same way token management itself does. A grant either was
+minted before that changed, and a password reset, off-boarding, or the operator's
+`revoke_api_tokens --all` sweep (see
 [Rotating credentials after a suspected leak](/administration/security/#separating-the-jwt-signing-key-and-forcing-a-global-sign-out))
-now revokes it too.
+now revokes it too — an outgoing webhook is deactivated rather than deleted, so an
+admin can confirm what happened and re-enable it once the credential issue is
+resolved.
 
 ## A password change revokes every PAT
 

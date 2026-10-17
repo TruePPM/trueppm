@@ -2200,13 +2200,16 @@ class IsNotTokenAuthenticated(BasePermission):
     ``default_role``, and one SSO login at the widened domain then produces a real
     ADMIN session that revoking the token does not touch.
 
-    Since #2939, it also covers the two other routes that mint a durable grant of
-    some kind: ``GitAutomationRotateSecretView`` (rotates a project's git-automation
+    Since #2939, it also covers two other routes that mint a durable grant of some
+    kind: ``GitAutomationRotateSecretView`` (rotates a project's git-automation
     webhook secret) and the POST branch of ``ProjectShareLinkListCreateView`` (mints
-    a public share link). Both grants are also now swept by off-boarding and by
-    ``revoke_api_tokens --all`` (``revoke_personal_durable_grants``), closing the
-    gap where a leaked PAT belonging to a project Admin could mint one and outlive
-    every revocation lever.
+    a public share link). Since #4461, it also covers ``create``/``update``/
+    ``partial_update`` on ``WebhookViewSet``/``ProgramWebhookViewSet`` (mints an
+    outgoing webhook's signing secret, or repoints its delivery URL / rotates that
+    secret). All three grants are also now swept by password reset, off-boarding,
+    and ``revoke_api_tokens --all`` (``revoke_personal_durable_grants``), closing
+    the gap where a leaked PAT belonging to a project Admin could mint one and
+    outlive every revocation lever.
 
     Since #4462, it also covers ``WebSocketTicketView`` (``POST /ws/ticket/``). A
     minted ticket opens a live socket that the consumer authenticates exactly once,

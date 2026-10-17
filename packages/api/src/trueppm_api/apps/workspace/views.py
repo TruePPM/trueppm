@@ -506,9 +506,12 @@ def _revoke_offboarded_credentials(target: Any, *, actor: Any = None) -> None:
     path (``core/password_reset.py``), which revokes for the same reason.
 
     Scope: personal (``owner=target``) tokens and refresh tokens only, plus the
-    non-token durable grants ``target`` personally minted — their share links and
-    any git-automation webhook secret they configured (#2939;
-    ``revoke_personal_durable_grants``). ``revoke_all_personal_access_tokens``
+    non-token durable grants ``target`` personally minted — their share links,
+    any git-automation webhook secret they configured, and (#4461) any outgoing
+    webhook they registered (#2939; ``revoke_personal_durable_grants``). The
+    webhook sweep is belt-and-suspenders here: dispatch already stops delivering
+    to an off-boarded registrant because it re-checks live Admin+ membership on
+    every event (#4325/#4330). ``revoke_all_personal_access_tokens``
     deliberately leaves project- and program-scoped *tokens* alone — those are org
     assets minted *by* the departing member for a team's integration, not their
     personal credentials, and killing them would break a team's CI on an

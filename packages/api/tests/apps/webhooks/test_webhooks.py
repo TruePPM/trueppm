@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import urllib.error
 import urllib.request
+import uuid
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,8 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL, ApiToken, Calendar, Project
 from trueppm_api.apps.webhooks.models import (
     DeliveryStatus,
     Webhook,
@@ -42,6 +44,25 @@ def calendar(db: object) -> Calendar:
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
     return Project.objects.create(name="WHProject", start_date=date(2026, 3, 1), calendar=calendar)
+
+
+def _token_client(owner: object) -> APIClient:
+    """A session-less client bearing a live ``legacy:full`` personal token for
+    ``owner`` — the "leaked PAT belonging to a project Admin" shape #2939/#4461
+    close. Mirrors ``test_share_links.py``'s helper of the same name.
+    """
+    raw = f"{TOKEN_PREFIX}{uuid.uuid4().hex}{uuid.uuid4().hex}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="leaked",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_LEGACY_FULL],
+    )
+    c = APIClient()
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return c
 
 
 @pytest.fixture
@@ -156,6 +177,48 @@ def test_create_webhook_as_admin(admin_client: APIClient, project: Project) -> N
     assert resp.data["url"] == "https://example.com/hook"
     # Secret is echoed exactly once on create so the caller can record it (#893).
     assert resp.data["secret"] == "a" * 40
+
+
+@pytest.mark.django_db
+def test_create_webhook_refuses_a_token_caller_even_when_admin(
+    user: object, project: Project
+) -> None:
+    """A leaked PAT must not be able to mint this durable HMAC-signing credential
+    (#4461) — the same PAT-manages-PAT rule #2878 applied to ``/me/api-tokens/``
+    and #2939 applied to share links and git-automation secrets.
+    """
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    resp = _token_client(user).post(
+        f"/api/v1/projects/{project.pk}/webhooks/",
+        {"url": "https://example.com/hook", "secret": "a" * 40, "events": ["task.created"]},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.data
+    assert Webhook.objects.filter(project=project).count() == 0
+    # Listing is unaffected: GET never carries the secret, so it is not the
+    # reconnaissance step the create echo would be.
+    assert _token_client(user).get(f"/api/v1/projects/{project.pk}/webhooks/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_update_webhook_refuses_a_token_caller_even_when_admin(
+    user: object, project: Project, webhook: Webhook
+) -> None:
+    """Same rule as create: a PATCH can repoint the delivery URL or rotate the
+    signing secret, either of which is a durable grant a leaked PAT should not be
+    able to extend itself with (#4461).
+    """
+    original_url = webhook.url
+    resp = _token_client(user).patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.data
+    webhook.refresh_from_db()
+    assert webhook.url == original_url
 
 
 @pytest.mark.django_db
