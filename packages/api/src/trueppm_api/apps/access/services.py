@@ -691,6 +691,20 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
     is still an active Admin. Deactivating the webhook here (rather than relying
     on the membership re-check) is what closes that case.
 
+    The webhook sweep matches ``created_by=user`` **or**
+    ``last_modified_by=user``, not ``created_by`` alone. A project webhook's
+    update has no registrant check — any project Admin may repoint any project
+    webhook's URL or rotate its secret (``WebhookViewSet.perform_update``) —
+    so a hijacked session belonging to Admin B could repoint Admin A's webhook
+    to an attacker's host, and B's own password reset or off-boarding would
+    never touch that row if the sweep only looked at who created it. This is
+    exactly the "grant minted through a live session by someone who is now
+    being contained" case two paragraphs up, for an update rather than a
+    create. Program webhooks stamp ``last_modified_by`` too, for symmetry, but
+    it is always equal to ``created_by`` there because ``ProgramWebhookViewSet``
+    already restricts update to the creator (ADR-0076/#4310) — so this clause
+    adds real coverage only on the project-scoped path.
+
     ``user=None`` means instance-wide — every active grant, not one person's —
     which is what the ``revoke_api_tokens --all`` full-compromise lever needs;
     a scoped ``user`` is the off-boarding / single-account case.
@@ -731,7 +745,9 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
 
     webhooks_qs = Webhook.objects.filter(is_active=True)
     if user is not None:
-        webhooks_qs = webhooks_qs.filter(created_by=user)
+        webhooks_qs = webhooks_qs.filter(
+            models.Q(created_by=user) | models.Q(last_modified_by=user)
+        )
     webhooks_deactivated = webhooks_qs.update(
         is_active=False,
         disabled_at=now,

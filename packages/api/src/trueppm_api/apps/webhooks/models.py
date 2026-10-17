@@ -173,6 +173,31 @@ class Webhook(models.Model):
         null=True,
         blank=True,
     )
+    # Who last changed `url` or `secret` via update (#4461). NOT who last touched
+    # the row generally — re-enabling, relabeling `events`, or flipping `format`
+    # does not stamp this, because those are not the durable-grant shape the
+    # credential-revocation sweep (`revoke_personal_durable_grants`) exists to
+    # contain. It matters because a project-scoped webhook's update has no
+    # registrant check (unlike the program-scoped viewset's creator-only rule,
+    # ADR-0076/#4310): any project Admin may repoint any project webhook's URL or
+    # rotate its secret. Without this field the sweep could only match
+    # `created_by`, so an attacker who hijacked Admin B's session and repointed
+    # Admin A's webhook to their own host would keep receiving deliveries after
+    # B's own password reset or off-boarding — B never touched `created_by`, A did.
+    # Set via `WebhookViewSet.perform_update`, which stamps it only when `url` or
+    # `secret` is actually in `serializer.validated_data` on that write. Program
+    # webhooks stamp it too, for symmetry, even though `ProgramWebhookViewSet`'s
+    # own `_can_edit` already restricts update to the creator — so it is always
+    # equal to `created_by` there and adds no additional sweep coverage.
+    last_modified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Who last changed this webhook's url or secret via update. Null "
+        "if neither has ever been changed since creation.",
+    )
 
     class Meta:
         indexes = [

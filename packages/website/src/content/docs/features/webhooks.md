@@ -336,17 +336,31 @@ so the guard starts counting again from zero.
 
 ### Containment
 
-A webhook is also deactivated — not deleted — when its registrant's credentials are
-contained: a password reset, an admin off-boarding that registrant, or an operator's
+A webhook is also deactivated — not deleted — when the credentials of whoever
+**registered it, or last changed its URL or secret**, are contained: a password
+reset, an admin off-boarding that account, or an operator's
 [`revoke_api_tokens --all`](/administration/management-commands/#maintenance-commands)
 sweep. This closes the gap where a leaked personal access token, or a hijacked
-session, belonging to a registrant who is **still an active Admin** could keep a
-webhook delivering every subscribed event after the documented compromise-response
-steps ran — dispatch's own membership re-check (above) only catches a registrant who
-has actually lost Admin+ access, not one whose credentials were merely stolen. See
-[Revoking a token](/features/personal-access-tokens/#revoking-a-token) for the full
-containment picture. Re-enable the webhook with `PATCH {"is_active": true}` once the
-credential issue is resolved, exactly as after an automatic deactivation.
+session, belonging to a project Admin who is **still active** could keep a webhook
+delivering every subscribed event — to wherever it currently points — after the
+documented compromise-response steps ran for that Admin. Two cases, both covered:
+
+- The registrant's own credentials are contained — dispatch's own membership
+  re-check (above) already catches a registrant who has actually lost Admin+
+  access; this sweep is what catches one whose credentials were merely stolen
+  while access was not.
+- **A different Admin's** credentials are contained after that Admin repointed
+  someone else's project webhook (any project Admin may edit any project
+  webhook — see [Permissions](#permissions)). The webhook is still swept, even
+  though its registrant is untouched, because the sweep matches whoever last
+  changed `url` or `secret`, not only who created the row. Program webhooks
+  cannot hit this case: only the registrant may edit a program webhook (see
+  [Permissions](#permissions)).
+
+See [Revoking a token](/features/personal-access-tokens/#revoking-a-token) for the
+full containment picture. Re-enable the webhook with `PATCH {"is_active": true}`
+once the credential issue is resolved, exactly as after an automatic
+deactivation.
 
 For operators: a terminally failed delivery is also recorded in the
 [dead-letter queue](/administration/dead-letter-alerting/), which is where alerting

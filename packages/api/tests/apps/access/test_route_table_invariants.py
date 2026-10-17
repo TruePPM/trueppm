@@ -422,18 +422,24 @@ def _token_reachable_write_routes() -> set[str]:
     **The exclusion used to be ``TokenReadOnlyMethods``, and that was wrong in a way
     worth recording, because it is the failure mode this whole file exists to catch.**
     That guard is contributed at *runtime* by ``McpReadableViewMixin.get_permissions``,
-    never listed in a class-level ``permission_classes``, so this static walker never
-    excluded a single view on account of it. Every unsafe route on the eight
-    MCP-wrapped viewsets (tasks, projects, risks, labels, sprints, programs,
-    backlog-items, board-config) was therefore pinned in the inventory as
+    never listed in a class-level ``permission_classes``, so a walker reading only the
+    static declaration never excluded a single view on account of it. Every unsafe
+    route on the eight MCP-wrapped viewsets (tasks, projects, risks, labels, sprints,
+    programs, backlog-items, board-config) was therefore pinned in the inventory as
     token-writable while it in fact 403'd — the inventory was *wrong in the safe
     direction*, and #2877 made it right without producing a diff. A tripwire that
     cannot see the thing it guards reports "no change" for a ~50-route widening.
 
-    ``IsNotTokenAuthenticated`` is declared statically on every view that carries it,
-    so this check is sound rather than accidentally sound. If a future guard is again
-    applied only through ``get_permissions``, this walker will not see it either — the
-    fix then is to name it here, not to trust the silence.
+    **#4461 hit the same blind spot from the other side.** ``WebhookViewSet``/
+    ``ProgramWebhookViewSet`` add ``IsNotTokenAuthenticated`` to ``create``/``update``/
+    ``partial_update`` only through a hand-rolled ``get_permissions`` — no class-level
+    ``permission_classes`` at all — so the two webhook routes stayed pinned as
+    token-writable (correctly, for ``destroy``) while the actual guard went unseen on
+    the methods it covers. This check now calls ``_effective_permission_names`` (the
+    same ``get_permissions()``-driven read ``test_action_permission_chain`` uses) per
+    unsafe ``(method, action)`` pair, instead of reading ``permission_classes`` once for
+    the whole class, so an action-scoped guard — present or absent — is seen instead of
+    trusted to have been declared statically.
     """
 
     routes: set[str] = set()
@@ -446,16 +452,18 @@ def _token_reachable_write_routes() -> set[str]:
         auth_names = {a.__name__ for a in getattr(cls, "authentication_classes", [])}
         if OwnerScopedApiTokenAuthentication.__name__ not in auth_names:
             continue
-        permission_names = {p.__name__ for p in getattr(cls, "permission_classes", [])}
-        if "IsNotTokenAuthenticated" in permission_names:
-            continue
 
-        actions = getattr(entry.callback, "actions", None)
-        if actions:
-            methods = {m.upper() for m in actions}
-        else:
-            methods = {m.upper() for m in getattr(cls, "http_method_names", []) if hasattr(cls, m)}
-        if methods & UNSAFE_METHODS:
+        pairs = _unsafe_pairs(entry, cls)
+        if not pairs:
+            continue
+        # Reachable if ANY unsafe (method, action) lacks IsNotTokenAuthenticated in
+        # what get_permissions() really returns for it — not what permission_classes
+        # declares, which a per-action override (like the webhook viewsets' above)
+        # makes an unsound read.
+        if any(
+            "IsNotTokenAuthenticated" not in _effective_permission_names(cls, action, method)
+            for method, action in pairs
+        ):
             routes.add(path)
     return routes
 

@@ -216,7 +216,17 @@ class WebhookViewSet(
         serializer.save(project=project, created_by=self.request.user)
 
     def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
-        serializer.save()
+        # Stamp last_modified_by only when this write actually changes `url` or
+        # `secret` (#4461) — the two fields that make an update as durable a grant
+        # as create. A project webhook's update has no registrant check (unlike
+        # the program-scoped viewset below), so any project Admin may repoint any
+        # project webhook's URL or rotate its secret; without this stamp,
+        # revoke_personal_durable_grants's sweep could only match `created_by`
+        # and would miss exactly that case. See Webhook.last_modified_by.
+        if {"url", "secret"} & set(serializer.validated_data):
+            serializer.save(last_modified_by=self.request.user)
+        else:
+            serializer.save()
 
     def _check_delivery_log_access(self, webhook: Webhook) -> None:
         """Hook for scope-specific delivery-log access. No extra gate at project scope."""

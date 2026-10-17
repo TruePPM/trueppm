@@ -222,6 +222,91 @@ def test_update_webhook_refuses_a_token_caller_even_when_admin(
 
 
 @pytest.mark.django_db
+def test_update_stamps_last_modified_by_only_on_url_or_secret_change(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """A write that touches neither `url` nor `secret` must not stamp
+    `last_modified_by` (#4461) — only those two fields make an update as
+    durable a grant as create, and `revoke_personal_durable_grants` sweeps on
+    this field, so stamping it on an unrelated write (relabeling `events`,
+    toggling `is_active`) would widen who the sweep contains for no reason.
+    """
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"events": ["task.created", "task.updated"]},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    webhook.refresh_from_db()
+    assert webhook.last_modified_by_id is None
+
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"url": "https://example.com/repointed"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    webhook.refresh_from_db()
+    assert webhook.last_modified_by_id is not None
+
+
+@pytest.mark.django_db
+def test_repoint_by_a_different_admin_is_caught_by_that_admins_own_sweep(
+    project: Project, user: object
+) -> None:
+    """#4461 BLOCKER: a project webhook's update has no registrant check — any
+    project Admin may repoint any other project webhook's URL or rotate its
+    secret (documented in webhooks.md's Containment section). Before this
+    fix, the registrant (`created_by`) is who gets contained, not whoever
+    actually holds the hijacked session that repointed the webhook — so a
+    DIFFERENT admin's own password reset/off-boarding left the row untouched,
+    and only an instance-wide `--all` sweep ever caught it. The repointing
+    admin's own containment must catch it instead, because the sweep also
+    matches `last_modified_by`.
+
+    The registrant here (`user`) is never contained in this test — proving
+    the fix means the ADMIN WHO REPOINTED IT (not the creator) triggers
+    deactivation, which `created_by` alone could never do.
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin = User.objects.create_user(username="wh_coadmin", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+    )
+
+    coadmin_client = APIClient()
+    coadmin_client.force_authenticate(user=coadmin)
+    resp = coadmin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    wh.refresh_from_db()
+    assert wh.created_by_id == user.pk
+    assert wh.last_modified_by_id == coadmin.pk
+
+    # The repointing admin's own containment catches it — the fix. `user`
+    # (the registrant) is never touched by this call, so a pre-fix sweep
+    # that matched only `created_by` would have left `wh` active here.
+    revoke_personal_durable_grants(coadmin)
+    wh.refresh_from_db()
+    assert wh.is_active is False
+    assert wh.disabled_at is not None
+
+
+@pytest.mark.django_db
 def test_list_webhooks_as_viewer(
     viewer_client: APIClient, project: Project, webhook: Webhook
 ) -> None:
@@ -468,6 +553,36 @@ def test_dispatch_skips_inactive_webhook(project: Project, webhook: Webhook) -> 
     webhook.is_active = False
     webhook.save()
     from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    with patch.object(wh_tasks, "deliver_webhook") as mock_task:
+        mock_task.delay = MagicMock()
+        from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+        dispatch_webhooks(str(project.pk), "task.created", {"id": "t1"})
+
+        assert WebhookDelivery.objects.count() == 0
+        mock_task.delay.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_a_webhook_deactivated_by_the_durable_grants_sweep(
+    project: Project, webhook: Webhook
+) -> None:
+    """#4461 end-to-end: the containment sweep's effect on ``is_active`` is what
+    actually stops dispatch, not just a documented claim. Exercises
+    ``revoke_personal_durable_grants`` directly (the function every one of the
+    three compromise-response levers — password reset, off-boarding,
+    ``revoke_api_tokens --all`` — calls) rather than re-asserting the generic
+    ``is_active=False`` behavior ``test_dispatch_skips_inactive_webhook`` already
+    covers.
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    revoked = revoke_personal_durable_grants(webhook.created_by)
+    assert revoked == (0, 0, 1)
+    webhook.refresh_from_db()
+    assert webhook.is_active is False
 
     with patch.object(wh_tasks, "deliver_webhook") as mock_task:
         mock_task.delay = MagicMock()

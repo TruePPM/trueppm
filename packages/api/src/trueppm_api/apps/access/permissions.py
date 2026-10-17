@@ -2226,8 +2226,8 @@ class IsNotTokenAuthenticated(BasePermission):
     only record of it. Do not read the list as exhaustive either; ``tests/apps/access/
     token_write_surface.txt`` is the inventory and this docstring is not a second copy
     of it. So "revoke the token and you are contained" is true for the credential,
-    sign-in-configuration, share-link and git-automation surfaces and is not a
-    whole-system property — say the narrower thing in operator docs.
+    sign-in-configuration, share-link, git-automation, and outgoing-webhook surfaces
+    and is not a whole-system property — say the narrower thing in operator docs.
 
     **The predicate is ``request.auth``, and that is only sound because it runs as a
     permission.** An identity refusal is raised by the *authenticator*, so on that
