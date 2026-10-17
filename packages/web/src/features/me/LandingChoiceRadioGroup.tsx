@@ -14,7 +14,10 @@
  *     wrapping around, skipping disabled options (rule 167 / WCAG 2.1.1).
  *   - Arrow keys call `.focus()` only — activation (click/Enter/Space) commits.
  *   - Each button is `min-h-[44px]` per rule 5 / WCAG 2.5.5.
- *   - Portfolio gated card: rule-122 disabled recipe; no `title` tooltip (rule 121).
+ *   - An `enterprise: true` option (Portfolio) is OMITTED entirely in the community
+ *     edition — never rendered disabled/badged. This is a personal-settings surface,
+ *     not a governance seam, so rule 231(c)'s empty-slot treatment applies, not
+ *     rule 122's disabled-stub recipe (#4477).
  *   - Filled/hollow glyph ensures selection is never color-only (rule 4 / WCAG 1.4.1).
  *
  * Auto option:
@@ -28,13 +31,12 @@
 import { useRef, useState, useEffect, type KeyboardEvent, type ReactNode } from 'react';
 import type { DefaultLanding } from '@/hooks/useCurrentUser';
 import { useEdition } from '@/hooks/useEdition';
-import { EnterpriseBadge } from '@/features/settings/components/EnterpriseBadge';
 
 export interface LandingChoiceOption {
   value: DefaultLanding;
   label: string;
   description: string;
-  /** Enterprise-reserved — gated in the community edition. */
+  /** Enterprise-reserved — omitted entirely in the community edition (#4477). */
   enterprise?: boolean;
 }
 
@@ -78,7 +80,7 @@ function RadioGlyph({ checked }: { checked: boolean }) {
 }
 
 export function LandingChoiceRadioGroup({
-  options,
+  options: allOptions,
   value,
   onChange,
   label,
@@ -86,6 +88,12 @@ export function LandingChoiceRadioGroup({
   autoOption,
 }: Props) {
   const { edition } = useEdition();
+
+  // An Enterprise-reserved option has no reachable control in the community
+  // edition. `/me` is a personal-settings surface, not a governance seam
+  // (rule 231), so the empty-slot treatment applies: omit the option entirely
+  // rather than rendering it disabled with an EnterpriseBadge (#4477).
+  const options = allOptions.filter((opt) => !(opt.enterprise === true && edition === 'community'));
 
   // Total navigable items = options + (1 if autoOption present)
   const totalCount = options.length + (autoOption ? 1 : 0);
@@ -143,9 +151,7 @@ export function LandingChoiceRadioGroup({
     >
       {options.map((opt, i) => {
         const checked = value === opt.value;
-        // Portfolio is unreachable in the community edition — gate it.
-        const gated = opt.enterprise === true && edition === 'community';
-        const isDisabled = disabled === true || gated;
+        const isDisabled = disabled === true;
         return (
           <button
             key={opt.value}
@@ -173,7 +179,6 @@ export function LandingChoiceRadioGroup({
             <span className="flex flex-col gap-0.5">
               <span className="flex items-center text-sm font-medium text-neutral-text-primary">
                 {opt.label}
-                {gated && <EnterpriseBadge />}
               </span>
               <span className="text-xs text-neutral-text-secondary">{opt.description}</span>
             </span>

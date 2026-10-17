@@ -10,15 +10,24 @@
  *   - Wrapping: ArrowDown on the last option moves to the first.
  *   - Disabled options are skipped during arrow navigation.
  *   - Clicking an option calls onChange (commit on click, not on arrow).
- *   - Gated (enterprise) option is disabled in the community edition.
+ *   - An `enterprise: true` option (Portfolio) is OMITTED entirely in the
+ *     community edition — never rendered disabled/badged (rule 231(c), #4477).
+ *   - The same option renders normally (enabled, no badge) in the enterprise
+ *     edition.
  */
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LandingChoiceRadioGroup, type LandingChoiceOption } from './LandingChoiceRadioGroup';
 
+let mockEdition: 'community' | 'enterprise' = 'community';
 vi.mock('@/hooks/useEdition', () => ({
-  useEdition: () => ({ edition: 'community', isLoading: false }),
+  useEdition: () => ({ edition: mockEdition, isLoading: false }),
 }));
+
+// Default to community for every test unless a test opts into enterprise.
+beforeEach(() => {
+  mockEdition = 'community';
+});
 
 const OPTIONS: LandingChoiceOption[] = [
   { value: 'my_work', label: 'My Work', description: 'Your cross-project task list.' },
@@ -52,11 +61,15 @@ function renderGroup(
 }
 
 describe('LandingChoiceRadioGroup — rendering', () => {
-  it('renders all concrete options as radio buttons', () => {
+  it('renders the non-enterprise options as radio buttons, omitting Portfolio in community', () => {
     renderGroup();
     expect(screen.getByRole('radio', { name: /My Work/i })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /A project's Overview/i })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Portfolio/i })).toBeInTheDocument();
+    // Portfolio has no reachable control in community — omitted entirely, not
+    // rendered disabled/badged (rule 231(c), #4477).
+    expect(screen.queryByRole('radio', { name: /Portfolio/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Enterprise')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('radio')).toHaveLength(2);
   });
 
   it('marks the selected option aria-checked=true and others false', () => {
@@ -71,12 +84,17 @@ describe('LandingChoiceRadioGroup — rendering', () => {
     );
   });
 
-  it('disables the Portfolio option in the community edition (enterprise gate)', () => {
+  it('renders Portfolio enabled with no badge in the enterprise edition', () => {
+    mockEdition = 'enterprise';
     renderGroup();
-    expect(screen.getByRole('radio', { name: /Portfolio/i })).toBeDisabled();
+    const portfolio = screen.getByRole('radio', { name: /Portfolio/i });
+    expect(portfolio).not.toBeDisabled();
+    expect(screen.queryByText('Enterprise')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('radio')).toHaveLength(3);
   });
 
   it('renders the autoOption inside the same radiogroup when provided', () => {
+    mockEdition = 'enterprise';
     renderGroup('my_work', vi.fn(), {
       autoOption: {
         checked: false,
@@ -166,17 +184,38 @@ describe('LandingChoiceRadioGroup — roving tabindex (rule 167 / WCAG 2.1.1)', 
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('ArrowDown wraps from last to first (skipping disabled Portfolio)', () => {
+  it('ArrowDown wraps from last to first (Portfolio omitted in community, so it is never a stop)', () => {
     const onChange = vi.fn();
-    // Start with project_overview selected (index 1); pressing Down skips
-    // disabled Portfolio (index 2) and wraps to My Work (index 0).
+    // Start with project_overview selected (index 1, the last rendered option
+    // in community since Portfolio is omitted entirely); pressing Down wraps
+    // straight to My Work (index 0).
     renderGroup('project_overview', onChange);
     const group = screen.getByRole('radiogroup');
 
     fireEvent.keyDown(group, { key: 'ArrowDown' });
-    // Portfolio is disabled, so it should be skipped and focus wraps to My Work.
     expect(screen.getByRole('radio', { name: /My Work/i })).toHaveAttribute('tabIndex', '0');
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a disabled autoOption is still skipped during arrow nav (per-item disable survives the Portfolio fix)', () => {
+    const onChange = vi.fn();
+    const onAutoClick = vi.fn();
+    // project_overview is the last concrete option in community (index 1);
+    // ArrowDown would normally land on Auto (index 2), but it is individually
+    // disabled here, so it must be skipped, wrapping to My Work (index 0).
+    renderGroup('project_overview', onChange, {
+      autoOption: {
+        checked: false,
+        helperText: 'Picks the best screen.',
+        onClick: onAutoClick,
+        disabled: true,
+      },
+    });
+    const group = screen.getByRole('radiogroup');
+    fireEvent.keyDown(group, { key: 'ArrowDown' });
+    expect(screen.getByRole('radio', { name: /My Work/i })).toHaveAttribute('tabIndex', '0');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onAutoClick).not.toHaveBeenCalled();
   });
 
   it('clicking an option calls onChange (commit on activation, not arrow)', () => {
@@ -198,9 +237,10 @@ describe('LandingChoiceRadioGroup — roving tabindex (rule 167 / WCAG 2.1.1)', 
     });
     const group = screen.getByRole('radiogroup');
 
-    // Start at project_overview (index 1), press Down twice to reach Auto (index 3,
-    // after skipping Portfolio at index 2 which is disabled).
-    fireEvent.keyDown(group, { key: 'ArrowDown' }); // skips Portfolio, lands on Auto
+    // Start at project_overview (index 1, the last concrete option in community
+    // since Portfolio is omitted entirely); pressing Down moves straight to Auto
+    // (index 2).
+    fireEvent.keyDown(group, { key: 'ArrowDown' });
     expect(screen.getByRole('radio', { name: /Auto \(recommended\)/i })).toHaveAttribute(
       'tabIndex',
       '0',
