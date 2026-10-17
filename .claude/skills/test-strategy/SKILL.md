@@ -80,6 +80,15 @@ The scheduling engine requires mathematical correctness tests:
 - Mobile: none yet — WatermelonDB lands with #41, the runner with #1599
 - Scheduler: JSON fixtures for known-answer CPM/MC test cases stored in tests/fixtures/
 
+## Before reporting a coverage gap, prove the test is absent
+
+A "no test covers X" finding is a claim about the whole test tree. Before reporting one:
+- Grep every test location for the component, hook, endpoint path and user-visible strings: `packages/api/tests`, the co-located `*.test.ts(x)`, and `packages/web/e2e/`.
+- Search by behavior as well as by name.
+- Quote the search you ran in the finding.
+
+An endpoint with backend tests and no web consumer is not uncovered. In an API-first codebase it may be consumed by MCP or integrators. Check `packages/mcp` and the changelog's claims before calling a missing UI caller a gap.
+
 ## Coverage Requirements
 - Overall: ≥80%
 - Scheduler engine: ≥95% (this is the core IP)

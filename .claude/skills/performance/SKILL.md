@@ -31,6 +31,9 @@ description: >
 - **Gantt virtualization**: Only render visible task bars. Off-screen rows are virtual.
 - **WebSocket fan-out**: Redis pub/sub, not per-connection database queries.
 - **Mobile sync overload**: Delta sync with server_version, not full refresh.
+- **Engine work in the request path**: for every synchronous call into the scheduling engine (CPM, Monte Carlo, what-if, derivation) inside a view, find the process it runs in and that process's memory limit and worker count. A per-user throttle does not bound *concurrent* calls across users. If the ASGI process also serves WebSockets, one OOM drops every live socket on the pod. Measure the per-call peak at the documented caps, then check that a per-process concurrency bound (semaphore or cell cap) or an off-request path (Celery) keeps N concurrent calls under the limit.
+- **Buffers bounded by count, not bytes**: a replay, outbox, or fan-out buffer capped at N rows is unbounded in memory if one row can be large (a CPM delta can be ~130 KB). For each cap, multiply it by the worst-case payload size and compare the result to the process limit.
+- **Shared datastore pressure**: if one Valkey/Redis instance is the Celery broker, the cache, and the channel layer, check its `maxmemory` policy. Under `noeviction`, a real-time fan-out spike fails broker enqueues too, so a broadcast burst becomes a background-job outage.
 
 ## Profiling Tools
 - Python: cProfile + snakeviz, py-spy for production

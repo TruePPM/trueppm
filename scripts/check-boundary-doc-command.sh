@@ -177,7 +177,7 @@ it is intact. It was replaced by an import-syntax gate in #2603.
 
 Use instead:
 
-  make enterprise-boundary-check   # OK: no trueppm-enterprise imports in packages
+  make enterprise-boundary-check   # OK: no trueppm-enterprise imports or dependency entries in packages.
 
 (CI runs the same check as `boundary:imports`; it is also part of `make pre-push`.)
 

@@ -242,7 +242,7 @@ These rules are **non-negotiable**:
 
 1. `trueppm-suite` code must NEVER import from `trueppm_enterprise`
    - Verify: `make enterprise-boundary-check` must print "OK: no trueppm-enterprise
-     imports in packages". A plain `grep -r "trueppm_enterprise" packages/` is NOT the
+     imports or dependency entries in packages." A plain `grep -r "trueppm_enterprise" packages/` is NOT the
      check — it returns 12 lines of legitimate prose (extension-point docstrings, ADR
      pointers) on a clean tree. The gate matches import syntax and quoted module paths
      and ignores comments (#2603).
@@ -250,6 +250,10 @@ These rules are **non-negotiable**:
 3. Extension points (settings, URL patterns, signal hooks) must remain stable;
    enterprise registers against them without OSS knowing
 4. The community edition must be **fully functional** without the enterprise package
+
+### Every Enterprise affordance in the OSS UI is checked against rule 231
+
+Enumerate **every** render site of `<EnterpriseBadge>`, plus padlock icons, disabled-with-tooltip controls, and "upgrade"/"available in Enterprise" strings across `packages/web/src`. Grep the whole tree; do not check only the surfaces a diff touched. Check each site against `packages/web/CLAUDE.md` rule 231: an Enterprise affordance may appear only where the user reaches for something inherently cross-program or org-governing, never as a disabled option in a personal or one-team setting. Also check each site against any recorded decision for that specific control (search memory and the tracker). A badge that a decision said should "render nothing" is a finding even if rule 231 could be read to allow it. Report the denominator: N sites, M compliant.
 
 ### Extension points must isolate transaction state, not just exceptions
 
