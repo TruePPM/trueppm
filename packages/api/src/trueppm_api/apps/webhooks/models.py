@@ -298,7 +298,8 @@ class Webhook(models.Model):
 
 
 class WebhookEditor(models.Model):
-    """Every user who has ever set a webhook's `url` or `secret` (#4461).
+    """Every user who has ever set a webhook's `url`/`secret`, or re-enabled it
+    while disabled (#4461).
 
     **Additive by design — never overwritten.** `revoke_personal_durable_grants`'s
     sweep must deactivate a webhook for every account whose credential compromise
@@ -325,6 +326,15 @@ class WebhookEditor(models.Model):
     The sweep matches `created_by=user OR user in webhook.editors` — both legs,
     because `created_by` is the registrant even if they never edited the row at
     all, and this table is editors, not registrants.
+
+    A row is also inserted when a user flips a disabled webhook's `is_active`
+    back to `True` (``WebhookViewSet.perform_update``), even with `url`/`secret`
+    untouched: a webhook that is disabled still carries whatever `url`/`secret`
+    it had, so re-enabling it restarts delivery to wherever it currently
+    points. A second hijacked session that does nothing but re-enable the row
+    must be recorded, or its own future containment would miss it despite
+    being the one that restarted the leak. *Disabling* is deliberately NOT
+    recorded — it only shrinks what is live, the opposite shape.
 
     Mirrors the shape of ``TaskLabel``/``CommentReaction`` (plain through model,
     UUID PK, ``unique(webhook, user)``) rather than a ``ManyToManyField`` so the

@@ -685,17 +685,21 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
     webhook secret, and any outgoing webhook the user registered.
 
     The webhook case is distinct from the other two: dispatch already stops for
-    an off-boarded registrant because it re-checks Admin+ membership on every
-    delivery (#4325/#4330). What that check cannot see is a *credential*
+    an off-boarded *registrant* because it re-checks Admin+ membership on every
+    delivery (#4325/#4330) — ``created_by`` only, never the editors set below.
+    What that membership re-check cannot see at all is a *credential*
     compromise — a leaked PAT or hijacked session belonging to a registrant who
-    is still an active Admin. Deactivating the webhook here (rather than relying
-    on the membership re-check) is what closes that case.
+    is still an active Admin — and it cannot see an editor who is not the
+    registrant in any case, compromised or not. Deactivating the webhook here
+    is belt-and-suspenders for the registrant's own credential compromise, and
+    the *only* control that reaches an editor who never registered the row.
 
     The webhook sweep matches ``created_by=user`` **or** ``user`` appearing in
     ``webhook.editors`` (:class:`~trueppm_api.apps.webhooks.models.WebhookEditor`,
     an additive, append-only record of every user who has ever set ``url`` or
-    ``secret`` on the row) — not ``created_by`` alone, and not a single mutable
-    "last modified by" field either. A project webhook's update has no
+    ``secret`` on the row, or re-enabled it while disabled) — not ``created_by``
+    alone, and not a single mutable "last modified by" field either. A project
+    webhook's update has no
     registrant check — any project Admin may repoint any project webhook's URL
     or rotate its secret (``WebhookViewSet.perform_update``) — so a hijacked
     session belonging to Admin B could repoint Admin A's webhook to an

@@ -225,11 +225,14 @@ def test_update_webhook_refuses_a_token_caller_even_when_admin(
 def test_update_records_an_editor_only_on_url_or_secret_change(
     admin_client: APIClient, project: Project, webhook: Webhook, user: object
 ) -> None:
-    """A write that touches neither `url` nor `secret` must not record an editor
-    row (#4461) — only those two fields make an update as durable a grant as
-    create, and `revoke_personal_durable_grants` sweeps on this set, so
-    recording it on an unrelated write (relabeling `events`, toggling
-    `is_active`) would widen who the sweep contains for no reason.
+    """A write that touches neither `url`/`secret` nor re-enables a disabled
+    webhook must not record an editor row (#4461) — those are the only
+    durable-grant-shaped writes, and `revoke_personal_durable_grants` sweeps
+    on this set, so recording it on an unrelated write (relabeling `events`
+    on an already-active webhook) would widen who the sweep contains for no
+    reason. The re-enable case is covered separately in
+    ``test_reenabling_a_disabled_webhook_records_an_editor`` and
+    ``test_disabling_a_webhook_does_not_record_an_editor``.
     """
     resp = admin_client.patch(
         f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
@@ -246,6 +249,76 @@ def test_update_records_an_editor_only_on_url_or_secret_change(
     )
     assert resp.status_code == 200, resp.data
     assert set(webhook.editors.values_list("user_id", flat=True)) == {user.pk}
+
+
+@pytest.mark.django_db
+def test_reenabling_a_disabled_webhook_records_an_editor(project: Project, user: object) -> None:
+    """Round-3 GAP: re-enabling is durable-grant-shaped on its own, even with
+    `url`/`secret` untouched. A webhook disabled by the containment sweep (or
+    the auto-disable guard) still carries whatever `url`/`secret` it had; a
+    SECOND hijacked session that does nothing but flip `is_active` back on
+    restarts delivery to wherever it currently points. That re-enabler must
+    be recorded, or their own future containment would miss the row even
+    though they are the one who restarted the leak.
+    """
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin = User.objects.create_user(username="wh_reenabler", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+        is_active=False,
+    )
+    assert not wh.editors.exists()
+
+    coadmin_client = APIClient()
+    coadmin_client.force_authenticate(user=coadmin)
+    resp = coadmin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"is_active": True},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert set(wh.editors.values_list("user_id", flat=True)) == {coadmin.pk}
+
+
+@pytest.mark.django_db
+def test_disabling_a_webhook_does_not_record_an_editor(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """Disabling is the opposite shape — it only shrinks what is live — so it
+    must not record an editor (#4461), unlike re-enabling.
+    """
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"is_active": False},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert not webhook.editors.exists()
+
+
+@pytest.mark.django_db
+def test_patch_is_active_true_on_an_already_active_webhook_does_not_record_an_editor(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """Re-submitting `is_active: true` on an already-active webhook is a no-op,
+    not a re-enable — it must not record an editor either.
+    """
+    assert webhook.is_active is True
+    resp = admin_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
+        {"is_active": True},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    assert not webhook.editors.exists()
 
 
 @pytest.mark.django_db

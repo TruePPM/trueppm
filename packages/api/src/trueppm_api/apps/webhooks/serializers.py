@@ -48,8 +48,12 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
     only by the delivery task or by ``revoke_personal_durable_grants`` (#4461) —
     never by a client PATCH — so a subscription an admin paused by hand is
     distinguishable from one TruePPM gave up on, which is distinguishable from one
-    deactivated because its registrant's credentials were revoked. PATCHing
-    ``is_active`` back to true clears the record.
+    a security sweep deactivated because a credential tied to it was revoked —
+    the registrant's own, **or** any other account's that ever set ``url``/
+    ``secret`` on it or re-enabled it while disabled (see ``WebhookEditor``).
+    PATCHing ``is_active`` back to true clears the record (and, on a
+    currently-inactive row, is itself recorded as an edit — see
+    ``WebhookViewSet.perform_update``).
     """
 
     events = serializers.ListField(

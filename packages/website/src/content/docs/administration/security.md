@@ -419,12 +419,18 @@ log tagged `operator_bulk_revoke`. See
 Two routine paths already revoke personal tokens on their own and need no manual
 step: a **password reset** and **deactivating or removing a member** each revoke
 that account's personal tokens in the same transaction, and both are audited.
-Both also revoke any board share link *that account personally minted*, clear
-any git-automation webhook secret *they configured*, and deactivate any
-outgoing webhook *they registered* — the project's other admins keep their
-own. A public share link also stops serving as soon as its creator's account
-is deactivated by any means (including outside the app, such as the Django
-admin or a script), even before a password reset or off-boarding runs.
+Both also revoke any board share link *that account personally minted* and clear
+any git-automation webhook secret *they configured* — the project's other admins
+keep their own. For outgoing webhooks the rule is wider: both deactivate any
+webhook that account **registered, or has ever set the URL or secret on** —
+not only webhooks they created. Any project Admin may edit any project webhook,
+so an admin's own containment must still reach a webhook someone else created
+if that admin ever repointed it or rotated its secret (or re-enabled it after
+it was disabled); the project's other admins, and webhooks that account never
+touched in either way, are unaffected. A public share link also stops serving
+as soon as its creator's account is deactivated by any means (including
+outside the app, such as the Django admin or a script), even before a password
+reset or off-boarding runs.
 Both also close any project WebSocket connection the account already has open,
 for every project it is a member of — a reset or deactivation would otherwise
 revoke every credential while an already-open socket kept streaming task,

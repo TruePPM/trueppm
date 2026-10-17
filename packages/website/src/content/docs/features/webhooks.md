@@ -328,7 +328,7 @@ Each webhook reports its own delivery health:
 |---|---|
 | `consecutive_failures` | Terminal failures since the last success. Any success resets it to `0`. |
 | `last_failure_at`, `last_failure_reason` | When the most recent terminal failure happened, and why. |
-| `disabled_at`, `disabled_reason` | Set when the automatic guard deactivated the subscription, **or** when the registrant's credentials were revoked (see [Containment](#containment) below). A webhook an admin paused by hand has `disabled_at: null`. |
+| `disabled_at`, `disabled_reason` | Set when the automatic guard deactivated the subscription, **or** when a security sweep revoked the credentials of its registrant, or of anyone who has ever set its URL or secret (see [Containment](#containment) below). A webhook an admin paused by hand has `disabled_at: null`. |
 
 All five are read-only. To resume deliveries, fix the receiver and re-enable the
 webhook — `PATCH {"is_active": true}` clears the failure record in the same write,
@@ -370,7 +370,11 @@ deactivation (the receiver was failing, not hostile), a credential-sweep
 deactivation can mean the stored `url` still points at an attacker's host: the
 sweep stops *delivery*, it does not revert the repoint. Re-check the delivery
 settings, rotate the secret, confirm with the team which admin should own the
-webhook going forward, and only then `PATCH {"is_active": true}`.
+webhook going forward, and only then `PATCH {"is_active": true}`. Re-enabling
+is itself tracked the same way a URL or secret change is: whoever flips a
+disabled webhook back on also becomes eligible for this sweep going forward,
+because re-enabling restarts delivery to wherever the webhook currently
+points, URL and secret untouched or not.
 
 For operators: a terminally failed delivery is also recorded in the
 [dead-letter queue](/administration/dead-letter-alerting/), which is where alerting

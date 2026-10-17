@@ -217,18 +217,36 @@ class WebhookViewSet(
         serializer.save(project=project, created_by=self.request.user)
 
     def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
-        # Record an editor only when this write actually changes `url` or
-        # `secret` (#4461) — the two fields that make an update as durable a
-        # grant as create. A project webhook's update has no registrant check
-        # (unlike the program-scoped viewset below), so any project Admin may
-        # repoint any project webhook's URL or rotate its secret; without this,
-        # revoke_personal_durable_grants's sweep could only match `created_by`
-        # and would miss exactly that case. An UPSERT (never an overwrite) —
-        # see WebhookEditor's docstring for why a mutable "last modified by"
-        # field cannot do this job.
+        """Record an editor when this write is durable-grant-shaped (#4461).
+
+        Two cases upsert into ``WebhookEditor`` — never an overwrite, and
+        nothing here ever removes a row once it exists:
+
+        - ``url`` or ``secret`` is actually present in ``validated_data``:
+          creating or repointing the durable grant itself. A project
+          webhook's update has no registrant check (unlike the
+          program-scoped viewset below), so any project Admin may repoint
+          any project webhook's URL or rotate its secret; without this,
+          ``revoke_personal_durable_grants``'s sweep could only match
+          ``created_by`` and would miss exactly that case.
+        - ``is_active`` is set to ``True`` on a currently-inactive row:
+          **re-enabling** is durable-grant-shaped on its own, even with
+          ``url``/``secret`` untouched. A disabled webhook (by this sweep,
+          or by the auto-disable guard) still carries whatever ``url``/
+          ``secret`` it had; a second hijacked session that does nothing
+          but flip it back on restarts delivery to wherever it currently
+          points, and that re-enabler must be recorded or their own future
+          containment would miss the row. *Disabling* is deliberately NOT
+          recorded — it only shrinks what is live, the opposite shape.
+        """
         changed_credential_fields = {"url", "secret"} & set(serializer.validated_data)
+        is_reenable = (
+            serializer.validated_data.get("is_active") is True
+            and serializer.instance is not None
+            and not serializer.instance.is_active
+        )
         serializer.save()
-        if changed_credential_fields:
+        if changed_credential_fields or is_reenable:
             from typing import cast
 
             from django.contrib.auth.models import User
