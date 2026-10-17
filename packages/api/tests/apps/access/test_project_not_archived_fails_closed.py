@@ -153,3 +153,34 @@ def test_task_scoped_models_with_a_project_id_property_still_resolve(
 
     view = APIView()
     assert IsProjectNotArchived().has_object_permission(_request("POST"), view, instance) is True
+
+
+@pytest.mark.django_db
+def test_comment_reaction_project_id_property_still_resolves() -> None:
+    """``CommentReaction`` is the same #3414 shape, one hop further: it has no
+    ``task``, only a ``comment`` — ``CommentReaction.project_id`` walks
+    ``comment.task.project_id``. Pinned here, not in the parametrize list above,
+    because building one needs a ``TaskComment`` first rather than a bare ``task``.
+
+    This is one of the ``_GET_OBJECT_AUDITED_CLASSES`` entries in
+    ``test_route_table_invariants.py`` (``CommentReactionViewSet.destroy`` has no
+    ``get_object`` override, so DRF's own default is what actually calls
+    ``has_object_permission`` with the row itself) — this test is the proof that
+    the model it is audited against really does resolve.
+    """
+    from trueppm_api.apps.projects.models import (
+        Calendar,
+        CommentReaction,
+        Project,
+        Task,
+        TaskComment,
+    )
+
+    calendar = Calendar.objects.create(name="Standard")
+    project = Project.objects.create(name="Live", start_date=date(2026, 3, 1), calendar=calendar)
+    task = Task.objects.create(project=project, name="T", duration=1)
+    comment = TaskComment(task=task)
+    reaction = CommentReaction(comment=comment)
+
+    view = APIView()
+    assert IsProjectNotArchived().has_object_permission(_request("POST"), view, reaction) is True
