@@ -39,7 +39,11 @@ from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from trueppm_api.apps.access.permissions import can_user_edit_task
-from trueppm_api.apps.projects.models import Task
+from trueppm_api.apps.projects.models import (
+    Task,
+    resync_structural_parent_after_delete,
+    structural_parent,
+)
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -422,10 +426,46 @@ def _apply_deleted_row(del_id: Any, ctx: _ApplyContext, result: BatchApplyResult
         return  # unknown, cross-project, or already gone — idempotent
     if not can_user_edit_task(ctx.request, target, method="DELETE"):
         raise PermissionDenied("You may not delete this task.")
+    parent = structural_parent(target)
     target.soft_delete()  # bumps server_version, sets deleted_version, cascades
     result.deleted.append({"id": str(target.pk), "server_version": target.server_version})
     result.events.append(("task_deleted", str(target.pk)))
     result.bump(target.sync_seq)
+    # Mirror the REST DELETE path's post-delete repair (#2950) so this path does
+    # not reach the #4371 lost-update class: without it, an accidental
+    # container that just lost its last child keeps its rolled-up duration and
+    # the next CPM write-back finds what looks like a still-has-children row
+    # and never fixes it (#4463). Resyncing per deleted row — rather than once
+    # per unique parent after the whole bucket — is still correct when a batch
+    # deletes several siblings under the same container: each call re-derives
+    # the parent's container-ness from the current DB state, so an
+    # intermediate no-op call (parent still has a live sibling) costs nothing
+    # and the call that removes the last live child is the one that fires.
+    resynced_parent = resync_structural_parent_after_delete(parent)
+    if resynced_parent is not None:
+        # Replace the batch's pre-fetch snapshot of this row with the resynced
+        # instance. Without this, a parent ALSO named in the same batch's own
+        # `deleted` bucket (deleting a container and its last live child
+        # together) would be soft-deleted off the STALE snapshot taken before
+        # this resync ran — `soft_delete()`'s `save()` carries no explicit
+        # `update_fields`, so `VersionedModel.save()` writes every column off
+        # that stale instance and silently re-clobbers the correction this very
+        # request just made. The row is then tombstoned with the wrong duration
+        # forever, invisible until someone restores it (#1113).
+        ctx.existing_by_id[str(resynced_parent.pk)] = resynced_parent
+        # Report it the same way a created/updated row is reported: fold the
+        # parent into the coalesced WS broadcast (connected web peers get a
+        # prompt refetch rather than waiting on the deferred CPM recalc's own
+        # broadcast) and extend the batch's delta cursor to cover it — a no-op
+        # today since `coalesce_sync_seq()` stamps every row touched in this
+        # apply with the SAME project-wide value the deleted row already bumped
+        # to (sequence.py: "a batch is either wholly before or wholly after any
+        # client checkpoint"), but `bump()` is a max() so this stays correct if
+        # that ever changes. The row's actual *content* still reaches an
+        # offline client only through the next regular delta pull — like any
+        # other row, sync_seq is what makes it match `sync_seq__gt=since` there.
+        result.events.append(("task_updated", str(resynced_parent.pk)))
+        result.bump(resynced_parent.sync_seq)
 
 
 def apply_task_changes(
