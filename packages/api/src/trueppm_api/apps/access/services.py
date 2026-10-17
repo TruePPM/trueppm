@@ -691,19 +691,27 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
     is still an active Admin. Deactivating the webhook here (rather than relying
     on the membership re-check) is what closes that case.
 
-    The webhook sweep matches ``created_by=user`` **or**
-    ``last_modified_by=user``, not ``created_by`` alone. A project webhook's
-    update has no registrant check — any project Admin may repoint any project
-    webhook's URL or rotate its secret (``WebhookViewSet.perform_update``) —
-    so a hijacked session belonging to Admin B could repoint Admin A's webhook
-    to an attacker's host, and B's own password reset or off-boarding would
-    never touch that row if the sweep only looked at who created it. This is
+    The webhook sweep matches ``created_by=user`` **or** ``user`` appearing in
+    ``webhook.editors`` (:class:`~trueppm_api.apps.webhooks.models.WebhookEditor`,
+    an additive, append-only record of every user who has ever set ``url`` or
+    ``secret`` on the row) — not ``created_by`` alone, and not a single mutable
+    "last modified by" field either. A project webhook's update has no
+    registrant check — any project Admin may repoint any project webhook's URL
+    or rotate its secret (``WebhookViewSet.perform_update``) — so a hijacked
+    session belonging to Admin B could repoint Admin A's webhook to an
+    attacker's host, and B's own password reset or off-boarding must still
+    catch that row even after a later, unrelated edit by A or anyone else. A
+    mutable field would lose B's attribution the moment someone else's edit
+    overwrote it (including a PUT that only changes ``events`` but still
+    carries the unchanged ``url`` in its body); an append-only membership does
+    not have that failure mode, because nothing removes a row from it. This is
     exactly the "grant minted through a live session by someone who is now
     being contained" case two paragraphs up, for an update rather than a
-    create. Program webhooks stamp ``last_modified_by`` too, for symmetry, but
-    it is always equal to ``created_by`` there because ``ProgramWebhookViewSet``
-    already restricts update to the creator (ADR-0076/#4310) — so this clause
-    adds real coverage only on the project-scoped path.
+    create. Program webhooks record an editor too, for symmetry, but it is
+    always the same user as ``created_by`` there because
+    ``ProgramWebhookViewSet`` already restricts update to the creator
+    (ADR-0076/#4310) — so this clause adds real coverage only on the
+    project-scoped path.
 
     ``user=None`` means instance-wide — every active grant, not one person's —
     which is what the ``revoke_api_tokens --all`` full-compromise lever needs;
@@ -745,13 +753,17 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
 
     webhooks_qs = Webhook.objects.filter(is_active=True)
     if user is not None:
-        webhooks_qs = webhooks_qs.filter(
-            models.Q(created_by=user) | models.Q(last_modified_by=user)
-        )
+        webhooks_qs = webhooks_qs.filter(models.Q(created_by=user) | models.Q(editors__user=user))
+    # Deliberately neutral: this fires whenever EITHER leg above matches, and the
+    # editors leg means the row's registrant may be a different, untouched account
+    # (#4461) — "the registrant's credentials were revoked" would misattribute the
+    # cause on exactly that path. The UI/docs tell the admin to verify url/secret
+    # before re-enabling regardless of which leg fired, so the reason does not need
+    # to (and cannot cheaply) distinguish them.
     webhooks_deactivated = webhooks_qs.update(
         is_active=False,
         disabled_at=now,
-        disabled_reason="Deactivated: the registrant's credentials were revoked.",
+        disabled_reason="Deactivated: a security sweep revoked a credential tied to this webhook.",
     )
 
     return links_revoked, secrets_cleared, webhooks_deactivated

@@ -336,9 +336,9 @@ so the guard starts counting again from zero.
 
 ### Containment
 
-A webhook is also deactivated — not deleted — when the credentials of whoever
-**registered it, or last changed its URL or secret**, are contained: a password
-reset, an admin off-boarding that account, or an operator's
+A webhook is also deactivated — not deleted — when the credentials of **anyone
+who registered it, or has ever set its URL or secret**, are contained: a
+password reset, an admin off-boarding that account, or an operator's
 [`revoke_api_tokens --all`](/administration/management-commands/#maintenance-commands)
 sweep. This closes the gap where a leaked personal access token, or a hijacked
 session, belonging to a project Admin who is **still active** could keep a webhook
@@ -352,15 +352,25 @@ documented compromise-response steps ran for that Admin. Two cases, both covered
 - **A different Admin's** credentials are contained after that Admin repointed
   someone else's project webhook (any project Admin may edit any project
   webhook — see [Permissions](#permissions)). The webhook is still swept, even
-  though its registrant is untouched, because the sweep matches whoever last
-  changed `url` or `secret`, not only who created the row. Program webhooks
-  cannot hit this case: only the registrant may edit a program webhook (see
+  though its registrant is untouched, because every account that has ever set
+  `url` or `secret` stays eligible for the sweep — **permanently, not only
+  until the next edit.** A routine, unrelated edit by someone else afterward
+  (a secret rotation, or even a write that only means to change `events`, since
+  the API re-submits the current `url` either way) does not remove the
+  attacker-controlled admin from that set. Program webhooks cannot hit this
+  case: only the registrant may edit a program webhook (see
   [Permissions](#permissions)).
 
 See [Revoking a token](/features/personal-access-tokens/#revoking-a-token) for the
-full containment picture. Re-enable the webhook with `PATCH {"is_active": true}`
-once the credential issue is resolved, exactly as after an automatic
-deactivation.
+full containment picture.
+
+**Before re-enabling a webhook this sweep deactivated, verify `url` and rotate
+`secret` — do not just `PATCH {"is_active": true}`.** Unlike an automatic
+deactivation (the receiver was failing, not hostile), a credential-sweep
+deactivation can mean the stored `url` still points at an attacker's host: the
+sweep stops *delivery*, it does not revert the repoint. Re-check the delivery
+settings, rotate the secret, confirm with the team which admin should own the
+webhook going forward, and only then `PATCH {"is_active": true}`.
 
 For operators: a terminally failed delivery is also recorded in the
 [dead-letter queue](/administration/dead-letter-alerting/), which is where alerting
