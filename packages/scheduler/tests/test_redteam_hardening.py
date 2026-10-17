@@ -430,12 +430,25 @@ def test_percent_complete_non_numeric_rejected() -> None:
         monte_carlo(project, runs=12, seed=1)
 
 
-@pytest.mark.parametrize("pct", [None, -10.0, 150.0, 0.0, 100.0, 42.0])
-def test_percent_complete_finite_in_or_out_of_range_is_clamped_not_rejected(pct: float) -> None:
-    """Documented out-of-range policy (#1452): None and finite values outside
-    [0, 100] are *clamped* (consistent with from_dict / both passes' ``min(pct, 100)``),
-    not rejected — only non-finite / non-numeric input breaks the contract. Both
-    passes must therefore accept every value here without raising.
+@pytest.mark.parametrize("bad_pct", [-1.0, -100.0, 100.01, 150.0, 1e6])
+def test_percent_complete_out_of_range_rejected(bad_pct: float) -> None:
+    """A finite percent_complete outside [0, 100] is refused on the direct-object
+    path by both entry points (#4513), and on the document path at parse time.
+    It used to be clamped, so a sign-flipped or x100 import scheduled silently."""
+    project = _one_task_project(percent_complete=bad_pct)
+    with pytest.raises(InvalidScheduleInput, match="between 0 and 100"):
+        schedule(project)
+    with pytest.raises(InvalidScheduleInput, match="between 0 and 100"):
+        monte_carlo(project, runs=12, seed=1)
+    doc = {"id": "a", "name": "a", "duration": 86400.0, "percent_complete": bad_pct}
+    with pytest.raises(InvalidScheduleInput):
+        Task.from_dict(doc)
+
+
+@pytest.mark.parametrize("pct", [None, 0.0, 100.0, 42.0])
+def test_percent_complete_in_range_or_none_accepted(pct: float) -> None:
+    """None and values inside [0, 100] (bounds inclusive) are accepted (#1452, #4513).
+    Both passes must accept every value here without raising.
 
     The two passes must also agree on the finish. This fixture has no duration
     uncertainty, so every run is identical and the simulation collapses onto the
