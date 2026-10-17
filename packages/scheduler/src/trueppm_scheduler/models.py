@@ -7,6 +7,7 @@ import enum
 import json
 import math
 import re
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
@@ -318,6 +319,10 @@ def _require_number(value: Any, field_name: str) -> None:
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{field_name} must be a number, got {type(value).__name__}: {value!r}.")
+    # An int beyond f64 range makes float() raise a bare OverflowError that escapes
+    # the InvalidScheduleInput wrappers; Rust's serde rejects the same literal.
+    if isinstance(value, int) and abs(value) > sys.float_info.max:
+        raise ValueError(f"{field_name} is out of range for a finite number.")
 
 
 def _require_bool(d: dict[str, Any], field_name: str) -> None:
@@ -1120,7 +1125,10 @@ def _parse_timedelta(val: Any) -> timedelta:
     seconds = float(val)
     if not math.isfinite(seconds):
         raise ValueError(f"Duration must be a finite number of seconds, got {val!r}.")
-    td = timedelta(seconds=seconds)
+    try:
+        td = timedelta(seconds=seconds)
+    except OverflowError as err:  # finite but beyond timedelta's range (e.g. 1e300)
+        raise ValueError(f"Duration is out of range, got {val!r}.") from err
     # Quantization guard (#1862). ``timedelta`` has microsecond resolution, so a
     # raw seconds value with a sub-microsecond fraction — e.g. 86400.0000001 s
     # (1 day + 100 ns) — is silently *rounded* to the nearest microsecond here

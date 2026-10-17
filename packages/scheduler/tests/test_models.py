@@ -334,3 +334,27 @@ class TestFromDictRejectsCoercedScalars:
         assert Dependency.from_dict(
             {"predecessor_id": "A", "successor_id": "B", "lag": 86400}
         ).lag == timedelta(days=1)
+
+
+class TestFromDictOverflowIsInvalidInput:
+    """Out-of-range numbers raise InvalidScheduleInput, never a bare OverflowError (#4512)."""
+
+    @pytest.mark.parametrize("field", ["duration", "percent_complete", "story_points"])
+    def test_task(self, field: str) -> None:
+        with pytest.raises(InvalidScheduleInput):
+            Task.from_dict({"id": "A", "name": "A", "duration": 86400.0, field: 10**400})
+
+    def test_task_duration_beyond_timedelta_range(self) -> None:
+        with pytest.raises(InvalidScheduleInput):
+            Task.from_dict({"id": "A", "name": "A", "duration": 1e300})
+
+    @pytest.mark.parametrize("big", [10**400, 1e300])
+    def test_dependency(self, big: object) -> None:
+        with pytest.raises(InvalidScheduleInput):
+            Dependency.from_dict({"predecessor_id": "A", "successor_id": "B", "lag": big})
+
+    def test_project_velocity_sample(self) -> None:
+        with pytest.raises(InvalidScheduleInput):
+            Project.from_dict(
+                {"id": "p", "name": "p", "start_date": "2026-04-02", "velocity_samples": [10**400]}
+            )
