@@ -6,13 +6,17 @@ Covers the REST mint endpoint, the issue/consume single-use semantics, and
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import ApiToken
 from trueppm_api.apps.sync import ws_auth
 
 User = get_user_model()
@@ -73,6 +77,46 @@ def test_ticket_minted_for_authed_user(user: object) -> None:
     assert resp.status_code == 200
     assert resp.json() == {"ticket": "tkt-abc", "expires_in": ws_auth.TICKET_TTL_SECONDS}
     mint.assert_called_once_with(str(user.pk))
+
+
+@pytest.mark.django_db
+def test_ticket_minted_for_jwt_authenticated_user(user: object) -> None:
+    """#4462 test plan: JWT-authenticated requests still succeed once the PAT
+    guard is added — the guard must not catch the browser's own credential.
+    """
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
+    with patch("trueppm_api.apps.sync.views.issue_ticket", return_value="tkt-jwt") as mint:
+        resp = client.post(_URL)
+    assert resp.status_code == 200, resp.data
+    assert resp.json() == {"ticket": "tkt-jwt", "expires_in": ws_auth.TICKET_TTL_SECONDS}
+    mint.assert_called_once_with(str(user.pk))
+
+
+@pytest.mark.django_db
+def test_ticket_refused_for_personal_access_token(user: object) -> None:
+    """#4462: a PAT may never mint a WS ticket.
+
+    A ticket opens a live socket the consumer authenticates exactly once, at
+    connect — unlike every other credential grant ``IsNotTokenAuthenticated``
+    guards, a later token revocation cannot reach a socket already open. Browsers
+    never mint a ticket with a bearer PAT, so refusing it here closes the PAT half
+    of #4462 with no loss of any real client's functionality.
+    """
+    raw = TOKEN_PREFIX + secrets.token_hex(32)
+    ApiToken.objects.create(
+        owner=user,
+        name="leaked",
+        token_prefix=raw[len(TOKEN_PREFIX) :][:8],
+        token_hash=sha256_hex(raw),
+        created_by=user,
+    )
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    with patch("trueppm_api.apps.sync.views.issue_ticket") as mint:
+        resp = client.post(_URL)
+    assert resp.status_code == 403, resp.data
+    mint.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

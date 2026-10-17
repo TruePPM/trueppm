@@ -20,7 +20,7 @@ from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.access.permissions import _membership_role
+from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated, _membership_role
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
@@ -81,9 +81,19 @@ class WebSocketTicketView(IdempotencyMixin, APIView):
 
     Authentication only — authorization (project membership/role) is enforced by
     the consumer on connect. No project scope is required to mint a ticket.
+
+    **A personal access token may not mint a ticket (#4462).** Every real client
+    that opens a project socket — the web app and the mobile offline layer — mints
+    its ticket through the browser/app session's JWT; nothing in this codebase
+    mints one with a bearer PAT. A leaked PAT minting a ticket would open a live
+    WebSocket with no termination path of its own: revoking the token afterward
+    does not reach a socket that is already open, because the consumer resolves
+    its user once at connect and never re-checks the credential that opened it.
+    ``IsNotTokenAuthenticated`` closes that off at the one point it is cheap to
+    close — before the ticket exists.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "ws_ticket"
     # Stateless mint — the generic Idempotency-Key path adds nothing.

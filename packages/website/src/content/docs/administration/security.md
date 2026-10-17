@@ -422,6 +422,10 @@ any git-automation webhook secret *they configured* — the project's other admi
 keep their own. A public share link also stops serving as soon as its creator's
 account is deactivated by any means (including outside the app, such as the
 Django admin or a script), even before a password reset or off-boarding runs.
+Both also close any project WebSocket connection the account already has open,
+for every project it is a member of — a reset or deactivation would otherwise
+revoke every credential while an already-open socket kept streaming task,
+board, and presence events until the client disconnected on its own.
 :::
 
 ## Helm secure-by-default
