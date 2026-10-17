@@ -62,6 +62,21 @@ check_listing() {
   return "$bad"
 }
 
+# check_wheel_listing <file with one wheel member path per line>
+# scripts/check-package-licenses.sh only inspects source files and pyproject
+# declarations, not a built wheel, so the license text/NOTICE landing in
+# .dist-info/licenses/ of the wheel built from the sdist is asserted here (#4177).
+check_wheel_listing() {
+  local list="$1" bad=0 name f
+  for name in LICENSE NOTICE; do
+    f="$(grep -E "(^|/)[^/]+\.dist-info/licenses/$name\$" "$list" || true)"
+    if [ -z "$f" ]; then
+      echo "WHEEL MISSING .dist-info/licenses/$name"; bad=1
+    fi
+  done
+  return "$bad"
+}
+
 self_test() {
   local tmp rc=0
   tmp="$(mktemp -d)"
@@ -87,6 +102,21 @@ self_test() {
   { cat "$good"; echo "notebooks/01.ipynb"; } > "$tmp/e";              expect fail "unlisted top-level dir is flagged" "$tmp/e"
   grep -vxF NOTICE "$good" > "$tmp/f";                                 expect fail "missing NOTICE is flagged" "$tmp/f"
   grep -vxF CHANGELOG.md "$good" > "$tmp/g";                           expect fail "missing CHANGELOG.md is flagged" "$tmp/g"
+  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/LICENSE" "pkg-0.1.dist-info/licenses/NOTICE" > "$tmp/w1"
+  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/LICENSE" > "$tmp/w2"
+  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/NOTICE" > "$tmp/w3"
+  wexpect() { # wexpect <pass|fail> <name> <file>
+    local want="$1" name="$2" file="$3" got=0
+    check_wheel_listing "$file" > "$tmp/out" 2>&1 || got=1
+    if { [ "$want" = pass ] && [ "$got" -eq 0 ]; } || { [ "$want" = fail ] && [ "$got" -eq 1 ]; }; then
+      echo "ok   $name"
+    else
+      echo "FAIL $name (wanted $want)"; cat "$tmp/out"; rc=1
+    fi
+  }
+  wexpect pass "wheel with LICENSE and NOTICE passes" "$tmp/w1"
+  wexpect fail "wheel without NOTICE is flagged" "$tmp/w2"
+  wexpect fail "wheel without LICENSE is flagged" "$tmp/w3"
   return "$rc"
 }
 
@@ -133,6 +163,11 @@ if command -v uv >/dev/null 2>&1; then
   (cd "$src_dir" && uv build --wheel --out-dir "$work/wheel" >/dev/null) || { echo "WHEEL BUILD FROM SDIST FAILED"; rc=1; }
 else
   (cd "$src_dir" && python3 -m build --wheel --outdir "$work/wheel" >/dev/null) || { echo "WHEEL BUILD FROM SDIST FAILED"; rc=1; }
+fi
+whl="$(ls "$work"/wheel/*.whl 2>/dev/null || true)"
+if [ -n "$whl" ]; then
+  python3 -c 'import sys,zipfile; print("\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))' "$whl" > "$work/wheel-members"
+  check_wheel_listing "$work/wheel-members" || rc=1
 fi
 
 if [ "$rc" -ne 0 ]; then

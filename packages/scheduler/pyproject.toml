@@ -116,7 +116,7 @@ include = [
     "/CHANGELOG.md",
     "/README.md",
     "/LICENSE",
-    "/NOTICE",
+    "/NOTICE", # redundant with license-files above; belt-and-braces, REQUIRED in scripts/check-scheduler-sdist.sh is the guard
     "/CITATION.cff",
 ]
 exclude = [
