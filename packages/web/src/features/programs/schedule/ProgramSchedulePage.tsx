@@ -200,17 +200,32 @@ export function ProgramSchedulePage() {
           <ProgramScheduleLegend hasExternalTasks={externalById.size > 0} />
         </div>
       )}
-      {staleOnThrottle && (
-        <div
+      {/* Throttled-refetch notice (#2839). The live region is mounted permanently
+          and collapses to `sr-only` when empty (web rule 429, as OfflineBanner):
+          a region mounted at the same instant as its text is not reliably
+          announced (#2203). Only the message is inside it, so the Refresh label
+          flipping to "Refreshing…" is not re-announced. Deliberately quieter than
+          the shell's tinted banners: it is page-scoped and the chart is still
+          usable, only not live. */}
+      <div
+        className={staleOnThrottle ? 'mt-2 flex items-center gap-3' : undefined}
+        data-testid="program-schedule-throttle-notice"
+      >
+        <p
           role="status"
-          className="mt-2 flex items-center gap-3 text-[13px] text-neutral-text-secondary"
+          aria-live="polite"
+          className={staleOnThrottle ? 'text-[13px] text-neutral-text-secondary' : 'sr-only'}
         >
-          <span>Live updates are paused for a moment. Showing the last loaded schedule.</span>
+          {staleOnThrottle
+            ? 'Live updates are paused for a moment. Showing the last loaded schedule.'
+            : null}
+        </p>
+        {staleOnThrottle && (
           <Button variant="secondary" onClick={() => void refetch()} disabled={isRefetching}>
             {isRefetching ? 'Refreshing…' : 'Refresh'}
           </Button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 

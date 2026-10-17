@@ -375,6 +375,36 @@ describe('ProgramSchedulePage', () => {
     }
   });
 
+  it('keeps the throttle live region mounted and empty while the schedule is live (rule 429)', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    renderPage();
+    // Present before any 429, so the later message lands in an existing region.
+    const region = screen.getByRole('status');
+    expect(region).toHaveAttribute('aria-live', 'polite');
+    expect(region).toHaveClass('sr-only');
+    expect(region).toBeEmptyDOMElement();
+    expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument();
+  });
+
+  it('fills the same live region in place when a refetch is throttled', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    const { rerender } = renderPage();
+    const before = screen.getByRole('status');
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN, error: axiosError(429) }));
+    rerender(
+      <MemoryRouter initialEntries={['/programs/prog-1/schedule']}>
+        <Routes>
+          <Route path="/programs/:programId/schedule" element={<ProgramSchedulePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    const after = screen.getByRole('status');
+    // The same node, now carrying the message: not unmounted and remounted.
+    expect(after).toBe(before);
+    expect(after).toHaveTextContent(/Live updates are paused/);
+    expect(after).not.toHaveClass('sr-only');
+  });
+
   it('shows a retryable throttled message when the first load is a 429', () => {
     useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(429) }));
     renderPage();
