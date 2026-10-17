@@ -173,6 +173,27 @@ class SeedImportThrottle(_SeedImporterThrottle):
     scope = "seed_import"
 
 
+class ProgramScheduleThrottle(UserRateThrottle):
+    """Caps on-read program schedule computes per account (#2839).
+
+    ``GET /programs/{id}/schedule/`` runs the deterministic CPM over every member
+    project's merged graph (up to ``MAX_PROGRAM_TASKS``) on each read, uncached, so
+    on the 1000/min account default a scripted loop is a compute amplifier. The
+    rate is sized above the live page's own cadence: each member project's socket
+    debounces invalidations to at most one per 300 ms (200/min per channel at the
+    theoretical ceiling), and real editing produces a few refetches per edit. The
+    default 240/min clears one channel's ceiling and a dozen concurrently active
+    editors, while holding a loop to four merged passes a second. On a 429 the page
+    keeps rendering its last schedule rather than blanking it.
+
+    ``UserRateThrottle`` for the same reason as the importer throttles above: it is
+    attached through ``@action(throttle_classes=[…])``, where ``ScopedRateThrottle``
+    would find no ``throttle_scope`` on the view and silently allow everything.
+    """
+
+    scope = "program_schedule"
+
+
 class SampleDownloadThrottle(UserRateThrottle):
     """Caps bundled-fixture downloads per account (#2490).
 
@@ -3030,7 +3051,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="Compute the program-true cross-project schedule",
         responses={200: ProgramScheduleSerializer},
     )
-    @action(detail=True, methods=["get"], url_path="schedule")
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="schedule",
+        throttle_classes=[ProgramScheduleThrottle],
+    )
     def schedule(self, request: Request, pk: str | None = None) -> Response:
         """Merged, program-true critical path across the program's projects.
 

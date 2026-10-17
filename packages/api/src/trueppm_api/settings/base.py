@@ -1308,7 +1308,8 @@ MC_LAG_DELTA_CELL_CAP: int | None = 5_000_000
 # ~linear) wall time follow the product. At 5,000 x 1,000 = 5M cells one simulation
 # peaked at ~234 MB traced / ~336 MB RSS, on the single default API worker
 # (processes.api.workers: 1, 2 GiB limit) that also serves every WebSocket, and the
-# what-if endpoint runs two back to back. 2.5M cells halves that (~117 MB traced),
+# what-if endpoint runs two back to back. 2.5M cells halves that (~117 MB traced,
+# ~168 MB peak RSS at the measured ~67 B/cell — size limits against RSS),
 # still runs the full 1,000 iterations up to 2,500 tasks, and gives a project at
 # MC_TASK_CAP 500 — the percentile resolution of a 500-sample run is 0.2%, well
 # inside the day granularity the forecast reports. An omitted n_simulations scales
@@ -1750,6 +1751,13 @@ REST_FRAMEWORK = {
         # than the 10/min monte_carlo tier: a person clicking through the "why" of a
         # dozen values never trips it, a scripted loop is held to one pass a second.
         "cpm_on_read": env("TRUEPPM_THROTTLE_CPM_ON_READ_RATE", default=_STANDARD_RATE),
+        # On-read merged program CPM (#2839), GET /programs/<pk>/schedule/. Sized
+        # above the live page's refetch cadence, not at the read tier: each member
+        # project's socket debounces to <= 1 refetch / 300 ms (200/min ceiling per
+        # channel), so 240/min never 429s one busy project and still holds a loop
+        # to four merged passes a second (vs the 1000/min account default). See
+        # ProgramScheduleThrottle.
+        "program_schedule": env("TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE", default="240/min"),
         # Bundled-sample demo loader (#2402). POST /programs/load-sample/ is the
         # most expensive single write in the API: it hard-deletes the caller's
         # prior program with the same code (memberships -> projects -> cascade)

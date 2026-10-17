@@ -73,7 +73,9 @@ class TestEngine extends GanttEngineStub {
 
   /** Fire a subscribed engine event, as the real renderer would. */
   emit<K extends keyof GanttEngineEventMap>(event: K, payload: GanttEngineEventMap[K]): void {
-    const handler = this.handlers.get(event) as ((payload: GanttEngineEventMap[K]) => void) | undefined;
+    const handler = this.handlers.get(event) as
+      | ((payload: GanttEngineEventMap[K]) => void)
+      | undefined;
     handler?.(payload);
   }
 
@@ -316,6 +318,33 @@ describe('ProgramSchedulePage', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
+  it('keeps charting the last schedule when a refetch is throttled (429, #2839)', async () => {
+    const refetch = vi.fn();
+    useProgramSchedule.mockReturnValue(
+      queryResult({ data: GOLDEN, error: axiosError(429), refetch }),
+    );
+    renderPage();
+    // The chart stays — a 429 is transient and must not blank the view.
+    expect(screen.getByTestId('canvas-timeline')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/Live updates are paused/i);
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a retryable throttled message when the first load is a 429', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(429) }));
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent(/refreshed too often/i);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('still replaces the chart for a non-transient error even with cached data', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN, error: axiosError(403) }));
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent(/don.t have access/i);
+  });
+
   // ----- Error-panel actions -------------------------------------------------
 
   it('refetches when Retry is clicked, and locks the button while a retry is in flight', async () => {
@@ -477,8 +506,20 @@ describe('ProgramSchedulePage', () => {
         data: {
           ...GOLDEN,
           projects: [
-            { id: 'proj-a', name: 'Helios Platform', accessible: true, duration: 10, can_subscribe_live: false },
-            { id: 'proj-b', name: 'Helios Mobile', accessible: true, duration: 8, can_subscribe_live: true },
+            {
+              id: 'proj-a',
+              name: 'Helios Platform',
+              accessible: true,
+              duration: 10,
+              can_subscribe_live: false,
+            },
+            {
+              id: 'proj-b',
+              name: 'Helios Mobile',
+              accessible: true,
+              duration: 8,
+              can_subscribe_live: true,
+            },
             // Verdict unknown (older server): subscribe — the server enforces.
             { id: 'proj-c', name: 'Helios Ops', accessible: true, duration: 3 },
           ],

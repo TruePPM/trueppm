@@ -12,17 +12,20 @@ reaches ``schedule``, ``monte_carlo`` or ``derive_value`` from
 followed across ``from trueppm_api... import`` edges), or through a ``self.``
 method on the same class. Each such handler must:
 
-1. declare a **human** throttle — a class-level ``throttle_scope`` /
-   ``throttle_classes`` / ``get_throttles``, an ``@action(throttle_classes=...)``
-   on that action, or ``@throttle_classes`` on a function view; and
+1. declare a **human** throttle that throttles something — a non-empty class-level
+   ``throttle_classes`` (``ScopedRateThrottle`` counts only beside a non-empty
+   ``throttle_scope``; a bare scope does nothing under the default classes), a
+   ``get_throttles`` override, a non-empty ``@action(throttle_classes=...)`` on
+   that action, or a non-empty ``@throttle_classes`` on a function view; and
 2. if the class is ``McpReadableViewMixin``-based, opt into the per-token compute
    bucket — ``mcp_compute_heavy = True``, or the action named in
    ``mcp_compute_heavy_actions``.
 
 What it cannot see: an engine call reached through an attribute (``engine.schedule``),
 a ``getattr`` dispatch, or a throttle inherited from a base class defined
-elsewhere. Those are blind spots, not passes — the positive-control test below pins
-the handlers it does see so the scan cannot go silently vacuous.
+elsewhere. Those are blind spots, not passes (tracked in #4497). The
+positive-control test below pins the handlers it does see, so the scan cannot go
+silently vacuous.
 """
 
 from __future__ import annotations
@@ -38,15 +41,8 @@ _APPS_ROOT = Path(trueppm_api.__file__).parent / "apps"
 
 # Handlers allowed to lack a HUMAN throttle (rule 1), each with its reason. The MCP
 # half (rule 2) has no waiver. Ratcheted: an entry that no longer needs waiving
-# fails the suite, so the list can only shrink.
-_HUMAN_THROTTLE_WAIVERS: dict[str, str] = {
-    "projects.program_views:ProgramViewSet.schedule": (
-        "The program schedule page refetches on every member project's WebSocket "
-        "event (300 ms debounce per project, cancel-and-refetch on invalidate), so "
-        "a human throttle needs that cadence bounded client-side first or it 429s "
-        "the page during live editing. mcp:read tokens are on the compute bucket."
-    ),
-}
+# fails the suite, so the list can only shrink. Empty today.
+_HUMAN_THROTTLE_WAIVERS: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -101,6 +97,19 @@ def _class_assigns(cls: ast.ClassDef) -> dict[str, ast.expr | None]:
         elif isinstance(stmt, ast.FunctionDef):
             out.setdefault(f"def:{stmt.name}", None)
     return out
+
+
+def _is_real_throttle_list(node: ast.expr | None) -> bool:
+    """Does a ``throttle_classes`` value actually throttle something?
+
+    ``[]`` throttles nothing, and ``[ScopedRateThrottle]`` alone throttles nothing
+    without a scope (its ``allow_request`` returns True when the view has no
+    ``throttle_scope``). A non-literal expression is trusted.
+    """
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        return node is not None
+    names = [_base_name(e) for e in node.elts]
+    return bool(names) and names != ["ScopedRateThrottle"] * len(names)
 
 
 def _string_literals(node: ast.expr | None) -> set[str]:
@@ -162,7 +171,11 @@ def scan(sources: dict[str, str]) -> list[Finding]:
                 if not _reaches(_called_names(node), mod_name, mod, heavy):
                     continue
                 throttled = any(
-                    _decorator_name(d) == "throttle_classes" for d in node.decorator_list
+                    isinstance(d, ast.Call)
+                    and _decorator_name(d) == "throttle_classes"
+                    and bool(d.args)
+                    and _is_real_throttle_list(d.args[0])
+                    for d in node.decorator_list
                 )
                 if not throttled:
                     findings.append(Finding(f"{short}:{node.name}", True, False))
@@ -206,8 +219,16 @@ def _scan_class(
         or any(_decorator_name(d) == "action" for d in methods[name].decorator_list)
     }
     assigns = _class_assigns(cls)
-    class_throttled = bool(
-        {"throttle_scope", "throttle_classes", "def:get_throttles"} & assigns.keys()
+    scope = assigns.get("throttle_scope")
+    has_scope = "throttle_scope" in assigns and not (
+        isinstance(scope, ast.Constant) and not scope.value
+    )
+    classes = assigns.get("throttle_classes")
+    class_throttled = "def:get_throttles" in assigns or (
+        # ScopedRateThrottle is real only with a scope beside it.
+        "throttle_classes" in assigns
+        and (_is_real_throttle_list(classes) or (classes is not None and has_scope))
+        and not (isinstance(classes, (ast.List, ast.Tuple)) and not classes.elts)
     )
     mcp_readable = "McpReadableViewMixin" in bases
     heavy_flag = assigns.get("mcp_compute_heavy")
@@ -219,7 +240,9 @@ def _scan_class(
         action_throttled = any(
             isinstance(d, ast.Call)
             and _decorator_name(d) == "action"
-            and any(k.arg == "throttle_classes" for k in d.keywords)
+            and any(
+                k.arg == "throttle_classes" and _is_real_throttle_list(k.value) for k in d.keywords
+            )
             for d in methods[name].decorator_list
         )
         missing_human = not (class_throttled or action_throttled)
@@ -296,6 +319,51 @@ def test_scan_sees_the_known_inline_engine_handlers() -> None:
     assert expected <= seen, f"scan no longer sees: {sorted(expected - seen)}"
 
 
+def test_scan_rejects_throttle_declarations_that_throttle_nothing() -> None:
+    """``throttle_classes=[]`` and a scope-less ``ScopedRateThrottle`` are not throttles."""
+    engine = "from trueppm_scheduler.engine import schedule\n"
+    sources = {
+        "trueppm_api.apps.demo.views": engine + "class EmptyView(APIView):\n"
+        "    throttle_classes = []\n"
+        "    def get(self, request):\n"
+        "        return schedule(None)\n"
+        "class ScopelessView(APIView):\n"
+        "    throttle_classes = [ScopedRateThrottle]\n"
+        "    def get(self, request):\n"
+        "        return schedule(None)\n"
+        "class EmptyScopeView(APIView):\n"
+        "    throttle_classes = [ScopedRateThrottle]\n"
+        "    throttle_scope = ''\n"
+        "    def get(self, request):\n"
+        "        return schedule(None)\n"
+        "class ScopedView(APIView):\n"
+        "    throttle_classes = [ScopedRateThrottle]\n"
+        "    throttle_scope = 'x'\n"
+        "    def get(self, request):\n"
+        "        return schedule(None)\n"
+        "class EmptyActionViewSet(GenericViewSet):\n"
+        "    @action(detail=True, throttle_classes=[])\n"
+        "    def run(self, request):\n"
+        "        return schedule(None)\n"
+        "class ActionViewSet(GenericViewSet):\n"
+        "    @action(detail=True, throttle_classes=[SomeUserThrottle])\n"
+        "    def run(self, request):\n"
+        "        return schedule(None)\n"
+        "@api_view(['GET'])\n"
+        "@throttle_classes([])\n"
+        "def empty_fbv(request):\n"
+        "    return schedule(None)\n",
+    }
+    flagged = {f.handler for f in scan(sources) if f.missing_human_throttle}
+    assert flagged == {
+        "demo.views:EmptyView.get",
+        "demo.views:ScopelessView.get",
+        "demo.views:EmptyScopeView.get",
+        "demo.views:EmptyActionViewSet.run",
+        "demo.views:empty_fbv",
+    }
+
+
 def test_scan_flags_an_unthrottled_view_through_a_cross_module_helper() -> None:
     """Negative control: the #2839 shape — a view reaching the engine via a helper."""
     sources = {
@@ -312,6 +380,7 @@ def test_scan_flags_an_unthrottled_view_through_a_cross_module_helper() -> None:
             "    def _run(self):\n"
             "        return forecast(None)\n"
             "class ThrottledView(McpReadableViewMixin, APIView):\n"
+            "    throttle_classes = [ScopedRateThrottle]\n"
             "    throttle_scope = 'x'\n"
             "    mcp_compute_heavy = True\n"
             "    def get(self, request):\n"

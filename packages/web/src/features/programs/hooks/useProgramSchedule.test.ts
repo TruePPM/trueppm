@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  classifyProgramScheduleError,
-  getProgramScheduleInvalidInput,
-} from './useProgramSchedule';
+import { classifyProgramScheduleError, getProgramScheduleInvalidInput } from './useProgramSchedule';
 
 /** Minimal axios-shaped error — `isAxiosError(payload)` only checks the brand. */
 function axiosError(status: number | undefined, data?: unknown): unknown {
@@ -15,7 +12,8 @@ function axiosError(status: number | undefined, data?: unknown): unknown {
 const INVALID_INPUT_BODY = {
   code: 'program_schedule_invalid_input',
   detail: 'A task in “Migration Tooling” has data the schedule engine cannot compute.',
-  reason: "Task 'd33fddc2' three-point estimates must satisfy optimistic <= most_likely <= pessimistic.",
+  reason:
+    "Task 'd33fddc2' three-point estimates must satisfy optimistic <= most_likely <= pessimistic.",
   project: { id: 'p-1', name: 'Migration Tooling' },
   task: { id: 't-1', name: 'Something' },
 };
@@ -31,12 +29,13 @@ describe('classifyProgramScheduleError', () => {
     ).toBe('too-large');
   });
   it('maps a program_schedule_invalid_input 422 to invalid-input', () => {
-    expect(classifyProgramScheduleError(axiosError(422, INVALID_INPUT_BODY))).toBe(
-      'invalid-input',
-    );
+    expect(classifyProgramScheduleError(axiosError(422, INVALID_INPUT_BODY))).toBe('invalid-input');
   });
   it('maps 403 to forbidden', () => {
     expect(classifyProgramScheduleError(axiosError(403))).toBe('forbidden');
+  });
+  it('maps 429 to throttled', () => {
+    expect(classifyProgramScheduleError(axiosError(429))).toBe('throttled');
   });
   it('maps other statuses to unknown', () => {
     expect(classifyProgramScheduleError(axiosError(500))).toBe('unknown');

@@ -126,6 +126,11 @@ export interface ProgramSchedule {
  *   which the page renders as the empty state from `tasks.length === 0`. This
  *   mapping exists so that if a 409 is ever introduced it degrades to the empty
  *   state rather than a hard error.
+ * - `throttled` (429): the per-account `program_schedule` rate limit. Each read
+ *   runs a merged CPM pass on the server, so it is bounded (#2839). Transient: the
+ *   page keeps the last schedule it loaded and the next live update (or a manual
+ *   refresh) retries. Not auto-retried, since an immediate retry would hit the
+ *   same full bucket.
  * - `unknown`: network / 5xx — render a retryable inline error.
  */
 export type ProgramScheduleErrorKind =
@@ -133,6 +138,7 @@ export type ProgramScheduleErrorKind =
   | 'too-large'
   | 'invalid-input'
   | 'forbidden'
+  | 'throttled'
   | 'unknown';
 
 /** Machine-readable body shape of a `program_schedule_invalid_input` 422 (#1981). */
@@ -165,6 +171,8 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
           : 'too-large';
       case 403:
         return 'forbidden';
+      case 429:
+        return 'throttled';
       default:
         return 'unknown';
     }
@@ -197,9 +205,7 @@ export function getProgramScheduleInvalidInput(
  * 409/422/403 are surfaced via {@link classifyProgramScheduleError}; the query
  * does not retry on those (they are stable states, not transient failures).
  */
-export function useProgramSchedule(
-  programId: string | undefined,
-): UseQueryResult<ProgramSchedule> {
+export function useProgramSchedule(programId: string | undefined): UseQueryResult<ProgramSchedule> {
   return useQuery({
     queryKey: ['programs', programId, 'schedule'],
     queryFn: async () => {

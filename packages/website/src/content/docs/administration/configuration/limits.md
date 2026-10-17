@@ -393,9 +393,13 @@ Monte Carlo engine landed in 0.1.
 Set any cap to `None` for unlimited — the Enterprise default, where unbounded
 forecast history plus cross-program rollup is part of the portfolio tier.
 `MC_CELL_CAP` and `MC_MAX_CONCURRENT` are the exception. They protect the API
-worker's memory rather than gating a tier, so size them to your hardware. A
-simulation needs roughly 47 bytes per cell, so keep `MC_CELL_CAP` × 47 bytes ×
-`MC_MAX_CONCURRENT` well inside the API container's memory limit.
+worker's memory rather than gating a tier, so size them to your hardware. In the
+measured 5M-cell run, the NumPy working set was about 234 MB (about 47 bytes per
+cell), and the process's peak resident memory was about 336 MB (about 67 bytes per
+cell). Container memory limits
+apply to resident memory, so size against the larger figure: keep `MC_CELL_CAP` ×
+67 bytes × `MC_MAX_CONCURRENT` well inside the API container's memory limit,
+leaving room for everything else the worker holds.
 Operators on constrained hardware can lower `MC_TASK_CAP` to keep simulations
 cheap.
 

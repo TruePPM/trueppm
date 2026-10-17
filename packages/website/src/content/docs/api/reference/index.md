@@ -151,6 +151,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `monte_carlo` | 10/min | Synchronous Monte Carlo run |
 | `monte_carlo_whatif` | 6/min | Monte Carlo what-if (two CPM + two MC passes per call) |
 | `cpm_on_read` | 60/min (`TRUEPPM_THROTTLE_CPM_ON_READ_RATE`) | Schedule derivation read (a full CPM pass per call) |
+| `program_schedule` | 240/min (`TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE`) | Merged program schedule read (one CPM pass over every member project per call) |
 | `burn` | 60/min (`TRUEPPM_THROTTLE_BURN_RATE`) | Burn chart + flow metrics reads (shared bucket — both replay `HistoricalTask`) |
 | `sample_load` | 6/min (`TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE`) | Bundled-sample demo loader |
 | `seed_import` | 6/min (`TRUEPPM_THROTTLE_SEED_IMPORT_RATE`) | Caller-supplied program seed import |
