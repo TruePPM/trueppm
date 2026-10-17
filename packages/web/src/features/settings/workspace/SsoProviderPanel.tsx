@@ -24,7 +24,6 @@ import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import { stripTrailingSlash } from '@/lib/stripTrailingSlash';
 import { FieldRow } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
-import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { FieldHelp } from '@/components/FieldHelp';
 import { docsUrl } from '@/lib/docsUrl';
 import { CheckIcon, CloseIcon, LockIcon, XMarkIcon } from '@/components/Icons';
@@ -916,14 +915,10 @@ export function SsoProviderPanel({
             ariaLabel="Enable this SSO provider"
           />
         </FieldRow>
-        {/* Enforced-SSO (disable local accounts) is Enterprise — informational, never
-            a functional switch (ADR-0187 §4 preserved). */}
-        <FieldRow label="Password sign-in">
-          <div className="flex items-center text-[13px] text-neutral-text-secondary">
-            <span>Password and SSO sign-in are both allowed.</span>
-            <EnterpriseBadge />
-          </div>
-        </FieldRow>
+        {/* Enforced-SSO (disable local accounts) is Enterprise, registered as a pure
+            extension-point slot (ADR-0187 §4). Per the 2026-06-30 decision at the 0.4
+            SSO checkpoint, the community edition renders nothing here — no badge,
+            teaser, or "upgrade" copy — rather than an informational row (#4494). */}
 
         <TestConnectionSection mode={mode} def={def} test={test} slug={slug} />
       </div>

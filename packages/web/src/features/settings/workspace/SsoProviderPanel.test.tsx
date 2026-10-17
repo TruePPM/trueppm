@@ -36,11 +36,6 @@ vi.mock('@/hooks/useSso', () => ({
   }),
 }));
 
-// EnterpriseBadge (rendered in the panel's Password-sign-in row) reads the edition.
-vi.mock('@/hooks/useEdition', () => ({
-  useEdition: () => ({ edition: 'community', isLoading: false }),
-}));
-
 const KEYCLOAK: SsoProvider = {
   slug: 'keycloak',
   provider: 'openid_connect',
@@ -394,12 +389,16 @@ describe('SsoProviderPanel — credentials & policy controls', () => {
     expect(screen.queryByLabelText('Redirect URI (read-only)')).not.toBeInTheDocument();
   });
 
-  it('keeps enforced-SSO as an Enterprise upsell, never a functional switch', () => {
+  it('renders nothing for enforced-SSO in the community edition (#4494)', () => {
+    // Per the 2026-06-30 "render nothing" decision at the 0.4 SSO checkpoint:
+    // no row, no Enterprise badge, no teaser copy — enforced-SSO is a pure
+    // extension-point slot in OSS, not an informational affordance.
     renderPanel();
-    expect(screen.getByText(/Password and SSO sign-in are both allowed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Password and SSO sign-in are both allowed/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Password sign-in')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: /Available in TruePPM Enterprise/i }),
-    ).toBeInTheDocument();
+      screen.queryByRole('link', { name: /Available in TruePPM Enterprise/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('closes without saving from the Cancel button and the header ✕', async () => {

@@ -39,10 +39,6 @@ vi.mock('@/hooks/useSso', () => ({
   useUpdateSsoProvider: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useTestSsoConnection: () => ({ mutate: vi.fn(), isPending: false, data: undefined }),
 }));
-// EnterpriseBadge (rendered inside the panel) reads the edition.
-vi.mock('@/hooks/useEdition', () => ({
-  useEdition: () => ({ edition: 'community', isLoading: false }),
-}));
 
 describe('WorkspaceSsoPage', () => {
   beforeEach(() => {
@@ -156,16 +152,18 @@ describe('WorkspaceSsoPage', () => {
     );
   });
 
-  it('keeps enforced-SSO as an Enterprise upsell, not a switch, inside the panel', async () => {
+  it('renders nothing for enforced-SSO inside the panel (#4494)', async () => {
+    // Per the 2026-06-30 "render nothing" decision: no row, no Enterprise
+    // badge, no teaser copy, and certainly no functional switch.
     providersData = [KEYCLOAK];
     render(<WorkspaceSsoPage />);
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Edit' }));
 
-    expect(screen.getByText(/Password and SSO sign-in are both allowed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Password and SSO sign-in are both allowed/i)).not.toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: /Available in TruePPM Enterprise/i }),
-    ).toBeInTheDocument();
+      screen.queryByRole('link', { name: /Available in TruePPM Enterprise/i }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: /disable password/i })).not.toBeInTheDocument();
   });
 });
