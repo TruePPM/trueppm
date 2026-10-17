@@ -55,7 +55,7 @@ check_listing() {
       *" $top "*) ;;
       *) echo "UNEXPECTED top-level member: $f"; bad=1 ;;
     esac
-    if printf '%s\n' "$f" | grep -Eq "$DEV_ARTIFACT_RE"; then
+    if grep -Eq "$DEV_ARTIFACT_RE" <<<"$f"; then
       echo "DEV ARTIFACT in sdist: $f"; bad=1
     fi
   done < "$list"
