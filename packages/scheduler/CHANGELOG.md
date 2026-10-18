@@ -30,6 +30,14 @@ change between releases. Pin an exact version (e.g.
   `dataclasses.replace(mc, p50=...)` raises `TypeError` for the same reason,
   `repr()` and `==` now key off `percentiles`, and `percentiles=` must contain
   levels 50, 80 and 95 (extra levels are kept; `to_dict()` ignores them).
+- **An unknown per-task calendar id is now refused (#4516).** When
+  `Project.calendars` is non-empty, a `Task.calendar_id` that names no entry in
+  it raises `InvalidScheduleInput` from `schedule()`, `monte_carlo()` and
+  `derive_value()` (including with a precomputed `result`). It used to fall back
+  silently to `Project.calendar`, so a typo or a dropped registry entry produced
+  a plausible schedule on the wrong working week. With no registry (`None` or
+  empty) a set `calendar_id` is still ignored and the task uses
+  `Project.calendar`. Input that this version refuses was previously accepted.
 
 ### Fixed
 

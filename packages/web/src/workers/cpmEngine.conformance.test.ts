@@ -119,8 +119,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   per_task_calendar_six_day: 'engine gap: per-task calendars not modeled',
   per_task_calendar_backward_float: 'engine gap: per-task calendars not modeled',
   per_task_calendar_fs_lag_both_directions: 'engine gap: per-task calendars not modeled',
-  per_task_calendar_id_no_registry: 'engine gap: task carries a calendar_id (ignored, #4516)',
-  per_task_calendar_id_empty_registry: 'engine gap: task carries a calendar_id (ignored, #4516)',
+  per_task_calendar_id_no_registry:
+    'adapter: harness precondition requires no calendar_id/calendars (engine ignores the id, which matches)',
+  per_task_calendar_id_empty_registry:
+    'adapter: harness precondition requires no calendar_id/calendars (engine ignores the id, which matches)',
   // The engine applies SNET (#3535) but the harness seeds every task at the
   // project start, which is not how a fixture's own planned_start reads.
   planned_start_snet: 'adapter: seeds all tasks at project start, overriding SNET',
