@@ -18,6 +18,17 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **Advance notice: `trueppm_scheduler.engine` will become a subpackage in 0.5
+  (#4550, #4551).** No code changes in this release. In 0.5, `engine.py` will be
+  split into an `engine/` subpackage as a pure move. Top-level
+  `trueppm_scheduler` imports and every `from trueppm_scheduler.engine import X`
+  that works today will keep working through re-exports. A `mock.patch` or
+  `monkeypatch.setattr` aimed at an engine internal or module constant (for
+  example `trueppm_scheduler.engine.MAX_DEPENDENCIES`) will silently stop
+  taking effect, and must be repointed at the defining submodule. Pickles
+  written by 0.5 will not load on 0.4. See the README's "API stability and
+  versioning" section.
+
 - **`MonteCarloResult` stores its levels in `percentiles` (#4514).** The
   confidence levels now live in `percentiles: dict[int, Percentile]` (new
   exported frozen `Percentile(date, at_day_start)`), and `p50`/`p80`/`p95` and

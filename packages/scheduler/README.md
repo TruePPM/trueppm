@@ -443,6 +443,39 @@ is the reliable approach in either state. Breaking changes are recorded in
 [`CHANGELOG.md`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CHANGELOG.md),
 which also ships inside the wheel.
 
+### Heads-up: `trueppm_scheduler.engine` becomes a subpackage in 0.5
+
+0.5 will split the single `trueppm_scheduler/engine.py` module into an
+`engine/` subpackage (CPM, Monte Carlo, calendar math, validation, and so on in
+separate files). The split is planned to land on `main` in November–December
+2026 and ship with 0.5
+([#4550](https://gitlab.com/trueppm/trueppm/-/issues/4550)). It is a pure move:
+scheduling results will not change.
+
+**Will keep working, unchanged:**
+
+- Every import from the top-level `trueppm_scheduler` package (the `__all__`
+  surface above).
+- `from trueppm_scheduler.engine import X` for every name importable today,
+  including underscore-prefixed helpers. `engine/__init__.py` re-exports them
+  for the whole 0.5 line.
+- Result objects pickled by 0.4 will still unpickle on 0.5.
+
+**Will need a change on your side:**
+
+- **Patching engine internals in your tests.**
+  `unittest.mock.patch("trueppm_scheduler.engine._helper")` or
+  `monkeypatch.setattr(engine, "MAX_DEPENDENCIES", 1)` will replace the
+  re-exported name. The code that actually calls the helper or reads the
+  constant will still see the original, so the patch stops taking effect,
+  usually without failing the test. Point such patches at the submodule that
+  defines the name once you upgrade.
+- Code that reads a class's `__module__`, or tooling keyed on the file path
+  `trueppm_scheduler/engine.py` (coverage or lint excludes, for example).
+- Result objects pickled by 0.5 will not unpickle on 0.4.
+
+If you depend only on the public API, there is nothing to do.
+
 ### Reproducibility (seeded runs)
 
 Monte Carlo simulation is **reproducible for a fixed seed**: the same `seed`
@@ -557,7 +590,10 @@ new scheduling features; the following are `release::committed` for 0.5 —
 they will ship with 0.5 or that release will slip:
 
 - **Engine decomposition and correctness hardening** — splitting `engine.py`
-  and extending the independent CPM oracle to milestone late dates/floats
+  into a subpackage without breaking imports (see the
+  [heads-up](#heads-up-trueppm_schedulerengine-becomes-a-subpackage-in-05) above;
+  [#4550](https://gitlab.com/trueppm/trueppm/-/issues/4550)) and extending the
+  independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings `engine.py` itself into scope
   ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); the in-flight
