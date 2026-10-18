@@ -187,17 +187,16 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "is_binding",
     ],
     "DrivingEdge": ["predecessor_id", "successor_id", "dep_type"],
+    "Percentile": ["date", "at_day_start"],
+    # #4514: storage moved to ``percentiles``; p50/p80/p95 + ``*_at_day_start`` are
+    # derived properties. The *positional constructor* contract is pinned
+    # separately in ``test_monte_carlo_percentiles.py``.
     "MonteCarloResult": [
         "project_id",
         "runs",
-        "p50",
-        "p80",
-        "p95",
         "distribution",
         "sensitivity",
-        "p50_at_day_start",
-        "p80_at_day_start",
-        "p95_at_day_start",
+        "percentiles",
     ],
     "Project": [
         "id",
