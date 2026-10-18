@@ -1,0 +1,90 @@
+{
+  "project_id": "p-progress-closed-milestone-open-predecessor",
+  "project_start": "2027-03-01",
+  "project_finish": "2027-03-08",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-04",
+      "late_start": "2027-03-03",
+      "late_finish": "2027-03-08",
+      "total_float": 172800.0,
+      "free_float": 172800.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "M",
+      "early_start": "2027-03-05",
+      "early_finish": "2027-03-05",
+      "late_start": "2027-03-05",
+      "late_finish": "2027-03-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-05"
+    },
+    {
+      "id": "B",
+      "early_start": "2027-03-05",
+      "early_finish": "2027-03-08",
+      "late_start": "2027-03-05",
+      "late_finish": "2027-03-08",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-05"
+    },
+    {
+      "id": "C",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-08",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-08",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "N",
+      "early_start": "2027-03-05",
+      "early_finish": "2027-03-05",
+      "late_start": "2027-03-05",
+      "late_finish": "2027-03-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-05"
+    },
+    {
+      "id": "D",
+      "early_start": "2027-03-05",
+      "early_finish": "2027-03-08",
+      "late_start": "2027-03-05",
+      "late_finish": "2027-03-08",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-05"
+    }
+  ],
+  "critical_path": [
+    "C",
+    "B",
+    "D"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "M",
+      "successor_id": "B",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "N",
+      "successor_id": "D",
+      "dep_type": "FS"
+    }
+  ]
+}

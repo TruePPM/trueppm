@@ -1676,6 +1676,7 @@ def _place_milestone(
     links: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],
     start_floor: date | None = None,
+    completed_only: bool = False,
 ) -> tuple[_Instant, date, _Instant]:
     """Place a zero-duration task as an instant: ``(shown, day, link)``.
 
@@ -1722,6 +1723,9 @@ def _place_milestone(
     the same raw-versus-shown split :func:`_start_reading` keeps for a display-only
     snap (#4173). When nothing but the project-start floor proposes, the two are
     the same instant.
+
+    ``completed_only`` limits the links to completed predecessors — the reading a
+    closed milestone's day edge is taken from (:func:`_live_milestone_edge`, #4525).
     """
     best: tuple[date, bool, date] | None = None
 
@@ -1735,6 +1739,8 @@ def _place_milestone(
 
     for pred_id in g.predecessors(node_id):
         pred = task_map[pred_id]
+        if completed_only and not _is_complete(pred):
+            continue
         dep: Dependency = g[pred_id][node_id]["dep"]
         assert pred.early_start is not None and pred.early_finish is not None
         raw, start_display = _milestone_proposal(
@@ -2436,10 +2442,22 @@ def _live_milestone_edge(
     it was signed off, or held by a later SNET, slipped its successors a working
     day when it was closed — the #4433 bug again. With no predecessor nothing but
     a floor can place it: the start of its day.
+
+    Only **completed** predecessors are read (#4525). A closed milestone is pinned
+    out of network logic (ADR-0136), so its edge must be a function of facts
+    recorded by the time it closed, not of a live predecessor's current forecast.
+    Reading every predecessor let an unrelated slip of open work — a milestone
+    signed off out of sequence — flip the edge and move the milestone's
+    successors a working day either way: a longer predecessor could finish the
+    project *earlier*, and the predecessor's float, measured by a backward pass
+    that skips completed successors, ignored the coupling. Completed predecessors
+    are themselves pinned, so by induction nothing live can move a closed
+    milestone. Out-of-sequence open work reads as not having placed it: the start
+    of its recorded day.
     """
-    if not any(True for _ in g.predecessors(node_id)):
-        return True
-    shown, _, _ = _place_milestone(node_id, task_map, g, cal, [recorded], links, cal_for)
+    shown, _, _ = _place_milestone(
+        node_id, task_map, g, cal, [recorded], links, cal_for, completed_only=True
+    )
     return shown[1]
 
 
@@ -5672,12 +5690,11 @@ def _completed_dates(
     #4343), including one with no actuals, so each *date* read here is a function of
     the task's own fields and the project start alone. A closed milestone's *instant*
     is not quite: which edge of its recorded day it sits on is read off its
-    predecessors' positions in this one deterministic pass (#4433,
-    :func:`_live_milestone_edge` — an FS or SS predecessor that lands later can flip
-    it). It is read once, here, and frozen; no run re-derives it from a sampled
-    predecessor duration. That is what makes the pin a true constant across runs,
-    the property the Monte Carlo fast path relies on: no run can move a completed
-    task. (Before #4343
+    *completed* predecessors' positions in this one deterministic pass (#4433,
+    #4525, :func:`_live_milestone_edge`). Those are pinned too, so no sampled
+    duration could move it either way; it is read once, here, and frozen. That is
+    what makes the pin a true constant across runs, the property the Monte Carlo
+    fast path relies on: no run can move a completed task. (Before #4343
     the no-actuals task was placed through the network in ``schedule()``, so pinning it
     at its deterministic position here froze a position that in fact depended on its
     predecessors' durations, and the percentiles under-reported risk downstream of it.)

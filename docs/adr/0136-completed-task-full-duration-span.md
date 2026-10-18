@@ -149,6 +149,17 @@ Rules:
   `COMPLETE` stamps `actual_finish`, that rule made closing a milestone slip every FS
   successor, and the project finish, a working day later than the same milestone live
   or completed without actuals.)
+- **Only completed predecessors decide that edge (amended 2026-10-18, #4525).** As first
+  shipped, the #4433 rule read every predecessor's *current* forecast, so a milestone
+  signed off while a predecessor was still open had its edge re-derived on every
+  reschedule: an open predecessor slipping a day flipped the edge, its successors moved a
+  working day either way, a longer predecessor could finish the project earlier on an
+  FS-only network, and the predecessor's float — measured by a backward pass that skips
+  completed successors — ignored the coupling. The edge is now read from completed
+  predecessors only. Those are pinned themselves, so nothing live can move a closed
+  milestone, date or edge. Open work behind a closed milestone is out-of-sequence
+  progress and reads as not having placed it: the start of the recorded day. Closing a
+  milestone after its work finished on that day is unaffected — that work is complete.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

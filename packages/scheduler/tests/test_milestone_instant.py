@@ -721,9 +721,14 @@ class TestMilestoneAtDayEnd:
         """A milestone closed with actuals keeps the edge it had live (#4433).
 
         ``A -FS-> M``: live, M sits at the end of A's finish day, and closing it on
-        that day keeps it there — so it is flagged, as the live one is. Before
-        #4433 a milestone pinned by actuals was never flagged and the API derived
-        its end-of-day reading from the actuals itself."""
+        that day — A finished — keeps it there, so it is flagged, as the live one
+        is. Before #4433 a milestone pinned by actuals was never flagged and the
+        API derived its end-of-day reading from the actuals itself.
+
+        A has to be *finished* for that: only completed predecessors decide a
+        closed milestone's edge (#4525). This fixture once left A open with no
+        progress, which passed only because A's forecast happened to finish on
+        the sign-off day — the dependence on a live forecast #4525 removed."""
         done = Task(
             id="M",
             name="M",
@@ -732,11 +737,50 @@ class TestMilestoneAtDayEnd:
             actual_finish=date(2026, 1, 9),
             percent_complete=100.0,
         )
+        a_done = Task(
+            id="A",
+            name="A",
+            duration=timedelta(days=5),
+            actual_start=MON,
+            actual_finish=date(2026, 1, 9),
+            percent_complete=100.0,
+        )
         live = _by_id(_project([_task("A", 5), _task("M", 0), _task("B", 1)], [_dep("A", "M")]))
-        by_id = _by_id(_project([_task("A", 5), done, _task("B", 1)], [_dep("A", "M")]))
+        by_id = _by_id(_project([a_done, done, _task("B", 1)], [_dep("A", "M")]))
         assert live["M"].milestone_at_day_end is True
         assert by_id["M"].milestone_at_day_end is True
         assert not by_id["A"].milestone_at_day_end and not by_id["B"].milestone_at_day_end
+
+    def test_open_work_does_not_decide_a_closed_milestones_edge(self) -> None:
+        """A milestone signed off before its predecessor finished sits at the start of its day.
+
+        ``A -FS(+1)-> M -FS-> B`` with M closed on Fri 03-05 and A still open
+        (#4525, the audit's FS-only repro): A at 3, 4, 5 or 6 days must leave M,
+        B and the project finish where they are. Reading A's forecast flipped M's
+        edge on every extra day, so A=4 finished on Tuesday, A=5 on Monday and
+        A=6 on Tuesday again — a longer task finishing the project earlier."""
+
+        def finish(a_days: int) -> tuple[bool, date, date]:
+            p = Project(
+                id="p",
+                name="p",
+                start_date=date(2027, 3, 1),
+                tasks=[
+                    Task(id="A", name="A", duration=timedelta(days=a_days)),
+                    Task(id="M", name="M", duration=timedelta(0), actual_finish=date(2027, 3, 5)),
+                    Task(id="B", name="B", duration=timedelta(days=2)),
+                ],
+                dependencies=[
+                    Dependency("A", "M", DependencyType.FS, timedelta(days=1)),
+                    Dependency("M", "B"),
+                ],
+            )
+            r = schedule(p)
+            t = {x.id: x for x in r.tasks}
+            assert t["B"].early_start is not None
+            return t["M"].milestone_at_day_end, t["B"].early_start, r.project_finish
+
+        assert {finish(d) for d in (3, 4, 5, 6)} == {(False, date(2027, 3, 5), date(2027, 3, 8))}
 
     def test_a_stale_input_value_is_overwritten(self) -> None:
         stale = Task(id="M", name="M", duration=timedelta(0), milestone_at_day_end=True)
