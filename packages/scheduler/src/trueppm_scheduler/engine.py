@@ -468,9 +468,34 @@ class TaskSensitivity:
         return {"task_id": self.task_id, "index": self.index}
 
 
-@dataclass
+_Date = date  # ``Percentile.date`` shadows the name inside its own class body
+
+
+@dataclass(frozen=True)
+class Percentile:
+    """One computed confidence level of a Monte Carlo finish distribution.
+
+    Attributes:
+        date: The completion date at this level, shown on a day the way
+            :attr:`ScheduleResult.project_finish` is.
+        at_day_start: Which edge of ``date`` the level is. ``True`` means the
+            *start* of the day (the finish is a start-of-day milestone, #4079),
+            ``False`` the end (#4204).
+    """
+
+    date: _Date
+    at_day_start: bool = False
+
+
+@dataclass(init=False)
 class MonteCarloResult:
     """Output of a Monte Carlo probabilistic schedule simulation.
+
+    The computed confidence levels live in :attr:`percentiles`, keyed by the
+    integer level (``50``, ``80``, ``95``). ``p50``/``p80``/``p95`` and
+    ``p50_at_day_start``/``p80_at_day_start``/``p95_at_day_start`` are read-only
+    properties over it, so the long-standing attribute reads and the
+    :meth:`to_dict` shape are unchanged.
 
     ``p50``/``p80``/``p95`` are completion dates at those confidence levels, not
     three competing estimates: 50%, 80%, and 95% of simulated runs finished on or
@@ -481,34 +506,113 @@ class MonteCarloResult:
 
     Each percentile is an order statistic over the runs' **working-time** finish
     positions (#4204), shown on a day the way :attr:`ScheduleResult.project_finish`
-    is. ``p50_at_day_start`` / ``p80_at_day_start`` / ``p95_at_day_start`` say which
-    edge of that day the percentile is: ``True`` means the *start* of the day (the
-    finish is a start-of-day milestone, #4079), ``False`` the end. The end of a
-    Friday and the start of the following Monday are the same working-time
-    position, so compare a percentile with a CPM finish, or with another run's
-    percentile, in working time — reading a start-of-day finish as the end of the
-    last working day before it — never as the calendar-day difference of the two
-    shown days. All three default to ``False``, the reading every finish had before
-    #4079.
+    is. ``Percentile.at_day_start`` says which edge of that day the percentile is:
+    ``True`` means the *start* of the day (the finish is a start-of-day milestone,
+    #4079), ``False`` the end. The end of a Friday and the start of the following
+    Monday are the same working-time position, so compare a percentile with a CPM
+    finish, or with another run's percentile, in working time — reading a
+    start-of-day finish as the end of the last working day before it — never as the
+    calendar-day difference of the two shown days. The edge defaults to ``False``,
+    the reading every finish had before #4079.
+
+    Construction accepts either the established ``p50``/``p80``/``p95`` keywords
+    (and the ``*_at_day_start`` flags), in their original positional order, or
+    ``percentiles=`` — not both. ``percentiles`` must contain at least levels 50,
+    80 and 95 (a ``TypeError`` names any missing); further levels are kept but not
+    emitted by :meth:`to_dict`.
+
+    Attributes:
+        project_id: The simulated project's id.
+        runs: Number of simulation runs.
+        distribution: Full sorted distribution of simulated completion dates;
+            useful for rendering histogram tooltips.
+        sensitivity: Per-task duration-sensitivity tornado (ADR-0140), sorted by
+            ``index`` descending and capped to the top entries. Empty for a fully
+            deterministic project.
+        percentiles: The confidence levels that were computed, keyed by integer
+            level.
     """
 
     project_id: str
     runs: int
-    p50: date
-    p80: date
-    p95: date
-    # Full sorted distribution of simulated completion dates.
-    # Useful for rendering histogram tooltips in the UI.
-    distribution: list[date] = field(default_factory=list)
-    # Per-task duration-sensitivity tornado (ADR-0140), sorted by ``index``
-    # descending and capped to the top entries. Empty for a fully deterministic
-    # project (no sampled variance to correlate against the finish).
-    sensitivity: list[TaskSensitivity] = field(default_factory=list)
-    # Which edge of its shown day each percentile is (#4204): True = the start of
-    # the day. Appended with defaults so positional construction is unchanged.
-    p50_at_day_start: bool = False
-    p80_at_day_start: bool = False
-    p95_at_day_start: bool = False
+    distribution: list[date]
+    sensitivity: list[TaskSensitivity]
+    percentiles: dict[int, Percentile]
+
+    def __init__(
+        self,
+        project_id: str,
+        runs: int,
+        p50: date | None = None,
+        p80: date | None = None,
+        p95: date | None = None,
+        distribution: list[date] | None = None,
+        sensitivity: list[TaskSensitivity] | None = None,
+        p50_at_day_start: bool = False,
+        p80_at_day_start: bool = False,
+        p95_at_day_start: bool = False,
+        *,
+        percentiles: dict[int, Percentile] | None = None,
+    ) -> None:
+        legacy = (p50, p80, p95)
+        if percentiles is not None:
+            if any(v is not None for v in legacy) or any(
+                (p50_at_day_start, p80_at_day_start, p95_at_day_start)
+            ):
+                raise TypeError(
+                    "pass either percentiles= or the p50/p80/p95 (+ *_at_day_start) "
+                    "arguments to MonteCarloResult, not both"
+                )
+            levels = dict(percentiles)
+            missing = [q for q in (50, 80, 95) if q not in levels]
+            if missing:
+                raise TypeError(
+                    f"percentiles= must include levels 50, 80 and 95; missing {missing}"
+                )
+        else:
+            if any(v is None for v in legacy):
+                raise TypeError("MonteCarloResult requires p50, p80 and p95 (or percentiles=)")
+            assert p50 is not None and p80 is not None and p95 is not None
+            levels = {
+                50: Percentile(p50, p50_at_day_start),
+                80: Percentile(p80, p80_at_day_start),
+                95: Percentile(p95, p95_at_day_start),
+            }
+        self.project_id = project_id
+        self.runs = runs
+        self.distribution = [] if distribution is None else distribution
+        self.sensitivity = [] if sensitivity is None else sensitivity
+        self.percentiles = levels
+
+    @property
+    def p50(self) -> date:
+        """Completion date that 50% of simulated runs finished on or before."""
+        return self.percentiles[50].date
+
+    @property
+    def p80(self) -> date:
+        """Completion date that 80% of simulated runs finished on or before."""
+        return self.percentiles[80].date
+
+    @property
+    def p95(self) -> date:
+        """Completion date that 95% of simulated runs finished on or before."""
+        return self.percentiles[95].date
+
+    @property
+    def p50_at_day_start(self) -> bool:
+        """Whether :attr:`p50` is the start (``True``) or end of its day (#4204)."""
+        return self.percentiles[50].at_day_start
+
+    @property
+    def p80_at_day_start(self) -> bool:
+        """Whether :attr:`p80` is the start (``True``) or end of its day (#4204)."""
+        return self.percentiles[80].at_day_start
+
+    @property
+    def p95_at_day_start(self) -> bool:
+        """Whether :attr:`p95` is the start (``True``) or end of its day (#4204)."""
+        return self.percentiles[95].at_day_start
 
     def to_dict(self) -> dict[str, Any]:
         """Return the simulation result as a JSON-serializable dict.

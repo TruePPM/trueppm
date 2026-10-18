@@ -16,6 +16,21 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+### Changed
+
+- **`MonteCarloResult` stores its levels in `percentiles` (#4514).** The
+  confidence levels now live in `percentiles: dict[int, Percentile]` (new
+  exported frozen `Percentile(date, at_day_start)`), and `p50`/`p80`/`p95` and
+  `p50_at_day_start`/`p80_at_day_start`/`p95_at_day_start` are read-only
+  properties over it. Reads, `to_dict()` and construction with the
+  `p50`/`p80`/`p95` keywords or positionally are unchanged; `percentiles=` is a
+  new keyword-only alternative. Not backward compatible: `dataclasses.fields()`
+  no longer lists the `p*` fields, and assigning to `mc.p50` etc. now raises
+  `AttributeError` (assign `mc.percentiles[50] = Percentile(...)` instead).
+  `dataclasses.replace(mc, p50=...)` raises `TypeError` for the same reason,
+  `repr()` and `==` now key off `percentiles`, and `percentiles=` must contain
+  levels 50, 80 and 95 (extra levels are kept; `to_dict()` ignores them).
+
 ### Fixed
 
 - **Closing a milestone no longer slips its successors a working day (#4433).**
