@@ -1,0 +1,40 @@
+{
+  "project_id": "p-calendar-id-no_registry",
+  "project_start": "2026-03-06",
+  "project_finish": "2026-03-11",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-03-06",
+      "early_finish": "2026-03-09",
+      "late_start": "2026-03-06",
+      "late_finish": "2026-03-09",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-03-06"
+    },
+    {
+      "id": "B",
+      "early_start": "2026-03-10",
+      "early_finish": "2026-03-11",
+      "late_start": "2026-03-10",
+      "late_finish": "2026-03-11",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-03-10"
+    }
+  ],
+  "critical_path": [
+    "A",
+    "B"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "FS"
+    }
+  ]
+}

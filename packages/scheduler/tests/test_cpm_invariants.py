@@ -148,10 +148,14 @@ def _clear_completion(project: Project) -> Project:
 
 
 def _task_calendar(project: Project, task: Task) -> Calendar:
-    """The calendar the engine schedules ``task`` on: its ``calendar_id`` entry in
-    ``project.calendars`` when one resolves, else the project calendar."""
+    """The calendar the engine schedules ``task`` on.
+
+    With a non-empty ``project.calendars`` registry a set ``calendar_id`` must name
+    an entry (the engine refuses an unknown id, #4516), so the registry is indexed
+    directly; with no registry, or no ``calendar_id``, it is the project calendar.
+    """
     if task.calendar_id is not None and project.calendars:
-        return project.calendars.get(task.calendar_id, project.calendar)
+        return project.calendars[task.calendar_id]
     return project.calendar
 
 

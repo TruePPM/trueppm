@@ -88,9 +88,8 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
 /// offending id is named so a bad member-project calendar is traceable in a
 /// program-scoped run.
 ///
-/// A `calendar_id` that names no registry entry is deliberately **not** an error:
-/// it falls back to the pass-level calendar, matching `resolve_task_calendars`
-/// and the Python engine. The MC-only fields (delivery_mode/story_points/
+/// A `calendar_id` that names no entry in a non-empty registry is refused per
+/// task by `check_calendar_id_known` (#4516). The MC-only fields (delivery_mode/story_points/
 /// velocity_samples/sprint_length_days) are not validated here — they never
 /// affect a deterministic CPM result.
 fn validate_task_calendars(project: &Project) -> Result<(), String> {
@@ -198,6 +197,7 @@ fn validate_calendar(cal: &Calendar) -> Result<(), String> {
 /// Per-task durations, PERT estimates, recorded actuals, and the SNET pin.
 fn validate_tasks(project: &Project) -> Result<(), String> {
     for t in &project.tasks {
+        check_calendar_id_known(t, project)?;
         check_whole_days(t.duration, &format!("Task {:?} duration", t.id))?;
         check_duration(
             i64::from(t.duration_days()),
@@ -220,6 +220,26 @@ fn validate_tasks(project: &Project) -> Result<(), String> {
         check_planned_start_bound(t, project.start_date)?;
     }
     Ok(())
+}
+
+/// A `calendar_id` must name an entry of a non-empty `calendars` registry (#4516,
+/// mirrors Python's `_validate_task_calendar_id`).
+///
+/// The old fallback scheduled a typo or a dropped registry entry on the pass-level
+/// calendar — a plausible schedule on the wrong working week with no diagnostic.
+/// With no registry (absent or empty) a set id is ignored, so single-calendar
+/// documents schedule unchanged. The message matches the Python engine's.
+fn check_calendar_id_known(t: &Task, project: &Project) -> Result<(), String> {
+    let (Some(id), Some(calendars)) = (&t.calendar_id, &project.calendars) else {
+        return Ok(());
+    };
+    if calendars.is_empty() || calendars.contains_key(id) {
+        return Ok(());
+    }
+    Err(format!(
+        "Task {:?} calendar_id {:?} names no calendar in the project's calendars registry.",
+        t.id, id
+    ))
 }
 
 /// `percent_complete` must lie in [0, 100] (#4513, mirrors Python's
@@ -956,14 +976,38 @@ mod tests {
     }
 
     #[test]
-    fn accepts_unknown_calendar_id_as_a_fallback() {
-        // A stray id resolves to the pass-level calendar rather than erroring —
-        // matching resolve_task_calendars and the Python engine.
+    fn accepts_calendar_id_with_empty_or_absent_registry() {
+        // #4516: with no registry to resolve against, a set id is ignored and the
+        // task schedules on the pass-level calendar — matching the Python engine.
         let mut t = task("A", 5);
         t.calendar_id = Some("does-not-exist".to_string());
         let mut p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_ok(), "absent registry");
         p.calendars = Some(std::collections::HashMap::new());
-        assert!(validate_project(&p).is_ok());
+        assert!(validate_project(&p).is_ok(), "empty registry");
+    }
+
+    #[test]
+    fn rejects_unknown_calendar_id_with_non_empty_registry() {
+        // #4516: a stray id against a non-empty registry is refused, not silently
+        // scheduled on the pass-level calendar. Message mirrors Python's.
+        let mut t = task("A", 5);
+        t.calendar_id = Some("does-not-exist".to_string());
+        let mut p = project(vec![t], vec![], Calendar::default());
+        let mut registry = std::collections::HashMap::new();
+        registry.insert(
+            "six-day".to_string(),
+            Calendar {
+                working_days: 63,
+                ..Calendar::default()
+            },
+        );
+        p.calendars = Some(registry);
+        assert_eq!(
+            validate_project(&p).unwrap_err(),
+            "Task \"A\" calendar_id \"does-not-exist\" names no calendar in the project's \
+             calendars registry."
+        );
     }
 
     #[test]

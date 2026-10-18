@@ -143,6 +143,20 @@ class Task:
         while the working-time position does not, so compare two milestone dates
         in working time, not as a calendar-day difference. The full display rule
         is on :class:`~trueppm_scheduler.engine.ScheduleResult` (#4178).
+
+    Attributes:
+        calendar_id: Per-task calendar (ADR-0120 D3). When set, this task's
+            *duration* arithmetic uses ``Project.calendars[calendar_id]`` instead of
+            the pass-level ``Project.calendar`` — the substrate for a program-scoped
+            CPM pass where tasks from different member projects each keep their own
+            working week in one merged schedule. ``None`` (the default) means "use
+            the pass-level calendar". When the project's ``calendars`` registry is
+            ``None`` or empty, a set id is ignored and the task uses the pass-level
+            calendar, so single-calendar documents schedule unchanged. When the
+            registry is non-empty, an id naming no entry in it is **refused** with
+            :class:`~trueppm_scheduler.engine.InvalidScheduleInput` by every entry
+            point — it is never silently scheduled on the pass-level calendar, where
+            a typo would yield a plausible schedule on the wrong working week.
     """
 
     id: str
@@ -196,14 +210,8 @@ class Task:
     delivery_mode: DeliveryMode | None = None
     story_points: float | None = None
 
-    # Per-task calendar (ADR-0120 D3, cross-project dependencies). When set, and
-    # the owning :class:`Project` supplies a matching entry in ``Project.calendars``,
-    # this task's *duration* arithmetic uses that calendar instead of the
-    # pass-level ``Project.calendar``. It is the substrate for a program-scoped
-    # CPM pass where tasks drawn from different member projects each keep their
-    # own working week in one merged schedule. ``None`` (the default) — or an id
-    # with no matching entry — means "use the pass-level calendar", so every
-    # existing single-calendar document schedules byte-for-byte as before.
+    # Per-task calendar (ADR-0120 D3). Documented under ``Attributes:`` in the
+    # class docstring so ``help(Task)`` shows the unknown-id refusal (#4516).
     calendar_id: str | None = None
 
     # Span start (ADR-0752). ``early_start`` means the *remaining-work window*
@@ -962,7 +970,9 @@ class Project:
     # The program-scoped CPM pass populates this so each member project's tasks
     # keep their own working week in one merged schedule, while lag on any edge is
     # consumed on the *successor's* calendar (the constraint lands where the wait
-    # is). A ``calendar_id`` with no entry here falls back to ``calendar``.
+    # is). When this registry is non-empty, a ``calendar_id`` with no entry here is
+    # refused with ``InvalidScheduleInput`` (#4516), never silently scheduled on
+    # ``calendar``.
     calendars: dict[str, Calendar] | None = None
 
     def to_dict(self) -> dict[str, Any]:

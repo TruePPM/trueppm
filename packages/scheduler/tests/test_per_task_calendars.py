@@ -140,17 +140,81 @@ def test_duration_spans_own_calendar() -> None:
     assert r["seven"].early_finish == date(2026, 1, 10)  # Sat is a working day here
 
 
-def test_unknown_calendar_id_falls_back_to_default() -> None:
-    """A calendar_id naming no registry entry uses the pass-level calendar (no error)."""
+def _ghost_project() -> Project:
+    """A non-empty registry and a task whose id names no entry in it (#4516)."""
+    return Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("ok", 2, "seven"), _task("ghost", 6, "does-not-exist")],
+        calendars={"seven": SEVEN},
+    )
+
+
+def test_unknown_calendar_id_is_rejected_by_schedule() -> None:
+    """An id absent from a non-empty registry is refused, not scheduled Mon-Fri (#4516).
+
+    The old fallback turned a typo or a dropped registry entry into a plausible
+    schedule on the wrong working week with no diagnostic.
+    """
+    with pytest.raises(InvalidScheduleInput, match=r"'ghost'.*'does-not-exist'"):
+        schedule(_ghost_project())
+
+
+def test_unknown_calendar_id_is_rejected_by_monte_carlo() -> None:
+    with pytest.raises(InvalidScheduleInput, match="does-not-exist"):
+        monte_carlo(_ghost_project(), runs=8, seed=1)
+
+
+def test_unknown_calendar_id_is_rejected_by_derive_value_with_precomputed_result() -> None:
+    """``derive_value(result=...)`` skips ``schedule()``, so it must not fall back either.
+
+    The result comes from a valid sibling project; only the explained project carries
+    the stray id. The resolver itself refuses, so no explanation is built against the
+    pass-level calendar.
+    """
+    from trueppm_scheduler.derive import derive_value
+
+    good = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("ok", 2, "seven"), _task("ghost", 6)],
+        calendars={"seven": SEVEN},
+    )
+    result = schedule(good)
+    with pytest.raises(InvalidScheduleInput, match="does-not-exist"):
+        derive_value(_ghost_project(), "ghost", "early_finish", result=result)
+
+
+def test_unknown_calendar_id_is_rejected_after_perturbation() -> None:
+    """``perturb_task_duration`` keeps the stray id, and scheduling the what-if refuses it."""
+    from trueppm_scheduler.engine import perturb_task_duration
+
+    perturbed = perturb_task_duration(_ghost_project(), "ghost", 1)
+    with pytest.raises(InvalidScheduleInput, match="does-not-exist"):
+        schedule(perturbed)
+
+
+@pytest.mark.parametrize("registry", [None, {}], ids=["absent", "empty"])
+def test_calendar_id_without_registry_uses_project_calendar(
+    registry: dict[str, Calendar] | None,
+) -> None:
+    """With no registry a set id is ignored, never refused (#4516's other half).
+
+    Single-calendar documents can carry an id with no registry to resolve it against;
+    they keep scheduling on the pass-level Mon-Fri calendar exactly as before.
+    """
     project = Project(
         id="p",
         name="p",
         start_date=MON,
-        tasks=[_task("ghost", 6, "does-not-exist")],
-        calendars={"seven": SEVEN},
+        tasks=[_task("tagged", 6, "seven")],
+        calendars=registry,
     )
-    # Mon-Fri behavior (the default), not the 7-day one.
-    assert _result(project)["ghost"].early_finish == date(2026, 1, 12)
+    # Mon-Fri behavior (the pass-level calendar), not the 7-day one.
+    assert _result(project)["tagged"].early_finish == date(2026, 1, 12)
+    assert monte_carlo(project, runs=8, seed=1).p50 == date(2026, 1, 12)
 
 
 # ---------------------------------------------------------------------------
@@ -695,12 +759,8 @@ def test_monte_carlo_registry_resolving_to_one_calendar_is_unchanged() -> None:
     assert a.distribution == b.distribution
 
 
-def test_monte_carlo_unknown_calendar_id_falls_back_like_schedule() -> None:
-    """A stray ``calendar_id`` falls back to the pass-level calendar, never errors.
-
-    ``_resolve_task_calendars`` treats an unknown id as a fall-back rather than a
-    validation failure; the simulation must agree with the deterministic pass.
-    """
+def test_monte_carlo_unknown_calendar_id_refused_like_schedule() -> None:
+    """A stray ``calendar_id`` is refused by both entry points with the same message (#4516)."""
     project = Project(
         id="p",
         name="p",
@@ -709,7 +769,11 @@ def test_monte_carlo_unknown_calendar_id_falls_back_like_schedule() -> None:
         dependencies=[Dependency("a", "b")],
         calendars={"seven": SEVEN},
     )
-    assert monte_carlo(project, runs=32, seed=2).p50 == schedule(project).project_finish
+    with pytest.raises(InvalidScheduleInput) as from_schedule:
+        schedule(project)
+    with pytest.raises(InvalidScheduleInput) as from_mc:
+        monte_carlo(project, runs=32, seed=2)
+    assert str(from_schedule.value) == str(from_mc.value)
 
 
 # ---------------------------------------------------------------------------
