@@ -163,6 +163,9 @@ def test_all_zero_point_history_routes_like_no_velocity(project: Project) -> Non
     result = sprint_forecast(project.pk)
     assert result["status"] == "warming_up"
     assert result["p50_sprints"] is None
+    # No velocity signal → no velocity samples. The raw closed-sprint count (3)
+    # here renders "appears once two sprints have closed (3 so far)".
+    assert result["sample_count"] == 0
 
 
 @pytest.mark.django_db

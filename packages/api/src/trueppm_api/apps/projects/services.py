@@ -5568,6 +5568,12 @@ def sprint_forecast(
         if not s.get("exclude_from_velocity") and s.get("completed_points") is not None
     ]
     sprint_length = _typical_sprint_length_days(project_id)
+    # An all-zero point history carries no pace to forecast from, so it counts as
+    # "no velocity signal": it routes to the throughput basis (below) instead of
+    # dead-ending in ``warming_up`` on the velocity path, and it reports
+    # ``sample_count`` 0 — not the raw closed-sprint count, which would read as
+    # "3 sprints closed, still warming up" in the forecast widget.
+    velocity_sample_count = len(samples) if any(s > 0 for s in samples) else 0
 
     base: dict[str, Any] = {
         "remaining_points": remaining,
@@ -5576,7 +5582,7 @@ def sprint_forecast(
         # points, not item counts — so a consumer always reads the figure matching
         # the basis it was handed.
         "remaining_count": None,
-        "sample_count": len(samples),
+        "sample_count": velocity_sample_count,
         "p50_sprints": None,
         "p80_sprints": None,
         "p50_date": None,
@@ -5597,10 +5603,6 @@ def sprint_forecast(
     # flow path is count-based and returns its own basis/status (ADR-0130 D3),
     # replacing the old "warming_up forever" dead-end with a real forecast or an
     # honest "insufficient_flow_history".
-    # An all-zero point history carries no pace to forecast from, so it routes like
-    # "no velocity signal" — to the throughput basis — instead of dead-ending in
-    # ``warming_up`` on the velocity path now that zero sprints count as samples.
-    velocity_sample_count = len(samples) if any(s > 0 for s in samples) else 0
     if _prefers_throughput_forecast(project_id, velocity_sample_count=velocity_sample_count):
         flow = throughput_forecast(project_id, runs=runs, seed=seed)
         if flow is not None:
