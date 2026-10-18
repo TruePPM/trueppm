@@ -48,6 +48,11 @@ Two Voice-of-Customer panels were run:
   (`utilization.py`). A true hard CPM constraint = resource-constrained scheduling /
   leveling, a major engine change that is largely **Enterprise** (cross-program leveling,
   ADR-0030). → Phase 1 cannot make `engaged_to` a hard CPM constraint; it is a **warning overlay**.
+  > **Note (2026-10-18):** "largely Enterprise" here and in Alternative D below is
+  > broader than the boundary as later drawn. Single-program resource leveling is
+  > **OSS** (epic #1442, `CLAUDE.md` § Two-Repo Rule); only **cross-program** leveling
+  > is Enterprise. ADR-0030 does not draw this line. The decision above is unaffected —
+  > it rests on leveling being a major engine change, not on its edition.
 - Three established **non-blocking** warning patterns exist: inline `warnings[]` on a
   mutation (ADR-0028 over-allocation, ADR-0033 skill-mismatch); the post-CPM
   `CrossProjectSlipConflict` model + acknowledge endpoint + WS event (ADR-0120);

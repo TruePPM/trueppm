@@ -152,6 +152,12 @@ upsell tooltip: _"Available in Team tier"_ (using the existing `UpsellTooltip` p
 from ADR-0029). A slot registry ID `resources_heatmap.level_loads` is registered so
 Enterprise can replace the button with the real leveling preview action.
 
+> **Note (2026-10-18):** superseded on the boundary. Single-program resource leveling
+> is **OSS** (epic #1442, `CLAUDE.md` § Two-Repo Rule); only cross-program leveling is
+> Enterprise. A single-project heatmap's "Level loads" action is therefore an OSS
+> feature when it ships, not an upsell — and OSS UI does not show Enterprise upsells
+> before adoption. The slot remains a valid extension point; the tooltip is not.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |

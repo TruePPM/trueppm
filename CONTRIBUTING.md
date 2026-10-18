@@ -23,7 +23,7 @@ For anything beyond a typo fix or one-line bug fix, open an issue first. Describ
 ## Setup
 
 ```bash
-# Prerequisites: Docker, Python 3.12+, Node 20+
+# Prerequisites: Docker, Python 3.11+, Node 20+
 git clone https://gitlab.com/trueppm/trueppm.git
 cd trueppm
 make setup    # installs git hooks via pre-commit

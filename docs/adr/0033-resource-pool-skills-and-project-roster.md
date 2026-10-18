@@ -68,6 +68,9 @@ decimal `max_units`.
   empty slots so Enterprise can layer cross-project skill-gap UI without forking.
 - ADR-0030 — OSS is single-project; cross-project resource leveling is Enterprise.
   This ADR holds that boundary.
+  > **Note (2026-10-18):** ADR-0030 is the navigation-shell ADR and does not draw this
+  > line. The boundary itself is in epic #1442 and `CLAUDE.md` § Two-Repo Rule:
+  > leveling scoped to one program is **OSS**; cross-program leveling is Enterprise.
 - ADR-0031 — Resource allocation timeline endpoint and `max_units` display contract.
   The roster surface re-uses this endpoint; no new utilization endpoint.
 
