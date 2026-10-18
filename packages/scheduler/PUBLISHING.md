@@ -92,6 +92,9 @@ each tagged release. One-time setup, then repeatable per release.
    scheduler ships from `packages/scheduler`).
 2. Build the source archive to upload (either the tag tarball or the built
    sdist/wheel from `python -m build packages/scheduler`).
+   Run `make scheduler-sdist-check` first (or `scripts/check-scheduler-sdist.sh`):
+   the sdist is built from an explicit allow-list, so a local `.coverage` or
+   `.hypothesis/` is not packed (#4520), and that check proves it.
 3. Create/populate the deposition via the Zenodo REST API, using `.zenodo.json`
    as the metadata body:
    - `POST /api/deposit/depositions` (new) or use the concept DOI's

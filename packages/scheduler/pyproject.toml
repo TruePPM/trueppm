@@ -92,6 +92,38 @@ Repository = "https://gitlab.com/trueppm/trueppm"
 Issues = "https://gitlab.com/trueppm/trueppm/-/issues"
 Changelog = "https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CHANGELOG.md"
 
+# sdist allow-list (#4520). Without one, hatchling packs everything under the
+# project root that packages/scheduler/.gitignore (only `mutants/`) does not
+# exclude, so a local `python -m build` after a test run shipped `.coverage` (a
+# SQLite DB holding the developer's absolute paths) and `.hypothesis/` caches.
+# An allow-list cannot leak a future dev artifact; a .gitignore deny-list can.
+# scripts/check-scheduler-sdist.sh gates this (CI: scheduler:sdist-check).
+#
+# In: src + tests + scripts (the suite imports scripts/check_mutation_score.py,
+# so downstream packagers can run tests from the sdist), README / CHANGELOG
+# (the wheel build force-includes CHANGELOG.md, and `pip wheel` from the sdist
+# fails without it), LICENSE / NOTICE (#4177), CITATION.cff (citation metadata
+# should travel with the source). pyproject.toml is always added by hatchling.
+# Out, deliberately: uv.lock (a CI/OSV scanning aid; the published artifact pins
+# nothing), notebooks/ (large, outputs-bearing demos run by scheduler:notebooks),
+# paper.* and .zenodo.json (JOSS/Zenodo submission material), PUBLISHING.md,
+# CONTRIBUTING.md and osv-scanner.toml (maintainer/repo tooling).
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/scripts",
+    "/CHANGELOG.md",
+    "/README.md",
+    "/LICENSE",
+    "/NOTICE", # redundant with license-files above; belt-and-braces, REQUIRED in scripts/check-scheduler-sdist.sh is the guard
+    "/CITATION.cff",
+]
+exclude = [
+    "__pycache__",
+    "*.pyc",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/trueppm_scheduler"]
 
