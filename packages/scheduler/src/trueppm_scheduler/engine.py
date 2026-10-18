@@ -1831,13 +1831,16 @@ def find_cycle(
         acyclic. The result is truthy iff a cycle was found.
 
     Raises:
-        InvalidScheduleInput: If ``children_map`` itself is malformed — it
-            contains a cycle (a summary that is its own ancestor) or a summary
-            with an empty children list — distinct from a cycle in the
-            ``edges`` being validated, which is returned, not raised. Also
-            raised if expanding summary→summary edges would exceed
-            :data:`MAX_EXPANDED_EDGES` leaf-level tuples (a pathological cross
-            product); the graph is rejected rather than allowed to spin.
+        InvalidScheduleInput: If ``children_map`` itself is malformed — not a
+            dict, a summary id (key) or child id that is not a string (``None``
+            and other non-string ids are refused, #4522), a value that is not a
+            list, a summary with an empty children list, or a cycle in
+            ``children_map`` itself (a summary that is its own ancestor) —
+            distinct from a cycle in the ``edges`` being validated, which is
+            returned, not raised. Also raised if expanding summary→summary
+            edges would exceed :data:`MAX_EXPANDED_EDGES` leaf-level tuples (a
+            pathological cross product); the graph is rejected rather than
+            allowed to spin.
     """
     edge_list = _validate_edge_list(edges)
     _validate_children_map_shape(children_map)
@@ -1879,7 +1882,14 @@ def _validate_children_map_shape(children_map: dict[str, list[str]] | None) -> N
     """Guard the container type before ``.items()`` (#1825).
 
     A non-dict argument (a list or str) would otherwise leak a bare
-    ``AttributeError`` past the documented contract.
+    ``AttributeError`` past the documented contract. Also rejects a non-string
+    summary id (key) or child id (#4522) — a ``None``/unhashable (list/dict)
+    child entry otherwise reaches ``children_map.get(node)`` inside
+    ``_collect_leaves`` during expansion and either leaks a bare
+    ``TypeError``/``ValueError`` or, for ``None``, is silently accepted as a leaf
+    id with no error at all; a non-string key (e.g. an ``int``) never matches a
+    string edge endpoint, so the whole entry is silently accepted and ignored as
+    a dead no-op instead of being refused as the malformed input it is.
     """
     if children_map is None:
         return
@@ -1889,10 +1899,21 @@ def _validate_children_map_shape(children_map: dict[str, list[str]] | None) -> N
             f"(got {type(children_map).__name__})."
         )
     for sid, kids in children_map.items():
+        if not isinstance(sid, str):
+            raise InvalidScheduleInput(
+                f"children_map contains a non-string summary id "
+                f"(got {type(sid).__name__}: {sid!r})."
+            )
         if not isinstance(kids, list):
             raise InvalidScheduleInput(
                 f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
             )
+        for child_id in kids:
+            if not isinstance(child_id, str):
+                raise InvalidScheduleInput(
+                    f"children_map[{sid!r}] contains a non-string child id "
+                    f"(got {type(child_id).__name__}: {child_id!r})."
+                )
 
 
 def _expand_edges_for_cycle_check(
@@ -3086,6 +3107,19 @@ def _check_children_map(children_map: dict[str, list[str]]) -> None:
     ``TypeError`` from ``reversed()`` in ``_collect_leaves`` — and, worse, a *string*
     value silently iterates its characters as child ids, producing corrupt expanded
     dependencies with no error at all.
+
+    Also rejects a non-string child id (#4522): a ``None`` or unhashable (list/dict)
+    entry otherwise reaches ``children_map.get(node)`` inside ``_collect_leaves`` and
+    either leaks a bare ``TypeError`` ("unhashable type") or — for ``None``, which
+    *is* hashable — is silently accepted as a leaf id, producing a
+    :class:`Dependency` whose endpoint is ``None`` instead of a task id, with no
+    error at all. Every task/dependency id elsewhere in this module is required to
+    be a string (:func:`_require_str`); a child id is no exception.
+
+    Also rejects a non-string summary id (key, #4522): an ``int`` (or other
+    non-string) key never matches a string edge/task endpoint, so the whole entry
+    silently becomes a dead no-op instead of being refused as the malformed input
+    it is.
     """
     if not isinstance(children_map, dict):
         raise InvalidScheduleInput(
@@ -3093,6 +3127,11 @@ def _check_children_map(children_map: dict[str, list[str]]) -> None:
             f"(got {type(children_map).__name__})."
         )
     for sid, kids in children_map.items():
+        if not isinstance(sid, str):
+            raise InvalidScheduleInput(
+                f"children_map contains a non-string summary id "
+                f"(got {type(sid).__name__}: {sid!r})."
+            )
         if not isinstance(kids, list):
             raise InvalidScheduleInput(
                 f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
@@ -3102,6 +3141,12 @@ def _check_children_map(children_map: dict[str, list[str]]) -> None:
                 f"Summary task {sid!r} has an empty children list; remove it from "
                 "children_map or give it children."
             )
+        for child_id in kids:
+            if not isinstance(child_id, str):
+                raise InvalidScheduleInput(
+                    f"children_map[{sid!r}] contains a non-string child id "
+                    f"(got {type(child_id).__name__}: {child_id!r})."
+                )
 
 
 def _collect_leaves(
@@ -3182,6 +3227,12 @@ def expand_summary_dependencies(
         A :class:`SummaryExpansion` whose ``tasks`` are the input tasks with
         summaries removed and whose ``dependencies`` are expanded to leaf-level
         edges. Unpacks as ``leaf_tasks, expanded_deps`` for backward compatibility.
+
+    Raises:
+        InvalidScheduleInput: If ``children_map`` is malformed — not a dict, a
+            summary id (key) or child id that is not a string (``None`` and
+            other non-string ids are refused, #4522), a value that is not a
+            list, or a summary with an empty children list.
     """
     if not children_map:
         return SummaryExpansion(tasks=tasks, dependencies=deps)

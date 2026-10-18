@@ -532,41 +532,51 @@ class Dependency:
             The reconstructed :class:`Dependency`.
 
         Raises:
-            InvalidScheduleInput: If ``predecessor_id``/``successor_id`` is not a
-                string, ``dep_type`` is not a known dependency type, or ``lag`` is not
-                a finite number of seconds (strings and bools refused).
+            InvalidScheduleInput: If ``data`` is not a mapping (``None``, a string,
+                a list, ...), a required key is missing, ``predecessor_id``/
+                ``successor_id`` is not a string, ``dep_type`` is not a known
+                dependency type, or ``lag`` is not a finite number of seconds
+                (strings and bools refused) (#4522).
         """
-        # A bad dep_type would otherwise surface as Python's bare
-        # ``ValueError: 'XX' is not a valid DependencyType`` — accurate but it
-        # neither names the field nor lists what *is* allowed, which is exactly
-        # the first-run error quality alpha adopters judge the library on (#947).
-        # The Rust ``predecessor_id``/``successor_id`` are ``String`` under serde, so
-        # a non-string id fails to parse there; Python used to accept it (#4521).
-        # Missing keys stay with the caller's existing KeyError path.
-        _require_str(data, "predecessor_id", "dependency")
-        _require_str(data, "successor_id", "dependency")
-        raw_type = data.get("dep_type", "FS")
-        try:
-            dep_type = DependencyType(raw_type)
-        except ValueError as err:
-            from trueppm_scheduler.engine import InvalidScheduleInput
+        # Wrap the whole body so a directly-called Dependency.from_dict (a public
+        # classmethod) raises the documented InvalidScheduleInput rather than a bare
+        # TypeError/AttributeError/KeyError — e.g. a non-mapping `data` (None, a
+        # string, a list) failing `dict()`/`.get()`, or a dict missing a required
+        # key (#4522), mirroring Task.from_dict's wrapper (#1209).
+        from trueppm_scheduler.engine import InvalidScheduleInput
 
-            allowed = ", ".join(t.value for t in DependencyType)
-            raise InvalidScheduleInput(
-                f"Invalid dependency type {raw_type!r}; must be one of: {allowed}."
-            ) from err
         try:
-            lag = _parse_timedelta(data.get("lag", 0))
-        except ValueError as err:
-            from trueppm_scheduler.engine import InvalidScheduleInput
-
-            raise InvalidScheduleInput(f"Invalid dependency lag: {err}") from err
-        return cls(
-            predecessor_id=data["predecessor_id"],
-            successor_id=data["successor_id"],
-            dep_type=dep_type,
-            lag=lag,
-        )
+            d = dict(data)
+            # A bad dep_type would otherwise surface as Python's bare
+            # ``ValueError: 'XX' is not a valid DependencyType`` — accurate but it
+            # neither names the field nor lists what *is* allowed, which is exactly
+            # the first-run error quality alpha adopters judge the library on (#947).
+            # The Rust ``predecessor_id``/``successor_id`` are ``String`` under serde, so
+            # a non-string id fails to parse there; Python used to accept it (#4521).
+            _require_str(d, "predecessor_id", "dependency")
+            _require_str(d, "successor_id", "dependency")
+            raw_type = d.get("dep_type", "FS")
+            try:
+                dep_type = DependencyType(raw_type)
+            except ValueError as err:
+                allowed = ", ".join(t.value for t in DependencyType)
+                raise InvalidScheduleInput(
+                    f"Invalid dependency type {raw_type!r}; must be one of: {allowed}."
+                ) from err
+            try:
+                lag = _parse_timedelta(d.get("lag", 0))
+            except ValueError as err:
+                raise InvalidScheduleInput(f"Invalid dependency lag: {err}") from err
+            return cls(
+                predecessor_id=d["predecessor_id"],
+                successor_id=d["successor_id"],
+                dep_type=dep_type,
+                lag=lag,
+            )
+        except InvalidScheduleInput:
+            raise
+        except (KeyError, ValueError, TypeError, AttributeError) as err:
+            raise InvalidScheduleInput(f"Invalid dependency document: {err}") from err
 
 
 def _mask_days_between(lo: int, hi: int, mask: int) -> int:

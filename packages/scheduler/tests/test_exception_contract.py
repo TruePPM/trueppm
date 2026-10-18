@@ -38,6 +38,8 @@ from trueppm_scheduler import (
     Project,
     SchedulerError,
     Task,
+    expand_summary_dependencies,
+    find_cycle,
     monte_carlo,
     schedule,
 )
@@ -246,3 +248,82 @@ def test_perturb_rejects_bool_overflow_and_float(delta: Any) -> None:
 def test_string_date_range_refused_at_construction() -> None:
     with pytest.raises(SchedulerError):
         DateRange("2026-01-01", "2026-01-02")  # type: ignore[arg-type]
+
+
+# --- Sibling parser hardening (#4522) ----------------------------------------
+#
+# The 2026-10 completeness-check on #4518 found Dependency.from_dict and
+# find_cycle's children_map still leaking bare builtins. Both sit outside the
+# _entry_points() sweep above — Dependency.from_dict is a classmethod, not a
+# module-level function, and find_cycle/expand_summary_dependencies already
+# carry a dedicated _SWEEP_EXEMPT entry because they are edge-list helpers
+# with their own contract — so they get their own targeted sweep here instead.
+
+_DEPENDENCY_MALFORMED_DOCS: tuple[Any, ...] = (
+    None,
+    "x",
+    [],
+    {},
+    {"predecessor_id": "A"},
+    {"successor_id": "B"},
+)
+
+
+@pytest.mark.parametrize("doc", _DEPENDENCY_MALFORMED_DOCS)
+def test_dependency_from_dict_rejects_malformed_document(doc: Any) -> None:
+    """Dependency.from_dict refuses a non-mapping document or one missing a
+    required key with a SchedulerError, never a bare AttributeError/KeyError/
+    TypeError (#4522)."""
+    with pytest.raises(SchedulerError):
+        Dependency.from_dict(doc)  # type: ignore[arg-type]
+
+
+# A list/dict child is unhashable (bare TypeError from dict.get()); None is
+# hashable and was *silently* accepted as a leaf id instead of erroring at all.
+_CHILDREN_MAP_MALFORMED_CHILDREN: tuple[Any, ...] = (None, 1, [], {}, ["x"])
+
+
+@pytest.mark.parametrize("bad_child", _CHILDREN_MAP_MALFORMED_CHILDREN)
+def test_find_cycle_rejects_malformed_child_id(bad_child: Any) -> None:
+    """find_cycle refuses a non-string child id in children_map with a
+    SchedulerError, never a bare ValueError/TypeError from networkx/dict.get,
+    and never silently schedules a None/non-string leaf (#4522)."""
+    with pytest.raises(SchedulerError):
+        find_cycle([("a", "b")], children_map={"a": [bad_child]})
+
+
+@pytest.mark.parametrize("bad_child", _CHILDREN_MAP_MALFORMED_CHILDREN)
+def test_expand_summary_dependencies_rejects_malformed_child_id(bad_child: Any) -> None:
+    """expand_summary_dependencies shares find_cycle's children_map validator
+    (_check_children_map) and must refuse the same malformed child ids — a
+    None child previously produced a Dependency with a None endpoint instead
+    of raising at all (#4522)."""
+    tasks = [Task(id="L", name="L", duration=timedelta(days=1))]
+    deps = [Dependency(predecessor_id="S", successor_id="L")]
+    with pytest.raises(SchedulerError):
+        expand_summary_dependencies(tasks, deps, {"S": [bad_child]})
+
+
+# A non-string key never matches a string edge/task endpoint, so (unlike a bad
+# child id) it does not crash at all — the whole entry is silently accepted and
+# ignored as a dead no-op. That is the same class of gap as a bad child id, just
+# without a bare-exception symptom to notice it by (#4522 completeness-check gap).
+_CHILDREN_MAP_MALFORMED_KEYS: tuple[Any, ...] = (None, 1, 1.5, ())
+
+
+@pytest.mark.parametrize("bad_key", _CHILDREN_MAP_MALFORMED_KEYS)
+def test_find_cycle_rejects_non_string_summary_id(bad_key: Any) -> None:
+    """find_cycle refuses a non-string children_map key (summary id) with a
+    SchedulerError instead of silently accepting it as an inert no-op (#4522)."""
+    with pytest.raises(SchedulerError):
+        find_cycle([("a", "b")], children_map={bad_key: ["a"]})
+
+
+@pytest.mark.parametrize("bad_key", _CHILDREN_MAP_MALFORMED_KEYS)
+def test_expand_summary_dependencies_rejects_non_string_summary_id(bad_key: Any) -> None:
+    """expand_summary_dependencies shares find_cycle's children_map validator and
+    must refuse the same non-string summary id (#4522)."""
+    tasks = [Task(id="L", name="L", duration=timedelta(days=1))]
+    deps = [Dependency(predecessor_id="S", successor_id="L")]
+    with pytest.raises(SchedulerError):
+        expand_summary_dependencies(tasks, deps, {bad_key: ["L"]})
