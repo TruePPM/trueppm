@@ -928,7 +928,7 @@ def _projects_with_a_closed_milestone(draw: st.DrawFn) -> tuple[Project, str]:
     The uniform generator reaches "a completed milestone whose predecessor is still
     open" too rarely to gate on, so the shape is planted: a live task ``live`` with
     no progress drives ``closed`` — a zero-duration task with recorded actuals —
-    over an FS or SS link, and ``closed`` drives a task of the base project. The
+    over an FS, SS, FF or SF link, and ``closed`` drives a task of the base project. The
     sign-off day is drawn around ``live``'s forecast finish, so the link's proposal
     lands before, on, and after the recorded day.
     """
@@ -948,7 +948,7 @@ def _projects_with_a_closed_milestone(draw: st.DrawFn) -> tuple[Project, str]:
     into = Dependency(
         predecessor_id="live",
         successor_id="closed",
-        dep_type=draw(st.sampled_from([DependencyType.FS, DependencyType.SS])),
+        dep_type=draw(st.sampled_from(list(DependencyType))),
         lag=timedelta(days=draw(st.integers(min_value=-2, max_value=4))),
     )
     out = Dependency(predecessor_id="closed", successor_id=base.tasks[0].id)

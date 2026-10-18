@@ -504,13 +504,9 @@ calendar-aware lag, cycle detection) and Monte Carlo simulation (PERT-Beta,
 velocity sampling, `derive_value()` explainability) are stable and exercised
 by the fuzz, mutation, and MS-Project-parity suites described in
 [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md).
-Two defects found late in the 0.4 cycle are still being worked on as this
-ships — if either is still open when 0.4 tags, it carries into 0.5:
+One defect found late in the 0.4 cycle is still being worked on as this
+ships — if it is still open when 0.4 tags, it carries into 0.5:
 
-- [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) — a completed
-  milestone's day edge is re-derived from live predecessors, so a pinned
-  milestone can move and FS-only CPM becomes non-monotone (a regression of
-  the #4433 fix).
 - [#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535) — the velocity
   sampler drops every zero-point sprint before bootstrapping, so a team with
   lean sprints is forecast as if those sprints never happened.
@@ -519,9 +515,7 @@ ships — if either is still open when 0.4 tags, it carries into 0.5:
 an open issue; nothing in this list is fixed yet, regardless of which future
 release it is scheduled for:
 
-- **CPM correctness** — the in-flight 0.4 issue above
-  ([#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525)) closes here if
-  it does not make the 0.4 tag; a work-task late-finish seed can ignore a
+- **CPM correctness** — a work-task late-finish seed can ignore a
   start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
   *into* a summary task do not fan out to every leaf the way the successor
@@ -596,9 +590,7 @@ they will ship with 0.5 or that release will slip:
   independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings `engine.py` itself into scope
-  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); the in-flight
-  0.4 issue above — [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) —
-  closes here if it does not make the 0.4 tag; three more bare-exception leaks close the
+  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); three more bare-exception leaks close the
   `SchedulerError` contract
   ([#4162](https://gitlab.com/trueppm/trueppm/-/issues/4162),
   [#4132](https://gitlab.com/trueppm/trueppm/-/issues/4132)); and the span-guard

@@ -782,6 +782,63 @@ class TestMilestoneAtDayEnd:
 
         assert {finish(d) for d in (3, 4, 5, 6)} == {(False, date(2027, 3, 5), date(2027, 3, 8))}
 
+    @pytest.mark.parametrize("dep_type", list(DependencyType))
+    def test_monte_carlo_does_not_follow_open_work_into_a_closed_milestone(
+        self, dep_type: DependencyType
+    ) -> None:
+        """Monte Carlo freezes a closed milestone's edge from completed work only (#4525).
+
+        ``A -X(+1)-> M -FS-> B(10d)`` with M closed on Fri 03-05 and A open, for
+        every link type. B dominates the finish, so the finish is a function of
+        M's edge alone. The edge is frozen once per run set from the
+        deterministic pass; when that pass read A's forecast, A's length decided
+        it, so every run's finish followed A's *most-likely* duration while the
+        sampled one never could. Neither may: deterministic A at 3..6 days and a
+        three-point A sampled across that range all give one finish.
+        """
+
+        def project(a: Task) -> Project:
+            return Project(
+                id="p",
+                name="p",
+                start_date=date(2027, 3, 1),
+                tasks=[
+                    a,
+                    Task(
+                        id="M",
+                        name="M",
+                        duration=timedelta(0),
+                        actual_finish=date(2027, 3, 5),
+                        percent_complete=100.0,
+                    ),
+                    Task(id="B", name="B", duration=timedelta(days=10)),
+                ],
+                dependencies=[
+                    Dependency("A", "M", dep_type, timedelta(days=1)),
+                    Dependency("M", "B"),
+                ],
+            )
+
+        finishes = set()
+        for days in (3, 4, 5, 6):
+            p = project(Task(id="A", name="A", duration=timedelta(days=days)))
+            mc = monte_carlo(p, runs=16, seed=1)
+            assert mc.p50 == mc.p95 == schedule(p).project_finish
+            finishes.add(mc.p50)
+        sampled = project(
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=4),
+                optimistic_duration=timedelta(days=3),
+                most_likely_duration=timedelta(days=4),
+                pessimistic_duration=timedelta(days=6),
+            )
+        )
+        mc = monte_carlo(sampled, runs=64, seed=3)
+        finishes.update({mc.p50, mc.p95})
+        assert finishes == {date(2027, 3, 18)}
+
     def test_closing_on_the_live_day_end_freezes_the_edge_with_work_still_open(
         self,
     ) -> None:

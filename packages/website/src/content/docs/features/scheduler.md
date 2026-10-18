@@ -522,11 +522,10 @@ an embedder (`pip install trueppm-scheduler`) reads first:
 [**Status and roadmap**](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/README.md#status-and-roadmap)
 in `packages/scheduler/README.md`.
 
-In short: the CPM pass and Monte Carlo simulation are stable. Two issues
+In short: the CPM pass and Monte Carlo simulation are stable. One issue
 found late in the 0.4 cycle —
-[#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) and
-[#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535) — are being worked
-on now and carry into 0.5 if they do not make the 0.4 tag. 0.5 will run a
+[#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535) — is being worked
+on now and carries into 0.5 if it does not make the 0.4 tag. 0.5 will run a
 committed hardening pass over the engine
 ([#3988](https://gitlab.com/trueppm/trueppm/-/issues/3988)) rather than ship
 new scheduling features. 0.6 and later sequence the agent write path,
