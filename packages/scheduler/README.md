@@ -340,8 +340,10 @@ same rules and raise `InvalidScheduleInput` for a field they cannot serialize.
 Construction itself stays lenient — the check runs when a project is scheduled or
 serialized, so an object can be built partially and filled in first.
 `tests/test_exception_contract.py` pins the per-field guarantee with a
-single-field-mutation sweep over every init field × 12 adversarial values × both
-`schedule()`/`monte_carlo()` entry points, and `tests/test_roundtrip_contract.py`
+single-field-mutation sweep over the init fields × 12 adversarial values × both
+`schedule()`/`monte_carlo()` entry points (`Task.id` is excluded from that sweep;
+a non-string task id is covered by the explicit examples in
+`tests/test_contract_fuzz.py`), and `tests/test_roundtrip_contract.py`
 property-tests the round trip, so a future field addition that reopens a gap fails
 a test rather than becoming a silent leak.
 
