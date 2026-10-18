@@ -1,30 +1,158 @@
 {
   "id": "p-progress-started-link-anchor",
-  "name": "SS/SF links out of a started task measure from its recorded actual_start, not the data-date-floored remaining window (#4523, ADR-0132 §2a)",
+  "name": "SS/SF links out of an in-progress task measure from its span start — a recorded actual_start, else the derived scheduled_start — not the data-date-floored remaining window (#4523, ADR-0132 §2a)",
   "start_date": "2026-03-02",
   "status_date": "2026-03-05",
   "tasks": [
-    {"id": "P", "name": "Unfinished predecessor (out-of-sequence start)", "duration": 432000.0},
-    {"id": "A", "name": "Started on a Sunday, 20% done", "duration": 1728000.0, "percent_complete": 20.0, "actual_start": "2026-03-01"},
-    {"id": "B", "name": "SS+10 successor", "duration": 259200.0},
-    {"id": "C", "name": "SF+10 successor", "duration": 259200.0},
-    {"id": "D", "name": "SF+0 successor", "duration": 172800.0},
-    {"id": "E", "name": "SS+2 successor held by the data date", "duration": 2592000.0},
-    {"id": "F", "name": "SS+4 successor on a six-day calendar", "duration": 172800.0, "calendar_id": "six-day"},
-    {"id": "M", "name": "SS+10 milestone", "duration": 0.0},
-    {"id": "N", "name": "Not started, SS-1 successor of P", "duration": 172800.0},
-    {"id": "G", "name": "FS successor (unchanged)", "duration": 86400.0}
+    {
+      "id": "P",
+      "name": "Unfinished predecessor (out-of-sequence start)",
+      "duration": 432000.0
+    },
+    {
+      "id": "A",
+      "name": "Started on a Sunday, 20% done",
+      "duration": 1728000.0,
+      "percent_complete": 20.0,
+      "actual_start": "2026-03-01"
+    },
+    {
+      "id": "B",
+      "name": "SS+10 successor",
+      "duration": 259200.0
+    },
+    {
+      "id": "C",
+      "name": "SF+10 successor",
+      "duration": 259200.0
+    },
+    {
+      "id": "D",
+      "name": "SF+0 successor",
+      "duration": 172800.0
+    },
+    {
+      "id": "E",
+      "name": "SS+2 successor held by the data date",
+      "duration": 2592000.0
+    },
+    {
+      "id": "F",
+      "name": "SS+4 successor on a six-day calendar",
+      "duration": 172800.0,
+      "calendar_id": "six-day"
+    },
+    {
+      "id": "M",
+      "name": "SS+10 milestone",
+      "duration": 0.0
+    },
+    {
+      "id": "N",
+      "name": "Not started, SS-1 successor of P",
+      "duration": 172800.0
+    },
+    {
+      "id": "G",
+      "name": "FS successor (unchanged)",
+      "duration": 86400.0
+    },
+    {
+      "id": "H",
+      "name": "In progress 40%, no actual_start",
+      "duration": 864000.0,
+      "percent_complete": 40.0
+    },
+    {
+      "id": "J",
+      "name": "SS+5 successor of the derived span start",
+      "duration": 172800.0
+    },
+    {
+      "id": "K",
+      "name": "SF+12 successor of the derived span start",
+      "duration": 172800.0
+    },
+    {
+      "id": "L",
+      "name": "SS+3 successor of the derived span start, six-day calendar",
+      "duration": 2160000.0,
+      "calendar_id": "six-day"
+    }
   ],
   "dependencies": [
-    {"predecessor_id": "P", "successor_id": "A", "dep_type": "FS", "lag": 0.0},
-    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS", "lag": 864000.0},
-    {"predecessor_id": "A", "successor_id": "C", "dep_type": "SF", "lag": 864000.0},
-    {"predecessor_id": "A", "successor_id": "D", "dep_type": "SF", "lag": 0.0},
-    {"predecessor_id": "A", "successor_id": "E", "dep_type": "SS", "lag": 172800.0},
-    {"predecessor_id": "A", "successor_id": "F", "dep_type": "SS", "lag": 345600.0},
-    {"predecessor_id": "A", "successor_id": "M", "dep_type": "SS", "lag": 864000.0},
-    {"predecessor_id": "P", "successor_id": "N", "dep_type": "SS", "lag": -86400.0},
-    {"predecessor_id": "A", "successor_id": "G", "dep_type": "FS", "lag": 0.0}
+    {
+      "predecessor_id": "P",
+      "successor_id": "A",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "SS",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "C",
+      "dep_type": "SF",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "D",
+      "dep_type": "SF",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "E",
+      "dep_type": "SS",
+      "lag": 172800.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "F",
+      "dep_type": "SS",
+      "lag": 345600.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "M",
+      "dep_type": "SS",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "P",
+      "successor_id": "N",
+      "dep_type": "SS",
+      "lag": -86400.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "G",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "H",
+      "successor_id": "J",
+      "dep_type": "SS",
+      "lag": 432000.0
+    },
+    {
+      "predecessor_id": "H",
+      "successor_id": "K",
+      "dep_type": "SF",
+      "lag": 1036800.0
+    },
+    {
+      "predecessor_id": "H",
+      "successor_id": "L",
+      "dep_type": "SS",
+      "lag": 259200.0
+    }
   ],
   "calendar": {
     "working_days": 31,

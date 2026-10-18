@@ -65,6 +65,7 @@ from trueppm_scheduler.engine import (
     _sf_latest_start,
     _start_from_finish,
     _start_is_recorded,
+    _window_start_bound,
     _working_days_between,
     schedule,
 )
@@ -720,6 +721,7 @@ def _derive_backward(
         finish_instant=finish_instant,
         bounds_out=bounds,
         milestone_ids=milestone_ids,
+        owner=task if milestone_day is None else None,
     )
     contribs = [*lf_terms, *ls_terms]
 
@@ -819,8 +821,13 @@ def _backward_successor_terms(
     finish_instant: date | None = None,
     bounds_out: dict[int, date] | None = None,
     milestone_ids: frozenset[str] = frozenset(),
+    owner: Task | None = None,
 ) -> tuple[list[DerivationContribution], list[DerivationContribution]]:
     """Split the outgoing edges into late-finish and late-start candidate terms.
+
+    ``owner`` is the task the terms bound, when it is work: an SS/SF bound on its
+    derived span start is moved onto its remaining-work window, as
+    ``engine._append_successor_constraint`` does (``_window_start_bound``, #4523).
 
     Seeded with the project-finish anchor, which snaps to this node's own last
     workable day exactly as ``engine._backward_pass`` seeds it (#1820) — the
@@ -883,6 +890,8 @@ def _backward_successor_terms(
             if lag > timedelta(0):
                 raw = _safe_offset(succ_finish, timedelta(days=1) - lag)
             imposed = _sf_latest_start(succ_finish, lag, cal)
+        if owner is not None and dep_type in (DependencyType.SS, DependencyType.SF):
+            imposed = _window_start_bound(imposed, owner, cal)
         if milestone_day is not None:
             # This task is a milestone (#4079): the bound is on its instant, and
             # every bound lands in the one LF list.
@@ -1111,15 +1120,16 @@ def _inverse_link_constraint(
         latest = _prev_working_day(_safe_offset(succ_start, -timedelta(days=1) - lag), cal)
         return latest, _working_days_between(task.early_finish, latest, cal)
     if dep_type == DependencyType.SS:
+        # Measured from the start the link anchors on (engine._link_start, #4523).
         latest = _retreat_calendar_days(succ_start, lag, cal)
-        return latest, _working_days_between(task.early_start, latest, cal)
+        return latest, _working_days_between(_link_start(task), latest, cal)
     if dep_type == DependencyType.FF:
         latest = _retreat_calendar_days(succ_finish, lag, cal)
         return latest, _working_days_between(task.early_finish, latest, cal)
     # SF: the successor's finish is bounded by the working day before this task's
     # start, so the latest start is one working day past the retreat (#4145).
     latest = _sf_latest_start(succ_finish, lag, cal)
-    return latest, _working_days_between(task.early_start, latest, cal)
+    return latest, _working_days_between(_link_start(task), latest, cal)
 
 
 _START_FIXED = (DependencyType.SS, DependencyType.SF)

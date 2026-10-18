@@ -16,6 +16,13 @@ through an SS/SF link, so such a link imposes no late-date bound on it either.
 
 The oracle is a property, not the other engine: moving only the data date (while it
 stays before the link's own bound) must not move the successor.
+
+In-progress work with **no** recorded start (progress entered as a percentage only,
+which several write paths produce) is measured from its derived span start,
+``scheduled_start`` (ADR-0752): the full duration backed off from its forecast
+finish. That start is not history — it moves with the remaining work — so the link
+keeps its late-date bound, and the successor follows the task's span rather than
+the data date plus the lag.
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ from trueppm_scheduler import (
     DependencyType,
     Project,
     Task,
+    engine,
     monte_carlo,
     schedule,
 )
@@ -64,7 +72,7 @@ def _project(
     )
 
 
-def _started(pct: float = 20.0, actual: date = START) -> Task:
+def _started(pct: float = 20.0, actual: date | None = START) -> Task:
     return Task(
         id="A",
         name="A",
@@ -103,7 +111,7 @@ def test_issue_repro_sf_lag_is_not_re_added_on_each_status_update() -> None:
         (dt, lag, pct, actual, cal)
         for dt, lag, pct, actual, cal in itertools.product(
             (DependencyType.SS, DependencyType.SF),
-            (0, 3, 9, 15, -2),
+            (7, 9, 15),
             (0.0, 20.0, 60.0),
             (START, date(2026, 3, 1)),  # a Monday, and a verbatim Sunday actual
             (None, "six"),
@@ -115,21 +123,43 @@ def test_successor_is_invariant_to_the_data_date(
 ) -> None:
     """Property: any two data dates before the link's bound give the same successor.
 
-    Two status dates are taken from 03-03 up to the last one that leaves ``B``
-    unfloored by the data date in the earlier run. Covers SS and SF, positive, zero
-    and negative lag, a started task with and without progress, a verbatim
-    non-working ``actual_start`` and a successor on a different calendar.
+    The data date starts at 03-03, already past the recorded start, so the old
+    anchor (the data-date-floored ``early_start``) differs from the recorded one in
+    every case, and each lag is long enough that the bound is still ahead of at
+    least one later data date — the loop must compare something, or the case
+    proves nothing (asserted). Lags at or below the gap between the actual and the
+    data date cannot discriminate (the data date holds ``B`` under either anchor),
+    so they are covered by known answers instead. Covers SS and SF, a started task
+    with and without progress, a verbatim non-working ``actual_start`` and a
+    successor on a different calendar.
     """
     base = _b(
         _project(_started(pct, actual), dep_type, lag, date(2026, 3, 3), succ_calendar=succ_cal)
     )
-    # Every data date that does not itself reach B's start leaves B where it is.
+    compared = 0
     for day in range(4, 20):
         status = date(2026, 3, day)
         if status >= base[0]:
             break
         moved = _b(_project(_started(pct, actual), dep_type, lag, status, succ_calendar=succ_cal))
         assert moved == base, f"data date {status} moved B from {base} to {moved}"
+        compared += 1
+    assert compared > 0, f"no data date before B's start {base[0]}: the case is vacuous"
+
+
+@pytest.mark.parametrize("dep_type", [DependencyType.SS, DependencyType.SF])
+@pytest.mark.parametrize("lag", [-2, 0])
+def test_lead_or_zero_lag_from_a_started_task_known_answers(
+    dep_type: DependencyType, lag: int
+) -> None:
+    """A lead or zero lag from a started task's 03-02 start is behind any later data date.
+
+    The bound (03-02 + lag for SS; the working day before 03-02, or its eve with a
+    positive lag, for SF) lies before the 03-04 data date, which therefore holds
+    ``B`` — under either anchor, which is why these lags sit outside the property.
+    """
+    es, _ = _b(_project(_started(), dep_type, lag, date(2026, 3, 4)))
+    assert es == date(2026, 3, 4)
 
 
 def test_data_date_past_the_bound_still_floors_the_successor() -> None:
@@ -264,10 +294,10 @@ def test_milestone_successor_measures_from_the_recorded_start() -> None:
 
 @pytest.mark.parametrize("dep_type", [DependencyType.SS, DependencyType.SF])
 @pytest.mark.parametrize("lag", [0, 4, 10, 25])
-@pytest.mark.parametrize("actual", [START, date(2026, 3, 1)])
+@pytest.mark.parametrize("actual", [START, date(2026, 3, 1), None])
 @pytest.mark.parametrize("status", [date(2026, 3, 3), date(2026, 3, 5)])
 def test_monte_carlo_matches_schedule_on_a_zero_variance_project(
-    dep_type: DependencyType, lag: int, actual: date, status: date
+    dep_type: DependencyType, lag: int, actual: date | None, status: date
 ) -> None:
     """Zero-variance MC lands on the CPM finish (MC reads the recorded start too).
 
@@ -311,3 +341,101 @@ def test_per_task_calendar_holiday_on_the_bound() -> None:
         )
         es = next(t for t in schedule(project).tasks if t.id == "B").early_start
         assert es == date(2026, 3, 16)
+
+
+# ---------------------------------------------------------------------------
+# In progress with no recorded actual_start: the derived span start
+# ---------------------------------------------------------------------------
+
+
+def _ab(project: Project) -> tuple[Task, Task]:
+    res = {t.id: t for t in schedule(project).tasks}
+    return res["A"], res["B"]
+
+
+def test_auditor_repro_no_actual_start_ss_follows_the_span_start() -> None:
+    """``A`` (20d, 20%, no actual) ``-SS+6d-> B``.
+
+    A's span starts 02-26 at a 03-04 data date and 03-03 at a 03-09 one; B is
+    03-04 and 03-09 (the span plus six days, which the data date equals here).
+    Before the fix B was the data date plus the lag: 03-10 and 03-16.
+    """
+    for status, span, b_start in (
+        (date(2026, 3, 4), date(2026, 2, 26), date(2026, 3, 4)),
+        (date(2026, 3, 9), date(2026, 3, 3), date(2026, 3, 9)),
+    ):
+        a, b = _ab(_project(_started(actual=None), DependencyType.SS, 6, status))
+        assert a.scheduled_start == span
+        assert b.early_start == b_start
+
+
+@pytest.mark.parametrize(("pct", "lag"), [(20.0, 9), (20.0, 14), (60.0, 20), (60.0, 24)])
+def test_no_actual_start_ss_successor_is_measured_from_scheduled_start(
+    pct: float, lag: int
+) -> None:
+    """Property: B starts at ``next_wd(A.scheduled_start + lag)`` or the data date.
+
+    Never at the data date plus the lag. Asserted over a range of data dates, and
+    at least one of them must leave the link ahead of the data date, or the case
+    would prove nothing (the data date holds B under either anchor).
+    """
+    weekdays = Calendar(working_days=WEEKDAYS)
+    ahead = 0
+    for day in range(3, 14):
+        status = date(2026, 3, day)
+        a, b = _ab(_project(_started(pct, actual=None), DependencyType.SS, lag, status))
+        assert a.scheduled_start is not None and a.early_start is not None
+        assert a.scheduled_start < a.early_start  # progress, so the span is earlier
+        bound = engine._next_working_day(a.scheduled_start + timedelta(days=lag), weekdays)
+        floor = engine._next_working_day(status, weekdays)
+        assert b.early_start == max(bound, floor), status
+        ahead += bound > floor
+    assert ahead > 0
+
+
+def test_no_actual_start_sf_successor_is_measured_from_scheduled_start() -> None:
+    """``A`` (20d, 20%, no actual) ``-SF+12d-> B`` at a 03-04 data date.
+
+    A's span starts 02-26, so B finishes on 02-25 + 12 = Mon 03-09. Measured from
+    the remaining window (03-04) it was 03-03 + 12 = Sun 03-15, snapped to 03-16.
+    """
+    a, b = _ab(_project(_started(actual=None), DependencyType.SF, 12, date(2026, 3, 4)))
+    assert a.scheduled_start == date(2026, 2, 26)
+    assert b.early_finish == date(2026, 3, 9)
+
+
+def test_no_actual_start_link_keeps_its_late_date_bound() -> None:
+    """A derived span start is not history: slipping A's remaining work slips B.
+
+    ``A`` (20d, 50%, no actual) ``-SS+16d-> B`` (30d) at a 03-09 data date: A's
+    span starts 02-23, B starts 03-11 and drives the finish. A day's slip of A's
+    remaining work moves its span, and so B, a day — so A is critical through the
+    link, its free float is zero, and the link drives B. (A recorded start would
+    bound nothing; see ``test_ss_link_out_of_a_started_task_imposes_no_late_bound_on_it``.)
+    """
+    a = _started(50.0, actual=None)
+    b = Task(id="B", name="B", duration=timedelta(days=30))
+    project = Project(
+        id="p",
+        name="p",
+        start_date=START,
+        tasks=[a, b],
+        dependencies=[Dependency("A", "B", DependencyType.SS, timedelta(days=16))],
+        calendar=Calendar(working_days=WEEKDAYS),
+        status_date=date(2026, 3, 9),
+    )
+    res = schedule(project)
+    by = {t.id: t for t in res.tasks}
+    assert by["A"].scheduled_start == date(2026, 2, 23)
+    assert by["B"].early_start == date(2026, 3, 11)
+    assert by["A"].is_critical and by["B"].is_critical
+    assert by["A"].total_float == by["A"].free_float == timedelta(0)
+    assert {(e.predecessor_id, e.successor_id) for e in res.driving_edges} == {("A", "B")}
+
+
+def test_no_actual_start_with_no_elapsed_work_is_unchanged() -> None:
+    """5% of 10 days rounds to no elapsed day: the span start is the early start."""
+    pred = Task(id="A", name="A", duration=timedelta(days=10), percent_complete=5.0)
+    a, b = _ab(_project(pred, DependencyType.SS, 3, date(2026, 3, 4)))
+    assert a.scheduled_start == a.early_start == date(2026, 3, 4)
+    assert b.early_start == date(2026, 3, 9)

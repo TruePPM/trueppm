@@ -1163,8 +1163,14 @@ mod tests {
         }
         // Known answers, measured from the Sunday actual: SS+10 = Wed 01-14; SF+10
         // finishes on 01-03 + 10 = Tue 01-13.
-        assert_eq!(started_link("SS", 10, 20.0, "2026-01-08").0.early_start, d(14));
-        assert_eq!(started_link("SF", 10, 20.0, "2026-01-08").0.early_finish, d(13));
+        assert_eq!(
+            started_link("SS", 10, 20.0, "2026-01-08").0.early_start,
+            d(14)
+        );
+        assert_eq!(
+            started_link("SF", 10, 20.0, "2026-01-08").0.early_finish,
+            d(13)
+        );
     }
 
     /// #4523: the SS link measures from a start that already happened, so it puts
@@ -1203,5 +1209,38 @@ mod tests {
             .map(|e| (e.predecessor_id.as_str(), e.successor_id.as_str()))
             .collect();
         assert_eq!(driving, vec![("A", "C")]);
+    }
+
+    /// #4523: in-progress work with no recorded `actual_start` is measured from its
+    /// derived span start (`scheduled_start`: the full duration backed off from its
+    /// finish), not from its remaining window — and, that start not being history,
+    /// the link keeps its late-date bound. `A` (20d, 50%, no actual) `-SS+16d->` `B`
+    /// (30d) at a 2026-03-09 data date: A's span starts 2026-02-23, B starts
+    /// 2026-03-11 (not 03-09 + 16), and A is critical through the link.
+    #[test]
+    fn no_actual_start_link_measures_from_scheduled_start_and_keeps_its_bound() {
+        let project: Project = serde_json::from_value(json!({
+            "id": "p",
+            "name": "p",
+            "start_date": "2026-03-02",
+            "status_date": "2026-03-09",
+            "tasks": [
+                {"id": "A", "name": "A", "duration": 20.0 * 86400.0, "percent_complete": 50.0},
+                {"id": "B", "name": "B", "duration": 30.0 * 86400.0},
+            ],
+            "dependencies": [
+                {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS",
+                 "lag": 16.0 * 86400.0},
+            ],
+        }))
+        .expect("test project parses");
+        let result = schedule_impl(&project).expect("test project schedules");
+        let by = |id: &str| result.tasks.iter().find(|t| t.id == id).unwrap();
+        let ymd = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+        assert_eq!(by("A").scheduled_start, ymd(2, 23));
+        assert_eq!(by("B").early_start, ymd(3, 11));
+        assert!(by("A").is_critical);
+        assert_eq!(by("A").free_float, 0.0);
+        assert_eq!(result.driving_edges.len(), 1);
     }
 }

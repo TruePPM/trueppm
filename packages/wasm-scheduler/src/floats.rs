@@ -245,8 +245,9 @@ pub fn compute_floats(
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
         let ef = tasks[i].early_finish.unwrap();
-        // SS/SF are inverted against the start they measure from: a started task's
-        // recorded start (#4523), its early start otherwise.
+        // SS/SF are inverted against the start they measure from, the span start
+        // (`Task::link_start`, #4523): a recorded `actual_start`, a derived
+        // `scheduled_start`, or the early start.
         let link_start = tasks[i].link_start();
         let ls = tasks[i].late_start.unwrap();
         let pred_id = tasks[i].id.clone();
@@ -342,8 +343,14 @@ pub fn compute_floats(
                         }
                     }
                     None => {
-                        let (anchor, latest) =
-                            free_float_anchor(link, link_start, ef, succ_start, succ_finish, node_cal)?;
+                        let (anchor, latest) = free_float_anchor(
+                            link,
+                            link_start,
+                            ef,
+                            succ_start,
+                            succ_finish,
+                            node_cal,
+                        )?;
                         spans.between(anchor, latest, node_cal)?
                     }
                 })

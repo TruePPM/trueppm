@@ -1102,21 +1102,46 @@ def _start_is_recorded(task: Task) -> bool:
     return task.actual_start is not None and task.duration.days > 0 and not _is_complete(task)
 
 
+def _elapsed_link_days(task: Task) -> int:
+    """Working days of ``task``'s span before its remaining-work window (#4523).
+
+    Non-zero only for live work with progress and no recorded ``actual_start``
+    (:func:`_start_is_recorded` covers the recorded case): its span start
+    (``scheduled_start``, ADR-0752) is the full duration backed off from
+    ``early_finish``, which is exactly this many working days before
+    ``early_start``. Zero for everything else, where the span start *is* the early
+    start.
+    """
+    if task.actual_start is not None or task.duration.days <= 0 or _is_complete(task):
+        return 0
+    return task.duration.days - _effective_duration_days(task)
+
+
 def _link_start(task: Task) -> date:
     """The start an SS or SF link out of ``task`` measures from (ADR-0132 §2a, #4523).
 
-    The recorded ``actual_start`` of a started task (:func:`_start_is_recorded`),
-    otherwise ``early_start``. Measuring from the remaining-work window instead
+    The task's span start, never its remaining-work window: the recorded
+    ``actual_start`` of a started task (:func:`_start_is_recorded`); for live work
+    with progress but no recorded start, its derived span start
+    ``scheduled_start`` (:func:`_elapsed_link_days`); otherwise ``early_start``,
+    which is the span start. Measuring from the remaining-work window instead
     re-added the link's lag from the data date on every status update: ``A``
     started 03-02 ``-SS+10d-> B`` put ``B`` on 03-16 at a 03-04 data date and two
     days later at a 03-06 one, with nothing else changed. ``early_start`` is never
-    before ``actual_start`` for a live task (it is one of its floors), so the two
-    agree whenever the actual is what holds the task.
+    before either span start for a live task, so they agree whenever nothing but
+    the start holds the task.
+
+    ``scheduled_start`` is read off the task, so this is only called after the
+    forward pass resolved it (:func:`_compute_scheduled_start`), as every caller
+    does.
     """
     assert task.early_start is not None
     if _start_is_recorded(task):
         assert task.actual_start is not None
         return task.actual_start
+    if _elapsed_link_days(task) > 0:
+        assert task.scheduled_start is not None
+        return task.scheduled_start
     return task.early_start
 
 
@@ -1125,9 +1150,28 @@ def _start_fixed_link(task: Task, dep: Dependency) -> bool:
 
     Such a link cannot be moved by ``task``'s remaining work slipping, so it
     imposes no late-date bound on ``task`` and gives it no free-float limit; it is
-    still the driving edge of a successor it holds.
+    still the driving edge of a successor it holds. A link measured from a
+    *derived* span start (:func:`_elapsed_link_days`) is not one: that start is
+    backed off from the forecast finish and slips with the remaining work, so it
+    keeps its bound (:func:`_window_start_bound`).
     """
     return dep.dep_type in (DependencyType.SS, DependencyType.SF) and _start_is_recorded(task)
+
+
+def _window_start_bound(span_bound: date, task: Task, cal: Calendar) -> date:
+    """The latest ``early_start`` that keeps ``task``'s link start at or before ``span_bound``.
+
+    The backward inverse of :func:`_link_start` for a derived span start (#4523):
+    the span start sits :func:`_elapsed_link_days` working days before the
+    remaining-work window, so a bound on the one is that many working days later
+    on the other. ``span_bound`` is always a working day on ``cal`` (every backward
+    bound is snapped), and on working days the two helpers are inverses. The
+    identity when nothing has elapsed.
+    """
+    elapsed = _elapsed_link_days(task)
+    if elapsed <= 0:
+        return span_bound
+    return _finish_from_start(span_bound, elapsed + 1, cal)
 
 
 def _milestone_link(dep: Dependency) -> Dependency:
@@ -2702,7 +2746,7 @@ def _collect_backward_constraints(
             succ_id, succ, late_instants, cal_for, (dep, False, project_finish)
         )
         _append_successor_constraint(
-            dep, start_ref, finish_ref, node_cal, lf_constraints, ls_constraints
+            dep, start_ref, finish_ref, node_cal, lf_constraints, ls_constraints, task
         )
 
     return lf_constraints, ls_constraints
@@ -2715,8 +2759,14 @@ def _append_successor_constraint(
     node_cal: Calendar,
     lf_constraints: list[date],
     ls_constraints: list[date],
+    task: Task | None = None,
 ) -> None:
     """Translate one successor edge into an LF or LS bound on the predecessor.
+
+    An SS/SF bound is on the start the link measures from (:func:`_link_start`);
+    for a predecessor whose span start is derived it is moved onto the
+    remaining-work window the late dates describe (:func:`_window_start_bound`,
+    #4523). ``task`` is that predecessor; ``None`` keeps the bound as is.
 
     Each result becomes *this* task's own late date, so it snaps to a working day on
     this task's own calendar (``node_cal``) — snapping on the successor's calendar
@@ -2735,7 +2785,8 @@ def _append_successor_constraint(
         )
     elif dep.dep_type == DependencyType.SS:
         # Predecessor must start no later than successor's late start minus lag.
-        ls_constraints.append(_retreat_calendar_days(succ_start, lag, node_cal))
+        bound = _retreat_calendar_days(succ_start, lag, node_cal)
+        ls_constraints.append(bound if task is None else _window_start_bound(bound, task, node_cal))
     elif dep.dep_type == DependencyType.FF:
         # Predecessor must finish no later than successor's late finish minus lag.
         lf_constraints.append(_retreat_calendar_days(succ_finish, lag, node_cal))
@@ -2744,7 +2795,8 @@ def _append_successor_constraint(
         # successor's late finish minus lag: its SF anchor is the working day
         # *before* its start, so it may start one working day beyond that bound
         # (#4145). A positive lag anchors on ``start - 1`` itself (#4333).
-        ls_constraints.append(_sf_latest_start(succ_finish, lag, node_cal))
+        bound = _sf_latest_start(succ_finish, lag, node_cal)
+        ls_constraints.append(bound if task is None else _window_start_bound(bound, task, node_cal))
 
 
 def _apply_late_dates(
@@ -5220,10 +5272,14 @@ def _mc_pre_start_pad_days(
     raise it (#4220) — over its *longest*
     possible sampled duration, measured from that lower bound on the predecessor —
     the SF bound is monotone in the predecessor's start and the back-solve is
-    monotone in both arguments. An SF-linked task's own floors (data date, SNET, a
-    recorded actual start) only raise its true start, so leaving them out of *its*
-    bound keeps that bound safe. A milestone's floors are different — they can lower
-    the instant its successors measure from — and are handled below.
+    monotone in both arguments. That start is the one the SF link measures from
+    (:func:`_link_start`, #4523): a started task's recorded ``actual_start``, or a
+    derived span start a fixed number of elapsed working days before its window,
+    either of which can sit before the task's own lower bound. An SF-linked task's
+    own floors (data date, SNET, a recorded actual start) only raise its true
+    start, so leaving them out of *its* bound keeps that bound safe. A milestone's
+    floors are different — they can lower the instant its successors measure
+    from — and are handled below.
 
     A milestone that is not SF-linked is *shown* no earlier than the project start,
     but its successors measure from its link instant, which the project-start floor
@@ -5250,6 +5306,22 @@ def _mc_pre_start_pad_days(
     if not sf_linked:
         return 0, sf_linked
     lo: dict[str, date] = {}
+    # What an SS/SF link out of each task measures from is its span start, which
+    # can lie before ``lo`` (#4523, :func:`_link_start`): a recorded actual start,
+    # or a derived span start that many elapsed working days earlier. Links read
+    # this; a task's own placement reads ``lo``.
+    link_lo: dict[str, date] = {}
+
+    def record_link_lo(tid: str) -> None:
+        task = task_map[tid]
+        bound = lo[tid]
+        if _start_is_recorded(task):
+            assert task.actual_start is not None
+            bound = min(bound, task.actual_start)
+        elif _elapsed_link_days(task) > 0:
+            bound = _start_from_finish(bound, _elapsed_link_days(task) + 1, cal_of[tid])
+        link_lo[tid] = bound
+
     earliest = project.start_date
     for tid in topo_order:
         task = task_map[tid]
@@ -5257,13 +5329,14 @@ def _mc_pre_start_pad_days(
         pinned = _pinned_placement(task, cal, _next_working_day(project.start_date, cal))
         if pinned is not None:
             lo[tid] = pinned[0]
+            record_link_lo(tid)
             continue
         if tid not in sf_linked:
             lo[tid] = _next_working_day(project.start_date, cal)
             if task.duration.days == 0:
                 proposals = [
                     *_milestone_hard_floors(task, cal, project.status_date),
-                    *_link_lower_bound(g, tid, lo, cal_of),
+                    *_link_lower_bound(g, tid, link_lo, cal_of),
                 ]
                 if proposals:
                     lo[tid] = min(lo[tid], max(proposals))
@@ -5274,11 +5347,12 @@ def _mc_pre_start_pad_days(
                         for succ in g.successors(tid)
                     ):
                         earliest = min(earliest, lo[tid])
+            record_link_lo(tid)
             continue
         bound = max(
             _next_working_day(
                 _safe_offset(
-                    _prev_working_day(_safe_offset(lo[pred], -_ONE_DAY), cal_of[pred]),
+                    _prev_working_day(_safe_offset(link_lo[pred], -_ONE_DAY), cal_of[pred]),
                     g[pred][tid]["dep"].lag,
                 ),
                 cal,
@@ -5292,6 +5366,7 @@ def _mc_pre_start_pad_days(
             _velocity_worst_case_days(task, project),
         )
         lo[tid] = _start_from_finish(bound, longest, cal) if longest > 0 else bound
+        record_link_lo(tid)
         earliest = min(earliest, lo[tid])
     return (project.start_date - earliest).days + _MC_PRE_START_PAD_BUFFER_DAYS, sf_linked
 
@@ -6230,6 +6305,10 @@ def _mc_forward_pass(
     verbatim_actuals = verbatim_actuals or {}
     milestone_floors = milestone_floors or {}
     finish_floor: date | None = None
+    # Live work whose SS/SF links measure from a derived span start (#4523,
+    # _mc_span_link): elapsed working days, by task. A recorded start never reaches
+    # those links here — they are constants in ``completed_edge``.
+    span_elapsed = {tid: int(days) for tid, days in elapsed_days.items() if days > 0}
 
     for col, tid in enumerate(topo_order):
         # Completed: pin both offsets to constants across every run and skip the
@@ -6253,6 +6332,7 @@ def _mc_forward_pass(
                 milestone_ids,
                 index,
                 runs,
+                span_elapsed,
             )
             instant_mat[:, col] = link
             start_display_mat[:, col] = link_display
@@ -6284,6 +6364,7 @@ def _mc_forward_pass(
             completed_edge,
             runs,
             (milestone_ids, instant_mat, index, col),
+            span_elapsed,
         )
         if actual is not None:
             es_constraints = np.maximum(es_constraints, actual[1])
@@ -6304,6 +6385,51 @@ def _mc_forward_pass(
     return es_mat, ef_mat, finish_floor
 
 
+def _mc_span_link(
+    dep: Dependency,
+    p: int,
+    col: int,
+    es_mat: np.ndarray,
+    elapsed: int,
+    index: _McIndex,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-run bound of an SS/SF link out of live work with a *derived* span start (#4523).
+
+    The link measures from the predecessor's span start (:func:`_link_start`),
+    ``elapsed`` working days before its remaining-work window — which a run's
+    sampled durations move, so unlike a recorded start it is not a constant. It is
+    resolved in date space with ``schedule()``'s own helpers, once per distinct
+    early start across the runs: the span start can fall before the index (a
+    task whose progress reaches back past the project start), where an offset
+    anchor would clamp to the first cell and land the bound late.
+
+    Returns ``(offset, proposal, start_display)``: the constraint in column
+    ``col``'s offset space (an exclusive EF offset for SF), and the instant and
+    reading the same link proposes to a milestone successor
+    (:func:`_milestone_proposal`).
+    """
+    pred_cal = index.cal_of_col[p]
+    succ_cal = index.cal_of_col[col]
+    es_ord = index.ordinal_at(p, es_mat[:, p])
+    uniq, inverse = np.unique(es_ord, return_inverse=True)
+    offsets = np.empty(len(uniq), dtype=np.float64)
+    proposals = np.empty(len(uniq), dtype=np.int64)
+    displays = np.empty(len(uniq), dtype=bool)
+    finish_bound = dep.dep_type not in _START_ANCHORED
+    for k, o in enumerate(uniq.tolist()):
+        span = _start_from_finish(date.fromordinal(int(o)), elapsed + 1, pred_cal)
+        anchor = _edge_anchor(dep.dep_type, span, span, None, pred_cal, dep.lag)
+        imposed = _next_working_day(_safe_offset(anchor, dep.lag), succ_cal)
+        off = index.next_wd_offset(col, np.array([imposed.toordinal()], dtype=np.int64))
+        offsets[k] = float(off[0]) + (1.0 if finish_bound else 0.0)
+        raw, display = _milestone_proposal(
+            dep.dep_type, dep.lag, span, span, None, pred_cal, succ_cal
+        )
+        proposals[k] = raw.toordinal()
+        displays[k] = display
+    return offsets[inverse], proposals[inverse], displays[inverse]
+
+
 def _mc_milestone_bounds(
     tid: str,
     col: int,
@@ -6315,6 +6441,7 @@ def _mc_milestone_bounds(
     milestone_ids: frozenset[str],
     index: _McIndex,
     runs: int,
+    span_elapsed: dict[str, int] | None = None,
 ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
     """Per-run ``(link, shown)`` of a live milestone, each ``(instant ordinal, start_display)``.
 
@@ -6371,6 +6498,16 @@ def _mc_milestone_bounds(
         elif dep.dep_type == DependencyType.FS:
             offer(index.ordinal_at(p, ef_mat[:, p] - 1.0) + 1 + lag, False)
             continue
+        elif (span_elapsed or {}).get(pred_id, 0) > 0 and dep.dep_type in (
+            DependencyType.SS,
+            DependencyType.SF,
+        ):
+            # Measured from a derived span start (#4523, _mc_span_link).
+            _, proposal, display = _mc_span_link(
+                dep, p, col, es_mat, (span_elapsed or {})[pred_id], index
+            )
+            offer(proposal, display)
+            continue
         elif dep.dep_type == DependencyType.SS:
             offer(index.ordinal_at(p, es_mat[:, p]) + lag, True)
             continue
@@ -6411,6 +6548,7 @@ def _mc_edge_constraints(
     completed_edge: dict[tuple[str, str], _FixedEdge],
     runs: int,
     milestones: tuple[frozenset[str], np.ndarray, _McIndex | None, int] | None = None,
+    span_elapsed: dict[str, int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """Fold every predecessor edge into one task's ES/EF constraint vectors.
 
@@ -6470,6 +6608,18 @@ def _mc_edge_constraints(
                 np.maximum(es_constraints, bound, out=es_constraints)
             else:
                 np.maximum(ef_constraints, bound + 1.0, out=ef_constraints)
+                has_ef_constraint = True
+            continue
+
+        elapsed = (span_elapsed or {}).get(pred_id, 0)
+        if elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF):
+            # Measured from a derived span start (#4523, _mc_span_link).
+            assert index is not None
+            bound, _, _ = _mc_span_link(dep, p, col, es_mat, elapsed, index)
+            if dep.dep_type == DependencyType.SS:
+                np.maximum(es_constraints, bound, out=es_constraints)
+            else:
+                np.maximum(ef_constraints, bound, out=ef_constraints)
                 has_ef_constraint = True
             continue
 
