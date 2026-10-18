@@ -75,6 +75,12 @@ change between releases. Pin an exact version (e.g.
   to that day if it was later. With no lag, the finish therefore moves earlier by exactly the
   remaining working days; it is never laid out later from `actual_start` or the
   project start.
+- **`perturb_task_duration` now refuses a completed task (#4515).** A task with
+  an `actual_finish`, or at 100% complete, is pinned by its actuals, so shifting
+  its duration moved neither `schedule()` nor `monte_carlo()` and the what-if
+  read as a zero-impact answer for a change that was never applied. The function
+  now raises `InvalidScheduleInput` instead of returning an unperturbed project,
+  the same refusal an unknown task id already gets.
 
 ## [0.4.0b8] - 2026-10-15
 

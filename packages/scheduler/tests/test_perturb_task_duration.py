@@ -317,6 +317,32 @@ def test_an_unknown_task_id_is_refused_rather_than_silently_no_op() -> None:
         perturb_task_duration(baseline, "nope", 5)
 
 
+@pytest.mark.parametrize(
+    "done",
+    [
+        {"actual_finish": date(2026, 1, 7)},
+        {"percent_complete": 100.0},
+        {"percent_complete": 100.0, "actual_finish": date(2026, 1, 7)},
+    ],
+    ids=["actual_finish", "percent_complete_100", "both"],
+)
+@pytest.mark.parametrize("delta", [-2, 0, 3])
+def test_a_completed_task_is_refused_rather_than_a_silent_zero_impact_what_if(
+    done: dict[str, object], delta: int
+) -> None:
+    """Completed work is pinned by its actuals, so shifting its duration moves neither
+    CPM nor Monte Carlo; reporting that as "no impact" is the failure #4515 closes."""
+    baseline = _project(replace(_deterministic_task(), **done))  # type: ignore[arg-type]
+    with pytest.raises(InvalidScheduleInput, match="is complete"):
+        perturb_task_duration(baseline, "A", delta)
+
+
+def test_a_just_under_complete_task_is_still_perturbable() -> None:
+    baseline = _project(replace(_deterministic_task(), percent_complete=99.0))
+    perturbed = perturb_task_duration(baseline, "A", 1)
+    assert next(t for t in perturbed.tasks if t.id == "A").duration > timedelta(days=0)
+
+
 # ---------------------------------------------------------------------------
 # In-progress tasks: the offset applies to remaining work (#4432)
 # ---------------------------------------------------------------------------
