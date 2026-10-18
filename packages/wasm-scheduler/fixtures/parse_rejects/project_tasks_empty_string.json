@@ -1,0 +1,8 @@
+{
+  "id": "pr-project-tasks-empty-string",
+  "name": "tasks is an empty string, not an array (#4521)",
+  "start_date": "2026-01-01",
+  "tasks": "",
+  "dependencies": [],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

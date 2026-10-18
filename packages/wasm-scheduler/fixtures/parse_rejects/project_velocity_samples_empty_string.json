@@ -1,0 +1,9 @@
+{
+  "id": "pr-project-velocity-samples-empty-string",
+  "name": "velocity_samples is an empty string, not an array (#4521)",
+  "start_date": "2026-01-01",
+  "tasks": [{"id": "A", "name": "Task A", "duration": 86400.0}],
+  "dependencies": [],
+  "velocity_samples": "",
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

@@ -363,6 +363,19 @@ def _check_finite(d: dict[str, Any], field_name: str) -> None:
         raise ValueError(f"{field_name} must be a finite number.")
 
 
+def _list_field(d: dict[str, Any], field_name: str) -> list[Any]:
+    """Return ``d[field_name]`` (default ``[]``), refusing a non-list (#4521).
+
+    Rust's ``Vec<T>`` accepts only a JSON array; iterating ``""`` or ``{}`` parsed
+    as an empty collection in Python. The ValueError is wrapped as
+    ``InvalidScheduleInput`` by ``Project.from_dict``.
+    """
+    value = d.get(field_name, [])
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list (got {type(value).__name__}: {value!r}).")
+    return value
+
+
 def _check_velocity_samples(velocity_samples: Any) -> None:
     """Reject a non-finite velocity sample on the ``from_dict`` path.
 
@@ -373,6 +386,13 @@ def _check_velocity_samples(velocity_samples: Any) -> None:
     """
     if velocity_samples is None:
         return
+    # Rust ``Option<Vec<Option<f64>>>`` takes only a JSON array; iterating ``""`` or
+    # ``{}`` parsed as "no samples" in Python (#4521).
+    if not isinstance(velocity_samples, list):
+        raise ValueError(
+            f"velocity_samples must be a list (got {type(velocity_samples).__name__}: "
+            f"{velocity_samples!r})."
+        )
     for s in velocity_samples:
         if s is not None:
             _require_number(s, "velocity_samples")
@@ -957,7 +977,8 @@ class Project:
         Raises:
             InvalidScheduleInput: If the document is not a mapping, a required
                 field is missing, or any nested task/dependency/calendar is
-                malformed (non-finite velocity samples included).
+                malformed (non-finite velocity samples included), or ``tasks``,
+                ``dependencies`` or ``velocity_samples`` is not a list.
         """
         # Wrap the raw KeyError/ValueError/TypeError from a malformed document in
         # the public InvalidScheduleInput so the documented exception surface is
@@ -987,8 +1008,8 @@ class Project:
                 id=data["id"],
                 name=data["name"],
                 start_date=_parse_date(data["start_date"], "start_date"),
-                tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
-                dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
+                tasks=[Task.from_dict(t) for t in _list_field(data, "tasks")],
+                dependencies=[Dependency.from_dict(d) for d in _list_field(data, "dependencies")],
                 calendar=Calendar.from_dict(data.get("calendar", {})),
                 velocity_samples=velocity_samples,
                 sprint_length_days=sprint_length_days,

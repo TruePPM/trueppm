@@ -381,3 +381,16 @@ class TestStrictShapeParity4521:
             Dependency.from_dict({"predecessor_id": "A", "successor_id": "B"}).predecessor_id == "A"
         )
         assert not Calendar.from_dict({"exceptions": []}).exceptions
+
+    @pytest.mark.parametrize("field", ["tasks", "dependencies", "velocity_samples"])
+    @pytest.mark.parametrize("bad", ["", "ab", {}, 5])
+    def test_project_collections_must_be_lists(self, field: str, bad: object) -> None:
+        doc: dict[str, object] = {"id": "P", "name": "P", "start_date": "2026-01-01"}
+        doc[field] = bad
+        with pytest.raises(InvalidScheduleInput, match=field):
+            Project.from_dict(doc)
+
+    def test_project_velocity_samples_null_and_null_entries_stay_valid(self) -> None:
+        base: dict[str, object] = {"id": "P", "name": "P", "start_date": "2026-01-01"}
+        Project.from_dict({**base, "velocity_samples": None})
+        Project.from_dict({**base, "velocity_samples": [None, 1]})
