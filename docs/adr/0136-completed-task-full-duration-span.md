@@ -173,6 +173,32 @@ Rules:
   nothing" and the invariant that open work never moves a completed task. Rejected:
   honoring the bare `milestone_at_day_end` flag — it cannot tell a sign-off on the
   forecast day from a later one, which would bring #4433 back.)
+  - *The persisted day is the sign-off day.* A closed milestone that passed through
+    In Progress carries an `actual_start` earlier than its `actual_finish`. The engine
+    reports that pair as its pinned window (`early_start = actual_start`,
+    `early_finish = actual_finish`) but places the instant on `actual_finish`. The API
+    writeback collapses every milestone row to one day, and used to collapse onto
+    `early_start`, so the day handed back as `live_day_end_on` was `actual_start`. It
+    never matched the recorded day, so the freeze released on the second
+    recalculation after close and the successors moved with nobody changing anything.
+    The writeback now collapses onto `early_finish`, the day the engine places the
+    instant on. (Decided 2026-10-18. Rejected: reporting `actual_finish` as the
+    engine's own `early_start` for a closed milestone, which would change engine
+    output and derivation provenance for every library caller to fix one API
+    persistence step. Also rejected: having `build_sched_tasks` hand back
+    `actual_finish or actual_start` for a closed milestone flagged at day end. That
+    reads the *current* actuals, so after a correction to `actual_finish` it would
+    carry the old day's edge onto the new day, which is the #4433 bug.) A side effect
+    is that such a milestone's row now shows its sign-off day rather than the day it
+    entered In Progress. That matches where the engine places it and where its
+    successors are measured from.
+  - *Upgrade.* The first recalculation after upgrading reads whatever the previous
+    version persisted. For a closed milestone whose predecessor is still open, that
+    is the previous version's edge, including one the pre-#4525 rule derived from
+    open work. A milestone persisted under the old `actual_start` collapse is
+    re-read from completed predecessors once and then stays put. Either way the
+    successors can move one working day once. Neither repeats, and once every
+    predecessor is complete, completed work decides. The upgrade notes say so.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

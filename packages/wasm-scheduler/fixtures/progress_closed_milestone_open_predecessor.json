@@ -1,6 +1,6 @@
 {
   "id": "p-progress-closed-milestone-open-predecessor",
-  "name": "A milestone signed off while its predecessor is still open: with no live_day_end_on it sits at the start of its recorded day, since only completed predecessors decide a closed milestone's edge; with live_day_end_on naming the recorded day it keeps its live end-of-day edge; a live_day_end_on naming another day does not hold, and once every predecessor is complete the completed work decides even when it names the recorded day (#4525)",
+  "name": "A milestone signed off while its predecessor is still open: with no live_day_end_on it sits at the start of its recorded day, since only completed predecessors decide a closed milestone's edge; with live_day_end_on naming the recorded day it keeps its live end-of-day edge; a live_day_end_on naming another day does not hold, even with the predecessor still open, and once every predecessor is complete the completed work decides even when it names the recorded day (#4525)",
   "start_date": "2027-03-01",
   "tasks": [
     {
@@ -96,6 +96,24 @@
       "id": "X",
       "name": "Live successor of W: starts Wednesday",
       "duration": 86400.0
+    },
+    {
+      "id": "E",
+      "name": "Open work, Mon..Wed",
+      "duration": 259200.0
+    },
+    {
+      "id": "F",
+      "name": "Milestone after E, live end of Wed, signed off Fri 03-05 with E still open: live_day_end_on names another day, so the start of Friday — only the date comparison decides this, since a predecessor is open",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2027-03-05",
+      "live_day_end_on": "2027-03-03"
+    },
+    {
+      "id": "G",
+      "name": "Live successor of F: starts Friday, not Monday",
+      "duration": 86400.0
     }
   ],
   "dependencies": [
@@ -156,6 +174,18 @@
     {
       "predecessor_id": "W",
       "successor_id": "X",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "E",
+      "successor_id": "F",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "F",
+      "successor_id": "G",
       "dep_type": "FS",
       "lag": 0.0
     }

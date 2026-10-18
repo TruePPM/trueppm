@@ -499,6 +499,25 @@ after recalculation can show milestone-driven variance that reflects the
 convention change, not a schedule change. To compare like with like, capture a new
 baseline after the project recalculates.
 
+### Completed milestones after the first recalculation
+
+The scheduler now keeps a completed milestone in place no matter how the open work
+before it changes (#4525). On each recalculation it reads back which edge of its
+day (start or end) the last schedule placed the milestone on. The first
+recalculation after upgrading reads what the previous version saved, so for one
+recalculation you may see the following:
+
+- **A milestone that was In Progress before it was completed moves to its
+  completion day.** The row used to show the day it entered In Progress. It now
+  shows the day it was signed off, which is where the scheduler already measured
+  the work after it from.
+- **Work after a completed milestone can move by one working day, once.** This
+  happens only when a task that leads into the milestone is still open. The
+  scheduler keeps the edge the previous version saved, or, if that was saved
+  under the old rule, works it out again from completed work only. Either way it
+  happens once and then stays put. When every task that leads into the milestone
+  is complete, the completed work decides. Neither case needs any action.
+
 ### Project and program keys (`projects.0154`)
 
 Upgrading from `0.4.0-beta.4` or earlier makes every project and program **key**

@@ -241,6 +241,10 @@ def test_closing_a_gate_before_its_work_is_marked_done_moves_nothing(
     from trueppm_api.apps.projects.models import TaskStatus
 
     live = _recalculated(project)
+    # The import gives Build its file Start as an SNET floor (Mon 01-12), which
+    # would hold it on Monday whatever the gate does and hide a gate that slid to
+    # the start of Friday. Only the gate's edge may place Build here.
+    Task.objects.filter(project=project, name="Build").update(planned_start=None)
     assert (live["Design gate"].early_finish, live["Design gate"].milestone_at_day_end) == (
         date(2026, 1, 9),
         True,
@@ -271,6 +275,57 @@ def test_closing_a_gate_before_its_work_is_marked_done_moves_nothing(
     done = rerun()
     assert done["Design gate"].milestone_at_day_end is True
     assert done["Build"].early_start == date(2026, 1, 12)
+
+
+@pytest.mark.django_db
+def test_a_gate_started_earlier_keeps_its_frozen_edge_on_every_later_recalculation(
+    project: Project,
+) -> None:
+    """#4525: the persisted day is the sign-off day, so the freeze survives a second run.
+
+    The Design gate passes through In Progress on Wednesday (``actual_start``) and
+    is signed off on Friday (``actual_finish``) while Design is still open. The
+    engine pins that pair as a window but places the instant on Friday. The
+    writeback once collapsed the row onto ``early_start`` — Wednesday — and
+    handed that back as ``live_day_end_on``, which never matches the Friday
+    sign-off: the first run after closing froze the edge, the second released it
+    and pulled Build onto Friday with nothing changed by anyone. Every run must
+    agree with the first."""
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    live = _recalculated(project)
+    # The import gives Build its file Start as an SNET floor (Mon 01-12), which
+    # would hold it on Monday whatever the gate does and hide a gate that slid to
+    # the start of Friday. Only the gate's edge may place Build here.
+    Task.objects.filter(project=project, name="Build").update(planned_start=None)
+    assert live["Build"].early_start == date(2026, 1, 12)
+
+    def rerun() -> dict[str, Task]:
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+            patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        ):
+            _run_schedule(str(project.pk))
+        return {t.name: t for t in Task.objects.filter(project=project)}
+
+    Task.objects.filter(project=project, name="Design gate").update(
+        status=TaskStatus.IN_PROGRESS, actual_start=date(2026, 1, 7)
+    )
+    started = rerun()
+    assert started["Build"].early_start == date(2026, 1, 12)
+
+    Task.objects.filter(project=project, name="Design gate").update(
+        status=TaskStatus.COMPLETE, percent_complete=100, actual_finish=date(2026, 1, 9)
+    )
+    for run in range(3):
+        closed = rerun()
+        assert closed["Build"].early_start == date(2026, 1, 12), run
+        gate = closed["Design gate"]
+        assert (gate.early_start, gate.early_finish, gate.milestone_at_day_end) == (
+            date(2026, 1, 9),
+            date(2026, 1, 9),
+            True,
+        ), run
 
 
 def _exported_dates(

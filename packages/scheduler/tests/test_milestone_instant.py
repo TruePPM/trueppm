@@ -894,27 +894,38 @@ class TestMilestoneAtDayEnd:
         # Ignored on a live milestone: its edge is always computed.
         assert run(False, False, date(2027, 3, 10)) == (True, fri)
 
-    def test_a_frozen_day_that_is_not_the_recorded_day_does_not_hold(self) -> None:
+    @pytest.mark.parametrize("a_open", [False, True], ids=["a_done", "a_open"])
+    def test_a_frozen_day_that_is_not_the_recorded_day_does_not_hold(self, a_open: bool) -> None:
         """Signed off on a later day than it was live: the frozen edge does not carry (#4525).
 
-        Live, M sat at the end of Wednesday after A. A finished Wednesday, but M
-        was signed off on Friday. Carrying "end of day" to Friday would slip B a
-        working day for a sign-off that waited on nothing — the #4433 bug — so
-        a ``live_day_end_on`` naming another day is ignored, and M sits at the
-        start of Friday, where B starts."""
+        Live, M sat at the end of Wednesday after A, but M was signed off on
+        Friday. Carrying "end of day" to Friday would slip B a working day for a
+        sign-off that waited on nothing — the #4433 bug — so a ``live_day_end_on``
+        naming another day is ignored, and M sits at the start of Friday, where
+        B starts.
+
+        The ``a_open`` case is the one that tests the date key itself: with A
+        done the freeze is already off because no predecessor is open, so a key
+        that only checked "was a day handed back" would pass there. With A still
+        open, only the date comparison keeps the stale Wednesday edge from
+        holding on Friday."""
+        if a_open:
+            a = Task(id="A", name="A", duration=timedelta(days=3))
+        else:
+            a = Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=3),
+                actual_start=date(2027, 3, 1),
+                actual_finish=date(2027, 3, 3),
+                percent_complete=100.0,
+            )
         p = Project(
             id="p",
             name="p",
             start_date=date(2027, 3, 1),
             tasks=[
-                Task(
-                    id="A",
-                    name="A",
-                    duration=timedelta(days=3),
-                    actual_start=date(2027, 3, 1),
-                    actual_finish=date(2027, 3, 3),
-                    percent_complete=100.0,
-                ),
+                a,
                 Task(
                     id="M",
                     name="M",
