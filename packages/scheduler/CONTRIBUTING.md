@@ -6,7 +6,7 @@ by the TruePPM Django API as a service-layer dependency.
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (recommended) or `pip`
 
 ```bash

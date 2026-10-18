@@ -45,8 +45,8 @@ authorship/COI norms. Two things to confirm before submitting:
    editor pushes back that this is primarily an industrial tool, be ready to cite
    concrete research or teaching use. A real ORCID and, ideally, a co-author or
    two strengthen this.
-2. **Alpha status.** The package is `Development Status :: 3 - Alpha` with an
-   explicitly unstable pre-1.0 API. JOSS does not require a 1.0, but a reviewer
+2. **Beta status.** The package is `Development Status :: 4 - Beta` (since
+   0.4.0b1) with an explicitly unstable pre-1.0 API. JOSS does not require a 1.0, but a reviewer
    may ask about API stability. Submitting *after* the API settles reads better.
 
 ## Recommended timing
@@ -56,7 +56,7 @@ submit at the 0.4 launch.**
 
 Rationale:
 
-- The public API is still explicitly alpha and pinned-version-only. A JOSS review
+- The public API is still explicitly pre-1.0 and pinned-version-only. A JOSS review
   takes weeks and asks the software to be reasonably stable; reviewing an API we
   are still reserving the right to break invites avoidable review churn.
 - The Zenodo DOI, by contrast, is cheap and worth doing *now* — it gives every
