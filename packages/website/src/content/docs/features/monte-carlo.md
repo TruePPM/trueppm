@@ -450,7 +450,10 @@ distribution instead of a PERT curve:
 
 1. The completed-points totals from the team's last eight closed sprints
    (excluding any sprint flagged *exclude from velocity*) form the velocity
-   sample set.
+   sample set. A sprint that closed with zero points completed is part of that
+   set like any other: a team that delivers in one sprint out of four forecasts
+   slower than one that delivers every sprint. *Exclude from velocity* is the only
+   way to hold a sprint out.
 2. Each run bootstraps that set with replacement, accumulating points sprint by
    sprint until the task's `story_points` are burned down.
 3. The number of sprints that took, multiplied by the team's typical sprint
@@ -472,7 +475,8 @@ it binds only where someone has planned a longer duration than the team's
 throughput implies.
 
 A project with no usable velocity signal — no closed, velocity-eligible sprint
-with recorded completed points — falls back to each task's deterministic
+with recorded completed points, or only sprints that completed zero points (there
+is no pace to project a finish from) — falls back to each task's deterministic
 `duration`, exactly as a waterfall task with no estimate does. So an agile
 project with no sprint history yet still simulates (to a single deterministic
 date) rather than failing.

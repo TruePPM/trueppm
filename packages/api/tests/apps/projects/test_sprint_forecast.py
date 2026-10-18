@@ -132,6 +132,40 @@ def test_ready_forecast_p80_not_sooner_than_p50(project: Project) -> None:
 
 
 @pytest.mark.django_db
+def test_zero_point_sprints_count_toward_the_forecast(project: Project) -> None:
+    """A lean team's zero-point sprints stay in the bootstrap population (#4535).
+
+    Before the fix, ``completed_points == 0`` failed a truthiness filter and the
+    sampler dropped zeros again, so ``[20, 0, 0, 0] x 2`` forecast exactly like a
+    steady 20-point team.
+    """
+    for i, pts in enumerate([20, 0, 0, 0] * 2):
+        _closed_sprint(project, f"S{i}", pts)
+    _backlog(project, 60)
+    result = sprint_forecast(project.pk)
+    assert result["status"] == "ready"
+    assert result["sample_count"] == 8
+    # Mean pace 5 points/sprint → ~12 sprints, never the 3 a steady team takes.
+    assert result["p80_sprints"] > 3
+    assert result["p50_sprints"] >= 9
+
+
+@pytest.mark.django_db
+def test_all_zero_point_history_routes_like_no_velocity(project: Project) -> None:
+    """An all-zero point history has no pace: it routes as "no velocity signal".
+
+    It falls to the throughput basis (here no completed-task history either, so the
+    honest ``warming_up``) instead of bootstrapping zeros toward an unbounded horizon.
+    """
+    for i in range(3):
+        _closed_sprint(project, f"S{i}", 0)
+    _backlog(project, 60)
+    result = sprint_forecast(project.pk)
+    assert result["status"] == "warming_up"
+    assert result["p50_sprints"] is None
+
+
+@pytest.mark.django_db
 def test_endpoint_requires_project_membership(project: Project) -> None:
     outsider = User.objects.create_user(username="sf_outsider", password="pw")
     c = APIClient()
