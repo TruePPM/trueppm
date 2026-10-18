@@ -4334,7 +4334,7 @@ class _MilestoneReplay:
     (which drops it) are unchanged.
 
     ``project`` is a weak reference to the :class:`Project` that was scheduled.
-    :func:`milestone_replay` trusts the maps only for that same object; any other
+    :func:`_milestone_replay` trusts the maps only for that same object; any other
     project — an equal copy included — falls back to the replay, which is the
     reference behavior. Mutating the scheduled project in place after
     :func:`schedule` is outside the ``derive_value(project, …, result)`` contract,

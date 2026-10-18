@@ -1328,7 +1328,10 @@ def derive_value(
             ``total_float`` / ``free_float`` / ``scheduled_start``).
         result: A precomputed :class:`~trueppm_scheduler.engine.ScheduleResult` for
             ``project``. When omitted, ``schedule(project)`` is run. Passing the
-            already-computed result avoids scheduling the network twice.
+            already-computed result avoids scheduling the network twice. It must
+            come from ``schedule(project)`` on this same ``project`` object,
+            unchanged since that call: a ``project`` mutated in place after
+            scheduling yields stale derived values.
 
     Returns:
         A :class:`Derivation` naming the binding constraint, every candidate
