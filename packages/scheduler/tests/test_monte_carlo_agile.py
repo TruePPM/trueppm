@@ -133,6 +133,95 @@ def test_velocity_sampler_returns_none_without_signal(
 
 
 # ---------------------------------------------------------------------------
+# Zero-point sprints are observations (#4535)
+# ---------------------------------------------------------------------------
+
+# A team that delivered 20 points once in every four sprints (mean 5/sprint) versus a
+# team that delivers 20 every sprint (mean 20/sprint). Before #4535 the sampler
+# dropped every zero sprint, so the two forecast identically.
+_LEAN_HISTORY = [20.0, 0.0, 0.0, 0.0] * 2
+_STEADY_HISTORY = [20.0] * 6
+
+
+def test_velocity_mean_counts_zero_point_sprints() -> None:
+    from trueppm_scheduler.engine import _velocity_mean
+
+    assert _velocity_mean(_project([], velocity_samples=_LEAN_HISTORY)) == 5.0
+    # None (no recorded points) is not an observation; zero is.
+    assert _velocity_mean(_project([], velocity_samples=[10.0, None, 0.0])) == 5.0  # type: ignore[list-item]
+
+
+@pytest.mark.parametrize("samples", [[0.0], [0.0, 0.0, 0.0], [0.0, None]])
+def test_all_zero_history_has_no_pace_and_falls_back(samples: list[float]) -> None:
+    """An all-zero history is a defined no-signal path, never an unbounded horizon.
+
+    A team that delivered nothing has no pace to project a sprints-to-completion
+    from, so the mean is ``None``, the sampler returns ``None``, and a scrum task
+    falls back to its deterministic duration — it neither divides by zero nor
+    builds an unbounded draw matrix.
+    """
+    from trueppm_scheduler.engine import _velocity_mean, _velocity_worst_case_days
+
+    proj = _project(
+        [_scrum_task("S", story_points=40, duration_days=7)],
+        velocity_samples=samples,
+        sprint_length_days=10,
+    )
+    assert _velocity_mean(proj) is None
+    assert _velocity_worst_case_days(proj.tasks[0], proj) == 0
+    assert (
+        _sample_velocity_durations(
+            40, velocity_samples=samples, sprint_length_days=10, n=10, rng=np.random.default_rng(0)
+        )
+        is None
+    )
+    r = monte_carlo(proj, runs=200, seed=1)
+    deterministic = monte_carlo(_project([_scrum_task("S", 40, duration_days=7)]), runs=200, seed=1)
+    assert (r.p50, r.p80, r.p95) == (deterministic.p50, deterministic.p80, deterministic.p95)
+
+
+def test_zero_point_sprints_lengthen_the_sampled_duration() -> None:
+    lean = _sample_velocity_durations(
+        60, _LEAN_HISTORY, sprint_length_days=10, n=4000, rng=np.random.default_rng(3)
+    )
+    steady = _sample_velocity_durations(
+        60, _STEADY_HISTORY, sprint_length_days=10, n=4000, rng=np.random.default_rng(3)
+    )
+    assert lean is not None and steady is not None
+    # Steady: exactly 3 sprints every run. Lean: ~12 sprints at mean pace.
+    assert np.all(steady == 30)
+    assert float(np.percentile(lean, 80)) > float(np.percentile(steady, 80))
+    # A run can only finish on a 20-point draw, so it takes at least 3 sprints — and
+    # the zero draws in between are what stretch it.
+    assert lean.min() >= 30
+    assert float(np.median(lean)) >= 3 * float(np.median(steady))
+
+
+def test_zero_point_sprints_push_monte_carlo_p80_later() -> None:
+    """End to end: a team doing 4x worse must not forecast like the steady team."""
+    lean = monte_carlo(
+        _project(
+            [_scrum_task("S", story_points=60)],
+            velocity_samples=_LEAN_HISTORY,
+            sprint_length_days=10,
+        ),
+        runs=2000,
+        seed=11,
+    )
+    steady = monte_carlo(
+        _project(
+            [_scrum_task("S", story_points=60)],
+            velocity_samples=_STEADY_HISTORY,
+            sprint_length_days=10,
+        ),
+        runs=2000,
+        seed=11,
+    )
+    assert lean.p80 > steady.p80
+    assert lean.p95 > steady.p95
+
+
+# ---------------------------------------------------------------------------
 # Pure scrum simulation
 # ---------------------------------------------------------------------------
 

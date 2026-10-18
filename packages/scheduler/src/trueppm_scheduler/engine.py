@@ -3432,22 +3432,38 @@ def _check_duration(td: timedelta, label: str) -> None:
         )
 
 
-def _velocity_mean(project: Project) -> float | None:
-    """Mean of the project's *positive* velocity samples, or ``None`` with no signal.
+def _velocity_observations(velocity_samples: Iterable[float | None]) -> list[float]:
+    """The per-sprint throughput observations the velocity sampler bootstraps from.
 
-    The team's mean pace in points per sprint. Non-positive and missing samples are
-    dropped rather than averaged in: a zero-throughput sprint would drag the mean
-    toward zero and inflate every sprints-to-completion estimate derived from it,
-    and the sampler (:func:`_sample_velocity_durations`) bootstraps from the same
-    positive-only series — so both must read the same filtered population or the
-    horizon bounds stop matching what is actually sampled.
+    A zero-point sprint is a real observation — the team ran the sprint and delivered
+    nothing — so it stays in the population (#4535). Dropping it forecast a team with
+    history ``[20, 0, 0, 0]`` (mean 5) exactly like one with ``[20]`` (mean 20). The
+    one intentional exclusion is upstream: a sprint flagged ``exclude_from_velocity``
+    never reaches ``velocity_samples`` at all. ``None`` (no recorded points) is not an
+    observation, and a negative sample is not a meaningful throughput, so both are
+    skipped. :func:`_velocity_mean` and :func:`_sample_velocity_durations` both read
+    this one population, so the horizon bound always matches what is sampled.
+    """
+    return [float(s) for s in velocity_samples if s is not None and s >= 0]
+
+
+def _velocity_mean(project: Project) -> float | None:
+    """Mean of the project's velocity observations, or ``None`` with no signal.
+
+    The team's mean pace in points per sprint, zero-point sprints included (see
+    :func:`_velocity_observations`). Returns ``None`` when there is no observation or
+    every observation is zero: a team that has delivered nothing has no pace to
+    project a sprints-to-completion from (the ratio is unbounded), so the task falls
+    back to its deterministic duration — the same "no usable signal" path the
+    sampler takes.
     """
     if not project.velocity_samples:
         return None
-    positive = [s for s in project.velocity_samples if s is not None and s > 0]
-    if not positive:
+    observations = _velocity_observations(project.velocity_samples)
+    if not observations:
         return None
-    return sum(positive) / len(positive)
+    mean = sum(observations) / len(observations)
+    return mean if mean > 0 else None
 
 
 def _velocity_worst_case_days(task: Task, project: Project) -> int:
@@ -3671,7 +3687,7 @@ def _validate_task_calendars(project: Project) -> None:
 def _validate_agile_inputs(project: Project) -> None:
     # Non-finite agile inputs crash deep inside the velocity sampler (NaN/inf
     # story_points hit ``int(np.ceil(...))``; an inf velocity sample passes the
-    # ``> 0`` filter and poisons the bootstrap mean), so reject them eagerly
+    # ``>= 0`` observation filter and poisons the bootstrap mean), so reject them eagerly
     # with the documented exception type (#1070).
     if project.velocity_samples is not None:
         # A direct-object caller (#3846/#1209) can pass a bare scalar (e.g. ``-1``)
@@ -4517,15 +4533,21 @@ def _sample_velocity_durations(
     so the spread reflects velocity variability, the real driver of agile uncertainty.
 
     Returns ``None`` (caller falls back to the deterministic duration) when there is no
-    usable signal: no positive velocity samples, non-positive ``story_points``, or a
-    non-positive sprint length. With a single positive sample the result is a constant
-    (degenerate distribution) — honest: one data point cannot express variance.
+    usable signal: no velocity observation, an all-zero history (no pace to project,
+    so the sprints-to-completion is unbounded), non-positive ``story_points``, or a
+    non-positive sprint length. Zero-point sprints are bootstrapped like any other
+    observation (#4535) — see :func:`_velocity_observations`. With a single sample the
+    result is a constant (degenerate distribution) — honest: one data point cannot
+    express variance. A run that draws zeros long enough to reach the horizon clamps
+    to it, so the loop-free draw matrix stays bounded whatever the zero share.
     """
-    positive = np.asarray([s for s in velocity_samples if s is not None and s > 0], dtype=float)
-    if story_points <= 0 or positive.size == 0 or sprint_length_days <= 0:
+    observations = np.asarray(_velocity_observations(velocity_samples), dtype=float)
+    if story_points <= 0 or observations.size == 0 or sprint_length_days <= 0:
         return None
 
-    mean = float(positive.mean())
+    mean = float(observations.mean())
+    if mean <= 0:
+        return None
     # Bound the per-run sprint horizon so a pathologically slow bootstrap path can't
     # spin: 4x the mean-pace sprint count plus a floor. Runs that still haven't burned
     # down by then clamp to the cap (a deep-tail outlier), keeping the sim finite.
@@ -4535,7 +4557,7 @@ def _sample_velocity_durations(
     # single scrum task allocates multi-GB. _velocity_worst_case_days applies the
     # identical clamp so the MC index stays correctly sized (#1067).
     max_sprints = min(int(np.ceil(story_points / mean)) * 4 + 10, MAX_VELOCITY_SPRINTS)
-    draws = rng.choice(positive, size=(n, max_sprints), replace=True)
+    draws = rng.choice(observations, size=(n, max_sprints), replace=True)
     cumulative = np.cumsum(draws, axis=1)
     reached = cumulative >= story_points
     sprints_needed = np.where(

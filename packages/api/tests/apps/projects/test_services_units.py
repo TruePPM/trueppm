@@ -825,6 +825,27 @@ class TestBootstrapSamplers:
     def test_velocity_sampler_returns_none_without_positive_samples(self) -> None:
         assert _sample_backlog_sprint_counts(35.0, [0.0, 0.0], runs=10, seed=1) is None
 
+    def test_velocity_sampler_bootstraps_zero_point_sprints(self) -> None:
+        """A zero-point sprint is an observation, not noise to drop (#4535).
+
+        ``[20, 0, 0, 0] x 2`` is a team averaging 5 points/sprint; ``[20] x 6`` averages
+        20. Dropping the zeros forecast both at exactly 3 sprints for 60 points.
+        """
+        import numpy as np
+
+        lean = _sample_backlog_sprint_counts(60.0, [20.0, 0.0, 0.0, 0.0] * 2, runs=2000, seed=3)
+        steady = _sample_backlog_sprint_counts(60.0, [20.0] * 6, runs=2000, seed=3)
+        assert lean is not None
+        assert steady is not None
+        assert set(steady.tolist()) == {3.0}
+        assert float(np.percentile(lean, 80)) > float(np.percentile(steady, 80))
+        assert float(np.median(lean)) >= 3 * float(np.median(steady))
+
+    def test_velocity_sampler_all_zero_history_is_no_signal(self) -> None:
+        """An all-zero history has no pace to project — ``None``, never an unbounded horizon."""
+        assert _sample_backlog_sprint_counts(35.0, [0.0], runs=10, seed=1) is None
+        assert _sample_backlog_sprint_counts(35.0, [0.0, 0.0, 0.0, 0.0], runs=10, seed=1) is None
+
     def test_velocity_sampler_returns_none_with_no_remaining_work(self) -> None:
         assert _sample_backlog_sprint_counts(0.0, [10.0], runs=10, seed=1) is None
 

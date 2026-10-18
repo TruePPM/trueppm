@@ -991,7 +991,8 @@ class Project:
 
     # Agile-aware Monte Carlo inputs (#411). ``velocity_samples`` is the team's
     # historical throughput series — completed story points per closed sprint —
-    # which scrum tasks bootstrap-sample to estimate sprints-to-completion.
+    # which scrum tasks bootstrap-sample to estimate sprints-to-completion. A
+    # zero-point sprint is an observation and is sampled like any other (#4535).
     # ``sprint_length_days`` is the cadence in *working* days (the engine schedules
     # in working days). Both default to absent; without them a SCRUM task gracefully
     # falls back to its deterministic duration.

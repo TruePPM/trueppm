@@ -5451,25 +5451,35 @@ def _sample_backlog_sprint_counts(
     API-local and calendar-free — sprint_forecast is a Django-layer read, so a
     cross-package dependency on a private scheduler primitive isn't worth it.
 
-    Returns ``None`` (no usable signal) when there are no positive velocity samples
-    or ``remaining_points`` is non-positive; a single positive sample yields a
-    constant (degenerate) distribution, which is honest — one observation cannot
-    express variance.
+    A zero-point sprint is a real observation — the team ran the sprint and delivered
+    nothing — and is bootstrapped like any other (#4535); ``exclude_from_velocity`` is
+    the one intentional exclusion, applied upstream. Dropping zeros here forecast a
+    ``[20, 0, 0, 0]`` team (mean 5) exactly like a ``[20]`` team (mean 20).
+
+    Returns ``None`` (no usable signal) when there is no observation, every
+    observation is zero (no pace to project — sprints-to-completion is unbounded), or
+    ``remaining_points`` is non-positive; a single observation yields a constant
+    (degenerate) distribution, which is honest — one observation cannot express
+    variance.
     """
     import numpy as np
 
-    positive = np.asarray([s for s in velocity_samples if s and s > 0], dtype=float)
-    if remaining_points <= 0 or positive.size == 0:
+    observations = np.asarray(
+        [s for s in velocity_samples if s is not None and s >= 0], dtype=float
+    )
+    if remaining_points <= 0 or observations.size == 0:
+        return None
+    mean = float(observations.mean())
+    if mean <= 0:
         return None
     rng = np.random.default_rng(seed)
-    mean = float(positive.mean())
     # Bound the per-run horizon so a pathologically slow bootstrap path can't spin
     # — and hard-cap it so a bad-data backlog (e.g. a 100k-point import against a
     # slow mean) can't drive an unbounded runs×max_sprints allocation. 2000 sprints
     # is ~77 years at a fortnightly cadence; beyond that the answer is "never", and
     # runs saturate to the cap (already handled as the not-reached branch below).
     max_sprints = min(int(np.ceil(remaining_points / mean)) * 4 + 10, 2000)
-    draws = rng.choice(positive, size=(runs, max_sprints), replace=True)
+    draws = rng.choice(observations, size=(runs, max_sprints), replace=True)
     cumulative = np.cumsum(draws, axis=1)
     reached = cumulative >= remaining_points
     counts = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1, max_sprints)
@@ -5550,12 +5560,20 @@ def sprint_forecast(
     data = project_forecast(project_id)
     vel = data["velocity"]
     remaining = data["remaining_committed_points"] or 0
+    # A zero-point sprint is an observation (#4535): test for ``None``, not
+    # truthiness, or a lean sprint silently drops out of the bootstrap population.
     samples = [
         float(s["completed_points"])
         for s in vel["sprints"]
-        if not s.get("exclude_from_velocity") and s.get("completed_points")
+        if not s.get("exclude_from_velocity") and s.get("completed_points") is not None
     ]
     sprint_length = _typical_sprint_length_days(project_id)
+    # An all-zero point history carries no pace to forecast from, so it counts as
+    # "no velocity signal": it routes to the throughput basis (below) instead of
+    # dead-ending in ``warming_up`` on the velocity path, and it reports
+    # ``sample_count`` 0 — not the raw closed-sprint count, which would read as
+    # "3 sprints closed, still warming up" in the forecast widget.
+    velocity_sample_count = len(samples) if any(s > 0 for s in samples) else 0
 
     base: dict[str, Any] = {
         "remaining_points": remaining,
@@ -5564,7 +5582,7 @@ def sprint_forecast(
         # points, not item counts — so a consumer always reads the figure matching
         # the basis it was handed.
         "remaining_count": None,
-        "sample_count": len(samples),
+        "sample_count": velocity_sample_count,
         "p50_sprints": None,
         "p80_sprints": None,
         "p50_date": None,
@@ -5585,7 +5603,7 @@ def sprint_forecast(
     # flow path is count-based and returns its own basis/status (ADR-0130 D3),
     # replacing the old "warming_up forever" dead-end with a real forecast or an
     # honest "insufficient_flow_history".
-    if _prefers_throughput_forecast(project_id, velocity_sample_count=len(samples)):
+    if _prefers_throughput_forecast(project_id, velocity_sample_count=velocity_sample_count):
         flow = throughput_forecast(project_id, runs=runs, seed=seed)
         if flow is not None:
             return flow

@@ -41,6 +41,14 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **Zero-point sprints are now part of the velocity sample set (#4535).**
+  `monte_carlo()` dropped every `Project.velocity_samples` entry equal to zero
+  before bootstrapping a `DeliveryMode.SCRUM` task's sprints-to-completion, so
+  `[20, 0, 0, 0]` forecast exactly like `[20]`. Zero samples are now drawn like
+  any other observation, which moves P50/P80/P95 later for a team with lean
+  sprints. `None` and negative samples are still skipped, and a history whose
+  samples are all zero still falls back to the task's deterministic `duration`.
+
 - **`derive_value()` no longer replays the CPM passes on a project with a
   milestone (#4524).** Any zero-duration task made every derivation re-run a
   full forward and backward pass plus a graph rebuild to recover the milestone
