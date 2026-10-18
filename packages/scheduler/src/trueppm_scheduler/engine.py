@@ -115,6 +115,7 @@ from __future__ import annotations
 
 import copy
 import math
+import weakref
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
@@ -426,6 +427,14 @@ class ScheduleResult:
             self.driving_edges,
             key=lambda e: (e.predecessor_id, e.successor_id, e.dep_type),
         )
+
+    def __getstate__(self) -> dict[str, Any]:
+        # The milestone pass state schedule() keeps for derive_value (#4524) holds a
+        # weak reference, which cannot be pickled; it is only a cache, so a pickled
+        # or copied result drops it and derive_value replays the passes instead.
+        state = dict(self.__dict__)
+        state.pop(_MILESTONE_REPLAY_ATTR, None)
+        return state
 
     def to_dict(self) -> dict[str, Any]:
         """Return the whole schedule result as a JSON-serializable dict.
@@ -2778,6 +2787,7 @@ def _compute_floats(
     instants: dict[str, _Instant] | None = None,
     late_instants: dict[str, date] | None = None,
     link_instants: dict[str, _Instant] | None = None,
+    free_instants_out: dict[str, date] | None = None,
 ) -> list[DrivingEdge]:
     """Compute total_float, free_float, and is_critical for every task (in-place).
 
@@ -2820,6 +2830,10 @@ def _compute_floats(
     ``link_instants`` is :func:`_forward_pass`'s link map (#4225): a milestone's own
     floats run from its shown instant, its successors' free-float stretch from the
     instant they measure from.
+
+    ``free_instants_out``, when given, receives the milestone free-float instants
+    computed here, so :func:`schedule` can hand them to :mod:`derive` instead of it
+    rebuilding the graph to recompute the same map (#4524).
     """
     early_instants = instants or {}
     lates = late_instants or {}
@@ -2839,6 +2853,8 @@ def _compute_floats(
         lambda tid: calendar if task_calendars is None else task_calendars.get(tid, calendar),
         links,
     )
+    if free_instants_out is not None:
+        free_instants_out.update(free_instants)
 
     for node_id in topo_order:
         task = task_map[node_id]
@@ -4237,6 +4253,8 @@ def schedule(project: Project) -> ScheduleResult:
         [project.start_date, *(t.early_start for t in task_map.values() if t.early_start)]
     )
     wd_counter = _WorkingDayCounter.build(counter_lo, project_finish, project.calendar)
+    has_milestone = any(t.duration.days == 0 for t in project.tasks)
+    free_instants: dict[str, date] | None = {} if has_milestone else None
     driving_edges = _compute_floats(
         task_map,
         topo_order,
@@ -4247,6 +4265,7 @@ def schedule(project: Project) -> ScheduleResult:
         instants,
         float_lates,
         link_instants,
+        free_instants,
     )
 
     # Order the critical path deterministically AND topologically. Filtering a
@@ -4272,7 +4291,7 @@ def schedule(project: Project) -> ScheduleResult:
     # multiple parallel roots exist and may not be the earliest-starting one.
     project_start_date = min(t.early_start for t in tasks if t.early_start is not None)
 
-    return ScheduleResult(
+    result = ScheduleResult(
         project_id=project.id,
         project_start=project_start_date,
         project_finish=project_finish,
@@ -4280,6 +4299,82 @@ def schedule(project: Project) -> ScheduleResult:
         critical_path=critical_path,
         driving_edges=driving_edges,
     )
+    if free_instants is not None:
+        # Keep the pass state derive_value would otherwise replay (#4524). Nothing
+        # after the backward pass writes to these maps, so they are exactly what
+        # _milestone_instants / _project_free_instants would rebuild.
+        setattr(
+            result,
+            _MILESTONE_REPLAY_ATTR,
+            _MilestoneReplay(
+                project=weakref.ref(project),
+                instants=instants,
+                late_instants=late_instants,
+                finish_instant=_finish_instant(task_map, instants),
+                link_instants=link_instants,
+                free_instants=free_instants,
+            ),
+        )
+    return result
+
+
+_MILESTONE_REPLAY_ATTR = "_trueppm_milestone_replay"
+
+
+@dataclass(frozen=True)
+class _MilestoneReplay:
+    """The milestone pass state :func:`schedule` computed, kept for :mod:`derive` (#4524).
+
+    A milestone's instants are not in the result, so explaining any value on a
+    project with a zero-duration task needs them. Replaying both passes to recover
+    them made every such derivation cost a full schedule (~140x at 10k tasks).
+    :func:`schedule` already holds the exact maps, so it attaches them to the
+    result it returns as a private, non-field attribute — off the dataclass so
+    the public field list, ``==``, ``to_dict()`` and ``dataclasses.replace``
+    (which drops it) are unchanged.
+
+    ``project`` is a weak reference to the :class:`Project` that was scheduled.
+    :func:`_milestone_replay` trusts the maps only for that same object; any other
+    project — an equal copy included — falls back to the replay, which is the
+    reference behavior. Mutating the scheduled project in place after
+    :func:`schedule` is outside the ``derive_value(project, …, result)`` contract,
+    which already requires ``result`` to be that project's schedule.
+    """
+
+    project: weakref.ref[Project]
+    instants: dict[str, _Instant]
+    late_instants: dict[str, date]
+    finish_instant: date
+    link_instants: dict[str, _Instant]
+    free_instants: dict[str, date]
+
+
+def _milestone_replay(
+    project: Project, result: ScheduleResult
+) -> tuple[dict[str, _Instant], dict[str, date], date, dict[str, _Instant], dict[str, date]]:
+    """``(instants, late_instants, finish_instant, link_instants, free_instants)``.
+
+    Read from what :func:`schedule` attached to ``result`` when it scheduled this
+    very ``project`` (:class:`_MilestoneReplay`); otherwise — a result built by
+    hand, deserialized, or from another engine — replayed with
+    :func:`_milestone_instants` and :func:`_project_free_instants`, which compute
+    the same maps from scratch (#4524). Callers must not mutate the returned maps:
+    they are shared with ``result``.
+    """
+    cached = getattr(result, _MILESTONE_REPLAY_ATTR, None)
+    if isinstance(cached, _MilestoneReplay) and cached.project() is project:
+        return (
+            cached.instants,
+            cached.late_instants,
+            cached.finish_instant,
+            cached.link_instants,
+            cached.free_instants,
+        )
+    instants, late_instants, finish_instant, link_instants = _milestone_instants(project)
+    free_instants = (
+        _project_free_instants(project, result.tasks, instants, link_instants) if instants else {}
+    )
+    return instants, late_instants, finish_instant, link_instants, free_instants
 
 
 def _milestone_instants(
@@ -4290,8 +4385,10 @@ def _milestone_instants(
     Replays the forward and backward passes over copies, which is the only faithful
     source (#4079): a milestone's instant can chain through other milestones
     upstream, and its late instant through milestones downstream. Used by
-    :mod:`trueppm_scheduler.derive` only when a derivation touches a zero-duration
-    task, so ordinary derivations stay O(degree).
+    :mod:`trueppm_scheduler.derive` (through :func:`_milestone_replay`) only for a
+    project with a zero-duration task whose result :func:`schedule` did not produce
+    for that same project object — the common path reads the maps :func:`schedule`
+    kept (#4524).
     """
     g = _build_graph(project)
     topo_order: list[str] = list(nx.topological_sort(g))
