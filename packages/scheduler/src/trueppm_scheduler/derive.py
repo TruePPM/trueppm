@@ -51,13 +51,12 @@ from trueppm_scheduler.engine import (
     _link_finish_ref,
     _link_start_ref,
     _milestone_finish_bound,
-    _milestone_instants,
     _milestone_latest,
     _milestone_proposal,
     _milestone_refs,
+    _milestone_replay,
     _next_working_day,
     _prev_working_day,
-    _project_free_instants,
     _require_project,
     _resolve_task_calendars,
     _retreat_calendar_days,
@@ -1216,9 +1215,11 @@ def _milestone_context(
     """Milestone kinds and instants around ``task``, recovered only when needed.
 
     A milestone's kind and late instant are not in the result and can chain through
-    other milestones, so they come from a pass replay
-    (``engine._milestone_instants``) — paid only when the project has a
-    zero-duration task. Otherwise every accessor degrades to plain dates.
+    other milestones, so they come from the pass state :func:`schedule` kept on the
+    result (``engine._milestone_replay``), or — for a result :func:`schedule` did
+    not produce for this project object — from a full pass replay (#4524). Only a
+    project with a zero-duration task needs them; otherwise every accessor
+    degrades to plain dates.
 
     The replay is keyed on the whole project, not on the tasks this derivation
     touches: every late date is seeded from the project's finish *instant*
@@ -1229,15 +1230,11 @@ def _milestone_context(
     the same instant, so a milestone-free project still derives in O(degree).
     """
     task_calendars = _resolve_task_calendars(project)
-    instants, late_instants, finish_instant, link_instants = (
-        _milestone_instants(project)
-        if any(t.duration.days == 0 for t in project.tasks)
-        else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)), {})
-    )
-
     # Free float compares a milestone successor at its free-float instant (#4180).
-    free_instants = (
-        _project_free_instants(project, result.tasks, instants, link_instants) if instants else {}
+    instants, late_instants, finish_instant, link_instants, free_instants = (
+        _milestone_replay(project, result)
+        if any(t.duration.days == 0 for t in project.tasks)
+        else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)), {}, {})
     )
 
     def cal_of(tid: str) -> Calendar:
@@ -1396,8 +1393,8 @@ def derive_value(
     ]
 
     # Milestone instants (#4079). Their kind is not in the result, and it can chain
-    # through other milestones upstream, so it is recovered from a forward replay —
-    # paid only when the derivation touches a zero-duration task.
+    # through other milestones upstream, so it comes from the pass state schedule()
+    # kept, or a replay when the result did not come from schedule(project) (#4524).
     mctx = _milestone_context(project, result, task, preds, cal, default_cal)
     late_refs, early_refs = mctx.late_refs, mctx.early_refs
     milestone, own_instants, links = mctx.milestone, mctx.own_instants, mctx.links

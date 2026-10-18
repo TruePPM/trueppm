@@ -41,6 +41,18 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **`derive_value()` no longer replays the CPM passes on a project with a
+  milestone (#4524).** Any zero-duration task made every derivation re-run a
+  full forward and backward pass plus a graph rebuild to recover the milestone
+  instants — ~140x slower at 10k tasks (1.5 ms → 205 ms with a precomputed
+  result, measured). `schedule()` now attaches that pass state to the
+  `ScheduleResult` it returns as a private, non-field attribute, and
+  `derive_value()` reads it when given that result for the same `Project`
+  object (or when it schedules the project itself). Derivations are identical;
+  a result built any other way — by hand, deserialized, or paired with a
+  different `Project` object, including an equal copy — still takes the replay.
+  The public `ScheduleResult` fields, equality and `to_dict()` are unchanged.
+
 - **Closing a milestone no longer slips its successors a working day (#4433).**
   A completed zero-duration task with recorded actuals (`actual_finish`, or
   `actual_start`) was laid out as ordinary work ending at the end of its day,
