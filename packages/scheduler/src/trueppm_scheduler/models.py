@@ -876,8 +876,10 @@ class Calendar:
         hpd = data.get("hours_per_day", 8.0)
         if isinstance(hpd, bool) or not isinstance(hpd, (int, float)):
             raise InvalidScheduleInput(f"hours_per_day must be a number (got {hpd!r}).")
-        # A non-finite value (reachable through a Python dict, not JSON) would
-        # serialize as the ``Infinity`` literal ``from_json`` refuses (#4517).
+        # A non-finite value would serialize as the ``Infinity`` literal
+        # ``from_json`` refuses (#4517). It reaches here from a Python dict, and from
+        # JSON too: ``json.loads`` parses an overflowing literal such as ``1e400``
+        # to ``inf`` without going through the NaN/Infinity constant hook.
         if not _is_finite_real(hpd):
             raise InvalidScheduleInput(f"hours_per_day must be a finite number (got {hpd!r}).")
         tz = data.get("timezone", "UTC")
@@ -1393,6 +1395,10 @@ def _validate_calendar_fields(cal: Calendar, label: str) -> None:
             _check_plain_date_field(
                 getattr(exc, bound), f"{label} exception {bound}", optional=False
             )
+        # DateRange.__post_init__ enforces this, but a frozen-dataclass bypass
+        # (``object.__setattr__``) does not; DateRange.from_dict would refuse it.
+        if exc.end < exc.start:
+            _invalid(f"{label} exception end ({exc.end}) must be >= start ({exc.start}).")
 
 
 _TASK_DATE_FIELDS = (

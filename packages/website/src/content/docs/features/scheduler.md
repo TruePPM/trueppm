@@ -399,7 +399,7 @@ walk to the `date` ceiling and raise an opaque `OverflowError`):
 
 | Input | Limit |
 |-------|-------|
-| `Calendar.working_days` | Must set at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
+| `Calendar.working_days` | An integer bitmask in `[0, 127]` that sets at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
 | Task `duration` (and each PERT estimate) | `0` to `MAX_DURATION_DAYS` (`36_525`, ~100 years); negatives rejected. |
 | `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
 | Dependency count | At most `MAX_DEPENDENCIES` (`100_000`) edges. |

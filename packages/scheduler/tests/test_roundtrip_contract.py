@@ -103,6 +103,7 @@ _EXCEPTION_VALUES: list[Any] = [
     [None],
     [_raw_date_range(datetime(2026, 1, 7), datetime(2026, 1, 8))],
     [_raw_date_range("2026-01-07", "2026-01-08")],
+    [_raw_date_range(date(2026, 1, 8), date(2026, 1, 7))],
 ]
 
 
@@ -289,6 +290,9 @@ _REFUSED_BY_BOTH: dict[str, Any] = {
         [_raw_date_range(datetime(2026, 1, 7), datetime(2026, 1, 8))],
     ),
     "calendar.exceptions=['ab']": lambda p: setattr(p.calendar, "exceptions", ["ab"]),
+    "calendar.exceptions end < start": lambda p: setattr(
+        p.calendar, "exceptions", [_raw_date_range(date(2026, 1, 8), date(2026, 1, 7))]
+    ),
     "task.planned_finish='garbage'": lambda p: setattr(p.tasks[0], "planned_finish", "garbage"),
     "task.planned_finish=5": lambda p: setattr(p.tasks[0], "planned_finish", 5),
     "task.early_start='x'": lambda p: setattr(p.tasks[0], "early_start", "x"),
