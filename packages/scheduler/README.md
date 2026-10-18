@@ -283,7 +283,7 @@ convention. The same list, with the comparison spelled out, is on
 
 **Progress and actuals**
 
-- A **completed** task (`actual_finish` set, or 100%) is pinned to its recorded dates verbatim — even on a non-working day — and is never re-sampled. With no recorded actuals it is pinned at the project start (or its `planned_start`, when later); no predecessor moves it. A completed milestone stays an instant: with no actuals at the start of its pinned day; with actuals on its recorded `actual_finish` (else `actual_start`) day, at the edge of that day it had live — the end only when work finishing that day placed it, the start when nothing precedes it or the data date or `planned_start` held it — so closing it on its forecast day moves no successor ([#4433](https://gitlab.com/trueppm/trueppm/-/issues/4433)). ([ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md))
+- A **completed** task (`actual_finish` set, or 100%) is pinned to its recorded dates verbatim — even on a non-working day — and is never re-sampled. With no recorded actuals it is pinned at the project start (or its `planned_start`, when later); no predecessor moves it. A completed milestone stays an instant: with no actuals at the start of its pinned day; with actuals on its recorded `actual_finish` (else `actual_start`) day, at the edge of that day it had live — the end when completed work finishing that day placed it, or — while a predecessor is still open — when `Task.live_day_end_on` (the day your previous run showed it at the end of) names that day; otherwise the start. No change to open work moves it, and when you pass your previous run's output back, closing it on its forecast day moves no successor ([#4433](https://gitlab.com/trueppm/trueppm/-/issues/4433), [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525)). ([ADR-0136](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0136-completed-task-full-duration-span.md))
 - An **in-progress** task schedules its remaining `duration − floor(duration × pct / 100)` working days forward from the data date (`status_date`), floored at its unsnapped `actual_start`. ([ADR-0132](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0132-data-date-aware-progress-forecasting.md))
 
 **Float and output**
@@ -504,24 +504,17 @@ calendar-aware lag, cycle detection) and Monte Carlo simulation (PERT-Beta,
 velocity sampling, `derive_value()` explainability) are stable and exercised
 by the fuzz, mutation, and MS-Project-parity suites described in
 [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md).
-Two defects found late in the 0.4 cycle are still being worked on as this
-ships — if either is still open when 0.4 tags, it carries into 0.5:
-
-- [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) — a completed
-  milestone's day edge is re-derived from live predecessors, so a pinned
-  milestone can move and FS-only CPM becomes non-monotone (a regression of
-  the #4433 fix).
-- [#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535) — the velocity
-  sampler drops every zero-point sprint before bootstrapping, so a team with
-  lean sprints is forecast as if those sprints never happened.
 
 **Known limitations open against 0.4**, grouped by area — every item below is
 an open issue; nothing in this list is fixed yet, regardless of which future
 release it is scheduled for:
 
-- **CPM correctness** — the in-flight 0.4 issue above
-  ([#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525)) closes here if
-  it does not make the 0.4 tag; a work-task late-finish seed can ignore a
+- **CPM correctness** — while any predecessor of a closed milestone is still
+  open, its frozen day edge (`live_day_end_on`) reflects the last derivation,
+  so correcting a completed predecessor's actuals or removing a link is not
+  re-read until every predecessor completes
+  ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)); a work-task
+  late-finish seed can ignore a
   start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
   *into* a summary task do not fan out to every leaf the way the successor
@@ -544,9 +537,7 @@ release it is scheduled for:
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
   [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
-- **Monte Carlo** — the in-flight 0.4 velocity-sampler issue above
-  ([#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535)) closes here if
-  it does not make the 0.4 tag; a velocity-sampled duration is re-expanded
+- **Monte Carlo** — a velocity-sampled duration is re-expanded
   against the task's own calendar rather than the sprint calendar it was
   sampled against
   ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
@@ -596,9 +587,7 @@ they will ship with 0.5 or that release will slip:
   independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings `engine.py` itself into scope
-  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); the in-flight
-  0.4 issue above — [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) —
-  closes here if it does not make the 0.4 tag; three more bare-exception leaks close the
+  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); three more bare-exception leaks close the
   `SchedulerError` contract
   ([#4162](https://gitlab.com/trueppm/trueppm/-/issues/4162),
   [#4132](https://gitlab.com/trueppm/trueppm/-/issues/4132)); and the span-guard
@@ -612,9 +601,7 @@ they will ship with 0.5 or that release will slip:
   ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)); the CPM
   duration-expansion day-walk above moves off O(duration)
   ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531)).
-- **Monte Carlo correctness** — the in-flight 0.4 issue above
-  ([#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535)) closes here if
-  it does not make the 0.4 tag; the sprint-horizon clamp bug above will be
+- **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); an
   in-progress task's sampled duration no longer has its optimistic tail
   truncated by subtracting deterministic elapsed time from the sampled total

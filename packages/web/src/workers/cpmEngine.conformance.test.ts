@@ -143,6 +143,7 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_completed_no_actuals_seven_day_chain: 'adapter: does not thread actuals/status date',
   progress_completed_no_actuals_milestone_instant: 'adapter: does not thread actuals/status date',
   progress_completed_actuals_milestone_instant: 'adapter: does not thread actuals/status date',
+  progress_closed_milestone_open_predecessor: 'adapter: does not thread actuals/status date',
   progress_completed_successor_no_backward_constraint:
     'adapter: does not thread actuals/status date',
   progress_in_progress_remaining: 'adapter: does not thread actuals/status date',

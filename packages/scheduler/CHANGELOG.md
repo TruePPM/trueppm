@@ -96,12 +96,24 @@ change between releases. Pin an exact version (e.g.
   working day later than after the same milestone live, or completed with no
   actuals (#4343). It now stays an instant on its `actual_finish` day (else its
   `actual_start` day), shown and linked from that day, at the edge of the day
-  it had live: the end only when work finishing that day placed it, the start
-  when nothing precedes it or a floor (data date, `planned_start`) held it
+  it had live: the end when work finishing that day placed it, the start
+  when nothing precedes it or a floor (data date, `planned_start`) held it —
+  which work counts is narrowed by the #4525 entry below
   (`milestone_at_day_end` is now `True` for a closed milestone on the end edge,
   where it was always `False` for one pinned by actuals). A `planned_start` no longer
   binds once actuals are recorded. `monte_carlo` inherits the same placement,
   and the Rust/WASM engine mirrors it.
+- **No change to open work moves a closed milestone (#4525).** The #4433 edge was
+  read from every predecessor's current forecast, so a milestone signed off while
+  a predecessor was still open moved its successors a working day whenever that
+  work's forecast changed, and a longer predecessor could finish an FS-only
+  schedule earlier. The edge is now read from completed predecessors, plus a new
+  optional input, `Task.live_day_end_on`: the day your previous live run showed
+  the milestone at the end of (`early_finish` where `milestone_at_day_end` was
+  `True`). Pass it back and a milestone closed on its forecast day keeps its edge
+  while work behind it is still open; once every predecessor is complete the
+  completed work decides. Leave it `None` and open work reads as not having
+  placed it. The Rust/WASM engine accepts and honors the same key.
 - **`monte_carlo()` no longer reports P50/P80/P95 before `schedule()` under
   per-task calendars (#4429).** A task on a calendar sparser than its successor's
   (a four-day week, Monday-only, a long shutdown exception) spans more than its

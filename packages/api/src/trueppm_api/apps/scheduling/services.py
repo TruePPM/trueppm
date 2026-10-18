@@ -541,6 +541,14 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
                 SchedDeliveryMode.SCRUM if t.delivery_mode == DeliveryMode.SCRUM else None
             ),
             story_points=(float(t.story_points) if t.story_points is not None else None),
+            # The last run's own output, handed back (#4525): the day this milestone
+            # was shown on at the end of. When it is later closed on that day, the
+            # engine keeps that edge even if a predecessor is still open, so closing
+            # a milestone on its forecast day moves none of its successors. The
+            # engine reads it only on a completed milestone with actuals.
+            live_day_end_on=(
+                t.early_finish if (t.is_milestone and t.milestone_at_day_end) else None
+            ),
         )
         for t in db_tasks
     ]

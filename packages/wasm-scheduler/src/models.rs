@@ -99,6 +99,14 @@ pub struct Task {
     /// `deny_unknown_fields`. An input value is ignored and overwritten.
     #[serde(default, skip_serializing_if = "is_false")]
     pub milestone_at_day_end: bool,
+    /// Input only, read on a completed milestone with recorded actuals (#4525):
+    /// the day the caller's previous run showed it on at the end of the day (that
+    /// run's `early_finish` with `milestone_at_day_end` true), or `None`. While a
+    /// predecessor is still open and it names the recorded day, the closed
+    /// milestone keeps that end-of-day edge. Mirrors the Python
+    /// `Task.live_day_end_on`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_day_end_on: Option<NaiveDate>,
 
     /// Total float in seconds (divide by 86400 for working days).
     #[serde(default)]
@@ -434,6 +442,7 @@ mod tests {
             late_finish: None,
             scheduled_start: None,
             milestone_at_day_end: false,
+            live_day_end_on: None,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

@@ -1103,8 +1103,18 @@ def _apply_cpm_results(
         # Belt-and-suspenders: milestones are single-point gates. Even if the
         # boundary normalisation is bypassed, a milestone's finish must equal its
         # start so client-facing rows never render a date range.
+        #
+        # Collapse onto the engine's early_finish, not its early_start (#4525). The
+        # two differ only for a closed milestone with an actual_start on an earlier
+        # day than its actual_finish (one that passed through In Progress): the
+        # engine reports that pair as its pinned window but places the instant —
+        # and measures its successors — from the sign-off day, actual_finish. That
+        # is also the day build_sched_tasks hands back as live_day_end_on, which
+        # the engine compares against actual_finish; persisting actual_start there
+        # released a closed milestone's frozen edge on the next recalculation and
+        # moved its successors with no change by anyone.
         if db_task.is_milestone:
-            db_task.early_finish = db_task.early_start
+            db_task.early_start = db_task.early_finish
             db_task.late_finish = db_task.late_start
         # For summary tasks, overwrite duration with the WORKING-day span of the
         # rolled-up window, so the stored value means what the column documents and

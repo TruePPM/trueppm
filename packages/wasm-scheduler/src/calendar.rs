@@ -802,6 +802,7 @@ mod tests {
             late_finish: Some(lf),
             scheduled_start: Some(es),
             milestone_at_day_end: false,
+            live_day_end_on: None,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

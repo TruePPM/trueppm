@@ -1,0 +1,199 @@
+{
+  "id": "p-progress-closed-milestone-open-predecessor",
+  "name": "A milestone signed off while its predecessor is still open: with no live_day_end_on it sits at the start of its recorded day, since only completed predecessors decide a closed milestone's edge; with live_day_end_on naming the recorded day it keeps its live end-of-day edge; a live_day_end_on naming another day does not hold, even with the predecessor still open, and once every predecessor is complete the completed work decides even when it names the recorded day (#4525)",
+  "start_date": "2027-03-01",
+  "tasks": [
+    {
+      "id": "A",
+      "name": "Open work, Mon..Thu: its forecast FS+1 proposal reaches past the start of the sign-off day",
+      "duration": 345600.0
+    },
+    {
+      "id": "M",
+      "name": "Milestone after A, closed Fri 03-05 out of sequence: start of Friday",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2027-03-05"
+    },
+    {
+      "id": "B",
+      "name": "Live successor of M: starts Friday, not Monday",
+      "duration": 172800.0
+    },
+    {
+      "id": "C",
+      "name": "Open work, Mon..Mon, forecast to finish after the sign-off",
+      "duration": 518400.0
+    },
+    {
+      "id": "N",
+      "name": "Milestone after C, closed Fri 03-05: start of Friday",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2027-03-05"
+    },
+    {
+      "id": "D",
+      "name": "Live successor of N: starts Friday",
+      "duration": 172800.0
+    },
+    {
+      "id": "P",
+      "name": "Open work, Mon..Wed",
+      "duration": 259200.0
+    },
+    {
+      "id": "Q",
+      "name": "Milestone after P, closed Wed 03-03 with live_day_end_on Wed: keeps the end of Wednesday",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2027-03-03",
+      "live_day_end_on": "2027-03-03"
+    },
+    {
+      "id": "R",
+      "name": "Live successor of Q: starts Thursday",
+      "duration": 86400.0
+    },
+    {
+      "id": "T",
+      "name": "Completed work, Mon..Wed",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2027-03-01",
+      "actual_finish": "2027-03-03"
+    },
+    {
+      "id": "S",
+      "name": "Milestone after T, live end of Wed, signed off Fri 03-05: live_day_end_on names another day, so the start of Friday",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2027-03-05",
+      "live_day_end_on": "2027-03-03"
+    },
+    {
+      "id": "U",
+      "name": "Live successor of S: starts Friday",
+      "duration": 86400.0
+    },
+    {
+      "id": "V",
+      "name": "Completed work, Mon..Tue (actual corrected from Wed)",
+      "duration": 259200.0,
+      "percent_complete": 100.0,
+      "actual_start": "2027-03-01",
+      "actual_finish": "2027-03-02"
+    },
+    {
+      "id": "W",
+      "name": "Milestone after V, closed Wed with live_day_end_on Wed from before the correction: no predecessor is open, so the start of Wednesday",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2027-03-03",
+      "live_day_end_on": "2027-03-03"
+    },
+    {
+      "id": "X",
+      "name": "Live successor of W: starts Wednesday",
+      "duration": 86400.0
+    },
+    {
+      "id": "E",
+      "name": "Open work, Mon..Wed",
+      "duration": 259200.0
+    },
+    {
+      "id": "F",
+      "name": "Milestone after E, live end of Wed, signed off Fri 03-05 with E still open: live_day_end_on names another day, so the start of Friday — only the date comparison decides this, since a predecessor is open",
+      "duration": 0.0,
+      "percent_complete": 100.0,
+      "actual_finish": "2027-03-05",
+      "live_day_end_on": "2027-03-03"
+    },
+    {
+      "id": "G",
+      "name": "Live successor of F: starts Friday, not Monday",
+      "duration": 86400.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "M",
+      "dep_type": "FS",
+      "lag": 86400.0
+    },
+    {
+      "predecessor_id": "M",
+      "successor_id": "B",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "C",
+      "successor_id": "N",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "N",
+      "successor_id": "D",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "P",
+      "successor_id": "Q",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "Q",
+      "successor_id": "R",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "T",
+      "successor_id": "S",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "S",
+      "successor_id": "U",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "V",
+      "successor_id": "W",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "W",
+      "successor_id": "X",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "E",
+      "successor_id": "F",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "F",
+      "successor_id": "G",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

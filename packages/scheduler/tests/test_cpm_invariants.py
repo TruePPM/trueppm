@@ -24,8 +24,9 @@ from datetime import date, timedelta
 
 import pytest
 from hypothesis import given
+from hypothesis import strategies as st
 
-from tests.test_contract_fuzz import _plausible_projects
+from tests.test_contract_fuzz import _PLAUSIBLE_ANCHOR, _plausible_projects
 from trueppm_scheduler import (
     Calendar,
     Dependency,
@@ -913,3 +914,87 @@ def test_recorded_start_driving_edge_can_carry_more_float_upstream() -> None:
     # The unscoped identity flags this edge; the scoped property skips it.
     assert _float_inversions(project, result, scoped=False) == [("t0", "t1")]
     assert _float_inversions(project, result) == []
+
+
+# ---------------------------------------------------------------------------
+# Invariant 5: changing a live task never moves a completed task (#4525)
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def _projects_with_a_closed_milestone(draw: st.DrawFn) -> tuple[Project, str]:
+    """A plausible project plus a closed milestone fed by open work, and an open task's id.
+
+    The uniform generator reaches "a completed milestone whose predecessor is still
+    open" too rarely to gate on, so the shape is planted: a live task ``live`` with
+    no progress drives ``closed`` — a zero-duration task with recorded actuals —
+    over an FS, SS, FF or SF link, and ``closed`` drives a task of the base project. The
+    sign-off day is drawn around ``live``'s forecast finish, so the link's proposal
+    lands before, on, and after the recorded day.
+    """
+    base = draw(_plausible_projects())
+    live = Task(id="live", name="t", duration=timedelta(days=draw(st.integers(1, 10))))
+    signed = _PLAUSIBLE_ANCHOR + timedelta(days=draw(st.integers(0, 21)))
+    closed = Task(
+        id="closed",
+        name="t",
+        duration=timedelta(0),
+        actual_start=signed,
+        actual_finish=signed,
+        percent_complete=100.0,
+        # Frozen on the signed day, on another day, or not handed back at all.
+        live_day_end_on=draw(st.sampled_from([None, signed, signed - timedelta(days=1)])),
+    )
+    into = Dependency(
+        predecessor_id="live",
+        successor_id="closed",
+        dep_type=draw(st.sampled_from(list(DependencyType))),
+        lag=timedelta(days=draw(st.integers(min_value=-2, max_value=4))),
+    )
+    out = Dependency(predecessor_id="closed", successor_id=base.tasks[0].id)
+    project = dataclasses.replace(
+        base,
+        tasks=[live, closed, *base.tasks],
+        dependencies=[into, out, *base.dependencies],
+    )
+    # Lengthen the planted predecessor, or any other open task in the network.
+    open_ids = [
+        t.id for t in project.tasks if t.actual_finish is None and (t.percent_complete or 0) < 100
+    ]
+    return project, draw(st.sampled_from(open_ids))
+
+
+def _completed_positions(result: ScheduleResult) -> dict[str, tuple[object, ...]]:
+    return {
+        t.id: (t.early_start, t.early_finish, t.milestone_at_day_end)
+        for t in result.tasks
+        if t.actual_finish is not None or (t.percent_complete or 0) >= 100
+    }
+
+
+@given(case=_projects_with_a_closed_milestone(), extra=st.integers(min_value=1, max_value=10))
+def test_lengthening_a_live_task_never_moves_a_completed_task(
+    case: tuple[Project, str], extra: int
+) -> None:
+    """Completed tasks are pinned out of network logic (ADR-0136): nothing live moves one.
+
+    A closed milestone's *date* was always pinned, but the edge of its day — start
+    or end, which its successors measure from — was re-derived from its live
+    predecessors' current forecast (#4525, a regression from the #4433 fix). An
+    open predecessor slipping a day then flipped the edge, and a longer
+    predecessor could finish the project a working day *earlier*. Lengthening any
+    open task must leave every completed task exactly where it was, edge included.
+    """
+    project, open_id = case
+    before = schedule(project)
+    longer = dataclasses.replace(
+        project,
+        tasks=[
+            dataclasses.replace(t, duration=t.duration + timedelta(days=extra))
+            if t.id == open_id
+            else t
+            for t in project.tasks
+        ],
+    )
+    after = schedule(longer)
+    assert _completed_positions(after) == _completed_positions(before)

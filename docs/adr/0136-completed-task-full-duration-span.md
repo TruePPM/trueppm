@@ -149,6 +149,69 @@ Rules:
   `COMPLETE` stamps `actual_finish`, that rule made closing a milestone slip every FS
   successor, and the project finish, a working day later than the same milestone live
   or completed without actuals.)
+- **Only completed predecessors decide that edge (amended 2026-10-18, #4525).** As first
+  shipped, the #4433 rule read every predecessor's *current* forecast, so a milestone
+  signed off while a predecessor was still open had its edge re-derived on every
+  reschedule: an open predecessor slipping a day flipped the edge, its successors moved a
+  working day either way, a longer predecessor could finish the project earlier on an
+  FS-only network, and the predecessor's float — measured by a backward pass that skips
+  completed successors — ignored the coupling. The edge is now read from completed
+  predecessors only. Those are pinned themselves, so nothing live can move a closed
+  milestone, date or edge. Reading completed predecessors alone would still have moved
+  successors when a milestone was signed off before its work was marked done (start of
+  day), then back when the work was completed (end of day). So the edge is also frozen
+  from the one fact recorded about open work: the input `Task.live_day_end_on`, the
+  day the caller's previous run showed the milestone at the end of. While any
+  predecessor is still open and it names the recorded day, the milestone stays at the
+  end of it. A different day (signed off later than forecast) does not carry, and
+  once every predecessor is complete the completed-predecessors reading decides
+  again — the freeze stands in for facts open work has not supplied, so it must not
+  outlive them: a corrected predecessor actual or a deleted link is re-read. The API passes its
+  persisted `early_finish` / `milestone_at_day_end` back as that input. A caller that
+  passes nothing gets the completed-predecessors reading. (Decided 2026-10-18,
+  "freeze the edge at close": it keeps both #4433's "closing on the forecast day moves
+  nothing" and the invariant that open work never moves a completed task. Rejected:
+  honoring the bare `milestone_at_day_end` flag — it cannot tell a sign-off on the
+  forecast day from a later one, which would bring #4433 back.)
+  - *The persisted day is the sign-off day.* A closed milestone that passed through
+    In Progress carries an `actual_start` earlier than its `actual_finish`. The engine
+    reports that pair as its pinned window (`early_start = actual_start`,
+    `early_finish = actual_finish`) but places the instant on `actual_finish`. The API
+    writeback collapses every milestone row to one day, and used to collapse onto
+    `early_start`, so the day handed back as `live_day_end_on` was `actual_start`. It
+    never matched the recorded day, so the freeze released on the second
+    recalculation after close and the successors moved with nobody changing anything.
+    The writeback now collapses onto `early_finish`, the day the engine places the
+    instant on. (Decided 2026-10-18. Rejected: reporting `actual_finish` as the
+    engine's own `early_start` for a closed milestone, which would change engine
+    output and derivation provenance for every library caller to fix one API
+    persistence step. Also rejected: having `build_sched_tasks` hand back
+    `actual_finish or actual_start` for a closed milestone flagged at day end. That
+    reads the *current* actuals, so after a correction to `actual_finish` it would
+    carry the old day's edge onto the new day, which is the #4433 bug.) A side effect
+    is that such a milestone's row now shows its sign-off day rather than the day it
+    entered In Progress. That matches where the engine places it and where its
+    successors are measured from.
+  - *Upgrade.* The first recalculation after upgrading reads whatever the previous
+    version persisted. For a closed milestone whose predecessor is still open, that
+    is the previous version's edge, including one the pre-#4525 rule derived from
+    open work. A milestone persisted under the old `actual_start` collapse is
+    re-read from completed predecessors once and then stays put. Either way the
+    successors can move one working day once. Neither repeats, and once every
+    predecessor is complete, completed work decides. The upgrade notes say so.
+  - *Known limitation: the freeze depends on history while a predecessor stays
+    open* (#4574). While any predecessor is still open, the frozen edge is whatever
+    was last derived. It does not necessarily match the current state of the
+    completed predecessors and links. Correcting a completed predecessor's actuals,
+    or removing a predecessor link, does not trigger a fresh derivation until every
+    remaining predecessor completes. So the same current facts can schedule
+    differently depending on what happened before. A run with no history reads the
+    corrected facts, while a run that froze the edge earlier keeps it. And once a
+    corrected sign-off day has replaced the persisted day, correcting it back does
+    not restore the original edge. This is a limitation of freezing itself, not a
+    defect in this rule: the guarantee that no change to open work moves a closed
+    milestone still holds. Making the edge path-independent while keeping "closing
+    on the forecast day moves nothing" is left to #4574.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

@@ -519,6 +519,9 @@ def test_a_completed_milestone_with_actuals_reads_as_the_engine_places_it(
     END of the day after work (``A -FS-> M``), the START with no predecessor. The
     reading must agree in both, or a project ending on a closed milestone reads a
     phantom working day — later, or earlier — than the engine places it.
+
+    A is finished on M's day: only completed predecessors decide a closed
+    milestone's edge (#4525), so open work behind M would read as the start.
     """
     from trueppm_scheduler import Dependency, Project, Task, schedule
     from trueppm_scheduler.engine import _milestone_instants
@@ -529,7 +532,14 @@ def test_a_completed_milestone_with_actuals_reads_as_the_engine_places_it(
         "p",
         date(2026, 3, 2),
         [
-            Task("A", "A", timedelta(days=3)),
+            Task(
+                "A",
+                "A",
+                timedelta(days=3),
+                percent_complete=100.0,
+                actual_start=date(2026, 3, 2),
+                actual_finish=day,
+            ),
             Task("M", "M", timedelta(0), percent_complete=100.0, **actuals),  # type: ignore[arg-type]
         ],
         [Dependency("A", "M")] if after_work else [],
