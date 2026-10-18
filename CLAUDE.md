@@ -55,7 +55,7 @@ trueppm-suite/
 ## Code Conventions
 
 ### Python (scheduler, packages/api)
-- Python 3.12+
+- Python 3.11+
 - Formatter: ruff format
 - Linter: ruff check
 - Type checker: mypy --strict
