@@ -7,6 +7,7 @@ import enum
 import json
 import math
 import re
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
@@ -276,6 +277,8 @@ class Task:
             d["duration"] = _parse_timedelta(d["duration"])
             d["total_float"] = _parse_timedelta(d.get("total_float", 0))
             d["free_float"] = _parse_timedelta(d.get("free_float", 0))
+            _require_bool(d, "is_critical")
+            _require_bool(d, "milestone_at_day_end")
             _check_finite(d, "percent_complete")
             _check_percent_range(d)
             _check_finite(d, "story_points")
@@ -307,6 +310,31 @@ def _require_str(d: dict[str, Any], field_name: str, owner: str) -> None:
         )
 
 
+def _require_number(value: Any, field_name: str) -> None:
+    """Reject anything that is not a real JSON number (``int``/``float``, not ``bool``).
+
+    ``float()`` accepts ``"259200"``, ``"2.592e5"``, ``" 86400 "`` and ``"259_200"``,
+    and ``bool`` is an ``int`` subclass, so a bare ``float(val)`` let documents
+    through that the Rust engine's serde rejects (``invalid type: string, expected
+    f64``) — acceptance the 1.0 document format would otherwise inherit (#4512).
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number, got {type(value).__name__}: {value!r}.")
+    # An int beyond f64 range makes float() raise a bare OverflowError that escapes
+    # the InvalidScheduleInput wrappers; Rust's serde rejects the same literal.
+    if isinstance(value, int) and abs(value) > sys.float_info.max:
+        raise ValueError(f"{field_name} is out of range for a finite number.")
+
+
+def _require_bool(d: dict[str, Any], field_name: str) -> None:
+    """Reject a non-``bool`` boolean field (Rust: ``invalid type, expected a boolean``)."""
+    if field_name in d and not isinstance(d[field_name], bool):
+        raise ValueError(
+            f"{field_name} must be a boolean, got {type(d[field_name]).__name__}: "
+            f"{d[field_name]!r}."
+        )
+
+
 def _check_percent_range(d: dict[str, Any]) -> None:
     """Reject a ``percent_complete`` outside [0, 100] (#4513).
 
@@ -328,7 +356,10 @@ def _check_finite(d: dict[str, Any], field_name: str) -> None:
     (#1010). NaN is harmless (it fails the ``> 0`` sampler gate); Infinity is not.
     """
     value = d.get(field_name)
-    if value is not None and not math.isfinite(float(value)):
+    if value is None:
+        return
+    _require_number(value, field_name)
+    if not math.isfinite(float(value)):
         raise ValueError(f"{field_name} must be a finite number.")
 
 
@@ -343,8 +374,10 @@ def _check_velocity_samples(velocity_samples: Any) -> None:
     if velocity_samples is None:
         return
     for s in velocity_samples:
-        if s is not None and not math.isfinite(float(s)):
-            raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
+        if s is not None:
+            _require_number(s, "velocity_samples")
+            if not math.isfinite(float(s)):
+                raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
 
 
 def _check_sprint_length(sprint_length_days: Any) -> None:
@@ -440,7 +473,8 @@ class Dependency:
             The reconstructed :class:`Dependency`.
 
         Raises:
-            InvalidScheduleInput: If ``dep_type`` is not a known dependency type.
+            InvalidScheduleInput: If ``dep_type`` is not a known dependency type, or
+                ``lag`` is not a finite number of seconds (strings and bools refused).
         """
         # A bad dep_type would otherwise surface as Python's bare
         # ``ValueError: 'XX' is not a valid DependencyType`` — accurate but it
@@ -456,11 +490,17 @@ class Dependency:
             raise InvalidScheduleInput(
                 f"Invalid dependency type {raw_type!r}; must be one of: {allowed}."
             ) from err
+        try:
+            lag = _parse_timedelta(data.get("lag", 0))
+        except ValueError as err:
+            from trueppm_scheduler.engine import InvalidScheduleInput
+
+            raise InvalidScheduleInput(f"Invalid dependency lag: {err}") from err
         return cls(
             predecessor_id=data["predecessor_id"],
             successor_id=data["successor_id"],
             dep_type=dep_type,
-            lag=_parse_timedelta(data.get("lag", 0)),
+            lag=lag,
         )
 
 
@@ -1093,10 +1133,14 @@ def _parse_timedelta(val: Any) -> timedelta:
     """
     if isinstance(val, timedelta):
         return val
+    _require_number(val, "Duration")
     seconds = float(val)
     if not math.isfinite(seconds):
         raise ValueError(f"Duration must be a finite number of seconds, got {val!r}.")
-    td = timedelta(seconds=seconds)
+    try:
+        td = timedelta(seconds=seconds)
+    except OverflowError as err:  # finite but beyond timedelta's range (e.g. 1e300)
+        raise ValueError(f"Duration is out of range, got {val!r}.") from err
     # Quantization guard (#1862). ``timedelta`` has microsecond resolution, so a
     # raw seconds value with a sub-microsecond fraction — e.g. 86400.0000001 s
     # (1 day + 100 ns) — is silently *rounded* to the nearest microsecond here

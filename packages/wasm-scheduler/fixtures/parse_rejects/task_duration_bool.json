@@ -1,0 +1,31 @@
+{
+  "id": "pr-task-duration-bool",
+  "name": "duration is a bool - Rust f64 serde rejects, bool is an int subclass in Python (#4512)",
+  "start_date": "2026-01-01",
+  "tasks": [
+    {
+      "id": "A",
+      "name": "Task A",
+      "duration": true
+    },
+    {
+      "id": "B",
+      "name": "Task B",
+      "duration": 86400.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
