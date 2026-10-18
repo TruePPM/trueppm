@@ -245,6 +245,17 @@ project_rt = Project.from_json(json_str)
 result_rt = schedule(project_rt)
 ```
 
+A project built in Python and one loaded from JSON are held to the same field
+rules, so any project `schedule()` accepts also survives `to_json()` →
+`from_json()` unchanged. That includes fields the engine never reads, such as the
+reserved `Calendar.hours_per_day`/`timezone` and the computed task dates and
+floats. A field `from_json()` would refuse to load back — a string date, a
+`datetime`, an `int` lag, a string `dep_type`, a `working_days` outside
+`[0, 127]` — makes `schedule()`, `monte_carlo()`, `to_dict()` and `to_json()`
+raise `InvalidScheduleInput`, never a bare `AttributeError` or `TypeError`.
+Construction stays lenient: the check runs when the project is scheduled or
+serialized, not when it is built.
+
 ### CLI
 
 ```bash

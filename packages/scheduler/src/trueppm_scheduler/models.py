@@ -11,7 +11,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Any, Self
+from typing import Any, NoReturn, Self
 
 
 # Enum value-casing convention (frozen public contract).
@@ -258,7 +258,15 @@ class Task:
         Durations are emitted as seconds (floats), dates as ISO-8601 strings, and
         ``delivery_mode`` as its enum value — the inverse of :meth:`from_dict`.
         Reserved-but-inert fields (``planned_finish``) round-trip unchanged.
+
+        Raises:
+            InvalidScheduleInput: If a field holds a value :meth:`from_dict` would
+                refuse on the way back in — a wrong type (a string date, a
+                ``datetime``, an ``int`` duration, a non-``bool`` flag, a
+                non-:class:`DeliveryMode` ``delivery_mode``), a non-finite number,
+                or a ``percent_complete`` outside [0, 100] (#4517).
         """
+        _validate_task_fields(self)
         result: dict[str, Any] = _serialize(asdict(self))
         return result
 
@@ -304,6 +312,12 @@ class Task:
             _coerce_task_dates(d)
             _coerce_pert_durations(d)
             _coerce_delivery_mode(d)
+            # Rust ``calendar_id: Option<String>``; a non-string id is refused by
+            # schedule() too, so accepting it here split the accepted set (#4517).
+            if d.get("calendar_id") is not None and not isinstance(d["calendar_id"], str):
+                raise ValueError(
+                    f"calendar_id must be a string or null (got {d['calendar_id']!r})."
+                )
             return cls(**d)
         except InvalidScheduleInput:
             raise
@@ -491,7 +505,13 @@ class Dependency:
     lag: timedelta = field(default_factory=timedelta)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a JSON-safe dict (``dep_type`` as its value, lag as seconds)."""
+        """Serialize to a JSON-safe dict (``dep_type`` as its value, lag as seconds).
+
+        Raises:
+            InvalidScheduleInput: If an id is not a string, ``dep_type`` is not a
+                :class:`DependencyType`, or ``lag`` is not a ``timedelta`` (#4517).
+        """
+        _validate_dependency_fields(self)
         return {
             "predecessor_id": self.predecessor_id,
             "successor_id": self.successor_id,
@@ -797,7 +817,14 @@ class Calendar:
         Emits the ``working_days`` bitmask, serialized ``exceptions``, and the
         reserved-but-inert ``hours_per_day``/``timezone`` fields. The private
         exception-index cache is excluded — it is rebuilt lazily on load.
+
+        Raises:
+            InvalidScheduleInput: If ``working_days`` is not an integer bitmask in
+                [0, 127], ``hours_per_day`` is not a finite number, ``timezone`` is
+                not a string, or an exception is not a :class:`DateRange` of plain
+                dates — anything :meth:`from_dict` would refuse (#4517).
         """
+        _validate_calendar_fields(self, "Calendar")
         return {
             "working_days": self.working_days,
             "exceptions": [e.to_dict() for e in self.exceptions],
@@ -849,6 +876,10 @@ class Calendar:
         hpd = data.get("hours_per_day", 8.0)
         if isinstance(hpd, bool) or not isinstance(hpd, (int, float)):
             raise InvalidScheduleInput(f"hours_per_day must be a number (got {hpd!r}).")
+        # A non-finite value (reachable through a Python dict, not JSON) would
+        # serialize as the ``Infinity`` literal ``from_json`` refuses (#4517).
+        if not _is_finite_real(hpd):
+            raise InvalidScheduleInput(f"hours_per_day must be a finite number (got {hpd!r}).")
         tz = data.get("timezone", "UTC")
         if not isinstance(tz, str):
             raise InvalidScheduleInput(f"timezone must be a string (got {tz!r}).")
@@ -981,7 +1012,20 @@ class Project:
         Recursively serializes tasks, dependencies, and the calendar(s); dates
         become ISO-8601 strings and the optional per-task calendar registry is
         emitted as ``null`` when unused. The inverse of :meth:`from_dict`.
+
+        Every field is checked against what :meth:`from_dict` accepts before it is
+        serialized, so the output always loads back; see the serializable-field
+        validation note at the bottom of this module for why this runs here rather
+        than at construction.
+
+        Raises:
+            InvalidScheduleInput: If any field — on the project, its calendar(s),
+                tasks or dependencies — holds a value :meth:`from_dict` would refuse,
+                e.g. a string ``start_date``, ``tasks=None``, ``calendar=None``, a
+                non-dict ``calendars`` or one keyed by a non-string id, or a
+                wrong-typed task/dependency field (#4517).
         """
+        _validate_project_scalar_fields(self)
         return {
             "id": self.id,
             "name": self.name,
@@ -989,7 +1033,9 @@ class Project:
             "tasks": [t.to_dict() for t in self.tasks],
             "dependencies": [d.to_dict() for d in self.dependencies],
             "calendar": self.calendar.to_dict(),
-            "velocity_samples": self.velocity_samples,
+            "velocity_samples": (
+                list(self.velocity_samples) if self.velocity_samples is not None else None
+            ),
             "sprint_length_days": self.sprint_length_days,
             "status_date": self.status_date.isoformat() if self.status_date else None,
             "calendars": (
@@ -1039,6 +1085,10 @@ class Project:
                 if calendars_data is not None
                 else None
             )
+            # JSON keys are always strings; a Python-dict caller's int key would not
+            # survive to_json (#4517).
+            if calendars is not None and any(not isinstance(cid, str) for cid in calendars):
+                raise ValueError("calendars keys must be string calendar ids.")
             _require_str(data, "id", "project")
             _require_str(data, "name", "project")
             return cls(
@@ -1072,6 +1122,10 @@ class Project:
 
         Returns:
             The project's :meth:`to_dict` form encoded as JSON.
+
+        Raises:
+            InvalidScheduleInput: If the project holds a field :meth:`from_json`
+                would refuse to load back (see :meth:`to_dict`).
         """
         return json.dumps(self.to_dict(), **kwargs)
 
@@ -1234,3 +1288,232 @@ def _parse_timedelta(val: Any) -> timedelta:
             "silently quantized; the Rust engine rejects it, so it is rejected here too."
         )
     return td
+
+
+# --- Serializable-field validation (#4517) ---
+#
+# One set of field-type rules for the two ways a project reaches the engine: a
+# document through ``from_dict``/``from_json``, and a directly constructed object
+# through ``schedule()``/``monte_carlo()``/``derive_value()``. Before this, the
+# direct-object validators only guarded fields the CPM pass *reads*, so a project
+# with ``Calendar(hours_per_day="x")`` or ``Task(early_start="x")`` scheduled fine,
+# but its own ``to_json()`` output was refused by ``from_json()``; and ``to_dict()``
+# leaked a bare ``AttributeError``/``TypeError`` on a field it could not serialize.
+#
+# The rules run at the two serialization-relevant boundaries, ``to_dict`` and the
+# engine's ``_validate_project``, and deliberately NOT in ``__post_init__``. Every
+# model here is a mutable dataclass, so a construction-time check could not see a
+# field assigned afterwards (the engine's own validators exist precisely because
+# callers build and then mutate), and it would change construction behavior for
+# every PyPI consumer, including code that builds a partial object and fills it in
+# before scheduling. Checking where the value is consumed keeps construction lenient
+# and makes the accepted set identical across the entry points: an object
+# ``schedule()`` accepts serializes, and ``from_dict`` accepts what it serializes to.
+
+
+def _invalid(msg: str) -> NoReturn:
+    """Raise the public :class:`InvalidScheduleInput` (function-local import, no cycle)."""
+    from trueppm_scheduler.engine import InvalidScheduleInput
+
+    raise InvalidScheduleInput(msg)
+
+
+def _is_finite_real(value: Any) -> bool:
+    """``True`` for an ``int``/``float`` (not ``bool``) that converts to a finite float.
+
+    ``math.isfinite`` raises a bare ``OverflowError`` on an ``int`` beyond float
+    range, so the conversion is guarded rather than assumed.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _check_plain_date_field(value: Any, label: str, *, optional: bool = True) -> None:
+    """``value`` must be a ``date`` that is not a ``datetime`` (or ``None`` if optional).
+
+    A ``datetime`` serializes as ``YYYY-MM-DDTHH:MM:SS``, which the strict
+    ``_parse_date`` refuses on the way back in.
+    """
+    if value is None and optional:
+        return
+    if not isinstance(value, date) or isinstance(value, datetime):
+        expected = "a date or None" if optional else "a date"
+        _invalid(f"{label} must be {expected} (got {type(value).__name__}: {value!r}).")
+
+
+def _check_timedelta_field(value: Any, label: str, *, optional: bool) -> None:
+    """``value`` must be a ``timedelta`` whose seconds form round-trips exactly.
+
+    ``to_dict`` emits ``total_seconds()``; a float that does not rebuild the same
+    timedelta is refused by ``_parse_timedelta``'s quantization guard on load.
+    """
+    if value is None and optional:
+        return
+    if not isinstance(value, timedelta):
+        _invalid(f"{label} must be a timedelta (got {type(value).__name__}: {value!r}).")
+    try:
+        exact = timedelta(seconds=value.total_seconds()) == value
+    except OverflowError:
+        exact = False
+    if not exact:
+        _invalid(f"{label} {value!r} cannot be represented exactly in seconds.")
+
+
+def _check_str_field(value: Any, label: str, *, optional: bool = False) -> None:
+    if value is None and optional:
+        return
+    if not isinstance(value, str):
+        _invalid(f"{label} must be a string (got {type(value).__name__}: {value!r}).")
+
+
+def _validate_calendar_fields(cal: Calendar, label: str) -> None:
+    """Refuse a calendar field ``Calendar.from_dict`` would refuse.
+
+    ``working_days`` is held to the parse-time ``[0, 127]`` range here as well; the
+    engine's own guard only rejected a non-int and an empty low-7-bit mask, so ``200``
+    or ``-1`` scheduled as a direct object and failed ``from_dict`` (#4435).
+    """
+    wd = cal.working_days
+    if isinstance(wd, bool) or not isinstance(wd, int) or not 0 <= wd < 0b1000_0000:
+        _invalid(f"{label} working_days must be an integer bitmask in [0, 127] (got {wd!r}).")
+    if not _is_finite_real(cal.hours_per_day):
+        _invalid(f"{label} hours_per_day must be a finite number (got {cal.hours_per_day!r}).")
+    _check_str_field(cal.timezone, f"{label} timezone")
+    for exc in cal.exceptions:
+        if not isinstance(exc, DateRange):
+            _invalid(
+                f"{label} exceptions must contain only DateRange instances "
+                f"(got {type(exc).__name__}: {exc!r})."
+            )
+        for bound in ("start", "end"):
+            _check_plain_date_field(
+                getattr(exc, bound), f"{label} exception {bound}", optional=False
+            )
+
+
+_TASK_DATE_FIELDS = (
+    "planned_start",
+    "planned_finish",
+    "early_start",
+    "early_finish",
+    "late_start",
+    "late_finish",
+    "actual_start",
+    "actual_finish",
+    "scheduled_start",
+)
+
+
+def _validate_task_fields(t: Task) -> None:
+    """Refuse a task field ``Task.from_dict`` would refuse, computed fields included.
+
+    The engine overwrites the computed dates/floats on its own copy, so it never
+    *read* a garbage input value there; but ``to_dict`` serializes it verbatim and
+    the result would not load back.
+    """
+    _check_str_field(t.id, "Task id")
+    _check_str_field(t.name, f"Task {t.id!r} name")
+    _check_timedelta_field(t.duration, f"Task {t.id!r} duration", optional=False)
+    for name in ("total_float", "free_float"):
+        _check_timedelta_field(getattr(t, name), f"Task {t.id!r} {name}", optional=False)
+    for name in ("optimistic_duration", "most_likely_duration", "pessimistic_duration"):
+        _check_timedelta_field(getattr(t, name), f"Task {t.id!r} {name}", optional=True)
+    for name in _TASK_DATE_FIELDS:
+        _check_plain_date_field(getattr(t, name), f"Task {t.id!r} {name}")
+    for name in ("is_critical", "milestone_at_day_end"):
+        if not isinstance(getattr(t, name), bool):
+            _invalid(f"Task {t.id!r} {name} must be a bool (got {getattr(t, name)!r}).")
+    pct = t.percent_complete
+    if pct is not None and (not _is_finite_real(pct) or not 0 <= pct <= 100):
+        _invalid(f"Task {t.id!r} percent_complete must be a number in [0, 100] (got {pct!r}).")
+    if t.story_points is not None and not _is_finite_real(t.story_points):
+        _invalid(f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r}).")
+    # A plain "scrum" string serializes to the same JSON as DeliveryMode.SCRUM but is
+    # not equal to it, so the object schedules as waterfall and its round-trip as
+    # scrum — refuse rather than let the two forms of one project disagree.
+    if t.delivery_mode is not None and not isinstance(t.delivery_mode, DeliveryMode):
+        _invalid(
+            f"Task {t.id!r} delivery_mode must be a DeliveryMode or None (got {t.delivery_mode!r})."
+        )
+    _check_str_field(t.calendar_id, f"Task {t.id!r} calendar_id", optional=True)
+
+
+def _validate_dependency_fields(d: Dependency) -> None:
+    """Refuse a dependency field ``Dependency.from_dict`` would refuse."""
+    _check_str_field(d.predecessor_id, "Dependency predecessor_id")
+    _check_str_field(d.successor_id, "Dependency successor_id")
+    if not isinstance(d.dep_type, DependencyType):
+        allowed = ", ".join(t.value for t in DependencyType)
+        _invalid(f"Invalid dependency type {d.dep_type!r}; must be one of: {allowed}.")
+    _check_timedelta_field(
+        d.lag, f"Dependency {d.predecessor_id!r} → {d.successor_id!r} lag", optional=False
+    )
+
+
+def _validate_project_scalar_fields(p: Project) -> None:
+    """Refuse a top-level project field ``Project.from_dict`` would refuse.
+
+    Containers are checked for shape only; their elements are validated by the
+    caller (``Project.to_dict`` delegates to each element's ``to_dict``).
+    """
+    _check_str_field(p.id, "Project id")
+    _check_str_field(p.name, "Project name")
+    _check_plain_date_field(p.start_date, "Project start_date", optional=False)
+    _check_plain_date_field(p.status_date, "Project status_date")
+    if not isinstance(p.tasks, list) or any(not isinstance(t, Task) for t in p.tasks):
+        _invalid(f"Project tasks must be a list of Task (got {type(p.tasks).__name__}).")
+    if not isinstance(p.dependencies, list) or any(
+        not isinstance(d, Dependency) for d in p.dependencies
+    ):
+        _invalid(
+            f"Project dependencies must be a list of Dependency "
+            f"(got {type(p.dependencies).__name__})."
+        )
+    if not isinstance(p.calendar, Calendar):
+        _invalid(f"Project calendar must be a Calendar (got {type(p.calendar).__name__}).")
+    # JSON object keys are strings: an int key serializes as "1" and loads back as a
+    # key a ``calendar_id="1"`` task now matches, scheduling it on a different
+    # calendar than the object did; a tuple key makes ``json.dumps`` raise.
+    if p.calendars is not None and (
+        not isinstance(p.calendars, dict)
+        or any(
+            not isinstance(k, str) or not isinstance(v, Calendar) for k, v in p.calendars.items()
+        )
+    ):
+        _invalid(
+            f"Project calendars must be a dict of str calendar id to Calendar "
+            f"(got {p.calendars!r})."
+        )
+    vs = p.velocity_samples
+    if vs is not None:
+        if not isinstance(vs, (list, tuple)):
+            _invalid(f"velocity_samples must be a list of numbers (got {vs!r}).")
+        for s in vs:
+            if s is not None and not _is_finite_real(s):
+                _invalid(f"velocity_samples must contain only finite numbers (got {s!r}).")
+    sld = p.sprint_length_days
+    if sld is not None and (isinstance(sld, bool) or not isinstance(sld, int)):
+        _invalid(f"sprint_length_days must be an integer (got {sld!r}).")
+
+
+def _validate_project_fields(p: Project) -> None:
+    """Refuse any project whose ``to_dict`` output ``from_dict`` would not load back.
+
+    Field types and parse-time ranges only, not scheduling semantics: an empty task
+    list or a cycle serializes and loads fine, and is ``schedule()``'s to refuse.
+
+    Raises:
+        InvalidScheduleInput: On the first field that would not round-trip.
+    """
+    _validate_project_scalar_fields(p)
+    _validate_calendar_fields(p.calendar, "Calendar")
+    for cid, cal in (p.calendars or {}).items():
+        _validate_calendar_fields(cal, f"Calendar {cid!r}")
+    for t in p.tasks:
+        _validate_task_fields(t)
+    for d in p.dependencies:
+        _validate_dependency_fields(d)
