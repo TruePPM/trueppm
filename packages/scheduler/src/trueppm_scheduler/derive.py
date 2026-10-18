@@ -1341,7 +1341,7 @@ def derive_value(
         UnknownTaskError: If ``task_id`` names no task in the project.
         InvalidScheduleInput: If ``project`` is not a :class:`Project`, or
             ``quantity`` is not a known quantity (the message lists the allowed
-            values).
+            values), or ``result`` is neither a :class:`ScheduleResult` nor ``None``.
         SchedulerError: Propagated from :func:`schedule` for a degenerate project.
     """
     _require_project(project)
@@ -1358,6 +1358,10 @@ def derive_value(
 
     if result is None:
         result = schedule(project)
+    elif not isinstance(result, ScheduleResult):
+        raise InvalidScheduleInput(
+            f"result must be a ScheduleResult or None (got {type(result).__name__})."
+        )
 
     task_map: dict[str, Task] = {t.id: t for t in result.tasks}
     task = task_map.get(task_id) if isinstance(task_id, str) else None

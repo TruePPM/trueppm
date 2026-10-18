@@ -164,6 +164,10 @@ def _entry_points() -> dict[str, Any]:
         "perturb_task_duration(project)": lambda a: perturb_task_duration(a, tid, 1),
         "perturb_task_duration(task_id)": lambda a: perturb_task_duration(p, a, 1),
         "perturb_task_duration(delta_days)": lambda a: perturb_task_duration(p, tid, a),
+        "monte_carlo(max_runs)": lambda a: monte_carlo(p, runs=3, max_runs=a),
+        "monte_carlo(max_tasks)": lambda a: monte_carlo(p, runs=3, max_tasks=a),
+        "monte_carlo(runs)": lambda a: monte_carlo(p, runs=a),
+        "derive_value(result)": lambda a: derive_value(p, tid, "early_start", a),
         "Calendar.compose(calendars)": lambda a: Calendar.compose(a),
         "Calendar.compose([element])": lambda a: Calendar.compose([a]),
         "DateRange(start)": lambda a: DateRange(a, date(2026, 1, 2)),
@@ -183,6 +187,47 @@ def test_public_entry_point_arguments_conform(name: str, value: Any) -> None:
         pass
     except Exception as exc:
         pytest.fail(f"{name} with {value!r} leaked {type(exc).__name__}: {exc}")
+
+
+# Public callables in ``__all__`` that are not swept above, with the reason. A new
+# public function must either join ``_entry_points()`` or be listed here on purpose.
+_SWEEP_EXEMPT: dict[str, str] = {
+    "find_cycle": "edge-list helper with its own contract; not a Project entry point",
+    "expand_summary_dependencies": "list-argument helper with its own contract",
+}
+
+
+def test_every_public_callable_is_swept_or_exempt() -> None:
+    import inspect
+
+    import trueppm_scheduler as pkg
+
+    swept = " ".join(_entry_points())
+    for name in pkg.__all__:
+        obj = getattr(pkg, name)
+        if not callable(obj) or not inspect.isfunction(obj):
+            continue  # constants, exception classes, enums and model dataclasses
+        assert name in swept or name in _SWEEP_EXEMPT, (
+            f"public function {name!r} is in __all__ but neither swept by "
+            "_entry_points() nor listed in _SWEEP_EXEMPT"
+        )
+
+
+def test_date_range_refuses_datetime() -> None:
+    from datetime import datetime
+
+    with pytest.raises(SchedulerError):
+        DateRange(datetime(2026, 1, 1), date(2026, 1, 2))
+    with pytest.raises(SchedulerError):
+        DateRange(date(2026, 1, 1), datetime(2026, 1, 2))
+
+
+def test_monte_carlo_runs_ceiling_and_cap_types() -> None:
+    p = _base_project()
+    with pytest.raises(SchedulerError):
+        monte_carlo(p, runs=10**19)
+    with pytest.raises(SchedulerError):
+        monte_carlo(p, runs=3, max_runs="x")  # type: ignore[arg-type]
 
 
 def test_derive_value_quantity_error_lists_allowed() -> None:

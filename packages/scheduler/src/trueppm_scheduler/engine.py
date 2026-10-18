@@ -4053,6 +4053,7 @@ def schedule(project: Project) -> ScheduleResult:
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If the calendar has no working day, or a duration
             or lag is negative/out of range.
+        InvalidScheduleInput: Also if ``project`` is not a :class:`Project`.
         ValueError: If a dependency references an unknown task ID.
     """
     _require_project(project)
@@ -4474,6 +4475,9 @@ def _duration_sensitivity(
     return scored[: max(0, cap)]
 
 
+_MAX_RUNS_ABSOLUTE = 100_000_000  # hard ceiling on ``runs`` independent of the caller's max_runs
+
+
 def _validate_monte_carlo_args(
     project: Project,
     runs: int,
@@ -4497,6 +4501,15 @@ def _validate_monte_carlo_args(
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs!r}).")
     if runs < 1:
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
+    # An absurd count otherwise reaches ``np.empty((runs, ...))`` and surfaces as a
+    # bare numpy ValueError/MemoryError (#4518).
+    if runs > _MAX_RUNS_ABSOLUTE and not (isinstance(max_runs, int) and runs > max_runs):
+        raise InvalidScheduleInput(
+            f"runs exceeds the maximum of {_MAX_RUNS_ABSOLUTE} (got {runs})."
+        )
+    for name, cap in (("max_runs", max_runs), ("max_tasks", max_tasks)):
+        if cap is not None and (isinstance(cap, bool) or not isinstance(cap, int)):
+            raise InvalidScheduleInput(f"{name} must be an integer or None (got {cap!r}).")
     # seed is passed straight to np.random.default_rng(seed); a negative int raises
     # a bare numpy ValueError and a float/non-int a bare TypeError, both escaping the
     # documented SchedulerError contract for a documented public parameter (#1453).
@@ -6606,8 +6619,9 @@ def monte_carlo(
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If a calendar has no working day, a duration
             or lag is negative/out of range, the project has no tasks,
-            ``runs`` is less than 1, or ``seed`` is not a non-negative int or
-            ``None``.
+            ``runs`` is less than 1 or above the absolute ceiling, ``seed`` is
+            not a non-negative int or ``None``, ``max_runs``/``max_tasks`` is
+            not an int or ``None``, or ``project`` is not a :class:`Project`.
     """
     _validate_monte_carlo_args(project, runs, seed, max_runs, max_tasks)
     _validate_project(project)

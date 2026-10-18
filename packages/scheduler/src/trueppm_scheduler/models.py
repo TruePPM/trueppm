@@ -83,7 +83,8 @@ class DateRange:
         # AttributeError ('str' has no 'toordinal') deep in schedule() (#4518).
         for name in ("start", "end"):
             value = getattr(self, name)
-            if not isinstance(value, date):
+            # datetime subclasses date but cannot be ordered against a plain date.
+            if not isinstance(value, date) or isinstance(value, datetime):
                 from trueppm_scheduler.engine import InvalidScheduleInput
 
                 raise InvalidScheduleInput(
