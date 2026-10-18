@@ -15,6 +15,261 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-beta.9] — 2026-10-18
+
+This release supersedes `v0.4.0-beta.8`.
+
+**Should you upgrade? Yes — this release fixes several major scheduling bugs and closes security gaps.** Nothing here blocks the 0.4 beta period from continuing; these are exactly the fixes and hardening the beta period exists to absorb.
+
+A run of internal fuzzing against the scheduling engine turned up — and this release fixes — several cases where Monte Carlo or the CPM pass reported the wrong finish date with no error: a start-to-start/start-to-finish lag out of an in-progress task was re-added on every status update, compounding drift each time a task was touched; Monte Carlo forecast early or late under per-task calendars and around milestones with recorded actuals; closing a milestone silently slipped the whole downstream schedule by one working day; and a regression from unreleased 0.4 work let an open predecessor's forecast move a milestone that should have stayed frozen once closed. A dependency on a summary task could silently lose to a shorter leaf link depending on database row order. The scheduling engines (Python and Rust/WASM) now also reject malformed input — out-of-range percentages, wrong types, unknown ids — with a clear error instead of silently clamping or crashing, across dozens of entry points. The backlog velocity forecast no longer drops sprints that closed with zero points, which had been understating pace for lean teams.
+
+**Upgrading `trueppm-scheduler` as a library? Read this first.** `MonteCarloResult`'s confidence levels now live in a `percentiles: dict[int, Percentile]` field. Reads, `to_dict()`, and construction via `p50`/`p80`/`p95` keywords are unchanged, but `dataclasses.replace(mc, p50=...)` now raises `TypeError` and assigning `mc.p50 = ...` now raises `AttributeError` — mutate `mc.percentiles[50]` or rebuild instead. Separately, when a project's `calendars` registry is non-empty, a `Task.calendar_id` that names no entry in it now raises `InvalidScheduleInput` instead of silently falling back to the project calendar — TruePPM's own app is unaffected (it always registers every id it assigns), but a library caller relying on the old silent fallback will see a new error. And as advance notice: `trueppm-scheduler` 0.5 will split `engine.py` into an `engine/` subpackage; imports keep working via re-exports, but a test that patches an engine internal by its current module path will need repointing.
+
+On the security side: outgoing webhooks are now deactivated by every compromise-response lever (password reset, admin off-boarding, `revoke_api_tokens --all`), closing a gap where a leaked token on a still-active Admin account could keep a webhook delivering after containment steps ran. A live WebSocket connection now closes on password reset instead of streaming events until it disconnects on its own. The `mcp` Python SDK is bumped to 1.30.0, fixing an unbounded-session-growth DoS (GHSA-84m7-p3x7-pcfv). Two previously-unthrottled, CPM-computing read endpoints (schedule derivation, program schedule) now have their own rate limit buckets, and Monte Carlo runs are now bounded per request and per process. `IsProjectNotArchived` now fails closed on an unresolvable project, matching the rest of its permission-class family.
+
+Also fixed: a TLS-terminating proxy in front of TruePPM's own nginx (as `try.trueppm.com`'s Cloudflare Tunnel does) could sign a visitor out on every page reload; a mobile offline-sync delete left a task's auto-promoted parent phase stuck at its old rolled-up duration; and the community edition no longer shows disabled, Enterprise-badged radio options for Portfolio landing or password sign-in — they're omitted entirely, matching the OSS shell's empty-slot treatment elsewhere.
+
+### Added
+- **scheduler**: `MonteCarloResult` now stores its confidence levels in a `percentiles: dict[int, Percentile]` field (new exported `Percentile(date, at_day_start)`). `p50`/`p80`/`p95` and the `*_at_day_start` flags are read-only properties over it; `to_dict()` and the constructor keywords are unchanged. `dataclasses.fields()` order and attribute assignment (`mc.p50 = ...`) change. `percentiles=` must hold levels 50, 80 and 95 (extra levels are kept but `to_dict()` ignores them). Also changed: `dataclasses.replace(mc, p50=...)` raises `TypeError` (mutate `mc.percentiles[50] = Percentile(...)` or rebuild instead), and `repr()`/`==` now key off `percentiles`.
+
+### Changed
+- **Scheduler refuses an unknown per-task calendar id**: when a project's
+  `calendars` registry is non-empty, a `Task.calendar_id` that names no entry in
+  it now raises `InvalidScheduleInput` in both the Python (`trueppm-scheduler`) and
+  Rust/WASM engines. Previously the task silently fell back to the project calendar,
+  so a typo or a dropped registry entry produced a plausible schedule on the wrong
+  working week with no diagnostic. `schedule()`, `monte_carlo()`, and
+  `derive_value()` (including with a precomputed `result`) all refuse it. With no
+  registry (`None` or empty) a set `calendar_id` is still ignored and the task uses
+  the project calendar. TruePPM's own program-scoped pass always registers every id
+  it assigns, so it is unaffected.
+- **Scheduler: advance notice of the 0.5 `engine` split**: `trueppm-scheduler`
+  0.5 will split `trueppm_scheduler/engine.py` into an `engine/` subpackage
+  (#4550). Public imports and every existing `trueppm_scheduler.engine` import
+  keep working through re-exports. Tests that patch engine internals or module
+  constants will need repointing at the defining submodule. The scheduler
+  README and changelog describe what changes and what does not.
+
+### Fixed
+- **Token refresh behind a TLS-terminating proxy**: a visitor behind a proxy that
+  terminates TLS before reaching TruePPM's own nginx (for example `try.trueppm.com`'s
+  Cloudflare Tunnel, or Compose's `TLS_MODE=none` / public-demo templates) could get
+  signed out on every page reload. The plain-HTTP nginx configs were overwriting the
+  proxy's correct `X-Forwarded-Proto: https` with their own (always `http`) scheme,
+  which made the API believe the request was insecure and reject the same-origin
+  token-refresh request with a 403. `nginx/demo.conf.template` and the Helm web
+  tier's two demo branches now preserve an incoming `X-Forwarded-Proto` the same way
+  `nginx/app-http.conf.template` already did (#3191 finding #4).
+- **`trueppm-scheduler`: `monte_carlo()` no longer forecasts early under
+  per-task calendars (#4429)**: for library callers that pass `Project.calendars`,
+  when a task's calendar was sparser than its successor's (a four-day week feeding
+  a five-day one, a Monday-only calendar, or a calendar with a long shutdown),
+  `monte_carlo()` reported P50/P80/P95 dates days to months *before* the
+  deterministic `schedule()` finish, with no error. It sized every calendar's
+  working-day index by one working-day count, which ran short on the denser
+  calendars, and silently clamped the overflow to the index's last date. The index
+  is now sized from a calendar-date bound counted in each calendar's own working
+  days, and every Monte Carlo lookup that used to clamp a past-the-end offset or
+  date onto the last indexed day now raises instead. This is an engine fix: no
+  current TruePPM app or MCP surface runs Monte Carlo with per-task calendars.
+- **Scheduler**: a start-to-finish link into a milestone no longer reports one
+  working day too much float on its predecessor when the milestone's latest
+  position would be shown past the project finish (a milestone on its own calendar
+  that does not work the finish day, or a completed task with a weekend
+  `actual_finish`). Slipping the predecessor by its reported float no longer moves
+  the finish, and a critical milestone's sole driver is now critical too. Fixed in
+  both the Python engine and the Rust/WASM engine (#4431).
+- **What-if on an in-progress task**: a Monte Carlo what-if (and the MCP `whatif`
+  tool) on a task that was already partly done spread the requested change across the
+  completed and remaining share of the task. A `+1` day slip on a critical task that
+  was 50% complete could report zero impact on the finish, and slips and pull-ins of
+  the same size moved it by different amounts. `perturb_task_duration` now applies the
+  change to remaining work only and keeps the completed working days fixed, so a
+  critical task slipped or pulled in by `N` days moves the finish by `N` working days
+  (on links with no lag; a lag counted in calendar days can gain or lose weekend days).
+  A pull-in larger than the remaining work moves the finish earlier (with no lag) by exactly the
+  remaining working days: the task is treated as finished on the working day before
+  its remaining work would have started (#4432).
+- **Closing a milestone no longer slips the schedule by a day**: marking a milestone
+  complete records its `actual_finish`, and the scheduler then treated it as ordinary
+  work ending at the end of that day — so every FS successor, and the project finish,
+  moved one working day later than the same milestone live or completed without
+  actuals. A completed milestone with recorded actuals now stays an instant on its
+  `actual_finish` (else `actual_start`) day and keeps the edge of that day it had
+  live: the end only when work finishing that day placed it, the start when nothing
+  precedes it or the data date or a start-no-earlier-than date held it. This holds
+  in both the Python and the Rust/WASM engine, in Monte Carlo, in the schedule
+  drag preview, and in the API's reading of which edge of the day a finish falls on
+  (#4433).
+- **A dependency on a summary task no longer loses to a shorter leaf link, and the
+  schedule no longer depends on dependency list order (#4434).** When a direct leaf
+  link (`A → C`) and a link from A's summary (`S → C`, lag 7d) both held, the
+  expansion to leaf edges kept whichever was listed first — so the binding 7-day lag
+  was silently dropped whenever the leaf link came first, and because dependencies
+  arrive in database row order, two recalculations of the same project could produce
+  different finish dates. Links that resolve to the same task pair now keep the most
+  binding (largest) lag. Two links of *different* types that resolve to the same pair
+  (for example `A → C` FF plus `S → C` FS) cannot both be represented and are now
+  rejected with an error naming both links instead of one being dropped silently —
+  a project that relied on that silent drop will report a scheduling error until one
+  of the two links is removed or retyped.
+- **The program schedule view returns a structured 422 instead of a 500 when summary
+  expansion rejects a member project's links (#4434).** Expansion ran outside the
+  error mapping the CPM pass already used, so the conflicting-link error above — and
+  the existing Start-to-Start/Start-to-Finish-from-summary rejection — blanked the
+  whole program view with an unhandled server error.
+- **Mobile sync delete left an auto-promoted phase's duration stuck at its old
+  rolled-up total**: deleting a task's last sibling through the offline sync
+  upload endpoint, instead of the web app's delete button, never reverted the
+  parent back to its own estimate. Fixed by sharing the same repair the web
+  delete path already ran.
+- **Default landing screen preference (`/me` → General)**: the community edition no
+  longer shows a disabled, Enterprise-badged **Portfolio** radio — it is omitted
+  entirely, matching the empty-slot treatment used elsewhere in the OSS shell. A
+  community account whose stored preference is already `portfolio` (inherited from
+  an enterprise install, or written directly against the API) now shows **Auto**
+  checked instead of a disabled, checked radio with nothing reachable behind it.
+- **SSO provider panel**: removed the Enterprise-badged "Password sign-in" row
+  from the community-edition SSO provider panel. Per the 2026-06-30 decision,
+  enforced SSO (disabling local-account sign-in) is a pure extension-point
+  seam in the open-source core and renders nothing — no badge, teaser, or
+  "upgrade" copy — rather than an informational row.
+- **`trueppm-scheduler`: `monte_carlo()` no longer finishes late when a
+  Start-to-Finish link places work before the project start (#4510)**: a live
+  milestone whose recorded actual start, start-no-earlier-than date or data date
+  lies before the project start measures its links from that earlier date, so
+  `schedule()` places its Start-to-Finish successor before the project start too.
+  `monte_carlo()` opened its working-day index only far enough back for the
+  milestone's incoming links, so the successor fell off the front of the index,
+  was placed on its first day instead, and pushed P50/P80/P95 past the
+  deterministic finish on a project with no uncertainty at all — by one working
+  day for a single SF link, and by up to several weeks for a chain of SF links
+  through milestones (19 working days in one measured case). When the milestone
+  feeds an SF link, the index now also reaches back to those milestone floors.
+`trueppm-scheduler`: `Task.from_dict` / `Dependency.from_dict` / `Project.from_dict` now refuse numeric strings (`"259200"`, `"2.592e5"`, `" 86400 "`) and booleans in duration, lag, PERT, float, `percent_complete`, `story_points` and `velocity_samples` fields, and non-boolean `is_critical` / `milestone_at_day_end`, raising `InvalidScheduleInput` as the Rust engine's parser already does.
+The scheduling engines (Python `trueppm-scheduler` and the Rust/WASM engine) now reject a task `percent_complete` outside 0-100 with `InvalidScheduleInput` instead of silently clamping it, so a sign-flipped or x100 import bug no longer schedules plausibly. TruePPM's API validates the field to 0-100 at the serializer layer; a row stored out of range by other means (seed code, direct ORM writes) now makes that project's recalculation fail and its Monte Carlo return 400 until corrected.
+- **What-if on a completed task is refused instead of reporting "no impact"**: `perturb_task_duration` (and the Monte Carlo what-if endpoint built on it) now rejects a task that has an `actual_finish` or is 100% complete. Its dates are actuals, so a duration change could not move the forecast and the old response read as a real zero-impact answer. The endpoint returns `400` with an explanatory `detail`.
+Any project `schedule()` accepts now round-trips through `Project.to_json()` / `Project.from_json()`. `schedule()` and `monte_carlo()` (and `derive_value()` when it schedules the project itself, i.e. called without `result=`) now apply the field rules `from_dict` applies, including to fields the engine never reads, and refuse with `InvalidScheduleInput`: a non-number or non-finite `Calendar.hours_per_day`, a non-string `timezone`, a `working_days` outside `[0, 127]` (#4435), a non-`DateRange` calendar exception, a string or `datetime` `planned_finish` or computed date, a non-`timedelta` `total_float`/`free_float`, a non-`bool` `is_critical`/`milestone_at_day_end`, a plain-string `delivery_mode`, and a `calendars` registry keyed by a non-string id. An `int` too large for a float in `story_points`, `percent_complete` or `velocity_samples` now raises `InvalidScheduleInput` instead of a bare `OverflowError`. `Project.to_dict()`/`to_json()` (and `Task`/`Dependency`/`Calendar.to_dict()`) now raise `InvalidScheduleInput` for a field they cannot serialize, instead of a bare `AttributeError`/`TypeError`. `Project.from_dict` now also refuses a non-string `calendar_id`, a non-finite `hours_per_day`, and a non-string `calendars` key. Construction is unchanged: the check runs when a project is scheduled or serialized (#4517).
+The scheduler now refuses a wrong-typed argument to its public entry points with `InvalidScheduleInput` instead of a bare `ValueError`, `OverflowError`, `AttributeError` or `TypeError`: an unknown `derive_value` quantity (the message lists the allowed ones), a `None` or non-`Project` project passed to `schedule`, `monte_carlo`, `derive_value` or `perturb_task_duration`, a `bool`, float or out-of-range `delta_days` in `perturb_task_duration`, a non-`Calendar` entry in `Calendar.compose`, and a non-date `DateRange` bound.
+
+`perturb_task_duration` now refuses a non-`int` `delta_days` — numpy integers such as `np.int64`, floats, and `bool` — and any magnitude above `MAX_DURATION_DAYS`; pass a plain `int`. `monte_carlo` also refuses a non-int `max_runs`/`max_tasks` and a `runs` above 100 million.
+The scheduler sdist notebook `04-incremental-scheduling.ipynb` is renamed `04-performance-bench.ipynb` and no longer previews a `schedule(..., changed_task_ids=...)` parameter that does not exist; `schedule()` always recomputes the full project. The scheduler docs table row is corrected to match.
+The `trueppm-scheduler` source distribution is now built from an explicit allow-list, so a local `python -m build` after a test run no longer packs `.coverage` or `.hypothesis/` into it. A new `scheduler:sdist-check` job (and `make scheduler-sdist-check`) fails if a dev artifact leaks or a required file is missing. The wheel is unchanged.
+`Dependency.from_dict` now rejects a non-string `predecessor_id` / `successor_id`, and `Calendar.from_dict` rejects a non-list `exceptions` (an empty string or `{}` used to parse as "no exceptions"), raising `InvalidScheduleInput` as the Rust engine's parse already did (#4521).
+`Dependency.from_dict` now refuses a non-mapping document (`None`, a string, a list) or one missing `predecessor_id`/`successor_id` with `InvalidScheduleInput` instead of a bare `AttributeError`, `KeyError` or `TypeError`. `find_cycle` and `expand_summary_dependencies` now refuse a `children_map` entry whose child id is `None` or not a string (an unhashable list/dict, or any non-string id) with `InvalidScheduleInput`, instead of a bare `ValueError`/`TypeError` from `networkx`/`dict.get` — or, for a `None` child, silently accepting it as a leaf id and producing a `Dependency` with a `None` endpoint (#4522).
+- **A start-to-start or start-to-finish lag out of an in-progress task is no longer
+  re-added on every status update**: the scheduler measured the link from where the
+  task's *remaining* work starts, which moves forward with the data date, so each
+  status update pushed the successor out by the lag again — `A -SS+10d-> B` with `A`
+  started on 03-02 put `B` on 03-16 at a 03-04 status date and on 03-18 two days
+  later, with nothing else changed. The link now measures from when the task started:
+  its recorded `actual_start` (at any percent complete, including a task just moved
+  to in progress), so the successor stays put until the data date itself reaches it,
+  or — for a task with progress but no `actual_start`, such as one
+  created already in progress or imported from MS Project without an actual start —
+  its scheduled start, so the successor follows the task instead of sitting a full
+  lag past the status date. A link from a recorded start also no longer marks the
+  task critical, since that start cannot slip. This holds in the Python and
+  Rust/WASM engines, in Monte Carlo, in schedule derivations, and in the schedule
+  drag preview (#4523).
+- **Explaining a schedule value no longer runs the scheduling pass twice on
+  projects with a milestone**: the "why is this date what it is" derivation
+  (`derive_value()`) re-ran the whole forward and backward scheduling pass on
+  every call whenever the project contained any zero-duration milestone, and
+  nearly every real project has one. `schedule()` now keeps the milestone pass
+  state it already computed with its result, and the derivation reads it instead
+  of replaying the passes. The API's schedule explanation endpoint drops its
+  redundant second pass and is about 35% faster; library callers who pass a
+  precomputed `schedule()` result see up to ~140x (205 ms → 1.3 ms per
+  explanation at 10,000 tasks). Explanations are unchanged (#4524).
+**Scheduler:** a milestone closed while one of its predecessors is still open no longer moves when that open work's forecast changes, and closing it on its forecast day still moves nothing. The engine now decides a closed milestone's day edge from completed predecessors plus the edge the last recalculation recorded for it, never from open work's current forecast. Previously a longer predecessor could finish an FS-only schedule earlier, and the open predecessor's float was overstated. This was a regression in unreleased 0.4 work from the #4433 fix. Library callers can pass the new optional `Task.live_day_end_on` to get the same behavior. A completed milestone that passed through In Progress now shows its completion day rather than the day it entered In Progress; that is where the scheduler already measured its successors from, and keeping the two apart released the frozen edge on the second recalculation after completion. (#4525)
+- **Velocity forecasts counted only sprints that delivered points**: Monte Carlo and
+  the backlog delivery forecast dropped every sprint that closed with zero points
+  before sampling the team's velocity. A team with lean sprints was forecast as if
+  those sprints never happened, so a team averaging 5 points a sprint got the same
+  P50/P80/P95 as one averaging 20. Zero-point sprints are now part of the sample
+  set, and **Exclude from velocity** remains the only way to hold a sprint out. A
+  history in which every sprint completed zero points has no pace to forecast from
+  and falls back as before (#4535).
+
+### Security
+- **Schedule derivation is rate-limited.** `GET /api/v1/projects/{id}/schedule/derivation/`
+  runs a full critical-path pass on every call, but it fell through to the general
+  1000/min per-account default. It now has its own `cpm_on_read` bucket (60/min, set
+  with `TRUEPPM_THROTTLE_CPM_ON_READ_RATE`). `mcp:read` tokens calling it are also
+  held to the tighter `mcp_read_compute` bucket.
+- **The program schedule is rate-limited.** `GET /api/v1/programs/{id}/schedule/`
+  runs the critical path over every member project on each read, and also fell
+  through to the 1000/min default. It now has a `program_schedule` bucket (60/min,
+  set with `TRUEPPM_THROTTLE_PROGRAM_SCHEDULE_RATE`), and `mcp:read` tokens are held
+  to `mcp_read_compute`. The live program page now shares one refresh timer across
+  all member projects, so an open tab sends at most one refresh every 300 ms however
+  many projects are changing (before, each project refreshed independently). If a
+  refresh is limited, the program schedule page keeps showing the last schedule it
+  loaded instead of an error, and refreshes by itself after the server's
+  `Retry-After` (at most a minute).
+- **Monte Carlo memory is bounded per request and per process.** Runs and what-ifs now
+  cap runs × tasks (`MC_CELL_CAP`, 2.5M cells, about half the memory a 5,000-task ×
+  1,000-run simulation used). One API process now runs at most `MC_MAX_CONCURRENT` (2)
+  simulations at once. If `n_simulations` is omitted on a large project, the run count
+  scales down to fit and the response's `runs` field reports it. An explicit
+  `n_simulations` that does not fit returns HTTP 400 `simulation_cell_cap_exceeded`
+  with `max_runs`. A request that finds no free slot within 10 seconds returns HTTP 503
+  `simulation_busy` with `Retry-After`.
+- **`IsProjectNotArchived` now fails closed on an unresolvable project**: on a write
+  whose object has no path to a project, `has_object_permission` used to return
+  `True` (permit) — the last fail-open survivor of the family that also includes
+  #2745, #3414, and #3570. It now returns `False`, matching the other eleven
+  permission classes built on the same resolver.
+- **Bumped the `mcp` Python SDK dependency from 1.28.1 to 1.30.0** (`packages/mcp`): the
+  prior version's Streamable HTTP server never expired sessions and had no cap on
+  concurrent sessions, letting unbounded memory growth accumulate from ordinary short
+  requests ([GHSA-84m7-p3x7-pcfv](https://github.com/advisories/GHSA-84m7-p3x7-pcfv)).
+  1.30.0 adds session timeouts and a maximum session limit.
+- **Outgoing webhooks are now contained by every compromise-response lever**: an
+  outgoing webhook is deactivated — not merely at risk of silent continued delivery —
+  by a password reset, an admin off-boarding its registrant, or an operator's
+  `revoke_api_tokens --all` sweep (`revoke_personal_durable_grants`), closing the gap
+  where a leaked personal access token or hijacked session belonging to a still-active
+  project Admin could keep a webhook delivering every subscribed event after the
+  documented containment steps ran. The sweep also catches a project webhook that was
+  repointed or had its secret rotated by a **different** admin's hijacked session —
+  not only the webhook's original registrant — since a project webhook's update has
+  no registrant check; this stays true even after a later, unrelated edit by anyone
+  else, because every account that has ever set a webhook's URL or secret, or
+  re-enabled it while disabled, stays permanently eligible for the sweep.
+  `Webhook` create and update (URL/secret changes) now also refuse a
+  personal-access-token caller (`IsNotTokenAuthenticated`), matching the
+  existing rule for minting a share link or rotating a git-automation secret.
+- **Live WebSocket connections are now closed on password reset**: resetting a
+  password already revoked every refresh token, personal access token, share
+  link, and git-automation secret, but a project WebSocket opened before the
+  reset kept streaming task/board/presence events until it disconnected on its
+  own. A reset now schedules the same eviction used for account deactivation
+  for every project the account is a live member of, closing those sockets
+  with code `4003`.
+- **A personal access token can no longer mint a WebSocket connection ticket**
+  (`POST /api/v1/ws/ticket/`): a ticket opens a socket the consumer
+  authenticates only once, at connect, so a PAT-minted ticket had no later
+  revocation lever that could reach the open socket. Only a session or JWT may
+  mint a ticket now; no shipped client ever minted one with a bearer token.
+  Known residual: a socket opened from a ticket a PAT minted *before* this
+  change deploys is not retroactively evicted — PAT revocation still closes
+  no open socket. This is a one-time leftover from the transition; every
+  ticket minted after deploy is session/JWT-only.
+  Also known: a password reset closes sockets immediately but does not
+  invalidate an already-issued, not-yet-expired access JWT, so a still-valid
+  token can reopen a socket until it expires (up to 15 minutes) — tracked
+  separately.
+- **Bumped `http-cache-semantics` from 4.2.0 to 4.3.0** (`packages/website`, build-time
+  only): the prior version was flagged by
+  [GHSA-ch52-4w7c-c8xp](https://github.com/advisories/GHSA-ch52-4w7c-c8xp)
+  (improper cache-entry validation on a client `max-stale` directive, allowing
+  cross-user cached-response disclosure from a shared cache). No fixed release
+  existed when the finding was accepted as risk in #4262; 4.3.0 now resolves
+  past the advisory's affected range, so the `osv-scanner.toml` suppression for
+  it has been removed.
+
 ## [0.4.0-beta.8] — 2026-10-15
 
 TruePPM 0.4.0-beta.8 supersedes 0.4.0-beta.7. **0.4.0-beta.7 was known-broken and was never fit to deploy** — its web image blank-screened every page for every visitor, and its Helm demo-seed hook failed deterministically on some anchor dates. This release is the fix for both and for the rolling-upgrade blank-screen class the first bug belongs to, plus a round of real access-control fixes and a cluster of scheduler criticality/float corrections.
