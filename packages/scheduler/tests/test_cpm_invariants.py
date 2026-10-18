@@ -425,6 +425,22 @@ def _zero_lags(project: Project) -> Project:
     return dataclasses.replace(project, dependencies=deps)
 
 
+def _pred_recorded_start_link(pred: Task, dep_type: str) -> bool:
+    """Whether the edge out of ``pred`` measures from its recorded ``actual_start`` (#4523).
+
+    Black-box mirror of ``engine._start_fixed_link``: true for an SS/SF link out of
+    a task that has a recorded start, still has work remaining, and is not
+    complete (``engine._is_complete``, reimplemented here rather than imported —
+    see :func:`_clear_completion`).
+    """
+    return (
+        dep_type in ("SS", "SF")
+        and pred.actual_start is not None
+        and pred.duration.days > 0
+        and not (pred.actual_finish is not None or pred.percent_complete >= 100)
+    )
+
+
 def _float_inversions(
     project: Project, result: ScheduleResult, *, scoped: bool = True
 ) -> list[tuple[str, str]]:
@@ -433,8 +449,8 @@ def _float_inversions(
     In textbook CPM a zero-slack link gives ``total_float(pred) <=
     total_float(succ)``: the backward pass bounds the predecessor's late date by
     the successor's, shifted by a link offset that is constant in the unit float is
-    counted in. ``scoped`` skips the three links where that premise is false here by
-    design, not by defect (#4269):
+    counted in. ``scoped`` skips the four links where that premise is false here by
+    design, not by defect (#4269, #4523):
 
     * **a non-zero lag.** Lag is calendar days, then snapped; float is working days.
       The same calendar-day lag spans more working days from a Monday than from
@@ -449,6 +465,12 @@ def _float_inversions(
       working days (ADR-0120 D3). The same stretch of calendar time is 10 days of
       float on a 7-day calendar and 8 on a 5-day one, so the predecessor on the
       longer working week out-floats the successor it drives.
+    * **a predecessor's recorded start.** An SS/SF link out of a started task
+      measures from its ``actual_start`` (ADR-0132 §2a, #4523), which already
+      happened, so the backward pass gives the predecessor no late-date bound from
+      this edge even when the edge is what holds the successor
+      (:func:`_pred_recorded_start_link`). The predecessor's own float is then
+      bounded only by its other edges, if any, and can run past the successor's.
 
     ``scoped=False`` applies the textbook identity to every driving edge, which is
     what the pinned counterexamples below use to show it does not hold there.
@@ -465,6 +487,7 @@ def _float_inversions(
             # ``calendar_id``: two ids naming equal calendars count float in the
             # same unit, and only a real difference breaks the identity.
             or _task_calendar(project, pred) != _task_calendar(project, succ)
+            or _pred_recorded_start_link(pred, edge.dep_type)
         ):
             continue
         assert pred.total_float is not None
@@ -834,3 +857,59 @@ def test_ss_link_still_drives_a_work_successor_it_places() -> None:
     tasks = {t.id: t for t in result.tasks}
     assert tasks["t2"].early_start == tasks["t0"].early_start
     assert DrivingEdge("t0", "t2", "SS") in result.driving_edges
+
+
+def _recorded_start_predecessor_project(actual_start: date | None = date(2026, 4, 1)) -> Project:
+    """``t0(1d, actual_start) -SS-> t1(3d)``, the #4523 fuzz counterexample.
+
+    ``scheduler:mutation``'s stats pass (pipeline 2960591556) shrank
+    ``test_driving_edge_never_gains_float_upstream`` to this shape: a predecessor
+    with a recorded start whose only edge is the SS link it drives. ``t1`` has no
+    other predecessor and no other successor sets ``project_finish`` later, so
+    ``t1`` is critical while ``t0`` — bounded by no edge at all once this one is
+    excluded from the backward pass (:func:`_pred_recorded_start_link`) — floats
+    the two working days between its own early finish and ``project_finish``.
+    ``actual_start=None`` gives the same network with ``t0`` placed by the
+    network alone, where the identity holds.
+    """
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),  # a Monday
+        tasks=[
+            Task(id="t0", name="t0", duration=timedelta(days=1), actual_start=actual_start),
+            Task(id="t1", name="t1", duration=timedelta(days=3)),
+        ],
+        dependencies=[
+            Dependency(predecessor_id="t0", successor_id="t1", dep_type=DependencyType.SS)
+        ],
+        calendar=Calendar(working_days=0b0011111),
+    )
+
+
+def test_recorded_start_driving_edge_can_carry_more_float_upstream() -> None:
+    """A zero-lag SS driving edge out of a started task: ``t0`` at 2 days of float, ``t1`` at 0.
+
+    ``t0``'s recorded ``actual_start`` already happened, so no slip of its own
+    one-day remaining duration can move ``t1`` through the SS link — the link
+    gives ``t0`` no late-date bound (ADR-0132 §2a). ``t1`` is still exactly where
+    the link places it (zero slack measured from the recorded start), so the link
+    drives it. ``t0``'s two days are real: nothing downstream reads them.
+    """
+    project = _recorded_start_predecessor_project()
+    result = schedule(project)
+    tasks = {t.id: t for t in result.tasks}
+
+    assert DrivingEdge("t0", "t1", "SS") in result.driving_edges
+    assert result.project_finish == tasks["t1"].early_finish
+    assert tasks["t0"].total_float == timedelta(days=2)
+    assert tasks["t1"].total_float == timedelta(0)
+
+    # Without the recorded start the network places t0 itself, and the identity
+    # holds: both are critical.
+    unstarted = {t.id: t for t in schedule(_recorded_start_predecessor_project(None)).tasks}
+    assert unstarted["t0"].total_float == unstarted["t1"].total_float == timedelta(0)
+
+    # The unscoped identity flags this edge; the scoped property skips it.
+    assert _float_inversions(project, result, scoped=False) == [("t0", "t1")]
+    assert _float_inversions(project, result) == []

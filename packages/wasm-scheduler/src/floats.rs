@@ -141,8 +141,9 @@ impl SpanCounter<'_> {
 ///
 /// `latest` is the last date the predecessor could finish (FS/FF) or start
 /// (SS/SF) while leaving the successor's *early* date untouched; `anchor` is the
-/// predecessor's matching early date. The slack between them is this
-/// relationship's free float.
+/// predecessor's matching date — its early finish, or the start the link measures
+/// from (`Task::link_start`, #4523). The slack between them is this relationship's
+/// free float.
 ///
 /// Computed by **inverting** the forward constraint — the same retreat the
 /// backward pass applies for late dates — rather than measuring the gap from the
@@ -244,6 +245,10 @@ pub fn compute_floats(
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
         let ef = tasks[i].early_finish.unwrap();
+        // SS/SF are inverted against the start they measure from, the link start
+        // (`Task::link_start`, #4523): a recorded `actual_start`, a derived
+        // `scheduled_start`, or the early start.
+        let link_start = tasks[i].link_start();
         let ls = tasks[i].late_start.unwrap();
         let pred_id = tasks[i].id.clone();
         // Every span below is measured on *this* task's own calendar: the slip is
@@ -338,14 +343,24 @@ pub fn compute_floats(
                         }
                     }
                     None => {
-                        let (anchor, latest) =
-                            free_float_anchor(link, es, ef, succ_start, succ_finish, node_cal)?;
+                        let (anchor, latest) = free_float_anchor(
+                            link,
+                            link_start,
+                            ef,
+                            succ_start,
+                            succ_finish,
+                            node_cal,
+                        )?;
                         spans.between(anchor, latest, node_cal)?
                     }
                 })
             };
             let slack = slack_to(refs)?;
-            ff_days = ff_days.min(slack.max(0));
+            if !tasks[i].start_fixed_link(dep.dep_type) {
+                // A link measured from a recorded start (#4523) limits nothing this
+                // task's remaining work can do; it is still checked for driving below.
+                ff_days = ff_days.min(slack.max(0));
+            }
             // Whether a link *drives* is read off the free instant, not #4183's
             // further tie adjustment: a link bounded only by a reading tie does not
             // set the milestone's instant, another link does, so it is not the

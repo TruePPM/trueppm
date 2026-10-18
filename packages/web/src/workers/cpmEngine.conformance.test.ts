@@ -149,6 +149,7 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_actual_start_floors_early_start: 'adapter: does not thread actuals/status date',
   progress_out_of_sequence: 'adapter: does not thread actuals/status date',
   progress_status_date_floor: 'adapter: does not thread actuals/status date',
+  progress_started_link_anchor: 'adapter: does not thread actuals/status date',
   progress_weekend_finish_late_seed: 'adapter: does not thread actuals/status date',
   // #3963. The engine DOES take the fix these two pin (`finishFromStart` /
   // `startFromFinish` now begin the walk on a working day), but the adapter

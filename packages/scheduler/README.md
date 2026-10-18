@@ -471,12 +471,9 @@ calendar-aware lag, cycle detection) and Monte Carlo simulation (PERT-Beta,
 velocity sampling, `derive_value()` explainability) are stable and exercised
 by the fuzz, mutation, and MS-Project-parity suites described in
 [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md).
-Three defects found late in the 0.4 cycle are still being worked on as this
-ships — if any is still open when 0.4 tags, it carries into 0.5:
+Two defects found late in the 0.4 cycle are still being worked on as this
+ships — if either is still open when 0.4 tags, it carries into 0.5:
 
-- [#4523](https://gitlab.com/trueppm/trueppm/-/issues/4523) — an in-progress
-  SS/SF lag is re-anchored on `early_start` (remaining work), re-adding the
-  lag on every status update.
 - [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) — a completed
   milestone's day edge is re-derived from live predecessors, so a pinned
   milestone can move and FS-only CPM becomes non-monotone (a regression of
@@ -564,9 +561,8 @@ they will ship with 0.5 or that release will slip:
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings `engine.py` itself into scope
   ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); the in-flight
-  0.4 issues above — [#4523](https://gitlab.com/trueppm/trueppm/-/issues/4523)
-  and [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) — close here if
-  they do not make the 0.4 tag; three more bare-exception leaks close the
+  0.4 issue above — [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) —
+  closes here if it does not make the 0.4 tag; three more bare-exception leaks close the
   `SchedulerError` contract
   ([#4162](https://gitlab.com/trueppm/trueppm/-/issues/4162),
   [#4132](https://gitlab.com/trueppm/trueppm/-/issues/4132)); and the span-guard

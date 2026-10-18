@@ -275,10 +275,36 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
 }
 
 /**
+ * The start an SS or SF link out of `source` measures from: its link start
+ * (when it started, or is forecast to have started), never its remaining-work
+ * window — which is not always where its bar is drawn. Mirrors the server engines' `_link_start` /
+ * `Task::link_start` (ADR-0132 §2a, #4523):
+ *
+ *  - a started task's recorded `actual_start`;
+ *  - live work with progress but no recorded start: its derived span start, the
+ *    full duration backed off from its early finish (the server's
+ *    `scheduled_start`, ADR-0752);
+ *  - otherwise its early start, which is then the span start.
+ *
+ * An in-progress task's early start is floored at the data date, so measuring
+ * from it re-added the lag on every status update — and the preview would now
+ * paint a successor later than the server puts it.
+ */
+function linkStartMs(source: TaskState): number {
+  if (source.isComplete || source.durationDays <= 0) return source.earlyStartMs;
+  if (source.actualStartMs !== null) return source.actualStartMs;
+  if (source.effectiveDurationDays < source.durationDays) {
+    return startFromFinish(source.earlyFinishMs, source.durationDays);
+  }
+  return source.earlyStartMs;
+}
+
+/**
  * The raw date a predecessor's constraint is measured from: every bound is
  * `nextWorkingDay(anchor + lag)`. Ordinary work anchors FS on the day after its
  * finish, SS on its start, FF on its finish and SF on the last working day
- * *before* its start (the day before it for a positive lag, #4333); a milestone
+ * *before* its start (the day before it for a positive lag, #4333) — the start
+ * being its span start (`linkStartMs`, #4523); a milestone
  * anchors FS/SS on its instant, and FF/SF on the day its instant closes for a
  * positive lag (#4273) — the last working day before it with no lag or a lead, so a lead
  * counts back from the zero-lag finish and never lands later than it. Mirrors the server
@@ -306,11 +332,11 @@ function edgeAnchor(edge: CpmEdge, source: TaskState): number {
     case 'FF':
       return source.earlyFinishMs;
     case 'SS':
-      return source.earlyStartMs;
+      return linkStartMs(source);
     case 'SF':
       // A positive lag counts from the day the start instant closes (#4333).
-      if (edge.lag > 0) return source.earlyStartMs - MS_PER_DAY;
-      return prevWorkingDay(source.earlyStartMs - MS_PER_DAY);
+      if (edge.lag > 0) return linkStartMs(source) - MS_PER_DAY;
+      return prevWorkingDay(linkStartMs(source) - MS_PER_DAY);
   }
 }
 

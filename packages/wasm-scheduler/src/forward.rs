@@ -252,7 +252,8 @@ fn place_milestone(
         let (raw, start_display) = milestone_proposal(
             dep.dep_type,
             dep.lag_days(),
-            (pred.early_start.unwrap(), pred.early_finish.unwrap()),
+            // SS/SF measure from a started task's recorded start (#4523).
+            (pred.link_start(), pred.early_finish.unwrap()),
             links[p],
             cals.for_node(p),
             cal,
@@ -714,7 +715,8 @@ fn edge_constraints(
         let pred = &tasks[p];
         let anchor = edge_anchor(
             dep.dep_type,
-            pred.early_start.unwrap(),
+            // A started task's recorded start, not its remaining window (#4523).
+            pred.link_start(),
             pred.early_finish.unwrap(),
             instants[p].map(|i| i.0),
             cals.for_node(p),
@@ -1105,5 +1107,140 @@ mod tests {
         let result = schedule_impl(&project).expect("test project schedules");
         let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
         assert_eq!(b.early_start, d(14));
+    }
+
+    /// Schedule `A` (20d, started 2026-01-04 — a Sunday — `pct`% done) `-kind+lag->`
+    /// `B` (3d) at data date `status`, returning `B` and `A`.
+    fn started_link(kind: &str, lag: i64, pct: f64, status: &str) -> (TaskResult, TaskResult) {
+        let project: Project = serde_json::from_value(json!({
+            "id": "p",
+            "name": "p",
+            "start_date": "2026-01-05",
+            "status_date": status,
+            "tasks": [
+                {"id": "A", "name": "A", "duration": 20.0 * 86400.0,
+                 "percent_complete": pct, "actual_start": "2026-01-04"},
+                {"id": "B", "name": "B", "duration": 3.0 * 86400.0},
+            ],
+            "dependencies": [
+                {"predecessor_id": "A", "successor_id": "B", "dep_type": kind,
+                 "lag": (lag as f64) * 86400.0},
+            ],
+        }))
+        .expect("test project parses");
+        let mut result = schedule_impl(&project).expect("test project schedules");
+        let b = result.tasks.iter().position(|t| t.id == "B").unwrap();
+        let b = result.tasks.remove(b);
+        let a = result.tasks.into_iter().find(|t| t.id == "A").unwrap();
+        (b, a)
+    }
+
+    /// #4523 property: a status update that moves only the data date must not move
+    /// an SS/SF successor whose link bound is still ahead of it. Before the fix the
+    /// link measured from the data-date-floored remaining window, so each update
+    /// re-added the lag (SS+10: 01-16 at a 01-06 data date, 01-19 at 01-08).
+    #[test]
+    fn started_ss_sf_successor_ignores_the_data_date() {
+        for kind in ["SS", "SF"] {
+            for lag in [0, 3, 10] {
+                for pct in [0.0, 20.0] {
+                    let (base, _) = started_link(kind, lag, pct, "2026-01-05");
+                    for status in ["2026-01-06", "2026-01-07", "2026-01-08"] {
+                        if NaiveDate::parse_from_str(status, "%Y-%m-%d").unwrap()
+                            >= base.early_start
+                        {
+                            break;
+                        }
+                        let (moved, _) = started_link(kind, lag, pct, status);
+                        assert_eq!(
+                            (moved.early_start, moved.early_finish),
+                            (base.early_start, base.early_finish),
+                            "{kind}+{lag} at {pct}% moved at data date {status}"
+                        );
+                    }
+                }
+            }
+        }
+        // Known answers, measured from the Sunday actual: SS+10 = Wed 01-14; SF+10
+        // finishes on 01-03 + 10 = Tue 01-13.
+        assert_eq!(
+            started_link("SS", 10, 20.0, "2026-01-08").0.early_start,
+            d(14)
+        );
+        assert_eq!(
+            started_link("SF", 10, 20.0, "2026-01-08").0.early_finish,
+            d(13)
+        );
+    }
+
+    /// #4523: the SS link measures from a start that already happened, so it puts
+    /// no late-date bound on the started task — `B` drives the finish and `A`
+    /// keeps the float its remaining work has — and an SS link that holds its
+    /// successor is still that successor's driving edge.
+    #[test]
+    fn started_ss_link_bounds_no_late_date_and_still_drives() {
+        let project: Project = serde_json::from_value(json!({
+            "id": "p",
+            "name": "p",
+            "start_date": "2026-01-05",
+            "status_date": "2026-01-12",
+            "tasks": [
+                {"id": "A", "name": "A", "duration": 20.0 * 86400.0,
+                 "percent_complete": 20.0, "actual_start": "2026-01-05"},
+                {"id": "B", "name": "B", "duration": 30.0 * 86400.0},
+                {"id": "C", "name": "C", "duration": 1.0 * 86400.0},
+            ],
+            "dependencies": [
+                {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS", "lag": 2.0 * 86400.0},
+                {"predecessor_id": "A", "successor_id": "C", "dep_type": "SS", "lag": 10.0 * 86400.0},
+            ],
+        }))
+        .expect("test project parses");
+        let result = schedule_impl(&project).expect("test project schedules");
+        let by = |id: &str| result.tasks.iter().find(|t| t.id == id).unwrap();
+        assert!(by("B").is_critical);
+        assert!(!by("A").is_critical);
+        assert!(by("A").total_float > 0.0);
+        assert_eq!(by("A").free_float, by("A").total_float);
+        assert_eq!(by("C").early_start, d(15));
+        let driving: Vec<_> = result
+            .driving_edges
+            .iter()
+            .map(|e| (e.predecessor_id.as_str(), e.successor_id.as_str()))
+            .collect();
+        assert_eq!(driving, vec![("A", "C")]);
+    }
+
+    /// #4523: in-progress work with no recorded `actual_start` is measured from its
+    /// derived span start (`scheduled_start`: the full duration backed off from its
+    /// finish), not from its remaining window — and, that start not being history,
+    /// the link keeps its late-date bound. `A` (20d, 50%, no actual) `-SS+16d->` `B`
+    /// (30d) at a 2026-03-09 data date: A's span starts 2026-02-23, B starts
+    /// 2026-03-11 (not 03-09 + 16), and A is critical through the link.
+    #[test]
+    fn no_actual_start_link_measures_from_scheduled_start_and_keeps_its_bound() {
+        let project: Project = serde_json::from_value(json!({
+            "id": "p",
+            "name": "p",
+            "start_date": "2026-03-02",
+            "status_date": "2026-03-09",
+            "tasks": [
+                {"id": "A", "name": "A", "duration": 20.0 * 86400.0, "percent_complete": 50.0},
+                {"id": "B", "name": "B", "duration": 30.0 * 86400.0},
+            ],
+            "dependencies": [
+                {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS",
+                 "lag": 16.0 * 86400.0},
+            ],
+        }))
+        .expect("test project parses");
+        let result = schedule_impl(&project).expect("test project schedules");
+        let by = |id: &str| result.tasks.iter().find(|t| t.id == id).unwrap();
+        let ymd = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+        assert_eq!(by("A").scheduled_start, ymd(2, 23));
+        assert_eq!(by("B").early_start, ymd(3, 11));
+        assert!(by("A").is_critical);
+        assert_eq!(by("A").free_float, 0.0);
+        assert_eq!(result.driving_edges.len(), 1);
     }
 }

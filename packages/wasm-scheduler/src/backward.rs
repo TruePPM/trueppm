@@ -429,6 +429,25 @@ pub fn backward_pass(
     Ok(float_lates)
 }
 
+/// The latest `early_start` that keeps `task`'s link start at or before `span_bound`.
+///
+/// Mirrors the Python `_window_start_bound` (#4523): a derived span start sits
+/// `elapsed_link_days` working days before the remaining-work window, so a bound
+/// on it is that many working days later on the window. `span_bound` is a working
+/// day (every backward bound is snapped), where `finish_from_start` and
+/// `start_from_finish` are inverses. The identity when nothing has elapsed.
+fn window_start_bound(
+    span_bound: NaiveDate,
+    task: &Task,
+    cal: &Calendar,
+) -> Result<NaiveDate, String> {
+    let elapsed = task.elapsed_link_days();
+    if elapsed <= 0 {
+        return Ok(span_bound);
+    }
+    finish_from_start(span_bound, elapsed + 1, cal)
+}
+
 /// Split a node's outgoing edges into late-finish and late-start constraints.
 ///
 /// The mirror of `forward::edge_constraints`: FS/FF bound when this task may
@@ -462,6 +481,12 @@ fn successor_constraints(
             continue;
         }
         let dep = &deps[*edge.weight()];
+        if tasks[idx.index()].start_fixed_link(dep.dep_type) {
+            // Measured from a start that already happened (#4523): no slip of this
+            // task's remaining work can move the successor through it. Mirrors the
+            // Python `_collect_backward_constraints`.
+            continue;
+        }
         let lag_days = dep.lag_days();
 
         // A milestone successor offers its late instant (#4079).
@@ -482,7 +507,8 @@ fn successor_constraints(
                 )?);
             }
             DependencyType::SS => {
-                ls_constraints.push(retreat_calendar_days(succ_ls, lag_days, node_cal)?);
+                let bound = retreat_calendar_days(succ_ls, lag_days, node_cal)?;
+                ls_constraints.push(window_start_bound(bound, &tasks[idx.index()], node_cal)?);
             }
             DependencyType::FF => {
                 lf_constraints.push(retreat_calendar_days(succ_lf, lag_days, node_cal)?);
@@ -491,7 +517,8 @@ fn successor_constraints(
                 // The predecessor's SF anchor is the working day *before* its
                 // start, so it may start one working day past the retreated
                 // bound (#4145); a positive lag anchors on `start - 1` (#4333).
-                ls_constraints.push(sf_latest_start(succ_lf, lag_days, node_cal)?);
+                let bound = sf_latest_start(succ_lf, lag_days, node_cal)?;
+                ls_constraints.push(window_start_bound(bound, &tasks[idx.index()], node_cal)?);
             }
         }
     }
