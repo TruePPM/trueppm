@@ -103,10 +103,14 @@ Completed tasks are pinned out of network logic (ADR-0136) and keep their record
 dates. A pinned task with work is ordinary work to its successors; a pinned
 zero-duration task stays a milestone, an instant. With no actuals it sits at the
 start of its pinned day (#4343). With actuals it sits on its ``actual_finish`` (else
-``actual_start``) day, at the edge of that day it had live (#4433): the end only when
-work finishing that day placed it, the start when nothing precedes it or a floor
-(data date, SNET) held it — so closing a milestone on the day it was forecast moves
-none of its successors. ``monte_carlo``
+``actual_start``) day, at the edge of that day it had live (#4433): the end when
+completed work finishing that day placed it, or when the caller's last live run
+showed it at the end of that day (``Task.live_day_end_on``, #4525); the start
+otherwise — nothing precedes it, a floor (data date, SNET) held it, or open work
+behind it was never recorded as placing it. Only those fixed facts decide it, so no
+change to open work moves a closed milestone, and a caller that hands its output
+back closes a milestone on its forecast day without moving its successors.
+``monte_carlo``
 carries each run's milestone instant as a date (:func:`_mc_milestone_bounds`), and
 the Rust/WASM engine mirrors the rule (``packages/wasm-scheduler/src/forward.rs``).
 """
@@ -2145,10 +2149,13 @@ def _forward_pass(
             task.early_start, task.early_finish = pinned
             if task.duration.days == 0:
                 # A completed milestone stays an instant (#4343, #4433), on the
-                # edge of its day it would have been read at live.
+                # edge of its day it had live (#4525): frozen from the caller's
+                # last live run when it names the recorded day, else read from
+                # completed predecessors.
                 recorded = task.actual_finish or task.actual_start
-                live_start = recorded is None or _live_milestone_edge(
-                    node_id, task_map, g, cal, links, cal_for, recorded
+                live_start = recorded is None or (
+                    task.live_day_end_on != recorded
+                    and _live_milestone_edge(node_id, task_map, g, cal, links, cal_for, recorded)
                 )
                 instants[node_id], links[node_id] = _pinned_milestone_instant(
                     task, cal, pinned[0], live_start
@@ -2452,8 +2459,17 @@ def _live_milestone_edge(
     project *earlier*, and the predecessor's float, measured by a backward pass
     that skips completed successors, ignored the coupling. Completed predecessors
     are themselves pinned, so by induction nothing live can move a closed
-    milestone. Out-of-sequence open work reads as not having placed it: the start
-    of its recorded day.
+    milestone.
+
+    Open work that placed the milestone live is still honored, through the one
+    fact recorded about it at closure: :attr:`Task.live_day_end_on`, the day the
+    caller's last live run showed it at the end of. The forward pass checks that
+    first and calls this only when it does not name the recorded day. Without it
+    — a caller that does not persist output, or a milestone signed off on a day
+    it was not forecast — open work reads as not having placed it: the start of
+    its recorded day. Both inputs are fixed while open work changes, so neither
+    path lets a live forecast move a closed milestone, and a live end-of-day
+    milestone closed out of sequence on its forecast day moves nothing.
     """
     shown, _, _ = _place_milestone(
         node_id, task_map, g, cal, [recorded], links, cal_for, completed_only=True

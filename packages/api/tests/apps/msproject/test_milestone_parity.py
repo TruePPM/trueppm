@@ -226,6 +226,53 @@ def test_export_writes_a_closed_after_work_milestones_actuals_at_the_day_end(
     assert design.findtext("m:ActualFinish", namespaces=ns) == "2026-01-09T00:00:00"
 
 
+@pytest.mark.django_db
+def test_closing_a_gate_before_its_work_is_marked_done_moves_nothing(
+    project: Project,
+) -> None:
+    """#4525: the edge a recalculation persisted is handed back and frozen at close.
+
+    Sign the Design gate off on Friday while Design itself is still open, then
+    mark Design done. Only completed predecessors decide a closed milestone's
+    edge, so without the persisted ``milestone_at_day_end`` reaching the engine
+    the gate would drop to the start of Friday and pull Build onto Friday, then
+    jump back to Monday once Design was completed — the forecast oscillating a
+    working day on an ordinary order of progress updates."""
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    live = _recalculated(project)
+    assert (live["Design gate"].early_finish, live["Design gate"].milestone_at_day_end) == (
+        date(2026, 1, 9),
+        True,
+    )
+    assert live["Build"].early_start == date(2026, 1, 12)
+
+    def rerun() -> dict[str, Task]:
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+            patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        ):
+            _run_schedule(str(project.pk))
+        return {t.name: t for t in Task.objects.filter(project=project)}
+
+    Task.objects.filter(project=project, name="Design gate").update(
+        status=TaskStatus.COMPLETE, percent_complete=100, actual_finish=date(2026, 1, 9)
+    )
+    closed = rerun()
+    assert closed["Design gate"].milestone_at_day_end is True
+    assert closed["Build"].early_start == date(2026, 1, 12)
+
+    Task.objects.filter(project=project, name="Design").update(
+        status=TaskStatus.COMPLETE,
+        percent_complete=100,
+        actual_start=date(2026, 1, 5),
+        actual_finish=date(2026, 1, 9),
+    )
+    done = rerun()
+    assert done["Design gate"].milestone_at_day_end is True
+    assert done["Build"].early_start == date(2026, 1, 12)
+
+
 def _exported_dates(
     project: Project,
 ) -> tuple[dict[str | None, tuple[str | None, str | None]], ET.Element]:

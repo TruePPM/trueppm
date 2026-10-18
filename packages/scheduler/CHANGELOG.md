@@ -102,6 +102,16 @@ change between releases. Pin an exact version (e.g.
   where it was always `False` for one pinned by actuals). A `planned_start` no longer
   binds once actuals are recorded. `monte_carlo` inherits the same placement,
   and the Rust/WASM engine mirrors it.
+- **No change to open work moves a closed milestone (#4525).** The #4433 edge was
+  read from every predecessor's current forecast, so a milestone signed off while
+  a predecessor was still open moved its successors a working day whenever that
+  work's forecast changed, and a longer predecessor could finish an FS-only
+  schedule earlier. The edge is now read from completed predecessors, plus a new
+  optional input, `Task.live_day_end_on`: the day your previous live run showed
+  the milestone at the end of (`early_finish` where `milestone_at_day_end` was
+  `True`). Pass it back and a milestone closed on its forecast day keeps its edge
+  even with work still open; leave it `None` and open work reads as not having
+  placed it. The Rust/WASM engine accepts and honors the same key.
 - **`monte_carlo()` no longer reports P50/P80/P95 before `schedule()` under
   per-task calendars (#4429).** A task on a calendar sparser than its successor's
   (a four-day week, Monday-only, a long shutdown exception) spans more than its

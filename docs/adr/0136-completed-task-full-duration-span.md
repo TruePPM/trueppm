@@ -157,9 +157,19 @@ Rules:
   FS-only network, and the predecessor's float — measured by a backward pass that skips
   completed successors — ignored the coupling. The edge is now read from completed
   predecessors only. Those are pinned themselves, so nothing live can move a closed
-  milestone, date or edge. Open work behind a closed milestone is out-of-sequence
-  progress and reads as not having placed it: the start of the recorded day. Closing a
-  milestone after its work finished on that day is unaffected — that work is complete.
+  milestone, date or edge. Reading completed predecessors alone would still have moved
+  successors when a milestone was signed off before its work was marked done (start of
+  day), then back when the work was completed (end of day). So the edge is also frozen
+  from the one fact recorded at closure about open work: the input
+  `Task.live_day_end_on`, the day the caller's last live run showed the milestone at
+  the end of. When it names the recorded day the milestone stays at the end of it; a
+  different day (signed off later than forecast) does not carry. The API passes its
+  persisted `early_finish` / `milestone_at_day_end` back as that input. A caller that
+  passes nothing gets the completed-predecessors reading. (Decided 2026-10-18,
+  "freeze the edge at close": it keeps both #4433's "closing on the forecast day moves
+  nothing" and the invariant that open work never moves a completed task. Rejected:
+  honoring the bare `milestone_at_day_end` flag — it cannot tell a sign-off on the
+  forecast day from a later one, which would bring #4433 back.)
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

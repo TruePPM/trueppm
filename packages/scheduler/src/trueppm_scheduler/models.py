@@ -157,6 +157,17 @@ class Task:
             :class:`~trueppm_scheduler.engine.InvalidScheduleInput` by every entry
             point — it is never silently scheduled on the pass-level calendar, where
             a typo would yield a plausible schedule on the wrong working week.
+        live_day_end_on: Input only, read on a **completed milestone** with
+            recorded actuals (#4525). The day a previous, live run showed this
+            milestone on with ``milestone_at_day_end`` True — that run's
+            ``early_finish`` — or ``None``. When it names the milestone's recorded
+            day (``actual_finish``, else ``actual_start``), the closed milestone
+            stays at the end of that day: closing a milestone keeps the edge it
+            had live, even when a predecessor is still open. Otherwise the edge is
+            read from completed predecessors only, so no live forecast can move a
+            closed milestone. A caller that persists schedule output (as the
+            TruePPM API does) passes it back; ``None`` (the default) is always
+            safe. Ignored on any other task.
     """
 
     id: str
@@ -251,6 +262,9 @@ class Task:
     # last for the positional-order reason given on ``scheduled_start`` above
     # (#2836).
     milestone_at_day_end: bool = False
+    # Input only; see ``live_day_end_on`` under Attributes (#4525). Appended last for
+    # the same positional-order reason.
+    live_day_end_on: date | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the task to a JSON-safe dict.
@@ -464,6 +478,7 @@ def _coerce_task_dates(d: dict[str, Any]) -> None:
         "actual_start",
         "actual_finish",
         "scheduled_start",
+        "live_day_end_on",
     ):
         if d.get(f) is not None:
             d[f] = _parse_date(d[f], f)
@@ -1422,6 +1437,7 @@ _TASK_DATE_FIELDS = (
     "actual_start",
     "actual_finish",
     "scheduled_start",
+    "live_day_end_on",
 )
 
 

@@ -782,6 +782,103 @@ class TestMilestoneAtDayEnd:
 
         assert {finish(d) for d in (3, 4, 5, 6)} == {(False, date(2027, 3, 5), date(2027, 3, 8))}
 
+    def test_closing_on_the_live_day_end_freezes_the_edge_with_work_still_open(
+        self,
+    ) -> None:
+        """``live_day_end_on`` keeps a closed milestone's live end-of-day edge (#4525).
+
+        ``A(Mon..Wed) -FS-> M -FS-> B(2d)``. Live, M sits at the end of Wednesday
+        and the project finishes Friday. Sign M off on Wednesday while A is still
+        open, then complete A: with the caller handing back the live run's day,
+        the finish never moves. Without it, closing M first pulled the finish to
+        Thursday and completing A pushed it back to Friday — progress recorded
+        in an ordinary order made the forecast oscillate."""
+        wed = date(2027, 3, 3)
+
+        def run(m_closed: bool, a_done: bool, freeze: date | None) -> tuple[bool, date]:
+            a = Task(id="A", name="A", duration=timedelta(days=3))
+            if a_done:
+                a = Task(
+                    id="A",
+                    name="A",
+                    duration=timedelta(days=3),
+                    actual_start=date(2027, 3, 1),
+                    actual_finish=wed,
+                    percent_complete=100.0,
+                )
+            m = Task(id="M", name="M", duration=timedelta(0), live_day_end_on=freeze)
+            if m_closed:
+                m = Task(
+                    id="M",
+                    name="M",
+                    duration=timedelta(0),
+                    actual_finish=wed,
+                    percent_complete=100.0,
+                    live_day_end_on=freeze,
+                )
+            r = schedule(
+                Project(
+                    id="p",
+                    name="p",
+                    start_date=date(2027, 3, 1),
+                    tasks=[a, m, Task(id="B", name="B", duration=timedelta(days=2))],
+                    dependencies=[Dependency("A", "M"), Dependency("M", "B")],
+                )
+            )
+            return {t.id: t for t in r.tasks}["M"].milestone_at_day_end, r.project_finish
+
+        fri, thu = date(2027, 3, 5), date(2027, 3, 4)
+        assert run(False, False, None) == (True, fri)
+        assert run(True, False, wed) == (True, fri)
+        assert run(True, True, wed) == (True, fri)
+        # With nothing handed back, open work does not decide the edge.
+        assert run(True, False, None) == (False, thu)
+        assert run(True, True, None) == (True, fri)
+        # Ignored on a live milestone: its edge is always computed.
+        assert run(False, False, date(2027, 3, 10)) == (True, fri)
+
+    def test_a_frozen_day_that_is_not_the_recorded_day_does_not_hold(self) -> None:
+        """Signed off on a later day than it was live: the frozen edge does not carry (#4525).
+
+        Live, M sat at the end of Wednesday after A. A finished Wednesday, but M
+        was signed off on Friday. Carrying "end of day" to Friday would slip B a
+        working day for a sign-off that waited on nothing — the #4433 bug — so
+        a ``live_day_end_on`` naming another day is ignored, and M sits at the
+        start of Friday, where B starts."""
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2027, 3, 1),
+            tasks=[
+                Task(
+                    id="A",
+                    name="A",
+                    duration=timedelta(days=3),
+                    actual_start=date(2027, 3, 1),
+                    actual_finish=date(2027, 3, 3),
+                    percent_complete=100.0,
+                ),
+                Task(
+                    id="M",
+                    name="M",
+                    duration=timedelta(0),
+                    actual_finish=date(2027, 3, 5),
+                    percent_complete=100.0,
+                    live_day_end_on=date(2027, 3, 3),
+                ),
+                Task(id="B", name="B", duration=timedelta(days=1)),
+            ],
+            dependencies=[Dependency("A", "M"), Dependency("M", "B")],
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["M"].milestone_at_day_end is False
+        assert by_id["B"].early_start == date(2027, 3, 5)
+
+    def test_live_day_end_on_round_trips_through_to_dict(self) -> None:
+        t = Task(id="M", name="M", duration=timedelta(0), live_day_end_on=date(2027, 3, 3))
+        assert t.to_dict()["live_day_end_on"] == "2027-03-03"
+        assert Task.from_dict(t.to_dict()).live_day_end_on == date(2027, 3, 3)
+
     def test_a_stale_input_value_is_overwritten(self) -> None:
         stale = Task(id="M", name="M", duration=timedelta(0), milestone_at_day_end=True)
         by_id = _by_id(_project([stale, _task("A", 1)], [_dep("M", "A")]))

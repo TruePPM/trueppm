@@ -412,9 +412,12 @@ pub fn forward_pass(
             // A completed milestone stays an instant (#4343, #4433), on the edge of
             // its day it would have been read at live.
             let recorded = tasks[i].actual_finish.or(tasks[i].actual_start);
+            // Frozen from the caller's last live run when it names the recorded
+            // day, else read from completed predecessors (#4525).
             let live_start = match recorded {
                 Some(day) if tasks[i].duration_days() == 0 => {
-                    live_milestone_edge(idx, tasks, pg, deps, cals, &links, day)?
+                    tasks[i].live_day_end_on != Some(day)
+                        && live_milestone_edge(idx, tasks, pg, deps, cals, &links, day)?
                 }
                 _ => true,
             };
@@ -635,8 +638,9 @@ fn pinned_placement(
 /// of network logic (ADR-0136), so its edge must not follow a live predecessor's
 /// forecast — that let an open task's slip flip the edge and move the closed
 /// milestone's successors a working day either way. Completed predecessors are
-/// pinned themselves, so nothing live can move a closed milestone. Mirrors the
-/// Python `_live_milestone_edge`.
+/// pinned themselves, so nothing live can move a closed milestone. The caller
+/// checks `Task::live_day_end_on` first, which freezes a live end-of-day edge
+/// when it names the recorded day. Mirrors the Python `_live_milestone_edge`.
 fn live_milestone_edge(
     idx: NodeIndex,
     tasks: &[Task],

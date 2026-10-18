@@ -923,11 +923,10 @@ def test_recorded_start_driving_edge_can_carry_more_float_upstream() -> None:
 
 @st.composite
 def _projects_with_a_closed_milestone(draw: st.DrawFn) -> tuple[Project, str]:
-    """A plausible project plus a closed milestone fed by open work, and that work's id.
+    """A plausible project plus a closed milestone fed by open work, and an open task's id.
 
     The uniform generator reaches "a completed milestone whose predecessor is still
-    open" too rarely to gate on (the 2026-10-18 audit found the #4525 defect in 262
-    of 47,067 fuzzed networks), so the shape is planted: a live task ``live`` with
+    open" too rarely to gate on, so the shape is planted: a live task ``live`` with
     no progress drives ``closed`` — a zero-duration task with recorded actuals —
     over an FS or SS link, and ``closed`` drives a task of the base project. The
     sign-off day is drawn around ``live``'s forecast finish, so the link's proposal
@@ -943,6 +942,8 @@ def _projects_with_a_closed_milestone(draw: st.DrawFn) -> tuple[Project, str]:
         actual_start=signed,
         actual_finish=signed,
         percent_complete=100.0,
+        # Frozen on the signed day, on another day, or not handed back at all.
+        live_day_end_on=draw(st.sampled_from([None, signed, signed - timedelta(days=1)])),
     )
     into = Dependency(
         predecessor_id="live",
@@ -956,7 +957,11 @@ def _projects_with_a_closed_milestone(draw: st.DrawFn) -> tuple[Project, str]:
         tasks=[live, closed, *base.tasks],
         dependencies=[into, out, *base.dependencies],
     )
-    return project, "live"
+    # Lengthen the planted predecessor, or any other open task in the network.
+    open_ids = [
+        t.id for t in project.tasks if t.actual_finish is None and (t.percent_complete or 0) < 100
+    ]
+    return project, draw(st.sampled_from(open_ids))
 
 
 def _completed_positions(result: ScheduleResult) -> dict[str, tuple[object, ...]]:
@@ -980,13 +985,13 @@ def test_lengthening_a_live_task_never_moves_a_completed_task(
     predecessor could finish the project a working day *earlier*. Lengthening any
     open task must leave every completed task exactly where it was, edge included.
     """
-    project, live_id = case
+    project, open_id = case
     before = schedule(project)
     longer = dataclasses.replace(
         project,
         tasks=[
             dataclasses.replace(t, duration=t.duration + timedelta(days=extra))
-            if t.id == live_id
+            if t.id == open_id
             else t
             for t in project.tasks
         ],

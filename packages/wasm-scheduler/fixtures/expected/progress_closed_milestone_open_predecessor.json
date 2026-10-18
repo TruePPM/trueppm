@@ -68,6 +68,73 @@
       "free_float": 0.0,
       "is_critical": true,
       "scheduled_start": "2027-03-05"
+    },
+    {
+      "id": "P",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-03",
+      "late_start": "2027-03-04",
+      "late_finish": "2027-03-08",
+      "total_float": 259200.0,
+      "free_float": 259200.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "Q",
+      "early_start": "2027-03-03",
+      "early_finish": "2027-03-03",
+      "late_start": "2027-03-03",
+      "late_finish": "2027-03-03",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-03",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "R",
+      "early_start": "2027-03-04",
+      "early_finish": "2027-03-04",
+      "late_start": "2027-03-08",
+      "late_finish": "2027-03-08",
+      "total_float": 172800.0,
+      "free_float": 172800.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-04"
+    },
+    {
+      "id": "T",
+      "early_start": "2027-03-01",
+      "early_finish": "2027-03-03",
+      "late_start": "2027-03-01",
+      "late_finish": "2027-03-03",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-01"
+    },
+    {
+      "id": "S",
+      "early_start": "2027-03-05",
+      "early_finish": "2027-03-05",
+      "late_start": "2027-03-05",
+      "late_finish": "2027-03-05",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-05"
+    },
+    {
+      "id": "U",
+      "early_start": "2027-03-05",
+      "early_finish": "2027-03-05",
+      "late_start": "2027-03-08",
+      "late_finish": "2027-03-08",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-05"
     }
   ],
   "critical_path": [
@@ -84,6 +151,16 @@
     {
       "predecessor_id": "N",
       "successor_id": "D",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "Q",
+      "successor_id": "R",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "S",
+      "successor_id": "U",
       "dep_type": "FS"
     }
   ]

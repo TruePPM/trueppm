@@ -246,6 +246,8 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "scheduled_start",
         # Appended (#4079) after scheduled_start for the same reason.
         "milestone_at_day_end",
+        # Appended (#4525) for the same reason.
+        "live_day_end_on",
     ],
     "TaskSensitivity": ["task_id", "index"],
 }
