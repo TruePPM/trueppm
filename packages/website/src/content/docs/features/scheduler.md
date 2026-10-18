@@ -245,6 +245,17 @@ project_rt = Project.from_json(json_str)
 result_rt = schedule(project_rt)
 ```
 
+A project built in Python and one loaded from JSON are held to the same field
+rules, so any project `schedule()` accepts also survives `to_json()` →
+`from_json()` unchanged. That includes fields the engine never reads, such as the
+reserved `Calendar.hours_per_day`/`timezone` and the computed task dates and
+floats. A field `from_json()` would refuse to load back — a string date, a
+`datetime`, an `int` lag, a string `dep_type`, a `working_days` outside
+`[0, 127]` — makes `schedule()`, `monte_carlo()`, `to_dict()` and `to_json()`
+raise `InvalidScheduleInput`, never a bare `AttributeError` or `TypeError`.
+Construction stays lenient: the check runs when the project is scheduled or
+serialized, not when it is built.
+
 ### CLI
 
 ```bash
@@ -388,7 +399,7 @@ walk to the `date` ceiling and raise an opaque `OverflowError`):
 
 | Input | Limit |
 |-------|-------|
-| `Calendar.working_days` | Must set at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
+| `Calendar.working_days` | An integer bitmask in `[0, 127]` that sets at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
 | Task `duration` (and each PERT estimate) | `0` to `MAX_DURATION_DAYS` (`36_525`, ~100 years); negatives rejected. |
 | `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
 | Dependency count | At most `MAX_DEPENDENCIES` (`100_000`) edges. |

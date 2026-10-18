@@ -130,7 +130,10 @@ from trueppm_scheduler.models import (
     DependencyType,
     Project,
     Task,
+    _is_finite_real,
     _mask_days_between,
+    _validate_calendar_fields,
+    _validate_project_fields,
 )
 
 # ---------------------------------------------------------------------------
@@ -3563,6 +3566,10 @@ def _validate_project_calendar(project: Project) -> None:
     # snap, so before this probe a blanket-exceptions calendar drove the MC path
     # into an uncaught OverflowError. Mirrors the Rust engine's validate_project
     # (#749) so both engines reject identically at the validation layer.
+    # The calendar's remaining fields are checked first: the probe reads
+    # ``exceptions``, and a non-DateRange entry would leak a bare AttributeError
+    # from it (#4517).
+    _validate_calendar_fields(project.calendar, "Calendar")
     _next_working_day(project.start_date, project.calendar)
 
 
@@ -3590,6 +3597,7 @@ def _validate_task_calendars(project: Project) -> None:
                     f"Calendar {cal_id!r} has {len(cal.exceptions)} exception ranges, exceeding "
                     f"the maximum of {MAX_CALENDAR_EXCEPTIONS:,}."
                 )
+            _validate_calendar_fields(cal, f"Calendar {cal_id!r}")
             _next_working_day(project.start_date, cal)
 
 
@@ -3612,7 +3620,7 @@ def _validate_agile_inputs(project: Project) -> None:
             # isinstance gate before math.isfinite (#1209): a string sample would
             # otherwise raise a bare TypeError from isfinite. bool is an int subclass
             # but never a meaningful velocity, so reject it explicitly.
-            if isinstance(s, bool) or not isinstance(s, (int, float)) or not math.isfinite(s):
+            if not _is_finite_number(s):
                 raise InvalidScheduleInput(
                     f"velocity_samples must contain only finite numbers (got {s!r})."
                 )
@@ -3783,8 +3791,12 @@ def _validate_task_durations(t: Task) -> None:
 
 
 def _is_finite_number(value: object) -> bool:
-    """``True`` for a real finite int/float. ``bool`` is excluded deliberately."""
-    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+    """``True`` for a real finite int/float. ``bool`` is excluded deliberately.
+
+    An ``int`` beyond float range is not finite here; ``math.isfinite`` would raise a
+    bare ``OverflowError`` on it (#4517).
+    """
+    return _is_finite_real(value)
 
 
 def _validate_task_numerics(t: Task) -> None:
@@ -4024,6 +4036,12 @@ def _validate_project(project: Project) -> None:
     _validate_tasks(project)
     _validate_dependencies(project)
     _validate_span_bounds(project)
+    # Last, so every guard above keeps the message it has always produced: the
+    # fields the CPM pass never reads (reserved calendar fields, computed task
+    # dates/floats, flags) must still be ones ``to_dict`` can serialize and
+    # ``from_dict`` load back, or schedule() accepts a project its own JSON form
+    # cannot express (#4517). Shared with ``Project.to_dict``.
+    _validate_project_fields(project)
 
 
 # ---------------------------------------------------------------------------

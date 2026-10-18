@@ -319,28 +319,39 @@ each is individually catchable:
 document of *any* shape raises `InvalidScheduleInput` and never a bare
 AttributeError/TypeError. Constructing `Project`/`Task`/`Dependency` directly in
 Python (the **direct-object API**, as in every example above) is held to the same
-contract for every field `_validate_project()` type-guards: `Project.calendar`,
-`.tasks`, `.dependencies`, `.calendars`, `.status_date`, `.velocity_samples`;
-`Task.duration` and the three PERT fields (`optimistic_duration`,
-`most_likely_duration`, `pessimistic_duration`); and `Dependency.predecessor_id`,
-`.successor_id`, `.dep_type`, `.lag`. A wrong-typed value on any of those (`None`,
-a string, a bare int where a list/dict is expected, an unhashable value, …) raises
-`InvalidScheduleInput`, not a bare Python exception.
+field rules `from_dict()` applies, on every field of `Project`, `Task`,
+`Dependency` and `Calendar` — including the fields the engine never reads: the
+reserved `Calendar.hours_per_day` (a finite number) and `timezone` (a string), the
+computed task dates (`early_start` … `scheduled_start`, plain `date` or `None`)
+and floats (`total_float`/`free_float`, `timedelta`), the `is_critical` and
+`milestone_at_day_end` flags (`bool`), and `delivery_mode` (a `DeliveryMode` or
+`None`, not the string `"scrum"`). `Calendar.working_days` must be an integer in
+`[0, 127]`, and a `calendars` registry must be keyed by string ids. A wrong-typed
+or out-of-range value (`None`, a string, a `datetime`, a bare int where a list or
+`timedelta` is expected, an unhashable value, …) makes `schedule()` and
+`monte_carlo()` raise `InvalidScheduleInput`, not a bare Python exception.
+(`derive_value()` applies the same check when it schedules the project itself,
+i.e. when called without `result=`.)
 
-**One direct-object field is not yet covered: `Task.id`.** Setting it to `None` or
-a list surfaces a bare `TypeError` from the underlying graph library rather than
-`InvalidScheduleInput` — tracked separately as
-[#2463](https://gitlab.com/trueppm/trueppm/-/issues/2463). Every other field on
-the three input dataclasses is covered; `tests/test_exception_contract.py` pins
-this per-field guarantee as a permanent regression test, generated from a single-
-field-mutation sweep over every init field × 12 adversarial values × both
-`schedule()`/`monte_carlo()` entry points, so a future field addition that reopens
-a gap fails a test rather than becoming a silent leak.
+So any project `schedule()` accepts round-trips: `Project.from_json(p.to_json())`
+loads it back unchanged and schedules it identically. `to_dict()` and `to_json()`
+on `Project` (and `to_dict()` on `Task`, `Dependency` and `Calendar`) apply the
+same rules and raise `InvalidScheduleInput` for a field they cannot serialize.
+Construction itself stays lenient — the check runs when a project is scheduled or
+serialized, so an object can be built partially and filled in first.
+`tests/test_exception_contract.py` pins the per-field guarantee with a
+single-field-mutation sweep over the init fields × 12 adversarial values × both
+`schedule()`/`monte_carlo()` entry points (`Task.id` is excluded from that sweep;
+a non-string task id is covered by the explicit examples in
+`tests/test_contract_fuzz.py`), and `tests/test_roundtrip_contract.py`
+property-tests the round trip, so a future field addition that reopens a gap fails
+a test rather than becoming a silent leak.
 
 The engine walks the working calendar one day at a time, so it also validates
 input up front rather than spinning on a degenerate project:
 
-- **Calendar** — `working_days` must set at least one weekday bit (Mon–Sun); a
+- **Calendar** — `working_days` must be an integer bitmask in `[0, 127]` that sets
+  at least one weekday bit (Mon–Sun); a
   calendar whose `exceptions` blanket the entire search window is rejected too.
 - **Duration** — each task duration must be between `0` and `MAX_DURATION_DAYS`
   (`36_525`, ~100 years). Negative durations are rejected.

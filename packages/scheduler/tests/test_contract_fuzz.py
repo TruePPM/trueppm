@@ -273,11 +273,14 @@ _json_values = st.recursive(
 # ---------------------------------------------------------------------------
 
 
-def _minimal_project(*, pid: object = "p", pname: object = "P", tname: object = "T") -> Project:
+def _minimal_project(
+    *, pid: object = "p", pname: object = "P", tname: object = "T", working_days: int = 0b0011111
+) -> Project:
     """A project that schedules cleanly except for the one field under test.
 
     The adversarial ``_projects()`` space is rejected by some other validator almost
-    every draw, so on its own it never reaches the #4130 id/name check; these pin it.
+    every draw, so on its own it never reaches the #4130 id/name check (or the #4435
+    ``working_days`` range check); these pin it.
     """
     return Project(
         id=pid,  # type: ignore[arg-type]
@@ -285,11 +288,13 @@ def _minimal_project(*, pid: object = "p", pname: object = "P", tname: object = 
         start_date=date(2026, 3, 2),
         tasks=[Task(id="t0", name=tname, duration=timedelta(days=2))],  # type: ignore[arg-type]
         dependencies=[],
-        calendar=Calendar(),
+        calendar=Calendar(working_days=working_days),
     )
 
 
 @example(project=_minimal_project(pid=5), seed=1)
+@example(project=_minimal_project(working_days=200), seed=1)
+@example(project=_minimal_project(working_days=-1), seed=1)
 @example(project=_minimal_project(pname=None), seed=1)
 @example(project=_minimal_project(tname=5), seed=1)
 @given(project=_projects(bad_ids=True), seed=_seeds)
@@ -303,15 +308,23 @@ def test_direct_object_api_conforms(project: Project, seed: object) -> None:
     A non-string project/task id or name must never *return*: the Rust engine
     rejects it at parse, so a Python result would be the two engines disagreeing on
     the same input (#4130). Raising is not enough to assert — silently scheduling it
-    is the failure this guards."""
+    is the failure this guards.
+
+    The same holds for a ``working_days`` mask outside ``[0, 127]``: ``from_dict``
+    refuses it, so a direct-object result would be a project its own JSON form cannot
+    express (#4435, #4517). ``_calendars()`` draws -5..300 so both sides are hit."""
     non_str = (
         not isinstance(project.id, str)
         or not isinstance(project.name, str)
         or any(not isinstance(t.id, str) or not isinstance(t.name, str) for t in project.tasks)
     )
+    bad_mask = not 0 <= project.calendar.working_days <= 127
 
     def _on_return(r: object) -> None:
         assert not non_str, "schedule() returned for a non-string project/task id or name"
+        assert not bad_mask, (
+            f"schedule() returned for working_days={project.calendar.working_days} outside [0, 127]"
+        )
         _assert_schedule_invariants(project, r)
 
     _assert_conforms("schedule", lambda: schedule(project), on_return=_on_return)
