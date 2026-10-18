@@ -206,8 +206,8 @@ impl Task {
 
     /// The start an SS or SF link out of this task measures from (ADR-0132 §2a).
     ///
-    /// Mirrors the Python `_link_start`: the task's span start, never its
-    /// remaining-work window — the recorded `actual_start` of a started task, the
+    /// Mirrors the Python `_link_start`: the task's link start (when it started,
+    /// or is forecast to have started), never its remaining-work window — the recorded `actual_start` of a started task, the
     /// derived `scheduled_start` of live work with progress and no recorded start,
     /// otherwise `early_start`. Must be called after the forward pass set this
     /// task's `early_start` and `scheduled_start`.

@@ -468,6 +468,24 @@ def test_free_slack_from_a_derived_span_start_is_measured_from_it() -> None:
     )
 
 
+def test_sf_free_slack_from_a_derived_span_start_is_measured_from_it() -> None:
+    # #4523, the SF half of the above: A's span starts 12-29, and B (held at 01-28 by
+    # its SNET) admits an SF anchor up to 01-15, 13 working days later. Measured from
+    # A's early start (01-12) it would be 3, below total float, and would bind.
+    project = _project(
+        [_task("A", 20, percent_complete=50.0), _task("B", 3, planned_start=date(2026, 1, 28))],
+        [_dep("A", "B", DependencyType.SF, 16)],
+        status_date=date(2026, 1, 12),
+    )
+    assert _rows(project, "A", Quantity.FREE_FLOAT) == (
+        5,
+        [
+            ("successor_free_slack", "B", "2026-01-15", 13, False),
+            ("total_float", None, None, 5, True),
+        ],
+    )
+
+
 def test_scheduled_start_of_barely_started_and_actual_started_work() -> None:
     # 0.5% complete is in progress: the span start is the full-duration back-off,
     # not early_start, and the early_finish it was computed from is cited unbound.

@@ -245,7 +245,7 @@ pub fn compute_floats(
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
         let ef = tasks[i].early_finish.unwrap();
-        // SS/SF are inverted against the start they measure from, the span start
+        // SS/SF are inverted against the start they measure from, the link start
         // (`Task::link_start`, #4523): a recorded `actual_start`, a derived
         // `scheduled_start`, or the early start.
         let link_start = tasks[i].link_start();

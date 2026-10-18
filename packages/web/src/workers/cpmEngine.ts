@@ -275,8 +275,9 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
 }
 
 /**
- * The start an SS or SF link out of `source` measures from: its span start,
- * never its remaining-work window. Mirrors the server engines' `_link_start` /
+ * The start an SS or SF link out of `source` measures from: its link start
+ * (when it started, or is forecast to have started), never its remaining-work
+ * window — which is not always where its bar is drawn. Mirrors the server engines' `_link_start` /
  * `Task::link_start` (ADR-0132 §2a, #4523):
  *
  *  - a started task's recorded `actual_start`;
