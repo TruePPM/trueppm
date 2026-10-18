@@ -58,14 +58,17 @@ change between releases. Pin an exact version (e.g.
   task's `early_start` — for in-progress work the start of its *remaining* work,
   floored at the data date — so `A -SS+10d-> B` with `A` started 03-02 put `B`
   on 03-16 at a 03-04 data date and on 03-18 two days later, with nothing else
-  changed. SS and SF successors now measure from the task's span start, in
+  changed. SS and SF successors now measure from when the task started, in
   `schedule()`, `monte_carlo()` and `derive_value()` alike: its `actual_start`
   when one is recorded, else its derived `scheduled_start` (ADR-0752). A link
   from a recorded start sets no late date and no free-float limit on the task
   (its start cannot slip); a link from a derived start keeps its bound, moved
-  onto the remaining-work window. FS/FF links, tasks with no elapsed work,
-  completed tasks and milestones are unchanged. Floats change for in-progress
-  tasks with SS/SF successors (ADR-0132 §2a).
+  onto the remaining-work window. The recorded start applies at any
+  `percent_complete`, including 0%: a task just moved to in progress, whose
+  bar still starts at its `early_start`, now has its SS/SF links measured from
+  its `actual_start`. FS/FF links, tasks with neither an `actual_start` nor
+  elapsed work, completed tasks and milestones are unchanged. Floats change for
+  in-progress tasks with SS/SF successors (ADR-0132 §2a).
 
 - **Closing a milestone no longer slips its successors a working day (#4433).**
   A completed zero-duration task with recorded actuals (`actual_finish`, or

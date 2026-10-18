@@ -1120,15 +1120,17 @@ def _elapsed_link_days(task: Task) -> int:
 def _link_start(task: Task) -> date:
     """The start an SS or SF link out of ``task`` measures from (ADR-0132 §2a, #4523).
 
-    The task's span start, never its remaining-work window: the recorded
-    ``actual_start`` of a started task (:func:`_start_is_recorded`); for live work
-    with progress but no recorded start, its derived span start
-    ``scheduled_start`` (:func:`_elapsed_link_days`); otherwise ``early_start``,
-    which is the span start. Measuring from the remaining-work window instead
+    When the task started, or is forecast to have started — never where its
+    remaining work resumes: the recorded ``actual_start`` of a started task
+    (:func:`_start_is_recorded`), at any ``percent_complete`` — at 0% its bar
+    (``scheduled_start``) still starts at ``early_start``, so this is not always the
+    bar start; for live work with progress but no recorded start, its derived span
+    start ``scheduled_start`` (:func:`_elapsed_link_days`); otherwise
+    ``early_start``. Measuring from the remaining-work window instead
     re-added the link's lag from the data date on every status update: ``A``
     started 03-02 ``-SS+10d-> B`` put ``B`` on 03-16 at a 03-04 data date and two
     days later at a 03-06 one, with nothing else changed. ``early_start`` is never
-    before either span start for a live task, so they agree whenever nothing but
+    before either start for a live task, so they agree whenever nothing but
     the start holds the task.
 
     ``scheduled_start`` is read off the task, so this is only called after the
@@ -2320,8 +2322,10 @@ def _compute_scheduled_start(task: Task, cal: Calendar) -> date:
     """The task's span start (ADR-0752), as distinct from ``early_start``.
 
     ``early_start``/``early_finish`` mean the *remaining-work window* for an
-    in-progress task (ADR-0132) — correct for network scheduling, but not the
-    task's span. ``scheduled_start`` is the span start, per this table:
+    in-progress task (ADR-0132) — what the task's own remaining duration and its
+    finish-side (FS/FF) links are laid from, but not the task's span, and not what
+    its start-side (SS/SF) links measure from (:func:`_link_start`, ADR-0132 §2a).
+    ``scheduled_start`` is the span start, per this table:
 
     - Not started (``percent_complete <= 0``): ``early_start`` — the windows
       coincide, nothing has been consumed yet.
@@ -3183,9 +3187,10 @@ def _link_slack(
         latest = _prev_working_day(_safe_offset(succ_start, -timedelta(days=1) - lag), node_cal)
         return _wd_span(task.early_finish, latest, node_cal, wd_counter, calendar)
     if dep.dep_type == DependencyType.SS:
-        # Measured from the start the link anchors on: a started task's recorded
-        # start (#4523, :func:`_link_start`), where only the zero test for a
-        # driving edge reads it (:func:`_free_float_days`).
+        # Measured from the start the link anchors on (#4523, :func:`_link_start`).
+        # For a recorded start only the zero test for a driving edge reads the
+        # result (:func:`_free_float_days`); for a derived start it also limits
+        # free float, because that start slips with the remaining work.
         latest = _retreat_calendar_days(succ_start, lag, node_cal)
         return _wd_span(_link_start(task), latest, node_cal, wd_counter, calendar)
     if dep.dep_type == DependencyType.FF:
@@ -5306,7 +5311,7 @@ def _mc_pre_start_pad_days(
     if not sf_linked:
         return 0, sf_linked
     lo: dict[str, date] = {}
-    # What an SS/SF link out of each task measures from is its span start, which
+    # What an SS/SF link out of each task measures from is its link start, which
     # can lie before ``lo`` (#4523, :func:`_link_start`): a recorded actual start,
     # or a derived span start that many elapsed working days earlier. Links read
     # this; a task's own placement reads ``lo``.

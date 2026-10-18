@@ -8,11 +8,12 @@ re-applied the link's lag from the data date on every status update: with
 compounded without bound as the data date advanced.
 
 The rule (ADR-0132 §2a): a live task with a recorded ``actual_start`` is measured
-from that ``actual_start`` by its SS and SF successors — the start happened and does
-not move. Nothing else changes: FS/FF still measure from the finish, a not-started
-task's start is its ``early_start``, and a completed task is pinned at its actuals
-already. Because the start is history, its remaining work cannot slip a successor
-through an SS/SF link, so such a link imposes no late-date bound on it either.
+from that ``actual_start`` by its SS and SF successors, at any ``percent_complete``
+— the start happened and does not move. Nothing else changes: FS/FF still measure
+from the finish, a not-started task's start is its ``early_start``, and a completed
+task is pinned at its actuals already. Because the start is history, its remaining
+work cannot slip a successor through an SS/SF link, so such a link imposes no
+late-date bound on it either.
 
 The oracle is a property, not the other engine: moving only the data date (while it
 stays before the link's own bound) must not move the successor.
@@ -28,6 +29,7 @@ the data date plus the lag.
 from __future__ import annotations
 
 import itertools
+import random
 from datetime import date, timedelta
 
 import pytest
@@ -38,7 +40,10 @@ from trueppm_scheduler import (
     Dependency,
     DependencyType,
     Project,
+    Quantity,
+    SchedulerError,
     Task,
+    derive_value,
     engine,
     monte_carlo,
     schedule,
@@ -439,3 +444,147 @@ def test_no_actual_start_with_no_elapsed_work_is_unchanged() -> None:
     a, b = _ab(_project(pred, DependencyType.SS, 3, date(2026, 3, 4)))
     assert a.scheduled_start == a.early_start == date(2026, 3, 4)
     assert b.early_start == date(2026, 3, 9)
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo's pre-start index pad reaches the span start
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("actual", [None, date(2025, 12, 1)])
+@pytest.mark.parametrize("pct", [60.0, 95.0])
+@pytest.mark.parametrize("sf_lag", [-5, 0, 3])
+@pytest.mark.parametrize("ss_lag", [20, 40, 60])
+def test_monte_carlo_pad_reaches_a_span_start_before_the_project_start(
+    actual: date | None, pct: float, sf_lag: int, ss_lag: int
+) -> None:
+    """Zero-variance P50 equals the CPM finish when the span start precedes the plan.
+
+    ``A`` (60d) has progress reaching back before the project start — a derived span
+    start (no actual) or a recorded pre-start ``actual_start`` — and no data date.
+    ``A -SF-> B`` places the SF-linked ``B`` before the project start, measured from
+    that span start, and ``B -SS-> C`` carries it forward to the finish. Monte
+    Carlo's index has to open early enough to hold ``B``
+    (``_mc_pre_start_pad_days``, sized from :func:`engine._link_start`); sized from
+    ``A``'s own floor instead, ``B`` clamps to the index start and ``C`` — the
+    finish — lands weeks late.
+    """
+    a = Task(
+        id="A", name="A", duration=timedelta(days=60), percent_complete=pct, actual_start=actual
+    )
+    b = Task(id="B", name="B", duration=timedelta(days=3))
+    c = Task(id="C", name="C", duration=timedelta(days=2))
+    project = Project(
+        id="p",
+        name="p",
+        start_date=START,
+        tasks=[a, b, c],
+        dependencies=[
+            Dependency("A", "B", DependencyType.SF, timedelta(days=sf_lag)),
+            Dependency("B", "C", DependencyType.SS, timedelta(days=ss_lag)),
+        ],
+        calendar=Calendar(working_days=WEEKDAYS),
+    )
+    res = schedule(project)
+    by = {t.id: t for t in res.tasks}
+    assert by["B"].early_start is not None and by["B"].early_start < START  # the point
+    mc = monte_carlo(project, runs=10, seed=1)
+    assert mc.p50 == mc.p95 == res.project_finish
+
+
+def test_monte_carlo_pad_auditor_shape() -> None:
+    """``A`` (60d, 95%, no actual) ``-SF-5d-> B -SS+40d-> C``, no data date: finish 03-04."""
+    a = Task(id="A", name="A", duration=timedelta(days=60), percent_complete=95.0)
+    b = Task(id="B", name="B", duration=timedelta(days=3))
+    c = Task(id="C", name="C", duration=timedelta(days=2))
+    project = Project(
+        id="p",
+        name="p",
+        start_date=START,
+        tasks=[a, b, c],
+        dependencies=[
+            Dependency("A", "B", DependencyType.SF, timedelta(days=-5)),
+            Dependency("B", "C", DependencyType.SS, timedelta(days=40)),
+        ],
+        calendar=Calendar(working_days=WEEKDAYS),
+    )
+    assert schedule(project).project_finish == date(2026, 3, 4)
+    assert monte_carlo(project, runs=10, seed=1).p50 == date(2026, 3, 4)
+
+
+# ---------------------------------------------------------------------------
+# No SS/SF route to the late-window floor
+# ---------------------------------------------------------------------------
+
+_FLOOR_SEARCH_NETWORKS = 2000
+
+
+def _floor_search_network(seed: int) -> Project:
+    """A small random progress network: SS/SF/FS/FF links with leads and lags,
+    started tasks with and without a recorded ``actual_start`` (some on a weekend),
+    per-task calendars, SNETs and an optional data date."""
+    r = random.Random(seed)
+    n = r.randint(2, 5)
+    tasks = []
+    for i in range(n):
+        days = r.choice([0, 1, 1, 2, 3, 5])
+        task = Task(id=f"T{i}", name=f"T{i}", duration=timedelta(days=days))
+        if days and r.random() < 0.5:
+            if r.random() < 0.5:
+                task.actual_start = START + timedelta(days=r.randint(-2, 9))
+            task.percent_complete = r.choice([0.0, 10.0, 50.0, 90.0])
+        if r.random() < 0.3:
+            task.calendar_id = r.choice(["six", "seven"])
+        if r.random() < 0.2:
+            task.planned_start = START + timedelta(days=r.randint(0, 10))
+        tasks.append(task)
+    deps = [
+        Dependency(
+            f"T{i}", f"T{j}", r.choice(list(DependencyType)), timedelta(days=r.randint(-3, 5))
+        )
+        for j in range(1, n)
+        for i in range(j)
+        if r.random() < 0.5
+    ]
+    return Project(
+        id="p",
+        name="p",
+        start_date=START,
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(working_days=WEEKDAYS),
+        calendars={
+            "six": Calendar(working_days=SIX_DAY),
+            "seven": Calendar(working_days=0b1111111),
+        },
+        status_date=START + timedelta(days=r.randint(0, 12)) if r.random() < 0.7 else None,
+    )
+
+
+def test_no_ss_sf_route_reaches_the_late_window_floor_for_work() -> None:
+    """The #3963 floor is not reached by any task with work in a seeded search.
+
+    Before #4523 an SS/SF link out of an in-progress task inverted against its
+    data-date-floored early start and pulled its late start below it, which the
+    floor then raised back: this same search hits it on 6 of the 2,000 networks
+    against the pre-#4523 engine (origin/main at 360cc305b), and on none now. A
+    recorded start now bounds nothing, and a derived one is inverted onto the
+    remaining window (``_window_start_bound``), so no route is left. If this fails,
+    a late date of some task with work is being produced by the floor again — find
+    which inversion stopped matching its forward constraint.
+    """
+    hits = []
+    for seed in range(_FLOOR_SEARCH_NETWORKS):
+        project = _floor_search_network(seed)
+        try:
+            result = schedule(project)
+        except SchedulerError:
+            continue
+        for t in result.tasks:
+            if t.duration.days == 0:
+                continue
+            for q in (Quantity.LATE_START, Quantity.LATE_FINISH):
+                d = derive_value(project, t.id, q, result=result)
+                if any(c.kind == "late_window_floor" and c.is_binding for c in d.contributions):
+                    hits.append((seed, t.id, q.value))
+    assert hits == []

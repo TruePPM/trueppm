@@ -358,8 +358,9 @@ def test_an_ss_link_out_of_a_started_task_is_not_a_late_date_term() -> None:
 
 def test_the_late_window_floor_cites_each_side_at_its_own_early_date() -> None:
     # Called directly: #4523 removed the one route a scheduled network had to this
-    # floor for work (an SS pullback out of a started task; 27 of 1,500 random
-    # networks before, 0 of 4,000 after). A's early window is Saturday..Monday and an
+    # floor for work (an SS pullback out of an in-progress task; the seeded search in
+    # test_started_link_anchor.py hit it on 6 of 2,000 networks before and none
+    # after). A's early window is Saturday..Monday and an
     # SS term pulls its pre-floor late start to Friday, so both sides are floored and
     # each must cite its own early date — Saturday for the start, Monday for the finish.
     a = _task("A", 1, actual_start=date(2026, 1, 10), percent_complete=50.0)
@@ -374,6 +375,97 @@ def test_the_late_window_floor_cites_each_side_at_its_own_early_date() -> None:
     assert start.imposed_date == date(2026, 1, 10)
     assert finish is not None and finish.kind == "late_window_floor"
     assert finish.imposed_date == date(2026, 1, 12)
+
+
+def test_ss_from_a_status_dated_recorded_start_cites_the_actual() -> None:
+    # #4523: A started 01-05 and the data date is 01-07, so A's early start (01-07)
+    # and its recorded start differ — the case that tells the two anchors apart. B's
+    # SS term must cite 01-05 + 10 = 01-15 as binding; from the early start it would
+    # be 01-17 → 01-19 and not bind. The link sets no late date on A (its start is
+    # history), so A's late dates cite only the project finish.
+    project = _project(
+        [_task("A", 20, actual_start=date(2026, 1, 5), percent_complete=20.0), _task("B", 30)],
+        [_dep("A", "B", DependencyType.SS, 10)],
+        status_date=date(2026, 1, 7),
+    )
+    assert _rows(project, "B", Quantity.EARLY_START) == (
+        "2026-01-15",
+        [
+            ("project_start", None, "2026-01-05", None, False),
+            ("data_date", None, "2026-01-07", None, False),
+            ("predecessor_ss", "A", "2026-01-15", None, True),
+        ],
+    )
+    assert _rows(project, "A", Quantity.LATE_FINISH) == (
+        "2026-02-25",
+        [("project_finish", None, "2026-02-25", None, True)],
+    )
+    # A milestone successor reads the same anchor through the milestone proposal.
+    to_milestone = _project(
+        [_task("A", 20, actual_start=date(2026, 1, 5), percent_complete=20.0), _task("M", 0)],
+        [_dep("A", "M", DependencyType.SS, 10)],
+        status_date=date(2026, 1, 7),
+    )
+    assert _rows(to_milestone, "M", Quantity.EARLY_START) == (
+        "2026-01-15",
+        [
+            ("project_start", None, "2026-01-05", None, False),
+            ("data_date", None, "2026-01-07", None, False),
+            ("predecessor_ss", "A", "2026-01-15", None, True),
+        ],
+    )
+
+
+def test_ss_from_a_derived_span_start_cites_it_and_keeps_its_late_bound() -> None:
+    # #4523: A is 20d at 50% with no actual_start at a 01-12 data date, so its span
+    # starts 10 working days earlier, on 12-29. B's SS term cites 12-29 + 16 = 01-14.
+    # Backward, the same link bounds A: the latest span start B admits (12-29) is
+    # moved onto A's remaining window (01-12) and binds A's late start. Left on the
+    # span start, the replay would pull A's late start below its early one and cite
+    # the late-window floor instead.
+    project = _project(
+        [_task("A", 20, percent_complete=50.0), _task("B", 30)],
+        [_dep("A", "B", DependencyType.SS, 16)],
+        status_date=date(2026, 1, 12),
+    )
+    assert _rows(project, "B", Quantity.EARLY_START) == (
+        "2026-01-14",
+        [
+            ("project_start", None, "2026-01-05", None, False),
+            ("data_date", None, "2026-01-12", None, False),
+            ("predecessor_ss", "A", "2026-01-14", None, True),
+        ],
+    )
+    assert _rows(project, "A", Quantity.LATE_START) == (
+        "2026-01-12",
+        [
+            ("project_finish", None, "2026-02-24", None, False),
+            ("successor_ss", "B", "2026-01-12", None, True),
+        ],
+    )
+    assert _rows(project, "A", Quantity.LATE_FINISH) == (
+        "2026-01-23",
+        [
+            ("project_finish", None, "2026-02-24", None, False),
+            ("successor_ss", "B", "2026-01-12", None, False),
+            ("duration_from_late_start", "B", "2026-01-23", 10, True),
+        ],
+    )
+
+
+def test_free_slack_from_a_derived_span_start_is_measured_from_it() -> None:
+    # #4523: as above, but B is held at 01-20 by its SNET. The latest span start that
+    # leaves B there is prev_wd(01-20 - 16) = 01-02, four working days after A's
+    # span start (12-29). Measured from A's early start (01-12) it would read zero.
+    project = _project(
+        [_task("A", 20, percent_complete=50.0), _task("B", 30, planned_start=date(2026, 1, 20))],
+        [_dep("A", "B", DependencyType.SS, 16)],
+        status_date=date(2026, 1, 12),
+    )
+    assert _rows(project, "A", Quantity.FREE_FLOAT) == (
+        4,
+        [("successor_free_slack", "B", "2026-01-02", 4, True)],
+    )
 
 
 def test_scheduled_start_of_barely_started_and_actual_started_work() -> None:

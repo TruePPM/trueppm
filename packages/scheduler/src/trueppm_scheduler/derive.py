@@ -405,8 +405,9 @@ def _pred_forward_contribution(
     interval day), SS its start, and SF the last working day *before* its start on
     the predecessor's calendar (#4145) — the day before it with a positive lag
     (#4333); then snap ``anchor + lag`` forward to the next working day. The start
-    is ``engine._link_start``'s: a started task's recorded ``actual_start``, else
-    its ``early_start`` (#4523).
+    is ``engine._link_start``'s (#4523): a started task's recorded
+    ``actual_start``; for in-progress work with none, its derived
+    ``scheduled_start``; otherwise its ``early_start``.
 
     Milestones (#4079): a milestone predecessor anchors on its instant
     (``engine._edge_anchor``), and a milestone *target* is shown on the day of the

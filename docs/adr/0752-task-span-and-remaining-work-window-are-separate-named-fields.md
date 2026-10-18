@@ -125,6 +125,12 @@ acquires one meaning instead of two.
 Successors continue to key off these dates. This is the network-scheduling truth and it is
 correct: a task that is 83% done really does release its successor in one day.
 
+> **Amended by ADR-0132 §2a (2026-10-18, #4523): finish-side links only.** FS and FF
+> successors key off `early_finish` as stated. SS and SF successors do **not** key off
+> `early_start`: they measure from the task's recorded `actual_start`, or for in-progress
+> work with none, from its `scheduled_start` below. Measuring them from the remaining
+> window re-added their lag on every status update.
+
 ### 2. `scheduled_start`/`scheduled_finish` are the span, and the schedule renders them
 
 New CPM output describing where the task's **whole** duration sits.

@@ -686,8 +686,9 @@ class TestLateWindowFloorDerivation:
         Called directly since #4523: that pullback came from an SS link out of a
         *started* task, which now measures from the recorded start and bounds
         nothing the task's remaining work can do, so no scheduled network reaches
-        this floor for work any more (27 of 1,500 random networks before, 0 of 4,000
-        after). The derivation keeps the branch because the engine keeps the floor;
+        this floor for work any more (the seeded search in
+        ``test_started_link_anchor.py`` hit it on 6 of 2,000 networks before and
+        none after). The derivation keeps the branch because the engine keeps the floor;
         this pins what it emits. The network itself is pinned below to its new
         answer: late dates from the project finish, with no SS term.
         """
