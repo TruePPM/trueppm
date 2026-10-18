@@ -599,6 +599,12 @@ package-licenses-check: ## Run the lint:package-licenses CI job locally (#3217)
 	@bash scripts/check-package-licenses.sh --self-test
 	@bash scripts/check-package-licenses.sh
 
+scheduler-sdist-check: ## Run the scheduler:sdist-check CI job locally (#4520)
+	@# Builds the trueppm-scheduler sdist from a copy of the package with dev
+	@# artifacts planted in it, and fails if any leak or a required file is missing.
+	@bash scripts/check-scheduler-sdist.sh --self-test
+	@bash scripts/check-scheduler-sdist.sh
+
 prepush-parity-check: ## Fail if a CI check script has no pre-push mirror and no opt-out (#2941)
 	@# The durable half of #2941. The pre-push list was a historical accretion —
 	@# each gate added by hand as it was written, and nothing checking the list
@@ -718,6 +724,7 @@ pre-push-checks: e2e-catchall-check
 pre-push-checks: demo-nginx-allowlist-check
 pre-push-checks: chart-registry-check
 pre-push-checks: package-licenses-check
+pre-push-checks: scheduler-sdist-check
 pre-push-checks: mobile-version-check
 pre-push-checks: prepush-parity-check
 pre-push-checks: gate-selftest-parity-check

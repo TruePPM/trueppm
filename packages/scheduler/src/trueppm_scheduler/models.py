@@ -280,6 +280,7 @@ class Task:
             _require_bool(d, "is_critical")
             _require_bool(d, "milestone_at_day_end")
             _check_finite(d, "percent_complete")
+            _check_percent_range(d)
             _check_finite(d, "story_points")
             _coerce_task_dates(d)
             _coerce_pert_durations(d)
@@ -332,6 +333,17 @@ def _require_bool(d: dict[str, Any], field_name: str) -> None:
             f"{field_name} must be a boolean, got {type(d[field_name]).__name__}: "
             f"{d[field_name]!r}."
         )
+
+
+def _check_percent_range(d: dict[str, Any]) -> None:
+    """Reject a ``percent_complete`` outside [0, 100] (#4513).
+
+    Mirrors the engine's ``_validate_task_numerics`` so the document path refuses at
+    parse time, as it already does for a non-finite value.
+    """
+    value = d.get("percent_complete")
+    if value is not None and not 0 <= float(value) <= 100:
+        raise ValueError("percent_complete must be between 0 and 100.")
 
 
 def _check_finite(d: dict[str, Any], field_name: str) -> None:

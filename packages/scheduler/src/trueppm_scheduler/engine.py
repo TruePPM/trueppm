@@ -3663,10 +3663,11 @@ def _validate_task_numerics(t: Task) -> None:
     identical input (#1452). The ``from_dict``/``from_json`` path already rejects
     non-finite here (models.py); this closes the direct-object gap to match it.
 
-    ``None`` is tolerated (read as not-started, as both passes already do) and finite
-    out-of-range values (<0, >100) are deliberately *clamped* by both passes
-    (``min(pct, 100)``; a negative pct reads as not-started), consistent with
-    ``from_dict`` — so only non-finite / non-numeric input is rejected.
+    ``None`` is tolerated (read as not-started, as both passes already do). A finite
+    value outside [0, 100] is rejected too (#4513): the passes would clamp it
+    (``min(pct, 100)``; a negative reads as not-started), so a sign-flipped or x100
+    import bug (0.5 sent as 50, 50 as 5000) scheduled plausibly and silently.
+    Rejecting later would be a breaking narrowing of the input contract.
     """
     if t.story_points is not None and not _is_finite_number(t.story_points):
         raise InvalidScheduleInput(
@@ -3675,6 +3676,11 @@ def _validate_task_numerics(t: Task) -> None:
     if t.percent_complete is not None and not _is_finite_number(t.percent_complete):
         raise InvalidScheduleInput(
             f"Task {t.id!r} percent_complete must be a finite number (got {t.percent_complete!r})."
+        )
+    if t.percent_complete is not None and not 0 <= t.percent_complete <= 100:
+        raise InvalidScheduleInput(
+            f"Task {t.id!r} percent_complete must be between 0 and 100 "
+            f"(got {t.percent_complete!r})."
         )
 
 
