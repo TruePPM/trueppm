@@ -1,0 +1,11 @@
+{
+  "id": "pr-calendar-exceptions-null",
+  "name": "calendar exceptions is null, not an array (#4521)",
+  "start_date": "2026-01-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 86400.0},
+    {"id": "B", "name": "Task B", "duration": 86400.0}
+  ],
+  "dependencies": [{"predecessor_id": "A", "successor_id": "B"}],
+  "calendar": {"working_days": 31, "exceptions": null, "hours_per_day": 8.0, "timezone": "UTC"}
+}
