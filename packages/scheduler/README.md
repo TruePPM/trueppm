@@ -136,8 +136,11 @@ project = Project(
 Conventions:
 
 - **Duration** arithmetic uses the task's *own* calendar (`calendar_id` → entry in
-  `Project.calendars`). A `calendar_id` of `None`, or one with no matching entry,
-  falls back to the pass-level `Project.calendar` — never an error.
+  `Project.calendars`). A `calendar_id` of `None` uses the pass-level
+  `Project.calendar`. When `Project.calendars` is non-empty, a `calendar_id`
+  with no matching entry raises `InvalidScheduleInput` — a typo is refused, not
+  scheduled on the wrong working week. With no registry (`None` or empty) a set
+  `calendar_id` is ignored and the task uses `Project.calendar`.
 - **Lag** on a dependency edge is applied as calendar days (above) and then
   snapped on the **successor's** calendar: the constraint lands where the wait is
   actually consumed.

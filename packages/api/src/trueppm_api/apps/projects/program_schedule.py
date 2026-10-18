@@ -183,8 +183,9 @@ def _project_sched_tasks(project: Any, db_tasks: list[Any], *, suggest_approve: 
     The ``calendar_id`` tag is the ADR-0120 D3 engine substrate: the merged pass
     holds one calendar per member project rather than a single program-wide one, so
     each task's working-day math matches its own project's composed calendar. The
-    engine falls back to the project-level default for an unknown id (it never will
-    here — every id is registered by the caller).
+    engine refuses an id missing from the registry with ``InvalidScheduleInput``
+    (#4516), so the caller must register ``calendars[str(project.id)]`` for every
+    project whose tasks it tags — the merged-pass loop does both in one iteration.
     """
     from trueppm_api.apps.scheduling.services import build_sched_tasks
 

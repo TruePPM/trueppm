@@ -133,8 +133,8 @@ pub struct Task {
     // keys (as `null` when unset) — parses instead of being rejected by
     // `deny_unknown_fields` (#1816). `calendar_id` (per-task calendars, ADR-0120 D3)
     // names an entry in the project's `calendars` registry and is honored by both
-    // engines since #1504; an id naming no entry falls back to the pass-level calendar
-    // rather than erroring (see `validate::validate_task_calendars`).
+    // engines since #1504; an id naming no entry in a non-empty registry is refused
+    // (#4516, see `validate::check_calendar_id_known`), and with no registry it is ignored.
     // `delivery_mode`/`story_points` drive Monte Carlo only — which this engine does not
     // run — so they never affect a deterministic CPM result and are accepted and ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -15,9 +15,11 @@ use crate::validate::{MAX_CALENDAR_SCAN_DAYS, MAX_PROJECT_SPAN_DAYS};
 /// declares no per-task `calendars` registry — the signal for the passes to take
 /// the single-calendar fast path that is byte-for-byte identical to the
 /// pre-ADR-0120 behavior. Otherwise every task resolves to its
-/// `Project.calendars[task.calendar_id]` entry, falling back to the pass-level
-/// `project.calendar` when `calendar_id` is unset or names no known calendar (a
-/// fall-back, not an error — a stray id never breaks a pass).
+/// `Project.calendars[task.calendar_id]` entry, or to the pass-level
+/// `project.calendar` when `calendar_id` is unset. An id naming no registry entry
+/// never reaches here: `validate_project` refuses it on every entry point that
+/// resolves calendars (#4516), so the `unwrap_or` below is unreachable for an
+/// unknown id rather than a silent fallback.
 ///
 /// The returned vector is indexed by **node position**, which is the same as the
 /// task's position in `project.tasks` (the graph adds nodes in task order and the

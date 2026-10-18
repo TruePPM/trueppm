@@ -1678,9 +1678,15 @@ def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:
     Returns ``None`` when the project declares no per-task ``calendars`` registry —
     the signal for the engine to take the single-calendar fast path that is
     byte-for-byte identical to the pre-ADR-0120 behavior. Otherwise every task
-    resolves to its ``Project.calendars[task.calendar_id]`` entry, falling back to
-    the pass-level ``project.calendar`` when ``calendar_id`` is unset or names no
-    known calendar (a fall-back, not an error — a stray id never breaks a pass).
+    resolves to its ``Project.calendars[task.calendar_id]`` entry, or to the
+    pass-level ``project.calendar`` when ``calendar_id`` is unset.
+
+    A ``calendar_id`` naming no registry entry raises :class:`InvalidScheduleInput`
+    (#4516). :func:`_validate_project` refuses it first on every validated entry
+    point; raising here too keeps the callers that resolve calendars without
+    re-validating — :func:`~trueppm_scheduler.derive.derive_value` given a
+    precomputed ``result``, :func:`perturb_task_duration` — from silently scheduling
+    the task on the wrong working week.
 
     This map governs *duration* arithmetic only: a task's own working week. Lag on
     an edge is consumed on the **successor's** calendar (the constraint lands where
@@ -1690,10 +1696,16 @@ def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:
         return None
     default = project.calendar
     calendars = project.calendars
-    return {
-        t.id: (calendars.get(t.calendar_id, default) if t.calendar_id is not None else default)
-        for t in project.tasks
-    }
+    resolved: dict[str, Calendar] = {}
+    for t in project.tasks:
+        if t.calendar_id is None:
+            resolved[t.id] = default
+            continue
+        cal = calendars.get(t.calendar_id)
+        if cal is None:
+            raise InvalidScheduleInput(_unknown_calendar_id_message(t.id, t.calendar_id))
+        resolved[t.id] = cal
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -3633,7 +3645,7 @@ def _validate_tasks(project: Project) -> None:
     for t in project.tasks:
         _validate_task_date_types(t)
         _validate_task_actual_order(t)
-        _validate_task_calendar_id(t)
+        _validate_task_calendar_id(t, project.calendars)
         _validate_task_durations(t)
         _validate_task_numerics(t)
         _validate_task_span(t, project.start_date)
@@ -3693,18 +3705,37 @@ def _validate_task_actual_order(t: Task) -> None:
         )
 
 
-def _validate_task_calendar_id(t: Task) -> None:
-    """``calendar_id`` (ADR-0120 D3) must be a string or None.
+def _validate_task_calendar_id(t: Task, calendars: dict[str, Calendar] | None) -> None:
+    """``calendar_id`` (ADR-0120 D3) must be None, or a string naming a registry entry.
 
     It is looked up as a dict key against the project's calendar registry; a
     non-string id can never match an entry and would silently fall back to the default
     calendar, so reject it explicitly rather than schedule on the wrong calendar.
+
+    A string id absent from a **non-empty** registry is refused for the same reason
+    (#4516): a typo or a dropped registry entry used to fall back to the pass-level
+    calendar and produce a plausible schedule on the wrong working week, with no
+    diagnostic. With no registry (``None`` or empty) every task schedules on the
+    pass-level calendar and a set id is ignored — the single-calendar document shape,
+    which carries ids it has no registry for and must keep scheduling unchanged.
     """
-    if t.calendar_id is not None and not isinstance(t.calendar_id, str):
+    if t.calendar_id is None:
+        return
+    if not isinstance(t.calendar_id, str):
         raise InvalidScheduleInput(
             f"Task {t.id!r} calendar_id must be a string or None, "
             f"not {type(t.calendar_id).__name__}."
         )
+    if calendars and t.calendar_id not in calendars:
+        raise InvalidScheduleInput(_unknown_calendar_id_message(t.id, t.calendar_id))
+
+
+def _unknown_calendar_id_message(task_id: str, calendar_id: str) -> str:
+    """The refusal both the validator and the resolver raise, so they read identically."""
+    return (
+        f"Task {task_id!r} calendar_id {calendar_id!r} names no calendar in the "
+        "project's calendars registry."
+    )
 
 
 def _validate_task_durations(t: Task) -> None:
