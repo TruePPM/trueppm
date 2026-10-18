@@ -511,3 +511,25 @@ The `recalculate_schedule` Celery task fires automatically via `transaction.on_c
 5. Broadcasts a `cpm_complete` WebSocket event (plus per-task `task_dates_updated` deltas) to all connected clients
 
 If the lock is already held, the task re-queues itself with a 10-second countdown.
+
+## Status and roadmap
+
+The engine's known limitations against the current release, what 0.5 is
+committed to fixing, and the capability sequence beyond that are tracked in
+one canonical place — the scheduler package's own README, since that is what
+an embedder (`pip install trueppm-scheduler`) reads first:
+
+[**Status and roadmap**](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/README.md#status-and-roadmap)
+in `packages/scheduler/README.md`.
+
+In short: the CPM pass and Monte Carlo simulation are stable. Two issues found
+late in the 0.4 cycle —
+[#4523](https://gitlab.com/trueppm/trueppm/-/issues/4523) and
+[#4524](https://gitlab.com/trueppm/trueppm/-/issues/4524) — are being worked
+on now and carry into 0.5 if they do not make the 0.4 tag. 0.5 will run a
+committed hardening pass over the engine
+([#3988](https://gitlab.com/trueppm/trueppm/-/issues/3988)) rather than ship
+new scheduling features. 0.6 and later sequence the agent write path,
+sub-day scheduling, and resource leveling as a capability **order of work**,
+not a dated schedule — see the [roadmap](/overview/roadmap/) for the full
+rationale.

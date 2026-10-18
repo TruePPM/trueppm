@@ -47,8 +47,8 @@ or hosted SaaS products. Neither is convenient to embed in a program, script it
 against a batch of plans, reproduce in a paper, or run in an air-gapped
 environment. On the open-source side, `networkx` provides the graph primitives
 but no scheduling semantics: it has no concept of a working calendar, of the
-four project-management dependency types, of lag, of float, or of PERT-Beta risk
-sampling. Practitioners are left to reimplement these repeatedly and
+four project-management dependency types, of lag, of float, or of Beta-distributed
+PERT risk sampling. Practitioners are left to reimplement these repeatedly and
 inconsistently.
 
 `trueppm-scheduler` fills that gap with a small, dependency-light library that
@@ -69,9 +69,11 @@ Carlo engine for studying delivery risk.
   delivery dates rather than raw calendar days. Lag on a dependency edge is
   counted on the successor's calendar, and per-task calendars are supported for
   schedules that span teams keeping different working weeks.
-- **Monte Carlo schedule-risk simulation** using PERT-Beta distributions
-  [@malcolm1959; @vose2008], numpy-vectorized for throughput, producing P50/P80/P95
-  completion-date forecasts. An optional sensitivity ("tornado") analysis ranks
+- **Monte Carlo schedule-risk simulation** using a Beta distribution fitted by
+  method of moments to the classic PERT mean and standard deviation
+  [@malcolm1959] — not the λ=4 Beta-PERT parameterization some commercial risk
+  tools default to [@vose2008] — numpy-vectorized for throughput, producing
+  P50/P80/P95 completion-date forecasts. An optional sensitivity ("tornado") analysis ranks
   which tasks' duration uncertainty most drives the finish date.
 - **Agile / velocity sampling.** Tasks can be estimated in story points and
   sampled against a distribution of observed team velocity, allowing agile and
@@ -97,7 +99,7 @@ applications that are difficult to embed or script and cannot be cited as a
 reproducible dependency. `networkx` [@networkx] supplies directed-graph
 algorithms — including topological sorting and longest-path routines that a CPM
 engine builds on — but provides none of the project-scheduling layer (calendars,
-dependency types, lag, float, PERT-Beta risk). General-purpose mathematical
+dependency types, lag, float, Beta-distributed risk). General-purpose mathematical
 optimization and simulation packages can express scheduling as a constraint
 problem but require the user to encode the semantics themselves.
 `trueppm-scheduler` occupies the space between these: it provides the correct,
