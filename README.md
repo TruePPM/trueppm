@@ -124,7 +124,7 @@ Four claims, each one you can check rather than take on trust.
 
 ## What it doesn't do yet
 
-We would rather you find these here than forty minutes into an evaluation. This list is maintained, not decorative — see [**What TruePPM doesn't do yet**](https://docs.trueppm.com/overview/what-it-does-not-do/) for the full version with issue links.
+We would rather you find these here than forty minutes into an evaluation. This list is maintained, not decorative — see [**What TruePPM doesn't do yet**](https://docs.trueppm.com/overview/what-it-does-not-do/) for the full version with issue links. If you're evaluating the scheduling engine itself — as the platform or as the standalone `trueppm-scheduler` library — its own known limitations, what's committed for 0.5, and the capability sequence beyond that are tracked in [**Status and roadmap**](packages/scheduler/README.md#status-and-roadmap).
 
 | Gap | Status |
 |---|---|
