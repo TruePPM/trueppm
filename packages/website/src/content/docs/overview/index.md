@@ -93,7 +93,7 @@ The community edition is fully functional on its own — it never imports from t
 
 | Layer | Technology |
 |-------|-----------|
-| Scheduling engine | Python 3.12+, networkx, numpy |
+| Scheduling engine | Python 3.11+, networkx, numpy |
 | API | Django 5.2, DRF 3.15, Django Channels 4 |
 | Queue | Celery 5.4 + Valkey 8 (Redis-compatible) |
 | Database | PostgreSQL 16 |
