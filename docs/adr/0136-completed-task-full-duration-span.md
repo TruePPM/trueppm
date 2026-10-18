@@ -199,6 +199,19 @@ Rules:
     re-read from completed predecessors once and then stays put. Either way the
     successors can move one working day once. Neither repeats, and once every
     predecessor is complete, completed work decides. The upgrade notes say so.
+  - *Known limitation: the freeze depends on history while a predecessor stays
+    open* (#4574). While any predecessor is still open, the frozen edge is whatever
+    was last derived. It does not necessarily match the current state of the
+    completed predecessors and links. Correcting a completed predecessor's actuals,
+    or removing a predecessor link, does not trigger a fresh derivation until every
+    remaining predecessor completes. So the same current facts can schedule
+    differently depending on what happened before. A run with no history reads the
+    corrected facts, while a run that froze the edge earlier keeps it. And once a
+    corrected sign-off day has replaced the persisted day, correcting it back does
+    not restore the original edge. This is a limitation of freezing itself, not a
+    defect in this rule: the guarantee that no change to open work moves a closed
+    milestone still holds. Making the edge path-independent while keeping "closing
+    on the forecast day moves nothing" is left to #4574.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).

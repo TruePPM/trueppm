@@ -518,6 +518,13 @@ recalculation you may see the following:
   happens once and then stays put. When every task that leads into the milestone
   is complete, the completed work decides. Neither case needs any action.
 
+Baselines are not recalculated. If you captured a baseline after such a milestone
+was completed, the baseline still holds the day it entered In Progress, while the
+current schedule shows the day it was signed off. The first variance comparison
+after upgrading therefore shows a slip of the gap between those two days. That is
+not new slip. To compare like with like, capture a new baseline after the project
+recalculates.
+
 ### Project and program keys (`projects.0154`)
 
 Upgrading from `0.4.0-beta.4` or earlier makes every project and program **key**

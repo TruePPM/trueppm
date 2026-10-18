@@ -504,18 +504,17 @@ calendar-aware lag, cycle detection) and Monte Carlo simulation (PERT-Beta,
 velocity sampling, `derive_value()` explainability) are stable and exercised
 by the fuzz, mutation, and MS-Project-parity suites described in
 [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md).
-One defect found late in the 0.4 cycle is still being worked on as this
-ships — if it is still open when 0.4 tags, it carries into 0.5:
-
-- [#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535) — the velocity
-  sampler drops every zero-point sprint before bootstrapping, so a team with
-  lean sprints is forecast as if those sprints never happened.
 
 **Known limitations open against 0.4**, grouped by area — every item below is
 an open issue; nothing in this list is fixed yet, regardless of which future
 release it is scheduled for:
 
-- **CPM correctness** — a work-task late-finish seed can ignore a
+- **CPM correctness** — while any predecessor of a closed milestone is still
+  open, its frozen day edge (`live_day_end_on`) reflects the last derivation,
+  so correcting a completed predecessor's actuals or removing a link is not
+  re-read until every predecessor completes
+  ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)); a work-task
+  late-finish seed can ignore a
   start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
   *into* a summary task do not fan out to every leaf the way the successor
@@ -538,9 +537,7 @@ release it is scheduled for:
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
   [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
-- **Monte Carlo** — the in-flight 0.4 velocity-sampler issue above
-  ([#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535)) closes here if
-  it does not make the 0.4 tag; a velocity-sampled duration is re-expanded
+- **Monte Carlo** — a velocity-sampled duration is re-expanded
   against the task's own calendar rather than the sprint calendar it was
   sampled against
   ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
@@ -604,9 +601,7 @@ they will ship with 0.5 or that release will slip:
   ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)); the CPM
   duration-expansion day-walk above moves off O(duration)
   ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531)).
-- **Monte Carlo correctness** — the in-flight 0.4 issue above
-  ([#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535)) closes here if
-  it does not make the 0.4 tag; the sprint-horizon clamp bug above will be
+- **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); an
   in-progress task's sampled duration no longer has its optimistic tail
   truncated by subtracting deterministic elapsed time from the sampled total

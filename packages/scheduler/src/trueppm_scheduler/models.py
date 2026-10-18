@@ -256,7 +256,11 @@ class Task:
     # work, or a lag lands it on or just after non-working time and it is shown at
     # the start of the next working day (#4173) — and for every task that is not a
     # milestone. A completed milestone with recorded actuals keeps the edge it had
-    # live (#4433): ``True`` when work finishing on its recorded day placed it. The
+    # live (#4433, #4525), and its instant is on its recorded day (``actual_finish``,
+    # else ``actual_start``): ``True`` when completed work finishing on that day
+    # placed it, or, while any predecessor is still open, when ``live_day_end_on``
+    # names that day (the previous run's end-of-day reading, frozen). Open work's
+    # current forecast never decides it. The
     # end of a Friday and the start of the next Monday are the same point in
     # working time, so the shown day can hop a weekend with no working-time move:
     # never diff two shown days as a slip (#4178, see ``ScheduleResult``).

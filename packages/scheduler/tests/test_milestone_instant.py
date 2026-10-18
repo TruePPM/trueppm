@@ -788,22 +788,36 @@ class TestMilestoneAtDayEnd:
     ) -> None:
         """Monte Carlo freezes a closed milestone's edge from completed work only (#4525).
 
-        ``A -X(+1)-> M -FS-> B(10d)`` with M closed on Fri 03-05 and A open, for
-        every link type. B dominates the finish, so the finish is a function of
-        M's edge alone. The edge is frozen once per run set from the
-        deterministic pass; when that pass read A's forecast, A's length decided
-        it, so every run's finish followed A's *most-likely* duration while the
-        sampled one never could. Neither may: deterministic A at 3..6 days and a
-        three-point A sampled across that range all give one finish.
-        """
+        ``P -FS-> A(2d) -X(+1)-> M -FS-> B(10d)`` with M closed on Fri 03-05 and P
+        and A open, for FS, FF and SF. B dominates the finish, so the finish is a
+        function of M's edge alone. Lengthening P moves both A's start, which SF
+        is measured from, and A's finish, which FS and FF are measured from,
+        across the sign-off day. The edge is frozen once per run set from
+        the deterministic pass. When that pass read open work's forecast, P's
+        length decided it, so every run's finish followed P's *most-likely*
+        duration while the sampled one never could. Neither may: deterministic P
+        at 1..5 days and a three-point P sampled across that range all give one
+        finish.
 
-        def project(a: Task) -> Project:
+        An SS proposal from work is always a start-of-day reading
+        (``_milestone_proposal``), so SS from a task with work could never move
+        the edge under either rule. The one SS link that can is a zero-lag SS
+        from a *milestone*, which carries that milestone's own reading over. So
+        for SS, A is an open milestone and the lag is 0: A sits at the end of P's
+        finish day and would pull M to the end of Friday once P reaches it. Each
+        of the four cases places M at the end of Friday for some P, so each fails
+        if open predecessors are read.
+        """
+        ss = dep_type is DependencyType.SS
+
+        def project(p_task: Task) -> Project:
             return Project(
                 id="p",
                 name="p",
                 start_date=date(2027, 3, 1),
                 tasks=[
-                    a,
+                    p_task,
+                    Task(id="A", name="A", duration=timedelta(days=0 if ss else 2)),
                     Task(
                         id="M",
                         name="M",
@@ -814,25 +828,26 @@ class TestMilestoneAtDayEnd:
                     Task(id="B", name="B", duration=timedelta(days=10)),
                 ],
                 dependencies=[
-                    Dependency("A", "M", dep_type, timedelta(days=1)),
+                    Dependency("P", "A"),
+                    Dependency("A", "M", dep_type, timedelta(days=0 if ss else 1)),
                     Dependency("M", "B"),
                 ],
             )
 
         finishes = set()
-        for days in (3, 4, 5, 6):
-            p = project(Task(id="A", name="A", duration=timedelta(days=days)))
+        for days in (1, 2, 3, 4, 5):
+            p = project(Task(id="P", name="P", duration=timedelta(days=days)))
             mc = monte_carlo(p, runs=16, seed=1)
             assert mc.p50 == mc.p95 == schedule(p).project_finish
             finishes.add(mc.p50)
         sampled = project(
             Task(
-                id="A",
-                name="A",
-                duration=timedelta(days=4),
-                optimistic_duration=timedelta(days=3),
-                most_likely_duration=timedelta(days=4),
-                pessimistic_duration=timedelta(days=6),
+                id="P",
+                name="P",
+                duration=timedelta(days=2),
+                optimistic_duration=timedelta(days=1),
+                most_likely_duration=timedelta(days=2),
+                pessimistic_duration=timedelta(days=5),
             )
         )
         mc = monte_carlo(sampled, runs=64, seed=3)
