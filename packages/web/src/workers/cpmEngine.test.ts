@@ -665,6 +665,76 @@ describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
 });
 
 // ---------------------------------------------------------------------------
+// SS/SF out of a started task measure from its recorded start (#4523)
+//
+// The server engines anchor a start-side link on a started task's
+// `actual_start`, not on its remaining-work window. The preview must too, or
+// a drag that moves a started task's remaining work paints its SS/SF
+// successors later than the server puts them, and they snap back on commit.
+// ---------------------------------------------------------------------------
+
+describe('runCpmForwardPass — SS/SF from a started task (#4523)', () => {
+  it('leaves an SS successor on the recorded start when an upstream drag pushes the started task', () => {
+    // P -FS-> A (started Mon Jan 5, 10d with 6 left) -SS+3-> B. Dragging P out
+    // to Jan 12 pushes A's remaining work, but A started on Jan 5, so B stays
+    // on Jan 5 + 3 = Thu Jan 8 — not three days after A's pushed window.
+    const tasks: CpmTask[] = [
+      task('P', '2026-01-05', '2026-01-06'),
+      task('A', '2026-01-05', '2026-01-16', {
+        durationDays: 10,
+        remainingDuration: 6,
+        actualStart: '2026-01-05',
+      }),
+      task('B', '2026-01-08', '2026-01-09'),
+    ];
+    const edges: CpmEdge[] = [edge('P', 'A', 'FS'), edge('A', 'B', 'SS', 3)];
+
+    const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-01-12');
+    const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+    expect(byId('A').earlyFinish).toBe('2026-01-21');
+    expect(byId('B').earlyStart).toBe('2026-01-08');
+    expect(byId('B').earlyFinish).toBe('2026-01-09');
+  });
+
+  it('measures an SF+2 successor from the day before the recorded start', () => {
+    // A started Mon Jan 5: the SF+2 bound is Jan 4 + 2 = Tue Jan 6, whatever
+    // the drag does to A's remaining work.
+    const tasks: CpmTask[] = [
+      task('P', '2026-01-05', '2026-01-06'),
+      task('A', '2026-01-05', '2026-01-16', {
+        durationDays: 10,
+        remainingDuration: 6,
+        actualStart: '2026-01-05',
+      }),
+      task('B', '2026-01-05', '2026-01-06'),
+    ];
+    const edges: CpmEdge[] = [edge('P', 'A', 'FS'), edge('A', 'B', 'SF', 2)];
+
+    const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-01-12');
+    const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+    expect(byId('B').earlyFinish).toBe('2026-01-06');
+  });
+
+  it('still moves an SS successor of a task that has not started', () => {
+    const tasks: CpmTask[] = [
+      task('P', '2026-01-05', '2026-01-06'),
+      task('A', '2026-01-07', '2026-01-16'),
+      task('B', '2026-01-12', '2026-01-13'),
+    ];
+    const edges: CpmEdge[] = [edge('P', 'A', 'FS'), edge('A', 'B', 'SS', 3)];
+
+    const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-01-12');
+    const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+    // A now starts Wed Jan 14; +3 calendar days is Sat Jan 17 → Mon Jan 19.
+    expect(byId('A').earlyStart).toBe('2026-01-14');
+    expect(byId('B').earlyStart).toBe('2026-01-19');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Bidirectional relaxation (issue #3535)
 //
 // The pass used to write a successor's new window only when it was LATER than

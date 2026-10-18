@@ -462,6 +462,12 @@ fn successor_constraints(
             continue;
         }
         let dep = &deps[*edge.weight()];
+        if tasks[idx.index()].start_fixed_link(dep.dep_type) {
+            // Measured from a start that already happened (#4523): no slip of this
+            // task's remaining work can move the successor through it. Mirrors the
+            // Python `_collect_backward_constraints`.
+            continue;
+        }
         let lag_days = dep.lag_days();
 
         // A milestone successor offers its late instant (#4079).

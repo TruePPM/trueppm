@@ -324,27 +324,56 @@ def test_a_completed_successor_listed_first_does_not_hide_the_live_ones() -> Non
     )
 
 
-def test_the_late_window_floor_cites_each_side_at_its_own_early_date() -> None:
-    # A started on a Saturday (kept verbatim) and finishes Monday. The SS link to B
-    # pulls its late start to Friday, below the early start, so the engine floors
-    # both late dates to the early window. The start floor must cite Saturday and
-    # the finish floor Monday — each side's own early date.
+def test_an_ss_link_out_of_a_started_task_is_not_a_late_date_term() -> None:
+    # A started on a Saturday (kept verbatim) and finishes Monday. Until #4523 the SS
+    # link to B pulled A's late start to Friday, below its early start, and the
+    # engine floored both late dates to the early window. The link now measures from
+    # the recorded start, which A's remaining work cannot move, so it bounds neither
+    # late date and is not a term: A's late dates come from the project finish.
     project = _project(
         [_task("A", 1, actual_start=date(2026, 1, 10), percent_complete=50.0), _task("B", 3)],
         [_dep("A", "B", DependencyType.SS, 4)],
     )
-    head = [
-        ("project_finish", None, "2026-01-16", None, False),
-        ("successor_ss", "B", "2026-01-09", None, False),
-    ]
     assert _rows(project, "A", Quantity.LATE_START) == (
-        "2026-01-10",
-        [*head, ("late_window_floor", None, "2026-01-10", None, True)],
+        "2026-01-16",
+        [
+            ("project_finish", None, "2026-01-16", None, False),
+            ("duration_from_late_finish", None, "2026-01-16", 1, True),
+        ],
     )
     assert _rows(project, "A", Quantity.LATE_FINISH) == (
-        "2026-01-12",
-        [*head, ("late_window_floor", None, "2026-01-12", None, True)],
+        "2026-01-16",
+        [("project_finish", None, "2026-01-16", None, True)],
     )
+    # Nor does it limit A's free float; B is still measured from Saturday.
+    assert _rows(project, "A", Quantity.FREE_FLOAT) == (4, [("total_float", None, None, 4, True)])
+    assert _rows(project, "B", Quantity.EARLY_START) == (
+        "2026-01-14",
+        [
+            ("project_start", None, "2026-01-05", None, False),
+            ("predecessor_ss", "A", "2026-01-14", None, True),
+        ],
+    )
+
+
+def test_the_late_window_floor_cites_each_side_at_its_own_early_date() -> None:
+    # Called directly: #4523 removed the one route a scheduled network had to this
+    # floor for work (an SS pullback out of a started task; 27 of 1,500 random
+    # networks before, 0 of 4,000 after). A's early window is Saturday..Monday and an
+    # SS term pulls its pre-floor late start to Friday, so both sides are floored and
+    # each must cite its own early date — Saturday for the start, Monday for the finish.
+    a = _task("A", 1, actual_start=date(2026, 1, 10), percent_complete=50.0)
+    a.early_start = a.late_start = date(2026, 1, 10)
+    a.early_finish = a.late_finish = date(2026, 1, 12)
+    lf = [DerivationContribution(kind="project_finish", imposed_date=date(2026, 1, 16))]
+    ls = [DerivationContribution(kind="successor_ss", imposed_date=date(2026, 1, 9))]
+    cal = Calendar(working_days=0b0011111)
+    start = _late_window_floor_binding(a, lf, ls, cal, want_start=True)
+    finish = _late_window_floor_binding(a, lf, ls, cal, want_start=False)
+    assert start is not None and start.kind == "late_window_floor"
+    assert start.imposed_date == date(2026, 1, 10)
+    assert finish is not None and finish.kind == "late_window_floor"
+    assert finish.imposed_date == date(2026, 1, 12)
 
 
 def test_scheduled_start_of_barely_started_and_actual_started_work() -> None:

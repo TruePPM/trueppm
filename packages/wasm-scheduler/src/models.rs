@@ -180,6 +180,37 @@ impl Task {
         let elapsed = (f64::from(full) * pct.min(100.0) / 100.0) as i32;
         (full - elapsed).max(0)
     }
+
+    /// Whether this is live work whose start is a recorded fact (#4523).
+    ///
+    /// Mirrors the Python `_start_is_recorded`: a task with work, not complete,
+    /// carrying an `actual_start`. Its `early_start` is the start of its remaining
+    /// work (ADR-0132), floored at the data date, so it moves with every status
+    /// update; the start itself happened on `actual_start` and does not.
+    pub fn start_is_recorded(&self) -> bool {
+        self.actual_start.is_some() && self.duration_days() > 0 && !self.is_complete()
+    }
+
+    /// The start an SS or SF link out of this task measures from (ADR-0132 §2a).
+    ///
+    /// Mirrors the Python `_link_start`: the recorded `actual_start` of a started
+    /// task, otherwise `early_start`. Must be called after the forward pass set
+    /// `early_start`.
+    pub fn link_start(&self) -> NaiveDate {
+        if self.start_is_recorded() {
+            return self.actual_start.expect("start_is_recorded implies actual_start");
+        }
+        self.early_start.expect("early_start set before a successor reads it")
+    }
+
+    /// Whether `dep_type` out of this task measures from a recorded start (#4523).
+    ///
+    /// Mirrors the Python `_start_fixed_link`: such a link cannot be moved by this
+    /// task's remaining work, so it imposes no late-date bound on it and gives it
+    /// no free-float limit; it can still be a successor's driving edge.
+    pub fn start_fixed_link(&self, dep_type: DependencyType) -> bool {
+        matches!(dep_type, DependencyType::SS | DependencyType::SF) && self.start_is_recorded()
+    }
 }
 
 /// A precedence relationship between two tasks.

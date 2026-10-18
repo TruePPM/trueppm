@@ -27,6 +27,7 @@ from trueppm_scheduler import (
     derive_value,
     schedule,
 )
+from trueppm_scheduler.derive import DerivationContribution, _late_window_floor_binding
 
 
 def make_project(
@@ -678,18 +679,28 @@ class TestLateWindowFloorDerivation:
         explanation that named a pullback which had not produced the date.
 
         Here ``A``'s ``actual_start`` is a Sunday, so its early finish walks to the
-        Thursday, while the SS-lag-5 edge retreats its late start to the preceding
+        Thursday, while an SS-lag-5 term retreats its late start to the preceding
         Friday and pulls the late finish back to the Wednesday. Both legs are
         floored, and the finish leg is floored onto a **working** day.
 
-        The edge was SF until #4145. It cannot be any more: an SF successor's finish
-        is *driven by* this task's start, and the corrected inverse retreats to the
-        first working day after ``prev_wd(succ.LF - lag)`` — which for any lag is at
-        or after this task's own start instant. So an SF edge can no longer pull a
-        predecessor's late start below its own early start, and cannot reach the floor
-        at all. SS reproduces the scenario with the same dates and exercises the same
-        branch; nothing about the floor logic is SF-specific.
+        Called directly since #4523: that pullback came from an SS link out of a
+        *started* task, which now measures from the recorded start and bounds
+        nothing the task's remaining work can do, so no scheduled network reaches
+        this floor for work any more (27 of 1,500 random networks before, 0 of 4,000
+        after). The derivation keeps the branch because the engine keeps the floor;
+        this pins what it emits. The network itself is pinned below to its new
+        answer: late dates from the project finish, with no SS term.
         """
+        a = task("A", "A", 5, percent_complete=37.0, actual_start=date(2027, 2, 28))
+        a.early_start = a.late_start = date(2027, 2, 28)
+        a.early_finish = a.late_finish = date(2027, 3, 4)
+        assert Calendar().is_working_day(a.early_finish), "the point of this case"
+        lf = [DerivationContribution(kind="project_finish", imposed_date=date(2027, 3, 11))]
+        ls = [DerivationContribution(kind="successor_ss", imposed_date=date(2027, 2, 26))]
+        for want_start in (True, False):
+            c = _late_window_floor_binding(a, lf, ls, Calendar(), want_start=want_start)
+            assert c is not None and c.kind == "late_window_floor", want_start
+
         p = make_project(
             [
                 task("A", "A", 5, percent_complete=37.0, actual_start=date(2027, 2, 28)),
@@ -698,15 +709,10 @@ class TestLateWindowFloorDerivation:
             dependencies=[Dependency("A", "B", dep_type=DependencyType.SS, lag=timedelta(days=5))],
             start=date(2027, 2, 1),
         )
-        scheduled = {t.id: t for t in schedule(p).tasks}["A"]
-        assert scheduled.early_finish == date(2027, 3, 4)
-        assert p.calendar.is_working_day(scheduled.early_finish), "the point of this case"
-
         for quantity in (Quantity.LATE_START, Quantity.LATE_FINISH):
             d = derive_value(p, "A", quantity)
-            assert [c.kind for c in d.contributions if c.is_binding] == ["late_window_floor"], (
-                quantity
-            )
+            assert "successor_ss" not in {c.kind for c in d.contributions}, quantity
+            assert "late_window_floor" not in {c.kind for c in d.contributions}, quantity
 
     def test_floor_is_not_cited_when_it_did_not_bind(self) -> None:
         """The control: an ordinary critical task also has late == early, and must

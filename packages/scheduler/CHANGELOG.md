@@ -53,6 +53,21 @@ change between releases. Pin an exact version (e.g.
   different `Project` object, including an equal copy — still takes the replay.
   The public `ScheduleResult` fields, equality and `to_dict()` are unchanged.
 
+- **A start-to-start or start-to-finish lag out of a started task is no longer
+  re-added on every status update (#4523).** The link measured from the task's
+  `early_start` — for in-progress work the start of its *remaining* work,
+  floored at the data date — so `A -SS+10d-> B` with `A` started 03-02 put `B`
+  on 03-16 at a 03-04 data date and on 03-18 two days later, with nothing else
+  changed. A live task with an `actual_start` is now measured from that
+  `actual_start` by its SS and SF successors, in `schedule()`, `monte_carlo()`
+  and `derive_value()` alike, and such a link sets no late date and no
+  free-float limit on the started task (its start cannot slip). FS/FF links,
+  not-started tasks, completed tasks and milestones are unchanged; an
+  in-progress task with no `actual_start` keeps measuring from `early_start`.
+  Floats change for started tasks with SS/SF successors: a task the old
+  inversion reported critical through such a link now carries its real float
+  (ADR-0132 §2a).
+
 - **Closing a milestone no longer slips its successors a working day (#4433).**
   A completed zero-duration task with recorded actuals (`actual_finish`, or
   `actual_start`) was laid out as ordinary work ending at the end of its day,

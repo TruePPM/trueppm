@@ -2,7 +2,7 @@
 
 ## Status
 Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: status_date);
-§1/§2 correction below landed in #2676 (ADR-0752 §4/§7)
+§1/§2 correction below landed in #2676 (ADR-0752 §4/§7); §2a amended 2026-10-18 (#4523)
 
 > **Two claims below did not match the shipped code as of 2026-07-31 (#2622); both are now
 > corrected by ADR-0752 §4/§7, landed in #2676.** Read §1 and §2 with this note:
@@ -92,6 +92,64 @@ no actuals) produce byte-identical output to today, so existing behavior is
 preserved; the only change is for tasks that carry progress — which today is a
 documented no-op. The `trueppm-scheduler` PyPI package takes a **minor version
 bump** with a changelog note.
+
+### 2a. Start-side links out of a started task measure from its recorded start (amendment, 2026-10-18, #4523)
+
+§2 makes an in-progress task's `early_start` the start of its **remaining** work,
+floored at the data date (see the status note above) and at its other floors. That
+is the right window for the task's own remaining duration and for its finish-side
+links. It is the wrong anchor for its **start-side** links. Every engine anchored SS
+and SF on `early_start`, so a lag out of a started task was re-applied from the data
+date on every status update: `A` started 03-02, `A -SS+10d-> B`, data date 03-04 put
+`B` on 03-16; the same project at data date 03-06, nothing else changed, put it on
+03-18. The lag compounded without bound as the data date advanced. `wasm:conformance`
+could not see it, because the two server engines mirrored the same rule.
+
+**Rule.** A *started* task — one with work (`duration > 0`), not complete, carrying an
+`actual_start` — is measured from that `actual_start` by its SS and SF successors.
+The SF anchor is derived from it exactly as from any start (the working day before
+it, or the day before it with a positive lag, #4145/#4333). Everything else keeps
+`early_start`: a not-started task (its start *is* its early start), a completed task
+(already pinned at its actuals, ADR-0136), and a milestone (placed as an instant,
+#4079). FS and FF are unchanged and keep tracking the forecast finish, which does
+move with the data date. The data date still floors the successor itself: unfinished
+work is never forecast into the past, so a successor whose link bound is behind the
+data date sits on the data date, and the bound only binds once it is ahead.
+
+**Why the recorded start.** The start happened; `actual_start` is a fact (§2, "actuals
+are truth") and does not change between status updates. MS Project and P6 both anchor
+an SS successor on the predecessor's actual start once it has one. The API stamps
+`actual_start` whenever a task moves to IN_PROGRESS, so every task the API reports as
+in progress takes this path.
+
+**What it deliberately does not cover.** An in-progress task with **no**
+`actual_start` (progress entered as `percent_complete` alone) keeps `early_start`.
+Its ADR-0752 span start is not a recorded fact: it is backed off from `early_finish`,
+which is itself floored at the data date, so it moves with every status update just
+as `early_start` does. Anchoring on it would shift where the lag counts from without
+stopping the drift, and it would make an SS successor's date depend on a percentage
+rather than on anything recorded.
+
+**Backward pass and floats.** Because the start is history, no slip of the task's
+remaining work can move a successor through such a link. The link therefore imposes
+**no** late-date bound on the started task and gives it **no** free-float limit —
+otherwise the inversion asks the remaining work to start by a date derived from the
+recorded start, the late window is floored at the early one, and a task with weeks of
+slack is reported critical. The link is still reported as the successor's driving
+edge when it is what holds the successor (its slack, measured from the recorded
+start, is zero).
+
+**Where it lives.** One helper per engine, used everywhere a start-side anchor is
+read: `engine._link_start` / `_start_fixed_link` (forward pass, milestone placement,
+backward pass, free float and driving edges), the Monte Carlo pass (such a link is a
+run-invariant constant, resolved once in date space alongside completed-predecessor
+edges in `_completed_edge_constraints`), `derive.py`, `Task::link_start` /
+`start_fixed_link` in the Rust engine, and `linkStartMs` in the web drag-preview
+engine. The oracle is a property, not the other engine: with nothing but the data
+date moved, and the bound still ahead of it, the successor does not move
+(`packages/scheduler/tests/test_started_link_anchor.py`,
+`forward::tests::started_ss_sf_successor_ignores_the_data_date`); the shared fixture
+`progress_started_link_anchor` pins both engines to the same answer.
 
 ### 3. Remaining-duration derivation
 

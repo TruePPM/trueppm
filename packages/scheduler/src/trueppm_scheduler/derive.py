@@ -49,6 +49,7 @@ from trueppm_scheduler.engine import (
     _is_complete,
     _late_display,
     _link_finish_ref,
+    _link_start,
     _link_start_ref,
     _milestone_finish_bound,
     _milestone_latest,
@@ -63,6 +64,7 @@ from trueppm_scheduler.engine import (
     _safe_offset,
     _sf_latest_start,
     _start_from_finish,
+    _start_is_recorded,
     _working_days_between,
     schedule,
 )
@@ -399,10 +401,11 @@ def _pred_forward_contribution(
 
     Reproduces the FS/SS/FF/SF anchoring of ``engine._edge_anchor``: FS/FF read
     the predecessor's ``early_finish`` (FS with the extra +1 inclusive→exclusive
-    interval day), SS its ``early_start``, and SF the last working day *before*
-    its ``early_start`` on the predecessor's calendar (#4145) — the day before it
-    with a positive lag (#4333); then snap ``anchor + lag`` forward to the next
-    working day.
+    interval day), SS its start, and SF the last working day *before* its start on
+    the predecessor's calendar (#4145) — the day before it with a positive lag
+    (#4333); then snap ``anchor + lag`` forward to the next working day. The start
+    is ``engine._link_start``'s: a started task's recorded ``actual_start``, else
+    its ``early_start`` (#4523).
 
     Milestones (#4079): a milestone predecessor anchors on its instant
     (``engine._edge_anchor``), and a milestone *target* is shown on the day of the
@@ -416,7 +419,7 @@ def _pred_forward_contribution(
     raw = _safe_offset(
         _edge_anchor(
             dep_type,
-            pred.early_start,
+            _link_start(pred),
             pred.early_finish,
             None if pred_instant is None else pred_instant[0],
             ctx.pred_cal,
@@ -432,7 +435,7 @@ def _pred_forward_contribution(
         raw, start_display = _milestone_proposal(
             dep_type,
             lag,
-            pred.early_start,
+            _link_start(pred),
             pred.early_finish,
             pred_instant,
             ctx.pred_cal,
@@ -703,6 +706,10 @@ def _derive_backward(
         value = task.late_start if want_start else task.late_finish
         return (value.isoformat() if value else None, contribs)
 
+    if milestone_day is None and _start_is_recorded(task):
+        # An SS/SF link out of a started task measures from its recorded start and
+        # bounds nothing its remaining work can do (engine._start_fixed_link, #4523).
+        succs = [s for s in succs if s[1] not in (DependencyType.SS, DependencyType.SF)]
     bounds: dict[int, date] = {}
     lf_terms, ls_terms = _backward_successor_terms(
         succs,
@@ -1115,6 +1122,10 @@ def _inverse_link_constraint(
     return latest, _working_days_between(task.early_start, latest, cal)
 
 
+_START_FIXED = (DependencyType.SS, DependencyType.SF)
+"""Link types measured from a started task's recorded start (``engine._link_start``)."""
+
+
 def _derive_free_float(
     task: Task,
     succs: list[tuple[Task, DependencyType, timedelta]],
@@ -1148,6 +1159,10 @@ def _derive_free_float(
         # task imposes no live constraint, so it is not a free-float term. With all
         # successors complete, binding stays None and free float falls back to total.
         if _is_complete(succ):
+            continue
+        if milestone is None and dep_type in _START_FIXED and _start_is_recorded(task):
+            # Measured from a recorded start (#4523): it limits no slip of this
+            # task's remaining work, matching engine._free_float_days.
             continue
         assert (
             task.early_start is not None
