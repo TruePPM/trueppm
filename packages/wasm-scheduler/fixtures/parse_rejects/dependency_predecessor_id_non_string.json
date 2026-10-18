@@ -1,0 +1,11 @@
+{
+  "id": "pr-dependency-predecessor-id-non-string",
+  "name": "predecessor_id is an integer (#4521)",
+  "start_date": "2026-01-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 86400.0},
+    {"id": "B", "name": "Task B", "duration": 86400.0}
+  ],
+  "dependencies": [{"predecessor_id": 1, "successor_id": "B"}],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

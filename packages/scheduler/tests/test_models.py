@@ -358,3 +358,39 @@ class TestFromDictOverflowIsInvalidInput:
             Project.from_dict(
                 {"id": "p", "name": "p", "start_date": "2026-04-02", "velocity_samples": [10**400]}
             )
+
+
+class TestStrictShapeParity4521:
+    """Dependency ids and Calendar.exceptions are type-strict like the Rust serde (#4521)."""
+
+    @pytest.mark.parametrize("field", ["predecessor_id", "successor_id"])
+    @pytest.mark.parametrize("bad", [1, None, 1.5, True, ["A"], {"a": 1}])
+    def test_dependency_id_must_be_string(self, field: str, bad: object) -> None:
+        doc: dict[str, object] = {"predecessor_id": "A", "successor_id": "B"}
+        doc[field] = bad
+        with pytest.raises(InvalidScheduleInput, match=field):
+            Dependency.from_dict(doc)
+
+    @pytest.mark.parametrize("bad", [None, 5, "", "ab", {}, {"start": "2026-01-01"}])
+    def test_calendar_exceptions_must_be_list(self, bad: object) -> None:
+        with pytest.raises(InvalidScheduleInput, match="exceptions"):
+            Calendar.from_dict({"exceptions": bad})
+
+    def test_valid_shapes_still_parse(self) -> None:
+        assert (
+            Dependency.from_dict({"predecessor_id": "A", "successor_id": "B"}).predecessor_id == "A"
+        )
+        assert not Calendar.from_dict({"exceptions": []}).exceptions
+
+    @pytest.mark.parametrize("field", ["tasks", "dependencies", "velocity_samples"])
+    @pytest.mark.parametrize("bad", ["", "ab", {}, 5])
+    def test_project_collections_must_be_lists(self, field: str, bad: object) -> None:
+        doc: dict[str, object] = {"id": "P", "name": "P", "start_date": "2026-01-01"}
+        doc[field] = bad
+        with pytest.raises(InvalidScheduleInput, match=field):
+            Project.from_dict(doc)
+
+    def test_project_velocity_samples_null_and_null_entries_stay_valid(self) -> None:
+        base: dict[str, object] = {"id": "P", "name": "P", "start_date": "2026-01-01"}
+        Project.from_dict({**base, "velocity_samples": None})
+        Project.from_dict({**base, "velocity_samples": [None, 1]})

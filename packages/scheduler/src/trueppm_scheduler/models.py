@@ -363,6 +363,19 @@ def _check_finite(d: dict[str, Any], field_name: str) -> None:
         raise ValueError(f"{field_name} must be a finite number.")
 
 
+def _list_field(d: dict[str, Any], field_name: str) -> list[Any]:
+    """Return ``d[field_name]`` (default ``[]``), refusing a non-list (#4521).
+
+    Rust's ``Vec<T>`` accepts only a JSON array; iterating ``""`` or ``{}`` parsed
+    as an empty collection in Python. The ValueError is wrapped as
+    ``InvalidScheduleInput`` by ``Project.from_dict``.
+    """
+    value = d.get(field_name, [])
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list (got {type(value).__name__}: {value!r}).")
+    return value
+
+
 def _check_velocity_samples(velocity_samples: Any) -> None:
     """Reject a non-finite velocity sample on the ``from_dict`` path.
 
@@ -373,6 +386,13 @@ def _check_velocity_samples(velocity_samples: Any) -> None:
     """
     if velocity_samples is None:
         return
+    # Rust ``Option<Vec<Option<f64>>>`` takes only a JSON array; iterating ``""`` or
+    # ``{}`` parsed as "no samples" in Python (#4521).
+    if not isinstance(velocity_samples, list):
+        raise ValueError(
+            f"velocity_samples must be a list (got {type(velocity_samples).__name__}: "
+            f"{velocity_samples!r})."
+        )
     for s in velocity_samples:
         if s is not None:
             _require_number(s, "velocity_samples")
@@ -473,13 +493,19 @@ class Dependency:
             The reconstructed :class:`Dependency`.
 
         Raises:
-            InvalidScheduleInput: If ``dep_type`` is not a known dependency type, or
-                ``lag`` is not a finite number of seconds (strings and bools refused).
+            InvalidScheduleInput: If ``predecessor_id``/``successor_id`` is not a
+                string, ``dep_type`` is not a known dependency type, or ``lag`` is not
+                a finite number of seconds (strings and bools refused).
         """
         # A bad dep_type would otherwise surface as Python's bare
         # ``ValueError: 'XX' is not a valid DependencyType`` — accurate but it
         # neither names the field nor lists what *is* allowed, which is exactly
         # the first-run error quality alpha adopters judge the library on (#947).
+        # The Rust ``predecessor_id``/``successor_id`` are ``String`` under serde, so
+        # a non-string id fails to parse there; Python used to accept it (#4521).
+        # Missing keys stay with the caller's existing KeyError path.
+        _require_str(data, "predecessor_id", "dependency")
+        _require_str(data, "successor_id", "dependency")
         raw_type = data.get("dep_type", "FS")
         try:
             dep_type = DependencyType(raw_type)
@@ -774,8 +800,8 @@ class Calendar:
 
         Raises:
             InvalidScheduleInput: If ``data`` is not a mapping, ``working_days``
-                is not an integer bitmask in range, ``hours_per_day`` is not a
-                number, or ``timezone`` is not a string.
+                is not an integer bitmask in range, ``exceptions`` is not a
+                list, ``hours_per_day`` is not a number, or ``timezone`` is not a string.
         """
         from trueppm_scheduler.engine import InvalidScheduleInput
 
@@ -807,9 +833,18 @@ class Calendar:
         tz = data.get("timezone", "UTC")
         if not isinstance(tz, str):
             raise InvalidScheduleInput(f"timezone must be a string (got {tz!r}).")
+        # Rust ``exceptions: Vec<DateRange>`` accepts only a JSON array. Python
+        # iterated any iterable, so ``""``/``{}`` parsed as "no exceptions" and
+        # ``null``/``5`` leaked a bare TypeError on a direct call (#4521).
+        raw_exceptions = data.get("exceptions", [])
+        if not isinstance(raw_exceptions, list):
+            raise InvalidScheduleInput(
+                f"exceptions must be a list (got {type(raw_exceptions).__name__}: "
+                f"{raw_exceptions!r})."
+            )
         return cls(
             working_days=wd,
-            exceptions=[DateRange.from_dict(e) for e in data.get("exceptions", [])],
+            exceptions=[DateRange.from_dict(e) for e in raw_exceptions],
             hours_per_day=hpd,
             timezone=tz,
         )
@@ -942,7 +977,8 @@ class Project:
         Raises:
             InvalidScheduleInput: If the document is not a mapping, a required
                 field is missing, or any nested task/dependency/calendar is
-                malformed (non-finite velocity samples included).
+                malformed (non-finite velocity samples included), or ``tasks``,
+                ``dependencies`` or ``velocity_samples`` is not a list.
         """
         # Wrap the raw KeyError/ValueError/TypeError from a malformed document in
         # the public InvalidScheduleInput so the documented exception surface is
@@ -972,8 +1008,8 @@ class Project:
                 id=data["id"],
                 name=data["name"],
                 start_date=_parse_date(data["start_date"], "start_date"),
-                tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
-                dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
+                tasks=[Task.from_dict(t) for t in _list_field(data, "tasks")],
+                dependencies=[Dependency.from_dict(d) for d in _list_field(data, "dependencies")],
                 calendar=Calendar.from_dict(data.get("calendar", {})),
                 velocity_samples=velocity_samples,
                 sprint_length_days=sprint_length_days,
