@@ -311,7 +311,7 @@ class DrivingEdge:
 
     A driving edge does **not** imply ``total_float(predecessor) <=
     total_float(successor)`` in general (#4269). The textbook identity needs the
-    link to be a fixed working-time offset counted in one unit, and three links
+    link to be a fixed working-time offset counted in one unit, and four links
     here are not:
 
     * a non-zero lag is calendar days, so it spans fewer working days once the
@@ -325,10 +325,17 @@ class DrivingEdge:
       two calendars the same calendar-time slack differs: a 7-day-week
       predecessor can float 10 days while the 5-day-week successor it drives
       floats 8.
+    * an SS/SF link out of a started predecessor measures from its recorded
+      ``actual_start`` (ADR-0132 §2a, #4523), which already happened: no slip of
+      the predecessor's own remaining work can move the link, so the backward
+      pass gives the predecessor no late-date bound from this edge. The link can
+      still be what holds the successor, so the predecessor's float — bounded
+      only by its other edges, if any — can run past the successor's.
 
-    With a zero lag into a work task on the predecessor's calendar the identity
-    holds. The scheduler's
-    ``test_cpm_invariants.py`` checks exactly that scope and pins both exceptions.
+    With a zero lag into a work task on the predecessor's calendar, read from a
+    start that is not a recorded actual, the identity holds. The scheduler's
+    ``test_cpm_invariants.py`` checks exactly that scope and pins all four
+    exceptions.
     """
 
     predecessor_id: str
