@@ -202,7 +202,7 @@ def test_every_public_callable_is_swept_or_exempt() -> None:
 
     import trueppm_scheduler as pkg
 
-    swept = " ".join(_entry_points())
+    swept = {key.split("(")[0].split(".")[-1] for key in _entry_points()}
     for name in pkg.__all__:
         obj = getattr(pkg, name)
         if not callable(obj) or not inspect.isfunction(obj):
