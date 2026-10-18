@@ -158,14 +158,16 @@ class Task:
             point — it is never silently scheduled on the pass-level calendar, where
             a typo would yield a plausible schedule on the wrong working week.
         live_day_end_on: Input only, read on a **completed milestone** with
-            recorded actuals (#4525). The day a previous, live run showed this
-            milestone on with ``milestone_at_day_end`` True — that run's
-            ``early_finish`` — or ``None``. When it names the milestone's recorded
-            day (``actual_finish``, else ``actual_start``), the closed milestone
-            stays at the end of that day: closing a milestone keeps the edge it
-            had live, even when a predecessor is still open. Otherwise the edge is
-            read from completed predecessors only, so no live forecast can move a
-            closed milestone. A caller that persists schedule output (as the
+            recorded actuals (#4525). The day the caller's previous run showed
+            this milestone on with ``milestone_at_day_end`` True — that run's
+            ``early_finish`` — or ``None``. While any of the milestone's
+            predecessors is still open and this names its recorded day
+            (``actual_finish``, else ``actual_start``), the milestone stays at the
+            end of that day: closing a milestone ahead of its work keeps the edge
+            it had live. Once every predecessor is complete (or there are none),
+            or it names another day, the edge is read from completed
+            predecessors, so a correction to them is honored. No path reads an
+            open task's forecast. A caller that persists schedule output (as the
             TruePPM API does) passes it back; ``None`` (the default) is always
             safe. Ignored on any other task.
     """

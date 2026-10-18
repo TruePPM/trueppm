@@ -412,12 +412,17 @@ pub fn forward_pass(
             // A completed milestone stays an instant (#4343, #4433), on the edge of
             // its day it would have been read at live.
             let recorded = tasks[i].actual_finish.or(tasks[i].actual_start);
-            // Frozen from the caller's last live run when it names the recorded
-            // day, else read from completed predecessors (#4525).
+            // Read from completed predecessors, except that while one is still
+            // open the edge the caller's previous run recorded on the recorded
+            // day stands in for the facts that work has not supplied (#4525).
             let live_start = match recorded {
                 Some(day) if tasks[i].duration_days() == 0 => {
-                    tasks[i].live_day_end_on != Some(day)
-                        && live_milestone_edge(idx, tasks, pg, deps, cals, &links, day)?
+                    let frozen = tasks[i].live_day_end_on == Some(day)
+                        && pg
+                            .graph
+                            .edges_directed(idx, Direction::Incoming)
+                            .any(|e| !tasks[e.source().index()].is_complete());
+                    !frozen && live_milestone_edge(idx, tasks, pg, deps, cals, &links, day)?
                 }
                 _ => true,
             };
@@ -639,8 +644,9 @@ fn pinned_placement(
 /// forecast — that let an open task's slip flip the edge and move the closed
 /// milestone's successors a working day either way. Completed predecessors are
 /// pinned themselves, so nothing live can move a closed milestone. The caller
-/// checks `Task::live_day_end_on` first, which freezes a live end-of-day edge
-/// when it names the recorded day. Mirrors the Python `_live_milestone_edge`.
+/// checks `Task::live_day_end_on` first, which keeps a recorded end-of-day edge
+/// only while a predecessor is still open. Mirrors the Python
+/// `_live_milestone_edge`.
 fn live_milestone_edge(
     idx: NodeIndex,
     tasks: &[Task],

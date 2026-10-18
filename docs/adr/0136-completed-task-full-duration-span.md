@@ -160,10 +160,13 @@ Rules:
   milestone, date or edge. Reading completed predecessors alone would still have moved
   successors when a milestone was signed off before its work was marked done (start of
   day), then back when the work was completed (end of day). So the edge is also frozen
-  from the one fact recorded at closure about open work: the input
-  `Task.live_day_end_on`, the day the caller's last live run showed the milestone at
-  the end of. When it names the recorded day the milestone stays at the end of it; a
-  different day (signed off later than forecast) does not carry. The API passes its
+  from the one fact recorded about open work: the input `Task.live_day_end_on`, the
+  day the caller's previous run showed the milestone at the end of. While any
+  predecessor is still open and it names the recorded day, the milestone stays at the
+  end of it. A different day (signed off later than forecast) does not carry, and
+  once every predecessor is complete the completed-predecessors reading decides
+  again — the freeze stands in for facts open work has not supplied, so it must not
+  outlive them: a corrected predecessor actual or a deleted link is re-read. The API passes its
   persisted `early_finish` / `milestone_at_day_end` back as that input. A caller that
   passes nothing gets the completed-predecessors reading. (Decided 2026-10-18,
   "freeze the edge at close": it keeps both #4433's "closing on the forecast day moves

@@ -110,7 +110,8 @@ change between releases. Pin an exact version (e.g.
   optional input, `Task.live_day_end_on`: the day your previous live run showed
   the milestone at the end of (`early_finish` where `milestone_at_day_end` was
   `True`). Pass it back and a milestone closed on its forecast day keeps its edge
-  even with work still open; leave it `None` and open work reads as not having
+  while work behind it is still open; once every predecessor is complete the
+  completed work decides. Leave it `None` and open work reads as not having
   placed it. The Rust/WASM engine accepts and honors the same key.
 - **`monte_carlo()` no longer reports P50/P80/P95 before `schedule()` under
   per-task calendars (#4429).** A task on a calendar sparser than its successor's

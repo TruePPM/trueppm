@@ -874,6 +874,46 @@ class TestMilestoneAtDayEnd:
         assert by_id["M"].milestone_at_day_end is False
         assert by_id["B"].early_start == date(2027, 3, 5)
 
+    @pytest.mark.parametrize("change", ["corrected_actual", "link_deleted"])
+    def test_the_frozen_edge_is_released_once_no_predecessor_is_open(self, change: str) -> None:
+        """The frozen edge stands in for open work only (#4525).
+
+        T (done Mon..Wed) -FS-> S (closed Wed) -FS-> U, with the previous run's
+        end-of-Wednesday handed back. Every predecessor is complete, so completed
+        work decides: correct T's finish to Tuesday, or delete the link, and S
+        drops to the start of Wednesday, where U starts. Freezing regardless kept
+        U a working day late after every such correction."""
+        wed = date(2027, 3, 3)
+        t_done = Task(
+            id="T",
+            name="T",
+            duration=timedelta(days=3),
+            actual_start=date(2027, 3, 1),
+            actual_finish=date(2027, 3, 2) if change == "corrected_actual" else wed,
+            percent_complete=100.0,
+        )
+        s = Task(
+            id="S",
+            name="S",
+            duration=timedelta(0),
+            actual_finish=wed,
+            percent_complete=100.0,
+            live_day_end_on=wed,
+        )
+        deps = [Dependency("S", "U")]
+        if change == "corrected_actual":
+            deps.append(Dependency("T", "S"))
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2027, 3, 1),
+            tasks=[t_done, s, Task(id="U", name="U", duration=timedelta(days=1))],
+            dependencies=deps,
+        )
+        by_id = {x.id: x for x in schedule(p).tasks}
+        assert by_id["S"].milestone_at_day_end is False
+        assert by_id["U"].early_start == wed
+
     def test_live_day_end_on_round_trips_through_to_dict(self) -> None:
         t = Task(id="M", name="M", duration=timedelta(0), live_day_end_on=date(2027, 3, 3))
         assert t.to_dict()["live_day_end_on"] == "2027-03-03"

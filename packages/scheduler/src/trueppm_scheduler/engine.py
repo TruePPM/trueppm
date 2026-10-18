@@ -104,10 +104,11 @@ dates. A pinned task with work is ordinary work to its successors; a pinned
 zero-duration task stays a milestone, an instant. With no actuals it sits at the
 start of its pinned day (#4343). With actuals it sits on its ``actual_finish`` (else
 ``actual_start``) day, at the edge of that day it had live (#4433): the end when
-completed work finishing that day placed it, or when the caller's last live run
-showed it at the end of that day (``Task.live_day_end_on``, #4525); the start
-otherwise — nothing precedes it, a floor (data date, SNET) held it, or open work
-behind it was never recorded as placing it. Only those fixed facts decide it, so no
+completed work finishing that day placed it, or — while a predecessor is still
+open — when the caller's previous run showed it at the end of that day
+(``Task.live_day_end_on``, #4525); the start otherwise: nothing precedes it, a
+floor (data date, SNET) held it, or open work behind it was never recorded as
+placing it. Only those fixed facts decide it, so no
 change to open work moves a closed milestone, and a caller that hands its output
 back closes a milestone on its forecast day without moving its successors.
 ``monte_carlo``
@@ -2149,12 +2150,16 @@ def _forward_pass(
             task.early_start, task.early_finish = pinned
             if task.duration.days == 0:
                 # A completed milestone stays an instant (#4343, #4433), on the
-                # edge of its day it had live (#4525): frozen from the caller's
-                # last live run when it names the recorded day, else read from
-                # completed predecessors.
+                # edge of its day it had live (#4525): read from completed
+                # predecessors, except that while one is still open the edge the
+                # caller's previous run recorded on the recorded day stands in for
+                # the facts that work has not yet supplied.
                 recorded = task.actual_finish or task.actual_start
+                frozen = task.live_day_end_on == recorded and any(
+                    not _is_complete(task_map[p]) for p in g.predecessors(node_id)
+                )
                 live_start = recorded is None or (
-                    task.live_day_end_on != recorded
+                    not frozen
                     and _live_milestone_edge(node_id, task_map, g, cal, links, cal_for, recorded)
                 )
                 instants[node_id], links[node_id] = _pinned_milestone_instant(
@@ -2462,14 +2467,15 @@ def _live_milestone_edge(
     milestone.
 
     Open work that placed the milestone live is still honored, through the one
-    fact recorded about it at closure: :attr:`Task.live_day_end_on`, the day the
-    caller's last live run showed it at the end of. The forward pass checks that
-    first and calls this only when it does not name the recorded day. Without it
-    — a caller that does not persist output, or a milestone signed off on a day
-    it was not forecast — open work reads as not having placed it: the start of
-    its recorded day. Both inputs are fixed while open work changes, so neither
-    path lets a live forecast move a closed milestone, and a live end-of-day
-    milestone closed out of sequence on its forecast day moves nothing.
+    fact recorded about it: :attr:`Task.live_day_end_on`, the day the caller's
+    previous run showed it at the end of. While any predecessor is still open
+    and that names the recorded day, the forward pass keeps the end-of-day edge
+    and does not call this. Otherwise — every predecessor complete, none at all,
+    no value handed back, or a milestone signed off on another day — this
+    reading decides, so a correction to completed work or a deleted link is
+    re-read rather than frozen. Neither path reads an open task's forecast, so
+    no change to open work moves a closed milestone, and one closed on its
+    forecast day ahead of its work moves nothing.
     """
     shown, _, _ = _place_milestone(
         node_id, task_map, g, cal, [recorded], links, cal_for, completed_only=True

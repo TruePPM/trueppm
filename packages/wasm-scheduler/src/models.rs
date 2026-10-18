@@ -100,10 +100,11 @@ pub struct Task {
     #[serde(default, skip_serializing_if = "is_false")]
     pub milestone_at_day_end: bool,
     /// Input only, read on a completed milestone with recorded actuals (#4525):
-    /// the day a previous live run showed it on at the end of the day (that run's
-    /// `early_finish` with `milestone_at_day_end` true), or `None`. When it names
-    /// the recorded day the closed milestone keeps its live end-of-day edge.
-    /// Mirrors the Python `Task.live_day_end_on`.
+    /// the day the caller's previous run showed it on at the end of the day (that
+    /// run's `early_finish` with `milestone_at_day_end` true), or `None`. While a
+    /// predecessor is still open and it names the recorded day, the closed
+    /// milestone keeps that end-of-day edge. Mirrors the Python
+    /// `Task.live_day_end_on`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_day_end_on: Option<NaiveDate>,
 
