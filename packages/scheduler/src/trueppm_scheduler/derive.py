@@ -36,6 +36,7 @@ from typing import Any
 
 from trueppm_scheduler.engine import (
     _START_ANCHORED,
+    InvalidScheduleInput,
     SchedulerError,
     ScheduleResult,
     _edge_anchor,
@@ -57,6 +58,7 @@ from trueppm_scheduler.engine import (
     _next_working_day,
     _prev_working_day,
     _project_free_instants,
+    _require_project,
     _resolve_task_calendars,
     _retreat_calendar_days,
     _safe_offset,
@@ -1337,16 +1339,28 @@ def derive_value(
 
     Raises:
         UnknownTaskError: If ``task_id`` names no task in the project.
-        ValueError: If ``quantity`` is not a known quantity.
+        InvalidScheduleInput: If ``project`` is not a :class:`Project`, or
+            ``quantity`` is not a known quantity (the message lists the allowed
+            values).
         SchedulerError: Propagated from :func:`schedule` for a degenerate project.
     """
-    q = quantity if isinstance(quantity, Quantity) else Quantity(quantity)
+    _require_project(project)
+    if isinstance(quantity, Quantity):
+        q = quantity
+    else:
+        try:
+            q = Quantity(quantity)
+        except (ValueError, TypeError) as err:
+            allowed = ", ".join(m.value for m in Quantity)
+            raise InvalidScheduleInput(
+                f"quantity must be one of {allowed} (got {quantity!r})."
+            ) from err
 
     if result is None:
         result = schedule(project)
 
     task_map: dict[str, Task] = {t.id: t for t in result.tasks}
-    task = task_map.get(task_id)
+    task = task_map.get(task_id) if isinstance(task_id, str) else None
     if task is None:
         raise UnknownTaskError(f"Task {task_id!r} is not in the project.")
 

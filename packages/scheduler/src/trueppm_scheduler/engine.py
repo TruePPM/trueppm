@@ -4000,6 +4000,16 @@ def _validate_project(project: Project) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _require_project(project: object) -> None:
+    """Refuse a non-:class:`Project` argument at a public entry point (#4518).
+
+    ``schedule(None)`` and friends otherwise reach ``project.tasks`` and leak a bare
+    ``AttributeError`` past the :class:`SchedulerError` contract.
+    """
+    if not isinstance(project, Project):
+        raise InvalidScheduleInput(f"project must be a Project (got {type(project).__name__}).")
+
+
 def schedule(project: Project) -> ScheduleResult:
     """Run CPM on a project and return a ScheduleResult.
 
@@ -4045,6 +4055,7 @@ def schedule(project: Project) -> ScheduleResult:
             or lag is negative/out of range.
         ValueError: If a dependency references an unknown task ID.
     """
+    _require_project(project)
     if not project.tasks:
         raise InvalidScheduleInput("Project must have at least one task.")
     _validate_project(project)
@@ -4476,6 +4487,7 @@ def _validate_monte_carlo_args(
     requirement. The schedule payload itself is validated separately by
     :func:`_validate_project`.
     """
+    _require_project(project)
     # ``runs`` is a documented public int param that sizes ``np.empty((runs, ...))``.
     # A non-int leaked a bare TypeError (a str from ``runs < 1``, a float from
     # ``np.empty``) past the SchedulerError contract — the same gap the ``seed``
@@ -4771,12 +4783,25 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
         InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent
             no-op is the failure this function exists to prevent, so an unknown id
             is refused rather than returning an unperturbed project that the caller
-            would report as a zero-impact what-if. A **completed** task (an
+            would report as a zero-impact what-if. A non-:class:`Project` ``project``,
+            a ``delta_days`` that is not an ``int`` (``bool`` included, as for
+            ``runs``/``seed``), or one whose magnitude exceeds
+            :data:`MAX_DURATION_DAYS` is refused too (#4518). A **completed** task (an
             ``actual_finish`` recorded or ``percent_complete`` at 100, the
             :func:`_is_complete` predicate) is refused for the same reason: its dates
             are actuals, so a duration shift would leave both :func:`schedule` and
             :func:`monte_carlo` exactly where they were (#4515).
     """
+    _require_project(project)
+    # bool is an int subclass but never a meaningful day offset; the magnitude bound
+    # keeps ``timedelta`` from raising a bare OverflowError on a huge int (#4518).
+    if isinstance(delta_days, bool) or not isinstance(delta_days, int):
+        raise InvalidScheduleInput(f"delta_days must be an integer (got {delta_days!r}).")
+    if abs(delta_days) > MAX_DURATION_DAYS:
+        raise InvalidScheduleInput(
+            f"delta_days exceeds the maximum magnitude of {MAX_DURATION_DAYS} days "
+            f"(got {delta_days})."
+        )
     target = next((t for t in project.tasks if t.id == task_id), None)
     if target is None:
         raise InvalidScheduleInput(f"Task {task_id!r} is not in project {project.id!r}.")

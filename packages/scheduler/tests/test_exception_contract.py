@@ -139,3 +139,65 @@ def test_dependency_field_mutation_conforms(field: str, value: Any) -> None:
     mutated = dataclasses.replace(project.dependencies[0], **{field: value})
     project.dependencies = [mutated]
     _assert_only_scheduler_error(f"Dependency.{field}={value!r}", project)
+
+
+# --- Public entry-point argument sweep (#4518) ------------------------------------
+#
+# #3846 swept the *fields* of Project/Task/Dependency. This sweeps the *arguments* of
+# every public entry point that takes a Project (or builds a model): each positional
+# argument x the adversarial vector, accepting only a SchedulerError. Denominator:
+# schedule, monte_carlo, derive_value (project/task_id/quantity), perturb_task_duration
+# (project/task_id/delta_days), Calendar.compose, DateRange (start/end).
+
+from trueppm_scheduler import DateRange, derive_value, perturb_task_duration  # noqa: E402
+
+
+def _entry_points() -> dict[str, Any]:
+    p = _base_project()
+    tid = p.tasks[0].id
+    return {
+        "schedule(project)": lambda a: schedule(a),
+        "monte_carlo(project)": lambda a: monte_carlo(a, runs=3),
+        "derive_value(project)": lambda a: derive_value(a, tid, "early_start"),
+        "derive_value(task_id)": lambda a: derive_value(p, a, "early_start"),
+        "derive_value(quantity)": lambda a: derive_value(p, tid, a),
+        "perturb_task_duration(project)": lambda a: perturb_task_duration(a, tid, 1),
+        "perturb_task_duration(task_id)": lambda a: perturb_task_duration(p, a, 1),
+        "perturb_task_duration(delta_days)": lambda a: perturb_task_duration(p, tid, a),
+        "Calendar.compose(calendars)": lambda a: Calendar.compose(a),
+        "Calendar.compose([element])": lambda a: Calendar.compose([a]),
+        "DateRange(start)": lambda a: DateRange(a, date(2026, 1, 2)),
+        "DateRange(end)": lambda a: DateRange(date(2026, 1, 1), a),
+    }
+
+
+@pytest.mark.parametrize(
+    "value", (*_ADVERSARIAL_VALUES, 10**9, "2026-01-01", [{"working_days": 3}])
+)
+@pytest.mark.parametrize("name", sorted(_entry_points()))
+def test_public_entry_point_arguments_conform(name: str, value: Any) -> None:
+    """Every public entry point refuses a wrong-typed argument with a SchedulerError."""
+    try:
+        _entry_points()[name](value)
+    except SchedulerError:
+        pass
+    except Exception as exc:
+        pytest.fail(f"{name} with {value!r} leaked {type(exc).__name__}: {exc}")
+
+
+def test_derive_value_quantity_error_lists_allowed() -> None:
+    p = _base_project()
+    with pytest.raises(SchedulerError, match="early_start"):
+        derive_value(p, p.tasks[0].id, "nope")
+
+
+@pytest.mark.parametrize("delta", [True, False, 10**9, -(10**9), 1.5])
+def test_perturb_rejects_bool_overflow_and_float(delta: Any) -> None:
+    p = _base_project()
+    with pytest.raises(SchedulerError):
+        perturb_task_duration(p, p.tasks[0].id, delta)
+
+
+def test_string_date_range_refused_at_construction() -> None:
+    with pytest.raises(SchedulerError):
+        DateRange("2026-01-01", "2026-01-02")  # type: ignore[arg-type]

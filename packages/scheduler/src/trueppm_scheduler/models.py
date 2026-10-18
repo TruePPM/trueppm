@@ -79,6 +79,16 @@ class DateRange:
     end: date
 
     def __post_init__(self) -> None:
+        # A string bound is otherwise accepted and only surfaces later as a bare
+        # AttributeError ('str' has no 'toordinal') deep in schedule() (#4518).
+        for name in ("start", "end"):
+            value = getattr(self, name)
+            if not isinstance(value, date):
+                from trueppm_scheduler.engine import InvalidScheduleInput
+
+                raise InvalidScheduleInput(
+                    f"DateRange {name} must be a date (got {type(value).__name__})."
+                )
         if self.end < self.start:
             msg = f"end ({self.end}) must be >= start ({self.start})"
             raise ValueError(msg)
@@ -882,8 +892,24 @@ class Calendar:
         Returns:
             A new :class:`Calendar` whose non-working time is the union of every
             source's non-working time.
+
+        Raises:
+            InvalidScheduleInput: If ``calendars`` is not iterable or holds anything
+                other than :class:`Calendar` instances.
         """
-        cals = list(calendars)
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        try:
+            cals = list(calendars)
+        except TypeError as err:
+            raise InvalidScheduleInput(
+                f"calendars must be an iterable of Calendar (got {type(calendars).__name__})."
+            ) from err
+        for c in cals:
+            if not isinstance(c, Calendar):
+                raise InvalidScheduleInput(
+                    f"calendars must contain only Calendar instances (got {type(c).__name__})."
+                )
         if not cals:
             return cls()
         working_days = cals[0].working_days
