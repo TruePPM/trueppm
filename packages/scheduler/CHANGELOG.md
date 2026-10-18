@@ -26,7 +26,10 @@ change between releases. Pin an exact version (e.g.
   `p50`/`p80`/`p95` keywords or positionally are unchanged; `percentiles=` is a
   new keyword-only alternative. Not backward compatible: `dataclasses.fields()`
   no longer lists the `p*` fields, and assigning to `mc.p50` etc. now raises
-  `AttributeError` (replace `mc.percentiles[50]` instead).
+  `AttributeError` (assign `mc.percentiles[50] = Percentile(...)` instead).
+  `dataclasses.replace(mc, p50=...)` raises `TypeError` for the same reason,
+  `repr()` and `==` now key off `percentiles`, and `percentiles=` must contain
+  levels 50, 80 and 95 (extra levels are kept; `to_dict()` ignores them).
 
 ### Fixed
 

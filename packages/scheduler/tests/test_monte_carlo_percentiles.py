@@ -52,6 +52,47 @@ def test_mixing_or_omitting_forms_is_rejected() -> None:
         MonteCarloResult("p", 1, p50=D1)
 
 
+def test_percentiles_missing_a_required_level_is_rejected() -> None:
+    with pytest.raises(TypeError, match=r"missing \[50, 80, 95\]"):
+        MonteCarloResult("p", 1, percentiles={})
+    with pytest.raises(TypeError, match=r"missing \[80\]"):
+        MonteCarloResult("p", 1, percentiles={50: Percentile(D1), 95: Percentile(D3)})
+
+
+def test_derived_properties_are_read_only() -> None:
+    mc = MonteCarloResult("p", 1, D1, D2, D3)
+    with pytest.raises(AttributeError):
+        mc.p50 = D2  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        mc.p80_at_day_start = True  # type: ignore[misc]
+    mc.percentiles[50] = Percentile(D2, True)  # the replacement idiom
+    assert (mc.p50, mc.p50_at_day_start) == (D2, True)
+
+
+def test_extra_level_round_trips_but_to_dict_ignores_it() -> None:
+    levels = {
+        50: Percentile(D1),
+        80: Percentile(D2),
+        90: Percentile(D2, True),
+        95: Percentile(D3),
+    }
+    mc = MonteCarloResult("p", 1, percentiles=levels)
+    assert mc.percentiles[90] == Percentile(D2, True)
+    out = mc.to_dict()
+    assert "p90" not in out and "p90_at_day_start" not in out
+    assert out["p80"] == D2.isoformat() and out["p95"] == D3.isoformat()
+
+
+def test_replace_with_derived_names_and_value_semantics() -> None:
+    mc = MonteCarloResult("p", 1, D1, D2, D3)
+    with pytest.raises(TypeError):
+        dataclasses.replace(mc, p50=D2)  # type: ignore[call-arg]
+    assert dataclasses.replace(mc, runs=2).p50 == D1
+    assert "percentiles=" in repr(mc)
+    assert mc == MonteCarloResult("p", 1, percentiles=dict(mc.percentiles))
+    assert mc != MonteCarloResult("p", 1, D2, D2, D3)
+
+
 def test_percentile_is_frozen() -> None:
     with pytest.raises(dataclasses.FrozenInstanceError):
         Percentile(D1).at_day_start = True  # type: ignore[misc]

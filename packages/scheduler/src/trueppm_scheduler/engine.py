@@ -517,7 +517,9 @@ class MonteCarloResult:
 
     Construction accepts either the established ``p50``/``p80``/``p95`` keywords
     (and the ``*_at_day_start`` flags), in their original positional order, or
-    ``percentiles=`` — not both.
+    ``percentiles=`` — not both. ``percentiles`` must contain at least levels 50,
+    80 and 95 (a ``TypeError`` names any missing); further levels are kept but not
+    emitted by :meth:`to_dict`.
 
     Attributes:
         project_id: The simulated project's id.
@@ -562,6 +564,11 @@ class MonteCarloResult:
                     "arguments to MonteCarloResult, not both"
                 )
             levels = dict(percentiles)
+            missing = [q for q in (50, 80, 95) if q not in levels]
+            if missing:
+                raise TypeError(
+                    f"percentiles= must include levels 50, 80 and 95; missing {missing}"
+                )
         else:
             if any(v is None for v in legacy):
                 raise TypeError("MonteCarloResult requires p50, p80 and p95 (or percentiles=)")
