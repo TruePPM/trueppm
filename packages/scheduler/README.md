@@ -471,8 +471,8 @@ calendar-aware lag, cycle detection) and Monte Carlo simulation (PERT-Beta,
 velocity sampling, `derive_value()` explainability) are stable and exercised
 by the fuzz, mutation, and MS-Project-parity suites described in
 [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md).
-Two defects found late in the 0.4 cycle are still being worked on as this
-ships — if either is still open when 0.4 tags, it carries into 0.5:
+Four defects found late in the 0.4 cycle are still being worked on as this
+ships — if any is still open when 0.4 tags, it carries into 0.5:
 
 - [#4523](https://gitlab.com/trueppm/trueppm/-/issues/4523) — an in-progress
   SS/SF lag is re-anchored on `early_start` (remaining work), re-adding the
@@ -480,38 +480,61 @@ ships — if either is still open when 0.4 tags, it carries into 0.5:
 - [#4524](https://gitlab.com/trueppm/trueppm/-/issues/4524) — `derive_value()`
   replays a full forward+backward CPM pass whenever any task has duration 0,
   about 140x slower on affected projects.
+- [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) — a completed
+  milestone's day edge is re-derived from live predecessors, so a pinned
+  milestone can move and FS-only CPM becomes non-monotone (a regression of
+  the #4433 fix).
+- [#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535) — the velocity
+  sampler drops every zero-point sprint before bootstrapping, so a team with
+  lean sprints is forecast as if those sprints never happened.
 
 **Known limitations open against 0.4**, grouped by area — every item below is
 an open issue; nothing in this list is fixed yet, regardless of which future
 release it is scheduled for:
 
-- **CPM correctness** — a completed milestone's late dates can still move a
-  pinned date on an FS-only network
-  ([#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525)); a work-task
-  late-finish seed can ignore a start-of-day project finish on wider calendars
+- **CPM correctness** — the in-flight 0.4 issue above
+  ([#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525)) closes here if
+  it does not make the 0.4 tag; a work-task late-finish seed can ignore a
+  start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
   *into* a summary task do not fan out to every leaf the way the successor
   side does
-  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); and several
+  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); `perturb_task_duration(duration=0)`
+  on a started milestone can mark it complete and move the schedule as a side
+  effect of the perturbation
+  ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)); `driving_edges`
+  can omit a link whose calendar-day lag lands on non-working time even
+  though removing it does move the successor
+  ([#4537](https://gitlab.com/trueppm/trueppm/-/issues/4537));
+  `expand_summary_dependencies` can invent a sibling ordering from a
+  summary-to-own-child link that `find_cycle` correctly flags as a cycle
+  ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538)); a completed
+  task with no recorded actuals can be moved later than the data date, a
+  non-monotonicity where knowing less about a task slips the schedule
+  further than knowing more
+  ([#4539](https://gitlab.com/trueppm/trueppm/-/issues/4539)); and several
   MS-Project-parity cases — SF out of a milestone, mixed SF+FS/SS/FF at the
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
   [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
-- **Monte Carlo** — a velocity-sampled duration is re-expanded against the
-  task's own calendar rather than the sprint calendar it was sampled against
+- **Monte Carlo** — the in-flight 0.4 velocity-sampler issue above
+  ([#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535)) closes here if
+  it does not make the 0.4 tag; a velocity-sampled duration is re-expanded
+  against the task's own calendar rather than the sprint calendar it was
+  sampled against
   ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
   as a lower bound rather than a full forecast
-  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); and three
+  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); three
   `monte_carlo()` keyword caps still leak a bare `TypeError` instead of the
   documented `SchedulerError` contract
-  ([#4464](https://gitlab.com/trueppm/trueppm/-/issues/4464)).
+  ([#4464](https://gitlab.com/trueppm/trueppm/-/issues/4464)); and percentile
+  estimation is imprecise at very low run counts (10–11 runs), where the
+  reported P95 can have only 90% of runs on or before it
+  ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)).
 - **Calendars** — a zero-lag milestone-to-milestone link into a narrower
   per-task calendar can overstate float
-  ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)), and float
-  computation still falls back to an O(span) day-by-day Python loop for any
-  task on a per-task calendar — up to a ~1000x cliff on wide calendars
-  ([#2838](https://gitlab.com/trueppm/trueppm/-/issues/2838)).
+  ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)).
 - **Scale / performance** — a project above roughly 73,000 tasks at a 5-day
   average duration is refused as "longer than 1,000 years" by a span guard
   meant to catch pathological input, not real large projects
@@ -543,9 +566,12 @@ they will ship with 0.5 or that release will slip:
   and extending the independent CPM oracle to milestone late dates/floats
   ([#4275](https://gitlab.com/trueppm/trueppm/-/issues/4275)); mutation-testing
   phase 2 brings `engine.py` itself into scope
-  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); the two
-  in-flight 0.4 issues above close here if they do not make the 0.4 tag; three
-  more bare-exception leaks close the `SchedulerError` contract
+  ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)); the in-flight
+  0.4 issues above — [#4523](https://gitlab.com/trueppm/trueppm/-/issues/4523),
+  [#4524](https://gitlab.com/trueppm/trueppm/-/issues/4524),
+  [#4525](https://gitlab.com/trueppm/trueppm/-/issues/4525) — close here if
+  they do not make the 0.4 tag; three more bare-exception leaks close the
+  `SchedulerError` contract
   ([#4162](https://gitlab.com/trueppm/trueppm/-/issues/4162),
   [#4132](https://gitlab.com/trueppm/trueppm/-/issues/4132)); and the span-guard
   bug above will be fixed, raising the supported envelope toward 50,000 tasks
@@ -556,16 +582,14 @@ they will ship with 0.5 or that release will slip:
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); the Monte Carlo
   memory footprint above is chunked over runs and dropped to float32
   ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)); the CPM
-  duration-expansion and per-task-calendar float fallback above move off the
-  O(duration)/O(span) day-walk
-  ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531),
-  [#2838](https://gitlab.com/trueppm/trueppm/-/issues/2838)).
-- **Monte Carlo correctness** — the sprint-horizon clamp and
-  calendar-mismatch bugs above will be fixed
-  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469),
-  [#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); an in-progress
-  task's sampled duration no longer has its optimistic tail truncated by
-  subtracting deterministic elapsed time from the sampled total
+  duration-expansion day-walk above moves off O(duration)
+  ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531)).
+- **Monte Carlo correctness** — the in-flight 0.4 issue above
+  ([#4535](https://gitlab.com/trueppm/trueppm/-/issues/4535)) closes here if
+  it does not make the 0.4 tag; the sprint-horizon clamp bug above will be
+  fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); an
+  in-progress task's sampled duration no longer has its optimistic tail
+  truncated by subtracting deterministic elapsed time from the sampled total
   ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));
@@ -579,15 +603,29 @@ they will ship with 0.5 or that release will slip:
   DOI) will be corrected
   ([#3857](https://gitlab.com/trueppm/trueppm/-/issues/3857)).
 
-May also land in 0.5, but not committed: the FF/SF-into-summary fan-out and
-`derive_value()` binding/`imposed_date` mismatch above
+May also land in 0.5, but not committed: the velocity-sampled duration
+re-expansion on the wrong calendar above
+([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)), the
+FF/SF-into-summary fan-out and `derive_value()` binding/`imposed_date`
+mismatch above
 ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437),
 [#4438](https://gitlab.com/trueppm/trueppm/-/issues/4438)), the remaining
 MS-Project-parity gaps, the zero-lag milestone-calendar overstatement
 ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)), the three leaking
-Monte Carlo keyword caps, and a `monte_carlo(return_samples=True)` option to
+Monte Carlo keyword caps, a `monte_carlo(return_samples=True)` option to
 hand back the raw matrices
-([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)).
+([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)), and five findings
+from the 2026-10-18 scheduler audit above: the `perturb_task_duration`
+milestone side effect
+([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)), the
+`driving_edges` false negative on calendar-lag-onto-non-working-time
+([#4537](https://gitlab.com/trueppm/trueppm/-/issues/4537)), the
+`expand_summary_dependencies` sibling-ordering bug on invalid input
+([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538)), the
+completed-task-without-actuals non-monotonicity
+([#4539](https://gitlab.com/trueppm/trueppm/-/issues/4539)), and Monte Carlo
+percentile imprecision at very low run counts
+([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)).
 
 **Later — a sequence, not a schedule.** Versions past 0.5 carry no date; what
 ships and in what order is set by evidence from the 0.4 beta and 0.5, not by
