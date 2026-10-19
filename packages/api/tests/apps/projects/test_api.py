@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from datetime import date
 from typing import Any
 
@@ -1052,6 +1053,214 @@ class TestCrossProjectDependency:
         assert r.status_code == 400
         assert r.data["code"] == "cyclic_dependency"
         assert r.data["detail"] == "cyclic_dependency"
+
+    def _three_project_cycle(
+        self,
+        client: APIClient,
+        user: object,
+        calendar: Calendar,
+        *,
+        member_of_third: bool,
+        two_hop: bool = False,
+    ) -> tuple[Any, Task, Task, list[Task]]:
+        """A1 → C1 → B1 accepted, then the caller proposes B1 → A1 (#4588).
+
+        With ``two_hop`` the path through C is A1 → C1 → C2 → B1, so C2 has no
+        edge to any task in A or B. The caller is Admin on A and B; C sits in the
+        same program and the caller is a member of it only when
+        ``member_of_third``. The edges through C are created by a separate
+        Scheduler on all three projects. Returns the response, A1, B1 and the
+        C tasks on the path in order.
+        """
+        program = Program.objects.create(name="GA Launch")
+        projects = [
+            Project.objects.create(
+                name=name, start_date=date(2026, 3, 2), calendar=calendar, program=program
+            )
+            for name in ("Alpha", "Bravo", "Charlie")
+        ]
+        p_a, p_b, p_c = projects
+        ProjectMembership.objects.create(project=p_a, user=user, role=Role.ADMIN)
+        ProjectMembership.objects.create(project=p_b, user=user, role=Role.ADMIN)
+        if member_of_third:
+            ProjectMembership.objects.create(project=p_c, user=user, role=Role.VIEWER)
+        a1 = Task.objects.create(project=p_a, name="Alpha task", duration=2)
+        b1 = Task.objects.create(project=p_b, name="Bravo task", duration=2)
+        c_tasks = [Task.objects.create(project=p_c, name="Charlie secret title", duration=2)]
+        if two_hop:
+            c_tasks.append(Task.objects.create(project=p_c, name="Charlie inner title", duration=2))
+        other = get_user_model().objects.create_user(username="tri-scheduler", password="pw")
+        for p in projects:
+            ProjectMembership.objects.create(project=p, user=other, role=Role.SCHEDULER)
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        path = [a1, *c_tasks, b1]
+        for pred, succ in itertools.pairwise(path):
+            assert self._post_edge(other_client, pred, succ).status_code == 201
+        r = self._post_edge(client, b1, a1)
+        assert r.status_code == 400, r.data
+        assert r.data["code"] == "cyclic_dependency"
+        return r, a1, b1, c_tasks
+
+    def _assert_only_endpoints_labeled(
+        self, r: Any, a1: Task, b1: Task, hidden: list[Task]
+    ) -> None:
+        cycle = r.data["cycle"]
+        names = [node["name"] for node in cycle]
+        ids = [node["id"] for node in cycle]
+        for t in hidden:
+            assert t.name not in names
+            assert str(t.pk) not in ids
+            assert str(t.pk) not in r.data["offending"]
+        # short_ids are per-project sequences (C1's can equal A1's), so prove the
+        # hex_id is withheld by checking every labeled node is an endpoint and
+        # every other node is an all-blank placeholder.
+        labeled = [node for node in cycle if node["id"]]
+        assert {node["id"] for node in labeled} == {str(a1.pk), str(b1.pk)}
+        blanks = [node for node in cycle if not node["id"]]
+        assert blanks == [{"id": "", "name": "", "hex_id": ""}] * len(hidden)
+        assert len(r.data["offending"]) == len(cycle)
+
+    def test_cycle_error_redacts_nodes_in_projects_caller_cannot_read(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4588: C1 is blanked for a caller with no role on project C.
+
+        Premise, stated honestly: C1 is *adjacent* to A1 and B1, so the edges
+        A1 → C1 and C1 → B1 already show it on the dependency counterpart card to
+        anyone who can read A or B. The refusal is deliberately stricter than that
+        card (see ``_cycle_readable_project_ids``); the two-hop test below is the
+        one where the blanked node is unreadable by every other route.
+        """
+        r, a1, b1, c_tasks = self._three_project_cycle(
+            client, user, calendar, member_of_third=False
+        )
+        self._assert_only_endpoints_labeled(r, a1, b1, c_tasks)
+
+    def test_cycle_error_redacts_two_hop_node_with_no_edge_to_caller_projects(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4588: A1 → C1 → C2 → B1 — C2 has no edge to A or B, so nothing else
+        the caller can read discloses it; the refusal must not either."""
+        r, a1, b1, c_tasks = self._three_project_cycle(
+            client, user, calendar, member_of_third=False, two_hop=True
+        )
+        assert len(c_tasks) == 2
+        self._assert_only_endpoints_labeled(r, a1, b1, c_tasks)
+
+    def test_cycle_error_names_nodes_in_projects_caller_can_read(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4588 over-redaction guard: a member of the third project sees it named."""
+        r, _a1, _b1, c_tasks = self._three_project_cycle(
+            client, user, calendar, member_of_third=True
+        )
+        c1 = c_tasks[0]
+        cycle = r.data["cycle"]
+        assert {"id": str(c1.pk), "name": "Charlie secret title", "hex_id": c1.short_id} in cycle
+        assert all(node["name"] for node in cycle)
+
+    def test_cycle_readable_set_has_trashed_project_floor(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4577 floor: a membership on a trashed project confers no read here either.
+
+        The program cycle scope already drops trashed projects, so no API request
+        can put one on the path; assert the floor at the readable-set helper.
+        """
+        from trueppm_api.apps.projects.serializers import _cycle_readable_project_ids
+
+        program = Program.objects.create(name="GA Launch")
+        p_c = Project.objects.create(
+            name="Charlie", start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=p_c, user=user, role=Role.ADMIN)
+
+        class _Req:
+            auth = None
+
+        req = _Req()
+        req.user = user  # type: ignore[attr-defined]
+        assert _cycle_readable_project_ids(req, {p_c.pk}) == {p_c.pk}
+        p_c.is_deleted = True
+        p_c.save(update_fields=["is_deleted"])
+        assert _cycle_readable_project_ids(req, {p_c.pk}) == set()
+
+    def test_cycle_readable_set_honors_agent_opt_out(
+        self, user: object, calendar: Calendar, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ADR-0678: a project withheld from an agent token is not readable here,
+        even with a live membership. No agent token reaches this write path today
+        (see the helper's docstring), so this pins the defense-in-depth branch."""
+        from trueppm_api.apps.projects import mcp_settings
+        from trueppm_api.apps.projects.serializers import _cycle_readable_project_ids
+
+        program = Program.objects.create(name="GA Launch")
+        p_open, p_closed = (
+            Project.objects.create(
+                name=name, start_date=date(2026, 3, 2), calendar=calendar, program=program
+            )
+            for name in ("Open", "Closed")
+        )
+        for p in (p_open, p_closed):
+            ProjectMembership.objects.create(project=p, user=user, role=Role.ADMIN)
+
+        class _Req:
+            auth = None
+
+        req = _Req()
+        req.user = user  # type: ignore[attr-defined]
+        both = {p_open.pk, p_closed.pk}
+        # Human caller: the opt-out helper answers None and filters nothing.
+        assert _cycle_readable_project_ids(req, both) == both
+        monkeypatch.setattr(
+            mcp_settings,
+            "mcp_visible_project_ids",
+            lambda _request: Project.objects.exclude(pk=p_closed.pk).values_list("pk", flat=True),
+        )
+        assert _cycle_readable_project_ids(req, both) == {p_open.pk}
+
+    def test_cycle_error_redacts_interior_nodes_of_endpoint_project_reached_by_program_role(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4588 round 2: the endpoint *project* is not a whitelist.
+
+        The caller is Scheduler on A and a program Viewer with no role on B, so the
+        D5 consent gate lets them link to B1 — but GET /tasks/?project=B shows them
+        nothing. Existing edges B1 → B2 → B3 → A1; the caller proposes A1 → B1.
+        Only the two linked tasks may be named; B2 and B3 must arrive blank.
+        """
+        program = Program.objects.create(name="GA Launch")
+        p_a, p_b = (
+            Project.objects.create(
+                name=name, start_date=date(2026, 3, 2), calendar=calendar, program=program
+            )
+            for name in ("Alpha", "Bravo")
+        )
+        ProjectMembership.objects.create(project=p_a, user=user, role=Role.SCHEDULER)
+        ProgramMembership.objects.create(program=program, user=user, role=Role.VIEWER)
+        a1 = Task.objects.create(project=p_a, name="Alpha task", duration=2)
+        b_tasks = [
+            Task.objects.create(project=p_b, name=f"B interior secret {i}", duration=2)
+            for i in (1, 2, 3)
+        ]
+        b1, b2, b3 = b_tasks
+        other = get_user_model().objects.create_user(username="ab-scheduler", password="pw")
+        for p in (p_a, p_b):
+            ProjectMembership.objects.create(project=p, user=other, role=Role.SCHEDULER)
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        for pred, succ in itertools.pairwise([b1, b2, b3, a1]):
+            assert self._post_edge(other_client, pred, succ).status_code == 201
+
+        listed = client.get("/api/v1/tasks/", {"project": str(p_b.pk)})
+        assert listed.status_code == 200
+        assert listed.data["count"] == 0  # B's tasks are not readable to this caller
+
+        r = self._post_edge(client, a1, b1)
+        assert r.status_code == 400, r.data
+        assert r.data["code"] == "cyclic_dependency"
+        self._assert_only_endpoints_labeled(r, a1, b1, [b2, b3])
 
     # -- D5: minimal visibility card ----------------------------------------
 

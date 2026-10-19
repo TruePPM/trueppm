@@ -1173,9 +1173,22 @@ export interface CyclicDependencyError {
   /** @deprecated legacy alias of `code` kept on the wire for one minor (#3800). */
   detail: string;
   offending: string[];
-  /** @deprecated legacy alias of `offending` kept on the wire for one minor (#3800). */
+  /**
+   * @deprecated legacy alias of `offending` kept on the wire for one minor (#3800).
+   * A node in a project the caller cannot read arrives with every field `""` (#4588).
+   */
   cycle: { id: string; name: string; hex_id: string }[];
 }
+
+/**
+ * Label for a cycle node the server withheld (#4588).
+ *
+ * A cross-project cycle is detected over the whole program, so its path can run
+ * through a project the caller has no role on. The server sends such a node as
+ * an all-blank placeholder (`id`, `name` and `hex_id` all `""`) rather than
+ * dropping it, so the path keeps its shape; this is what the toast shows for it.
+ */
+export const RESTRICTED_CYCLE_NODE_LABEL = 'a task you can’t view';
 
 /**
  * Render a {@link CyclicDependencyError} as a single-line user-facing string.
@@ -1186,7 +1199,9 @@ export interface CyclicDependencyError {
  * overwhelming the toast (#356 AC).
  */
 export function formatCycleMessage(err: CyclicDependencyError): string {
-  const names = err.cycle.map((node) => node.name || node.hex_id || node.id);
+  const names = err.cycle.map(
+    (node) => node.name || node.hex_id || node.id || RESTRICTED_CYCLE_NODE_LABEL,
+  );
   const path =
     names.length <= 4
       ? names.join(' → ')
