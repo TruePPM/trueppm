@@ -29,7 +29,10 @@ const useSprintRetroPriorMock = vi.fn<() => SprintRetroQueryResult>(() => ({
   isLoading: false,
   error: null,
 }));
-const saveMutateMock = vi.fn<(payload: SaveRetroPayload) => void>();
+const saveMutateMock =
+  vi.fn<
+    (payload: SaveRetroPayload, opts?: { onSuccess?: (data: SprintRetroPayload) => void }) => void
+  >();
 const useSaveSprintRetroMock = vi.fn<() => MutationResult<SaveRetroPayload>>(() => ({
   mutate: saveMutateMock,
   isPending: false,
@@ -252,5 +255,71 @@ describe('RetroPanel', () => {
     const payload = saveMutateMock.mock.calls[0][0];
     expect(payload.notes).toBe('team unblocked');
     expect(payload.action_items).toEqual([{ text: 'Add deploy gate', story_points: 3 }]);
+  });
+
+  it('sends each persisted item id back so the save edits it instead of replacing it (#4591)', async () => {
+    useSprintRetroMock.mockReturnValue({
+      data: fullRetro({
+        action_items: [
+          {
+            id: 'ai1',
+            text: 'Add deploy gate',
+            assignee: null,
+            assignee_username: null,
+            story_points: 3,
+            promoted_task_id: 'task-uuid-aaaaaa',
+            created_at: '2026-04-15T00:00:00Z',
+          },
+        ],
+      }),
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<RetroPanel sprintId="sp-1" isClosed={true} />);
+    await screen.findByDisplayValue('Add deploy gate');
+    await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
+    await userEvent.type(screen.getByLabelText(/Action item 2 text/i), 'New thing');
+    await userEvent.click(screen.getByRole('button', { name: /Save notes & actions/i }));
+
+    const payload = saveMutateMock.mock.calls[0][0];
+    expect(payload.action_items).toEqual([
+      { id: 'ai1', text: 'Add deploy gate', story_points: 3 },
+      { text: 'New thing', story_points: null },
+    ]);
+  });
+
+  it('adopts the server ids after a save so the next save does not recreate the items', async () => {
+    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
+    saveMutateMock.mockImplementation((_payload, opts) => {
+      opts?.onSuccess?.(
+        fullRetro({
+          action_items: [
+            {
+              id: 'ai-new',
+              text: 'Add deploy gate',
+              assignee: null,
+              assignee_username: null,
+              story_points: null,
+              promoted_task_id: null,
+              created_at: '2026-04-15T00:00:00Z',
+            },
+          ],
+        }),
+      );
+    });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+    await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
+    await userEvent.type(screen.getByLabelText(/Action item 1 text/i), 'Add deploy gate');
+    const saveBtn = screen.getByRole('button', { name: /Save notes & actions/i });
+    await userEvent.click(saveBtn);
+    await userEvent.click(saveBtn);
+
+    expect(saveMutateMock).toHaveBeenCalledTimes(2);
+    expect(saveMutateMock.mock.calls[0][0].action_items).toEqual([
+      { text: 'Add deploy gate', story_points: null },
+    ]);
+    expect(saveMutateMock.mock.calls[1][0].action_items).toEqual([
+      { id: 'ai-new', text: 'Add deploy gate', story_points: null },
+    ]);
   });
 });

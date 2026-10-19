@@ -5,6 +5,8 @@ import type { SprintRetroActionItem } from '@/hooks/useSprints';
 import { ExternalLinkIcon } from '@/components/Icons';
 
 export interface DraftActionItem {
+  /** Server id once the item is persisted; sent back on save so it is edited, not replaced. */
+  id?: string;
   text: string;
   story_points: string;
 }

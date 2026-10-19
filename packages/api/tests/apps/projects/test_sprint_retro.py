@@ -529,3 +529,224 @@ def test_post_rejects_out_of_range_assignee_id_with_400(project: Project, member
     )
     assert resp.status_code == 400
     assert "action_items" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# POST applies action items as a diff, not a replace (#4591)
+# ---------------------------------------------------------------------------
+
+
+def _save(user: object, sprint: Sprint, items: list[dict[str, Any]], notes: str = "") -> Any:
+    return _client(user).post(
+        f"/api/v1/sprints/{sprint.pk}/retro/",
+        {"notes": notes, "action_items": items},
+        format="json",
+    )
+
+
+def _ids_by_text(resp: Any) -> dict[str, str]:
+    # Items created together can tie on created_at, so never unpack by position.
+    return {i["text"]: i["id"] for i in resp.data["action_items"]}
+
+
+@pytest.mark.django_db
+def test_resave_preserves_promotion_link_and_item_id(project: Project, member: object) -> None:
+    """A promoted item re-saved by id keeps its id and its ``promoted_task_id``.
+
+    The old POST hard-deleted every live item and bulk-created replacements from
+    ``text``/``assignee``/``story_points`` only, so the next save after a promotion
+    silently cut the link to the promoted task and minted a new id.
+    """
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "Fix flaky deploy"}])
+    item_id = first.data["action_items"][0]["id"]
+
+    promote = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retrospective/action-items/{item_id}/promote/",
+        {},
+        format="json",
+    )
+    assert promote.status_code == 201
+    task_id = promote.data["task"]["id"]
+
+    resp = _save(member, s, [{"id": item_id, "text": "Fix flaky deploy"}], notes="later edit")
+    assert resp.status_code == 200
+    assert [i["id"] for i in resp.data["action_items"]] == [item_id]
+    assert resp.data["action_items"][0]["promoted_task_id"] == task_id
+    item = RetroActionItem.objects.get(pk=item_id)
+    assert not item.is_deleted
+    assert str(item.promoted_task_id) == task_id
+    assert RetroActionItem.objects.filter(retro__sprint=s).count() == 1
+
+
+@pytest.mark.django_db
+def test_resave_unchanged_items_keeps_ids_and_writes_nothing(
+    project: Project, member: object
+) -> None:
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "a", "story_points": 2}, {"text": "b"}])
+    by_text = _ids_by_text(first)
+    ids = [by_text["a"], by_text["b"]]
+    before = {
+        r.pk: (r.server_version, r.sync_seq) for r in RetroActionItem.objects.filter(pk__in=ids)
+    }
+
+    second = _save(
+        member, s, [{"id": ids[0], "text": "a", "story_points": 2}, {"id": ids[1], "text": "b"}]
+    )
+    assert second.status_code == 200
+    assert _ids_by_text(second) == by_text
+    assert RetroActionItem.objects.filter(retro__sprint=s).count() == 2
+    after = {
+        r.pk: (r.server_version, r.sync_seq) for r in RetroActionItem.objects.filter(pk__in=ids)
+    }
+    assert after == before
+
+
+@pytest.mark.django_db
+def test_edit_by_id_updates_in_place_and_advances_versions(
+    project: Project, member: object
+) -> None:
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "draft", "assignee": member.pk}])  # type: ignore[attr-defined]
+    item_id = first.data["action_items"][0]["id"]
+    before = RetroActionItem.objects.get(pk=item_id)
+
+    # `assignee` omitted on the edit: the stored value is kept, not cleared.
+    resp = _save(member, s, [{"id": item_id, "text": "final", "story_points": 3}])
+    assert resp.status_code == 200
+    after = RetroActionItem.objects.get(pk=item_id)
+    assert after.text == "final"
+    assert after.story_points == 3
+    assert after.assignee_id == member.pk  # type: ignore[attr-defined]
+    assert after.server_version == before.server_version + 1
+    assert after.sync_seq > before.sync_seq
+
+
+@pytest.mark.django_db
+def test_created_items_get_a_real_server_version(project: Project, member: object) -> None:
+    """New rows start at server_version 1, as a save() INSERT would (#3590)."""
+    s = _closed_sprint(project)
+    resp = _save(member, s, [{"text": "one"}, {"text": "two"}])
+    assert resp.status_code == 200
+    rows = RetroActionItem.objects.filter(retro__sprint=s)
+    assert {r.server_version for r in rows} == {1}
+    assert all(r.sync_seq > 0 for r in rows)
+
+
+@pytest.mark.django_db
+def test_removed_item_is_tombstoned_and_synced(project: Project, member: object) -> None:
+    """Dropping an item soft-deletes it, and the sync pull delivers the tombstone.
+
+    A hard delete left nothing for ``retro_action_items``'s delta to send, so an
+    offline client kept the removed item forever.
+    """
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "keep"}, {"text": "drop"}])
+    keep_id, drop_id = _ids_by_text(first)["keep"], _ids_by_text(first)["drop"]
+    project.refresh_from_db()
+    cursor = int(project.last_sync_version)
+
+    resp = _save(member, s, [{"id": keep_id, "text": "keep"}])
+    assert resp.status_code == 200
+    assert [i["id"] for i in resp.data["action_items"]] == [keep_id]
+
+    dropped = RetroActionItem.objects.get(pk=drop_id)
+    assert dropped.is_deleted is True
+    assert dropped.deleted_version == dropped.server_version
+    assert dropped.sync_seq > cursor
+
+    pull = _client(member).get(f"/api/v1/projects/{project.pk}/sync/", {"since": str(cursor)})
+    assert pull.status_code == 200
+    bucket = pull.data["changes"]["retro_action_items"]
+    assert drop_id in bucket["deleted"]
+    assert keep_id not in bucket["deleted"]
+    assert drop_id not in {r["id"] for r in bucket["updated"]}
+
+    # The tombstone is invisible to the retro read and the summary counts.
+    get = _client(member).get(f"/api/v1/sprints/{s.pk}/retro/")
+    assert [i["id"] for i in get.data["action_items"]] == [keep_id]
+
+
+@pytest.mark.django_db
+def test_blank_text_on_known_id_removes_the_item(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "gone soon"}])
+    item_id = first.data["action_items"][0]["id"]
+    resp = _save(member, s, [{"id": item_id, "text": "   "}])
+    assert resp.status_code == 200
+    assert resp.data["action_items"] == []
+    assert RetroActionItem.objects.get(pk=item_id).is_deleted is True
+
+
+@pytest.mark.django_db
+def test_foreign_item_id_is_rejected(project: Project, member: object) -> None:
+    """An id from another sprint's retro is refused, not adopted (IDOR)."""
+    s = _closed_sprint(project)
+    other = _closed_sprint(project, name="S0")
+    other_retro = SprintRetro.objects.create(sprint=other, notes="")
+    foreign = RetroActionItem.objects.create(retro=other_retro, text="not yours")
+
+    resp = _save(member, s, [{"id": str(foreign.pk), "text": "hijack"}])
+    assert resp.status_code == 400
+    assert "action_items" in resp.data
+    foreign.refresh_from_db()
+    assert foreign.text == "not yours"
+    assert foreign.retro_id == other_retro.pk
+    # Refused before any write: no retro was created for `s`.
+    assert not SprintRetro.objects.filter(sprint=s).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad_id", ["not-a-uuid", "00000000-0000-0000-0000-000000000000", 7])
+def test_unknown_or_malformed_item_id_is_rejected(
+    project: Project, member: object, bad_id: object
+) -> None:
+    s = _closed_sprint(project)
+    resp = _save(member, s, [{"id": bad_id, "text": "x"}])
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_tombstoned_and_duplicate_item_ids_are_rejected(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "a"}, {"text": "b"}])
+    a_id, b_id = _ids_by_text(first)["a"], _ids_by_text(first)["b"]
+    dup = _save(member, s, [{"id": a_id, "text": "a"}, {"id": a_id, "text": "a2"}])
+    assert dup.status_code == 400
+
+    _save(member, s, [{"id": a_id, "text": "a"}])  # tombstones b
+    stale = _save(member, s, [{"id": a_id, "text": "a"}, {"id": b_id, "text": "b"}])
+    assert stale.status_code == 400
+    assert RetroActionItem.objects.get(pk=b_id).is_deleted is True
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad_items", ["nope", ["text"], [None]])
+def test_non_object_action_items_rejected(
+    project: Project, member: object, bad_items: object
+) -> None:
+    s = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro/", {"notes": "", "action_items": bad_items}, format="json"
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_prior_retro_omits_tombstoned_action_items(project: Project, member: object) -> None:
+    s_prior = Sprint.objects.create(
+        project=project,
+        name="S0",
+        start_date=date(2026, 3, 17),
+        finish_date=date(2026, 3, 31),
+        state=SprintState.COMPLETED,
+    )
+    first = _save(member, s_prior, [{"text": "live"}, {"text": "removed"}])
+    live_id = _ids_by_text(first)["live"]
+    _save(member, s_prior, [{"id": live_id, "text": "live"}])
+    s_current = _closed_sprint(project, name="S1")
+
+    resp = _client(member).get(f"/api/v1/sprints/{s_current.pk}/retrospective/prior/")
+    assert resp.status_code == 200
+    assert [i["id"] for i in resp.data["action_items"]] == [live_id]

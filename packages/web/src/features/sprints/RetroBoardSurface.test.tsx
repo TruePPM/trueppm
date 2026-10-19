@@ -544,11 +544,12 @@ describe('RetroBoardSurface — single-author notes & action items', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Save notes & actions/i }));
     expect(mocks.save.mutate).toHaveBeenCalledTimes(1);
-    expect(mocks.save.mutate).toHaveBeenCalledWith({
+    // Persisted items carry their id so the server edits them in place (#4591).
+    expect(mocks.save.mutate.mock.calls[0][0]).toEqual({
       notes: 'Burndown skewed',
       action_items: [
-        { text: 'Add deploy gate', story_points: 3 },
-        { text: 'Pair on billing', story_points: null },
+        { id: 'ai-1', text: 'Add deploy gate', story_points: 3 },
+        { id: 'ai-2', text: 'Pair on billing', story_points: null },
       ],
     });
   });
@@ -560,7 +561,8 @@ describe('RetroBoardSurface — single-author notes & action items', () => {
     await userEvent.click(screen.getByRole('button', { name: 'add-action' }));
     expect(screen.getByText('action-count:1')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Save notes & actions/i }));
-    expect(mocks.save.mutate).toHaveBeenCalledWith({ notes: '', action_items: [] });
+    expect(mocks.save.mutate).toHaveBeenCalledOnce();
+    expect(mocks.save.mutate.mock.calls[0][0]).toEqual({ notes: '', action_items: [] });
   });
 
   it('promotes a persisted action item through the promote mutation', async () => {

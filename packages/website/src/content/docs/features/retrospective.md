@@ -13,7 +13,7 @@ Step 8 ([Close — retro, lessons learned, baseline variance](/the-story/#8-clos
 
 - **Notes** — free-text capture of the meeting summary
 - **Action items list** — text + optional story points
-- **Save retro** — upserts notes and replaces the action-item set; saving never promotes anything
+- **Save retro** — upserts notes and applies your edits to the action items: edited items keep their identity (and their promotion link), removed items are deleted, and new items are added; saving never promotes anything
 - **Promote to backlog** — an explicit per-item action; the created task lands in the project backlog (`BACKLOG`, no sprint)
 - **`→ T-XXXXXX` chip** — appears next to action items whose `promoted_task_id` is set
 - **Prior retro** — a context section showing the most recent prior completed sprint's retro, so last sprint's lessons are in view while you write this one
@@ -57,13 +57,24 @@ Changing visibility is gated to the retro's creator or a Project Manager and abo
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET`  | `/api/v1/sprints/{id}/retro/` | Current retro, visibility-aware (404 if none; counts-only summary below the visibility threshold) |
-| `POST` | `/api/v1/sprints/{id}/retro/` | Upsert notes + replace action item set (never promotes) |
+| `POST` | `/api/v1/sprints/{id}/retro/` | Upsert notes + apply the action item list as a diff (never promotes) |
 | `PATCH` | `/api/v1/sprints/{id}/retro/` | Update `team_visibility` (creator or Project Manager+) |
 | `GET`  | `/api/v1/sprints/{id}/retrospective/prior/` | Most recent prior completed sprint's retro (404 if none) |
 | `POST` | `/api/v1/sprints/{id}/retrospective/action-items/{itemId}/promote/` | Promote one action item into the project backlog |
 | `POST` | `/api/v1/sprints/{id}/retrospective/action-items/{itemId}/pull-to-sprint/` | Atomically promote + assign an item to a planned sprint (Resource Manager+) |
 
 `IsProjectMember` for read; `IsProjectMemberWrite` for write. `promoted_task_id` is read-only — only the promote endpoints set it.
+
+### Saving action items
+
+`POST .../retro/` takes `notes`, optional `team_visibility`, and an `action_items` list. Each entry is `{id?, text, assignee?, story_points?}`, and the list is applied against the retro's current items rather than replacing them:
+
+- An entry **with `id`** edits that existing item in place. Its id, `created_at`, and `promoted_task_id` are kept. Only the fields the entry carries change, so leaving out `assignee` or `story_points` keeps the stored value.
+- An entry **without `id`** creates a new item.
+- An item that the list **no longer names**, or that is sent with blank `text`, is deleted. The deletion is a soft delete, so offline clients receive it as a tombstone on their next sync pull.
+- Re-saving an unchanged list writes nothing to the action items.
+
+An `id` that is not a live action item on **this** sprint's retro returns **400**. That covers an item on another retro, an item that was already deleted, a malformed id, and the same id twice in one request. Refetch the retro and retry.
 
 ## Promotion semantics
 

@@ -1438,6 +1438,13 @@ export function useSprintHealth(projectId: string | null | undefined) {
 // ---------------------------------------------------------------------------
 
 export interface SprintRetroActionItemInput {
+  /**
+   * Id of the persisted item this entry edits. The POST applies the list as a
+   * diff (#4591): an entry with `id` updates that item in place (keeping its
+   * `promoted_task_id`), one without creates a new item, and a persisted item the
+   * list omits is deleted. Always echo the id back for items loaded from the server.
+   */
+  id?: string;
   text: string;
   assignee?: string | null;
   story_points?: number | null;
@@ -1511,7 +1518,7 @@ export interface SaveRetroPayload {
   team_visibility?: RetroVisibility;
 }
 
-/** POST /api/v1/sprints/{id}/retro/ — upsert notes + replace action item set. */
+/** POST /api/v1/sprints/{id}/retro/ — upsert notes + apply the action item list as a diff. */
 export function useSaveSprintRetro(sprintId: string | null | undefined) {
   const queryClient = useQueryClient();
   return useMutation({

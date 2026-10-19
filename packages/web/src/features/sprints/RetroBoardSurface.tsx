@@ -375,6 +375,14 @@ interface SingleAuthorProps {
 
 const EMPTY_DRAFT: DraftActionItem = { text: '', story_points: '' };
 
+function toDrafts(items: SprintRetroActionItem[]): DraftActionItem[] {
+  return items.map((it) => ({
+    id: it.id,
+    text: it.text,
+    story_points: it.story_points ? String(it.story_points) : '',
+  }));
+}
+
 function SingleAuthorSections({
   sprintId: _sprintId,
   isClosed,
@@ -396,12 +404,7 @@ function SingleAuthorSections({
       return;
     }
     setNotes(retro.notes);
-    setItems(
-      retro.action_items.map((it) => ({
-        text: it.text,
-        story_points: it.story_points ? String(it.story_points) : '',
-      })),
-    );
+    setItems(toDrafts(retro.action_items));
     setHydrated(true);
   }, [retro, hydrated]);
 
@@ -416,10 +419,20 @@ function SingleAuthorSections({
         const text = it.text.trim();
         if (!text) return [];
         const sp = it.story_points.trim();
-        return [{ text, story_points: sp ? Number(sp) : null }];
+        return [{ ...(it.id ? { id: it.id } : {}), text, story_points: sp ? Number(sp) : null }];
       },
     );
-    save.mutate({ notes: notes.trim(), action_items: payload });
+    save.mutate(
+      { notes: notes.trim(), action_items: payload },
+      {
+        // Adopt the server's ids so the next save edits these rows instead of
+        // deleting them and creating new ones — which would drop a promotion made
+        // in between (#4591). The draft is otherwise hydrated only once.
+        onSuccess: (data) => {
+          if (isFullRetro(data)) setItems(toDrafts(data.action_items));
+        },
+      },
+    );
   }
 
   return (
