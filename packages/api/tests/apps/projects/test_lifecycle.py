@@ -23,6 +23,11 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.access.services import (
+    PROGRAM_LEAD_NOT_MEMBER_DETAIL,
+    PROGRAM_OWNER_NOT_MEMBER_DETAIL,
+    PROJECT_OWNER_NOT_MEMBER_DETAIL,
+)
 from trueppm_api.apps.projects.models import (
     Baseline,
     Calendar,
@@ -721,6 +726,159 @@ def test_transfer_sponsorship_rejects_non_member(
         format="json",
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# #4575 — transfer-sponsorship's new_lead_user_id was an unvalidated
+# email-harvest oracle: no membership check ran on the lead path, and an
+# unresolvable id returned a differently-worded 404 instead of the 400 a
+# real-but-non-member id got. Every case below must refuse with the SAME
+# body as the "real id, no membership" case and must never echo the
+# target's email back in the response.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_transfer_sponsorship_rejects_non_member_lead_without_leaking_email(
+    owner: object, other_user: object, program: Program
+) -> None:
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    harvest_target = User.objects.create_user(
+        username="harvest-target", password="pw", email="harvest-target@example.com"
+    )
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {
+            "new_owner_user_id": str(other_user.pk),
+            "new_lead_user_id": str(harvest_target.pk),
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert resp.data["detail"] == PROGRAM_LEAD_NOT_MEMBER_DETAIL
+    assert "harvest-target@example.com" not in resp.content.decode()
+    # Neither sponsorship nor lead were rotated — the whole transfer is one
+    # atomic unit, and a bad lead must not promote the owner as a side effect.
+    program.refresh_from_db()
+    assert program.lead_id is None
+    assert ProgramMembership.objects.get(program=program, user=owner).role == Role.OWNER
+
+
+@pytest.mark.django_db
+def test_transfer_sponsorship_rejects_unknown_lead_id_with_same_body_as_non_member(
+    owner: object, other_user: object, stranger: object, program: Program
+) -> None:
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    non_member_resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {"new_owner_user_id": str(other_user.pk), "new_lead_user_id": str(stranger.pk)},
+        format="json",
+    )
+    unknown_id_resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {"new_owner_user_id": str(other_user.pk), "new_lead_user_id": "999999999"},
+        format="json",
+    )
+    assert non_member_resp.status_code == unknown_id_resp.status_code == 400
+    assert (
+        non_member_resp.data == unknown_id_resp.data == {"detail": PROGRAM_LEAD_NOT_MEMBER_DETAIL}
+    )
+
+
+@pytest.mark.django_db
+def test_transfer_sponsorship_rejects_deactivated_lead_with_same_body_as_non_member(
+    owner: object, other_user: object, program: Program
+) -> None:
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    deactivated = User.objects.create_user(username="deactivated-lead", password="pw")
+    ProgramMembership.objects.create(program=program, user=deactivated, role=Role.MEMBER)
+    deactivated.is_active = False
+    deactivated.save(update_fields=["is_active"])
+
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {"new_owner_user_id": str(other_user.pk), "new_lead_user_id": str(deactivated.pk)},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert resp.data == {"detail": PROGRAM_LEAD_NOT_MEMBER_DETAIL}
+
+
+@pytest.mark.django_db
+def test_transfer_sponsorship_rejects_unknown_owner_id_with_same_body_as_non_member(
+    owner: object, stranger: object, program: Program
+) -> None:
+    non_member_resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {"new_owner_user_id": str(stranger.pk)},
+        format="json",
+    )
+    unknown_id_resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {"new_owner_user_id": "999999999"},
+        format="json",
+    )
+    assert non_member_resp.status_code == unknown_id_resp.status_code == 400
+    assert (
+        non_member_resp.data == unknown_id_resp.data == {"detail": PROGRAM_OWNER_NOT_MEMBER_DETAIL}
+    )
+
+
+@pytest.mark.django_db
+def test_transfer_sponsorship_rejects_deactivated_owner_with_same_body_as_non_member(
+    owner: object, program: Program
+) -> None:
+    deactivated = User.objects.create_user(username="deactivated-owner", password="pw")
+    ProgramMembership.objects.create(program=program, user=deactivated, role=Role.MEMBER)
+    deactivated.is_active = False
+    deactivated.save(update_fields=["is_active"])
+
+    resp = _client(owner).post(
+        f"/api/v1/programs/{program.pk}/transfer-sponsorship/",
+        {"new_owner_user_id": str(deactivated.pk)},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert resp.data == {"detail": PROGRAM_OWNER_NOT_MEMBER_DETAIL}
+
+
+@pytest.mark.django_db
+def test_transfer_rejects_unknown_owner_id_with_same_body_as_non_member(
+    owner: object, stranger: object, project: Project
+) -> None:
+    """Sibling of the program-sponsorship oracle on POST /projects/:id/transfer/ (#4575)."""
+    non_member_resp = _client(owner).post(
+        f"/api/v1/projects/{project.pk}/transfer/",
+        {"new_owner_user_id": str(stranger.pk)},
+        format="json",
+    )
+    unknown_id_resp = _client(owner).post(
+        f"/api/v1/projects/{project.pk}/transfer/",
+        {"new_owner_user_id": "999999999"},
+        format="json",
+    )
+    assert non_member_resp.status_code == unknown_id_resp.status_code == 400
+    assert (
+        non_member_resp.data == unknown_id_resp.data == {"detail": PROJECT_OWNER_NOT_MEMBER_DETAIL}
+    )
+
+
+@pytest.mark.django_db
+def test_transfer_rejects_deactivated_owner_with_same_body_as_non_member(
+    owner: object, project: Project
+) -> None:
+    deactivated = User.objects.create_user(username="deactivated-project-owner", password="pw")
+    ProjectMembership.objects.create(project=project, user=deactivated, role=Role.MEMBER)
+    deactivated.is_active = False
+    deactivated.save(update_fields=["is_active"])
+
+    resp = _client(owner).post(
+        f"/api/v1/projects/{project.pk}/transfer/",
+        {"new_owner_user_id": str(deactivated.pk)},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert resp.data == {"detail": PROJECT_OWNER_NOT_MEMBER_DETAIL}
 
 
 # ---------------------------------------------------------------------------

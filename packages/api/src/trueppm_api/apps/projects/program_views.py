@@ -53,6 +53,8 @@ from trueppm_api.apps.access.permissions import (
     McpScope,
 )
 from trueppm_api.apps.access.services import (
+    PROGRAM_LEAD_NOT_MEMBER_DETAIL,
+    PROGRAM_OWNER_NOT_MEMBER_DETAIL,
     create_program,
     delete_program_cascade,
     hard_delete_program,
@@ -2480,13 +2482,20 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # An unresolvable id (unknown pk, or a pk that doesn't even parse)
+        # returns the SAME 400 body as "that user exists but isn't a member"
+        # below — not a distinct 404 — so neither status code nor message
+        # lets a caller distinguish "no such user" from "real user, not a
+        # member" (or "real user, deactivated") without ever seeing the
+        # target's email. See services.py's module docstring on these
+        # constants for the full rationale (#4575).
         User = get_user_model()
         try:
             new_owner = User.objects.get(pk=new_owner_id)
         except (User.DoesNotExist, DjangoValidationError, ValueError):
             return Response(
-                {"detail": "User not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                {"detail": PROGRAM_OWNER_NOT_MEMBER_DETAIL},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         new_lead = None
@@ -2495,8 +2504,8 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 new_lead = User.objects.get(pk=new_lead_id)
             except (User.DoesNotExist, DjangoValidationError, ValueError):
                 return Response(
-                    {"detail": "Lead user not found."},
-                    status=status.HTTP_404_NOT_FOUND,
+                    {"detail": PROGRAM_LEAD_NOT_MEMBER_DETAIL},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
         try:
