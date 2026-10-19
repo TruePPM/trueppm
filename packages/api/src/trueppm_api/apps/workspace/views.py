@@ -488,13 +488,18 @@ def _apply_member_role_change(
     role_changed_from = membership.role
     membership.role = new_role
     membership.role_changed_at = timezone.now()
-    if new_role < WorkspaceRole.ADMIN <= role_changed_from:
-        # A demoted sender can no longer vouch for the invites they sent (accept
-        # re-checks Admin+ anyway); revoke them now so they do not linger as
-        # unacceptable-but-resendable rows that block re-inviting the address (#4589).
+    if new_role < role_changed_from:
+        # A demoted sender can no longer vouch for invites at or above their new role
+        # (accept re-checks the ceiling anyway); revoke them now so they do not linger
+        # as unacceptable-but-resendable rows that block re-inviting the address
+        # (#4589). Below Admin they can vouch for nothing, so everything goes.
         from trueppm_api.apps.access.services import revoke_pending_workspace_invites
 
-        revoke_pending_workspace_invites(target, actor=actor)
+        revoke_pending_workspace_invites(
+            target,
+            actor=actor,
+            min_role=None if new_role < WorkspaceRole.ADMIN else new_role,
+        )
     return role_changed_from
 
 

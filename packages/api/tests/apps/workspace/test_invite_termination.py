@@ -325,3 +325,84 @@ def test_drain_terminal_failure_does_not_resurrect_a_revoked_invite(owner: Any) 
 
     inv.refresh_from_db()
     assert inv.status == InviteStatus.REVOKED
+
+
+def _owner_with_row(name: str) -> Any:
+    user = User.objects.create_user(username=name, email=f"{name}@x.io", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=user, role=WorkspaceRole.OWNER
+    )
+    return user
+
+
+def _invite_role(inviter: Any, email: str, role: int) -> WorkspaceInvite:
+    return services.create_invite(
+        workspace=Workspace.load(), email=email, role=role, invited_by=inviter
+    )
+
+
+@pytest.mark.django_db
+def test_owner_demoted_to_admin_cannot_have_admin_invite_accepted_or_resent(owner: Any) -> None:
+    ex_owner = _owner_with_row("ceiling_owner")
+    admin_inv = _invite_role(ex_owner, "ceil_admin@out.io", WorkspaceRole.ADMIN)
+    member_inv = _invite_role(ex_owner, "ceil_member@out.io", WorkspaceRole.MEMBER)
+    admin_token, member_token = admin_inv.email_token, member_inv.email_token
+    # Demote outside the PATCH path so the accept/resend ceiling is what is tested.
+    WorkspaceMembership.objects.filter(user=ex_owner).update(role=WorkspaceRole.ADMIN)
+
+    assert _accept(admin_inv, admin_token).status_code == 400
+    assert not User.objects.filter(email="ceil_admin@out.io").exists()
+
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    assert c.post(f"/api/v1/workspace/invites/{admin_inv.pk}/resend/").status_code == 409
+
+    assert _accept(member_inv, member_token).status_code in (200, 201)
+
+
+@pytest.mark.django_db
+def test_patch_demotion_sweeps_only_invites_at_or_above_new_role(owner: Any) -> None:
+    ex_owner = _owner_with_row("patch_owner")
+    admin_inv = _invite_role(ex_owner, "pd_admin@out.io", WorkspaceRole.ADMIN)
+    member_inv = _invite_role(ex_owner, "pd_member@out.io", WorkspaceRole.MEMBER)
+
+    # The PATCH peer-guard forbids demoting an Owner over HTTP, so drive the helper
+    # the view uses directly (the path a future endpoint or script would take).
+    from trueppm_api.apps.workspace.views import _apply_member_role_change
+
+    membership = WorkspaceMembership.objects.get(user=ex_owner)
+    _apply_member_role_change(
+        membership=membership,
+        new_role=WorkspaceRole.ADMIN,
+        actor_role=None,
+        target=ex_owner,
+        actor=owner,
+    )
+
+    admin_inv.refresh_from_db()
+    member_inv.refresh_from_db()
+    assert admin_inv.status == InviteStatus.REVOKED
+    assert member_inv.status == InviteStatus.PENDING
+    assert AuditEvent.objects.filter(
+        event_type=AuditEventType.INVITE_REVOKED, target_id=admin_inv.pk
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_transfer_ownership_sweeps_the_old_owners_admin_invites(owner: Any) -> None:
+    old = _owner_with_row("xfer_old")
+    new = _admin("xfer_new")
+    admin_inv = _invite_role(old, "xf_admin@out.io", WorkspaceRole.ADMIN)
+    member_inv = _invite_role(old, "xf_member@out.io", WorkspaceRole.MEMBER)
+
+    c = APIClient()
+    c.force_authenticate(user=old)
+    resp = c.post(
+        "/api/v1/workspace/transfer-ownership/", {"new_owner_user_id": new.pk}, format="json"
+    )
+    assert resp.status_code in (200, 204), resp.data
+
+    admin_inv.refresh_from_db()
+    member_inv.refresh_from_db()
+    assert admin_inv.status == InviteStatus.REVOKED
+    assert member_inv.status == InviteStatus.PENDING

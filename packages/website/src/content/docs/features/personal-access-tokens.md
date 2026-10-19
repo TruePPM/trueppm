@@ -120,7 +120,7 @@ could not have minted a replacement with it. A token also cannot reconfigure
 in and at what role.
 
 It is not yet containment for *everything*. A leaked token belonging to a workspace
-admin change a member's role, add someone to a group or grant a group a role on a
+admin can still change a member's role, add someone to a group or grant a group a role on a
 project; and one belonging to the workspace owner can still transfer ownership.
 None of those is undone by revoking the token, by a password reset, or by
 off-boarding. (A workspace invite the admin sent that has not yet been accepted
@@ -145,6 +145,10 @@ When you reset your password, **all of your personal access tokens are revoked
 automatically**. A password reset is you asserting that your credentials may be
 compromised, so TruePPM cuts off not only your live sessions but every long-lived
 personal credential you minted. You will need to create new tokens afterward.
+
+The same reset also revokes any workspace invitation you sent that has not yet
+been accepted. If you are a workspace admin who resets a forgotten password, re-send
+those invitations afterward as new ones.
 
 This does **not** touch project or program API tokens — those are shared team
 assets minted by a project or program admin, not personal credentials, so a

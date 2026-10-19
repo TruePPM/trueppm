@@ -270,7 +270,12 @@ the same transaction:
 - **revokes every personal access token they own**, so a script still holding one
   starts failing with `401` on its next request; and
 - **signs out every device**, by blacklisting all of their outstanding refresh
-  tokens.
+  tokens; and
+- **revokes every workspace invitation they sent** that has not yet been accepted.
+  Demoting a member also revokes the pending invitations that member sent at a role
+  at or above their new role (everything, if they drop below Admin), and an
+  invitation can only be accepted or re-sent while its sender is still an active
+  member whose role is above the invited role.
 
 Without this, disabling the account would terminate only the session and JWT
 path. A personal access token is a separate, long-lived bearer of the same

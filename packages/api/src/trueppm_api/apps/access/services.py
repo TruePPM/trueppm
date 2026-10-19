@@ -828,7 +828,9 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
     return links_revoked, secrets_cleared, webhooks_deactivated
 
 
-def revoke_pending_workspace_invites(user: Any = None, *, actor: Any = None) -> int:
+def revoke_pending_workspace_invites(
+    user: Any = None, *, actor: Any = None, min_role: int | None = None
+) -> int:
     """Revoke the not-yet-accepted ``WorkspaceInvite`` rows ``user`` minted (#4589).
 
     An invite is a durable, role-carrying bearer grant (7-day token, role up to one
@@ -837,6 +839,9 @@ def revoke_pending_workspace_invites(user: Any = None, *, actor: Any = None) -> 
     ``revoke_api_tokens`` all left it live, and ``resend`` could re-mint it.
     ``FAILED`` (send-exhausted) invites are swept too because resend revives them;
     ``REVOKED`` is terminal and never resendable.
+
+    ``min_role`` limits the sweep to invites granting at least that workspace role
+    (used on demotion: invites the sender can no longer vouch for).
 
     ``user=None`` is instance-wide (``revoke_api_tokens --all``). One
     ``INVITE_REVOKED`` audit row per invite, written in the caller's transaction.
@@ -850,6 +855,8 @@ def revoke_pending_workspace_invites(user: Any = None, *, actor: Any = None) -> 
     )
     if user is not None:
         qs = qs.filter(invited_by=user)
+    if min_role is not None:
+        qs = qs.filter(role__gte=min_role)
     invites = list(qs.select_related("invited_by"))
     for invite in invites:
         invite.status = InviteStatus.REVOKED

@@ -238,6 +238,10 @@ def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMemb
             actor_row.role = WorkspaceRole.ADMIN
             actor_row.role_changed_at = timezone.now()
             actor_row.save(update_fields=["role", "role_changed_at"])
+            # The demoted Owner can no longer vouch for invites at Admin or above.
+            from trueppm_api.apps.access.services import revoke_pending_workspace_invites
+
+            revoke_pending_workspace_invites(actor, actor=actor, min_role=WorkspaceRole.ADMIN)
 
         # Audit inside the same transaction so the row rolls back with a failed
         # transfer. target_id is left null — a User PK is an int, not a UUID — and
@@ -799,16 +803,20 @@ def _inviter_still_authorized(invite: WorkspaceInvite) -> bool:
     """True only if the inviter is an active user who still resolves to workspace Admin+.
 
     Catches an account deactivated outside the app (``is_active=False`` directly),
-    a deleted inviter (``invited_by`` is SET_NULL), and a demoted or deactivated
-    membership. Delegates to ``is_workspace_admin`` so the answer matches RBAC
-    (including the superuser-with-no-row bootstrap OWNER).
+    a deleted inviter (``invited_by`` is SET_NULL), a demoted or deactivated
+    membership, and an invite whose role is no longer strictly below the sender's.
+    Uses ``workspace_role_for_user`` so the answer matches RBAC (including the
+    superuser-with-no-row bootstrap OWNER).
     """
-    from trueppm_api.apps.workspace.permissions import is_workspace_admin
+    from trueppm_api.apps.workspace.permissions import workspace_role_for_user
 
     inviter = invite.invited_by
     if inviter is None or not inviter.is_active:
         return False
-    return is_workspace_admin(inviter)
+    role = workspace_role_for_user(inviter)
+    # Mirror the create-time ceiling: an invite may only grant a role strictly below
+    # the sender's *current* role, so a demoted Owner cannot still mint Admins.
+    return role is not None and role >= WorkspaceRole.ADMIN and invite.role < role
 
 
 def _create_invited_user(*, username: str, email: str, password: str) -> Any:

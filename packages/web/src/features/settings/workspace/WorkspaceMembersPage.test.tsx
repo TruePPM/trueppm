@@ -39,16 +39,156 @@ vi.mock('@/components/Toast', () => ({
 }));
 
 const MEMBERS = [
-  { id: '1', name: 'Anika Krishnan', initials: 'AK', color: '#3E8C6D', email: 'anika.k@truescope.io', role: 'Admin',  role_value: 300, groups: ['Propulsion', 'Leadership'], project_count: 5, last_active: '2m ago',    status: 'active',      sso: true,  two_fa: true  },
-  { id: '2', name: 'Jordan Mehta',   initials: 'JM', color: '#C17A10', email: 'j.mehta@truescope.io', role: 'PM',     role_value: 100, groups: ['Stage'],                  project_count: 3, last_active: '12m ago',   status: 'active',      sso: true,  two_fa: true  },
-  { id: '3', name: 'Sam Reyes',      initials: 'SR', color: '#7C3AED', email: 'sam@truescope.io',      role: 'Lead',   role_value: 100, groups: ['Avionics'],               project_count: 2, last_active: '26m ago',   status: 'active',      sso: true,  two_fa: false },
-  { id: '4', name: 'Erin Lai',       initials: 'EL', color: '#0EA5E9', email: 'elai@truescope.io',     role: 'Lead',   role_value: 100, groups: ['Ground Ops'],             project_count: 2, last_active: '1h ago',    status: 'active',      sso: true,  two_fa: true  },
-  { id: '5', name: 'Maya Kearns',    initials: 'MK', color: '#DC2626', email: 'maya.k@truescope.io',   role: 'Member', role_value: 100, groups: ['Power'],                  project_count: 1, last_active: '3h ago',    status: 'active',      sso: true,  two_fa: true  },
-  { id: '6', name: 'Devraj Tan',     initials: 'DT', color: '#0F766E', email: 'dtan@truescope.io',     role: 'Member', role_value: 100, groups: ['Fluids'],                 project_count: 2, last_active: 'Yesterday', status: 'active',      sso: true,  two_fa: true  },
-  { id: '7', name: 'Riya Kapoor',    initials: 'RK', color: '#92400E', email: 'rk@truescope.io',       role: 'PM',     role_value: 100, groups: ['Ops', 'Leadership'],      project_count: 4, last_active: 'Yesterday', status: 'active',      sso: true,  two_fa: true  },
-  { id: '8', name: 'Theo Vasquez',   initials: 'TV', color: '#475569', email: 'theo@truescope.io',     role: 'Member', role_value: 100, groups: ['Ops'],                    project_count: 2, last_active: '3d ago',    status: 'active',      sso: false, two_fa: false },
-  { id: '9', name: 'Park Choi',      initials: 'PC', color: '#7C3AED', email: 'pchoi@vendor.x',        role: 'Viewer', role_value: 100, groups: ['Vendor: ValveCo'],        project_count: 1, last_active: '1w ago',    status: 'guest',       sso: false, two_fa: false },
-  { id: '10', name: 'Lin Mae',       initials: 'LM', color: '#3E8C6D', email: 'linmae@truescope.io',   role: 'Member', role_value: 100, groups: ['Avionics'],               project_count: 1, last_active: '2w ago',    status: 'deactivated', sso: true,  two_fa: true  },
+  {
+    id: '1',
+    name: 'Anika Krishnan',
+    initials: 'AK',
+    color: '#3E8C6D',
+    email: 'anika.k@truescope.io',
+    role: 'Admin',
+    role_value: 300,
+    groups: ['Propulsion', 'Leadership'],
+    project_count: 5,
+    last_active: '2m ago',
+    status: 'active',
+    sso: true,
+    two_fa: true,
+  },
+  {
+    id: '2',
+    name: 'Jordan Mehta',
+    initials: 'JM',
+    color: '#C17A10',
+    email: 'j.mehta@truescope.io',
+    role: 'PM',
+    role_value: 100,
+    groups: ['Stage'],
+    project_count: 3,
+    last_active: '12m ago',
+    status: 'active',
+    sso: true,
+    two_fa: true,
+  },
+  {
+    id: '3',
+    name: 'Sam Reyes',
+    initials: 'SR',
+    color: '#7C3AED',
+    email: 'sam@truescope.io',
+    role: 'Lead',
+    role_value: 100,
+    groups: ['Avionics'],
+    project_count: 2,
+    last_active: '26m ago',
+    status: 'active',
+    sso: true,
+    two_fa: false,
+  },
+  {
+    id: '4',
+    name: 'Erin Lai',
+    initials: 'EL',
+    color: '#0EA5E9',
+    email: 'elai@truescope.io',
+    role: 'Lead',
+    role_value: 100,
+    groups: ['Ground Ops'],
+    project_count: 2,
+    last_active: '1h ago',
+    status: 'active',
+    sso: true,
+    two_fa: true,
+  },
+  {
+    id: '5',
+    name: 'Maya Kearns',
+    initials: 'MK',
+    color: '#DC2626',
+    email: 'maya.k@truescope.io',
+    role: 'Member',
+    role_value: 100,
+    groups: ['Power'],
+    project_count: 1,
+    last_active: '3h ago',
+    status: 'active',
+    sso: true,
+    two_fa: true,
+  },
+  {
+    id: '6',
+    name: 'Devraj Tan',
+    initials: 'DT',
+    color: '#0F766E',
+    email: 'dtan@truescope.io',
+    role: 'Member',
+    role_value: 100,
+    groups: ['Fluids'],
+    project_count: 2,
+    last_active: 'Yesterday',
+    status: 'active',
+    sso: true,
+    two_fa: true,
+  },
+  {
+    id: '7',
+    name: 'Riya Kapoor',
+    initials: 'RK',
+    color: '#92400E',
+    email: 'rk@truescope.io',
+    role: 'PM',
+    role_value: 100,
+    groups: ['Ops', 'Leadership'],
+    project_count: 4,
+    last_active: 'Yesterday',
+    status: 'active',
+    sso: true,
+    two_fa: true,
+  },
+  {
+    id: '8',
+    name: 'Theo Vasquez',
+    initials: 'TV',
+    color: '#475569',
+    email: 'theo@truescope.io',
+    role: 'Member',
+    role_value: 100,
+    groups: ['Ops'],
+    project_count: 2,
+    last_active: '3d ago',
+    status: 'active',
+    sso: false,
+    two_fa: false,
+  },
+  {
+    id: '9',
+    name: 'Park Choi',
+    initials: 'PC',
+    color: '#7C3AED',
+    email: 'pchoi@vendor.x',
+    role: 'Viewer',
+    role_value: 100,
+    groups: ['Vendor: ValveCo'],
+    project_count: 1,
+    last_active: '1w ago',
+    status: 'guest',
+    sso: false,
+    two_fa: false,
+  },
+  {
+    id: '10',
+    name: 'Lin Mae',
+    initials: 'LM',
+    color: '#3E8C6D',
+    email: 'linmae@truescope.io',
+    role: 'Member',
+    role_value: 100,
+    groups: ['Avionics'],
+    project_count: 1,
+    last_active: '2w ago',
+    status: 'deactivated',
+    sso: true,
+    two_fa: true,
+  },
 ];
 
 function makeWrapper() {
@@ -142,7 +282,9 @@ describe('WorkspaceMembersPage — search + filters', () => {
   it('renders an accessible search input (not a span placeholder)', async () => {
     render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
     await waitFor(() =>
-      expect(screen.getByRole('searchbox', { name: /search members by name or email/i })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('searchbox', { name: /search members by name or email/i }),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -176,10 +318,7 @@ describe('WorkspaceMembersPage — search + filters', () => {
 
     await waitFor(() => expect(screen.getByText(/Showing all 10/)).toBeInTheDocument());
 
-    await user.type(
-      screen.getByRole('searchbox', { name: /search members/i }),
-      'anika',
-    );
+    await user.type(screen.getByRole('searchbox', { name: /search members/i }), 'anika');
 
     expect(screen.getByText(/Showing 1 of 10/)).toBeInTheDocument();
   });
@@ -190,10 +329,7 @@ describe('WorkspaceMembersPage — search + filters', () => {
 
     await waitFor(() => expect(screen.getByRole('searchbox')).toBeInTheDocument());
 
-    await user.type(
-      screen.getByRole('searchbox', { name: /search members/i }),
-      'zzzzz',
-    );
+    await user.type(screen.getByRole('searchbox', { name: /search members/i }), 'zzzzz');
     expect(screen.getByText('No members match "zzzzz"')).toBeInTheDocument();
   });
 
@@ -203,10 +339,7 @@ describe('WorkspaceMembersPage — search + filters', () => {
 
     await waitFor(() => expect(screen.getByText('Sam Reyes')).toBeInTheDocument());
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: /filter by role/i }),
-      'Lead',
-    );
+    await user.selectOptions(screen.getByRole('combobox', { name: /filter by role/i }), 'Lead');
     // Two Leads in the fixture: Sam Reyes, Erin Lai
     expect(screen.getByText('Sam Reyes')).toBeInTheDocument();
     expect(screen.getByText('Erin Lai')).toBeInTheDocument();
@@ -263,7 +396,9 @@ describe('WorkspaceMembersPage — two-step remove confirm', () => {
     await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
 
     // The confirm group and its two buttons should now be visible
-    expect(screen.getByRole('group', { name: /Confirm remove Anika Krishnan/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: /Confirm remove Anika Krishnan/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Cancel$/i })).toBeInTheDocument();
   });
@@ -278,9 +413,7 @@ describe('WorkspaceMembersPage — two-step remove confirm', () => {
     await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
     await user.click(screen.getByRole('button', { name: /^Confirm$/i }));
 
-    await waitFor(() =>
-      expect(deleteMock).toHaveBeenCalledWith('/workspace/members/1/'),
-    );
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/workspace/members/1/'));
   });
 
   it('dismisses the confirm control without calling delete when Cancel is clicked', async () => {
@@ -295,7 +428,9 @@ describe('WorkspaceMembersPage — two-step remove confirm', () => {
     expect(deleteMock).not.toHaveBeenCalled();
     // The ✕ button should be back, the confirm group gone
     expect(screen.getByRole('button', { name: /Remove Anika Krishnan/i })).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: /Confirm remove Anika Krishnan/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('group', { name: /Confirm remove Anika Krishnan/i }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -421,7 +556,7 @@ describe('buildMembersCsv — member CSV export (issue 969)', () => {
   // exports had applied the #2762 formula guard for months. Member display names
   // are user-controlled, so a name beginning `=`/`+`/`-`/`@` executed as a formula
   // the moment an admin opened the file in Excel.
-  it.each(['=cmd|\'/C calc\'!A0', '+1+1', '-2+3', '@SUM(A1:A9)', '\tlead', '\rlead'])(
+  it.each(["=cmd|'/C calc'!A0", '+1+1', '-2+3', '@SUM(A1:A9)', '\tlead', '\rlead'])(
     'neutralizes the formula-trigger prefix %j in a member name',
     (payload) => {
       const csv = buildMembersCsv([member({ name: payload })]);
@@ -463,9 +598,7 @@ describe('WorkspaceMembersPage — Export CSV (issue 969)', () => {
     const createUrl = vi.fn(() => 'blob:members');
     const revokeUrl = vi.fn();
     vi.stubGlobal('URL', { ...URL, createObjectURL: createUrl, revokeObjectURL: revokeUrl });
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
 
@@ -496,7 +629,13 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
         return Promise.resolve({
           data: {
             results: [
-              { id: 'inv1', email: 'pending@truescope.io', role: 'Member', created_at: '2026-05-20', invited_by: 'Anika Krishnan' },
+              {
+                id: 'inv1',
+                email: 'pending@truescope.io',
+                role: 'Member',
+                created_at: '2026-05-20',
+                invited_by: 'Anika Krishnan',
+              },
             ],
             next: null,
           },
@@ -516,9 +655,7 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
     expect(resendBtn).toBeEnabled();
     await user.click(resendBtn);
 
-    await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith('/workspace/invites/inv1/resend/'),
-    );
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/workspace/invites/inv1/resend/'));
     // Fire-and-forget 202 → the row swaps to a reassuring "Sent" cue. The check is a
     // house CheckIcon SVG rather than a "✓" glyph (issue 1749), so anchor on the cue.
     expect(await screen.findByTestId('invite-resent-cue')).toHaveTextContent('Sent');
@@ -537,9 +674,7 @@ describe('WorkspaceMembersPage — Resend invite (issue 969)', () => {
     expect(resendAll).toBeEnabled();
     await user.click(resendAll);
 
-    await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith('/workspace/invites/resend-all/'),
-    );
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/workspace/invites/resend-all/'));
   });
 });
 
@@ -767,9 +902,7 @@ describe('WorkspaceMembersPage — revoke invite', () => {
       await screen.findByRole('button', { name: /Revoke invite for pending@truescope.io/i }),
     );
 
-    await waitFor(() =>
-      expect(deleteMock).toHaveBeenCalledWith('/workspace/invites/inv1/'),
-    );
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/workspace/invites/inv1/'));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -850,9 +983,7 @@ describe('WorkspaceMembersPage — resend invite outcomes', () => {
     postMock.mockRejectedValue({ response: { status: 429 } });
     await clickResend();
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Too many resends — wait a minute and try again.',
-      ),
+      expect(toastError).toHaveBeenCalledWith('Too many resends — wait a minute and try again.'),
     );
   });
 
@@ -862,6 +993,14 @@ describe('WorkspaceMembersPage — resend invite outcomes', () => {
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith('This invite can no longer be resent.'),
     );
+  });
+
+  it('shows the server explanation when a 409 carries one (sender no longer Admin)', async () => {
+    const detail =
+      'This invite cannot be resent because its sender is no longer an active workspace Admin.';
+    postMock.mockRejectedValue({ response: { status: 409, data: { detail } } });
+    await clickResend();
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(detail));
   });
 
   it('falls back to a generic message for any other resend failure', async () => {
@@ -922,9 +1061,7 @@ describe('WorkspaceMembersPage — resend all outcomes', () => {
     postMock.mockRejectedValue({ response: { status: 429 } });
     await clickResendAll();
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Too many resends — wait a minute and try again.',
-      ),
+      expect(toastError).toHaveBeenCalledWith('Too many resends — wait a minute and try again.'),
     );
     expect(screen.queryByTestId('invite-resent-cue')).not.toBeInTheDocument();
   });
