@@ -18,8 +18,8 @@ const baseGroup: MentionGroupRowData = {
   description: 'Backend team',
   email_default_on: false,
   members: [
-    { id: 'u-1', username: 'alice', email: 'alice@example.com' },
-    { id: 'u-2', username: 'bob', email: 'bob@example.com' },
+    { id: 'u-1', username: 'alice' },
+    { id: 'u-2', username: 'bob' },
   ],
   member_count: 2,
   muted_by_me: false,

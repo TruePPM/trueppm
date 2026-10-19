@@ -404,16 +404,24 @@ python manage.py revoke_api_tokens --all-personal --commit
 ```
 
 Use `--user <username-or-email>` to scope the sweep to one departing or
-compromised account, or `--all` to include project- and program-scoped
-integration tokens — which will break every inbound sync until an admin re-mints
-them, so reach for it only on a full-instance compromise. `--all` also revokes
-**every active board share link, clears every configured git-automation
-webhook secret, and deactivates every registered outgoing webhook**,
-instance-wide — the three durable grants a leaked token or compromised session
-can mint that no other lever reaches, so a full-compromise sweep also breaks
-every public share link and pauses every outgoing webhook until an Admin
-re-shares or re-enables. Every token revocation is written to the token audit
-log tagged `operator_bulk_revoke`. See
+compromised account — this is also the lever for the "this person's laptop was
+stolen" off-boarding case, and it contains more than tokens: it also revokes
+that account's refresh tokens, any board share link it minted, any
+git-automation webhook secret it configured, and any outgoing webhook it
+registered or has ever set the URL or secret on, and closes its already-open
+project WebSocket connections — the same containment a password reset or
+member off-boarding performs, run on demand against an account that has
+neither. `--all-personal` sweeps every personal token on the instance plus
+that same containment for each account that owns one of those tokens (an
+account with durable grants but no personal token is outside `--all-personal`'s
+scope; use `--user` to reach it by name). `--all` goes further still: it also
+includes project- and program-scoped integration tokens — which will break
+every inbound sync until an admin re-mints them, so reach for it only on a
+full-instance compromise — and revokes **every active board share link, clears
+every configured git-automation webhook secret, and deactivates every
+registered outgoing webhook**, instance-wide, regardless of token ownership.
+Every token revocation is written to the token audit log tagged
+`operator_bulk_revoke`. See
 [`revoke_api_tokens`](/administration/management-commands/#maintenance-commands).
 
 Two routine paths already revoke personal tokens on their own and need no manual
@@ -441,6 +449,9 @@ A reset does not — access tokens are short-lived (15 minutes) and stateless,
 so a still-valid one can mint a fresh ticket and open a new socket until it
 expires on its own. Closing that reconnect window needs a per-user credential
 cutoff checked against the token's issue time, which is tracked separately.
+`revoke_api_tokens --user`/`--all-personal` perform the same sweep on demand,
+so an operator responding to an incident is not limited to these two
+automatic triggers.
 :::
 
 ## Helm secure-by-default

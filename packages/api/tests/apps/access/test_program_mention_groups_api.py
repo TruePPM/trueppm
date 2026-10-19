@@ -331,6 +331,96 @@ def test_group_not_visible_from_other_program(
 
 
 # ---------------------------------------------------------------------------
+# Member payload leak across the program/project boundary (#4578, security)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_member_payload_has_no_email(program: object, viewer_user: object, proj_b: Project) -> None:
+    """The member payload never carries ``email`` — username is enough to @mention.
+
+    ``viewer_user`` is a program Viewer with NO ``ProjectMembership`` anywhere
+    (per ADR-0070, program membership grants no project access), yet can list
+    the program's mention groups. Before the fix this test would have observed
+    ``pm_b``'s real email in the response.
+    """
+    group = ProgramUserDefinedMentionGroup.objects.create(program=program, name="leads")
+    pm_b = _proj_member(proj_b, "pm_b")  # a member of proj_b ONLY, not of viewer_user's reach
+    group.members.add(pm_b)
+
+    resp = _client(viewer_user).get(f"{_url(program)}{group.id}/")
+    assert resp.status_code == 200, resp.content
+    [member] = resp.data["members"]
+    assert member["id"] == pm_b.pk
+    assert member["username"] == "pm_b"
+    assert "email" not in member
+
+
+@pytest.mark.django_db
+def test_viewer_not_on_members_project_cannot_see_their_email(
+    program: object, viewer_user: object, proj_b: Project
+) -> None:
+    """The exact failure scenario in #4578: a program Viewer with no membership on
+    the member's project must not learn that member's email from the group list,
+    even indirectly (e.g. a field under another name)."""
+    group = ProgramUserDefinedMentionGroup.objects.create(program=program, name="leads")
+    pm_b = _proj_member(proj_b, "pm_b")
+    pm_b.email = "pm_b@example.com"
+    pm_b.save(update_fields=["email"])
+    group.members.add(pm_b)
+
+    resp = _client(viewer_user).get(_url(program))
+    assert resp.status_code == 200, resp.content
+    [listed_group] = [g for g in resp.data if g["id"] == str(group.id)]
+    assert pm_b.email not in str(listed_group)
+
+
+@pytest.mark.django_db
+def test_add_member_unknown_and_unreachable_ids_return_identical_refusal(
+    program: object, admin_user: object, outsider: object
+) -> None:
+    """Unknown id and real-but-unreachable id must be indistinguishable (#4578) —
+    otherwise the endpoint is a user-id existence oracle for any Admin+ caller.
+    ``outsider`` exists but holds no ``ProjectMembership`` anywhere in the program.
+    """
+    group = ProgramUserDefinedMentionGroup.objects.create(program=program, name="leads")
+    unknown_id = outsider.pk + 999_999  # does not correspond to any real user row
+
+    unknown = _client(admin_user).post(
+        f"{_url(program)}{group.id}/add-member/", {"user": str(unknown_id)}, format="json"
+    )
+    unreachable = _client(admin_user).post(
+        f"{_url(program)}{group.id}/add-member/", {"user": str(outsider.pk)}, format="json"
+    )
+    assert unknown.status_code == 400
+    assert unreachable.status_code == 400
+    assert unknown.data == unreachable.data
+
+
+@pytest.mark.django_db
+def test_add_member_rejects_inactive_user_like_an_unknown_id(
+    program: object, admin_user: object, proj_a: Project
+) -> None:
+    """An inactive account must refuse identically to an unknown id (#4578) — it
+    must not confirm the account exists."""
+    group = ProgramUserDefinedMentionGroup.objects.create(program=program, name="leads")
+    inactive = _proj_member(proj_a, "inactive_pm")
+    inactive.is_active = False
+    inactive.save(update_fields=["is_active"])
+    unknown_id = inactive.pk + 999_999
+
+    unknown = _client(admin_user).post(
+        f"{_url(program)}{group.id}/add-member/", {"user": str(unknown_id)}, format="json"
+    )
+    inactive_resp = _client(admin_user).post(
+        f"{_url(program)}{group.id}/add-member/", {"user": str(inactive.pk)}, format="json"
+    )
+    assert inactive_resp.status_code == 400
+    assert unknown.data == inactive_resp.data
+    assert not group.members.filter(pk=inactive.pk).exists()
+
+
+# ---------------------------------------------------------------------------
 # Mute — any member, self only
 # ---------------------------------------------------------------------------
 
