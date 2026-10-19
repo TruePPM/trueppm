@@ -886,9 +886,9 @@ class MeSerializer(serializers.Serializer[Any]):
         if not hasattr(self, "_max_project_role"):
             from django.db.models import Max
 
-            value = ProjectMembership.objects.filter(user=obj, is_deleted=False).aggregate(
-                _max=Max("role")
-            )["_max"]
+            value = ProjectMembership.objects.filter(
+                user=obj, is_deleted=False, project__is_deleted=False
+            ).aggregate(_max=Max("role"))["_max"]
             self._max_project_role: int | None = int(value) if value is not None else None
         return self._max_project_role
 

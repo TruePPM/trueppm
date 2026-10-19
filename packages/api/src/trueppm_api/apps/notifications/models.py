@@ -240,9 +240,9 @@ class MentionManager(models.Manager["Mention"]):
         if not user or not getattr(user, "is_authenticated", False):
             return self.none()
 
-        member_projects = ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        member_projects = ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
         qs = self.get_queryset().filter(project_id__in=list(member_projects))
 
         if project_id is not None:

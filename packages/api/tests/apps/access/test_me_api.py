@@ -294,6 +294,30 @@ def test_role_signal_project_admin_can_access_admin_settings(db: object) -> None
 
 
 @pytest.mark.django_db
+def test_role_signal_trashed_project_admin_does_not_count(db: object) -> None:
+    """An Admin membership on a Trashed project confers no role (#4577/#4587)."""
+    from datetime import date
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import Calendar, Project
+
+    cal = Calendar.objects.create(name="Standard")
+    proj = Project.objects.create(name="P1", start_date=date(2026, 1, 1), calendar=cal)
+    user = User.objects.create_user(username="ghost-admin", password="pw")
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.ADMIN)
+    Project.objects.filter(pk=proj.pk).update(is_deleted=True)
+
+    resp = _make_client(user).get(URL)
+    assert resp.data["max_project_role"] is None
+    assert resp.data["can_access_admin_settings"] is False
+
+    Project.objects.filter(pk=proj.pk).update(is_deleted=False)
+    resp = _make_client(user).get(URL)
+    assert resp.data["max_project_role"] == Role.ADMIN
+    assert resp.data["can_access_admin_settings"] is True
+
+
+@pytest.mark.django_db
 def test_role_signal_no_memberships(db: object) -> None:
     """A user with no project or workspace membership is a contributor by default."""
     from trueppm_api.apps.workspace.models import WorkspaceRole

@@ -230,15 +230,17 @@ def record_project_visit(user: Any, project: Any) -> None:
 
 
 def _max_project_role(user: Any) -> int | None:
-    value = ProjectMembership.objects.filter(user=user, is_deleted=False).aggregate(
-        _max=Max("role")
-    )["_max"]
+    value = ProjectMembership.objects.filter(
+        user=user, is_deleted=False, project__is_deleted=False
+    ).aggregate(_max=Max("role"))["_max"]
     return int(value) if value is not None else None
 
 
 def _has_any_membership(user: Any) -> bool:
     return (
-        ProjectMembership.objects.filter(user=user, is_deleted=False).exists()
+        ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).exists()
         or ProgramMembership.objects.filter(user=user, is_deleted=False).exists()
     )
 

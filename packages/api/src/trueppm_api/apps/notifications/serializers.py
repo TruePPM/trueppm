@@ -343,9 +343,9 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             from trueppm_api.apps.access.models import ProjectMembership
 
             member_project_ids = set(
-                ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-                    "project_id", flat=True
-                )
+                ProjectMembership.objects.filter(
+                    user=user, is_deleted=False, project__is_deleted=False
+                ).values_list("project_id", flat=True)
             )
             # DRF's serializer context is a plain dict at runtime (typed Mapping
             # in the stubs); memoize so the list path resolves membership once.

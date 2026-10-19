@@ -254,9 +254,9 @@ class NotificationViewSet(
             from trueppm_api.apps.access.models import ProjectMembership
 
             context["member_project_ids"] = set(
-                ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-                    "project_id", flat=True
-                )
+                ProjectMembership.objects.filter(
+                    user=user, is_deleted=False, project__is_deleted=False
+                ).values_list("project_id", flat=True)
             )
         return context
 
