@@ -2223,9 +2223,10 @@ class IsNotTokenAuthenticated(BasePermission):
     ``partial_update`` on ``WebhookViewSet``/``ProgramWebhookViewSet`` (mints an
     outgoing webhook's signing secret, or repoints its delivery URL / rotates that
     secret). All three grants are also now swept by password reset, off-boarding,
-    and ``revoke_api_tokens --all`` (``revoke_personal_durable_grants``), closing
-    the gap where a leaked PAT belonging to a project Admin could mint one and
-    outlive every revocation lever.
+    and ``revoke_api_tokens --user``/``--all-personal``/``--all``
+    (``revoke_personal_durable_grants``), closing the gap where a leaked PAT
+    belonging to a project Admin could mint one and outlive every revocation
+    lever.
 
     Since #4462, it also covers ``WebSocketTicketView`` (``POST /ws/ticket/``). A
     minted ticket opens a live socket that the consumer authenticates exactly once,

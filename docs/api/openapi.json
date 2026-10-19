@@ -80252,7 +80252,7 @@
                         "format": "date-time",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
+                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --user/--all-personal/--all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
                     },
                     "disabled_reason": {
                         "type": "string",
@@ -80355,7 +80355,7 @@
                         "format": "date-time",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
+                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --user/--all-personal/--all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
                     },
                     "disabled_reason": {
                         "type": "string",

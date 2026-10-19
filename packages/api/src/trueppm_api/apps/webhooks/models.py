@@ -155,9 +155,9 @@ class Webhook(models.Model):
         null=True,
         blank=True,
         help_text="When the automatic failure guard, or a credential-revocation "
-        "sweep (password reset, off-boarding, or revoke_api_tokens --all), "
-        "deactivated this subscription. Null when it is active, or when an "
-        "admin deactivated it by hand.",
+        "sweep (password reset, off-boarding, or revoke_api_tokens --user/"
+        "--all-personal/--all), deactivated this subscription. Null when it is "
+        "active, or when an admin deactivated it by hand.",
     )
     disabled_reason = models.CharField(max_length=255, blank=True, default="")
     # Per-subscription monotonic counter for outgoing deliveries (#664). Lives on
