@@ -594,6 +594,12 @@ def _resolve_login_email_fallback(body: Any) -> str | None:
     return resolved
 
 
+class AuthErrorDetailSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """The DRF detail error envelope returned with a 401 or 403 from login."""
+
+    detail = serializers.CharField()
+
+
 class CookieTokenObtainPairView(TokenObtainPairView):
     """JWT login: return the access token in the body, refresh in an httpOnly cookie.
 
@@ -623,7 +629,24 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             "present in the response body (#897)."
         ),
         request=_LoginRequestSerializer,
-        responses={200: _LoginResponseSerializer},
+        responses={
+            200: _LoginResponseSerializer,
+            401: OpenApiResponse(
+                response=AuthErrorDetailSerializer,
+                description=(
+                    "Invalid credentials. The body is identical for an unknown "
+                    "user and a wrong password, so it never reveals which "
+                    "accounts exist."
+                ),
+            ),
+            403: OpenApiResponse(
+                response=AuthErrorDetailSerializer,
+                description=(
+                    "Password sign-in is disabled for this account by policy "
+                    "(e.g. enforced SSO); use single sign-on instead."
+                ),
+            ),
+        },
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = TokenObtainPairSerializer(data=request.data)

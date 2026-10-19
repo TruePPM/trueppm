@@ -1535,3 +1535,14 @@ def test_3652_operations_no_longer_declare_a_free_form_body(
         f"{method.upper()} {path} ({status_code}) regressed to a free-form body "
         f"the #3652 fix removed: {body}"
     )
+
+
+def test_login_declares_401_and_403_detail_envelope(schema: dict) -> None:
+    """POST /auth/token/ types both refusals it returns at runtime (#4590)."""
+    responses = schema["paths"]["/api/v1/auth/token/"]["post"]["responses"]
+    for code in ("401", "403"):
+        assert code in responses, f"login does not declare {code}"
+        ref = responses[code]["content"]["application/json"]["schema"]["$ref"]
+        component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+        assert component["required"] == ["detail"]
+        assert component["properties"]["detail"]["type"] == "string"
