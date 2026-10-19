@@ -12046,7 +12046,8 @@ def _plan_retro_item_diff(
     resurrected — its sync delete already went out, and a new id is what a client
     that applied it can accept.
 
-    A blank ``text`` drops the entry, so an ``id`` with blank text is a removal. On an
+    A blank ``text`` drops the entry, so an ``id`` with an empty or whitespace-only
+    ``text`` is a removal; an ``id`` with no string ``text`` at all is a 400. On an
     update only the keys the entry carries are applied — an omitted ``assignee`` or
     ``story_points`` leaves the stored value alone, and ``promoted_task_id`` is never
     writable here at all.
@@ -12063,9 +12064,17 @@ def _plan_retro_item_diff(
     seen: set[Any] = set()
     survivors: set[Any] = set()
     for entry in items_in:
-        text = entry.get("text")
-        text = text.strip() if isinstance(text, str) else ""
+        raw_text = entry.get("text")
         raw_id = entry.get("id")
+        if raw_id not in (None, "") and not isinstance(raw_text, str):
+            # An entry naming a row must say what its text is. Reading a missing
+            # `text` as blank would delete the item on a body that only meant to
+            # change `story_points`.
+            return Response(
+                {"action_items": "Each action item with an id must include its text."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        text = raw_text.strip() if isinstance(raw_text, str) else ""
         item = None
         if raw_id not in (None, ""):
             try:
@@ -12224,8 +12233,17 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
     with transaction.atomic():
         # Lock the live item set BEFORE the retro upsert. Both writes below draw
         # from the project's sync sequence (a project-row lock), and the promote /
-        # carryover services lock an item first and the project second — taking
-        # the item locks first here keeps one lock order and so cannot deadlock.
+        # carryover services lock an item first and the project second, so taking
+        # the item locks first here matches them and removes that deadlock.
+        #
+        # It does not remove every one. A Task soft-delete takes the project lock
+        # first (its save allocates a sync cursor) and then item row locks, through
+        # the post_save receiver that clears `promoted_task_id`
+        # (`retro_services.reset_promoted_task_on_delete`). A retro save racing the
+        # delete of one of its own promoted tasks can still deadlock; Postgres
+        # aborts one side and that request fails. Before #4591 this path had the
+        # mirror-image risk with promote instead. The full fix is one global lock
+        # order across all three writers, which this change does not attempt.
         live_items = {
             item.pk: item
             for item in RetroActionItem.objects.select_for_update(of=("self",)).filter(

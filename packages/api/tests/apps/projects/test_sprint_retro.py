@@ -832,3 +832,20 @@ def test_prior_retro_omits_tombstoned_action_items(project: Project, member: obj
     resp = _client(member).get(f"/api/v1/sprints/{s_current.pk}/retrospective/prior/")
     assert resp.status_code == 200
     assert [i["id"] for i in resp.data["action_items"]] == [live_id]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("entry_extra", [{}, {"text": None}, {"text": 5}])
+def test_id_entry_without_string_text_is_rejected_not_deleted(
+    project: Project, member: object, entry_extra: dict[str, Any]
+) -> None:
+    """``{"id": X, "story_points": 5}`` must not delete X by reading text as blank."""
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "x", "story_points": 2}])
+    item_id = _ids_by_text(first)["x"]
+    resp = _save(member, s, [{"id": item_id, "story_points": 5, **entry_extra}])
+    assert resp.status_code == 400
+    assert "action_items" in resp.data
+    item = RetroActionItem.objects.get(pk=item_id)
+    assert item.is_deleted is False
+    assert item.story_points == 2

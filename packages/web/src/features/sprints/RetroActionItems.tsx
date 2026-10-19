@@ -12,14 +12,20 @@ export interface DraftActionItem {
    * save response can be matched back to the row it was sent from (#4591).
    */
   draftKey?: string;
+  /**
+   * What the server held for this row when it was last loaded or saved, as
+   * `draftSnapshot()` spells it. A row whose snapshot still equals this has not
+   * been edited since, so it is safe to drop when the server says it is gone.
+   */
+  synced?: string;
   text: string;
   story_points: string;
 }
 
 interface Props {
   items: DraftActionItem[];
-  /** Persisted action items keyed by text — drives the Promote button state. */
-  persistedByText: Map<string, SprintRetroActionItem>;
+  /** Persisted action items keyed by id — drives the Promote button and task chip. */
+  persistedById: Map<string, SprintRetroActionItem>;
   savePending: boolean;
   promotePending: boolean;
   onAdd: () => void;
@@ -39,7 +45,7 @@ interface Props {
  */
 export function RetroActionItems({
   items,
-  persistedByText,
+  persistedById,
   savePending,
   promotePending,
   onAdd,
@@ -69,7 +75,11 @@ export function RetroActionItems({
       ) : (
         <ul className="flex flex-col gap-2">
           {items.map((item, idx) => {
-            const persisted = persistedByText.get(item.text);
+            // By id, not text: two rows can share a text, and a lookup by text would
+            // point one row's Promote at the other's item. A row whose text was
+            // edited since the save still shows "Save first", as before.
+            const byId = item.id ? persistedById.get(item.id) : undefined;
+            const persisted = byId && byId.text === item.text ? byId : undefined;
             const isPromoted = persisted?.promoted_task_id != null;
             return (
               <li
@@ -91,6 +101,7 @@ export function RetroActionItems({
                   inputMode="numeric"
                   min={0}
                   max={100}
+                  step={1}
                   value={item.story_points}
                   onChange={(e) => onUpdate(idx, { story_points: e.target.value })}
                   placeholder="pts"

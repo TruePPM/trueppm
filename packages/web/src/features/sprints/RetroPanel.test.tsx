@@ -22,6 +22,7 @@ interface MutationResult<TArgs> {
   isPending: boolean;
   isError: boolean;
   isSuccess: boolean;
+  error?: unknown;
 }
 
 const useSprintRetroMock = vi.fn<() => SprintRetroQueryResult>();
@@ -469,5 +470,135 @@ describe('RetroPanel', () => {
         { id: 'a1', text: 'Keep', story_points: null },
       ]);
     });
+
+    it('drops an unedited row a peer removed instead of showing its re-created copy twice', async () => {
+      // Three panels: A removed X; B saved from a stale draft, so the server
+      // re-created X's text as Y. This is panel C, still holding X.
+      useSprintRetroMock.mockReturnValue({
+        data: fullRetro({ action_items: [item('k', 'Keep'), item('x', 'Fix CI')] }),
+        isLoading: false,
+        error: null,
+      });
+      const { rerender } = renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+      await screen.findByDisplayValue('Fix CI');
+
+      useSprintRetroMock.mockReturnValue({
+        data: fullRetro({
+          updated_at: '2026-04-16T00:00:00Z',
+          action_items: [item('k', 'Keep'), item('y', 'Fix CI')],
+        }),
+        isLoading: false,
+        error: null,
+      });
+      rerender(<RetroPanel sprintId="sp-1" isClosed={false} />);
+
+      expect(screen.getAllByDisplayValue('Fix CI')).toHaveLength(1);
+      await userEvent.click(saveBtn());
+      expect(saveMutateMock.mock.calls[0][0].action_items).toEqual([
+        { id: 'k', text: 'Keep', story_points: null },
+        { id: 'y', text: 'Fix CI', story_points: null },
+      ]);
+    });
+
+    it('keeps a row a peer removed when it was edited here, so the save re-creates it', async () => {
+      useSprintRetroMock.mockReturnValue({
+        data: fullRetro({ action_items: [item('x', 'Fix CI')] }),
+        isLoading: false,
+        error: null,
+      });
+      const { rerender } = renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+      await screen.findByDisplayValue('Fix CI');
+      await userEvent.type(screen.getByLabelText(/Action item 1 text/i), ' now');
+
+      useSprintRetroMock.mockReturnValue({
+        data: fullRetro({ updated_at: '2026-04-16T00:00:00Z', action_items: [] }),
+        isLoading: false,
+        error: null,
+      });
+      rerender(<RetroPanel sprintId="sp-1" isClosed={false} />);
+      expect(screen.getByDisplayValue('Fix CI now')).toBeInTheDocument();
+    });
+
+    it('ignores a cached read older than its own save response', async () => {
+      const before = fullRetro({ action_items: [item('x-old', 'Fix CI')] });
+      useSprintRetroMock.mockReturnValue({ data: before, isLoading: false, error: null });
+      let pending: SaveOpts | undefined;
+      saveMutateMock.mockImplementationOnce((_p, opts) => {
+        pending = opts;
+      });
+      const { rerender } = renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+      await screen.findByDisplayValue('Fix CI');
+      await userEvent.click(saveBtn());
+      useSaveSprintRetroMock.mockReturnValue({
+        mutate: saveMutateMock,
+        isPending: true,
+        isError: false,
+        isSuccess: false,
+      });
+      rerender(<RetroPanel sprintId="sp-1" isClosed={false} />);
+      // The server re-created the item (a peer had removed x-old) as x-new.
+      act(() =>
+        pending?.onSuccess?.(
+          fullRetro({ updated_at: '2026-04-16T00:00:00Z', action_items: [item('x-new', 'Fix CI')] }),
+        ),
+      );
+      // The save settles while the query cache still holds the pre-save read.
+      useSaveSprintRetroMock.mockReturnValue({
+        mutate: saveMutateMock,
+        isPending: false,
+        isError: false,
+        isSuccess: true,
+      });
+      rerender(<RetroPanel sprintId="sp-1" isClosed={false} />);
+
+      expect(screen.getAllByDisplayValue('Fix CI')).toHaveLength(1);
+      await userEvent.click(saveBtn());
+      expect(saveMutateMock.mock.calls[1][0].action_items).toEqual([
+        { id: 'x-new', text: 'Fix CI', story_points: null },
+      ]);
+    });
+  });
+
+  it('rounds fractional story points to a whole number before sending', async () => {
+    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+    await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
+    await userEvent.type(screen.getByLabelText(/Action item 1 text/i), 'Gate');
+    await userEvent.type(screen.getByLabelText(/Action item 1 story points/i), '2.5');
+    await userEvent.click(screen.getByRole('button', { name: /Save notes & actions/i }));
+    expect(saveMutateMock.mock.calls[0][0].action_items).toEqual([{ text: 'Gate', story_points: 3 }]);
+  });
+
+  it("shows the server's reason when the save is refused with a 400 on action_items", () => {
+    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
+    useSaveSprintRetroMock.mockReturnValue({
+      mutate: saveMutateMock,
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: {
+        response: {
+          status: 400,
+          data: { action_items: 'Each story_points must be a whole number from 0 to 32767.' },
+        },
+      },
+    });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Failed to save retro: Each story_points must be a whole number from 0 to 32767.',
+    );
+  });
+
+  it('keeps the generic message for other save failures', () => {
+    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
+    useSaveSprintRetroMock.mockReturnValue({
+      mutate: saveMutateMock,
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: { response: { status: 500, data: {} } },
+    });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to save retro. Please try again.');
   });
 });

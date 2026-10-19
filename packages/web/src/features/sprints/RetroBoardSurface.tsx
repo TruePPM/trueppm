@@ -375,13 +375,44 @@ interface SingleAuthorProps {
 
 const EMPTY_DRAFT: DraftActionItem = { text: '', story_points: '' };
 
+/**
+ * Story points as the save sends them: a whole number, or null. The input is
+ * `type=number` and accepts "2.5"; the server only takes integers (#4591), so the
+ * value is rounded here rather than sent to fail with a 400 on every retry.
+ */
+function pointsToSend(raw: string): number | null {
+  const sp = raw.trim();
+  if (!sp) return null;
+  const n = Number(sp);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : null;
+}
+
+function snapshot(text: string, points: number | null): string {
+  return `${text}\u0000${points ?? ''}`;
+}
+
+function draftSnapshot(d: DraftActionItem): string {
+  return snapshot(d.text.trim(), pointsToSend(d.story_points));
+}
+
 function toDrafts(items: SprintRetroActionItem[], nextKey: () => string): DraftActionItem[] {
   return items.map((it) => ({
     id: it.id,
     draftKey: nextKey(),
     text: it.text,
-    story_points: it.story_points ? String(it.story_points) : '',
+    story_points: it.story_points != null ? String(it.story_points) : '',
+    synced: snapshot(it.text, it.story_points),
   }));
+}
+
+/** The server's refusal text for a 400 that names `action_items`, if any. */
+function saveRefusal(err: unknown): string | null {
+  const res = (err as { response?: { status?: number; data?: unknown } } | null)?.response;
+  if (res?.status !== 400 || !res.data || typeof res.data !== 'object') return null;
+  const detail = (res.data as Record<string, unknown>).action_items;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && typeof detail[0] === 'string') return detail[0];
+  return null;
 }
 
 /** Keep the first draft per server id; a later duplicate is dropped. */
@@ -418,13 +449,27 @@ function SingleAuthorSections({
   const removedIds = useRef(new Set<string>());
   const removedKeys = useRef(new Set<string>());
 
-  const appendUnseen = useCallback(
+  // `updated_at` of the newest retro state this draft has been reconciled with. A
+  // cached read older than our own save's response must not be reconciled: it
+  // still lists rows that save deleted or re-created under new ids.
+  const syncedAt = useRef(0);
+
+  // Bring the draft in line with a server list. A row that was saved, is no
+  // longer on the server (a peer removed it) and has not been edited here since
+  // is dropped; an edited one stays, and the next save re-creates it. Server rows
+  // the draft has never held are appended, unless the user removed them here.
+  const reconcile = useCallback(
     (cur: DraftActionItem[], serverItems: SprintRetroActionItem[]): DraftActionItem[] => {
-      const have = new Set(cur.flatMap((d) => (d.id ? [d.id] : [])));
+      const onServer = new Set(serverItems.map((it) => it.id));
+      const kept = cur.filter(
+        (d) => !d.id || onServer.has(d.id) || d.synced === undefined || draftSnapshot(d) !== d.synced,
+      );
+      const have = new Set(kept.flatMap((d) => (d.id ? [d.id] : [])));
       const unseen = serverItems.filter(
         (it) => !have.has(it.id) && !removedIds.current.has(it.id),
       );
-      return unseen.length ? [...cur, ...toDrafts(unseen, nextKey)] : cur;
+      if (!unseen.length && kept.length === cur.length) return cur;
+      return [...kept, ...toDrafts(unseen, nextKey)];
     },
     [nextKey],
   );
@@ -438,6 +483,7 @@ function SingleAuthorSections({
     }
     setNotes(retro.notes);
     setItems(toDrafts(retro.action_items, nextKey));
+    syncedAt.current = Date.parse(retro.updated_at) || 0;
     setHydrated(true);
   }, [retro, hydrated, nextKey]);
 
@@ -447,23 +493,31 @@ function SingleAuthorSections({
   const savePending = save.isPending;
   useEffect(() => {
     if (!hydrated || savePending || !retro) return;
-    setItems((cur) => appendUnseen(cur, retro.action_items));
-  }, [retro, hydrated, savePending, appendUnseen]);
+    const at = Date.parse(retro.updated_at) || 0;
+    if (at < syncedAt.current) return;
+    syncedAt.current = at;
+    setItems((cur) => reconcile(cur, retro.action_items));
+  }, [retro, hydrated, savePending, reconcile]);
 
-  const persistedByText = useMemo<Map<string, SprintRetroActionItem>>(
-    () => new Map((retro?.action_items ?? []).map((it) => [it.text, it])),
+  const persistedById = useMemo<Map<string, SprintRetroActionItem>>(
+    () => new Map((retro?.action_items ?? []).map((it) => [it.id, it])),
     [retro],
   );
 
   function handleSave() {
-    const sent: { key: string | undefined; id: string | undefined; text: string }[] = [];
+    const sent: {
+      key: string | undefined;
+      id: string | undefined;
+      text: string;
+      synced: string;
+    }[] = [];
     const payload: SprintRetroActionItemInput[] = items.flatMap<SprintRetroActionItemInput>(
       (it) => {
         const text = it.text.trim();
         if (!text) return [];
-        sent.push({ key: it.draftKey, id: it.id, text });
-        const sp = it.story_points.trim();
-        return [{ ...(it.id ? { id: it.id } : {}), text, story_points: sp ? Number(sp) : null }];
+        const story_points = pointsToSend(it.story_points);
+        sent.push({ key: it.draftKey, id: it.id, text, synced: snapshot(text, story_points) });
+        return [{ ...(it.id ? { id: it.id } : {}), text, story_points }];
       },
     );
     save.mutate(
@@ -483,23 +537,25 @@ function SingleAuthorSections({
           // item) that the server re-created under a new id. Claimed by text, in
           // send order.
           const unclaimed = returned.filter((r) => !sentIds.has(r.id));
-          const idByKey = new Map<string, string>();
+          const savedByKey = new Map<string, { id: string; synced: string }>();
           for (const e of sent) {
-            if (e.id && returnedIds.has(e.id)) continue;
-            const at = unclaimed.findIndex((r) => r.text === e.text);
-            if (at < 0) continue;
-            const [claimed] = unclaimed.splice(at, 1);
-            if (!e.key) continue;
-            idByKey.set(e.key, claimed.id);
-            // Removed locally while the save was in flight: keep it removed.
-            if (removedKeys.current.has(e.key)) removedIds.current.add(claimed.id);
+            let id = e.id && returnedIds.has(e.id) ? e.id : undefined;
+            if (!id) {
+              const at = unclaimed.findIndex((r) => r.text === e.text);
+              if (at < 0) continue;
+              id = unclaimed.splice(at, 1)[0].id;
+              // Removed locally while the save was in flight: keep it removed.
+              if (e.key && removedKeys.current.has(e.key)) removedIds.current.add(id);
+            }
+            if (e.key) savedByKey.set(e.key, { id, synced: e.synced });
           }
+          syncedAt.current = Math.max(syncedAt.current, Date.parse(data.updated_at) || 0);
           setItems((cur) =>
             dedupeById(
-              appendUnseen(
+              reconcile(
                 cur.map((d) => {
-                  const id = d.draftKey ? idByKey.get(d.draftKey) : undefined;
-                  return id ? { ...d, id } : d;
+                  const saved = d.draftKey ? savedByKey.get(d.draftKey) : undefined;
+                  return saved ? { ...d, ...saved } : d;
                 }),
                 returned,
               ),
@@ -529,7 +585,7 @@ function SingleAuthorSections({
 
       <RetroActionItems
         items={items}
-        persistedByText={persistedByText}
+        persistedById={persistedById}
         savePending={save.isPending}
         promotePending={promote.isPending}
         onAdd={() => setItems((cur) => [...cur, { ...EMPTY_DRAFT, draftKey: nextKey() }])}
@@ -543,7 +599,9 @@ function SingleAuthorSections({
       <div className="flex items-center justify-between gap-3">
         {save.isError && (
           <p role="alert" className="text-xs text-semantic-critical">
-            Failed to save retro. Please try again.
+            {saveRefusal(save.error) !== null
+              ? `Failed to save retro: ${saveRefusal(save.error)}`
+              : 'Failed to save retro. Please try again.'}
           </p>
         )}
         {save.isSuccess && !save.isPending && (
