@@ -222,7 +222,8 @@ class MentionManager(models.Manager["Mention"]):
 
         Rules:
         - Always restricted to projects the user is a member of (anchored by
-          ProjectMembership; non-deleted only).
+          ProjectMembership; non-deleted only) and that are themselves live — a
+          project in Trash confers no membership (#4577).
         - Within those projects, PROJECT_VISIBLE mentions are visible to all
           members. TEAM_ONLY mentions (future #476) are visible only to the
           mentioner, the mentioned user, and members of the mentioned group.

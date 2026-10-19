@@ -309,6 +309,9 @@ From the 0.4 beta onward, every read of a row whose project you are not a
 | `id`, `created_at`, `event_type`, `category`, read/archive state | unchanged — the row is still yours, still readable, still archivable |
 | `mention.mentioner`, `mention.mentioned_group_key`, `mention.scope` | unchanged — who pinged you and which group it came through |
 
+A project in Trash counts as one you are not a member of: its inbox rows are
+redacted the same way, and restoring the project brings the content back.
+
 Two different people land here, and both get the same answer. One is a member
 whose access was removed: their inbox stops naming a project they can no longer
 open, but does not silently lose history. The other has **never** been a member

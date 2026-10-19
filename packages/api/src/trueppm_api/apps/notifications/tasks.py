@@ -234,7 +234,7 @@ def _drain_batch_size(email_settings: Any) -> int:
     )
 
 
-def _current_project_membership_exists() -> Any:
+def _current_project_membership_exists(*, live_project_only: bool = False) -> Any:
     """Correlated ``EXISTS(ProjectMembership …)`` for a notification's (recipient, project).
 
     Shared by :func:`_retire_pending_for_revoked_membership` and the pending-row
@@ -245,20 +245,28 @@ def _current_project_membership_exists() -> Any:
     (#3675 review note: this drain processes a whole batch per 30 s tick, so an
     N+1 here scales with backlog size).
 
-    ``is_deleted=False`` matches the serializer predicate exactly: a soft-deleted
-    (revoked) ``ProjectMembership`` row does not count as current membership.
+    ``is_deleted=False`` always applies: a soft-deleted (revoked)
+    ``ProjectMembership`` row does not count as current membership.
+
+    ``live_project_only=True`` additionally requires the project itself not to be in
+    Trash (#4587), matching the serializer predicate exactly. Only the send path
+    passes it: a trashed project is *recoverable*, so the drain holds the row
+    (``email_pending`` stays True) and sends it after a restore. The retirement pass
+    leaves it False so that only a real membership revocation retires queued mail —
+    trashing a project must not permanently discard emails a restore would owe.
     """
     from django.db.models import Exists, OuterRef
 
     from trueppm_api.apps.access.models import ProjectMembership
 
-    return Exists(
-        ProjectMembership.objects.filter(
-            user_id=OuterRef("recipient_id"),
-            project_id=OuterRef("project_id"),
-            is_deleted=False,
-        )
+    qs = ProjectMembership.objects.filter(
+        user_id=OuterRef("recipient_id"),
+        project_id=OuterRef("project_id"),
+        is_deleted=False,
     )
+    if live_project_only:
+        qs = qs.filter(project__is_deleted=False)
+    return Exists(qs)
 
 
 def _retire_pending_for_revoked_membership() -> int:
@@ -412,7 +420,9 @@ def _do_drain_emails() -> None:
         # is the backstop for a revocation landing in the gap between that UPDATE and
         # this SELECT. A row with no project (account-scoped digests) has no
         # membership boundary and always passes.
-        .filter(_current_project_membership_exists() | Q(project_id__isnull=True))
+        .filter(
+            _current_project_membership_exists(live_project_only=True) | Q(project_id__isnull=True)
+        )
         # Retries stay one tick apart even when nudges run the drain more often.
         .filter(Q(email_failed_at__isnull=True) | Q(email_failed_at__lt=now - EMAIL_RETRY_SPACING))
         .select_related("recipient", "mention", "mention__task_comment", "mention__mentioner")
