@@ -301,3 +301,113 @@ class TestCascadeReachesFarSide:
             cascade_project_soft_delete(str(world["a"].pk))
         assert _events(bcast, "dependency_deleted") == [str(world["b"].pk)]
         assert {c.args[0] for c in recalc.call_args_list} == {str(world["b"].pk)}
+
+
+def _patched() -> Any:
+    """Patch the broadcast + both recalc seams; yields (bcast, recalc)."""
+    from contextlib import ExitStack, contextmanager
+
+    @contextmanager
+    def cm() -> Any:
+        with ExitStack() as st:
+            bcast = st.enter_context(patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"))
+            st.enter_context(patch("trueppm_api.apps.projects.views._enqueue_recalculate"))
+            recalc = st.enter_context(
+                patch("trueppm_api.apps.scheduling.services.enqueue_recalculate")
+            )
+            yield bcast, recalc
+
+    return cm()
+
+
+@pytest.mark.django_db
+class TestOtherDeleteSurfaces:
+    def test_bulk_delete_reaches_far_side(
+        self,
+        client: APIClient,
+        world: dict[str, Any],
+        django_capture_on_commit_callbacks: CommitCapture,
+    ) -> None:
+        dep = _edge(world)
+        with _patched() as (bcast, recalc), django_capture_on_commit_callbacks(execute=True):
+            r = client.post(
+                f"/api/v1/projects/{world['a'].pk}/tasks/bulk/",
+                {"operations": [{"op": "delete", "id": str(world["a1"].pk)}]},
+                format="json",
+            )
+        assert r.status_code in (200, 207), r.data
+        assert Dependency.objects.get(pk=dep.pk).is_deleted
+        assert _events(bcast, "dependency_deleted") == [str(world["b"].pk)]
+        assert str(world["b"].pk) in {c.args[0] for c in recalc.call_args_list}
+
+    def test_bulk_rejected_delete_announces_nothing(
+        self,
+        world: dict[str, Any],
+        django_capture_on_commit_callbacks: CommitCapture,
+    ) -> None:
+        """A delete the caller may not perform must not announce its (live) edge."""
+        _edge(world)
+        member = get_user_model().objects.create_user(username="m4592", password="pw")
+        ProjectMembership.objects.create(project=world["a"], user=member, role=Role.MEMBER)
+        c = APIClient()
+        c.force_authenticate(user=member)
+        with _patched() as (bcast, _recalc), django_capture_on_commit_callbacks(execute=True):
+            c.post(
+                f"/api/v1/projects/{world['a'].pk}/tasks/bulk/",
+                {"operations": [{"op": "delete", "id": str(world["a1"].pk)}]},
+                format="json",
+            )
+        assert _events(bcast, "dependency_deleted") == []
+
+    def test_sync_upload_delete_reaches_far_side(
+        self,
+        client: APIClient,
+        world: dict[str, Any],
+        django_capture_on_commit_callbacks: CommitCapture,
+    ) -> None:
+        import uuid
+
+        dep = _edge(world)
+        with _patched() as (bcast, recalc), django_capture_on_commit_callbacks(execute=True):
+            r = client.post(
+                f"/api/v1/projects/{world['a'].pk}/sync/",
+                {
+                    "client_batch_id": str(uuid.uuid4()),
+                    "changes": {
+                        "tasks": {"created": [], "updated": [], "deleted": [str(world["a1"].pk)]}
+                    },
+                },
+                format="json",
+            )
+        assert r.status_code == 200, r.content
+        assert Dependency.objects.get(pk=dep.pk).is_deleted
+        assert _events(bcast, "dependency_deleted") == [str(world["b"].pk)]
+        assert str(world["b"].pk) in {c.args[0] for c in recalc.call_args_list}
+
+    def test_hard_delete_project_reaches_surviving_project(
+        self,
+        client: APIClient,
+        world: dict[str, Any],
+        django_capture_on_commit_callbacks: CommitCapture,
+    ) -> None:
+        _edge(world)
+        Project.objects.filter(pk=world["a"].pk).update(is_archived=True)
+        with _patched() as (bcast, recalc), django_capture_on_commit_callbacks(execute=True):
+            r = client.delete(f"/api/v1/projects/{world['a'].pk}/?force=true")
+        assert r.status_code == 204, r.content
+        assert not Project.objects.filter(pk=world["a"].pk).exists()
+        assert _events(bcast, "dependency_deleted") == [str(world["b"].pk)]
+        assert {c.args[0] for c in recalc.call_args_list} == {str(world["b"].pk)}
+
+    def test_project_cascade_retry_is_idempotent(
+        self,
+        world: dict[str, Any],
+        django_capture_on_commit_callbacks: CommitCapture,
+    ) -> None:
+        _edge(world)
+        world["a"].soft_delete()
+        with _patched() as (bcast, recalc), django_capture_on_commit_callbacks(execute=True):
+            cascade_project_soft_delete(str(world["a"].pk))
+            cascade_project_soft_delete(str(world["a"].pk))
+        assert _events(bcast, "dependency_deleted") == [str(world["b"].pk)]
+        assert len(recalc.call_args_list) == 1

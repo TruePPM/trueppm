@@ -130,7 +130,8 @@ The set is open-ended and grows as features land; current event types include:
   as `dependency_ids` — not one `dependency_created` per edge, #3770). A
   cross-project edge fans `dependency_created`, `dependency_updated` and
   `dependency_deleted` to both endpoint projects, pending proposals included. So does
-  a task or project delete or restore that cascades to such an edge: the project on
+  a task or project delete (bulk, offline sync and permanent delete included) or restore
+  that cascades to such an edge: the project on
   the far side receives the edge event and a schedule recompute.
 - **Task relations**: `task_relation_created`, `task_relation_updated`,
   `task_relation_deleted` (informational relates-to / blocks / duplicates links;

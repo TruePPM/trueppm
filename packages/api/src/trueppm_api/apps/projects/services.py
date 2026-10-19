@@ -7485,3 +7485,41 @@ def fan_out_cross_project_edges(
                 recalc.add(pid)
     for pid in sorted(recalc):
         _recalc(pid)
+
+
+def soft_delete_task_with_cross_fanout(task: Any) -> None:
+    """``task.soft_delete()`` plus recalc/notify of the far side of cascaded cross edges.
+
+    The one place every single-task delete surface (REST destroy, sync upload) goes
+    through, so none can cascade away a cross-project edge without telling the
+    project on the other end (#4592). Edges are collected BEFORE the cascade.
+    """
+    from trueppm_api.apps.projects.models import cross_project_edge_rows, task_subtree
+
+    rows = cross_project_edge_rows(tasks=task_subtree(task))
+    task.soft_delete()
+    fan_out_cross_project_edges(rows, created=False, skip_project_ids={str(task.project_id)})
+
+
+def fan_out_deleted_cross_edges(
+    rows: list[dict[str, Any]], *, skip_project_ids: set[str] | frozenset[str] = frozenset()
+) -> None:
+    """Fan out only the collected edges that are actually tombstoned now.
+
+    For batch paths (``POST /tasks/bulk/``) that collect up front but where a delete op
+    can be rejected or rolled back afterwards: one extra query keeps a live edge from
+    being announced as deleted.
+    """
+    if not rows:
+        return
+    from trueppm_api.apps.projects.models import Dependency
+
+    gone = {
+        str(pk)
+        for pk in Dependency.objects.filter(
+            pk__in=[r["id"] for r in rows], is_deleted=True
+        ).values_list("pk", flat=True)
+    }
+    fan_out_cross_project_edges(
+        [r for r in rows if r["id"] in gone], created=False, skip_project_ids=skip_project_ids
+    )

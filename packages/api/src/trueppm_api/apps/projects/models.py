@@ -2111,6 +2111,15 @@ def task_subtree(task: Task) -> QuerySet[Task]:
     )
 
 
+def task_subtrees(tasks: Iterable[Task]) -> QuerySet[Task]:
+    """Union of :func:`task_subtree` over many tasks — one queryset, one query (#4592)."""
+    cond = Q(pk__in=[t.pk for t in tasks])
+    for t in tasks:
+        if t.wbs_path:
+            cond |= Q(project_id=t.project_id, wbs_path__startswith=str(t.wbs_path) + ".")
+    return Task.objects.filter(cond)
+
+
 def cross_project_edge_rows(
     *, project_id: Any = None, tasks: QuerySet[Task] | None = None
 ) -> list[dict[str, Any]]:
