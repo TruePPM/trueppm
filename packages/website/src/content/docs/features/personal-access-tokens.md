@@ -131,7 +131,7 @@ A project admin's token can no longer rotate a git-automation webhook secret, mi
 a public share link, or register/repoint an outgoing webhook — those routes now
 refuse token callers the same way token management itself does. A grant either was
 minted before that changed, and a password reset, off-boarding, or the operator's
-`revoke_api_tokens --all` sweep (see
+`revoke_api_tokens --user`, `--all-personal`, or `--all` sweep (see
 [Rotating credentials after a suspected leak](/administration/security/#separating-the-jwt-signing-key-and-forcing-a-global-sign-out))
 now revokes it too — an outgoing webhook is deactivated rather than deleted, so an
 admin can confirm what happened and re-enable it once the credential issue is

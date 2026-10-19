@@ -391,20 +391,27 @@ These exist for specific operational situations and are not part of routine use:
   TruePPM never prunes the audit log automatically, and there is no default schedule — if
   you want periodic rotation, run it from your own cron. Enforced retention, legal hold,
   and off-server archival are part of TruePPM Enterprise.
-- **`revoke_api_tokens`** — the breach-recovery lever for
-  [API tokens](/features/personal-access-tokens/). Rotating `JWT_SIGNING_KEY` signs
+- **`revoke_api_tokens`** — the breach-recovery and off-boarding lever for
+  [API tokens](/features/personal-access-tokens/) and the other credentials a
+  leaked token or hijacked session can hold. Rotating `JWT_SIGNING_KEY` signs
   every *session* out, but an API token carries no signature — it is resolved by a
   SHA-256 hash lookup — so key rotation leaves every leaked token live. This command
   is the other half of that procedure. Choose exactly one scope: `--user
-  <username-or-email>` (one account's personal tokens — the off-boarding or stolen-
-  laptop case), `--all-personal` (every personal token on the instance, leaving team
-  integration tokens working), or `--all` (**every** token including project- and
-  program-scoped ones, which breaks all inbound sync until an admin re-mints). It is
-  a **dry-run by default**: it lists what it would revoke and changes nothing until
-  you pass `--commit` (add `--yes` to skip the confirmation prompt). Revocation is
-  one-way — nothing un-revokes a token — so review the dry run first. Every revoked
-  token gets an audit row tagged `operator_bulk_revoke`, so an incident timeline can
-  tell a containment sweep apart from a user's routine rotation. See
+  <username-or-email>` — the off-boarding or stolen-laptop case — revokes that one
+  account's personal tokens, refresh tokens, share links, git-automation webhook
+  secret, and outgoing webhooks, and closes its live project WebSocket connections,
+  whether or not the account currently owns a personal token; `--all-personal`
+  revokes every personal token on the instance plus that same sweep for each
+  account that owns one of those tokens, leaving team integration tokens (and
+  accounts with no personal token) alone; or `--all` (**every** token including
+  project- and program-scoped ones, which breaks all inbound sync until an admin
+  re-mints, plus every share link, git-automation secret, and outgoing webhook
+  instance-wide). It is a **dry-run by default**: it lists what it would revoke
+  and changes nothing until you pass `--commit` (add `--yes` to skip the
+  confirmation prompt). Revocation is one-way — nothing un-revokes a token or
+  re-enables a webhook — so review the dry run first. Every revoked token gets an
+  audit row tagged `operator_bulk_revoke`, so an incident timeline can tell a
+  containment sweep apart from a user's routine rotation. See
   [Security → forcing a global sign-out](/administration/security/#separating-the-jwt-signing-key-and-forcing-a-global-sign-out).
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI
   job. It is intended for CI and local test runs, not production.
