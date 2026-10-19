@@ -201,7 +201,7 @@ class StructuralOperationViewSet(
         from trueppm_api.apps.access.models import ProjectMembership
 
         memberships = ProjectMembership.objects.filter(
-            user=cast("Any", self.request.user), is_deleted=False
+            user=cast("Any", self.request.user), is_deleted=False, project__is_deleted=False
         )
         admin_project_ids = list(
             memberships.filter(role__gte=Role.ADMIN).values_list("project_id", flat=True)

@@ -765,7 +765,7 @@ class TemplateApplicationViewSet(
         from trueppm_api.apps.access.models import ProjectMembership
 
         member_project_ids = ProjectMembership.objects.filter(
-            user=cast("Any", self.request.user), is_deleted=False
+            user=cast("Any", self.request.user), is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = TemplateApplication.objects.filter(project_id__in=member_project_ids)
         project_id = self.request.query_params.get("project")

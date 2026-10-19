@@ -49,6 +49,7 @@ class AgentActionViewSet(viewsets.ReadOnlyModelViewSet):  # type: ignore[type-ar
         member_project_ids = ProjectMembership.objects.filter(
             user=user,
             is_deleted=False,
+            project__is_deleted=False,  # #4577: a trashed project confers no access
         ).values_list("project_id", flat=True)
 
         # A caller sees actions in their projects, plus their own agent's actions (which

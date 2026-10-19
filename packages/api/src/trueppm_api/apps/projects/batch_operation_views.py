@@ -53,7 +53,7 @@ def _caller_project_ids(request: Request) -> QuerySet[Any]:
     from trueppm_api.apps.access.models import ProjectMembership
 
     return ProjectMembership.objects.filter(
-        user=cast("Any", request.user), is_deleted=False
+        user=cast("Any", request.user), is_deleted=False, project__is_deleted=False
     ).values_list("project_id", flat=True)
 
 

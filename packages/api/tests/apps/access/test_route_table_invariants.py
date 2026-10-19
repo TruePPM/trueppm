@@ -1115,10 +1115,10 @@ def test_the_archived_scan_is_not_vacuous() -> None:
 #    verdict the running code does not reach — which is exactly what
 #    `_declared_project_kwarg` exists to prevent for invariant 1.
 #
-# 2. **`UNKNOWN_ID` is out of scope by construction, not by omission.** That state needs
-#    a DECLARED kwarg that IS present in the URL, which is structurally resolvable and
-#    therefore never reaches this scan. The permissive arm for an unknown project id
-#    (#3129's 404, not a 403 existence oracle) is tested at the unit level in
+# 2. **An unknown project id is out of scope by construction, not by omission.** It
+#    needs a DECLARED kwarg that IS present in the URL, which is structurally resolvable
+#    and therefore never reaches this scan. The resolver's 404 for an unknown or trashed
+#    id (#3129's 404, not a 403 existence oracle; #4577) is tested at the unit level in
 #    `test_unresolvable_scope_fails_closed.py`, where a DB is available.
 #
 # 3. **The denominator is pinned**, so a refactor that stops the walker seeing these

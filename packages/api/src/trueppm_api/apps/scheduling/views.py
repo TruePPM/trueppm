@@ -2351,7 +2351,7 @@ class VelocitySuggestionViewSet(
         # which already filters soft-deleted, so the write path is safe — only
         # the list path was leaking.
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = qs.filter(task__project_id__in=member_project_ids)
         return qs

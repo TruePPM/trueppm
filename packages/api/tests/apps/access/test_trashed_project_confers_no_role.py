@@ -23,7 +23,8 @@ from typing import Any
 import pytest
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
-from rest_framework.exceptions import NotFound
+from django.http import Http404
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory
 from rest_framework.views import APIView
@@ -41,12 +42,10 @@ from trueppm_api.apps.access.permissions import (
     IsProjectScopeManager,
     IsTrashedProjectOwner,
     ProjectRowState,
-    ScopeResolution,
     _membership_role,
     _project_row_state,
     _resolve_project_scope,
     _trashed_project_role,
-    _unresolved_scope_allows,
     live_member_project_ids,
 )
 from trueppm_api.apps.projects.models import Calendar, Project, Task
@@ -172,21 +171,23 @@ def test_live_member_project_ids_excludes_a_trashed_project(project: Project, ow
     assert live_member_project_ids(owner, [project.pk]) == set()
 
 
-def test_a_missing_project_still_stands_down_but_a_trashed_one_does_not(
+def test_a_missing_and_a_trashed_project_are_refused_identically(
     project: Project, owner: Any
 ) -> None:
-    """Missing → UNKNOWN_ID (stand down, view 404s). Trashed → refused outright.
+    """Both are a 404 from the resolver, with one detail string, before any role check.
 
-    The pre-#4577 resolver folded both into UNKNOWN_ID, and ``_unresolved_scope_allows``
-    answers True to UNKNOWN_ID on every method for every class.
+    The pre-#4577 resolver folded both into a stand-down that every class answered
+    True to. Refusing only the trashed one would leave a missing id reaching the view
+    body — which on some routes validates input or checks auth first — so the two
+    would be told apart by status. One refusal for both closes that.
     """
-    pk, state = _resolve_project_scope(_declaring_view(MISSING_PK))
-    assert (pk, state) == (None, ScopeResolution.UNKNOWN_ID)
-    assert _unresolved_scope_allows(_request("POST", owner), _declaring_view(MISSING_PK), state)
+    with pytest.raises(NotFound) as missing:
+        _resolve_project_scope(_declaring_view(MISSING_PK))
 
     _trash_without_cascade(project)
-    with pytest.raises(NotFound):
+    with pytest.raises(NotFound) as trashed:
         _resolve_project_scope(_declaring_view(project.pk))
+    assert str(trashed.value.detail) == str(missing.value.detail)
 
 
 @pytest.mark.parametrize("permission_class", PROJECT_FAMILY, ids=lambda c: c.__name__)
@@ -310,8 +311,11 @@ def test_board_column_config_is_refused_once_trashed(project: Project, owner: An
 
 
 def test_trigger_schedule_is_refused_once_trashed(project: Project, owner: Any) -> None:
+    url = f"/api/v1/projects/{project.pk}/schedule/"
+    live = _client(owner).post(url)
+    assert live.status_code == 202, live.content  # control: the Owner may trigger it
     _trash_without_cascade(project)
-    resp = _client(owner).post(f"/api/v1/projects/{project.pk}/schedule/")
+    resp = _client(owner).post(url)
     assert resp.status_code == 404, resp.content
 
 
@@ -358,3 +362,199 @@ def test_non_owner_member_still_cannot_restore(project: Project, admin_member: A
     _trash_without_cascade(project)
     resp = _client(admin_member).post(f"/api/v1/projects/{project.pk}/restore/")
     assert resp.status_code == 403, resp.content
+
+
+# ---------------------------------------------------------------------------
+# Trashed and missing answer identically end to end (no trashed-vs-missing oracle)
+# ---------------------------------------------------------------------------
+
+
+def _same_answer(client: APIClient, method: str, trashed_url: str, missing_url: str) -> None:
+    trashed = getattr(client, method)(trashed_url, {}, format="json")
+    missing = getattr(client, method)(missing_url, {}, format="json")
+    assert trashed.status_code == missing.status_code == 404, (trashed.content, missing.content)
+    assert trashed.json() == missing.json()
+
+
+@pytest.mark.parametrize(
+    ("method", "suffix"),
+    [
+        # Validates its query string before its lookup: a missing id used to 400.
+        ("get", "schedule/derivation/"),
+        # Answers its own "Not found." for a missing id.
+        ("get", "monte-carlo/whatif/"),
+        # Token-only endpoints: a non-token caller used to reach a 401 for a
+        # missing id but a 404 for a trashed one.
+        ("post", "task-sync/"),
+        ("post", "acceptance-results/"),
+    ],
+)
+def test_a_declared_route_cannot_tell_trashed_from_missing(
+    method: str, suffix: str, project: Project, owner: Any
+) -> None:
+    _trash_without_cascade(project)
+    _same_answer(
+        _client(owner),
+        method,
+        f"/api/v1/projects/{project.pk}/{suffix}",
+        f"/api/v1/projects/{MISSING_PK}/{suffix}",
+    )
+
+
+def test_a_non_member_cannot_tell_a_trashed_project_from_a_missing_one_on_restore(
+    project: Project,
+) -> None:
+    stranger = User.objects.create_user(username="trash-stranger", password="pw")
+    _trash_without_cascade(project)
+    _same_answer(
+        _client(stranger),
+        "post",
+        f"/api/v1/projects/{project.pk}/restore/",
+        f"/api/v1/projects/{MISSING_PK}/restore/",
+    )
+
+
+# ---------------------------------------------------------------------------
+# #4008's direct lookups — HTTP outcome, plus the body lookup on its own
+# ---------------------------------------------------------------------------
+
+BOARD_VIEW_CONFIG = {
+    "sort": "priority",
+    "show_wip": True,
+    "show_col_tints": True,
+    "evm_mode": "off",
+    "show_cost": False,
+    "risk_linked_only": False,
+}
+
+
+def _call_body(view_cls: type, method: str, user: Any, **kwargs: Any) -> Any:
+    """Invoke a view handler directly, skipping ``initial()``'s permission checks.
+
+    The permission layer refuses a trashed project before these bodies run, so an
+    HTTP test cannot tell whether the body's own lookup floors ``is_deleted``. Called
+    directly, an unfloored lookup resolves the trashed row and falls through to
+    ``check_object_permissions`` (``PermissionDenied``); a floored one raises
+    ``Http404`` first — so each body lookup is pinned on its own.
+    """
+    django_request = APIRequestFactory().generic(
+        method.upper(), "/", data="{}", content_type="application/json"
+    )
+    request = Request(django_request)
+    request.user = user
+    view = view_cls()
+    view.request = request
+    view.args = ()
+    view.kwargs = kwargs
+    view.format_kwarg = None
+    view.headers = {}
+    return getattr(view, method)(request, **kwargs)
+
+
+def test_board_saved_views_are_refused_once_trashed(project: Project, owner: Any) -> None:
+    base = f"/api/v1/projects/{project.pk}/board-views/"
+    created = _client(owner).post(
+        base, {"name": "Mine", "config": BOARD_VIEW_CONFIG}, format="json"
+    )
+    assert created.status_code == 201, created.content  # control
+    view_pk = created.json()["id"]
+    assert _client(owner).get(base).status_code == 200  # control
+
+    _trash_without_cascade(project)
+    detail = f"{base}{view_pk}/"
+    assert _client(owner).get(base).status_code == 404
+    assert (
+        _client(owner)
+        .post(base, {"name": "x", "config": BOARD_VIEW_CONFIG}, format="json")
+        .status_code
+        == 404
+    )
+    assert _client(owner).patch(detail, {"name": "y"}, format="json").status_code == 404
+    assert _client(owner).delete(detail).status_code == 404
+
+
+def test_board_saved_view_body_lookups_floor_a_trashed_project(
+    project: Project, owner: Any
+) -> None:
+    from trueppm_api.apps.projects.models import BoardSavedView
+    from trueppm_api.apps.projects.views import BoardSavedViewDetailView, BoardSavedViewListView
+
+    saved = BoardSavedView.objects.create(
+        project=project, name="Mine", config=BOARD_VIEW_CONFIG, created_by=owner
+    )
+    _trash_without_cascade(project)
+    for method in ("get", "post"):
+        with pytest.raises(Http404):
+            _call_body(BoardSavedViewListView, method, owner, pk=str(project.pk))
+    for method in ("patch", "delete"):
+        with pytest.raises(Http404):
+            _call_body(
+                BoardSavedViewDetailView,
+                method,
+                owner,
+                pk=str(project.pk),
+                view_pk=str(saved.pk),
+            )
+
+
+def test_my_tasks_body_lookup_floors_a_trashed_project(project: Project, owner: Any) -> None:
+    from trueppm_api.apps.projects.views import ProjectMyTasksView
+
+    _trash_without_cascade(project)
+    with pytest.raises(Http404):
+        _call_body(ProjectMyTasksView, "get", owner, pk=str(project.pk))
+
+
+@pytest.fixture
+def shared_project(project: Project) -> Project:
+    Project.objects.filter(pk=project.pk).update(public_sharing=True)
+    project.refresh_from_db()
+    return project
+
+
+def test_share_links_are_refused_once_trashed(shared_project: Project, owner: Any) -> None:
+    base = f"/api/v1/projects/{shared_project.pk}/share-links/"
+    created = _client(owner).post(base, {"label": "client"}, format="json")
+    assert created.status_code == 201, created.content  # control
+    link_id = created.json()["id"]
+    assert _client(owner).get(base).status_code == 200  # control
+
+    _trash_without_cascade(shared_project)
+    # `project_pk` routes resolve the role directly: 403, as for an unknown id.
+    assert _client(owner).get(base).status_code == 403
+    assert _client(owner).post(base, {"label": "x"}, format="json").status_code == 403
+    assert _client(owner).post(f"{base}{link_id}/revoke/").status_code == 403
+
+
+def test_share_link_body_lookups_floor_a_trashed_project(
+    shared_project: Project, owner: Any
+) -> None:
+    from trueppm_api.apps.projects.share_views import (
+        ProjectShareLinkListCreateView,
+        ProjectShareLinkRevokeView,
+    )
+
+    _trash_without_cascade(shared_project)
+    pk = str(shared_project.pk)
+    for method in ("get", "post"):
+        with pytest.raises(Http404):
+            _call_body(ProjectShareLinkListCreateView, method, owner, project_pk=pk)
+    with pytest.raises(Http404):
+        _call_body(
+            ProjectShareLinkRevokeView, "post", owner, project_pk=pk, link_id=str(MISSING_PK)
+        )
+
+
+def test_body_call_harness_reaches_the_object_check_on_a_live_project(
+    shared_project: Project,
+) -> None:
+    """Control for the two tests above: with a live project the body DOES get past
+    its lookup and the object check is what refuses a non-member — so an Http404 there
+    really is the lookup's floor, not the harness failing early."""
+    from trueppm_api.apps.projects.share_views import ProjectShareLinkListCreateView
+
+    stranger = User.objects.create_user(username="body-stranger", password="pw")
+    with pytest.raises(PermissionDenied):
+        _call_body(
+            ProjectShareLinkListCreateView, "get", stranger, project_pk=str(shared_project.pk)
+        )

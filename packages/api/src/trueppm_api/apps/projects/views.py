@@ -7670,6 +7670,7 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
             .filter(
                 task__project__memberships__user=self.request.user,  # type: ignore[misc]
                 task__project__memberships__is_deleted=False,
+                task__project__is_deleted=False,  # #4577: trashed project confers no access
             )
         )
         task_id = self.request.query_params.get("task")
@@ -7759,6 +7760,7 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
             .filter(
                 sprint__project__memberships__user=self.request.user,  # type: ignore[misc]
                 sprint__project__memberships__is_deleted=False,
+                sprint__project__is_deleted=False,  # #4577: trashed project confers no access
             )
             .distinct()
         )
@@ -7915,6 +7917,7 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
             .filter(
                 retro__sprint__project__memberships__user=self.request.user,  # type: ignore[misc]
                 retro__sprint__project__memberships__is_deleted=False,
+                retro__sprint__project__is_deleted=False,  # #4577: trashed confers no access
             )
             .distinct()
         )
@@ -8351,7 +8354,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         if user is None or not user.is_authenticated:
             return base.none()
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = base.filter(
             Q(predecessor__project_id__in=member_project_ids)
@@ -8669,7 +8672,7 @@ class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelati
         if user is None or not user.is_authenticated:
             return base.none()
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = base.filter(
             Q(source__project_id__in=member_project_ids)
@@ -8866,7 +8869,7 @@ class CrossProjectSlipConflictViewSet(
         if user is None or not user.is_authenticated:
             return CrossProjectSlipConflict.objects.none()
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         # Full select_related covers all FK hops in get_upstream_task (🔴-4):
         # dep → predecessor → project (3 hops per row without this).
@@ -9043,7 +9046,7 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         qs = super().get_queryset()
         # Scope to projects the caller is a member of — prevents cross-project reads.
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = qs.filter(task__project_id__in=member_project_ids)
         project_id = self.request.query_params.get("project")
@@ -16913,7 +16916,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         # IsAuthenticated has already excluded AnonymousUser; cast narrows for mypy.
         user = cast(User, self.request.user)
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         return SprintScopeChange.objects.select_related("task", "sprint").filter(
             task__project_id__in=member_project_ids
@@ -18275,9 +18278,9 @@ def _retro_owned_rows(
     # regardless of project, which is O(all retros × all action items) and
     # dominates GET /me/work/ latency on multi-tenant deployments.
     member_project_ids = list(
-        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
     )
     owned_items = RetroActionItem.objects.filter(
         promoted_task_id__isnull=False,
