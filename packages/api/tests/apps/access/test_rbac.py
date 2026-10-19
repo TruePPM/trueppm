@@ -1711,14 +1711,23 @@ class TestIsProgramNotClosed:
             is False
         )
 
-    def test_object_with_no_program_is_not_lifecycle_gated(self, user: object) -> None:
+    def test_object_with_no_program_fails_closed(self, user: object) -> None:
+        """Fails CLOSED (#4498), mirroring #3587's flip of the project-lifecycle
+        sibling (``IsProjectNotArchived``) — this was the same undocumented fail-open
+        shape on the program side. See ``test_route_table_invariants.py``'s
+        ``test_the_scope_family_is_discoverable`` for why this class stays out of the
+        ``_resolve_program_scope`` family (it's a lifecycle class, not an authority
+        one); the #4498 audit proving no real route hands this branch an object that
+        should have resolved lives in the commit message, mirroring #3587's own
+        route-table invariant on a surface too small to warrant a dedicated one.
+        """
         view = _program_view()
         view.action = "partial_update"
         assert (
             IsProgramNotClosed().has_object_permission(
                 _plain_request(user, "PATCH"), view, SimpleNamespace()
             )
-            is True
+            is False
         )
 
 
