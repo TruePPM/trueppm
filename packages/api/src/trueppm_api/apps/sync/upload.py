@@ -44,6 +44,7 @@ from trueppm_api.apps.projects.models import (
     resync_structural_parent_after_delete,
     structural_parent,
 )
+from trueppm_api.apps.projects.services import soft_delete_task_with_cross_fanout
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -427,7 +428,9 @@ def _apply_deleted_row(del_id: Any, ctx: _ApplyContext, result: BatchApplyResult
     if not can_user_edit_task(ctx.request, target, method="DELETE"):
         raise PermissionDenied("You may not delete this task.")
     parent = structural_parent(target)
-    target.soft_delete()  # bumps server_version, sets deleted_version, cascades
+    # bumps server_version, sets deleted_version, cascades; also recalcs/notifies the far
+    # side of any cascaded cross-project edge (#4592)
+    soft_delete_task_with_cross_fanout(target)
     result.deleted.append({"id": str(target.pk), "server_version": target.server_version})
     result.events.append(("task_deleted", str(target.pk)))
     result.bump(target.sync_seq)

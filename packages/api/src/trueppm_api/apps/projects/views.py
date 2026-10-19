@@ -158,11 +158,14 @@ from trueppm_api.apps.projects.models import (
     TaskSource,
     TaskStatus,
     TaskType,
+    cross_project_edge_rows,
     format_short_id_display,
     resync_container_declarations,
     resync_structural_parent_after_delete,
     structural_parent,
     sync_structure_shadow_values,
+    task_subtree,
+    task_subtrees,
 )
 from trueppm_api.apps.projects.program_rollup import (
     spi_counts_by_project,
@@ -293,6 +296,9 @@ from trueppm_api.apps.projects.serializers import (
 from trueppm_api.apps.projects.services import (
     MAX_BURN_HORIZON_DAYS,
     MAX_BURN_WINDOW_DAYS,
+    fan_out_cross_project_edges,
+    fan_out_deleted_cross_edges,
+    soft_delete_task_with_cross_fanout,
 )
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
 from trueppm_api.apps.projects.task_bulk import (
@@ -1933,7 +1939,13 @@ class ProjectViewSet(
             # here, or the one client listening gets the event twice.
             from trueppm_api.apps.access.services import hard_delete_projects
 
+            # Dependency.predecessor/successor are on_delete=CASCADE, so the DB drops
+            # this project's live cross-project edges silently (an archived project
+            # still holds them). Collect first so the surviving project is recalculated
+            # and told (#4592).
+            cross_edges = cross_project_edge_rows(project_id=instance.pk)
             hard_delete_projects([instance.pk], broadcast=True)
+            fan_out_cross_project_edges(cross_edges, created=False, skip_project_ids={project_id})
             _record_project_audit_event(
                 event_type="project_deleted",
                 actor=self.request.user,
@@ -2611,6 +2623,7 @@ class ProjectViewSet(
                     transaction.set_rollback(True)
                     return Response({"code": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
             cascade_project_children_restore(project)
+            cross_edges = cross_project_edge_rows(project_id=project.pk)
             _record_project_audit_event(
                 event_type="project_restored",
                 actor=request.user,
@@ -2622,6 +2635,7 @@ class ProjectViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_restored", {"id": project_id})
         )
+        fan_out_cross_project_edges(cross_edges, created=True, skip_project_ids={project_id})
         serializer = self.get_serializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -6724,7 +6738,9 @@ class TaskViewSet(
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
         parent = structural_parent(instance)
-        instance.soft_delete()
+        # Collect BEFORE the cascade tombstones the edges: afterwards a live-edge
+        # query finds nothing (#4592).
+        soft_delete_task_with_cross_fanout(instance)
         # The former parent may have just lost its last child (#2950). An
         # ACCIDENTAL container reverts and gets its own estimate back; a DECLARED
         # one stays declared and becomes an empty lane — silently un-declaring
@@ -6946,6 +6962,7 @@ class TaskViewSet(
             with transaction.atomic():
                 task.restore()
                 cascade_task_children_restore(task)
+                cross_edges = cross_project_edge_rows(tasks=task_subtree(task))
         except WbsPathOccupied as exc:
             # Refuse rather than re-path (#3071). This is the one restore path with a
             # person on the other end of it: they asked for this row back at this
@@ -6970,6 +6987,7 @@ class TaskViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_restored", {"id": task_id})
         )
+        fan_out_cross_project_edges(cross_edges, created=True, skip_project_ids={project_id})
 
         # Re-fetch through the annotated read path so the response carries the same shape
         # as retrieve (labels, rollups) rather than the bare trashed row.
@@ -8444,6 +8462,13 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_created", {"id": dep_id})
         )
+        # The successor team's open Schedule and pending-acceptance panel are the
+        # consumers of a cross-project edge too, pending or accepted (#4592). The
+        # payload is the bare edge id, identical to what accept/reject already send.
+        if successor_pid != predecessor_pid:
+            transaction.on_commit(
+                lambda: broadcast_board_event(successor_pid, "dependency_created", {"id": dep_id})
+            )
         dep_payload = {
             "id": dep_id,
             "predecessor": str(instance.predecessor_id),
@@ -8468,13 +8493,26 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         consent = getattr(serializer, "_consent", None)
         instance = serializer.save(**consent) if consent else serializer.save()
         project_id = str(instance.predecessor.project_id)
+        successor_pid = str(instance.successor.project_id)
         dep_id = str(instance.pk)
-        transaction.on_commit(
-            lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.DEPENDENCY_CHANGE)
+        # Mirrors perform_create: an *accepted* cross-project edge constrains both
+        # sides, so both recompute and the coalescing dispatch runs one program pass.
+        accepted_cross = project_id != successor_pid and not instance.pending_acceptance
+        recalc_reason = (
+            ScheduleRequestReason.CROSS_PROJECT_DEPENDENCY
+            if accepted_cross
+            else ScheduleRequestReason.DEPENDENCY_CHANGE
         )
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id, reason=recalc_reason))
+        if accepted_cross:
+            transaction.on_commit(lambda: _enqueue_recalculate(successor_pid, reason=recalc_reason))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_updated", {"id": dep_id})
         )
+        if successor_pid != project_id:
+            transaction.on_commit(
+                lambda: broadcast_board_event(successor_pid, "dependency_updated", {"id": dep_id})
+            )
 
     def perform_destroy(self, instance: Dependency) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -8501,6 +8539,10 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})
         )
+        if successor_pid != predecessor_pid:
+            transaction.on_commit(
+                lambda: broadcast_board_event(successor_pid, "dependency_deleted", {"id": dep_id})
+            )
         transaction.on_commit(
             lambda: _dispatch_webhooks(project_id, "dependency.deleted", {"id": dep_id})
         )
@@ -10292,7 +10334,19 @@ class TaskBulkView(IdempotencyMixin, APIView):
         project_id = str(project.pk)
 
         with transaction.atomic():
+            # One edge query for the whole batch, collected before any delete op
+            # cascades its edges away (#4592).
+            bulk_cross_edges = cross_project_edge_rows(
+                tasks=task_subtrees(
+                    [
+                        locked_by_id[str(op["id"])]
+                        for op in operations
+                        if op.get("op") == "delete" and str(op.get("id")) in locked_by_id
+                    ]
+                )
+            )
             apply_task_operations(operations, ctx, out)
+            fan_out_deleted_cross_edges(bulk_cross_edges, skip_project_ids={project_id})
             try:
                 dep_recalc_ids = apply_dependency_edges(edge_rows, ctx, out)
             except InvalidGraphInput as exc:

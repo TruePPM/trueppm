@@ -15,7 +15,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Exists, F, OuterRef, Q, QuerySet
 from django.db.models.functions import Lower, Upper
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
@@ -2101,6 +2101,50 @@ def next_free_wbs_path(project_id: Any, wbs_path: Any) -> str:
         if label.isdigit():
             highest = max(highest, int(label))
     return f"{prefix}.{highest + 1}" if prefix else str(highest + 1)
+
+
+def task_subtree(task: Task) -> QuerySet[Task]:
+    """The task plus its WBS descendants, scoped to its own project (#3010)."""
+    return Task.objects.filter(
+        Q(pk=task.pk) | Q(wbs_path__startswith=str(task.wbs_path) + "."),
+        project_id=task.project_id,
+    )
+
+
+def task_subtrees(tasks: Iterable[Task]) -> QuerySet[Task]:
+    """Union of :func:`task_subtree` over many tasks — one queryset, one query (#4592)."""
+    cond = Q(pk__in=[t.pk for t in tasks])
+    for t in tasks:
+        if t.wbs_path:
+            cond |= Q(project_id=t.project_id, wbs_path__startswith=str(t.wbs_path) + ".")
+    return Task.objects.filter(cond)
+
+
+def cross_project_edge_rows(
+    *, project_id: Any = None, tasks: QuerySet[Task] | None = None
+) -> list[dict[str, Any]]:
+    """Live cross-project edges touching a project or a set of tasks (#4592).
+
+    Used to find the *other* project(s) a cascade (task or project soft-delete /
+    restore) reaches, so they can be recalculated and notified. One query, no
+    per-edge lookups. Rows carry ``id``, ``pending_acceptance``, ``pred_pid`` and
+    ``succ_pid`` (string project ids). Callers collect BEFORE a delete cascade (the
+    edges are live then) and AFTER a restore cascade.
+    """
+    if (project_id is None) == (tasks is None):
+        raise ValueError("pass exactly one of project_id or tasks")
+    if tasks is not None:
+        scope = Q(predecessor__in=tasks) | Q(successor__in=tasks)
+    else:
+        scope = Q(predecessor__project_id=project_id) | Q(successor__project_id=project_id)
+    rows = Dependency.objects.filter(scope, is_deleted=False).values_list(
+        "id", "pending_acceptance", "predecessor__project_id", "successor__project_id"
+    )
+    return [
+        {"id": str(i), "pending_acceptance": pend, "pred_pid": str(pp), "succ_pid": str(sp)}
+        for i, pend, pp, sp in rows
+        if pp != sp
+    ]
 
 
 def cascade_task_children_restore(task: Task) -> None:

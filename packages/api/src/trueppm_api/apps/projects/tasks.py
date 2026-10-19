@@ -1227,8 +1227,17 @@ def cascade_project_soft_delete(self: object, project_id: str) -> None:
         )
         return
 
+    from trueppm_api.apps.projects.models import cross_project_edge_rows
+    from trueppm_api.apps.projects.services import fan_out_cross_project_edges
+
     with transaction.atomic():
+        # Collect before the cascade tombstones the edges. The surviving endpoint's
+        # project otherwise keeps CPM dates constrained by a predecessor that no
+        # longer exists, with no event (#4592). A retry finds no live edges, so the
+        # fan-out is idempotent.
+        cross_edges = cross_project_edge_rows(project_id=project_id)
         cascade_project_children_soft_delete(project_id)
+        fan_out_cross_project_edges(cross_edges, created=False, skip_project_ids={str(project_id)})
     logger.info("cascade_project_soft_delete: cascaded children for project %s", project_id)
 
 
