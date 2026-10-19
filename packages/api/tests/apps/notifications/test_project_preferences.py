@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date, time
 
 import pytest
@@ -721,15 +722,20 @@ def test_get_reads_the_project_and_workspace_once_each(
         f"expected one workspace read for two method fields, got {len(workspace_reads)} — "
         "the per-project memo in _resolved_quiet_hours_tz is not holding"
     )
-    # Row fetches only. The permission layer also issues an `EXISTS`-shaped
-    # `SELECT 1 AS "a" ... LIMIT 21` probe, which is not a row read and is unrelated to
-    # the FK cache — counting it would pin an unrelated baseline instead of the
-    # mechanism. A serializer lazy-load would show up here as a *second* row fetch on
-    # top of the view's own `get_object_or_404`.
+    # Row fetches only. The permission layer also issues existence-shaped probes — an
+    # `EXISTS`-style `SELECT 1 AS "a"` and the scope resolver's single-column
+    # `SELECT "is_deleted"` live/trashed/missing read — which are not row reads and are
+    # unrelated to the FK cache; counting them would pin an unrelated baseline instead
+    # of the mechanism. A serializer lazy-load would show up here as a *second* full row
+    # fetch on top of the view's own `get_object_or_404`.
     project_row_reads = [
         q
         for q in ctx.captured_queries
-        if 'FROM "projects_project"' in q["sql"] and 'SELECT 1 AS "a"' not in q["sql"]
+        if 'FROM "projects_project"' in q["sql"]
+        and 'SELECT 1 AS "a"' not in q["sql"]
+        and not re.match(
+            r'SELECT "projects_project"\."is_deleted"( AS "is_deleted")? FROM', q["sql"]
+        )
     ]
     assert len(project_row_reads) == 1, (
         f"expected exactly the view's own project fetch, got {len(project_row_reads)} — "
