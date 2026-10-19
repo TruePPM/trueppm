@@ -257,8 +257,11 @@ is cycle-checked over every project in the program, so the path can run through 
 project you hold no role on. That node keeps its place in `cycle` and `offending`,
 but every field is withheld — `{"id": "", "name": "", "hex_id": ""}` in `cycle`,
 `""` in `offending` — so the refusal never discloses another team's task. The two
-tasks you linked are always named. Render a blank node as a generic label rather
-than treating it as malformed.
+tasks you linked are always named. Only a direct project membership makes a node
+readable here: a program-level role alone is not enough, even where the program
+schedule or a dependency's counterpart card would show you that task. A node is
+also blank when its task was deleted while the check ran. Render a blank node as
+a generic label rather than treating it as malformed.
 
 `detail` and `cycle` are kept on the wire, unchanged from before #3800, for one
 minor so an already-shipped client survives without a server-version check. They

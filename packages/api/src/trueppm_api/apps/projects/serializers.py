@@ -7243,11 +7243,24 @@ def _cycle_readable_project_ids(
     The caller was only authorized for the two endpoint projects
     (``always_readable``), so every other project on the path is labeled only
     when the caller can read it: a live ``ProjectMembership`` on a project that
-    is not trashed (:func:`live_member_project_ids`, the #4577 floor) — program
-    membership does not reach a member project's content. An agent token is
-    additionally intersected with the team MCP opt-out (ADR-0678); agent tokens
-    are refused on this write surface by ``TokenReadOnlyMethods`` today, so that
-    branch is defense in depth. Fails closed: no request means no foreign labels.
+    is not trashed (:func:`live_member_project_ids`, the #4577 floor).
+
+    The policy deliberately follows ``_far_endpoint_labeler`` (the dependency
+    activity feed), not the ADR-0120 D5 minimal card: program membership alone
+    does not label a node here, even though a program member is shown a
+    counterpart task's id/title/hex_id on the dependency card and the program
+    schedule. That makes this refusal stricter than those reads for a
+    program-only member — a node they could read through an edge they can see
+    may still arrive blank. Erring that way costs a generic label in a toast;
+    erring the other way discloses tasks with no edge to anything the caller can
+    see.
+
+    An agent token is additionally intersected with the team MCP opt-out
+    (ADR-0678). No agent token reaches this path today: ``DependencyViewSet``
+    and the task bulk view authenticate through the default
+    ``OwnerScopedApiTokenAuthentication``, which accepts only owner-scoped
+    ``legacy:full`` tokens (``is_agent_token`` False), so that branch is
+    defense in depth. Fails closed: no request means no foreign labels.
 
     One query for the membership set regardless of path length; none at all when
     every node sits in an endpoint project (every same-project cycle).

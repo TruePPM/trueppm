@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from datetime import date
 from typing import Any
 
@@ -1054,13 +1055,22 @@ class TestCrossProjectDependency:
         assert r.data["detail"] == "cyclic_dependency"
 
     def _three_project_cycle(
-        self, client: APIClient, user: object, calendar: Calendar, *, member_of_third: bool
-    ) -> tuple[object, Task, Task, Task]:
+        self,
+        client: APIClient,
+        user: object,
+        calendar: Calendar,
+        *,
+        member_of_third: bool,
+        two_hop: bool = False,
+    ) -> tuple[Any, Task, Task, list[Task]]:
         """A1 → C1 → B1 accepted, then the caller proposes B1 → A1 (#4588).
 
-        The caller is Admin on A and B; C sits in the same program and the caller
-        is a member of it only when ``member_of_third``. The two edges through C
-        are created by a separate Scheduler on all three projects.
+        With ``two_hop`` the path through C is A1 → C1 → C2 → B1, so C2 has no
+        edge to any task in A or B. The caller is Admin on A and B; C sits in the
+        same program and the caller is a member of it only when
+        ``member_of_third``. The edges through C are created by a separate
+        Scheduler on all three projects. Returns the response, A1, B1 and the
+        C tasks on the path in order.
         """
         program = Program.objects.create(name="GA Launch")
         projects = [
@@ -1076,48 +1086,76 @@ class TestCrossProjectDependency:
             ProjectMembership.objects.create(project=p_c, user=user, role=Role.VIEWER)
         a1 = Task.objects.create(project=p_a, name="Alpha task", duration=2)
         b1 = Task.objects.create(project=p_b, name="Bravo task", duration=2)
-        c1 = Task.objects.create(project=p_c, name="Charlie secret title", duration=2)
+        c_tasks = [Task.objects.create(project=p_c, name="Charlie secret title", duration=2)]
+        if two_hop:
+            c_tasks.append(Task.objects.create(project=p_c, name="Charlie inner title", duration=2))
         other = get_user_model().objects.create_user(username="tri-scheduler", password="pw")
         for p in projects:
             ProjectMembership.objects.create(project=p, user=other, role=Role.SCHEDULER)
         other_client = APIClient()
         other_client.force_authenticate(user=other)
-        assert self._post_edge(other_client, a1, c1).status_code == 201
-        assert self._post_edge(other_client, c1, b1).status_code == 201
+        path = [a1, *c_tasks, b1]
+        for pred, succ in itertools.pairwise(path):
+            assert self._post_edge(other_client, pred, succ).status_code == 201
         r = self._post_edge(client, b1, a1)
         assert r.status_code == 400, r.data
         assert r.data["code"] == "cyclic_dependency"
-        return r, a1, b1, c1
+        return r, a1, b1, c_tasks
+
+    def _assert_only_endpoints_labeled(
+        self, r: Any, a1: Task, b1: Task, hidden: list[Task]
+    ) -> None:
+        cycle = r.data["cycle"]
+        names = [node["name"] for node in cycle]
+        ids = [node["id"] for node in cycle]
+        for t in hidden:
+            assert t.name not in names
+            assert str(t.pk) not in ids
+            assert str(t.pk) not in r.data["offending"]
+        # short_ids are per-project sequences (C1's can equal A1's), so prove the
+        # hex_id is withheld by checking every labeled node is an endpoint and
+        # every other node is an all-blank placeholder.
+        labeled = [node for node in cycle if node["id"]]
+        assert {node["id"] for node in labeled} == {str(a1.pk), str(b1.pk)}
+        blanks = [node for node in cycle if not node["id"]]
+        assert blanks == [{"id": "", "name": "", "hex_id": ""}] * len(hidden)
+        assert len(r.data["offending"]) == len(cycle)
 
     def test_cycle_error_redacts_nodes_in_projects_caller_cannot_read(
         self, client: APIClient, user: object, calendar: Calendar
     ) -> None:
-        """#4588: the program-wide cycle path must not disclose a third project's
-        task title, short id, or task id to a caller with no role on it."""
-        r, a1, b1, c1 = self._three_project_cycle(client, user, calendar, member_of_third=False)
-        cycle = r.data["cycle"]
-        names = [node["name"] for node in cycle]
-        ids = [node["id"] for node in cycle]
-        assert "Charlie secret title" not in names
-        assert str(c1.pk) not in ids
-        # short_ids are per-project sequences (C1's can equal A1's), so prove the
-        # hex_id is withheld by checking every labeled node is an endpoint.
-        labeled = [node for node in cycle if node["id"]]
-        assert {node["id"] for node in labeled} == {str(a1.pk), str(b1.pk)}
-        assert len(labeled) == len(cycle) - 1
-        assert str(c1.pk) not in r.data["offending"]
-        # The redacted node is still present as a placeholder, so the path keeps
-        # its length and the readable endpoints keep their labels.
-        assert {"id": "", "name": "", "hex_id": ""} in cycle
-        assert "Alpha task" in names and "Bravo task" in names
-        assert str(a1.pk) in ids and str(b1.pk) in ids
-        assert len(r.data["offending"]) == len(cycle)
+        """#4588: C1 is blanked for a caller with no role on project C.
+
+        Premise, stated honestly: C1 is *adjacent* to A1 and B1, so the edges
+        A1 → C1 and C1 → B1 already show it on the dependency counterpart card to
+        anyone who can read A or B. The refusal is deliberately stricter than that
+        card (see ``_cycle_readable_project_ids``); the two-hop test below is the
+        one where the blanked node is unreadable by every other route.
+        """
+        r, a1, b1, c_tasks = self._three_project_cycle(
+            client, user, calendar, member_of_third=False
+        )
+        self._assert_only_endpoints_labeled(r, a1, b1, c_tasks)
+
+    def test_cycle_error_redacts_two_hop_node_with_no_edge_to_caller_projects(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4588: A1 → C1 → C2 → B1 — C2 has no edge to A or B, so nothing else
+        the caller can read discloses it; the refusal must not either."""
+        r, a1, b1, c_tasks = self._three_project_cycle(
+            client, user, calendar, member_of_third=False, two_hop=True
+        )
+        assert len(c_tasks) == 2
+        self._assert_only_endpoints_labeled(r, a1, b1, c_tasks)
 
     def test_cycle_error_names_nodes_in_projects_caller_can_read(
         self, client: APIClient, user: object, calendar: Calendar
     ) -> None:
         """#4588 over-redaction guard: a member of the third project sees it named."""
-        r, _a1, _b1, c1 = self._three_project_cycle(client, user, calendar, member_of_third=True)
+        r, _a1, _b1, c_tasks = self._three_project_cycle(
+            client, user, calendar, member_of_third=True
+        )
+        c1 = c_tasks[0]
         cycle = r.data["cycle"]
         assert {"id": str(c1.pk), "name": "Charlie secret title", "hex_id": c1.short_id} in cycle
         assert all(node["name"] for node in cycle)
