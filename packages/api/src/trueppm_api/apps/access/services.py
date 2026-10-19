@@ -21,6 +21,34 @@ from django.utils import timezone
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Methodology, Program, Project
 
+# Shared detail copy for "this user cannot be the transfer target" (#4575).
+#
+# Views that resolve a ``*_user_id`` payload field must return this exact
+# string — not a distinct "User not found." — for an unknown id, a real id
+# with no live membership, and a real id for a deactivated user alike. Prior
+# to #4575 the view returned a 404 "User not found."/"Lead user not found."
+# for an unresolvable id while the service raised a differently-worded 400
+# for a real-but-non-member id. That mismatch was itself an oracle: a caller
+# could distinguish "no such user" from "user exists but isn't a member" (or
+# "exists but is deactivated") by status code and message alone, without ever
+# seeing the target's email. Collapsing both failure modes onto one
+# constant — reused by both the service (which raises it) and the view
+# (which returns it directly when the id does not even resolve to a User) —
+# makes that distinction unobservable by construction instead of by
+# convention.
+PROJECT_OWNER_NOT_MEMBER_DETAIL = (
+    "The new owner must already be a member of this project. "
+    "Invite them first, then retry the transfer."
+)
+PROGRAM_OWNER_NOT_MEMBER_DETAIL = (
+    "The new sponsor must already be a member of this program. "
+    "Invite them first, then retry the transfer."
+)
+PROGRAM_LEAD_NOT_MEMBER_DETAIL = (
+    "The new lead must already be a member of this program. "
+    "Invite them first, then retry the transfer."
+)
+
 
 def _protecting_relations(model: type[models.Model]) -> list[Any]:
     """Reverse relations into *model* whose FK is ``on_delete=PROTECT``.
@@ -293,16 +321,17 @@ def transfer_project_ownership(
         raise ValidationError("Only an existing project Owner can transfer ownership.")
 
     try:
+        # ``user__is_active=True`` closes the email-harvest class (#4575): a
+        # deactivated user must be refused identically to one who was never a
+        # member, not promoted to OWNER on an account nobody can log into.
         target = ProjectMembership.objects.select_for_update().get(
             project=project,
             user=new_owner,
+            user__is_active=True,
             is_deleted=False,
         )
     except ProjectMembership.DoesNotExist as exc:
-        raise ValidationError(
-            "The new owner must already be a member of this project. "
-            "Invite them first, then retry the transfer."
-        ) from exc
+        raise ValidationError(PROJECT_OWNER_NOT_MEMBER_DETAIL) from exc
 
     if new_owner == actor:
         return target
@@ -351,7 +380,8 @@ def transfer_program_sponsorship(
 
     Raises:
         ValidationError: if ``new_owner`` has no existing active program
-            membership.
+            membership, or if ``new_lead`` is given and has no existing
+            active program membership (#4575).
     """
     # Defense in depth (see ``transfer_project_ownership`` for full rationale)
     # — the actor must currently hold the OWNER row, otherwise the demote
@@ -369,16 +399,35 @@ def transfer_program_sponsorship(
         raise ValidationError("Only an existing Program Admin can transfer sponsorship.")
 
     try:
+        # ``user__is_active=True`` closes the email-harvest class (#4575): a
+        # deactivated user must be refused identically to one who was never a
+        # member, not promoted to OWNER on an account nobody can log into.
         target = ProgramMembership.objects.select_for_update().get(
             program=program,
             user=new_owner,
+            user__is_active=True,
             is_deleted=False,
         )
     except ProgramMembership.DoesNotExist as exc:
-        raise ValidationError(
-            "The new sponsor must already be a member of this program. "
-            "Invite them first, then retry the transfer."
-        ) from exc
+        raise ValidationError(PROGRAM_OWNER_NOT_MEMBER_DETAIL) from exc
+
+    # ``new_lead`` previously flowed straight into ``program.lead`` with no
+    # membership check at all — unlike ``new_owner`` above, which has always
+    # been membership-gated. That let any authenticated OWNER of ANY program
+    # (including a throwaway one they just created) set an arbitrary user id
+    # as lead and read their email back off ``lead_detail`` in the 200
+    # response: an email-harvest oracle over the full user-id space (#4575).
+    # Validate here, in the service, not only in the view — the view is not
+    # the only caller and the invariant belongs with the write.
+    if new_lead is not None:
+        lead_is_member = ProgramMembership.objects.filter(
+            program=program,
+            user=new_lead,
+            user__is_active=True,
+            is_deleted=False,
+        ).exists()
+        if not lead_is_member:
+            raise ValidationError(PROGRAM_LEAD_NOT_MEMBER_DETAIL)
 
     if new_owner != actor:
         # role_changed_at is stamped alongside role on both rows so the
