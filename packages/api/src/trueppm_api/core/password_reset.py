@@ -470,11 +470,12 @@ class PasswordResetConfirmView(APIView):
             )
             # A password reset is the same "my credentials are compromised" signal
             # the off-boarding path acts on, but before #4006 it only revoked
-            # sessions and PATs — not the three non-token durable grants that are
+            # sessions and PATs — not the non-token durable grants that are
             # "exactly as durable as a personal access token" per
             # revoke_personal_durable_grants()'s own docstring: public share links
             # this user minted, any git-automation webhook secret they configured,
-            # and (#4461) any outgoing webhook they registered. Without this, an
+            # (#4461) any outgoing webhook they registered, and (#4589) any pending
+            # workspace invite they sent. Without this, an
             # attacker who held a live session could mint a share link, rotate an
             # automation secret, or keep an outgoing webhook delivering, and all
             # three survived a reset untouched. Same atomic block as the other two

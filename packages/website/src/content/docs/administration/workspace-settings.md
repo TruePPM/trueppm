@@ -418,6 +418,8 @@ Workspace Admins send email invitations to bring new users into the workspace.
    This endpoint:
    - is **publicly accessible** (no session required),
    - hashes the submitted token and looks up a non-expired pending invite,
+   - re-checks that the invite's sender is still an active workspace Admin or
+     Owner, and refuses it with the same generic error otherwise,
    - provisions a new `User` account **or** links the invite to an existing
      account if the invite email matches,
    - creates a `WorkspaceMembership` at the invited role,
@@ -464,8 +466,9 @@ Invites expire **7 days** after creation. Statuses:
 |---|---|
 | `pending` | Awaiting acceptance (or email delivery). |
 | `accepted` | Accepted; membership created. |
-| `revoked` | Canceled by an Admin before acceptance. |
+| `revoked` | Canceled by an Admin before acceptance, or revoked automatically because its sender was off-boarded, reset their password, was demoted below Admin, or was swept by `revoke_api_tokens`. |
 | `expired` | TTL elapsed without acceptance. |
+| `failed` | Email delivery failed after all retries. Can be re-sent. |
 
 Accepted, revoked, and expired invites older than 30 days are purged by a nightly
 `purge_stale_invites` Beat task.
@@ -487,7 +490,9 @@ no-op — it will not send twice.
 | `POST` | `/api/v1/workspace/invites/{id}/resend/` | Admin+ | Re-issue and re-queue one invite. Returns `202 {"queued": true}`. |
 | `POST` | `/api/v1/workspace/invites/resend-all/` | Admin+ | Re-queue every `pending`/`failed` invite. Returns `202 {"requeued": <count>}`. |
 
-Only `pending` and `failed` invites are resendable — resending an `accepted`,
+A resend from an invite whose sender is no longer an active workspace Admin is
+refused with `HTTP 409` (revoke it and send a new invite instead); "Resend all"
+skips such invites. Only `pending` and `failed` invites are resendable — resending an `accepted`,
 `revoked`, or `expired` invite returns `HTTP 409`. The per-invite endpoint is
 rate-limited to **5 requests/minute**; the bulk endpoint bundles every invite
 into a single throttle bucket so it cannot be used to flood recipients with email.

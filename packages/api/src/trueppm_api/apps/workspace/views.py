@@ -459,7 +459,12 @@ def _enforce_member_mutation_guard(
 
 
 def _apply_member_role_change(
-    *, membership: WorkspaceMembership, new_role: Any, actor_role: int | None, target: Any
+    *,
+    membership: WorkspaceMembership,
+    new_role: Any,
+    actor_role: int | None,
+    target: Any,
+    actor: Any = None,
 ) -> int | None:
     """Apply a role change with grant + strand guards; return the prior role if changed.
 
@@ -483,6 +488,13 @@ def _apply_member_role_change(
     role_changed_from = membership.role
     membership.role = new_role
     membership.role_changed_at = timezone.now()
+    if new_role < WorkspaceRole.ADMIN <= role_changed_from:
+        # A demoted sender can no longer vouch for the invites they sent (accept
+        # re-checks Admin+ anyway); revoke them now so they do not linger as
+        # unacceptable-but-resendable rows that block re-inviting the address (#4589).
+        from trueppm_api.apps.access.services import revoke_pending_workspace_invites
+
+        revoke_pending_workspace_invites(target, actor=actor)
     return role_changed_from
 
 
@@ -507,7 +519,8 @@ def _revoke_offboarded_credentials(target: Any, *, actor: Any = None) -> None:
 
     Scope: personal (``owner=target``) tokens and refresh tokens only, plus the
     non-token durable grants ``target`` personally minted — their share links,
-    any git-automation webhook secret they configured, and (#4461) any outgoing
+    any pending workspace invite they sent (#4589), any git-automation webhook
+    secret they configured, and (#4461) any outgoing
     webhook they registered **or have ever set the URL/secret on, or re-enabled
     while disabled** (#2939; ``revoke_personal_durable_grants``; see
     ``WebhookEditor``). For a webhook ``target`` only registered (and never
@@ -650,6 +663,7 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                     new_role=new_role,
                     actor_role=actor_role,
                     target=target,
+                    actor=request.user,
                 )
 
             status_changed_from: Any = None
@@ -972,7 +986,8 @@ class WorkspaceInviteResendView(IdempotencyMixin, APIView):
     Admin only. Re-issues a fresh token (the old email link stops working) and puts
     the row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort
     dispatch → 202 ``{"queued": true}``. Only PENDING/FAILED invites are resendable;
-    accepted/revoked/expired return 409.
+    accepted/revoked/expired return 409, as does an invite whose sender is no longer an
+    active workspace Admin (#4589).
     """
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -992,7 +1007,18 @@ class WorkspaceInviteResendView(IdempotencyMixin, APIView):
     def post(self, request: Request, invite_id: str) -> Response:
         if not WorkspaceInvite.objects.filter(pk=invite_id).exists():
             raise Http404("Invite not found.")
-        invite = services.resend_invite(invite_id)
+        try:
+            invite = services.resend_invite(invite_id)
+        except services.InviteSenderUnauthorizedError:
+            return Response(
+                {
+                    "detail": (
+                        "This invite cannot be resent because its sender is no longer an "
+                        "active workspace Admin. Revoke it and send a new invite instead."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         if invite is None:
             # Exists (checked above) but not resendable → accepted/revoked/expired.
             return Response(

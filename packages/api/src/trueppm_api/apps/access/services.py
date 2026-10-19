@@ -721,7 +721,7 @@ def revoke_all_personal_access_tokens(
 
 
 def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tuple[int, int, int]:
-    """Revoke the three non-token durable grants a PAT (or a live session) can mint.
+    """Revoke the non-token durable grants a PAT (or a live session) can mint.
 
     ``IsNotTokenAuthenticated`` (#2878) now blocks *minting* a ``ShareLink``,
     rotating a ``BoardAutomation`` webhook secret, or registering/repointing an
@@ -731,7 +731,9 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
     outside every existing revocation lever (``revoke_all_personal_access_tokens``,
     password reset, off-boarding). This closes that gap for the three grants
     #2939 and #4461 scoped: a project's public share links, its git-automation
-    webhook secret, and any outgoing webhook the user registered.
+    webhook secret, and any outgoing webhook the user registered. It also revokes
+    the pending workspace invites the user sent (#4589, see
+    ``revoke_pending_workspace_invites``; not reflected in the returned tuple).
 
     The webhook case is distinct from the other two: dispatch already stops for
     an off-boarded *registrant* because it re-checks Admin+ membership on every

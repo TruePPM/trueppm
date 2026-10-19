@@ -470,8 +470,14 @@ class Command(BaseCommand):
                     f"scheduled eviction of {sockets_evicted} live project connection(s)."
                 )
             )
+        if invites_matched:
+            scope = "instance-wide" if options["all"] else "sent by the targeted account(s)"
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Revoked {invites_matched} pending workspace invite(s) {scope}."
+                )
+            )
         self.stdout.write(
-            "Pending workspace invites minted by the targeted account(s) were revoked too. "
             "Sessions and JWTs are a separate credential class — rotate JWT_SIGNING_KEY "
             "as well if you have not already (administration/security.md)."
         )

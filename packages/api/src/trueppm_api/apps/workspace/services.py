@@ -58,6 +58,10 @@ logger = logging.getLogger(__name__)
 _PK = uuid.UUID | str
 
 
+class InviteSenderUnauthorizedError(Exception):
+    """Resend refused: the invite's sender is no longer an active workspace Admin (#4589)."""
+
+
 class InviteError(Exception):
     """Raised when an invite cannot be accepted (invalid/expired token, etc.).
 
@@ -676,6 +680,10 @@ def resend_invite(invite_id: _PK) -> WorkspaceInvite | None:
         invite = WorkspaceInvite.objects.select_for_update().filter(pk=invite_id).first()
         if invite is None or invite.status not in RESENDABLE_INVITE_STATUSES:
             return None
+        # Never silently re-attribute: a fresh token for a sender who could not
+        # accept their own invite today would launder the grant (#4589).
+        if not _inviter_still_authorized(invite):
+            raise InviteSenderUnauthorizedError
         if _is_in_flight(invite):
             return invite
         _reissue_invite_token(invite)
@@ -700,7 +708,7 @@ def resend_all_pending(workspace: Workspace) -> int:
             )
         )
         for invite in invites:
-            if _is_in_flight(invite):
+            if _is_in_flight(invite) or not _inviter_still_authorized(invite):
                 continue
             _reissue_invite_token(invite)
             invite.save(update_fields=_RESEND_UPDATE_FIELDS)

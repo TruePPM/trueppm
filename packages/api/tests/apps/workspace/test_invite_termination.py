@@ -230,3 +230,98 @@ def test_accept_still_works_for_an_active_admin_inviter(owner: Any) -> None:
     ok = _admin("ok_inviter")
     invite = _invite(ok, "fine@out.io")
     assert _accept(invite, invite.email_token).status_code in (200, 201)
+
+
+@pytest.mark.django_db
+def test_revoke_api_tokens_all_personal_revokes_owners_pending_invites(owner: Any) -> None:
+    from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+    from trueppm_api.apps.projects.models import ApiToken
+
+    contained, other = _admin("ap_contained"), _admin("ap_other")
+    raw = TOKEN_PREFIX + "b" * 64
+    ApiToken.objects.create(
+        name="t",
+        owner=contained,
+        created_by=contained,
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+    )
+    bad = _invite(contained, "evil8@out.io")
+    good = _invite(other, "good8@out.io")
+
+    out = _run("--all-personal", "--commit", "--yes")
+
+    bad.refresh_from_db()
+    good.refresh_from_db()
+    assert bad.status == InviteStatus.REVOKED
+    assert good.status == InviteStatus.PENDING
+    assert "Revoked 1 pending workspace invite(s) sent by the targeted account(s)." in out
+
+
+@pytest.mark.django_db
+def test_command_output_is_truthful_when_no_invites_match(owner: Any) -> None:
+    user = _admin("noinv")
+    out = _run("--user", "noinv", "--commit", "--yes")
+    assert "invite(s)" not in out
+    assert user.is_active
+
+
+@pytest.mark.django_db
+def test_demoting_a_sender_below_admin_revokes_their_pending_invites(owner: Any) -> None:
+    sender, other = _admin("demote_me"), _admin("keep_me")
+    bad = _invite(sender, "evil9@out.io")
+    good = _invite(other, "good9@out.io")
+
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    resp = c.patch(
+        f"/api/v1/workspace/members/{sender.pk}/", {"role": WorkspaceRole.MEMBER}, format="json"
+    )
+    assert resp.status_code == 200
+
+    bad.refresh_from_db()
+    good.refresh_from_db()
+    assert bad.status == InviteStatus.REVOKED
+    assert good.status == InviteStatus.PENDING
+    assert AuditEvent.objects.filter(
+        event_type=AuditEventType.INVITE_REVOKED, target_id=bad.pk, actor=owner
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_resend_refused_with_409_when_sender_no_longer_admin(owner: Any) -> None:
+    sender = _admin("resend_demoted")
+    inv = _invite(sender, "evil10@out.io")
+    WorkspaceMembership.objects.filter(user=sender).update(role=WorkspaceRole.MEMBER)
+    old_hash = inv.token_hash
+
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    resp = c.post(f"/api/v1/workspace/invites/{inv.pk}/resend/")
+
+    assert resp.status_code == 409
+    assert "sender is no longer" in resp.data["detail"]
+    inv.refresh_from_db()
+    assert inv.token_hash == old_hash
+    assert services.resend_all_pending(Workspace.load()) == 0
+
+
+@pytest.mark.django_db
+def test_drain_terminal_failure_does_not_resurrect_a_revoked_invite(owner: Any) -> None:
+    from unittest.mock import patch
+
+    from trueppm_api.apps.workspace.tasks import EMAIL_MAX_RETRIES, _do_drain_invite_emails
+
+    sender = _admin("drain_sender")
+    inv = _invite(sender, "evil11@out.io")
+    WorkspaceInvite.objects.filter(pk=inv.pk).update(email_attempts=EMAIL_MAX_RETRIES - 1)
+
+    def _revoke_then_fail(*_a: Any, **_k: Any) -> bool:
+        WorkspaceInvite.objects.filter(pk=inv.pk).update(status=InviteStatus.REVOKED)
+        return False
+
+    with patch("trueppm_api.apps.workspace.tasks._send_invite_email", _revoke_then_fail):
+        _do_drain_invite_emails()
+
+    inv.refresh_from_db()
+    assert inv.status == InviteStatus.REVOKED

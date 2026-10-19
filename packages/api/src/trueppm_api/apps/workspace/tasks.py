@@ -201,7 +201,11 @@ def _do_drain_invite_emails() -> None:
                 update_fields["email_pending"] = False
                 update_fields["email_token"] = ""
                 update_fields["status"] = InviteStatus.FAILED
-            WorkspaceInvite.objects.filter(pk=invite.pk).update(**update_fields)
+            # Only a still-PENDING row: a concurrent revoke (#4589) must not be
+            # flipped back to FAILED, which is resendable.
+            WorkspaceInvite.objects.filter(pk=invite.pk, status=InviteStatus.PENDING).update(
+                **update_fields
+            )
             failed += 1
 
     logger.info("drain_invite_emails: sent=%d failed=%d candidates=%d", sent, failed, len(pending))
