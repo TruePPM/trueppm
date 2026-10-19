@@ -16,10 +16,14 @@ import { apiClient } from '@/api/client';
  * `UserDefinedMentionGroupReadSerializer`.
  */
 
+// `email` is deliberately NOT part of this payload (#4578, security): a program
+// mention-group's members are drawn from across the program's projects, so
+// returning email here would leak a project member's address to a program
+// Viewer who holds no membership on that member's project. Display name is
+// sufficient to @mention someone.
 export interface MentionGroupMember {
   id: string;
   username: string;
-  email: string;
 }
 
 export interface MentionGroup {
