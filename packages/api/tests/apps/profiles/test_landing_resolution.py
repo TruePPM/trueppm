@@ -525,3 +525,27 @@ def test_portfolio_seam_inert_in_community_even_if_registered(
     finally:
         services._portfolio_access_provider = None
         services._portfolio_path_provider = None
+
+
+@pytest.mark.django_db
+def test_only_membership_on_a_trashed_project_lands_like_no_membership() -> None:
+    """#4587: a trashed project confers no role, so it neither counts as membership
+    (``_has_any_membership``) nor as a PM role (``_max_project_role``)."""
+    user = _user("ghost")
+    project = _project("Gone")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    Project.objects.filter(pk=project.pk).update(is_deleted=True)
+
+    from trueppm_api.apps.profiles.services import _has_any_membership, _max_project_role
+
+    # The landing outcome alone cannot tell the floored and unfloored helpers apart
+    # (both reach My Work), so pin the two helpers the resolver reads directly.
+    assert _has_any_membership(user) is False
+    assert _max_project_role(user) is None
+    landing = resolve_landing(user)
+    assert landing.resolved_by == "fallback"
+    assert landing.intent == "my_work"
+
+    Project.objects.filter(pk=project.pk).update(is_deleted=False)
+    assert _has_any_membership(user) is True
+    assert _max_project_role(user) == Role.ADMIN

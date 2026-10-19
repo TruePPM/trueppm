@@ -425,7 +425,7 @@ that reports:
 | `crit` — *Credential unusable* | An SMTP transport is configured but its stored password cannot be decrypted. No mail is leaving the workspace. Re-enter the password on this page. |
 | `crit` — *Delivery failing* | Mail permanently failed in the last hour and **nothing** was delivered in it. This is what a refusing or unreachable relay looks like. |
 | `warn` — *N failed* | Some mail permanently failed, but other mail got through — usually a specific undeliverable recipient rather than a broken relay. |
-| `warn` — *N queued* | Emails have been queued for over an hour without completing. Sends are not being attempted at all: check the Celery worker and beat. |
+| `warn` — *N queued* | Emails have been queued for over an hour without completing. Sends are not being attempted at all: check the Celery worker and beat. Emails held for a project in Trash are not counted. |
 | `ok` — *Draining* | No failures, no aging backlog, credential usable. |
 
 ### Prometheus metrics and alerts

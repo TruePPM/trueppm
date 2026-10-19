@@ -251,13 +251,13 @@ class NotificationViewSet(
         context: dict[str, Any] = dict(super().get_serializer_context())
         user = self.request.user
         if user.is_authenticated:
-            from trueppm_api.apps.access.models import ProjectMembership
+            from .serializers import recipient_member_project_sets
 
-            context["member_project_ids"] = set(
-                ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-                    "project_id", flat=True
-                )
-            )
+            live, incl_trashed = recipient_member_project_sets(user)
+            context["member_project_ids"] = live
+            # Only the `project.deleted` notice reads this set — see
+            # `NotificationSerializer._recipient_can_see_project`.
+            context["member_project_ids_incl_trashed"] = incl_trashed
         return context
 
     def get_queryset(self) -> QuerySet[Notification]:

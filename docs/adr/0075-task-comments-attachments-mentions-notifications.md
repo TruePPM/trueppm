@@ -196,6 +196,8 @@ class Mention(models.Model):
     ...
 ```
 
+> **Superseded 2026-10-19 (#4587):** `MentionManager.visible_to` was removed. It had no production caller and its membership filter did not floor trashed projects, so it was an unwired, unfloored trap for the next caller. Every `Mention` read must instead apply the live-project membership floor itself (`ProjectMembership` not revoked, project not in Trash). The text below records the original decision.
+
 Raw `.filter()` in viewsets is forbidden. This is the single point of enforcement that #476's `TEAM_ONLY` scope hangs on — a developer adding a new endpoint that bypasses `visible_to()` leaks scoped content. Lint rule or code-review checklist item required.
 
 #### A.6 `Notification` (in new `apps/notifications/models.py`)
@@ -373,7 +375,7 @@ The threat-model pass (paired with this ADR) identified five 🔴 must-fix items
 Additional must-fix items not numeric:
 
 - **Acknowledgement viewset team-only** (Morgan blocker): `CommentAcknowledgementViewSet` exposes ack list only to comment authors + the acknowledger themselves. Aggregate-count endpoint forbidden in OSS. Integration test: ADMIN-role user not involved in the task gets empty result.
-- **`Mention.objects.visible_to(user)` queryset pattern**: see Mention section above. Lint or review checklist.
+- **`Mention.objects.visible_to(user)` queryset pattern**: see Mention section above. *Superseded 2026-10-19 (#4587): the method was removed; each Mention read applies the live-project membership floor itself.*
 - **No body in WebSocket payload**: typed broadcast helper in `apps/sync/broadcast.py` rejects body fields by construction; code-review checklist item.
 - **`deleted_by` on TaskAttachment + TaskComment**: see model definitions above.
 

@@ -344,9 +344,11 @@ def notification_email_signals() -> dict[str, Any]:
         ``email_pending=True`` and ``created_at`` older than the threshold. The age is
         measured on ``created_at``, which is ``auto_now_add`` and which **no code
         path ever writes again** — so unlike ``email_failed_at`` it cannot be reset
-        out from under the comparison. The drain's only two exits from
-        ``email_pending=True`` are a success and an attempt-exhaustion, both of which
-        occur within about three retry-spaced ticks (~90 s) of the first attempt. A row
+        out from under the comparison. Apart from rows held while their project is in
+        Trash (excluded here, since they wait on a restore rather than on a worker),
+        the drain's only two exits from ``email_pending=True`` are a success and an
+        attempt-exhaustion, both of which occur within about three retry-spaced ticks
+        (~90 s) of the first attempt. A row
         still pending at one hour therefore means rows are not being completed at all:
         Beat is dead, the worker is gone, or the transport cannot even be built (the
         #2886 item-2 fail-closed path, which deliberately leaves rows pending rather
@@ -392,11 +394,19 @@ def notification_email_signals() -> dict[str, Any]:
     stuck_cutoff = now - _NOTIFICATION_STUCK_THRESHOLD
     window_cutoff = now - _NOTIFICATION_FAILURE_WINDOW
 
-    queued_aging = Notification.objects.filter(
-        email_pending=True,
-        email_sent_at__isnull=True,
-        created_at__lt=stuck_cutoff,
-    ).count()
+    queued_aging = (
+        Notification.objects.filter(
+            email_pending=True,
+            email_sent_at__isnull=True,
+            created_at__lt=stuck_cutoff,
+            # A row held because its project is in Trash is waiting on a restore, not
+            # on a dead worker, and can sit that way for the whole Trash window (#4587).
+            # The `project.deleted` notice is the exception: the drain sends it during
+            # the Trash window, so one left aging there IS evidence of a dead worker.
+        )
+        .exclude(Q(project__is_deleted=True) & ~Q(event_type="project.deleted"))
+        .count()
+    )
     failed_recent = Notification.objects.filter(
         email_pending=False,
         email_sent_at__isnull=True,

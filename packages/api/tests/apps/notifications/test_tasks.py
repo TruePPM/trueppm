@@ -439,6 +439,57 @@ class TestRevokedMembershipRetirement:
         assert notif.email_sent_at is None
 
     @pytest.mark.django_db
+    def test_trashed_project_holds_the_row_and_a_restore_sends_it(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        """#4587: a trashed project is not sent from, but is not retired either."""
+        notif = _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+        Project.objects.filter(pk=project.pk).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send") as send:
+            _do_drain_emails()
+        assert send.call_count == 0
+        notif.refresh_from_db()
+        assert notif.email_pending is True
+        assert notif.email_sent_at is None
+
+        Project.objects.filter(pk=project.pk).update(is_deleted=False)
+        with patch("django.core.mail.EmailMessage.send") as send:
+            _do_drain_emails()
+        assert send.call_count == 1
+
+    @pytest.mark.django_db
+    def test_project_deleted_notice_is_still_emailed_from_a_trashed_project(
+        self,
+        recipient: object,
+        project: Project,
+        project_members: dict[str, ProjectMembership],
+    ) -> None:
+        """The delete notice is the one row that must leave while the project is in Trash."""
+        notif = Notification.objects.create(
+            recipient=recipient,
+            event_type="project.deleted",
+            subject="Project deleted",
+            body="You can restore it from Trash.",
+            project=project,
+            email_pending=True,
+        )
+        Project.objects.filter(pk=project.pk).update(is_deleted=True)
+
+        with patch("django.core.mail.EmailMessage.send") as send:
+            _do_drain_emails()
+        assert send.call_count == 1
+        notif.refresh_from_db()
+        assert notif.email_sent_at is not None
+
+    @pytest.mark.django_db
     def test_the_row_is_retired_rather_than_left_pending(
         self,
         recipient: object,

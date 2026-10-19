@@ -260,6 +260,30 @@ class MentionSerializer(serializers.ModelSerializer[Mention]):
         read_only_fields = fields
 
 
+PROJECT_DELETED_EVENT = "project.deleted"
+
+
+def recipient_member_project_sets(user: Any) -> tuple[set[Any], set[Any]]:
+    """Return ``(live, including_trashed)`` project-id sets for ``user``'s memberships.
+
+    One query serves both: ``live`` floors out projects in Trash (#4577 — a trashed
+    project confers no role), ``including_trashed`` keeps them for the single event
+    (``project.deleted``) whose whole purpose is to tell the member about the trash.
+    Revoked memberships are excluded from both.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    live: set[Any] = set()
+    everything: set[Any] = set()
+    for project_id, trashed in ProjectMembership.objects.filter(
+        user=user, is_deleted=False
+    ).values_list("project_id", "project__is_deleted"):
+        everything.add(project_id)
+        if not trashed:
+            live.add(project_id)
+    return live, everything
+
+
 class NotificationSerializer(serializers.ModelSerializer[Notification]):
     """Per-recipient inbox row.
 
@@ -340,16 +364,20 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             user = getattr(request, "user", None) if request is not None else None
             if user is None or not getattr(user, "is_authenticated", False):
                 return True  # no user context to gate against — preserve behavior
-            from trueppm_api.apps.access.models import ProjectMembership
-
-            member_project_ids = set(
-                ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-                    "project_id", flat=True
-                )
-            )
+            member_project_ids, trashed_inclusive = recipient_member_project_sets(user)
             # DRF's serializer context is a plain dict at runtime (typed Mapping
             # in the stubs); memoize so the list path resolves membership once.
-            cast(dict[str, Any], self.context)["member_project_ids"] = member_project_ids
+            ctx = cast(dict[str, Any], self.context)
+            ctx["member_project_ids"] = member_project_ids
+            ctx["member_project_ids_incl_trashed"] = trashed_inclusive
+        if obj.event_type == PROJECT_DELETED_EVENT:
+            # The "project was deleted" notice is written *because* the project is
+            # now in Trash, so the trashed-project floor would blank the one message
+            # that tells the member where to restore it. The revoked-membership
+            # gate still applies to it.
+            return project_id in self.context.get(
+                "member_project_ids_incl_trashed", member_project_ids
+            )
         return project_id in member_project_ids
 
     def to_representation(self, instance: Notification) -> dict[str, Any]:
@@ -394,10 +422,8 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
           target); ``mentioned_group_key`` is a group the recipient belongs to —
           that is *how* they were reached; ``scope`` is a 3-value enum. None of
           these name a task, a project, or a comment. ``mention.id`` is kept with
-          them: it is a handle, but to an object no endpoint serves, and the one
-          pre-positioned read path (``MentionManager.visible_to``, for #476)
-          independently floors on live ``ProjectMembership`` rather than trusting
-          an id it was handed.
+          them: it is a handle, but to an object no endpoint serves, so keeping it
+          grants nothing.
 
         Why this does NOT need to distinguish the two populations that reach this
         branch. ``_recipient_can_see_project`` is one predicate over two groups:
