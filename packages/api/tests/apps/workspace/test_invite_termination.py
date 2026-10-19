@@ -300,7 +300,7 @@ def test_resend_refused_with_409_when_sender_no_longer_admin(owner: Any) -> None
     resp = c.post(f"/api/v1/workspace/invites/{inv.pk}/resend/")
 
     assert resp.status_code == 409
-    assert "sender is no longer" in resp.data["detail"]
+    assert "sender no longer holds a role above the invited role" in resp.data["detail"]
     inv.refresh_from_db()
     assert inv.token_hash == old_hash
     assert services.resend_all_pending(Workspace.load()) == 0

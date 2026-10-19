@@ -59,7 +59,7 @@ _PK = uuid.UUID | str
 
 
 class InviteSenderUnauthorizedError(Exception):
-    """Resend refused: the invite's sender is no longer an active workspace Admin (#4589)."""
+    """Resend refused: the invite's sender no longer holds a role above the invited role (#4589)."""
 
 
 class InviteError(Exception):

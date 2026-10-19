@@ -991,8 +991,8 @@ class WorkspaceInviteResendView(IdempotencyMixin, APIView):
     Admin only. Re-issues a fresh token (the old email link stops working) and puts
     the row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort
     dispatch → 202 ``{"queued": true}``. Only PENDING/FAILED invites are resendable;
-    accepted/revoked/expired return 409, as does an invite whose sender is no longer an
-    active workspace Admin (#4589).
+    accepted/revoked/expired return 409, as does an invite whose sender no longer holds a role
+    above the invited role or is no longer an active workspace Admin (#4589).
     """
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -1018,8 +1018,9 @@ class WorkspaceInviteResendView(IdempotencyMixin, APIView):
             return Response(
                 {
                     "detail": (
-                        "This invite cannot be resent because its sender is no longer an "
-                        "active workspace Admin. Revoke it and send a new invite instead."
+                        "This invite cannot be resent because its sender no longer holds a "
+                        "role above the invited role (or is no longer an active "
+                        "workspace Admin). Revoke it and send a new invite instead."
                     )
                 },
                 status=status.HTTP_409_CONFLICT,

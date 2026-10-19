@@ -495,8 +495,8 @@ no-op — it will not send twice.
 | `POST` | `/api/v1/workspace/invites/{id}/resend/` | Admin+ | Re-issue and re-queue one invite. Returns `202 {"queued": true}`. |
 | `POST` | `/api/v1/workspace/invites/resend-all/` | Admin+ | Re-queue every `pending`/`failed` invite. Returns `202 {"requeued": <count>}`. |
 
-A resend from an invite whose sender is no longer an active workspace Admin is
-refused with `HTTP 409` (revoke it and send a new invite instead); "Resend all"
+A resend of an invite whose sender no longer holds a role above the invited
+role (or is no longer an active workspace Admin) is refused with `HTTP 409` (revoke it and send a new invite instead); "Resend all"
 skips such invites. Only `pending` and `failed` invites are resendable — resending an `accepted`,
 `revoked`, or `expired` invite returns `HTTP 409`. The per-invite endpoint is
 rate-limited to **5 requests/minute**; the bulk endpoint bundles every invite
