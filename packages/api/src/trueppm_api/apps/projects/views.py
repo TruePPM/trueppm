@@ -266,6 +266,7 @@ from trueppm_api.apps.projects.serializers import (
     SprintReorderResultSerializer,
     SprintRetroSerializer,
     SprintRetroSummarySerializer,
+    SprintRetroWriteSerializer,
     SprintScopeChangeBulkResultSerializer,
     SprintScopeChangePayloadSerializer,
     SprintScopeChangeSingleActionResultSerializer,
@@ -8001,8 +8002,12 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
         )
 
         item = self.get_object()
-        already = item.converted_action_item_id is not None
+        prior_id = item.converted_action_item_id
         action_item = convert_svc(item, cast(User, request.user))
+        # "Already converted" only when the service handed back the item the sticky
+        # pointed at. If that item was since removed from the retro (soft-deleted by a
+        # retro save), the service creates a fresh one, which is a 201.
+        already = prior_id is not None and action_item.pk == prior_id
         return Response(
             RetroActionItemSerializer(action_item).data,
             status=status.HTTP_200_OK if already else status.HTTP_201_CREATED,
@@ -11855,6 +11860,10 @@ def _retro_with_items(sprint: Any) -> Any:
     ``SprintRetroSummarySerializer.get_action_items_count`` / ``get_promoted_count``
     issue per-object COUNT queries, and ``RetroActionItemSerializer.get_assignee_username``
     N+1s on the assignee FK once the full serializer renders them (#821, P13).
+
+    Tombstoned items are filtered out of the prefetch: a retro POST soft-deletes
+    the items it drops (#4591) so the sync pull can deliver them as tombstones, and
+    ``SprintRetroSerializer`` renders whatever the prefetch holds.
     """
     from trueppm_api.apps.projects.models import RetroActionItem, SprintRetro
 
@@ -11863,7 +11872,9 @@ def _retro_with_items(sprint: Any) -> Any:
         .prefetch_related(
             db_models.Prefetch(
                 "action_items",
-                queryset=RetroActionItem.objects.select_related("assignee"),
+                queryset=RetroActionItem.objects.filter(is_deleted=False).select_related(
+                    "assignee"
+                ),
             )
         )
         .first()
@@ -11970,57 +11981,291 @@ def _validate_retro_assignees(items_in: list[dict[str, Any]], project_id: Any) -
     return None
 
 
+_RETRO_ITEM_ID_ERROR = "Each action item id must identify a live action item on this retro."
+
+
+_STORY_POINTS_MAX = 32767  # PositiveSmallIntegerField's upper bound.
+
+
+def _validate_retro_story_points(items_in: list[dict[str, Any]]) -> Response | None:
+    """Reject a ``story_points`` the column cannot hold, before any write.
+
+    The value goes straight from the body into ``bulk_create``/``bulk_update`` with
+    no serializer in between, so a negative number hit the column's CHECK constraint
+    (IntegrityError), a non-numeric string failed the int cast (ValueError), and a
+    value above smallint failed at the database (DataError) — all 500s. An integral
+    float (``3.0``, which a JSON number can arrive as) is accepted; a bool is not,
+    though Python treats it as an int.
+    """
+    for entry in items_in:
+        if "story_points" not in entry:
+            continue
+        raw = entry["story_points"]
+        if raw is None:
+            continue
+        if isinstance(raw, float) and raw.is_integer():
+            raw = int(raw)
+        if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= _STORY_POINTS_MAX:
+            return Response(
+                {
+                    "action_items": (
+                        f"Each story_points must be a whole number from 0 to {_STORY_POINTS_MAX}."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        entry["story_points"] = raw
+    return None
+
+
+def _plan_retro_item_diff(
+    items_in: list[dict[str, Any]],
+    live_items: dict[Any, Any],
+    tombstoned_ids: set[Any],
+) -> Response | tuple[list[Any], list[dict[str, Any]], list[Any]]:
+    """Split a retro POST's ``action_items`` into update / create / soft-delete sets.
+
+    The POST used to hard-delete the live set and bulk-create it again, which emitted
+    no sync tombstone (offline clients kept ghost items), discarded
+    ``promoted_task_id`` (ADR-0071) and minted fresh ids on every save (#4591). An
+    entry carrying ``id`` now names the existing row it edits; one without ``id`` is a
+    new item; a live row the body no longer names is soft-deleted.
+
+    An ``id`` must be an item of THIS sprint's retro. ``live_items`` and
+    ``tombstoned_ids`` are both scoped to the sprint, so a foreign id — another
+    retro's item, an unknown uuid, or garbage — is refused with a 400 rather than
+    adopted, which would otherwise let a writer on one project rewrite an item on
+    another (IDOR). A duplicated id is refused too: two edits to one row in one body
+    have no defined winner.
+
+    An id that is a tombstone of THIS retro is treated as a create instead. The retro
+    is multi-writer (ADR-0117): when a peer removes an item, another member's open
+    draft still holds its id. Refusing it would fail every save from that draft until
+    a reload threw the member's edits away; re-creating it as a new row keeps their
+    text (last writer wins, as before #4591). The tombstone itself is never
+    resurrected — its sync delete already went out, and a new id is what a client
+    that applied it can accept.
+
+    A blank ``text`` drops the entry, so an ``id`` with an empty or whitespace-only
+    ``text`` is a removal; an ``id`` with no string ``text`` at all is a 400. On an
+    update only the keys the entry carries are applied — an omitted ``assignee`` or
+    ``story_points`` leaves the stored value alone, and ``promoted_task_id`` is never
+    writable here at all.
+
+    Returns a 400 ``Response`` on a bad entry, else ``(to_update, to_create,
+    to_delete)``: changed model instances, field dicts for new rows, and the live
+    instances to tombstone. Unchanged rows appear in none of them, so a re-save of an
+    untouched retro writes no item rows and advances no sync cursor.
+    """
+    import uuid as _uuid
+
+    to_update: list[Any] = []
+    to_create: list[dict[str, Any]] = []
+    seen: set[Any] = set()
+    survivors: set[Any] = set()
+    for entry in items_in:
+        raw_text = entry.get("text")
+        raw_id = entry.get("id")
+        if raw_id not in (None, "") and not isinstance(raw_text, str):
+            # An entry naming a row must say what its text is. Reading a missing
+            # `text` as blank would delete the item on a body that only meant to
+            # change `story_points`.
+            return Response(
+                {"action_items": "Each action item with an id must include its text."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        text = raw_text.strip() if isinstance(raw_text, str) else ""
+        item = None
+        if raw_id not in (None, ""):
+            try:
+                item_id: Any = _uuid.UUID(str(raw_id))
+            except (ValueError, TypeError, AttributeError):
+                item_id = None
+            item = live_items.get(item_id) if item_id is not None else None
+            stale = item is None and item_id in tombstoned_ids
+            if (item is None and not stale) or item_id in seen:
+                return Response(
+                    {"action_items": _RETRO_ITEM_ID_ERROR},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            seen.add(item_id)
+        if not text:
+            # Dropped — and when the entry named a row, that row is not a survivor,
+            # so it is tombstoned below.
+            continue
+        if item is not None:
+            survivors.add(item.pk)
+        if item is None:
+            to_create.append(
+                {
+                    "text": text,
+                    "assignee_id": entry.get("assignee") or None,
+                    "story_points": entry.get("story_points"),
+                }
+            )
+            continue
+        changed = False
+        if item.text != text:
+            item.text = text
+            changed = True
+        if "assignee" in entry:
+            # Already range-checked by _validate_retro_assignees, so int() is safe.
+            raw_assignee = entry["assignee"]
+            assignee_id = None if raw_assignee in (None, "") else int(str(raw_assignee))
+            if item.assignee_id != assignee_id:
+                item.assignee_id = assignee_id
+                changed = True
+        if "story_points" in entry and item.story_points != entry["story_points"]:
+            item.story_points = entry["story_points"]
+            changed = True
+        if changed:
+            to_update.append(item)
+
+    to_delete = [item for pk, item in live_items.items() if pk not in survivors]
+    return to_update, to_create, to_delete
+
+
+def _retro_tombstoned_ids(sprint: Any, raw_ids: set[str]) -> set[Any]:
+    """Return which of ``raw_ids`` are soft-deleted items of ``sprint``'s retro."""
+    import uuid as _uuid
+
+    from trueppm_api.apps.projects.models import RetroActionItem
+
+    parsed = set()
+    for raw in raw_ids:
+        try:
+            parsed.add(_uuid.UUID(raw))
+        except ValueError:
+            continue
+    if not parsed:
+        return set()
+    return set(
+        RetroActionItem.objects.filter(
+            retro__sprint=sprint, is_deleted=True, pk__in=parsed
+        ).values_list("pk", flat=True)
+    )
+
+
+def _apply_retro_item_diff(
+    retro: Any,
+    project_id: Any,
+    to_update: list[Any],
+    to_create: list[dict[str, Any]],
+    to_delete: list[Any],
+) -> None:
+    """Write a planned retro item diff in a fixed number of statements.
+
+    ``retro_action_items`` is its own sync delta collection filtered on each row's
+    own ``sync_seq`` (ADR-0686), and every write here bypasses ``save()`` — so each
+    touched row is stamped with one freshly drawn cursor (the rows are written
+    together, so one value is right) and its ``server_version`` advanced by hand:
+    inserts start at 1 like a ``save()`` INSERT would (#3590 — ``bulk_create`` used to
+    leave them at 0), updates and tombstones advance by one. The rows were locked by
+    the caller, so the in-memory ``server_version`` read is the current one.
+
+    Tombstones use the same shape ``VersionedModel.soft_delete()`` writes
+    (``is_deleted``, ``deleted_version`` = the new ``server_version``) so the sync pull
+    delivers them in its ``deleted`` bucket; one ``UPDATE`` instead of two queries a
+    row. Nothing is written — and no cursor drawn — when the diff is empty.
+    """
+    from trueppm_api.apps.projects.models import RetroActionItem
+
+    if not (to_update or to_create or to_delete):
+        return
+    from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+    seq = allocate_for_projects([project_id])
+    if to_delete:
+        RetroActionItem.objects.filter(pk__in=[item.pk for item in to_delete]).update(
+            is_deleted=True,
+            server_version=db_models.F("server_version") + 1,
+            deleted_version=db_models.F("server_version") + 1,
+            sync_seq=seq,
+        )
+    if to_update:
+        for item in to_update:
+            item.server_version += 1
+            item.sync_seq = seq
+        RetroActionItem.objects.bulk_update(
+            to_update, ["text", "assignee_id", "story_points", "server_version", "sync_seq"]
+        )
+    if to_create:
+        RetroActionItem.objects.bulk_create(
+            [
+                RetroActionItem(retro=retro, server_version=1, sync_seq=seq, **fields)
+                for fields in to_create
+            ]
+        )
+
+
 def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) -> Response:
     """POST — upsert. Write permission already enforced via ``get_permissions()``.
 
     ADR-0071: this path no longer auto-promotes. Action items land as
     ``RetroActionItem`` rows only; the explicit ``/promote/`` action converts them to
     BACKLOG Tasks under sprint sovereignty.
+
+    The action item list is applied as a diff against the live set (#4591), not a
+    replace — see :func:`_plan_retro_item_diff` for the per-entry rules.
     """
     from trueppm_api.apps.projects.models import RetroActionItem, RetroVisibility, SprintRetro
 
     body = object_body(request)
     notes = body.get("notes", "")
-    items_in: list[dict[str, Any]] = list(body.get("action_items", []) or [])
+    raw_items = body.get("action_items", []) or []
+    if not isinstance(raw_items, list) or not all(isinstance(e, dict) for e in raw_items):
+        return Response(
+            {"action_items": "Expected a list of action item objects."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    items_in: list[dict[str, Any]] = raw_items
     new_visibility = body.get("team_visibility")
 
-    invalid = _validate_retro_assignees(items_in, sprint.project_id)
+    invalid = _validate_retro_assignees(items_in, sprint.project_id) or (
+        _validate_retro_story_points(items_in)
+    )
     if invalid is not None:
         return invalid
 
+    if new_visibility is not None and new_visibility not in RetroVisibility.values:
+        return _invalid_visibility_response(new_visibility)
+
     with transaction.atomic():
+        # Lock the live item set BEFORE the retro upsert. Both writes below draw
+        # from the project's sync sequence (a project-row lock), and the promote /
+        # carryover services lock an item first and the project second, so taking
+        # the item locks first here matches them and removes that deadlock.
+        #
+        # It does not remove every one. A Task soft-delete takes the project lock
+        # first (its save allocates a sync cursor) and then item row locks, through
+        # the post_save receiver that clears `promoted_task_id`
+        # (`retro_services.reset_promoted_task_on_delete`). A retro save racing the
+        # delete of one of its own promoted tasks can still deadlock; Postgres
+        # aborts one side and that request fails. Before #4591 this path had the
+        # mirror-image risk with promote instead. The full fix is one global lock
+        # order across all three writers, which this change does not attempt.
+        live_items = {
+            item.pk: item
+            for item in RetroActionItem.objects.select_for_update(of=("self",)).filter(
+                retro__sprint=sprint, is_deleted=False
+            )
+        }
+        # Only probed for ids the live set does not hold, so the common save — every
+        # id live — costs no extra query.
+        unmatched = {str(e.get("id")) for e in items_in if e.get("id") not in (None, "")} - {
+            str(pk) for pk in live_items
+        }
+        tombstoned_ids = _retro_tombstoned_ids(sprint, unmatched)
+        plan = _plan_retro_item_diff(items_in, live_items, tombstoned_ids)
+        if isinstance(plan, Response):
+            return plan
+        to_update, to_create, to_delete = plan
+
         defaults: dict[str, Any] = {"notes": notes, "created_by": caller}
         if new_visibility is not None:
-            if new_visibility not in RetroVisibility.values:
-                return _invalid_visibility_response(new_visibility)
             defaults["team_visibility"] = new_visibility
         retro, _ = SprintRetro.objects.update_or_create(sprint=sprint, defaults=defaults)
-
-        # Replace the action item set on each save — retros are append-on-save
-        # semantics at the meeting boundary. P15: bulk_create replaces O(N) INSERT
-        # round-trips with one.
-        retro.action_items.filter(is_deleted=False).delete()
-        new_items = [
-            RetroActionItem(
-                retro=retro,
-                text=(entry.get("text") or "").strip(),
-                assignee_id=entry.get("assignee") or None,
-                story_points=entry.get("story_points"),
-            )
-            for entry in items_in
-            if (entry.get("text") or "").strip()
-        ]
-        if new_items:
-            # `retro_action_items` is its own delta collection filtered on the
-            # row's own cursor, and bulk_create bypasses save() — so without this
-            # the rewritten set would sit at sync_seq=0 and never sync (ADR-0686).
-            # One value for the whole set is right: they are written together.
-            from trueppm_api.apps.sync.sequence import allocate_for_projects
-
-            seq = allocate_for_projects([sprint.project_id])
-            for item in new_items:
-                item.sync_seq = seq
-            RetroActionItem.objects.bulk_create(new_items)
+        _apply_retro_item_diff(retro, sprint.project_id, to_update, to_create, to_delete)
 
     # Notes + action items just changed under any peer with the retro open (#1359).
     # Broadcast so their view refetches instead of silently desyncing until a manual
@@ -16496,6 +16741,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     @extend_schema(
         summary="Get or upsert a sprint retrospective",
+        request=SprintRetroWriteSerializer,
         responses={
             200: PolymorphicProxySerializer(
                 component_name="SprintRetroResponse",
@@ -16516,8 +16762,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         and assignees); below the threshold, a summary serializer (counts
         only) is returned. 404 when no retro exists.
 
-        ``POST`` upserts the retro: replaces ``notes`` and the action-item
-        set. Action items no longer auto-promote (sprint sovereignty per
+        ``POST`` upserts the retro: replaces ``notes`` and applies the
+        action-item list as a diff — entries carrying ``id`` edit that item in
+        place, the rest are created, and unnamed live items are soft-deleted
+        (#4591). Action items no longer auto-promote (sprint sovereignty per
         ADR-0071); use the explicit ``/promote/`` action below.
 
         ``PATCH`` partially updates the retro — currently scoped to
@@ -16754,7 +17002,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             .prefetch_related(
                 db_models.Prefetch(
                     "action_items",
-                    queryset=RetroActionItem.objects.select_related("assignee"),
+                    queryset=RetroActionItem.objects.filter(is_deleted=False).select_related(
+                        "assignee"
+                    ),
                 )
             )
             .first()

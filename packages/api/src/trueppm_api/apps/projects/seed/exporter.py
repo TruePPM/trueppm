@@ -1653,7 +1653,9 @@ class _Exporter:
         target = f"sprint:{pslug}:{self.sprint_slugs[sprint.pk]}"
         actor = self._actor_slug(retro.created_by)
         items = list(
-            RetroActionItem.objects.filter(retro=retro)
+            # Removed items are soft-deleted (#4591); exporting them would re-import
+            # them as live action items.
+            RetroActionItem.objects.filter(retro=retro, is_deleted=False)
             .select_related("assignee")
             .order_by("created_at", "pk")
         )

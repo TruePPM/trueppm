@@ -1251,7 +1251,9 @@ def _apply_retro_promote(beat: _Beat, ctx: ReplayContext) -> None:
     if retro is None:
         return
     item = (
-        RetroActionItem.objects.filter(retro=retro, text=body, promoted_task_id__isnull=True)
+        RetroActionItem.objects.filter(
+            retro=retro, text=body, promoted_task_id__isnull=True, is_deleted=False
+        )
         .order_by("created_at")
         .first()
     )

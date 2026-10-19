@@ -42006,7 +42006,7 @@
         "/api/v1/sprints/{id}/retro/": {
             "get": {
                 "operationId": "v1_sprints_retro_retrieve",
-                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
+                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and applies the\naction-item list as a diff — entries carrying ``id`` edit that item in\nplace, the rest are created, and unnamed live items are soft-deleted\n(#4591). Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
                 "summary": "Get or upsert a sprint retrospective",
                 "parameters": [
                     {
@@ -42074,7 +42074,7 @@
             },
             "post": {
                 "operationId": "v1_sprints_retro_create",
-                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
+                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and applies the\naction-item list as a diff — entries carrying ``id`` edit that item in\nplace, the rest are created, and unnamed live items are soft-deleted\n(#4591). Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
                 "summary": "Get or upsert a sprint retrospective",
                 "parameters": [
                     {
@@ -42095,21 +42095,20 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/SprintRetroWriteRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/SprintRetroWriteRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SprintRequest"
+                                "$ref": "#/components/schemas/SprintRetroWriteRequest"
                             }
                         }
-                    },
-                    "required": true
+                    }
                 },
                 "security": [
                     {
@@ -42192,7 +42191,7 @@
             },
             "patch": {
                 "operationId": "v1_sprints_retro_partial_update",
-                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
+                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and applies the\naction-item list as a diff — entries carrying ``id`` edit that item in\nplace, the rest are created, and unnamed live items are soft-deleted\n(#4591). Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
                 "summary": "Get or upsert a sprint retrospective",
                 "parameters": [
                     {
@@ -42213,17 +42212,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                                "$ref": "#/components/schemas/PatchedSprintRetroWriteRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                                "$ref": "#/components/schemas/PatchedSprintRetroWriteRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                                "$ref": "#/components/schemas/PatchedSprintRetroWriteRequest"
                             }
                         }
                     }
@@ -62402,6 +62401,24 @@
                     }
                 }
             },
+            "PatchedSprintRetroWriteRequest": {
+                "type": "object",
+                "description": "Request body for ``POST``/``PATCH /sprints/{id}/retro/`` — schema only.\n\n``POST`` upserts ``notes`` and applies ``action_items`` as a diff; ``PATCH``\nreads ``team_visibility`` only.",
+                "properties": {
+                    "notes": {
+                        "type": "string"
+                    },
+                    "team_visibility": {
+                        "$ref": "#/components/schemas/TeamVisibilityEnum"
+                    },
+                    "action_items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintRetroActionItemWriteRequest"
+                        }
+                    }
+                }
+            },
             "PatchedTaskClassificationRequest": {
                 "type": "object",
                 "description": "Validate the body for PATCH /api/v1/projects/{pk}/tasks/classification/.\n\nOne declaration about a subtree, on two orthogonal axes (ADR-0790, #2735). The\nserver resolves the row set from ``wbs_path`` — the caller names only the root.",
@@ -73402,6 +73419,36 @@
                     "updated_at"
                 ]
             },
+            "SprintRetroActionItemWriteRequest": {
+                "type": "object",
+                "description": "One entry of a retro POST's ``action_items`` list — schema only (#4591).\n\nThe view applies the list as a diff against the retro's live items: an entry\nwith ``id`` edits that item in place (keeping its id and ``promoted_task_id``),\none without ``id`` creates an item, and a live item the list no longer names\nis soft-deleted. Validation lives in the view, which must check ``id`` against\nthe retro's own items; this serializer only documents the request shape.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Id of an action item on this retro to edit in place. Omit to create a new item. An id this retro has since deleted creates a new item; any other id returns 400."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Item text. Blank drops the entry (and deletes the item when id is set)."
+                    },
+                    "assignee": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Project member user id. Omitted on an edit keeps the stored value."
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true,
+                        "description": "Whole number 0-32767. Omitted on an edit keeps the stored value."
+                    }
+                },
+                "required": [
+                    "text"
+                ]
+            },
             "SprintRetroResponse": {
                 "oneOf": [
                     {
@@ -73474,6 +73521,24 @@
                     "team_visibility",
                     "updated_at"
                 ]
+            },
+            "SprintRetroWriteRequest": {
+                "type": "object",
+                "description": "Request body for ``POST``/``PATCH /sprints/{id}/retro/`` — schema only.\n\n``POST`` upserts ``notes`` and applies ``action_items`` as a diff; ``PATCH``\nreads ``team_visibility`` only.",
+                "properties": {
+                    "notes": {
+                        "type": "string"
+                    },
+                    "team_visibility": {
+                        "$ref": "#/components/schemas/TeamVisibilityEnum"
+                    },
+                    "action_items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintRetroActionItemWriteRequest"
+                        }
+                    }
+                }
             },
             "SprintScopeChange": {
                 "type": "object",

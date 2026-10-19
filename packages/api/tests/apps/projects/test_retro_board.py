@@ -266,6 +266,31 @@ def test_convert_to_action_is_idempotent(project: Project, member: Any) -> None:
     assert RetroActionItem.objects.filter(retro__sprint=s, is_deleted=False).count() == 1
 
 
+def test_convert_after_action_item_was_removed_creates_a_new_one(
+    project: Project, member: Any
+) -> None:
+    """A sticky whose action item was since removed converts again with a 201.
+
+    A retro save soft-deletes removed items (#4591). The service then creates a
+    fresh item, and the view must not report that as "already converted" (200).
+    """
+    s = _sprint(project)
+    item = RetroBoardItem.objects.create(
+        retro=SprintRetro.objects.create(sprint=s, created_by=member),
+        column="to_improve",
+        text="Shorten standup",
+        author=member,
+    )
+    first = _client(member).post(f"/api/v1/retro-items/{item.pk}/convert-to-action/")
+    assert first.status_code == 201
+    RetroActionItem.objects.get(pk=first.data["id"]).soft_delete()
+
+    again = _client(member).post(f"/api/v1/retro-items/{item.pk}/convert-to-action/")
+    assert again.status_code == 201
+    assert again.data["id"] != first.data["id"]
+    assert RetroActionItem.objects.filter(retro__sprint=s, is_deleted=False).count() == 1
+
+
 def test_converted_action_item_promotes_to_backlog(project: Project, member: Any) -> None:
     """The discussion->action->backlog loop: a converted item flows into #858 promote."""
     s = _sprint(project)

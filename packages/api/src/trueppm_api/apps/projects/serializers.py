@@ -87,6 +87,7 @@ from trueppm_api.apps.projects.models import (
     RelationType,
     RetroActionItem,
     RetroBoardItem,
+    RetroVisibility,
     Risk,
     RiskComment,
     Sprint,
@@ -10644,6 +10645,54 @@ class SprintRetroSummarySerializer(serializers.ModelSerializer[SprintRetro]):
             "kind",
         ]
         read_only_fields = fields
+
+
+class SprintRetroActionItemWriteSerializer(serializers.Serializer[Any]):
+    """One entry of a retro POST's ``action_items`` list — schema only (#4591).
+
+    The view applies the list as a diff against the retro's live items: an entry
+    with ``id`` edits that item in place (keeping its id and ``promoted_task_id``),
+    one without ``id`` creates an item, and a live item the list no longer names
+    is soft-deleted. Validation lives in the view, which must check ``id`` against
+    the retro's own items; this serializer only documents the request shape.
+    """
+
+    id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Id of an action item on this retro to edit in place. Omit to create a "
+            "new item. An id this retro has since deleted creates a new item; any "
+            "other id returns 400."
+        ),
+    )
+    text = serializers.CharField(
+        allow_blank=True,
+        help_text="Item text. Blank drops the entry (and deletes the item when id is set).",
+    )
+    assignee = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Project member user id. Omitted on an edit keeps the stored value.",
+    )
+    story_points = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=32767,
+        help_text="Whole number 0-32767. Omitted on an edit keeps the stored value.",
+    )
+
+
+class SprintRetroWriteSerializer(serializers.Serializer[Any]):
+    """Request body for ``POST``/``PATCH /sprints/{id}/retro/`` — schema only.
+
+    ``POST`` upserts ``notes`` and applies ``action_items`` as a diff; ``PATCH``
+    reads ``team_visibility`` only.
+    """
+
+    notes = serializers.CharField(required=False, allow_blank=True)
+    team_visibility = serializers.ChoiceField(choices=RetroVisibility.choices, required=False)
+    action_items = SprintRetroActionItemWriteSerializer(many=True, required=False)
 
 
 class RetroCarryoverItemSerializer(serializers.Serializer[Any]):

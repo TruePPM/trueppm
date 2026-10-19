@@ -639,6 +639,39 @@ def test_retro_promote_only_promotes_matching_item(retro_program: Any) -> None:
     assert other.promoted_task_id is None  # only the matched body was promoted
 
 
+def test_retro_promote_skips_a_soft_deleted_item_with_the_same_text(retro_program: Any) -> None:
+    """A removed (soft-deleted, #4591) item is never the one a promote beat links."""
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    from typing import cast
+
+    from trueppm_api.apps.projects.seed.replay import ReplayContext, _apply_retro_promote, _Beat
+
+    sprint = Sprint.objects.get(project__program=retro_program, name="Sprint 1")
+    retro = SprintRetro.objects.get(sprint=sprint)
+    gone = RetroActionItem.objects.create(retro=retro, text="Re-check flaky deploy")
+    gone.soft_delete()
+    live = RetroActionItem.objects.create(retro=retro, text="Re-check flaky deploy")
+    # Make the tombstone the older row, so ordering alone would pick it.
+    RetroActionItem.objects.filter(pk=gone.pk).update(created_at=datetime(2020, 1, 1, tzinfo=UTC))
+
+    ctx = cast(ReplayContext, SimpleNamespace(sprints={("core", "s1"): sprint}))
+    beat = _Beat(
+        when=datetime.now(tz=UTC),
+        order=0,
+        action="retro.promote",
+        target="sprint:core:s1",
+        actor=None,
+        data={"body": "Re-check flaky deploy"},
+    )
+    _apply_retro_promote(beat, ctx)
+
+    gone.refresh_from_db()
+    live.refresh_from_db()
+    assert gone.promoted_task_id is None
+    assert live.promoted_task_id is not None
+
+
 def test_v1_seed_has_no_replay(owner: Any) -> None:
     """A v1 document still materializes final state with a single creation row."""
     v1 = {

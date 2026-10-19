@@ -24,18 +24,22 @@ function makePersisted(over: Partial<SprintRetroActionItem> = {}): SprintRetroAc
  * is mounted under a real `/projects/:projectId` route here — the shared
  * renderWithRouter helper uses a catch-all path that would not populate the param.
  */
-function renderUnderProject(items: DraftActionItem[], persisted: SprintRetroActionItem[]) {
-  const persistedByText = new Map(persisted.map((p) => [p.text, p]));
+function renderUnderProject(
+  items: DraftActionItem[],
+  persisted: SprintRetroActionItem[],
+  onPromote: (id: string) => void = vi.fn(),
+) {
+  const persistedById = new Map(persisted.map((p) => [p.id, p]));
   const element = (
     <RetroActionItems
       items={items}
-      persistedByText={persistedByText}
+      persistedById={persistedById}
       savePending={false}
       promotePending={false}
       onAdd={vi.fn()}
       onUpdate={vi.fn()}
       onRemove={vi.fn()}
-      onPromote={vi.fn()}
+      onPromote={onPromote}
     />
   );
   const router = createMemoryRouter([{ path: '/projects/:projectId/sprints', element }], {
@@ -47,7 +51,7 @@ function renderUnderProject(items: DraftActionItem[], persisted: SprintRetroActi
 describe('RetroActionItems', () => {
   it('links a promoted action item to the schedule view by project + task hash', () => {
     const promoted = makePersisted({ promoted_task_id: 'task-abc123' });
-    renderUnderProject([{ text: promoted.text, story_points: '3' }], [promoted]);
+    renderUnderProject([{ id: promoted.id, text: promoted.text, story_points: '3' }], [promoted]);
 
     const link = screen.getByRole('link', { name: /T-task-a/i });
     // Regression (#1288): this was previously href="#task-..." — a dead in-page
@@ -57,7 +61,7 @@ describe('RetroActionItems', () => {
 
   it('shows the Promote button for a saved-but-unpromoted item', () => {
     const saved = makePersisted({ promoted_task_id: null });
-    renderUnderProject([{ text: saved.text, story_points: '3' }], [saved]);
+    renderUnderProject([{ id: saved.id, text: saved.text, story_points: '3' }], [saved]);
 
     expect(
       screen.getByRole('button', { name: /Promote action item 1 to backlog/i }),
@@ -69,5 +73,36 @@ describe('RetroActionItems', () => {
     renderUnderProject([{ text: 'A brand new idea', story_points: '' }], []);
 
     expect(screen.getByText(/Save first/i)).toBeInTheDocument();
+  });
+
+  it('promotes the row it is on when two rows share the same text (#4591)', () => {
+    const first = makePersisted({ id: 'action-1', text: 'Same text' });
+    const second = makePersisted({ id: 'action-2', text: 'Same text' });
+    const onPromote = vi.fn();
+    renderUnderProject(
+      [
+        { id: 'action-1', text: 'Same text', story_points: '' },
+        { id: 'action-2', text: 'Same text', story_points: '' },
+      ],
+      [first, second],
+      onPromote,
+    );
+    screen.getByRole('button', { name: /Promote action item 1 to backlog/i }).click();
+    screen.getByRole('button', { name: /Promote action item 2 to backlog/i }).click();
+    expect(onPromote.mock.calls).toEqual([['action-1'], ['action-2']]);
+  });
+
+  it('shows the task chip of the row\'s own item when texts collide', () => {
+    const promoted = makePersisted({ id: 'action-1', text: 'Same', promoted_task_id: 'task-aaa111' });
+    const plain = makePersisted({ id: 'action-2', text: 'Same', promoted_task_id: null });
+    renderUnderProject(
+      [
+        { id: 'action-2', text: 'Same', story_points: '' },
+        { id: 'action-1', text: 'Same', story_points: '' },
+      ],
+      [promoted, plain],
+    );
+    expect(screen.getByRole('button', { name: /Promote action item 1 to backlog/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('link')).toHaveLength(1);
   });
 });
