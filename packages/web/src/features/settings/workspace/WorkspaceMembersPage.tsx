@@ -283,8 +283,6 @@ export function buildMembersCsv(members: WorkspaceMember[]): string {
   return [header, ...rows].join('\n');
 }
 
-
-
 /** Workspace > Members management page. */
 export function WorkspaceMembersPage() {
   const { members, pendingInvites, isLoading } = useWorkspaceMembers();
@@ -371,9 +369,15 @@ export function WorkspaceMembersPage() {
       },
       (err) => {
         setErrorInviteId(inviteId);
-        const status = (err as { response?: { status?: number } })?.response?.status;
+        const response = (err as { response?: { status?: number; data?: { detail?: unknown } } })
+          ?.response;
+        const status = response?.status;
+        const detail = response?.data?.detail;
         if (status === 429) toast.error('Too many resends — wait a minute and try again.');
-        else if (status === 409) toast.error('This invite can no longer be resent.');
+        else if (status === 409)
+          toast.error(
+            typeof detail === 'string' && detail ? detail : 'This invite can no longer be resent.',
+          );
         else toast.error('Could not resend the invite. Please try again.');
       },
     );
@@ -401,7 +405,10 @@ export function WorkspaceMembersPage() {
     return (
       <div className="px-6 py-8 space-y-2">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-12 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div
+            key={i}
+            className="h-12 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse"
+          />
         ))}
       </div>
     );

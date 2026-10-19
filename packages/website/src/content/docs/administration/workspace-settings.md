@@ -270,7 +270,12 @@ the same transaction:
 - **revokes every personal access token they own**, so a script still holding one
   starts failing with `401` on its next request; and
 - **signs out every device**, by blacklisting all of their outstanding refresh
-  tokens.
+  tokens; and
+- **revokes every workspace invitation they sent** that has not yet been accepted.
+  Demoting a member also revokes the pending invitations that member sent at a role
+  at or above their new role (everything, if they drop below Admin), and an
+  invitation can only be accepted or re-sent while its sender is still an active
+  member whose role is above the invited role.
 
 Without this, disabling the account would terminate only the session and JWT
 path. A personal access token is a separate, long-lived bearer of the same
@@ -418,6 +423,8 @@ Workspace Admins send email invitations to bring new users into the workspace.
    This endpoint:
    - is **publicly accessible** (no session required),
    - hashes the submitted token and looks up a non-expired pending invite,
+   - re-checks that the invite's sender is still an active workspace Admin or
+     Owner, and refuses it with the same generic error otherwise,
    - provisions a new `User` account **or** links the invite to an existing
      account if the invite email matches,
    - creates a `WorkspaceMembership` at the invited role,
@@ -464,8 +471,9 @@ Invites expire **7 days** after creation. Statuses:
 |---|---|
 | `pending` | Awaiting acceptance (or email delivery). |
 | `accepted` | Accepted; membership created. |
-| `revoked` | Canceled by an Admin before acceptance. |
+| `revoked` | Canceled by an Admin before acceptance, or revoked automatically because its sender was off-boarded, reset their password, was demoted below Admin, or was swept by `revoke_api_tokens`. |
 | `expired` | TTL elapsed without acceptance. |
+| `failed` | Email delivery failed after all retries. Can be re-sent. |
 
 Accepted, revoked, and expired invites older than 30 days are purged by a nightly
 `purge_stale_invites` Beat task.
@@ -487,7 +495,9 @@ no-op — it will not send twice.
 | `POST` | `/api/v1/workspace/invites/{id}/resend/` | Admin+ | Re-issue and re-queue one invite. Returns `202 {"queued": true}`. |
 | `POST` | `/api/v1/workspace/invites/resend-all/` | Admin+ | Re-queue every `pending`/`failed` invite. Returns `202 {"requeued": <count>}`. |
 
-Only `pending` and `failed` invites are resendable — resending an `accepted`,
+A resend of an invite whose sender no longer holds a role above the invited
+role (or is no longer an active workspace Admin) is refused with `HTTP 409` (revoke it and send a new invite instead); "Resend all"
+skips such invites. Only `pending` and `failed` invites are resendable — resending an `accepted`,
 `revoked`, or `expired` invite returns `HTTP 409`. The per-invite endpoint is
 rate-limited to **5 requests/minute**; the bulk endpoint bundles every invite
 into a single throttle bucket so it cannot be used to flood recipients with email.

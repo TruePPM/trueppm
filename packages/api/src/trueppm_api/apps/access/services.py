@@ -721,7 +721,7 @@ def revoke_all_personal_access_tokens(
 
 
 def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tuple[int, int, int]:
-    """Revoke the three non-token durable grants a PAT (or a live session) can mint.
+    """Revoke the non-token durable grants a PAT (or a live session) can mint.
 
     ``IsNotTokenAuthenticated`` (#2878) now blocks *minting* a ``ShareLink``,
     rotating a ``BoardAutomation`` webhook secret, or registering/repointing an
@@ -731,7 +731,9 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
     outside every existing revocation lever (``revoke_all_personal_access_tokens``,
     password reset, off-boarding). This closes that gap for the three grants
     #2939 and #4461 scoped: a project's public share links, its git-automation
-    webhook secret, and any outgoing webhook the user registered.
+    webhook secret, and any outgoing webhook the user registered. It also revokes
+    the pending workspace invites the user sent (#4589, see
+    ``revoke_pending_workspace_invites``; not reflected in the returned tuple).
 
     The webhook case is distinct from the other two: dispatch already stops for
     an off-boarded *registrant* because it re-checks Admin+ membership on every
@@ -819,4 +821,58 @@ def revoke_personal_durable_grants(user: Any = None, *, actor: Any = None) -> tu
         disabled_reason="Deactivated: a security sweep revoked a credential tied to this webhook.",
     )
 
+    # Pending workspace invites the user minted (#4589). Not part of the returned
+    # tuple (its shape is relied on by every caller); the sweep audits itself.
+    revoke_pending_workspace_invites(user, actor=actor)
+
     return links_revoked, secrets_cleared, webhooks_deactivated
+
+
+def revoke_pending_workspace_invites(
+    user: Any = None, *, actor: Any = None, min_role: int | None = None
+) -> int:
+    """Revoke the not-yet-accepted ``WorkspaceInvite`` rows ``user`` minted (#4589).
+
+    An invite is a durable, role-carrying bearer grant (7-day token, role up to one
+    rank below the inviter) that works for an outside address with no session at
+    all. A contained Admin's off-boarding, password reset and
+    ``revoke_api_tokens`` all left it live, and ``resend`` could re-mint it.
+    ``FAILED`` (send-exhausted) invites are swept too because resend revives them;
+    ``REVOKED`` is terminal and never resendable.
+
+    ``min_role`` limits the sweep to invites granting at least that workspace role
+    (used on demotion: invites the sender can no longer vouch for).
+
+    ``user=None`` is instance-wide (``revoke_api_tokens --all``). One
+    ``INVITE_REVOKED`` audit row per invite, written in the caller's transaction.
+    Returns the number of invites revoked.
+    """
+    from trueppm_api.apps.workspace.models import AuditEventType, InviteStatus, WorkspaceInvite
+    from trueppm_api.apps.workspace.services import _actor_label, record_audit_event
+
+    qs = WorkspaceInvite.objects.select_for_update(of=("self",)).filter(
+        status__in=(InviteStatus.PENDING, InviteStatus.FAILED)
+    )
+    if user is not None:
+        qs = qs.filter(invited_by=user)
+    if min_role is not None:
+        qs = qs.filter(role__gte=min_role)
+    invites = list(qs.select_related("invited_by"))
+    for invite in invites:
+        invite.status = InviteStatus.REVOKED
+        invite.email_pending = False
+        invite.email_token = ""
+        invite.save(update_fields=["status", "email_pending", "email_token"])
+        record_audit_event(
+            event_type=AuditEventType.INVITE_REVOKED,
+            actor=actor,
+            target_type="invite",
+            target_id=invite.pk,
+            target_label=invite.email,
+            metadata={
+                "role": invite.get_role_display(),
+                "invited_by": _actor_label(invite.invited_by),
+                "reason": "security_sweep",
+            },
+        )
+    return len(invites)

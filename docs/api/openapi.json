@@ -50249,7 +50249,7 @@
         "/api/v1/workspace/invites/{invite_id}/resend/": {
             "post": {
                 "operationId": "v1_workspace_invites_resend_create",
-                "description": "POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0149).\n\nAdmin only. Re-issues a fresh token (the old email link stops working) and puts\nthe row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort\ndispatch → 202 ``{\"queued\": true}``. Only PENDING/FAILED invites are resendable;\naccepted/revoked/expired return 409.",
+                "description": "POST /api/v1/workspace/invites/{id}/resend/ — re-queue one invite (ADR-0149).\n\nAdmin only. Re-issues a fresh token (the old email link stops working) and puts\nthe row back in the outbox for ``drain_invite_emails`` to pick up. Best-effort\ndispatch → 202 ``{\"queued\": true}``. Only PENDING/FAILED invites are resendable;\naccepted/revoked/expired return 409, as does an invite whose sender no longer holds a role\nabove the invited role or is no longer an active workspace Admin (#4589).",
                 "parameters": [
                     {
                         "in": "path",

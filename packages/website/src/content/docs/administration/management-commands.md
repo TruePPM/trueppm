@@ -399,14 +399,14 @@ These exist for specific operational situations and are not part of routine use:
   is the other half of that procedure. Choose exactly one scope: `--user
   <username-or-email>` — the off-boarding or stolen-laptop case — revokes that one
   account's personal tokens, refresh tokens, share links, git-automation webhook
-  secret, and outgoing webhooks, and closes its live project WebSocket connections,
+  secret, outgoing webhooks, and pending workspace invitations it sent, and closes its live project WebSocket connections,
   whether or not the account currently owns a personal token; `--all-personal`
   revokes every personal token on the instance plus that same sweep for each
   account that owns one of those tokens, leaving team integration tokens (and
   accounts with no personal token) alone; or `--all` (**every** token including
   project- and program-scoped ones, which breaks all inbound sync until an admin
-  re-mints, plus every share link, git-automation secret, and outgoing webhook
-  instance-wide). It is a **dry-run by default**: it lists what it would revoke
+  re-mints, plus every share link, git-automation secret, outgoing webhook, and
+  pending workspace invitation instance-wide). It is a **dry-run by default**: it lists what it would revoke
   and changes nothing until you pass `--commit` (add `--yes` to skip the
   confirmation prompt). Revocation is one-way — nothing un-revokes a token or
   re-enables a webhook — so review the dry run first. Every revoked token gets an

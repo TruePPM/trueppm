@@ -864,6 +864,14 @@ describe('WorkspaceMembersPage — resend invite outcomes', () => {
     );
   });
 
+  it('shows the server explanation when a 409 carries one (sender no longer qualifies)', async () => {
+    const detail =
+      'This invite cannot be resent because its sender no longer holds a role above the invited role (or is no longer an active workspace Admin). Revoke it and send a new invite instead.';
+    postMock.mockRejectedValue({ response: { status: 409, data: { detail } } });
+    await clickResend();
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(detail));
+  });
+
   it('falls back to a generic message for any other resend failure', async () => {
     postMock.mockRejectedValue(new Error('boom'));
     await clickResend();

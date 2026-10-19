@@ -171,6 +171,26 @@ class Command(BaseCommand):
             webhooks_qs = webhooks_qs.filter(Q(created_by=user) | Q(editors__user=user))
         return links.count(), secrets_qs.count(), webhooks_qs.count()
 
+    def _count_pending_invites(self, options: dict[str, Any], affected_users: list[Any]) -> int:
+        """Read-only mirror of ``revoke_pending_workspace_invites``'s filter (#4589).
+
+        ``--all`` counts every pending/failed invite instance-wide; ``--user`` and
+        ``--all-personal`` count those minted by each affected account.
+        """
+        from trueppm_api.apps.workspace.models import InviteStatus, WorkspaceInvite
+
+        live = WorkspaceInvite.objects.filter(
+            status__in=(InviteStatus.PENDING, InviteStatus.FAILED)
+        )
+        if options["all"]:
+            total = live.count()
+        elif affected_users:
+            total = live.filter(invited_by__in=affected_users).count()
+        else:
+            return 0
+        self.stdout.write(f"Pending workspace invites matched: {total}")
+        return total
+
     def _count_outstanding_refresh_tokens(self, user: Any) -> int:
         """Read-only mirror of ``revoke_all_refresh_tokens``'s filter, for dry-run counts."""
         try:
@@ -389,6 +409,7 @@ class Command(BaseCommand):
             sockets_matched,
         ) = self._report_account_sweep(affected_users)
         links_matched += acct_links_matched
+        invites_matched = self._count_pending_invites(options, affected_users)
         secrets_matched += acct_secrets_matched
         webhooks_matched += acct_webhooks_matched
 
@@ -400,6 +421,7 @@ class Command(BaseCommand):
                 webhooks_matched,
                 refresh_matched,
                 sockets_matched,
+                invites_matched,
             )
         ):
             self.stdout.write(self.style.SUCCESS("Nothing to revoke."))
@@ -418,7 +440,8 @@ class Command(BaseCommand):
             + secrets_matched
             + webhooks_matched
             + refresh_matched
-            + sockets_matched,
+            + sockets_matched
+            + invites_matched,
         )
         (
             revoked,
@@ -445,6 +468,13 @@ class Command(BaseCommand):
                     f"link(s), cleared {secrets_cleared} git-automation secret(s), "
                     f"deactivated {webhooks_deactivated} outgoing webhook(s), and "
                     f"scheduled eviction of {sockets_evicted} live project connection(s)."
+                )
+            )
+        if invites_matched:
+            scope = "instance-wide" if options["all"] else "sent by the targeted account(s)"
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Revoked {invites_matched} pending workspace invite(s) {scope}."
                 )
             )
         self.stdout.write(

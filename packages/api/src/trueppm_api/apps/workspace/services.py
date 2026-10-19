@@ -58,6 +58,10 @@ logger = logging.getLogger(__name__)
 _PK = uuid.UUID | str
 
 
+class InviteSenderUnauthorizedError(Exception):
+    """Resend refused: the invite's sender no longer holds a role above the invited role (#4589)."""
+
+
 class InviteError(Exception):
     """Raised when an invite cannot be accepted (invalid/expired token, etc.).
 
@@ -234,6 +238,10 @@ def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMemb
             actor_row.role = WorkspaceRole.ADMIN
             actor_row.role_changed_at = timezone.now()
             actor_row.save(update_fields=["role", "role_changed_at"])
+            # The demoted Owner can no longer vouch for invites at Admin or above.
+            from trueppm_api.apps.access.services import revoke_pending_workspace_invites
+
+            revoke_pending_workspace_invites(actor, actor=actor, min_role=WorkspaceRole.ADMIN)
 
         # Audit inside the same transaction so the row rolls back with a failed
         # transfer. target_id is left null — a User PK is an int, not a UUID — and
@@ -676,6 +684,10 @@ def resend_invite(invite_id: _PK) -> WorkspaceInvite | None:
         invite = WorkspaceInvite.objects.select_for_update().filter(pk=invite_id).first()
         if invite is None or invite.status not in RESENDABLE_INVITE_STATUSES:
             return None
+        # Never silently re-attribute: a fresh token for a sender who could not
+        # accept their own invite today would launder the grant (#4589).
+        if not _inviter_still_authorized(invite):
+            raise InviteSenderUnauthorizedError
         if _is_in_flight(invite):
             return invite
         _reissue_invite_token(invite)
@@ -700,7 +712,7 @@ def resend_all_pending(workspace: Workspace) -> int:
             )
         )
         for invite in invites:
-            if _is_in_flight(invite):
+            if _is_in_flight(invite) or not _inviter_still_authorized(invite):
                 continue
             _reissue_invite_token(invite)
             invite.save(update_fields=_RESEND_UPDATE_FIELDS)
@@ -787,6 +799,26 @@ def _load_pending_invite(token: str) -> WorkspaceInvite:
     return invite
 
 
+def _inviter_still_authorized(invite: WorkspaceInvite) -> bool:
+    """True only if the inviter is an active user who still resolves to workspace Admin+.
+
+    Catches an account deactivated outside the app (``is_active=False`` directly),
+    a deleted inviter (``invited_by`` is SET_NULL), a demoted or deactivated
+    membership, and an invite whose role is no longer strictly below the sender's.
+    Uses ``workspace_role_for_user`` so the answer matches RBAC (including the
+    superuser-with-no-row bootstrap OWNER).
+    """
+    from trueppm_api.apps.workspace.permissions import workspace_role_for_user
+
+    inviter = invite.invited_by
+    if inviter is None or not inviter.is_active:
+        return False
+    role = workspace_role_for_user(inviter)
+    # Mirror the create-time ceiling: an invite may only grant a role strictly below
+    # the sender's *current* role, so a demoted Owner cannot still mint Admins.
+    return role is not None and role >= WorkspaceRole.ADMIN and invite.role < role
+
+
 def _create_invited_user(*, username: str, email: str, password: str) -> Any:
     """Mint a new account for an invitee, enforcing the configured password policy.
 
@@ -862,6 +894,10 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
         # membership (the second caller sees status != PENDING and bails).
         invite = WorkspaceInvite.objects.select_for_update().get(pk=invite.pk)
         if invite.status != InviteStatus.PENDING:
+            raise InviteError(_INVALID_INVITE_MESSAGE)
+        # Defense in depth behind the revocation sweep (#4589): the grant is only as
+        # good as its minter's standing *now*. Same body as any invalid invite.
+        if not _inviter_still_authorized(invite):
             raise InviteError(_INVALID_INVITE_MESSAGE)
 
         if user is None:
