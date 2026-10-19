@@ -267,6 +267,69 @@ def test_group_not_visible_from_other_project(
 
 
 # ---------------------------------------------------------------------------
+# Member payload leak / existence oracle (#4578, security)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_member_payload_has_no_email(project: Project, member_user: object) -> None:
+    """The member payload never carries ``email`` — username is enough to @mention
+    (#4578). Mirrors the program-scoped test; fixing the class, not the instance."""
+    group = UserDefinedMentionGroup.objects.create(project=project, name="subs")
+    group.members.add(member_user)
+
+    resp = _client(member_user).get(f"{_url(project)}{group.id}/")
+    assert resp.status_code == 200, resp.content
+    [member] = resp.data["members"]
+    assert member["id"] == member_user.pk
+    assert member["username"] == "member_u"
+    assert "email" not in member
+
+
+@pytest.mark.django_db
+def test_add_member_unknown_and_unreachable_ids_return_identical_refusal(
+    project: Project, scheduler_user: object, outsider: object
+) -> None:
+    """Unknown id and real-but-not-on-this-project id must be indistinguishable
+    (#4578) — otherwise the endpoint is a user-id existence oracle for any
+    Scheduler+ caller."""
+    group = UserDefinedMentionGroup.objects.create(project=project, name="subs")
+    unknown_id = outsider.pk + 999_999
+
+    unknown = _client(scheduler_user).post(
+        f"{_url(project)}{group.id}/add-member/", {"user": str(unknown_id)}, format="json"
+    )
+    unreachable = _client(scheduler_user).post(
+        f"{_url(project)}{group.id}/add-member/", {"user": str(outsider.pk)}, format="json"
+    )
+    assert unknown.status_code == 400
+    assert unreachable.status_code == 400
+    assert unknown.data == unreachable.data
+
+
+@pytest.mark.django_db
+def test_add_member_rejects_inactive_user_like_an_unknown_id(
+    project: Project, scheduler_user: object, member_user: object
+) -> None:
+    """An inactive account must refuse identically to an unknown id (#4578) — it
+    must not confirm the account exists."""
+    group = UserDefinedMentionGroup.objects.create(project=project, name="subs")
+    member_user.is_active = False
+    member_user.save(update_fields=["is_active"])
+    unknown_id = member_user.pk + 999_999
+
+    unknown = _client(scheduler_user).post(
+        f"{_url(project)}{group.id}/add-member/", {"user": str(unknown_id)}, format="json"
+    )
+    inactive_resp = _client(scheduler_user).post(
+        f"{_url(project)}{group.id}/add-member/", {"user": str(member_user.pk)}, format="json"
+    )
+    assert inactive_resp.status_code == 400
+    assert unknown.data == inactive_resp.data
+    assert not group.members.filter(pk=member_user.pk).exists()
+
+
+# ---------------------------------------------------------------------------
 # Mute — any member, self only
 # ---------------------------------------------------------------------------
 

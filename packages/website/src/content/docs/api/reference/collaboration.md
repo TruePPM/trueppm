@@ -250,12 +250,15 @@ other and take identical payloads.
 ```
 
 The response to all four actions is the group's read shape — `id`, `name`,
-`members` (user summaries), `member_count`, and `muted_by_me`, the per-user
+`members` (id + username only — no email, so a program Viewer reading a
+program group's roster never sees a member's address from a project they
+cannot otherwise see), `member_count`, and `muted_by_me`, the per-user
 override reflecting whether *the calling user* has muted it. Omitting `user`
-returns `400 {"user": "This field is required."}`; naming someone who is not a
-member of the project (or, for a program group, of any project in the program)
-is likewise a `400`, because a non-member would be filtered out at mention
-resolution anyway.
+returns `400 {"user": "This field is required."}`; naming an unknown id, an
+inactive account, or someone who is not a member of the project (or, for a
+program group, of any project in the program) all return the **same** `400`
+body — the refusal does not reveal which of the three happened, so it cannot
+be used to probe whether a given user id exists.
 
 **`mute` and `unmute` take no body.** They act on the caller's own subscription
 only — there is no way to mute a group on someone else's behalf.

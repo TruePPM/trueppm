@@ -201,6 +201,26 @@ class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-
         fields = ["id", "username", "email"]
 
 
+class _MentionGroupMemberSerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
+    """Member payload for a user-defined @mention group — NO email (#4578, security).
+
+    Both the project-scoped (``UserDefinedMentionGroupReadSerializer``) and
+    program-scoped (``ProgramUserDefinedMentionGroupReadSerializer``) mention
+    group read serializers draw ``members`` from across a wider surface than the
+    reader's own membership guarantees: a program mention-group's members are
+    drawn from any project in the program (ADR-0248 §2 union), so any program
+    Viewer could read a project member's email even on a project they hold no
+    membership on — a leak across the program/project boundary ADR-0070 exists
+    to prevent. Username is sufficient to resolve and render an @mention; email
+    is dropped entirely rather than gated, since a per-reader-shared-project
+    check would have to run per member on every group read.
+    """
+
+    class Meta:
+        model = User
+        fields = ["id", "username"]
+
+
 class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembership]):
     """Response serializer — includes user_detail and role_label for list/retrieve.
 
@@ -474,13 +494,14 @@ class ProgramMembershipUpdateSerializer(ProgramMembershipWriteSerializer):
 class UserDefinedMentionGroupReadSerializer(serializers.ModelSerializer[UserDefinedMentionGroup]):
     """Response serializer for a user-defined @mention group (ADR-0212, #515).
 
-    ``members`` is the curated member set (summary detail); ``member_count`` is a
-    convenience for the list UI. ``muted_by_me`` reflects whether the *requesting*
-    user has muted this group — the per-user override that suppresses its
-    mentions for them.
+    ``members`` is the curated member set (display-name-only — see
+    ``_MentionGroupMemberSerializer``, #4578); ``member_count`` is a convenience
+    for the list UI. ``muted_by_me`` reflects whether the *requesting* user has
+    muted this group — the per-user override that suppresses its mentions for
+    them.
     """
 
-    members = _UserSummarySerializer(many=True, read_only=True)
+    members = _MentionGroupMemberSerializer(many=True, read_only=True)
     member_count = serializers.SerializerMethodField()
     muted_by_me = serializers.SerializerMethodField()
 
@@ -575,12 +596,16 @@ class ProgramUserDefinedMentionGroupReadSerializer(
     """Response serializer for a program-scoped @mention group (ADR-0248, #516).
 
     The program-scoped mirror of :class:`UserDefinedMentionGroupReadSerializer`.
-    ``members`` is the curated member set (drawn from across the program's
-    projects); ``member_count`` is a list-UI convenience; ``muted_by_me`` reflects
-    whether the *requesting* user has muted this group.
+    ``members`` is the curated member set, drawn from across the program's
+    projects and display-name-only (no email — see
+    ``_MentionGroupMemberSerializer``, #4578): a program Viewer reading this
+    list is not necessarily a member of every project a listed member actually
+    belongs to, so email here would cross the ADR-0070 program/project
+    visibility boundary. ``member_count`` is a list-UI convenience;
+    ``muted_by_me`` reflects whether the *requesting* user has muted this group.
     """
 
-    members = _UserSummarySerializer(many=True, read_only=True)
+    members = _MentionGroupMemberSerializer(many=True, read_only=True)
     member_count = serializers.SerializerMethodField()
     muted_by_me = serializers.SerializerMethodField()
 
