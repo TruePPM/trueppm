@@ -8,7 +8,9 @@ Three Beat-scheduled tasks:
   delivery state. Best-effort — broker outage logs but doesn't propagate.
   Re-checks the recipient's account and project-membership status at drain time,
   not just at creation time (#3523, #3675) — a row queued before an off-boarding
-  or a project removal is retired unsent rather than delivered on a stale grant.
+  or a membership revocation is retired unsent rather than delivered on a stale
+  grant. A row for a project that is merely in Trash is held (still pending), not
+  retired, so a restore still delivers it (#4587).
 
 - ``archive_old_notifications`` — nightly, sets ``is_archived=True`` on any
   Notification older than 90 days that has ``is_read=True``. Keeps the
@@ -255,7 +257,7 @@ def _current_project_membership_exists(*, live_project_only: bool = False) -> An
     leaves it False so that only a real membership revocation retires queued mail —
     trashing a project must not permanently discard emails a restore would owe.
     """
-    from django.db.models import Exists, OuterRef
+    from django.db.models import Exists, OuterRef, Q
 
     from trueppm_api.apps.access.models import ProjectMembership
 
@@ -264,9 +266,14 @@ def _current_project_membership_exists(*, live_project_only: bool = False) -> An
         project_id=OuterRef("project_id"),
         is_deleted=False,
     )
-    if live_project_only:
-        qs = qs.filter(project__is_deleted=False)
-    return Exists(qs)
+    if not live_project_only:
+        return Exists(qs)
+    # The "project was deleted" notice exists *because* the project is in Trash, so
+    # it is exempt from the trashed-project floor (revocation still blocks it) —
+    # same exemption the serializer applies on the read side.
+    return Exists(qs.filter(project__is_deleted=False)) | (
+        Q(event_type="project.deleted") & Exists(qs)
+    )
 
 
 def _retire_pending_for_revoked_membership() -> int:

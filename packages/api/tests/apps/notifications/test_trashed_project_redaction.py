@@ -100,8 +100,34 @@ def test_serializer_fallback_set_floors_trashed_project(setup: dict[str, object]
     assert data["project"] is None
 
 
-def test_mention_visible_to_floors_trashed_project(setup: dict[str, object]) -> None:
+def test_project_deleted_notice_stays_readable_after_the_delete(
+    setup: dict[str, object], django_capture_on_commit_callbacks: object
+) -> None:
+    """The delete's own notice is written because the project is in Trash, so the
+    trashed-project floor must not blank it (end to end: DELETE -> inbox)."""
+    project = setup["project"]
+    owner = User.objects.create_user(username="owner", password="pw")
+    ProjectMembership.objects.create(project=project, user=owner, role=Role.OWNER)  # type: ignore[arg-type]
+    Notification.objects.all().delete()
+
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+        assert c.delete(f"/api/v1/projects/{project.pk}/").status_code == 204  # type: ignore[attr-defined]
+
+    row = _row(setup["user"])
+    assert row["event_type"] == "project.deleted"
+    assert "Alpha" in row["subject"]  # type: ignore[operator]
+    assert "restore" in row["body"].lower()  # type: ignore[attr-defined]
+    assert row["project"] == project.pk  # type: ignore[attr-defined]
+
+
+def test_project_deleted_notice_is_still_redacted_for_a_revoked_member(
+    setup: dict[str, object],
+) -> None:
     pk = setup["project"].pk  # type: ignore[attr-defined]
-    assert Mention.objects.visible_to(setup["user"]).count() == 1
+    Notification.objects.filter(pk=setup["notif"].pk).update(event_type="project.deleted")  # type: ignore[attr-defined]
     Project.objects.filter(pk=pk).update(is_deleted=True)
-    assert Mention.objects.visible_to(setup["user"]).count() == 0
+    assert _row(setup["user"])["subject"] != ""
+    ProjectMembership.objects.filter(project_id=pk).update(is_deleted=True)
+    assert _row(setup["user"])["subject"] == ""

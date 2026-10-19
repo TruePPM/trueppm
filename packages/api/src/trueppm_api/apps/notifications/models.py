@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import datetime
 import uuid
-from typing import Any
 
 from django.conf import settings
 from django.db import models
@@ -205,60 +204,11 @@ class NotificationChannel(models.TextChoices):
 
 
 class MentionManager(models.Manager["Mention"]):
-    """Manager enforcing the `Mention.objects.visible_to(user)` pattern.
+    """Default manager for ``Mention``.
 
-    All read paths must go through this method so #476's TEAM_ONLY scope is
-    enforced at a single point. Raw `Mention.objects.filter(...)` in viewsets
-    is forbidden — the rule is a review checklist item until a lint can be
-    added.
+    Mention visibility is enforced through ``NotificationViewSet``'s
+    ``recipient=request.user`` filter; there is no direct Mention list endpoint.
     """
-
-    def visible_to(
-        self,
-        user: Any,
-        project_id: uuid.UUID | str | None = None,
-    ) -> models.QuerySet[Mention]:
-        """Return mentions the user is permitted to see.
-
-        Rules:
-        - Always restricted to projects the user is a member of (anchored by
-          ProjectMembership; non-deleted only) and that are themselves live — a
-          project in Trash confers no membership (#4577).
-        - Within those projects, PROJECT_VISIBLE mentions are visible to all
-          members. TEAM_ONLY mentions (future #476) are visible only to the
-          mentioner, the mentioned user, and members of the mentioned group.
-          PRIVATE mentions are visible only to mentioner + mentioned_user.
-
-        NOTE: Currently UNUSED in the 0.2 viewsets — Mention visibility is
-        enforced indirectly via NotificationViewSet's `recipient=request.user`
-        filter and the absence of a direct Mention list endpoint. This method
-        is pre-positioned for #476, which will expose a Decision rollup view
-        that queries Mentions directly. Do NOT remove as dead code; it's the
-        single point of TEAM_ONLY scope enforcement when that scope is wired.
-        """
-        from trueppm_api.apps.access.models import ProjectMembership
-
-        if not user or not getattr(user, "is_authenticated", False):
-            return self.none()
-
-        member_projects = ProjectMembership.objects.filter(
-            user=user, is_deleted=False, project__is_deleted=False
-        ).values_list("project_id", flat=True)
-        qs = self.get_queryset().filter(project_id__in=list(member_projects))
-
-        if project_id is not None:
-            qs = qs.filter(project_id=project_id)
-
-        # Scope gate. PROJECT_VISIBLE is the only scope used in 0.2 (#311);
-        # the other two branches are inert today but the structure exists so
-        # #476 can populate them without a schema change or rewrite.
-        return qs.filter(
-            models.Q(scope=MentionScope.PROJECT_VISIBLE)
-            | models.Q(scope=MentionScope.TEAM_ONLY, mentioned_user=user)
-            | models.Q(scope=MentionScope.TEAM_ONLY, mentioner=user)
-            | models.Q(scope=MentionScope.PRIVATE, mentioned_user=user)
-            | models.Q(scope=MentionScope.PRIVATE, mentioner=user)
-        )
 
 
 # ---------------------------------------------------------------------------

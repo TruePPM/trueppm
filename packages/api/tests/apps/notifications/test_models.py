@@ -6,7 +6,6 @@ from datetime import date
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -128,121 +127,6 @@ class TestMentionModel:
                 mentioned_user=alice,
                 project=project,
             )
-
-
-# ---------------------------------------------------------------------------
-# MentionManager.visible_to
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.django_db
-class TestMentionManagerVisibleTo:
-    def test_anonymous_user_sees_none(self, comment: TaskComment) -> None:
-        qs = Mention.objects.visible_to(AnonymousUser())
-        assert list(qs) == []
-
-    def test_none_user_sees_none(self) -> None:
-        qs = Mention.objects.visible_to(None)
-        assert list(qs) == []
-
-    def test_member_sees_project_visible_mentions(
-        self,
-        comment: TaskComment,
-        author: object,
-        alice: object,
-        bob: object,
-        project: Project,
-        memberships: dict[str, ProjectMembership],
-    ) -> None:
-        m = Mention.objects.create(
-            mentioner=author,
-            mentioned_user=alice,
-            task_comment=comment,
-            project=project,
-            scope=MentionScope.PROJECT_VISIBLE,
-        )
-        assert m in Mention.objects.visible_to(bob)
-
-    def test_non_member_sees_nothing(
-        self,
-        comment: TaskComment,
-        author: object,
-        alice: object,
-        project: Project,
-        memberships: dict[str, ProjectMembership],
-    ) -> None:
-        outsider = User.objects.create_user(username="outsider", password="pw")
-        Mention.objects.create(
-            mentioner=author,
-            mentioned_user=alice,
-            task_comment=comment,
-            project=project,
-        )
-        assert list(Mention.objects.visible_to(outsider)) == []
-
-    def test_team_only_scope_restricted_to_mentioner_and_mentioned(
-        self,
-        comment: TaskComment,
-        author: object,
-        alice: object,
-        bob: object,
-        project: Project,
-        memberships: dict[str, ProjectMembership],
-    ) -> None:
-        m = Mention.objects.create(
-            mentioner=author,
-            mentioned_user=alice,
-            task_comment=comment,
-            project=project,
-            scope=MentionScope.TEAM_ONLY,
-        )
-        assert m in Mention.objects.visible_to(author)
-        assert m in Mention.objects.visible_to(alice)
-        assert m not in Mention.objects.visible_to(bob)
-
-    def test_private_scope_restricted_to_two_parties(
-        self,
-        comment: TaskComment,
-        author: object,
-        alice: object,
-        bob: object,
-        project: Project,
-        memberships: dict[str, ProjectMembership],
-    ) -> None:
-        m = Mention.objects.create(
-            mentioner=author,
-            mentioned_user=alice,
-            task_comment=comment,
-            project=project,
-            scope=MentionScope.PRIVATE,
-        )
-        assert m in Mention.objects.visible_to(author)
-        assert m in Mention.objects.visible_to(alice)
-        assert m not in Mention.objects.visible_to(bob)
-
-    def test_project_id_filter(
-        self,
-        comment: TaskComment,
-        author: object,
-        alice: object,
-        project: Project,
-        memberships: dict[str, ProjectMembership],
-        calendar: Calendar,
-    ) -> None:
-        other = Project.objects.create(name="Other", start_date=date(2026, 1, 1), calendar=calendar)
-        ProjectMembership.objects.create(project=other, user=alice, role=Role.MEMBER)
-        Mention.objects.create(
-            mentioner=author,
-            mentioned_user=alice,
-            task_comment=comment,
-            project=project,
-        )
-        # Filter to other project — should be empty.
-        qs = Mention.objects.visible_to(alice, project_id=other.pk)
-        assert list(qs) == []
-        # Filter to actual project — should include the mention.
-        qs2 = Mention.objects.visible_to(alice, project_id=project.pk)
-        assert qs2.count() == 1
 
 
 # ---------------------------------------------------------------------------

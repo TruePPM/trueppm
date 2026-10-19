@@ -208,6 +208,23 @@ def test_an_aging_queue_is_detected_even_with_zero_attempts() -> None:
     assert card["state_label"] == "2 queued"
 
 
+def test_rows_held_for_a_trashed_project_do_not_count_as_queued_aging() -> None:
+    """A row waiting on a restore is not evidence of a dead worker (#4587)."""
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Calendar, Project
+
+    user = _recipient()
+    project = Project.objects.create(
+        name="P", start_date=date(2026, 1, 1), calendar=Calendar.objects.create(name="C")
+    )
+    rows = _queued(user, count=2, age_minutes=180)
+    Notification.objects.filter(pk=rows[0].pk).update(project=project)
+    Project.objects.filter(pk=project.pk).update(is_deleted=True)
+
+    assert notification_email_signals()["queued_aging"] == 1
+
+
 def test_the_age_is_measured_on_a_field_no_code_path_rewrites() -> None:
     """``created_at`` cannot be reset out from under the comparison; the old
     ``email_failed_at`` was rewritten to ``now`` on every single failed attempt,
