@@ -7233,6 +7233,39 @@ class CycleDetectedError(Exception):
         super().__init__("Cyclic dependency detected.")
 
 
+def _cycle_readable_project_ids(
+    request: Any, project_ids: set[Any], *, always_readable: set[Any]
+) -> set[Any]:
+    """The subset of ``project_ids`` whose tasks a cycle refusal may name (#4588).
+
+    A cross-project edge is cycle-checked over the whole program (ADR-0120 D1),
+    so the cycle path can run through a project the caller holds no role on.
+    The caller was only authorized for the two endpoint projects
+    (``always_readable``), so every other project on the path is labeled only
+    when the caller can read it: a live ``ProjectMembership`` on a project that
+    is not trashed (:func:`live_member_project_ids`, the #4577 floor) — program
+    membership does not reach a member project's content. An agent token is
+    additionally intersected with the team MCP opt-out (ADR-0678); agent tokens
+    are refused on this write surface by ``TokenReadOnlyMethods`` today, so that
+    branch is defense in depth. Fails closed: no request means no foreign labels.
+
+    One query for the membership set regardless of path length; none at all when
+    every node sits in an endpoint project (every same-project cycle).
+    """
+    from trueppm_api.apps.access.permissions import live_member_project_ids
+    from trueppm_api.apps.projects.mcp_settings import mcp_visible_project_ids
+
+    foreign = set(project_ids) - set(always_readable)
+    readable = set(always_readable) & set(project_ids)
+    if not foreign or request is None:
+        return readable
+    member_of = live_member_project_ids(getattr(request, "user", None), list(foreign))
+    visible = mcp_visible_project_ids(request)
+    if visible is not None and member_of:
+        member_of &= set(visible.filter(pk__in=member_of))
+    return readable | member_of
+
+
 class ProgressAnchorError(Exception):
     """Raised by ``TaskSerializer.validate`` when ``percent_complete > 0`` lacks
     a schedule anchor.
@@ -7987,7 +8020,9 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         update), appends the proposed edge, expands summary→leaf edges, and
         runs cycle detection. On a hit, raises a structured ValidationError
         with the cycle path resolved to ``{id, name, hex_id}`` objects so the
-        client can render task names without an extra round trip.
+        client can render task names without an extra round trip. A node in a
+        project the caller cannot read is withheld as an all-blank placeholder
+        (#4588).
         """
         # Self-loop short-circuits the full graph check — networkx would catch
         # it but doing it here saves a DB roundtrip for the common typo case.
@@ -8060,27 +8095,40 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         # the foreign nodes from the rendered path.
         tasks_by_id = {
             str(t.id): t
-            for t in Task.objects.filter(id__in=unique_ids).only("id", "name", "short_id")
+            for t in Task.objects.filter(id__in=unique_ids).only(
+                "id", "name", "short_id", "project_id"
+            )
         }
-        ordered_tasks = [tasks_by_id.get(tid) for tid in cycle_ids]
-        # If any id failed to resolve (deleted concurrently?), fall back to a
-        # stub so the response shape stays consistent.
-        ordered: list[Task | None] = ordered_tasks
-        self._raise_cycle_error(ordered, fallback_ids=cycle_ids)
+        # Detection needs the whole program graph, but the caller may read only
+        # the endpoint projects plus those they are a member of (#4588) — label
+        # nothing else, or the refusal discloses a third project's task titles.
+        readable = _cycle_readable_project_ids(
+            self.context.get("request"),
+            {t.project_id for t in tasks_by_id.values()},
+            always_readable={predecessor.project_id, successor.project_id},
+        )
+        ordered: list[Task | None] = [
+            t if t is not None and t.project_id in readable else None
+            for t in (tasks_by_id.get(tid) for tid in cycle_ids)
+        ]
+        self._raise_cycle_error(ordered)
 
-    def _raise_cycle_error(
-        self,
-        tasks: list[Task] | list[Task | None],
-        fallback_ids: list[str] | None = None,
-    ) -> None:
-        ids = fallback_ids or [str(t.id) if t is not None else "" for t in tasks]
+    def _raise_cycle_error(self, tasks: list[Task] | list[Task | None]) -> None:
+        """Raise the structured cycle refusal for an ordered cycle path.
+
+        A ``None`` entry is a node the caller may not see (#4588) or one that no
+        longer resolves (deleted concurrently). Either way it becomes an opaque
+        placeholder with every field blank — including ``id``, since a task id in
+        a project the caller has no role on is itself not theirs to learn — so the
+        path keeps its length and the client renders a generic label for it.
+        """
         cycle_payload = [
             {
-                "id": str(t.id) if t is not None else (ids[i] if i < len(ids) else ""),
+                "id": str(t.id) if t is not None else "",
                 "name": t.name if t is not None else "",
                 "hex_id": t.short_id if t is not None else "",
             }
-            for i, t in enumerate(tasks)
+            for t in tasks
         ]
         raise CycleDetectedError(cycle_payload)
 

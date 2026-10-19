@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseCyclicDependencyError,
   formatCycleMessage,
+  RESTRICTED_CYCLE_NODE_LABEL,
   type CyclicDependencyError,
 } from './useTaskMutations';
 
@@ -167,5 +168,32 @@ describe('formatCycleMessage', () => {
       node('u1', '', 'aa11'),
     ]);
     expect(formatCycleMessage(err)).toContain('aa11 → u2 → aa11');
+  });
+
+  it('renders a server-withheld node (all fields blank) as a placeholder (#4588)', () => {
+    const err = cyclicDependencyError([
+      node('u1', 'Alpha'),
+      node('', '', ''),
+      node('u2', 'Bravo'),
+      node('u1', 'Alpha'),
+    ]);
+    expect(formatCycleMessage(err)).toBe(
+      `This would create a circular dependency: Alpha → ${RESTRICTED_CYCLE_NODE_LABEL} → Bravo → Alpha. Remove one of these edges first.`,
+    );
+  });
+
+  it('parses a payload carrying a withheld node without rejecting it (#4588)', () => {
+    const parsed = parseCyclicDependencyError({
+      response: {
+        data: {
+          code: 'cyclic_dependency',
+          detail: 'cyclic_dependency',
+          offending: ['u1', '', 'u1'],
+          cycle: [node('u1', 'Alpha'), node('', '', ''), node('u1', 'Alpha')],
+        },
+      },
+    });
+    if (parsed === null) throw new Error('withheld-node payload was rejected');
+    expect(formatCycleMessage(parsed)).toContain(`Alpha → ${RESTRICTED_CYCLE_NODE_LABEL} → Alpha`);
   });
 });

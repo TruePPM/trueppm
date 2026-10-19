@@ -1053,6 +1053,101 @@ class TestCrossProjectDependency:
         assert r.data["code"] == "cyclic_dependency"
         assert r.data["detail"] == "cyclic_dependency"
 
+    def _three_project_cycle(
+        self, client: APIClient, user: object, calendar: Calendar, *, member_of_third: bool
+    ) -> tuple[object, Task, Task, Task]:
+        """A1 → C1 → B1 accepted, then the caller proposes B1 → A1 (#4588).
+
+        The caller is Admin on A and B; C sits in the same program and the caller
+        is a member of it only when ``member_of_third``. The two edges through C
+        are created by a separate Scheduler on all three projects.
+        """
+        program = Program.objects.create(name="GA Launch")
+        projects = [
+            Project.objects.create(
+                name=name, start_date=date(2026, 3, 2), calendar=calendar, program=program
+            )
+            for name in ("Alpha", "Bravo", "Charlie")
+        ]
+        p_a, p_b, p_c = projects
+        ProjectMembership.objects.create(project=p_a, user=user, role=Role.ADMIN)
+        ProjectMembership.objects.create(project=p_b, user=user, role=Role.ADMIN)
+        if member_of_third:
+            ProjectMembership.objects.create(project=p_c, user=user, role=Role.VIEWER)
+        a1 = Task.objects.create(project=p_a, name="Alpha task", duration=2)
+        b1 = Task.objects.create(project=p_b, name="Bravo task", duration=2)
+        c1 = Task.objects.create(project=p_c, name="Charlie secret title", duration=2)
+        other = get_user_model().objects.create_user(username="tri-scheduler", password="pw")
+        for p in projects:
+            ProjectMembership.objects.create(project=p, user=other, role=Role.SCHEDULER)
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        assert self._post_edge(other_client, a1, c1).status_code == 201
+        assert self._post_edge(other_client, c1, b1).status_code == 201
+        r = self._post_edge(client, b1, a1)
+        assert r.status_code == 400, r.data
+        assert r.data["code"] == "cyclic_dependency"
+        return r, a1, b1, c1
+
+    def test_cycle_error_redacts_nodes_in_projects_caller_cannot_read(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4588: the program-wide cycle path must not disclose a third project's
+        task title, short id, or task id to a caller with no role on it."""
+        r, a1, b1, c1 = self._three_project_cycle(client, user, calendar, member_of_third=False)
+        cycle = r.data["cycle"]
+        names = [node["name"] for node in cycle]
+        ids = [node["id"] for node in cycle]
+        assert "Charlie secret title" not in names
+        assert str(c1.pk) not in ids
+        # short_ids are per-project sequences (C1's can equal A1's), so prove the
+        # hex_id is withheld by checking every labeled node is an endpoint.
+        labeled = [node for node in cycle if node["id"]]
+        assert {node["id"] for node in labeled} == {str(a1.pk), str(b1.pk)}
+        assert len(labeled) == len(cycle) - 1
+        assert str(c1.pk) not in r.data["offending"]
+        # The redacted node is still present as a placeholder, so the path keeps
+        # its length and the readable endpoints keep their labels.
+        assert {"id": "", "name": "", "hex_id": ""} in cycle
+        assert "Alpha task" in names and "Bravo task" in names
+        assert str(a1.pk) in ids and str(b1.pk) in ids
+        assert len(r.data["offending"]) == len(cycle)
+
+    def test_cycle_error_names_nodes_in_projects_caller_can_read(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4588 over-redaction guard: a member of the third project sees it named."""
+        r, _a1, _b1, c1 = self._three_project_cycle(client, user, calendar, member_of_third=True)
+        cycle = r.data["cycle"]
+        assert {"id": str(c1.pk), "name": "Charlie secret title", "hex_id": c1.short_id} in cycle
+        assert all(node["name"] for node in cycle)
+
+    def test_cycle_readable_set_has_trashed_project_floor(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4577 floor: a membership on a trashed project confers no read here either.
+
+        The program cycle scope already drops trashed projects, so no API request
+        can put one on the path; assert the floor at the readable-set helper.
+        """
+        from trueppm_api.apps.projects.serializers import _cycle_readable_project_ids
+
+        program = Program.objects.create(name="GA Launch")
+        p_c = Project.objects.create(
+            name="Charlie", start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=p_c, user=user, role=Role.ADMIN)
+
+        class _Req:
+            auth = None
+
+        req = _Req()
+        req.user = user  # type: ignore[attr-defined]
+        assert _cycle_readable_project_ids(req, {p_c.pk}, always_readable=set()) == {p_c.pk}
+        p_c.is_deleted = True
+        p_c.save(update_fields=["is_deleted"])
+        assert _cycle_readable_project_ids(req, {p_c.pk}, always_readable=set()) == set()
+
     # -- D5: minimal visibility card ----------------------------------------
 
     def test_cross_project_edge_exposes_minimal_card(
