@@ -127,7 +127,11 @@ The set is open-ended and grows as features land; current event types include:
 - **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`,
   `dependency_accepted`, `dependency_rejected`, `dependencies_bulk_created` (one
   aggregated event per `POST /tasks/bulk/` batch, carrying every applied edge's id
-  as `dependency_ids` — not one `dependency_created` per edge, #3770)
+  as `dependency_ids` — not one `dependency_created` per edge, #3770). A
+  cross-project edge fans `dependency_created`, `dependency_updated` and
+  `dependency_deleted` to both endpoint projects, pending proposals included. So does
+  a task or project delete or restore that cascades to such an edge: the project on
+  the far side receives the edge event and a schedule recompute.
 - **Task relations**: `task_relation_created`, `task_relation_updated`,
   `task_relation_deleted` (informational relates-to / blocks / duplicates links;
   payload carries the relation `id`). A cross-project relation fans to both

@@ -7434,3 +7434,54 @@ def adopt_released_keys(obj: Any, key_ids: list[Any], *, save: bool = True) -> b
     if save:
         obj.save(update_fields=["code"])
     return True
+
+
+def fan_out_cross_project_edges(
+    rows: list[dict[str, Any]],
+    *,
+    created: bool,
+    skip_project_ids: set[str] | frozenset[str] = frozenset(),
+) -> None:
+    """After a task/project cascade, recalc and notify the projects on the far side.
+
+    A task or project soft-delete (or restore) cascades to cross-project edges, but
+    its own view only handles its own project, so the other side kept stale CPM dates
+    and never heard the edge change (#4592). For each row (from
+    ``cross_project_edge_rows``) this broadcasts ``dependency_created`` /
+    ``dependency_deleted`` to every endpoint project not in ``skip_project_ids`` and
+    enqueues one recalc per such project for *accepted* edges (a pending edge is inert
+    to CPM). Everything is deferred with ``transaction.on_commit``; the payload is the
+    bare edge id, as for the direct dependency endpoints.
+    """
+    if not rows:
+        return
+    from trueppm_api.apps.scheduling.models import ScheduleRequestReason
+    from trueppm_api.apps.scheduling.services import enqueue_recalculate
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    def _recalc(pid: str) -> None:
+        transaction.on_commit(
+            lambda: enqueue_recalculate(pid, reason=ScheduleRequestReason.CROSS_PROJECT_DEPENDENCY)
+        )
+
+    # Literal event types, one direct call per helper, so the WS freeze-test AST
+    # scanner registers them. The helpers bind per-iteration values (no late-binding
+    # lambda-in-a-loop).
+    def _created(pid: str, dep_id: str) -> None:
+        transaction.on_commit(
+            lambda: broadcast_board_event(pid, "dependency_created", {"id": dep_id})
+        )
+
+    def _deleted(pid: str, dep_id: str) -> None:
+        transaction.on_commit(
+            lambda: broadcast_board_event(pid, "dependency_deleted", {"id": dep_id})
+        )
+
+    recalc: set[str] = set()
+    for row in rows:
+        for pid in {row["pred_pid"], row["succ_pid"]} - set(skip_project_ids):
+            (_created if created else _deleted)(pid, row["id"])
+            if not row["pending_acceptance"]:
+                recalc.add(pid)
+    for pid in sorted(recalc):
+        _recalc(pid)
