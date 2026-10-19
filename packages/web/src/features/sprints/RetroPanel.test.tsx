@@ -559,6 +559,33 @@ describe('RetroPanel', () => {
     });
   });
 
+  it('hydrates a stored 0 story points as "0" and sends 0 back on save', async () => {
+    useSprintRetroMock.mockReturnValue({
+      data: fullRetro({
+        action_items: [
+          {
+            id: 'z1',
+            text: 'Zero-point chore',
+            assignee: null,
+            assignee_username: null,
+            story_points: 0,
+            promoted_task_id: null,
+            created_at: '2026-04-15T00:00:00Z',
+          },
+        ],
+      }),
+      isLoading: false,
+      error: null,
+    });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+    await screen.findByDisplayValue('Zero-point chore');
+    expect(screen.getByLabelText(/Action item 1 story points/i)).toHaveValue(0);
+    await userEvent.click(screen.getByRole('button', { name: /Save notes & actions/i }));
+    expect(saveMutateMock.mock.calls[0][0].action_items).toEqual([
+      { id: 'z1', text: 'Zero-point chore', story_points: 0 },
+    ]);
+  });
+
   it('rounds fractional story points to a whole number before sending', async () => {
     useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
     renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
