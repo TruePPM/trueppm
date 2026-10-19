@@ -8002,8 +8002,12 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
         )
 
         item = self.get_object()
-        already = item.converted_action_item_id is not None
+        prior_id = item.converted_action_item_id
         action_item = convert_svc(item, cast(User, request.user))
+        # "Already converted" only when the service handed back the item the sticky
+        # pointed at. If that item was since removed from the retro (soft-deleted by a
+        # retro save), the service creates a fresh one, which is a 201.
+        already = prior_id is not None and action_item.pk == prior_id
         return Response(
             RetroActionItemSerializer(action_item).data,
             status=status.HTTP_200_OK if already else status.HTTP_201_CREATED,
@@ -11980,8 +11984,44 @@ def _validate_retro_assignees(items_in: list[dict[str, Any]], project_id: Any) -
 _RETRO_ITEM_ID_ERROR = "Each action item id must identify a live action item on this retro."
 
 
+_STORY_POINTS_MAX = 32767  # PositiveSmallIntegerField's upper bound.
+
+
+def _validate_retro_story_points(items_in: list[dict[str, Any]]) -> Response | None:
+    """Reject a ``story_points`` the column cannot hold, before any write.
+
+    The value goes straight from the body into ``bulk_create``/``bulk_update`` with
+    no serializer in between, so a negative number hit the column's CHECK constraint
+    (IntegrityError), a non-numeric string failed the int cast (ValueError), and a
+    value above smallint failed at the database (DataError) — all 500s. An integral
+    float (``3.0``, which a JSON number can arrive as) is accepted; a bool is not,
+    though Python treats it as an int.
+    """
+    for entry in items_in:
+        if "story_points" not in entry:
+            continue
+        raw = entry["story_points"]
+        if raw is None:
+            continue
+        if isinstance(raw, float) and raw.is_integer():
+            raw = int(raw)
+        if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= _STORY_POINTS_MAX:
+            return Response(
+                {
+                    "action_items": (
+                        f"Each story_points must be a whole number from 0 to {_STORY_POINTS_MAX}."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        entry["story_points"] = raw
+    return None
+
+
 def _plan_retro_item_diff(
-    items_in: list[dict[str, Any]], live_items: dict[Any, Any]
+    items_in: list[dict[str, Any]],
+    live_items: dict[Any, Any],
+    tombstoned_ids: set[Any],
 ) -> Response | tuple[list[Any], list[dict[str, Any]], list[Any]]:
     """Split a retro POST's ``action_items`` into update / create / soft-delete sets.
 
@@ -11991,11 +12031,20 @@ def _plan_retro_item_diff(
     entry carrying ``id`` now names the existing row it edits; one without ``id`` is a
     new item; a live row the body no longer names is soft-deleted.
 
-    An ``id`` must be a live item of THIS sprint's retro. ``live_items`` is scoped to
-    the sprint, so a foreign id — another retro's item, a tombstone, or garbage — is
-    refused with a 400 rather than adopted, which would otherwise let a writer on one
-    project rewrite an item on another (IDOR). A duplicated id is refused too: two
-    edits to one row in one body have no defined winner.
+    An ``id`` must be an item of THIS sprint's retro. ``live_items`` and
+    ``tombstoned_ids`` are both scoped to the sprint, so a foreign id — another
+    retro's item, an unknown uuid, or garbage — is refused with a 400 rather than
+    adopted, which would otherwise let a writer on one project rewrite an item on
+    another (IDOR). A duplicated id is refused too: two edits to one row in one body
+    have no defined winner.
+
+    An id that is a tombstone of THIS retro is treated as a create instead. The retro
+    is multi-writer (ADR-0117): when a peer removes an item, another member's open
+    draft still holds its id. Refusing it would fail every save from that draft until
+    a reload threw the member's edits away; re-creating it as a new row keeps their
+    text (last writer wins, as before #4591). The tombstone itself is never
+    resurrected — its sync delete already went out, and a new id is what a client
+    that applied it can accept.
 
     A blank ``text`` drops the entry, so an ``id`` with blank text is a removal. On an
     update only the keys the entry carries are applied — an omitted ``assignee`` or
@@ -12024,12 +12073,13 @@ def _plan_retro_item_diff(
             except (ValueError, TypeError, AttributeError):
                 item_id = None
             item = live_items.get(item_id) if item_id is not None else None
-            if item is None or item.pk in seen:
+            stale = item is None and item_id in tombstoned_ids
+            if (item is None and not stale) or item_id in seen:
                 return Response(
                     {"action_items": _RETRO_ITEM_ID_ERROR},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            seen.add(item.pk)
+            seen.add(item_id)
         if not text:
             # Dropped — and when the entry named a row, that row is not a survivor,
             # so it is tombstoned below.
@@ -12064,6 +12114,27 @@ def _plan_retro_item_diff(
 
     to_delete = [item for pk, item in live_items.items() if pk not in survivors]
     return to_update, to_create, to_delete
+
+
+def _retro_tombstoned_ids(sprint: Any, raw_ids: set[str]) -> set[Any]:
+    """Return which of ``raw_ids`` are soft-deleted items of ``sprint``'s retro."""
+    import uuid as _uuid
+
+    from trueppm_api.apps.projects.models import RetroActionItem
+
+    parsed = set()
+    for raw in raw_ids:
+        try:
+            parsed.add(_uuid.UUID(raw))
+        except ValueError:
+            continue
+    if not parsed:
+        return set()
+    return set(
+        RetroActionItem.objects.filter(
+            retro__sprint=sprint, is_deleted=True, pk__in=parsed
+        ).values_list("pk", flat=True)
+    )
 
 
 def _apply_retro_item_diff(
@@ -12141,7 +12212,9 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
     items_in: list[dict[str, Any]] = raw_items
     new_visibility = body.get("team_visibility")
 
-    invalid = _validate_retro_assignees(items_in, sprint.project_id)
+    invalid = _validate_retro_assignees(items_in, sprint.project_id) or (
+        _validate_retro_story_points(items_in)
+    )
     if invalid is not None:
         return invalid
 
@@ -12159,7 +12232,13 @@ def _retro_post(request: Request, sprint: Any, caller: Any, caller_role: int) ->
                 retro__sprint=sprint, is_deleted=False
             )
         }
-        plan = _plan_retro_item_diff(items_in, live_items)
+        # Only probed for ids the live set does not hold, so the common save — every
+        # id live — costs no extra query.
+        unmatched = {str(e.get("id")) for e in items_in if e.get("id") not in (None, "")} - {
+            str(pk) for pk in live_items
+        }
+        tombstoned_ids = _retro_tombstoned_ids(sprint, unmatched)
+        plan = _plan_retro_item_diff(items_in, live_items, tombstoned_ids)
         if isinstance(plan, Response):
             return plan
         to_update, to_create, to_delete = plan

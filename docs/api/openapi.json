@@ -73426,7 +73426,7 @@
                     "id": {
                         "type": "string",
                         "format": "uuid",
-                        "description": "Id of an existing live action item on this retro to edit in place. Omit to create a new item. Any other id returns 400."
+                        "description": "Id of an action item on this retro to edit in place. Omit to create a new item. An id this retro has since deleted creates a new item; any other id returns 400."
                     },
                     "text": {
                         "type": "string",
@@ -73439,9 +73439,10 @@
                     },
                     "story_points": {
                         "type": "integer",
+                        "maximum": 32767,
                         "minimum": 0,
                         "nullable": true,
-                        "description": "Omitted on an edit keeps the stored value."
+                        "description": "Whole number 0-32767. Omitted on an edit keeps the stored value."
                     }
                 },
                 "required": [

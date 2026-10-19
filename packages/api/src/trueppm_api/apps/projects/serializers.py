@@ -10595,8 +10595,9 @@ class SprintRetroActionItemWriteSerializer(serializers.Serializer[Any]):
     id = serializers.UUIDField(
         required=False,
         help_text=(
-            "Id of an existing live action item on this retro to edit in place. "
-            "Omit to create a new item. Any other id returns 400."
+            "Id of an action item on this retro to edit in place. Omit to create a "
+            "new item. An id this retro has since deleted creates a new item; any "
+            "other id returns 400."
         ),
     )
     text = serializers.CharField(
@@ -10612,7 +10613,8 @@ class SprintRetroActionItemWriteSerializer(serializers.Serializer[Any]):
         required=False,
         allow_null=True,
         min_value=0,
-        help_text="Omitted on an edit keeps the stored value.",
+        max_value=32767,
+        help_text="Whole number 0-32767. Omitted on an edit keeps the stored value.",
     )
 
 

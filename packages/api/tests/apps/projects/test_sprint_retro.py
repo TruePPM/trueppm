@@ -708,17 +708,99 @@ def test_unknown_or_malformed_item_id_is_rejected(
 
 
 @pytest.mark.django_db
-def test_tombstoned_and_duplicate_item_ids_are_rejected(project: Project, member: object) -> None:
+def test_duplicate_item_ids_are_rejected(project: Project, member: object) -> None:
     s = _closed_sprint(project)
-    first = _save(member, s, [{"text": "a"}, {"text": "b"}])
-    a_id, b_id = _ids_by_text(first)["a"], _ids_by_text(first)["b"]
+    first = _save(member, s, [{"text": "a"}])
+    a_id = _ids_by_text(first)["a"]
     dup = _save(member, s, [{"id": a_id, "text": "a"}, {"id": a_id, "text": "a2"}])
     assert dup.status_code == 400
+    assert RetroActionItem.objects.get(pk=a_id).text == "a"
 
-    _save(member, s, [{"id": a_id, "text": "a"}])  # tombstones b
-    stale = _save(member, s, [{"id": a_id, "text": "a"}, {"id": b_id, "text": "b"}])
-    assert stale.status_code == 400
-    assert RetroActionItem.objects.get(pk=b_id).is_deleted is True
+
+@pytest.mark.django_db
+def test_stale_id_of_an_item_a_peer_removed_is_recreated_not_refused(
+    project: Project, member: object, admin_user: object
+) -> None:
+    """Multi-writer retro (ADR-0117): B's draft still holds the id A just removed.
+
+    Refusing it would fail every save from B's open draft until a reload threw B's
+    edits away. The entry is re-created as a new row instead; the tombstone stays a
+    tombstone (its sync delete already went out).
+    """
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "keep"}, {"text": "x"}])
+    keep_id, x_id = _ids_by_text(first)["keep"], _ids_by_text(first)["x"]
+
+    # A removes X.
+    assert _save(member, s, [{"id": keep_id, "text": "keep"}]).status_code == 200
+    tomb_before = RetroActionItem.objects.get(pk=x_id)
+    assert tomb_before.is_deleted is True
+
+    # B saves from a stale draft that still names X.
+    resp = _save(
+        admin_user, s, [{"id": keep_id, "text": "keep"}, {"id": x_id, "text": "x edited by B"}]
+    )
+    assert resp.status_code == 200
+    by_text = _ids_by_text(resp)
+    assert set(by_text) == {"keep", "x edited by B"}
+    assert by_text["keep"] == keep_id
+    assert by_text["x edited by B"] != x_id
+
+    tomb_after = RetroActionItem.objects.get(pk=x_id)
+    assert tomb_after.is_deleted is True
+    assert tomb_after.text == "x"
+    assert tomb_after.server_version == tomb_before.server_version
+    assert tomb_after.sync_seq == tomb_before.sync_seq
+
+
+@pytest.mark.django_db
+def test_tombstone_of_another_retro_is_still_rejected(project: Project, member: object) -> None:
+    """Only THIS retro's tombstones become creates — the IDOR guard is unchanged."""
+    s = _closed_sprint(project)
+    other = _closed_sprint(project, name="S0")
+    other_retro = SprintRetro.objects.create(sprint=other, notes="")
+    foreign = RetroActionItem.objects.create(retro=other_retro, text="theirs")
+    foreign.soft_delete()
+
+    resp = _save(member, s, [{"id": str(foreign.pk), "text": "mine"}])
+    assert resp.status_code == 400
+    assert not SprintRetro.objects.filter(sprint=s).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", [-1, "abc", 70000, True, 2.5, "3", [3]])
+def test_invalid_story_points_rejected_on_create(
+    project: Project, member: object, bad: object
+) -> None:
+    s = _closed_sprint(project)
+    resp = _save(member, s, [{"text": "x", "story_points": bad}])
+    assert resp.status_code == 400
+    assert "action_items" in resp.data
+    assert not SprintRetro.objects.filter(sprint=s).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", [-1, "abc", 70000, False])
+def test_invalid_story_points_rejected_on_update(
+    project: Project, member: object, bad: object
+) -> None:
+    s = _closed_sprint(project)
+    first = _save(member, s, [{"text": "x", "story_points": 2}])
+    item_id = _ids_by_text(first)["x"]
+    resp = _save(member, s, [{"id": item_id, "text": "x", "story_points": bad}])
+    assert resp.status_code == 400
+    assert RetroActionItem.objects.get(pk=item_id).story_points == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("sent", "stored"), [(0, 0), (32767, 32767), (3.0, 3), (None, None)])
+def test_valid_story_points_accepted(
+    project: Project, member: object, sent: object, stored: object
+) -> None:
+    s = _closed_sprint(project)
+    resp = _save(member, s, [{"text": "x", "story_points": sent}])
+    assert resp.status_code == 200
+    assert RetroActionItem.objects.get(retro__sprint=s).story_points == stored
 
 
 @pytest.mark.django_db

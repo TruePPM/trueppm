@@ -7,6 +7,11 @@ import { ExternalLinkIcon } from '@/components/Icons';
 export interface DraftActionItem {
   /** Server id once the item is persisted; sent back on save so it is edited, not replaced. */
   id?: string;
+  /**
+   * Client-only identity for the draft row, stable across edits and reorders, so a
+   * save response can be matched back to the row it was sent from (#4591).
+   */
+  draftKey?: string;
   text: string;
   story_points: string;
 }

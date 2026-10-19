@@ -112,6 +112,23 @@ def test_v2_export_reconstructs_retro_actions(owner: Any) -> None:
     assert "retro.promote" not in _actions(doc)
 
 
+def test_v2_export_skips_soft_deleted_retro_actions(owner: Any) -> None:
+    """A removed action item (soft-deleted by a retro save, #4591) is not exported.
+
+    Exporting it would re-import it as a live action item.
+    """
+    from trueppm_api.apps.projects.models import RetroActionItem
+
+    program = import_seed(_retro_seed(), owner=owner, create_users=True)
+    RetroActionItem.objects.get(
+        retro__sprint__project__program=program, text="Document the auth flow"
+    ).soft_delete()
+    doc = export_program(program, with_events=True)
+    bodies = {e["body"] for e in doc["events"] if e["action"] == "retro.action"}
+    assert "Add integration tests" in bodies
+    assert "Document the auth flow" not in bodies
+
+
 # --- byte-deterministic round-trip -----------------------------------------
 
 

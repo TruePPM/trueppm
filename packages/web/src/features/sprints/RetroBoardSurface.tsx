@@ -375,12 +375,25 @@ interface SingleAuthorProps {
 
 const EMPTY_DRAFT: DraftActionItem = { text: '', story_points: '' };
 
-function toDrafts(items: SprintRetroActionItem[]): DraftActionItem[] {
+function toDrafts(items: SprintRetroActionItem[], nextKey: () => string): DraftActionItem[] {
   return items.map((it) => ({
     id: it.id,
+    draftKey: nextKey(),
     text: it.text,
     story_points: it.story_points ? String(it.story_points) : '',
   }));
+}
+
+/** Keep the first draft per server id; a later duplicate is dropped. */
+function dedupeById(drafts: DraftActionItem[]): DraftActionItem[] {
+  const seen = new Set<string>();
+  const out = drafts.filter((d) => {
+    if (!d.id) return true;
+    if (seen.has(d.id)) return false;
+    seen.add(d.id);
+    return true;
+  });
+  return out.length === drafts.length ? drafts : out;
 }
 
 function SingleAuthorSections({
@@ -395,6 +408,26 @@ function SingleAuthorSections({
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<DraftActionItem[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const keySeq = useRef(0);
+  const nextKey = useCallback(() => `draft-${++keySeq.current}`, []);
+  // Server ids (and draft keys) the user removed locally. The retro is multi-writer
+  // (ADR-0117), so a refetch can carry items this draft has never seen — a peer's
+  // save, or a sticky converted to an action item. Those are appended to the draft
+  // (otherwise the next save would delete them); an item the user removed here
+  // must not come back the same way before their save lands.
+  const removedIds = useRef(new Set<string>());
+  const removedKeys = useRef(new Set<string>());
+
+  const appendUnseen = useCallback(
+    (cur: DraftActionItem[], serverItems: SprintRetroActionItem[]): DraftActionItem[] => {
+      const have = new Set(cur.flatMap((d) => (d.id ? [d.id] : [])));
+      const unseen = serverItems.filter(
+        (it) => !have.has(it.id) && !removedIds.current.has(it.id),
+      );
+      return unseen.length ? [...cur, ...toDrafts(unseen, nextKey)] : cur;
+    },
+    [nextKey],
+  );
 
   useEffect(() => {
     if (hydrated) return;
@@ -404,9 +437,18 @@ function SingleAuthorSections({
       return;
     }
     setNotes(retro.notes);
-    setItems(toDrafts(retro.action_items));
+    setItems(toDrafts(retro.action_items, nextKey));
     setHydrated(true);
-  }, [retro, hydrated]);
+  }, [retro, hydrated, nextKey]);
+
+  // After hydration, fold in server items the draft does not hold yet. Never while
+  // a save is in flight: its response is what tells us which server rows are the
+  // draft's own new items, and folding first would duplicate them.
+  const savePending = save.isPending;
+  useEffect(() => {
+    if (!hydrated || savePending || !retro) return;
+    setItems((cur) => appendUnseen(cur, retro.action_items));
+  }, [retro, hydrated, savePending, appendUnseen]);
 
   const persistedByText = useMemo<Map<string, SprintRetroActionItem>>(
     () => new Map((retro?.action_items ?? []).map((it) => [it.text, it])),
@@ -414,10 +456,12 @@ function SingleAuthorSections({
   );
 
   function handleSave() {
+    const sent: { key: string | undefined; id: string | undefined; text: string }[] = [];
     const payload: SprintRetroActionItemInput[] = items.flatMap<SprintRetroActionItemInput>(
       (it) => {
         const text = it.text.trim();
         if (!text) return [];
+        sent.push({ key: it.draftKey, id: it.id, text });
         const sp = it.story_points.trim();
         return [{ ...(it.id ? { id: it.id } : {}), text, story_points: sp ? Number(sp) : null }];
       },
@@ -426,13 +470,51 @@ function SingleAuthorSections({
       { notes: notes.trim(), action_items: payload },
       {
         // Adopt the server's ids so the next save edits these rows instead of
-        // deleting them and creating new ones — which would drop a promotion made
-        // in between (#4591). The draft is otherwise hydrated only once.
+        // deleting and re-creating them, which would drop a promotion made in
+        // between (#4591). Only ids are written into the CURRENT draft, matched by
+        // the draft key each entry was sent from — the inputs stay editable while
+        // the POST is in flight, and text typed meanwhile must survive.
         onSuccess: (data) => {
-          if (isFullRetro(data)) setItems(toDrafts(data.action_items));
+          if (!isFullRetro(data)) return;
+          const returned = data.action_items;
+          const returnedIds = new Set(returned.map((r) => r.id));
+          const sentIds = new Set(sent.flatMap((e) => (e.id ? [e.id] : [])));
+          // Rows this save created: a new entry, or a stale id (a peer removed the
+          // item) that the server re-created under a new id. Claimed by text, in
+          // send order.
+          const unclaimed = returned.filter((r) => !sentIds.has(r.id));
+          const idByKey = new Map<string, string>();
+          for (const e of sent) {
+            if (e.id && returnedIds.has(e.id)) continue;
+            const at = unclaimed.findIndex((r) => r.text === e.text);
+            if (at < 0) continue;
+            const [claimed] = unclaimed.splice(at, 1);
+            if (!e.key) continue;
+            idByKey.set(e.key, claimed.id);
+            // Removed locally while the save was in flight: keep it removed.
+            if (removedKeys.current.has(e.key)) removedIds.current.add(claimed.id);
+          }
+          setItems((cur) =>
+            dedupeById(
+              appendUnseen(
+                cur.map((d) => {
+                  const id = d.draftKey ? idByKey.get(d.draftKey) : undefined;
+                  return id ? { ...d, id } : d;
+                }),
+                returned,
+              ),
+            ),
+          );
         },
       },
     );
+  }
+
+  function handleRemove(idx: number) {
+    const removed = items[idx];
+    if (removed?.id) removedIds.current.add(removed.id);
+    if (removed?.draftKey) removedKeys.current.add(removed.draftKey);
+    setItems((cur) => cur.filter((_, i) => i !== idx));
   }
 
   return (
@@ -450,11 +532,11 @@ function SingleAuthorSections({
         persistedByText={persistedByText}
         savePending={save.isPending}
         promotePending={promote.isPending}
-        onAdd={() => setItems((cur) => [...cur, { ...EMPTY_DRAFT }])}
+        onAdd={() => setItems((cur) => [...cur, { ...EMPTY_DRAFT, draftKey: nextKey() }])}
         onUpdate={(idx, patch) =>
           setItems((cur) => cur.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
         }
-        onRemove={(idx) => setItems((cur) => cur.filter((_, i) => i !== idx))}
+        onRemove={handleRemove}
         onPromote={(id) => promote.mutate(id)}
       />
 

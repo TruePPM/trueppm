@@ -72,9 +72,13 @@ Changing visibility is gated to the retro's creator or a Project Manager and abo
 - An entry **with `id`** edits that existing item in place. Its id, `created_at`, and `promoted_task_id` are kept. Only the fields the entry carries change, so leaving out `assignee` or `story_points` keeps the stored value.
 - An entry **without `id`** creates a new item.
 - An item that the list **no longer names**, or that is sent with blank `text`, is deleted. The deletion is a soft delete, so offline clients receive it as a tombstone on their next sync pull.
+- An entry whose `id` names an item **this retro already deleted** creates a new item with a new id. This happens when a teammate removed the item while your draft was still open, and it keeps your text instead of failing your save. The deleted item is not restored.
 - Re-saving an unchanged list writes nothing to the action items.
+- `story_points` must be a whole number from 0 to 32767, or `null`.
 
-An `id` that is not a live action item on **this** sprint's retro returns **400**. That covers an item on another retro, an item that was already deleted, a malformed id, and the same id twice in one request. Refetch the retro and retry.
+Any other `id` returns **400**: an item on another retro, an id that names no action item, a malformed id, or the same id twice in one request. An invalid `story_points` also returns 400. Nothing is saved when a request is refused.
+
+The retro panel keeps the item ids it gets back from each save. Items a teammate adds while your panel is open, including stickies converted to action items, are added to your list, so your next save does not delete them.
 
 ## Promotion semantics
 
