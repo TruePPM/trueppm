@@ -787,6 +787,22 @@ def _load_pending_invite(token: str) -> WorkspaceInvite:
     return invite
 
 
+def _inviter_still_authorized(invite: WorkspaceInvite) -> bool:
+    """True only if the inviter is an active user who still resolves to workspace Admin+.
+
+    Catches an account deactivated outside the app (``is_active=False`` directly),
+    a deleted inviter (``invited_by`` is SET_NULL), and a demoted or deactivated
+    membership. Delegates to ``is_workspace_admin`` so the answer matches RBAC
+    (including the superuser-with-no-row bootstrap OWNER).
+    """
+    from trueppm_api.apps.workspace.permissions import is_workspace_admin
+
+    inviter = invite.invited_by
+    if inviter is None or not inviter.is_active:
+        return False
+    return is_workspace_admin(inviter)
+
+
 def _create_invited_user(*, username: str, email: str, password: str) -> Any:
     """Mint a new account for an invitee, enforcing the configured password policy.
 
@@ -862,6 +878,10 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
         # membership (the second caller sees status != PENDING and bails).
         invite = WorkspaceInvite.objects.select_for_update().get(pk=invite.pk)
         if invite.status != InviteStatus.PENDING:
+            raise InviteError(_INVALID_INVITE_MESSAGE)
+        # Defense in depth behind the revocation sweep (#4589): the grant is only as
+        # good as its minter's standing *now*. Same body as any invalid invite.
+        if not _inviter_still_authorized(invite):
             raise InviteError(_INVALID_INVITE_MESSAGE)
 
         if user is None:

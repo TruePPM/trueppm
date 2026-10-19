@@ -408,7 +408,8 @@ compromised account — this is also the lever for the "this person's laptop was
 stolen" off-boarding case, and it contains more than tokens: it also revokes
 that account's refresh tokens, any board share link it minted, any
 git-automation webhook secret it configured, and any outgoing webhook it
-registered or has ever set the URL or secret on, and closes its already-open
+registered or has ever set the URL or secret on, revokes any pending
+workspace invitation it sent, and closes its already-open
 project WebSocket connections — the same containment a password reset or
 member off-boarding performs, run on demand against an account that has
 neither. `--all-personal` sweeps every personal token on the instance plus
@@ -418,8 +419,8 @@ scope; use `--user` to reach it by name). `--all` goes further still: it also
 includes project- and program-scoped integration tokens — which will break
 every inbound sync until an admin re-mints them, so reach for it only on a
 full-instance compromise — and revokes **every active board share link, clears
-every configured git-automation webhook secret, and deactivates every
-registered outgoing webhook**, instance-wide, regardless of token ownership.
+every configured git-automation webhook secret, deactivates every
+registered outgoing webhook, and revokes every pending workspace invitation**, instance-wide, regardless of token ownership.
 Every token revocation is written to the token audit log tagged
 `operator_bulk_revoke`. See
 [`revoke_api_tokens`](/administration/management-commands/#maintenance-commands).
@@ -439,6 +440,14 @@ touched in either way, are unaffected. A public share link also stops serving
 as soon as its creator's account is deactivated by any means (including
 outside the app, such as the Django admin or a script), even before a password
 reset or off-boarding runs.
+Both also revoke every still-pending (or send-failed) workspace invitation
+*that account sent* — an invitation is a bearer link that works for an outside
+address with no session, so it would otherwise outlive the contained admin; each
+revocation is audited as `invite_revoked`, and invitations from other admins are
+unaffected. Accepting an invitation additionally re-checks that its sender is
+still an active workspace Admin or Owner, and refuses it with the usual
+invalid-link message otherwise (including when the account was deactivated
+outside the app).
 Both also close any project WebSocket connection the account already has open,
 for every project it is a member of — a reset or deactivation would otherwise
 revoke every credential while an already-open socket kept streaming task,
