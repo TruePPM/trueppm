@@ -7233,17 +7233,19 @@ class CycleDetectedError(Exception):
         super().__init__("Cyclic dependency detected.")
 
 
-def _cycle_readable_project_ids(
-    request: Any, project_ids: set[Any], *, always_readable: set[Any]
-) -> set[Any]:
+def _cycle_readable_project_ids(request: Any, project_ids: set[Any]) -> set[Any]:
     """The subset of ``project_ids`` whose tasks a cycle refusal may name (#4588).
 
     A cross-project edge is cycle-checked over the whole program (ADR-0120 D1),
-    so the cycle path can run through a project the caller holds no role on.
-    The caller was only authorized for the two endpoint projects
-    (``always_readable``), so every other project on the path is labeled only
-    when the caller can read it: a live ``ProjectMembership`` on a project that
-    is not trashed (:func:`live_member_project_ids`, the #4577 floor).
+    so the cycle path can run through tasks the caller cannot read — in a third
+    project, or in an endpoint project the caller reaches only through a
+    program role. The caller may always see the two tasks they linked (the
+    caller labels those by task id, not here); every other node is labeled only
+    when the caller can read its project: a live ``ProjectMembership`` on a
+    project that is not trashed (:func:`live_member_project_ids`, the #4577
+    floor). Endpoint projects get no exemption — authority to *reference* a task
+    (the D5 consent gate's ``_can_read`` admits a program member) is not
+    authority to read the rest of its project.
 
     The policy deliberately follows ``_far_endpoint_labeler`` (the dependency
     activity feed), not the ADR-0120 D5 minimal card: program membership alone
@@ -7260,23 +7262,21 @@ def _cycle_readable_project_ids(
     and the task bulk view authenticate through the default
     ``OwnerScopedApiTokenAuthentication``, which accepts only owner-scoped
     ``legacy:full`` tokens (``is_agent_token`` False), so that branch is
-    defense in depth. Fails closed: no request means no foreign labels.
+    defense in depth. Fails closed: no request means nothing is readable.
 
-    One query for the membership set regardless of path length; none at all when
-    every node sits in an endpoint project (every same-project cycle).
+    One query for the membership set regardless of path length (plus one for the
+    opt-out set, agent tokens only); it runs only once a cycle has been found.
     """
     from trueppm_api.apps.access.permissions import live_member_project_ids
     from trueppm_api.apps.projects.mcp_settings import mcp_visible_project_ids
 
-    foreign = set(project_ids) - set(always_readable)
-    readable = set(always_readable) & set(project_ids)
-    if not foreign or request is None:
-        return readable
-    member_of = live_member_project_ids(getattr(request, "user", None), list(foreign))
+    if not project_ids or request is None:
+        return set()
+    member_of = live_member_project_ids(getattr(request, "user", None), list(project_ids))
     visible = mcp_visible_project_ids(request)
     if visible is not None and member_of:
         member_of &= set(visible.filter(pk__in=member_of))
-    return readable | member_of
+    return member_of
 
 
 class ProgressAnchorError(Exception):
@@ -7750,6 +7750,10 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
     — built over the **program** when the edge is cross-project — are rejected at
     create/update time with a structured 400 ``{"detail": "cyclic_dependency",
     "cycle": [...]}`` so the frontend can surface the offending path; see ADR-0055.
+    Only the two linked tasks and tasks in projects the caller is a member of are
+    named on that path; any other node is returned with a blank ``id``, ``name``
+    and ``hex_id`` (and ``""`` in ``offending``) so the refusal never discloses a
+    task the caller cannot read.
     """
 
     # Explicit querysets exclude soft-deleted tasks so a caller cannot anchor
@@ -8113,15 +8117,15 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             )
         }
         # Detection needs the whole program graph, but the caller may read only
-        # the endpoint projects plus those they are a member of (#4588) — label
-        # nothing else, or the refusal discloses a third project's task titles.
+        # the two tasks they linked plus tasks in projects they are a member of
+        # (#4588) — label nothing else, or the refusal discloses task titles from
+        # a third project, or from an endpoint project reached by program role.
         readable = _cycle_readable_project_ids(
-            self.context.get("request"),
-            {t.project_id for t in tasks_by_id.values()},
-            always_readable={predecessor.project_id, successor.project_id},
+            self.context.get("request"), {t.project_id for t in tasks_by_id.values()}
         )
+        endpoint_ids = {predecessor.id, successor.id}
         ordered: list[Task | None] = [
-            t if t is not None and t.project_id in readable else None
+            t if t is not None and (t.id in endpoint_ids or t.project_id in readable) else None
             for t in (tasks_by_id.get(tid) for tid in cycle_ids)
         ]
         self._raise_cycle_error(ordered)
