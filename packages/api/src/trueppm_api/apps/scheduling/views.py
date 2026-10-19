@@ -226,7 +226,7 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     Returns 404 if the project does not exist.
     """
     try:
-        project = Project.objects.get(pk=pk)
+        project = Project.objects.get(pk=pk, is_deleted=False)
     except Project.DoesNotExist:
         return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 

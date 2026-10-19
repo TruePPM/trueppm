@@ -531,7 +531,11 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             from trueppm_api.apps.access.models import ProjectMembership
 
             try:
-                return ProjectMembership.objects.get(project_id=pk, user=u, is_deleted=False).role
+                # project__is_deleted (#4577): a trashed project confers no role, so
+                # a socket cannot subscribe to one — same floor as `_membership_role`.
+                return ProjectMembership.objects.get(
+                    project_id=pk, user=u, is_deleted=False, project__is_deleted=False
+                ).role
             except ProjectMembership.DoesNotExist:
                 return None
 

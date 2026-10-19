@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 from django.db.models import QuerySet
 from rest_framework import viewsets
 from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
@@ -99,6 +99,16 @@ def _membership_role(request: Request, project_id: Any) -> int | None:
     The cache is keyed by str(project_id) and lives only for the request lifetime.
 
     Only active (non-soft-deleted) memberships are considered (M1 fix).
+
+    **A trashed project confers no role (#4577).** Trashing a project soft-deletes
+    the project row but deliberately leaves its memberships live — Restore needs
+    them to know who the Owner was, and the Trash list shows each member their own
+    role — and the child cascade that tombstones tasks, sprints and the rest runs
+    asynchronously (or never, while the broker is down). Without the
+    ``project__is_deleted`` floor every gate built on this helper went on admitting
+    the trashed project's members to read and write its rows for that whole window.
+    The one surface that must still see a role on a trashed project, Restore, reads
+    it through :func:`_trashed_project_role` instead, so this floor has no exception.
     """
     if not request.user or not request.user.is_authenticated:
         return None
@@ -119,6 +129,7 @@ def _membership_role(request: Request, project_id: Any) -> int | None:
             project_id=project_id,
             user=request.user,
             is_deleted=False,  # M1: exclude soft-deleted memberships
+            project__is_deleted=False,  # #4577: a trashed project confers no role
         )
         role: int | None = membership.role
     except ProjectMembership.DoesNotExist:
@@ -126,6 +137,31 @@ def _membership_role(request: Request, project_id: Any) -> int | None:
 
     cache[cache_key] = role
     return role
+
+
+def _trashed_project_role(request: Request, project_id: Any) -> int | None:
+    """The caller's role on a **trashed** project, for the Restore gate only (#4577).
+
+    :func:`_membership_role` floors ``project__is_deleted`` so a trashed project
+    confers no role on any ordinary surface. Restore is the one action whose whole
+    job is to act on a trashed project, and it must still know who its Owner is —
+    so it asks here instead. Live projects answer None: this helper must never
+    become a second path to a live project's role, or it would be a way around
+    every floor ``_membership_role`` applies. Not cached — Restore resolves exactly
+    one project per request.
+    """
+    if not request.user or not request.user.is_authenticated:
+        return None
+    return (
+        ProjectMembership.objects.filter(
+            project_id=project_id,
+            user=request.user,
+            is_deleted=False,
+            project__is_deleted=True,
+        )
+        .values_list("role", flat=True)
+        .first()
+    )
 
 
 def _is_product_owner(request: Request, project_id: Any) -> bool:
@@ -474,8 +510,26 @@ def _mark_identity_refusal(request: Request, constraint: str) -> None:
     mark_refusal(request, AgentActionRefusalReason.IDENTITY, constraint)
 
 
-def _project_exists(project_pk: Any) -> bool:
-    """Does this project id name a real, live project? (#2745)
+#: Detail for the trashed-project refusal. Matches the text Django's
+#: ``get_object_or_404(Project, ...)`` produces, so a trashed id reads exactly like a
+#: missing one whichever layer answers.
+_TRASHED_PROJECT_DETAIL = "No Project matches the given query."
+
+
+class ProjectRowState(StrEnum):
+    """What a project id names, as far as the permission layer is concerned (#4577)."""
+
+    LIVE = "live"
+    #: The row exists but is soft-deleted (in Trash). Must NOT be folded into MISSING:
+    #: a missing row lets the permission layer stand down for the view's own 404, and
+    #: standing down on a trashed row handed it to whatever lookup the view happens
+    #: to run — several of which do not floor ``is_deleted`` (#4008).
+    TRASHED = "trashed"
+    MISSING = "missing"
+
+
+def _project_row_state(project_pk: Any) -> ProjectRowState:
+    """Classify a project id as live, trashed, or missing (#2745, #4577).
 
     Used to keep an unknown id a **404** rather than a 403. `_membership_role`
     returns None for "no membership" and for "no such project" alike, so a
@@ -489,20 +543,31 @@ def _project_exists(project_pk: Any) -> bool:
     no object to expose, and the view still runs its own object check for ids that
     DO resolve.
 
+    **A trashed row is not "does not exist" (#4577).** This used to filter
+    ``is_deleted=False`` and return a bool, so a trashed project read as unknown and
+    the layer stood down for it too — on reads and writes, for every class — leaving
+    the answer to whatever lookup the view happened to run. Several of those lookups
+    do not floor ``is_deleted`` (#4008), so a trashed project's members kept full
+    access until the async child cascade landed. The caller now refuses a trashed
+    row with the same **404** a missing one gets from the view, so the two stay
+    indistinguishable to a prober and the floored views keep their published status.
+
     Note what this deliberately does NOT change: an existing project the caller
     cannot see still answers 403 while an unknown id answers 404, so the pair
     remains distinguishable to a prober. That is the behavior on `main` today, it
     is unchanged here, and making it uniform is a separate decision — the two
     conventions already coexist in this codebase (`ProjectViewSet` hides existence
-    behind a queryset filter and 404s instead). Widening this fix into that one
-    would bury an API-visible security decision inside a resolver bugfix.
+    behind a queryset filter and 404s instead).
 
-    Only reached on the deny path — a caller with a membership row never gets here —
-    so the happy path costs no extra query.
+    One single-row probe, reading ``is_deleted`` rather than filtering on it, so
+    telling the trashed case apart costs no extra query.
     """
     from trueppm_api.apps.projects.models import Project
 
-    return Project.objects.filter(pk=project_pk, is_deleted=False).exists()
+    is_deleted = Project.objects.filter(pk=project_pk).values_list("is_deleted", flat=True).first()
+    if is_deleted is None:
+        return ProjectRowState.MISSING
+    return ProjectRowState.TRASHED if is_deleted else ProjectRowState.LIVE
 
 
 #: Default URL kwarg naming the project. A view whose route spells it differently
@@ -526,10 +591,11 @@ class ScopeResolution(StrEnum):
     #: route, or one whose scope arrives in the request body. This is the case
     #: that used to fail open and now does not (see :func:`_unresolved_scope_allows`).
     ABSENT = "absent"
-    #: The view DID name a kwarg and it DID carry a value, but no live project has
+    #: The view DID name a kwarg and it DID carry a value, but no project row has
     #: that id. Deliberately still permissive: the view's own ``get_object_or_404``
     #: answers 404, and turning that into a 403 would rebuild the membership-scoped
-    #: existence oracle #3129 closed. See ``_project_exists``.
+    #: existence oracle #3129 closed. See ``_project_row_state``. A *trashed* row is
+    #: not this case — :func:`_resolve_project_scope` refuses it outright (#4577).
     UNKNOWN_ID = "unknown_id"
 
 
@@ -656,14 +722,31 @@ def _resolve_project_scope(view: APIView) -> tuple[Any | None, ScopeResolution]:
 
     Same lookup, discriminated return. See :class:`ScopeResolution` for why the
     three cases cannot share one ``None``.
+
+    Raises:
+        NotFound: the declared kwarg names a **trashed** project (#4577). Refused
+            here, before any role is consulted, rather than returned as a fourth
+            state: every caller is a permission class, and a trashed project is
+            closed to all of them — Owner included — so there is no verdict left
+            for a caller to compute. Raising in the resolver also reaches the
+            callers that only want the id (``IsProjectNotArchived``), which a new
+            state handed to :func:`_unresolved_scope_allows` would not. 404 rather
+            than 403 because it is what a missing id gets from the view, what the
+            floored ``<pk>`` views already answered for a trashed project, and what
+            ``ProjectViewSet`` answers for one — so a trashed project cannot be told
+            apart from a missing one through this layer.
     """
     declared = getattr(view, "project_url_kwarg", None)
     kwarg = declared if isinstance(declared, str) else DEFAULT_PROJECT_URL_KWARG
     project_pk = getattr(view, "kwargs", {}).get(kwarg)
     if project_pk is None:
         return None, ScopeResolution.ABSENT
-    if isinstance(declared, str) and not _project_exists(project_pk):
-        return None, ScopeResolution.UNKNOWN_ID
+    if isinstance(declared, str):
+        state = _project_row_state(project_pk)
+        if state is ProjectRowState.MISSING:
+            return None, ScopeResolution.UNKNOWN_ID
+        if state is ProjectRowState.TRASHED:
+            raise NotFound(_TRASHED_PROJECT_DETAIL)
     return project_pk, ScopeResolution.RESOLVED
 
 
@@ -1125,6 +1208,34 @@ class IsProjectOwner(BasePermission):
         return role == Role.OWNER
 
 
+class IsTrashedProjectOwner(BasePermission):
+    """Allow only the Owner of a **trashed** project — the Restore gate (#4577).
+
+    :class:`IsProjectOwner` cannot gate Restore any more: it reads the role through
+    :func:`_membership_role`, which a trashed project no longer confers. This is the
+    same Owner-only rule, read through :func:`_trashed_project_role`, and it answers
+    False for a live project so it can never stand in for ``IsProjectOwner`` on one.
+
+    ``has_permission`` admits only a ViewSet detail route — Restore resolves its
+    project from ``ProjectViewSet``'s ``<pk>``, which names no ``project_pk``, so the
+    real decision is the object check ``restore`` runs on the row it fetched from the
+    trashed queryset. Anything else fails closed.
+    """
+
+    message = IsProjectOwner.message
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        return _object_permission_will_run(view)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        project_id = _get_project_id_from_obj(obj)
+        if project_id is None:
+            return False
+        return _trashed_project_role(request, project_id) == Role.OWNER
+
+
 # ---------------------------------------------------------------------------
 # Program permission helpers (ADR-0070)
 # ---------------------------------------------------------------------------
@@ -1226,7 +1337,8 @@ def live_member_project_ids(user: Any, project_ids: list[Any]) -> set[Any]:
         return set()
     return set(
         ProjectMembership.live()
-        .filter(user=user, project_id__in=project_ids)
+        # #4577: same trashed-project floor as `_membership_role`.
+        .filter(user=user, project_id__in=project_ids, project__is_deleted=False)
         .values_list("project_id", flat=True)
     )
 
@@ -3110,9 +3222,14 @@ class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: 
         if user is None or not user.is_authenticated:
             return qs.none()
 
+        # The project floor (#4577) matters for the child branches below, not the
+        # Project one (which filters its own is_deleted): a trashed project's tasks,
+        # columns and sprints stay is_deleted=False until the async cascade reaches
+        # them, so without it they kept serving to the project's members.
         member_project_ids = ProjectMembership.objects.filter(
             user=user,
             is_deleted=False,  # M1: exclude soft-deleted memberships
+            project__is_deleted=False,  # #4577: a trashed project confers no access
         ).values_list("project_id", flat=True)
 
         # Determine the project FK path. Projects are their own primary key.

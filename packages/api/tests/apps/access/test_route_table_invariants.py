@@ -333,7 +333,7 @@ def test_compensating_object_checks_are_pinned() -> None:
 # `ProjectCommitView` is a class and could carry `project_url_kwarg = "pk"`. It must
 # not. Doing so resolves the project at `has_permission` time, which answers **403**
 # for a real project the caller is not a member of while an unknown id falls through
-# `_project_exists` to a **404** — the membership-scoped existence oracle #3129 closed.
+# `_project_row_state` to a **404** — the membership-scoped existence oracle #3129 closed.
 # Its gate is instead a membership-filtered queryset plus an in-body
 # `check_object_permissions`, which answers 404 uniformly and matches the sibling
 # lifecycle endpoint `/archive/`. Renaming the URL kwarg to `project_pk` would also

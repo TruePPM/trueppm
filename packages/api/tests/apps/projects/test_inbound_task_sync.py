@@ -1497,7 +1497,7 @@ def test_a_malformed_project_id_is_a_401_and_never_a_500(project: Project, admin
 
     The route is `projects/<pk>/task-sync/` with **no** `uuid:` converter, so `pk`
     is any string. Declaring `project_url_kwarg = "pk"` newly routes that value
-    into `_project_pk_from_view` -> `_project_exists` -> `Project.objects.filter(
+    into `_project_pk_from_view` -> `_project_row_state` -> `Project.objects.filter(
     pk=<garbage>)`, which reaches `UUIDField.to_python` and raises Django's
     `ValidationError` — not something DRF converts, so it would surface as a 500.
 
@@ -1523,15 +1523,15 @@ def test_a_soft_deleted_archived_project_still_answers_404_not_403(
 ) -> None:
     """The new declaration must not silently reclassify a 404 as a 403.
 
-    Declaring `project_url_kwarg` routes this view into `_project_pk_from_view`'s
-    declared-kwarg branch, which calls `_project_exists(pk)` — and that filters
-    `is_deleted=False`. So for a soft-deleted project the resolver returns None and
-    `IsProjectNotArchived` stands *down*, leaving the view's own
-    `get_object_or_404(..., is_deleted=False)` to answer 404, exactly as before.
-    Worth pinning because the archived lookup itself does not filter `is_deleted`:
-    if `_project_exists` ever stopped being consulted, a soft-deleted-and-archived
-    project would start answering 403, changing a published status code as a side
-    effect of an internal resolver change.
+    Declaring `project_url_kwarg` routes this view into `_resolve_project_scope`'s
+    declared-kwarg branch, which classifies the id with `_project_row_state(pk)`. A
+    soft-deleted project is TRASHED, and the resolver refuses it with a 404 itself
+    (#4577) — the same status the view's own `get_object_or_404(..., is_deleted=False)`
+    gave before, when the resolver stood down for it. Worth pinning because the
+    archived lookup itself does not filter `is_deleted`: if the row-state probe ever
+    stopped being consulted, a soft-deleted-and-archived project would start
+    answering 403, changing a published status code as a side effect of an internal
+    resolver change.
     """
     _token, raw = _mint_token(project, admin_user)
     Project.objects.filter(pk=project.pk).update(is_archived=True, is_deleted=True)

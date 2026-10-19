@@ -281,7 +281,7 @@ def test_a_declared_kwarg_naming_a_real_project_resolves_and_is_role_checked(
 ) -> None:
     """The negative control for the test above.
 
-    Without it, a bug that made ``_project_exists`` always return False would make the
+    Without it, a bug that made ``_project_row_state`` always return MISSING would make the
     stand-down test pass while the whole declaring-route family silently stopped
     enforcing anything — the exact "passes on the broken build" shape.
     """
