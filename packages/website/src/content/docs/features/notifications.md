@@ -310,7 +310,9 @@ From the 0.4 beta onward, every read of a row whose project you are not a
 | `mention.mentioner`, `mention.mentioned_group_key`, `mention.scope` | unchanged — who pinged you and which group it came through |
 
 A project in Trash counts as one you are not a member of: its inbox rows are
-redacted the same way, and restoring the project brings the content back.
+redacted the same way, and restoring the project brings the content back. The
+one exception is the "Project was deleted" notice, which stays readable so you
+can find the project in Trash and restore it.
 
 Two different people land here, and both get the same answer. One is a member
 whose access was removed: their inbox stops naming a project they can no longer

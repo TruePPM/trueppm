@@ -401,8 +401,10 @@ def notification_email_signals() -> dict[str, Any]:
             created_at__lt=stuck_cutoff,
             # A row held because its project is in Trash is waiting on a restore, not
             # on a dead worker, and can sit that way for the whole Trash window (#4587).
+            # The `project.deleted` notice is the exception: the drain sends it during
+            # the Trash window, so one left aging there IS evidence of a dead worker.
         )
-        .exclude(project__is_deleted=True)
+        .exclude(Q(project__is_deleted=True) & ~Q(event_type="project.deleted"))
         .count()
     )
     failed_recent = Notification.objects.filter(

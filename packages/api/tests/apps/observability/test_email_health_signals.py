@@ -225,6 +225,24 @@ def test_rows_held_for_a_trashed_project_do_not_count_as_queued_aging() -> None:
     assert notification_email_signals()["queued_aging"] == 1
 
 
+def test_an_aging_project_deleted_notice_still_counts_as_queued_aging() -> None:
+    """The drain sends that notice from Trash, so it aging is a dead-worker signal."""
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Calendar, Project
+
+    user = _recipient()
+    project = Project.objects.create(
+        name="P", start_date=date(2026, 1, 1), calendar=Calendar.objects.create(name="C")
+    )
+    rows = _queued(user, count=2, age_minutes=180)
+    Notification.objects.filter(pk__in=[r.pk for r in rows]).update(project=project)
+    Notification.objects.filter(pk=rows[0].pk).update(event_type="project.deleted")
+    Project.objects.filter(pk=project.pk).update(is_deleted=True)
+
+    assert notification_email_signals()["queued_aging"] == 1
+
+
 def test_the_age_is_measured_on_a_field_no_code_path_rewrites() -> None:
     """``created_at`` cannot be reset out from under the comparison; the old
     ``email_failed_at`` was rewritten to ``now`` on every single failed attempt,
