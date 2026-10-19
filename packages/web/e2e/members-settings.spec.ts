@@ -446,7 +446,7 @@ const FIXTURE_GROUP = {
   name: 'subcontractors',
   description: 'Site subs',
   email_default_on: false,
-  members: [{ id: BOB_ID, username: 'bob', email: 'bob@example.com' }],
+  members: [{ id: BOB_ID, username: 'bob' }],
   member_count: 1,
   muted_by_me: false,
 };

@@ -65391,7 +65391,7 @@
             },
             "ProgramUserDefinedMentionGroupRead": {
                 "type": "object",
-                "description": "Response serializer for a program-scoped @mention group (ADR-0248, #516).\n\nThe program-scoped mirror of :class:`UserDefinedMentionGroupReadSerializer`.\n``members`` is the curated member set (drawn from across the program's\nprojects); ``member_count`` is a list-UI convenience; ``muted_by_me`` reflects\nwhether the *requesting* user has muted this group.",
+                "description": "Response serializer for a program-scoped @mention group (ADR-0248, #516).\n\nThe program-scoped mirror of :class:`UserDefinedMentionGroupReadSerializer`.\n``members`` is the curated member set, drawn from across the program's\nprojects and display-name-only (no email — see\n``_MentionGroupMemberSerializer``, #4578): a program Viewer reading this\nlist is not necessarily a member of every project a listed member actually\nbelongs to, so email here would cross the ADR-0070 program/project\nvisibility boundary. ``member_count`` is a list-UI convenience;\n``muted_by_me`` reflects whether the *requesting* user has muted this group.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -65422,7 +65422,7 @@
                     "members": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/_UserSummary"
+                            "$ref": "#/components/schemas/_MentionGroupMember"
                         },
                         "readOnly": true
                     },
@@ -79786,7 +79786,7 @@
             },
             "UserDefinedMentionGroupRead": {
                 "type": "object",
-                "description": "Response serializer for a user-defined @mention group (ADR-0212, #515).\n\n``members`` is the curated member set (summary detail); ``member_count`` is a\nconvenience for the list UI. ``muted_by_me`` reflects whether the *requesting*\nuser has muted this group — the per-user override that suppresses its\nmentions for them.",
+                "description": "Response serializer for a user-defined @mention group (ADR-0212, #515).\n\n``members`` is the curated member set (display-name-only — see\n``_MentionGroupMemberSerializer``, #4578); ``member_count`` is a convenience\nfor the list UI. ``muted_by_me`` reflects whether the *requesting* user has\nmuted this group — the per-user override that suppresses its mentions for\nthem.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -79817,7 +79817,7 @@
                     "members": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/_UserSummary"
+                            "$ref": "#/components/schemas/_MentionGroupMember"
                         },
                         "readOnly": true
                     },
@@ -80219,7 +80219,7 @@
                         "format": "date-time",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
+                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --user/--all-personal/--all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
                     },
                     "disabled_reason": {
                         "type": "string",
@@ -80322,7 +80322,7 @@
                         "format": "date-time",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
+                        "description": "When the automatic failure guard, or a credential-revocation sweep (password reset, off-boarding, or revoke_api_tokens --user/--all-personal/--all), deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
                     },
                     "disabled_reason": {
                         "type": "string",
@@ -81215,6 +81215,26 @@
                 },
                 "required": [
                     "display_name",
+                    "id",
+                    "username"
+                ]
+            },
+            "_MentionGroupMember": {
+                "type": "object",
+                "description": "Member payload for a user-defined @mention group — NO email (#4578, security).\n\nBoth the project-scoped (``UserDefinedMentionGroupReadSerializer``) and\nprogram-scoped (``ProgramUserDefinedMentionGroupReadSerializer``) mention\ngroup read serializers draw ``members`` from across a wider surface than the\nreader's own membership guarantees: a program mention-group's members are\ndrawn from any project in the program (ADR-0248 §2 union), so any program\nViewer could read a project member's email even on a project they hold no\nmembership on — a leak across the program/project boundary ADR-0070 exists\nto prevent. Username is sufficient to resolve and render an @mention; email\nis dropped entirely rather than gated, since a per-reader-shared-project\ncheck would have to run per member on every group read.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.",
+                        "pattern": "^[\\w.@+-]+$",
+                        "maxLength": 150
+                    }
+                },
+                "required": [
                     "id",
                     "username"
                 ]

@@ -339,7 +339,7 @@ so the guard starts counting again from zero.
 A webhook is also deactivated — not deleted — when the credentials of **anyone
 who registered it, or has ever set its URL or secret**, are contained: a
 password reset, an admin off-boarding that account, or an operator's
-[`revoke_api_tokens --all`](/administration/management-commands/#maintenance-commands)
+[`revoke_api_tokens --user`, `--all-personal`, or `--all`](/administration/management-commands/#maintenance-commands)
 sweep. This closes the gap where a leaked personal access token, or a hijacked
 session, belonging to a project Admin who is **still active** could keep a webhook
 delivering every subscribed event — to wherever it currently points — after the

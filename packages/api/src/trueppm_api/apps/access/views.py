@@ -77,6 +77,17 @@ _PROGRAM_NOT_FOUND_DETAIL = "Program not found."
 _NOT_PROJECT_MEMBER_DETAIL = "You are not a member of this project."
 _NOT_PROGRAM_MEMBER_DETAIL = "You are not a member of this program."
 
+# #4578: a mention-group member-add must not tell a caller whether `user` names a
+# real account. One message covers "no such id", "that id is inactive", and "that
+# id is real but unreachable (not on this project / not on any project in this
+# program)" — splitting any of those three into a distinct string turns the
+# endpoint into a user-id existence oracle for any Scheduler+ (project) / Admin+
+# (program) caller.
+_MEMBER_USER_NOT_REACHABLE_PROJECT_DETAIL = "User not found or not a member of this project."
+_MEMBER_USER_NOT_REACHABLE_PROGRAM_DETAIL = (
+    "User not found or not a member of any project in this program."
+)
+
 
 def _revive_revoked_membership(
     membership: ProjectMembership | ProgramMembership, *, new_role: int
@@ -942,22 +953,31 @@ class UserDefinedMentionGroupViewSet(
     # -- membership (Scheduler+) --------------------------------------------
 
     def _member_user_or_400(self, project_id: _PK) -> Any:
-        """Resolve request.data['user'] to a User that is an active project member."""
+        """Resolve request.data['user'] to a User that is an active project member.
+
+        Unknown id, inactive account, and a real-but-not-on-this-project id all
+        raise the identical refusal (#4578) — see the module-level constant's
+        comment for why they must not be distinguished.
+        """
         user_id = object_body(self.request).get("user")
         if not user_id:
             raise drf_serializers.ValidationError({"user": "This field is required."})
         User = get_user_model()
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.get(pk=user_id, is_active=True)
         except (User.DoesNotExist, ValueError, TypeError) as err:
-            raise drf_serializers.ValidationError({"user": "User not found."}) from err
+            raise drf_serializers.ValidationError(
+                {"user": _MEMBER_USER_NOT_REACHABLE_PROJECT_DETAIL}
+            ) from err
         # A mention group may only contain current project members — a group
         # member who is not on the project would be filtered out at resolution
         # anyway, so reject the add up front.
         if not ProjectMembership.objects.filter(
             project_id=project_id, user=user, is_deleted=False
         ).exists():
-            raise drf_serializers.ValidationError({"user": "User is not a member of this project."})
+            raise drf_serializers.ValidationError(
+                {"user": _MEMBER_USER_NOT_REACHABLE_PROJECT_DETAIL}
+            )
         return user
 
     def _mutate_membership(self, request: Request, *, add: bool) -> Response:
@@ -1224,15 +1244,23 @@ class ProgramUserDefinedMentionGroupViewSet(
         on *some* project in the program (the ADR-0248 §2 union) — a user with no
         membership anywhere in the program would be filtered out at resolution
         anyway, so reject the add up front.
+
+        Unknown id, inactive account, and a real-but-unreachable id (a user who
+        exists but is on no project in this program) all raise the identical
+        refusal (#4578) — see the module-level constant's comment for why they
+        must not be distinguished. Any Admin+ caller of ``add-member`` could
+        otherwise use a split message as a user-id existence oracle.
         """
         user_id = object_body(self.request).get("user")
         if not user_id:
             raise drf_serializers.ValidationError({"user": "This field is required."})
         User = get_user_model()
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.get(pk=user_id, is_active=True)
         except (User.DoesNotExist, ValueError, TypeError) as err:
-            raise drf_serializers.ValidationError({"user": "User not found."}) from err
+            raise drf_serializers.ValidationError(
+                {"user": _MEMBER_USER_NOT_REACHABLE_PROGRAM_DETAIL}
+            ) from err
         if not ProjectMembership.objects.filter(
             project__program_id=program_id,
             project__is_deleted=False,
@@ -1240,7 +1268,7 @@ class ProgramUserDefinedMentionGroupViewSet(
             is_deleted=False,
         ).exists():
             raise drf_serializers.ValidationError(
-                {"user": "User is not a member of any project in this program."}
+                {"user": _MEMBER_USER_NOT_REACHABLE_PROGRAM_DETAIL}
             )
         return user
 

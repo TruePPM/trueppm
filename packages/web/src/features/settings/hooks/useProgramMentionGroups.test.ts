@@ -32,7 +32,7 @@ const GROUP = {
   name: 'tech-leads',
   description: 'leads',
   email_default_on: false,
-  members: [{ id: 'u1', username: 'alice', email: 'a@x.com' }],
+  members: [{ id: 'u1', username: 'alice' }],
   member_count: 1,
   muted_by_me: false,
 };
