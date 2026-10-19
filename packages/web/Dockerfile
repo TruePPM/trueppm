@@ -59,7 +59,7 @@ RUN --mount=type=bind,from=prev,target=/prev \
 # nginx-unprivileged runs as a non-root user (uid 101) and listens on an
 # unprivileged port (8080) — see nginx.conf. The reverse proxy in
 # docker-compose.prod.yml maps host 80 -> container 8080.
-FROM ${DOCKERHUB_PREFIX}/nginxinc/nginx-unprivileged:alpine@sha256:884e0b7f42f303641b0f4e78755aea647521dca0b89ca3be7992ad78b5c07434
+FROM ${DOCKERHUB_PREFIX}/nginxinc/nginx-unprivileged:alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 
 # The pinned digest above is immutable, so it cannot pick up an Alpine
 # OS-package patch on its own — unlike the api image's Debian base, this stage
