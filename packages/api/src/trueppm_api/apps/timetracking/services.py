@@ -44,7 +44,12 @@ def _member_can_still_log_time(user: _User, project_id: Any) -> bool:
     from trueppm_api.apps.access.models import ProjectMembership, Role
 
     role = (
-        ProjectMembership.objects.filter(project_id=project_id, user=user, is_deleted=False)
+        # project__is_deleted (#4577): ``_membership_role`` floors it, so a trashed
+        # project confers no role there — and this mirror must agree, or a timer
+        # left running on a trashed project would still finalize into it.
+        ProjectMembership.objects.filter(
+            project_id=project_id, user=user, is_deleted=False, project__is_deleted=False
+        )
         .values_list("role", flat=True)
         .first()
     )

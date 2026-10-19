@@ -226,7 +226,7 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     Returns 404 if the project does not exist.
     """
     try:
-        project = Project.objects.get(pk=pk)
+        project = Project.objects.get(pk=pk, is_deleted=False)
     except Project.DoesNotExist:
         return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 
@@ -2351,7 +2351,7 @@ class VelocitySuggestionViewSet(
         # which already filters soft-deleted, so the write path is safe — only
         # the list path was leaking.
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = qs.filter(task__project_id__in=member_project_ids)
         return qs

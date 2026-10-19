@@ -1031,7 +1031,10 @@ def _resolve_edges(
     role_by_project: dict[uuid.UUID, int] = (
         dict(
             ProjectMembership.objects.filter(
-                user=ctx.caller, project_id__in=foreign_project_ids, is_deleted=False
+                user=ctx.caller,
+                project_id__in=foreign_project_ids,
+                is_deleted=False,
+                project__is_deleted=False,
             ).values_list("project_id", "role")
         )
         if foreign_project_ids

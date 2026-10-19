@@ -318,6 +318,7 @@ class MeTimeEntryWeeklyView(APIView):
                 entry_date__range=(start, end),
                 task__project__memberships__user=user,
                 task__project__memberships__is_deleted=False,
+                task__project__is_deleted=False,  # #4577: trashed project confers no access
             )
             .select_related("task", "task__project")
             .order_by("entry_date", "created_at")

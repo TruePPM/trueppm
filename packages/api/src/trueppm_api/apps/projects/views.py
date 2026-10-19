@@ -83,6 +83,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectScopeManager,
     IsTaskScopeManager,
     IsTokenForProject,
+    IsTrashedProjectOwner,
     McpReadableViewMixin,
     McpScope,
     ProjectScopedViewSet,
@@ -992,10 +993,12 @@ def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict
 
     # Two set-building queries, evaluated once per refused DELETE — not per blocker.
     # The describer is called up to REFERENCE_SAMPLE_SIZE times and must not query.
+    # project__is_deleted (#4577): a trashed project confers no read, so its names
+    # are withheld from the refusal like any other project the caller cannot see.
     visible_project_ids = set(
-        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
     )
     visible_program_ids = set(
         ProgramMembership.objects.filter(user=user, is_deleted=False).values_list(
@@ -1565,7 +1568,11 @@ class ProjectViewSet(
         # IsProjectNotArchived gate via its _ARCHIVE_BYPASS_ACTIONS set —
         # otherwise an Owner could never unarchive or delete an archived row.
         if self.action in ("destroy", "archive", "unarchive", "transfer", "restore"):
-            return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
+            # Restore acts on a trashed project, which confers no role through the
+            # ordinary resolver (#4577) — so it is Owner-gated through the one gate
+            # that reads a trashed project's roster, and only a trashed project's.
+            owner_gate = IsTrashedProjectOwner() if self.action == "restore" else IsProjectOwner()
+            return [IsAuthenticated(), owner_gate, IsProjectNotArchived()]
         # Trash listing (#1113) is any-member: it lists the caller's own
         # soft-deleted projects (the queryset is membership-scoped). Restore itself
         # is Owner-gated above; a non-Owner member sees the row but cannot restore.
@@ -2443,7 +2450,8 @@ class ProjectViewSet(
         ``is_deleted=False`` filter — the Trash list and Restore need the tombstoned
         rows the normal project surface hides. Still membership-scoped (only projects
         the caller is an active member of) so it never leaks another team's trash; the
-        Owner-only gate on ``restore`` is enforced separately by ``IsProjectOwner``.
+        Owner-only gate on ``restore`` is enforced separately by
+        ``IsTrashedProjectOwner`` (#4577).
         """
         user = self.request.user
         if user is None or not user.is_authenticated:
@@ -2551,7 +2559,7 @@ class ProjectViewSet(
     def restore(self, request: Request, pk: str | None = None) -> Response:
         """Un-tombstone a soft-deleted project and all its children atomically (#1113).
 
-        Owner-only (``IsProjectOwner``), scoped to the caller's Trash. The project row
+        Owner-only (``IsTrashedProjectOwner``, #4577), scoped to the caller's Trash. The project row
         and every currently-tombstoned child (tasks, dependency edges, sprints,
         baselines, risks) are un-tombstoned in a single ``transaction.atomic()`` block:
         a failure part-way through rolls the whole restore back rather than leave a
@@ -2569,7 +2577,7 @@ class ProjectViewSet(
 
         # Look up the tombstoned row directly — self.get_object() would 404 because the
         # normal queryset filters is_deleted=False. check_object_permissions still runs
-        # IsProjectOwner (and the archive-bypass) against it.
+        # IsTrashedProjectOwner (and the archive-bypass) against it.
         project = get_object_or_404(self._trashed_queryset(), pk=pk)
         self.check_object_permissions(request, project)
 
@@ -6747,9 +6755,11 @@ class TaskViewSet(
         user = self.request.user
         if user is None or not user.is_authenticated:
             return Task.objects.none()
-        member_ids = ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        # project__is_deleted: a trashed project's tasks come back with the project's
+        # own Restore, not one by one, and the project confers no role (#4577).
+        member_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
         return Task.objects.filter(project_id__in=member_ids, is_deleted=True)
 
     @extend_schema(
@@ -7676,6 +7686,7 @@ class AcceptanceCriterionViewSet(IdempotencyMixin, viewsets.ModelViewSet[Accepta
             .filter(
                 task__project__memberships__user=self.request.user,  # type: ignore[misc]
                 task__project__memberships__is_deleted=False,
+                task__project__is_deleted=False,  # #4577: trashed project confers no access
             )
         )
         task_id = self.request.query_params.get("task")
@@ -7765,6 +7776,7 @@ class SprintTaskOutcomeViewSet(IdempotencyMixin, viewsets.GenericViewSet[SprintT
             .filter(
                 sprint__project__memberships__user=self.request.user,  # type: ignore[misc]
                 sprint__project__memberships__is_deleted=False,
+                sprint__project__is_deleted=False,  # #4577: trashed project confers no access
             )
             .distinct()
         )
@@ -7921,6 +7933,7 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
             .filter(
                 retro__sprint__project__memberships__user=self.request.user,  # type: ignore[misc]
                 retro__sprint__project__memberships__is_deleted=False,
+                retro__sprint__project__is_deleted=False,  # #4577: trashed confers no access
             )
             .distinct()
         )
@@ -8357,7 +8370,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         if user is None or not user.is_authenticated:
             return base.none()
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = base.filter(
             Q(predecessor__project_id__in=member_project_ids)
@@ -8675,7 +8688,7 @@ class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelati
         if user is None or not user.is_authenticated:
             return base.none()
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = base.filter(
             Q(source__project_id__in=member_project_ids)
@@ -8872,7 +8885,7 @@ class CrossProjectSlipConflictViewSet(
         if user is None or not user.is_authenticated:
             return CrossProjectSlipConflict.objects.none()
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         # Full select_related covers all FK hops in get_upstream_task (🔴-4):
         # dep → predecessor → project (3 hops per row without this).
@@ -9049,7 +9062,7 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         qs = super().get_queryset()
         # Scope to projects the caller is a member of — prevents cross-project reads.
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         qs = qs.filter(task__project_id__in=member_project_ids)
         project_id = self.request.query_params.get("project")
@@ -12023,7 +12036,7 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.services import annotate_wip_breach
 
-        project = get_object_or_404(Project, pk=pk)
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         try:
             config = BoardColumnConfig.objects.get(project_id=pk)
@@ -12040,7 +12053,7 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
         from trueppm_api.apps.projects.config_notice import notify_board_config_change
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        project = get_object_or_404(Project, pk=pk)
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         serializer = BoardColumnConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -12122,7 +12135,7 @@ class BoardSavedViewListView(IdempotencyMixin, APIView):
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
-        project = get_object_or_404(Project, pk=pk)
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         qs = BoardSavedView.objects.filter(project_id=pk).order_by("name")
         serializer = BoardSavedViewSerializer(qs, many=True)
@@ -12133,7 +12146,7 @@ class BoardSavedViewListView(IdempotencyMixin, APIView):
 
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        project = get_object_or_404(Project, pk=pk)
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         serializer = BoardSavedViewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -12188,7 +12201,7 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
 
     def _get_view_or_403(self, request: Request, pk: str, view_pk: str) -> BoardSavedView:
         """Return the view, enforcing creator-or-Scheduler write permission."""
-        project = get_object_or_404(Project, pk=pk)
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         saved_view = get_object_or_404(BoardSavedView, pk=view_pk, project_id=pk)
         # Allow creator or Scheduler+ to modify.
@@ -13118,7 +13131,7 @@ class ProjectMyTasksView(APIView):
     )
     def get(self, request: Request, pk: str) -> Response:
         """Return this week's tasks for the requesting user."""
-        project = get_object_or_404(Project, pk=pk)
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
         today = timezone.localdate()
@@ -13403,6 +13416,8 @@ def _far_endpoint_labeler(
                 # so exclude them — a removed member must not regain the far task's
                 # name. Matches the M1 contract in access.permissions._membership_role.
                 is_deleted=False,
+                # ...and its #4577 floor: a trashed project confers no read either.
+                project__is_deleted=False,
             ).values_list("project_id", flat=True)
         )
 
@@ -16917,7 +16932,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         # IsAuthenticated has already excluded AnonymousUser; cast narrows for mypy.
         user = cast(User, self.request.user)
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         return SprintScopeChange.objects.select_related("task", "sprint").filter(
             task__project_id__in=member_project_ids
@@ -18279,9 +18294,9 @@ def _retro_owned_rows(
     # regardless of project, which is O(all retros × all action items) and
     # dominates GET /me/work/ latency on multi-tenant deployments.
     member_project_ids = list(
-        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
     )
     owned_items = RetroActionItem.objects.filter(
         promoted_task_id__isnull=False,

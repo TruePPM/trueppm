@@ -14,7 +14,7 @@ contain, which is the half that catches the next one.
 
 No database is touched by the flip itself: ``_unresolved_scope_allows`` returns before
 any membership query on every path it decides. The one case that does query is the
-``UNKNOWN_ID`` stand-down, which needs a real project row to prove it is a stand-down
+unknown-id 404, which needs a real project row to prove the refusal is about the id
 rather than a coincidence, so those two tests carry ``django_db``.
 """
 
@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from rest_framework.exceptions import NotFound
 from rest_framework.test import APIRequestFactory
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
@@ -250,29 +251,30 @@ def test_the_decorator_declares_on_an_api_view_function(member: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The UNKNOWN_ID stand-down must survive the flip (#2745, #3129)
+# An unknown id is still a 404, never a 403 (#2745, #3129, #4577)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_a_declared_kwarg_naming_an_unknown_project_still_stands_down(member: Any) -> None:
-    """An unknown project id resolves to UNKNOWN_ID, not ABSENT, and is still allowed.
+def test_a_declared_kwarg_naming_an_unknown_project_is_a_404(member: Any) -> None:
+    """An unknown project id is refused with a 404 by the resolver, not a 403.
 
-    Turning this into a 403 would rebuild the membership-scoped existence oracle #3129
-    closed: a real project the caller cannot see would answer 403 while an unknown id
-    answered 404, from the same endpoint. The view's own ``get_object_or_404`` is the
-    right answer here, and it can only give it if the permission layer lets the request
-    reach the body.
+    A 403 here would rebuild the membership-scoped existence oracle #3129 closed: a
+    real project the caller cannot see would answer 403 while an unknown id answered
+    404, from the same endpoint. Until #4577 the layer kept the 404 by standing down
+    and letting the view's own lookup answer; it now raises the 404 itself, so a
+    trashed id (also refused here) and a missing one get the same answer whatever
+    the view body would have done first.
     """
 
     class _DeclaringView(APIView):
         project_url_kwarg = "pk"
 
     view = _view(_DeclaringView, url_kwargs={"pk": "00000000-0000-0000-0000-000000000000"})
-    project_pk, state = _resolve_project_scope(view)
-    assert project_pk is None
-    assert state is ScopeResolution.UNKNOWN_ID
-    assert IsProjectAdmin().has_permission(_request("POST", member), view) is True
+    with pytest.raises(NotFound):
+        _resolve_project_scope(view)
+    with pytest.raises(NotFound):
+        IsProjectAdmin().has_permission(_request("POST", member), view)
 
 
 @pytest.mark.django_db
@@ -281,9 +283,10 @@ def test_a_declared_kwarg_naming_a_real_project_resolves_and_is_role_checked(
 ) -> None:
     """The negative control for the test above.
 
-    Without it, a bug that made ``_project_exists`` always return False would make the
-    stand-down test pass while the whole declaring-route family silently stopped
-    enforcing anything — the exact "passes on the broken build" shape.
+    Without it, a bug that made ``_project_row_state`` always return MISSING would make the
+    404 test pass while every live project on the declaring-route family 404'd too, and
+    one that skipped the probe entirely would stop the role check being reached — the
+    exact "passes on the broken build" shape.
     """
     from datetime import date
 

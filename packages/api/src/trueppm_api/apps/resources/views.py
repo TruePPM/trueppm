@@ -109,10 +109,12 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
     readable by any authenticated user (see :class:`ResourceViewSet`), so naming one
     here discloses nothing the caller could not list directly.
     """
+    # project__is_deleted (#4577): a trashed project confers no read, so its names
+    # are withheld from the refusal like any other project the caller cannot see.
     visible_project_ids = set(
-        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
     )
 
     def describe(obj: models.Model) -> dict[str, str]:
@@ -391,7 +393,7 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
         user_pk = self.request.user.pk
         assert user_pk is not None
         member_project_ids = ProjectMembership.objects.filter(
-            user_id=user_pk, is_deleted=False
+            user_id=user_pk, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         # ``.active()`` (#3572) is ``is_deleted=False`` on the roster row AND on the
         # resource behind it. The roster row is the surface an off-boarding is
@@ -672,7 +674,7 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
 
         user = cast(User, self.request.user)
         member_project_ids = ProjectMembership.objects.filter(
-            user=user, is_deleted=False
+            user=user, is_deleted=False, project__is_deleted=False
         ).values_list("project_id", flat=True)
         # select_related("task") avoids N+1 queries in perform_update and
         # perform_destroy, both of which call _require_scheduler_on_task(instance.task)
@@ -1532,6 +1534,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         member_project_ids = ProjectMembership.objects.filter(
             user_id=user_pk,
             is_deleted=False,
+            project__is_deleted=False,  # #4577: a trashed project confers no access
         ).values_list("project_id", flat=True)
         # select_related("task__project") avoids N+1 queries in perform_create
         # and perform_update, both of which call ensure_project_resource(obj.task.project, ...)

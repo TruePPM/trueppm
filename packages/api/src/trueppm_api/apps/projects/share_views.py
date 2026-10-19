@@ -114,7 +114,7 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
         responses={200: ShareLinkSerializer(many=True)},
     )
     def get(self, request: Request, project_pk: str) -> Response:
-        project = get_object_or_404(Project, pk=project_pk)
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
         # select_related: ``created_by_name`` reads the creator's name per row.
         links = project.share_links.filter(revoked_at__isnull=True).select_related("created_by")
@@ -129,7 +129,7 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
         },
     )
     def post(self, request: Request, project_pk: str) -> Response:
-        project = get_object_or_404(Project, pk=project_pk)
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
         if not _sharing_enabled():
             return Response(
@@ -196,7 +196,7 @@ class ProjectShareLinkRevokeView(IdempotencyMixin, APIView):
         },
     )
     def post(self, request: Request, project_pk: str, link_id: str) -> Response:
-        project = get_object_or_404(Project, pk=project_pk)
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
         link = get_object_or_404(ShareLink, pk=link_id, project=project)
         share_services.revoke_share_link(link, request.user)

@@ -193,7 +193,13 @@ def user_facets(
         is_deleted=False,
     )
     if live_project_members_only:
-        queryset = queryset.filter(live_project_membership_exists())
+        # The facet is consulted precisely when the role lookup returned None, so it
+        # must not outlive the project either: a trashed project confers no role
+        # (#4577), and without this floor its Product Owner kept backlog authority
+        # through the facet arm until the async cascade reached the team row.
+        queryset = queryset.filter(
+            live_project_membership_exists(), team__project__is_deleted=False
+        )
 
     membership = queryset.values("is_scrum_master", "is_product_owner").first()
     if membership is None:

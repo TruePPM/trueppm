@@ -6852,7 +6852,7 @@ def soft_delete_project(project: Any, *, actor: Any, reason: str | None = None) 
         reason: optional discriminator written into the audit metadata, so a
             replace-driven delete is distinguishable from a user-initiated one.
     """
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event, evict_project_group
     from trueppm_api.apps.workspace.services import record_audit_event
 
     project_id = str(project.pk)
@@ -6881,6 +6881,11 @@ def soft_delete_project(project: Any, *, actor: Any, reason: str | None = None) 
     transaction.on_commit(
         lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
     )
+    # Registered after the broadcast so it runs after it: the group then delivers
+    # ``project_deleted`` before the close. Without it, sockets opened before the
+    # trash kept receiving the project's events (role is checked only at connect,
+    # and a trashed project confers none — #4577).
+    transaction.on_commit(lambda: evict_project_group(project_id))
 
 
 def soft_delete_program_subtree(

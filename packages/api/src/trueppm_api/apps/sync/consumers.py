@@ -410,7 +410,13 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         ProjectMembership is soft-deleted or demoted below Member, so revocation
         takes effect immediately instead of lasting until the client disconnects.
         Sockets for other users in the group ignore the message.
+
+        ``all=True`` (``evict_project_group``, #4577) closes every socket in the group:
+        the project itself was trashed, so no member keeps a role on it.
         """
+        if event.get("all") is True:
+            await self.close(code=WS_CLOSE_FORBIDDEN)
+            return
         if hasattr(self, "_user") and event.get("user_id") == str(self._user.pk):
             await self.close(code=WS_CLOSE_FORBIDDEN)
 
@@ -531,7 +537,11 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             from trueppm_api.apps.access.models import ProjectMembership
 
             try:
-                return ProjectMembership.objects.get(project_id=pk, user=u, is_deleted=False).role
+                # project__is_deleted (#4577): a trashed project confers no role, so
+                # a socket cannot subscribe to one — same floor as `_membership_role`.
+                return ProjectMembership.objects.get(
+                    project_id=pk, user=u, is_deleted=False, project__is_deleted=False
+                ).role
             except ProjectMembership.DoesNotExist:
                 return None
 
