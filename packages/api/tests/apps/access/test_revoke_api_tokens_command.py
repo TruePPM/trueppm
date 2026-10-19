@@ -217,14 +217,15 @@ def test_all_sweeps_share_links_and_git_automation_secrets_instance_wide(
 
 
 @pytest.mark.django_db
-def test_all_personal_and_user_scope_leave_share_links_and_secrets_alone(
+def test_all_personal_without_a_matched_token_leaves_durable_grants_alone(
     alice: Any, project: Project
 ) -> None:
-    """Only ``--all`` is the full-compromise lever; ``--user``/``--all-personal``
-    stay scoped to tokens, matching their own documented, narrower scope. This
-    must hold for webhooks (#4461) exactly as it already does for share links and
-    git-automation secrets (#2939) — a scoped revoke is not a "the registrant's
-    credentials were compromised" signal the way ``--all`` is.
+    """``--all-personal``'s scope is "every personal access token on the instance"
+    (see the command's module docstring) — an account that owns durable grants
+    but no live personal token sits outside that population. ``--user`` (below)
+    is the lever for containing that account by name regardless of token
+    ownership; this test is what keeps ``--all-personal`` from quietly growing
+    into ``--all``'s unscoped, instance-wide sweep.
     """
     link = ShareLink.objects.create(
         project=project,
@@ -244,7 +245,6 @@ def test_all_personal_and_user_scope_leave_share_links_and_secrets_alone(
     )
 
     _run("--all-personal", "--commit", "--yes")
-    _run("--user", "alice", "--commit", "--yes")
 
     link.refresh_from_db()
     automation.refresh_from_db()
@@ -253,6 +253,153 @@ def test_all_personal_and_user_scope_leave_share_links_and_secrets_alone(
     assert automation.has_secret is True
     assert webhook.is_active is True
     assert webhook.disabled_at is None
+
+
+@pytest.mark.django_db
+def test_all_personal_sweeps_durable_grants_for_matched_token_owners(
+    alice: Any, bob: Any, project: Project
+) -> None:
+    """#4576: once an account's personal tokens are in ``--all-personal``'s matched
+    scope, its other durable grants are contained too — only an account with no
+    live personal token (the test above) is left alone.
+    """
+    _mint(owner=alice, created_by=alice)
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix4",
+        token_hash=sha256_hex("alice-link"),
+        created_by=alice,
+    )
+    # bob owns no personal token, so his grant must stay untouched even though
+    # --all-personal matches and revokes other accounts' tokens in the same run.
+    bob_link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix5",
+        token_hash=sha256_hex("bob-link"),
+        created_by=bob,
+    )
+
+    output = _run("--all-personal", "--commit", "--yes")
+
+    link.refresh_from_db()
+    bob_link.refresh_from_db()
+    assert link.revoked_at is not None
+    assert bob_link.revoked_at is None
+    assert "Revoked 0 refresh token(s), 1 share link(s)" in output
+
+
+@pytest.mark.django_db
+def test_user_scope_sweeps_durable_grants_refresh_tokens_and_live_sockets(
+    alice: Any, project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """#4576: ``--user`` is the lever ``administration/management-commands.md``
+    documents for off-boarding / "this person's laptop was stolen" — so it must
+    contain everything a leaked credential or hijacked session could still hold,
+    not PATs alone. Mirrors the composition password reset
+    (``core/password_reset.py``) and workspace off-boarding already use:
+    ``revoke_all_refresh_tokens`` + ``revoke_personal_durable_grants`` +
+    ``evict_all_live_project_sockets``. Alice owns no personal token at all here,
+    proving the sweep is keyed on the named account, not on token ownership.
+    """
+    from unittest.mock import patch
+
+    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix6",
+        token_hash=sha256_hex("alice-link-2"),
+        created_by=alice,
+    )
+    automation = BoardAutomation(project=project, enabled=True, configured_by=alice)
+    automation.set_secret("s3cr3t-webhook-token-2")
+    automation.save()
+    webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook3",
+        secret="w3bhook-secret-0123456789012345678",
+        events=["task.created"],
+        created_by=alice,
+    )
+    refresh = RefreshToken.for_user(alice)
+    ProjectMembership.objects.create(project=project, user=alice, role=Role.MEMBER)
+
+    with (
+        patch("trueppm_api.apps.access.signals.evict_project_connection") as evict,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        output = _run("--user", "alice", "--commit", "--yes")
+
+    link.refresh_from_db()
+    automation.refresh_from_db()
+    webhook.refresh_from_db()
+    assert link.revoked_at is not None
+    assert automation.has_secret is False
+    assert webhook.is_active is False
+    assert webhook.disabled_at is not None
+
+    outstanding = OutstandingToken.objects.get(jti=refresh["jti"])
+    assert BlacklistedToken.objects.filter(token=outstanding).exists()
+
+    evicted = {call.args[0] for call in evict.call_args_list}
+    assert evicted == {str(project.pk)}
+    assert all(call.args[1] == str(alice.pk) for call in evict.call_args_list)
+
+    assert (
+        "Revoked 1 refresh token(s), 1 share link(s), cleared 1 git-automation "
+        "secret(s), deactivated 1 outgoing webhook(s), and scheduled eviction of "
+        "1 live project connection(s)." in output
+    )
+
+
+@pytest.mark.django_db
+def test_user_scope_dry_run_reports_account_sweep_counts_without_acting(
+    alice: Any, project: Project
+) -> None:
+    """Dry run must report what ``--commit`` would do for the whole account sweep
+    (#4576), not just the token count — and must not touch anything.
+    """
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix7",
+        token_hash=sha256_hex("alice-link-3"),
+        created_by=alice,
+    )
+    automation = BoardAutomation(project=project, enabled=True, configured_by=alice)
+    automation.set_secret("s3cr3t-webhook-token-3")
+    automation.save()
+    webhook = Webhook.objects.create(
+        project=project,
+        url="https://example.com/hook4",
+        secret="w3bhook-secret-1111111111111111111",
+        events=["task.created"],
+        created_by=alice,
+    )
+    RefreshToken.for_user(alice)
+    ProjectMembership.objects.create(project=project, user=alice, role=Role.MEMBER)
+
+    output = _run("--user", "alice")
+
+    assert "Dry run" in output
+    assert "Outstanding refresh tokens matched: 1" in output
+    assert "Active share links matched: 1" in output
+    assert "Configured git-automation secrets matched: 1" in output
+    assert "Active outgoing webhooks matched: 1" in output
+    assert "Live project socket connections matched: 1" in output
+
+    link.refresh_from_db()
+    automation.refresh_from_db()
+    webhook.refresh_from_db()
+    assert link.revoked_at is None
+    assert automation.has_secret is True
+    assert webhook.is_active is True
 
 
 @pytest.mark.django_db
