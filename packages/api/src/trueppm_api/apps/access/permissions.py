@@ -1661,7 +1661,23 @@ class IsProgramNotClosed(BasePermission):
 
         program_id = _get_program_id_from_obj(obj)
         if program_id is None:
-            return True
+            # Fail CLOSED (#4498), mirroring #3587's flip of this branch on the
+            # project-lifecycle sibling (`IsProjectNotArchived`). This class used to
+            # `return True` here — the same undocumented fail-open shape #3587 closed,
+            # now recurring on the program side for the same reason: declaring the
+            # permission class reads as a fix in review while this branch quietly waves
+            # every unresolvable object through. Audited every (route, action) pair
+            # where `IsProgramNotClosed` is effective and the view carries no
+            # class-level `queryset` (#4498): each one either never actually reaches
+            # `has_object_permission` with this class (no explicit object check exists
+            # for `create`, which DRF's `CreateModelMixin` never hands an existing
+            # object), or calls `check_object_permissions` against an object that
+            # already resolves — a direct `Program`, a non-nullable `program`/
+            # `program_id` FK, or `WebhookViewSet._scope_object()`'s resolved `Program`.
+            # A model that genuinely cannot resolve a program should not widen
+            # `_get_program_id_from_obj` — give it a `program_id` property instead, as
+            # #3414 established on the project side.
+            return False
         if isinstance(obj, Program):
             return not obj.is_closed
         return not _is_program_closed(request, program_id)
