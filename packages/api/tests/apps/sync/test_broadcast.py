@@ -18,6 +18,7 @@ from trueppm_api.apps.sync.broadcast import (
     abroadcast_board_event,
     broadcast_board_event,
     evict_project_connection,
+    evict_project_group,
 )
 
 from .ws_event_scan import (
@@ -59,6 +60,28 @@ def test_evict_is_noop_when_no_channel_layer_configured() -> None:
     # No layer (e.g. layers disabled in a worker) → log + return, never raise.
     with patch(_GET_LAYER, return_value=None):
         evict_project_connection("p1", "u9")
+
+
+def test_group_evict_sends_all_to_board_group() -> None:
+    """``evict_project_group`` (#4577): one ``all=True`` evict to the project's group."""
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        evict_project_group("p1")
+    assert layer.sent == [("project_p1", {"type": "connection.evict", "all": True})]
+
+
+def test_group_evict_is_noop_when_no_channel_layer_configured() -> None:
+    with patch(_GET_LAYER, return_value=None):
+        evict_project_group("p1")
+
+
+def test_group_evict_swallows_group_send_failure() -> None:
+    class _BoomLayer:
+        async def group_send(self, group: str, message: dict[str, Any]) -> None:
+            raise RuntimeError("channel layer down")
+
+    with patch(_GET_LAYER, return_value=_BoomLayer()):
+        evict_project_group("p1")
 
 
 def test_evict_swallows_group_send_failure() -> None:
