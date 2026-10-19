@@ -1493,9 +1493,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         # Lazy import avoids a circular dep — access imports from projects.
         from trueppm_api.apps.access.models import ProjectMembership
 
+        # ``user__is_active=True`` (#4575): a deactivated user whose
+        # membership row was never removed must be refused identically to a
+        # non-member, not assignable as lead on an account nobody can log
+        # into — mirrors the filter added to ``transfer_project_ownership``.
         has_membership = ProjectMembership.objects.filter(
             project=instance,
             user=value,
+            user__is_active=True,
             is_deleted=False,
         ).exists()
         if not has_membership:
@@ -3013,9 +3018,14 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         # Lazy import avoids a circular dep — access imports from projects.
         from trueppm_api.apps.access.models import ProgramMembership
 
+        # ``user__is_active=True`` (#4575): a deactivated user whose
+        # membership row was never removed must be refused identically to a
+        # non-member, not assignable as lead on an account nobody can log
+        # into — mirrors the filter added to ``transfer_program_sponsorship``.
         has_membership = ProgramMembership.objects.filter(
             program=instance,
             user=value,
+            user__is_active=True,
             is_deleted=False,
         ).exists()
         if not has_membership:

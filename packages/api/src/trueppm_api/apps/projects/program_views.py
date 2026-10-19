@@ -2452,7 +2452,17 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
     @extend_schema(
         summary="Transfer program sponsorship to another member",
-        responses={200: ProgramSerializer},
+        responses={
+            200: ProgramSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "Missing new_owner_user_id, or new_owner_user_id/new_lead_user_id does "
+                    "not resolve to an existing active member of this program (an unknown "
+                    "id, a real id with no membership, and a deactivated member's id all "
+                    "return the same body — #4575)."
+                )
+            ),
+        },
     )
     @action(detail=True, methods=["post"], url_path="transfer-sponsorship")
     def transfer_sponsorship(self, request: Request, pk: str | None = None) -> Response:

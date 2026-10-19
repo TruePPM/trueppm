@@ -1230,6 +1230,26 @@ def test_patch_lead_rejects_non_member(owner: object, stranger: object) -> None:
 
 
 @pytest.mark.django_db
+def test_patch_lead_rejects_deactivated_member(owner: object, other_user: object) -> None:
+    """A deactivated user's membership row is not removed — validate_lead must still
+    refuse them identically to a non-member (#4575)."""
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    other_user.is_active = False
+    other_user.save(update_fields=["is_active"])
+
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"lead": str(other_user.pk)},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert "lead" in resp.data
+    program.refresh_from_db()
+    assert program.lead_id is None
+
+
+@pytest.mark.django_db
 def test_patch_lead_to_null_is_always_allowed(owner: object, other_user: object) -> None:
     program = _create_program(_client(owner))
     ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
