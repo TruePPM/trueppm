@@ -520,8 +520,10 @@ class ProjectRowState(StrEnum):
 
     LIVE = "live"
     #: The row exists but is soft-deleted (in Trash). The resolver refuses it exactly
-    #: as it refuses MISSING; the state is kept separate because the two are different
-    #: facts, and the Restore path is the one place that must tell them apart.
+    #: as it refuses MISSING, and nothing in production branches on the difference
+    #: today (Restore finds its row through ``ProjectViewSet._trashed_queryset``, not
+    #: through this). It stays a separate value because the two are different facts,
+    #: and folding them is what hid the trashed case in the first place.
     TRASHED = "trashed"
     MISSING = "missing"
 

@@ -410,7 +410,13 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         ProjectMembership is soft-deleted or demoted below Member, so revocation
         takes effect immediately instead of lasting until the client disconnects.
         Sockets for other users in the group ignore the message.
+
+        ``all=True`` (``evict_project_group``, #4577) closes every socket in the group:
+        the project itself was trashed, so no member keeps a role on it.
         """
+        if event.get("all") is True:
+            await self.close(code=WS_CLOSE_FORBIDDEN)
+            return
         if hasattr(self, "_user") and event.get("user_id") == str(self._user.pk):
             await self.close(code=WS_CLOSE_FORBIDDEN)
 

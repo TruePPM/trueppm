@@ -990,10 +990,12 @@ def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict
 
     # Two set-building queries, evaluated once per refused DELETE — not per blocker.
     # The describer is called up to REFERENCE_SAMPLE_SIZE times and must not query.
+    # project__is_deleted (#4577): a trashed project confers no read, so its names
+    # are withheld from the refusal like any other project the caller cannot see.
     visible_project_ids = set(
-        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
     )
     visible_program_ids = set(
         ProgramMembership.objects.filter(user=user, is_deleted=False).values_list(

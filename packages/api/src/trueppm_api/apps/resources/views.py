@@ -109,10 +109,12 @@ def _skill_reference_describer(user: Any) -> Callable[[models.Model], dict[str, 
     readable by any authenticated user (see :class:`ResourceViewSet`), so naming one
     here discloses nothing the caller could not list directly.
     """
+    # project__is_deleted (#4577): a trashed project confers no read, so its names
+    # are withheld from the refusal like any other project the caller cannot see.
     visible_project_ids = set(
-        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "project_id", flat=True
-        )
+        ProjectMembership.objects.filter(
+            user=user, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", flat=True)
     )
 
     def describe(obj: models.Model) -> dict[str, str]:

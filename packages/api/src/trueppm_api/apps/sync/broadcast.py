@@ -314,6 +314,32 @@ async def abroadcast_board_event(
         _record_broadcast_metric()
 
 
+def evict_project_group(project_id: str) -> None:
+    """Close every live socket on a project's board WS group (#4577).
+
+    Role is checked only at ``websocket_connect``, so trashing a project — which
+    leaves memberships live and confers no role from then on — would otherwise leave
+    already-open sockets in the group, receiving every later ``board_event`` until
+    they disconnect. Every consumer closes with 4003 on ``all=True``, regardless of
+    user. Callers send it after the ``project_deleted`` event, on commit: a channel
+    group delivers in send order, so clients see the deletion before the close.
+
+    Best-effort like ``evict_project_connection``.
+    """
+    from channels.layers import get_channel_layer
+
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        logger.warning("evict_project_group: no channel layer configured, skipping")
+        return
+
+    group = _group_name(project_id)
+    try:
+        async_to_sync(channel_layer.group_send)(group, {"type": "connection.evict", "all": True})
+    except Exception:
+        logger.exception("evict_project_group: failed to evict group %s", group)
+
+
 def evict_project_connection(project_id: str, user_id: str) -> None:
     """Push a ``connection.evict`` to a project's board WS group (#813).
 
