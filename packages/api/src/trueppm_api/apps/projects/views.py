@@ -93,7 +93,10 @@ from trueppm_api.apps.access.permissions import (
     can_user_undo_batch_operation,
     role_can_undo_batch_operation,
 )
-from trueppm_api.apps.access.services import transfer_project_ownership
+from trueppm_api.apps.access.services import (
+    PROJECT_OWNER_NOT_MEMBER_DETAIL,
+    transfer_project_ownership,
+)
 from trueppm_api.apps.history.diff_policy import (
     HISTORY_DIFF_NOISE,
     HISTORY_DIFF_PROMOTED_WHEN_ALONE,
@@ -2895,8 +2898,14 @@ class ProjectViewSet(
         summary="Transfer project ownership",
         responses={
             200: ProjectSerializer,
-            400: OpenApiResponse(description="Missing new_owner_user_id or invalid transfer."),
-            404: OpenApiResponse(description="Target user not found."),
+            400: OpenApiResponse(
+                description=(
+                    "Missing new_owner_user_id, or the target does not resolve to an "
+                    "existing active member of this project (an unknown id, a real id "
+                    "with no membership, and a deactivated member's id all return the "
+                    "same body — #4575)."
+                )
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="transfer")
@@ -2922,13 +2931,18 @@ class ProjectViewSet(
 
         from django.contrib.auth import get_user_model
 
+        # An unresolvable id (unknown pk, or one that doesn't even parse)
+        # returns the SAME 400 body as "that user exists but isn't a member"
+        # below — not a distinct 404 — so neither the status code nor the
+        # message lets a caller distinguish "no such user" from "real user,
+        # not a member" (or "real user, deactivated") (#4575).
         User = get_user_model()
         try:
             new_owner = User.objects.get(pk=new_owner_id)
         except (User.DoesNotExist, DjangoValidationError, ValueError):
             return Response(
-                {"detail": "User not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                {"detail": PROJECT_OWNER_NOT_MEMBER_DETAIL},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:

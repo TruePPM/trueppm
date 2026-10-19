@@ -83,6 +83,22 @@ def test_lead_must_be_a_project_member(project: Project, owner: object) -> None:
 
 
 @pytest.mark.django_db
+def test_deactivated_member_cannot_be_set_as_lead(project: Project, owner: object) -> None:
+    """A deactivated user's membership row is not removed — validate_lead must still
+    refuse them identically to a non-member (#4575)."""
+    deactivated = _user("deactivated-member")
+    _member(project, deactivated, Role.MEMBER)
+    deactivated.is_active = False
+    deactivated.save(update_fields=["is_active"])
+
+    resp = _client(owner).patch(_url(project), {"lead": str(deactivated.pk)}, format="json")
+    assert resp.status_code == 400
+    assert "member of this project" in str(resp.data["lead"]).lower()
+    project.refresh_from_db()
+    assert project.lead_id is None
+
+
+@pytest.mark.django_db
 def test_lead_can_be_unset(project: Project, owner: object, member: object) -> None:
     project.lead = member
     project.save(update_fields=["lead"])
