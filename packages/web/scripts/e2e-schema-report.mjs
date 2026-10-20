@@ -52,10 +52,17 @@ export function aggregate(ndjson) {
   const waived = new Set();
   const skipped = new Map(); // reason -> Set(operationKey)
   const ledger = new Map(); // operationKey -> Map(`at:rule` -> count)
+  // rule -> count of measured-only findings (`missing-required`,
+  // `open-enum-value`) on responses that passed. A response that also failed an
+  // enforced rule is recorded as a violation, whose row carries only enforced
+  // rules — so this counts passing responses only, and the heading says so.
+  const measured = new Map();
 
   for (const row of rows) {
-    if (row.outcome === 'ok') ok.add(row.operationKey);
-    else if (row.outcome === 'waived') waived.add(row.operationKey);
+    if (row.outcome === 'ok') {
+      ok.add(row.operationKey);
+      for (const rule of row.rules ?? []) measured.set(rule, (measured.get(rule) ?? 0) + 1);
+    } else if (row.outcome === 'waived') waived.add(row.operationKey);
     else if (row.outcome === 'skipped') {
       if (!skipped.has(row.reason)) skipped.set(row.reason, new Set());
       skipped.get(row.reason).add(row.operationKey);
@@ -70,10 +77,10 @@ export function aggregate(ndjson) {
     }
   }
 
-  return { rows, ok, violating, waived, skipped, ledger };
+  return { rows, ok, violating, waived, skipped, ledger, measured };
 }
 
-function render({ rows, ok, violating, waived, skipped, ledger }) {
+export function render({ rows, ok, violating, waived, skipped, ledger, measured }) {
   const touched = new Set([...ok, ...violating, ...waived]);
   for (const set of skipped.values()) for (const key of set) touched.add(key);
   const lines = [
@@ -91,6 +98,10 @@ function render({ rows, ok, violating, waived, skipped, ledger }) {
   }
   const ledgerLines = [...ledger.values()].reduce((n, m) => n + m.size, 0);
   lines.push('', `drift ledger lines        ${ledgerLines} across ${ledger.size} operations`);
+  lines.push('', 'measured on passing responses (not enforced):');
+  for (const rule of ['missing-required', 'open-enum-value']) {
+    lines.push(`  ${rule.padEnd(22)} ${measured?.get(rule) ?? 0} findings`);
+  }
   return lines.join('\n');
 }
 

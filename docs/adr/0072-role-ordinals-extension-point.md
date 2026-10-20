@@ -5,6 +5,28 @@ Accepted (2026-05-31) — implemented in #508. First canonical RBAC contract ADR
 ad-hoc Role-enum docstring in `apps/access/models.py` as the source of truth.
 **Amended 2026-07-28 (#2489)** — see *Amendment 1* below; the ordinal layout in the
 Decision section is historical and no longer canonical.
+**Amended 2026-10-19 (#4593)**: see *Amendment 2* below. The role is no longer
+published as a closed `RoleEnum`.
+
+## Amendment 2 (2026-10-19, #4593): the wire role is a banded integer
+
+§ *Public API surface* below said `RoleEnum` "regenerates" to the new ordinals. That
+was the defect. A closed `enum` over `[1, 100, 200, 300, 400]` declares every
+ordinal in the reserved bands invalid, so an Enterprise install returning a custom
+role at `250` violates the published OSS contract. The bands this ADR exists to
+reserve were unusable on the wire.
+
+The schema now publishes every project/program role field (`role`,
+`default_member_role`, `my_role`, `max_project_role`) through one
+`RoleOrdinal` component. It is `{type: integer, minimum: 1, maximum: 400}`, with the
+five OSS ordinals and the four reserved bands in its description. A client compares
+with `>=` against a band floor, which is the same contract this ADR already set for
+server code, and renders an unrecognized ordinal by its band. The OSS server still
+accepts only the five OSS ordinals on write.
+
+The broader rule, that published enums are open unless allowlisted as exhaustive,
+is [ADR-1291](1291-open-enums-by-default.md). Removing `RoleEnum` is a one-time
+pre-GA break, recorded in `stability.md` under *Current deprecations*.
 
 ## Amendment 1 (2026-07-28, #2489): VIEWER moves 0 → 1
 
@@ -154,6 +176,9 @@ Why 100-unit gaps and not 10 or 1000:
   to compute against a wider gap; aids debugging and grep
 
 ### Public API surface
+
+> **Superseded in part by Amendment 2 (#4593).** The role is no longer published as
+> a closed `RoleEnum`; it is the banded-integer `RoleOrdinal`.
 
 The numeric `role` and `my_role` fields continue to be the wire format. The OpenAPI
 `RoleEnum` regenerates from `[0,1,2,3,4]` to `[0,100,200,300,400]`. External consumers

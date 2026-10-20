@@ -234,3 +234,10 @@ schema:PaginatedPhaseList
 # superseded, the same #2127 class of fix — no path is removed and the
 # response body is unchanged (it is now correctly documented, not different).
 schema:PaginatedMeWorkTaskList
+
+# #4593 — RoleEnum replaced by RoleOrdinal (ADR-1291, ADR-0072 Amendment 2). The
+# closed [1,100,200,300,400] enum ruled out the ordinal bands ADR-0072 reserves
+# for Enterprise custom roles; every reference now points at the banded-integer
+# RoleOrdinal. Wire values are unchanged. Recorded in stability.md under
+# "Current deprecations" as a pre-GA break.
+schema:RoleEnum

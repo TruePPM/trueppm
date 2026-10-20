@@ -140,9 +140,7 @@ test.describe('e2e schema guard — the oracle resolves', () => {
       'http://127.0.0.1:4173/api/v1/projects/p1/export/',
       200,
     );
-    expect(projectExport.kind === 'skipped' && projectExport.reason).toBe(
-      'free-form-schema',
-    );
+    expect(projectExport.kind === 'skipped' && projectExport.reason).toBe('free-form-schema');
     expect(isFreeForm({ type: 'object' })).toBe(true);
     expect(isFreeForm({ type: 'object', properties: { a: { type: 'string' } } })).toBe(false);
   });
@@ -183,7 +181,9 @@ test.describe('e2e schema guard — the validator reports', () => {
     );
     test.skip(projects.kind !== 'resolved', 'GET /projects/{id}/ has no declared schema');
     if (projects.kind !== 'resolved') return;
-    // 'OPEN' was in 19 fixtures until #3440; the server's value is 'open'.
+    // 'OPEN' was in 19 fixtures until #3440; the server's value is 'open'. The
+    // enum is OPEN since ADR-1291, so this stays red only because 'OPEN' is a
+    // misspelling of a declared value — the near-miss rule, not closedness.
     expect(
       enforced({ id: 'p1', name: 'P', estimation_mode: 'OPEN' }, projects.response.schema),
     ).toContain('estimation_mode:enum');
@@ -191,7 +191,6 @@ test.describe('e2e schema guard — the validator reports', () => {
       enforced({ id: 'p1', name: 'P', estimation_mode: 'open' }, projects.response.schema),
     ).toEqual([]);
   });
-
   test('a paginated envelope validates through to its rows', () => {
     const tasks = resolveResponseSchema('GET', 'http://127.0.0.1:4173/api/v1/tasks/', 200);
     expect(tasks.kind).toBe('resolved');
@@ -223,6 +222,123 @@ test.describe('e2e schema guard — the validator reports', () => {
     delete renamed.properties?.display_name;
 
     expect(enforced(validMePayload(), renamed)).toContain('display_name:unknown-property');
+  });
+});
+
+test.describe('e2e schema guard — enum openness (ADR-1291)', () => {
+  // Every assertion first proves the marker it depends on is what the schema
+  // really says, so a regenerate that drops or flips it fails here rather than
+  // turning the test vacuous.
+  function responseSchemaDeclaring(method: string, url: string, property: string): SchemaNode {
+    const resolved = resolveResponseSchema(method, url, 200);
+    if (resolved.kind !== 'resolved') throw new Error(`${method} ${url} did not resolve`);
+    const row = deref(resolved.response.schema);
+    const node = row.properties?.[property];
+    if (!node) throw new Error(`${property} is not declared on ${method} ${url}`);
+    return resolved.response.schema;
+  }
+
+  function markerOf(component: string): unknown {
+    const node = deref({ $ref: `#/components/schemas/${component}` });
+    return node['x-trueppm-enum'];
+  }
+
+  const PROJECT_URL = 'http://127.0.0.1:4173/api/v1/projects/e2e-project-1/';
+  const DEPENDENCY_URL = 'http://127.0.0.1:4173/api/v1/dependencies/d1/';
+  const MEMBER_URL = 'http://127.0.0.1:4173/api/v1/projects/p1/members/m1/';
+
+  test('a new value on an open enum passes, and is measured', () => {
+    expect(markerOf('EstimationModeEnum')).toBe('open');
+    const schema = responseSchemaDeclaring('GET', PROJECT_URL, 'estimation_mode');
+    const body = { id: 'p1', name: 'P', estimation_mode: 'committee_vote' };
+    expect(enforced(body, schema)).toEqual([]);
+    expect(validateBody(body, schema).map((v) => `${v.at}:${v.rule}`)).toContain(
+      'estimation_mode:open-enum-value',
+    );
+  });
+
+  test('a new value on an exhaustive enum fails', () => {
+    expect(markerOf('DepTypeEnum')).toBe('exhaustive');
+    const schema = responseSchemaDeclaring('GET', DEPENDENCY_URL, 'dep_type');
+    expect(enforced({ id: 'd1', dep_type: 'XX' }, schema)).toContain('dep_type:enum');
+    expect(enforced({ id: 'd1', dep_type: 'SS' }, schema)).toEqual([]);
+  });
+
+  test('an open enum still enforces its type', () => {
+    const schema = responseSchemaDeclaring('GET', PROJECT_URL, 'estimation_mode');
+    expect(enforced({ id: 'p1', name: 'P', estimation_mode: 3 }, schema)).toContain(
+      'estimation_mode:type',
+    );
+  });
+
+  test('a role ordinal in an Enterprise band is accepted; a non-integer is not', () => {
+    const schema = responseSchemaDeclaring('GET', MEMBER_URL, 'role');
+    // 250 sits in the band ADR-0072 reserves for Enterprise custom roles.
+    expect(enforced({ id: 'm1', role: 250 }, schema)).toEqual([]);
+    expect(enforced({ id: 'm1', role: 'ADMIN' }, schema)).toContain('role:type');
+  });
+
+  test('a new open-enum value is not re-closed by a nullable oneOf', () => {
+    // drf-spectacular's nullable choice field shape. Without the probe exemption
+    // the open branch "fails", no branch matches, and the guard reports `type`.
+    const nullableChoice: SchemaNode = {
+      type: 'object',
+      properties: {
+        status: {
+          oneOf: [
+            { type: 'string', enum: ['a', 'b'], 'x-trueppm-enum': 'open' },
+            { enum: [null], 'x-trueppm-enum': 'exhaustive' },
+          ],
+          nullable: true,
+        },
+      },
+    };
+    expect(enforced({ status: 'c' }, nullableChoice)).toEqual([]);
+    expect(enforced({ status: 7 }, nullableChoice)).toContain('status:type');
+    // The new value is measured, not swallowed by the branch probe.
+    expect(validateBody({ status: 'c' }, nullableChoice).map((v) => `${v.at}:${v.rule}`)).toEqual([
+      'status:open-enum-value',
+    ]);
+    // A clean branch match records nothing. 'a' reaches the branch matcher
+    // (a null would return early on `nullable` and test nothing).
+    expect(validateBody({ status: 'a' }, nullableChoice)).toEqual([]);
+  });
+
+  // Synthetic variants with a closed discriminator and an open field, so each
+  // branch-matcher outcome below is known in advance.
+  const openField = { type: 'string', enum: ['a'], 'x-trueppm-enum': 'open' };
+  const variants: SchemaNode = {
+    oneOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: { kind: { type: 'string', enum: ['task'] }, st: openField },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: { kind: { type: 'string', enum: ['milestone'] }, st: openField },
+      },
+    ],
+  };
+
+  test('an open-enum finding does not excuse another violation in the same branch', () => {
+    expect(enforced({ kind: 'task', st: 'z' }, variants)).toEqual([]);
+    expect(enforced({ kind: 'task', st: 'z', extra: 1 }, variants)).toContain(':type');
+  });
+
+  test('a miss on an exhaustive enum inside a branch still fails', () => {
+    expect(enforced({ kind: 'sprint', st: 'a' }, variants)).toContain(':type');
+  });
+
+  test('a clean branch wins over an earlier open-enum-only branch', () => {
+    // If the matcher took the first acceptable branch, it would forward that
+    // branch's `open-enum-value` finding for a value another branch matches cleanly.
+    const schema: SchemaNode = {
+      oneOf: [openField, { type: 'string', enum: ['b'] }],
+    };
+    expect(validateBody('b', schema)).toEqual([]);
+    expect(validateBody('q', schema).map((v) => `${v.at}:${v.rule}`)).toEqual([':open-enum-value']);
   });
 });
 

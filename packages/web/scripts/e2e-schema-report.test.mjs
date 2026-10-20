@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { aggregate } from './e2e-schema-report.mjs';
+import { aggregate, render } from './e2e-schema-report.mjs';
 
 // One NDJSON line per observation, exactly as `schema-guard.ts` writes them.
 function ndjson(...rows) {
@@ -77,5 +77,23 @@ describe('aggregate', () => {
     const r = aggregate('');
     expect(r.rows).toEqual([]);
     expect(r.ledger.size).toBe(0);
+  });
+});
+
+describe('measured rules', () => {
+  it('counts missing-required and open-enum-value from passing responses', () => {
+    const passing = (rules) => ({ operationKey: 'GET /a/', status: 200, outcome: 'ok', rules });
+    const r = aggregate(
+      ndjson(
+        passing(['open-enum-value']),
+        passing(['open-enum-value', 'missing-required']),
+        passing([]),
+      ),
+    );
+    expect(r.measured.get('open-enum-value')).toBe(2);
+    expect(r.measured.get('missing-required')).toBe(1);
+    const text = render(r);
+    expect(text).toMatch(/open-enum-value\s+2 findings/);
+    expect(text).toMatch(/missing-required\s+1 findings/);
   });
 });

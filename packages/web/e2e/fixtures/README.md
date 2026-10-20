@@ -140,12 +140,19 @@ Four rules fail a spec:
 |---|---|
 | `unknown-property` | the mock sends a field the serializer does not have — a rename, a typo, an invented field |
 | `type` | a string where the schema says integer, an array where it says object |
-| `enum` | a value the server cannot emit (`estimation_mode: 'OPEN'` — it is `'open'`) |
+| `enum` | a value outside an **exhaustive** enum, or a misspelling of a declared value on an open one (`estimation_mode: 'OPEN'` — it is `'open'`) |
 | `null-on-non-nullable` | `null` on a field the schema declares always present |
 
 `missing-required` is **measured and not enforced**: a fixture that sends
 `{id, name}` for a Project is a deliberate minimal stand-in, and failing on it
 would be a test of fixture verbosity, not of drift.
+
+`open-enum-value` is **measured and not enforced** either. Every enum in the
+schema carries `x-trueppm-enum: open | exhaustive` (ADR-1291); on an open one a
+newer server may send a value the list does not name, so a mock that sends one
+is testing the tolerance the API stability policy requires of a client, not
+drifting. The guard still fails it when the value folds (case, `-`, `_`) onto a
+declared one, because that is a typo rather than a future value.
 
 ### When it fails
 
