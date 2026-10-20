@@ -62,7 +62,8 @@ to break on an additive change that this policy considers backward-compatible.
 
 ## Deprecation window & notice
 
-One stable element is scheduled for deprecation — see
+One stable element is scheduled for deprecation, and the Breaking changes taken
+without a window since the last release are listed with it — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
 been exercised through to a removal; the ten Breaking changes taken so far all
 bypassed it deliberately, and all ten are recorded inline in step 3. When a **breaking** change to a
@@ -341,6 +342,15 @@ deprecation window rather than being removed outright:
 
 ## Current deprecations
 
+**This list is enforced, not just maintained.** CI diffs the committed OpenAPI schema
+against the schema at the latest `v*` release tag (prereleases included) and fails the
+merge request on any Breaking change in the table above: a removed endpoint, method,
+response status code, property, parameter or enum value, a changed `type`, or an
+optional field made required. Enum value *additions* are Additive and never trip it.
+A Breaking change can merge only with an allowlist entry that cites one of the headings
+below, which is why each accepted break has a row here. (`scripts/check-schema-breaking.py`;
+not diffed: `oneOf`/`anyOf` branches, `format`, `nullable` and constraint changes.)
+
 ### `group_by=project` on the resource heatmap
 
 `GET /api/v1/projects/{id}/resources/heatmap/` accepts `group_by` values of
@@ -364,6 +374,48 @@ additive change and is safe for every existing client.
 | Behavior during the window | accepted, served as `none`, echoed as `none` |
 | Earliest removal | 0.6 |
 | Migration | send `none`; read the response's `group_by` field rather than assuming the request value was honored |
+
+### Mention-group member email removed (#4578)
+
+`members[]` on the user-defined and program-scoped @mention group payloads no longer
+carries `email` (the member object is now `id` and `username`). This is a **Breaking**
+removal, taken without a window because it is a security fix: a program Viewer could
+read the email of a project member on a project they hold no membership on, crossing
+the program/project visibility boundary. Resolve and render an @mention from `username`.
+
+| | |
+|---|---|
+| Announced | 0.4 (removed with no window; security-critical exception) |
+| Migration | use `username`; email is not available on these payloads |
+
+### Transfer target refusals unified to 400 (#4575)
+
+`POST /api/v1/projects/{id}/transfer/` no longer answers `404` for a target user who
+does not resolve; it answers the same `400` it returns for every other unusable target,
+so the status code cannot be used to tell a real user id from an unknown one. The
+`400` on `POST /api/v1/programs/{id}/transfer-sponsorship/` is likewise re-declared
+with a description only. Changing an existing status code is **Breaking**; this is a
+security-critical exception.
+
+| | |
+|---|---|
+| Announced | 0.4 (changed with no window; security-critical exception) |
+| Migration | treat `400` as "target unusable"; do not branch on `404` from these endpoints |
+
+### Sprint retro request schema corrected (#4591)
+
+The published request body of `POST` and `PATCH /api/v1/sprints/{id}/retro/` was
+declared as the sprint write schema (`name`, `start_date`, `goal`, ...), which this
+endpoint does not read (only `notes`, `team_visibility` and `action_items` are retro
+fields). It is now declared as the retro write schema, so a client
+generated from the OpenAPI schema loses those sprint properties from its retro request
+type. No request that worked before is refused. This is a schema-declaration correction,
+recorded here because the schema diff reports it as removed properties.
+
+| | |
+|---|---|
+| Announced | 0.4 |
+| Migration | regenerate clients; send the retro fields the endpoint documents |
 
 ## Versioning approach
 

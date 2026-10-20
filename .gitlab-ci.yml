@@ -731,6 +731,8 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
         - scripts/tests/check-migration-constraint-safety.test.sh
+        - scripts/check-schema-breaking.py
+        - scripts/tests/check-schema-breaking.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -783,6 +785,8 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         - scripts/check-migration-constraint-safety.py
         - scripts/tests/check-migration-constraint-safety.test.sh
+        - scripts/check-schema-breaking.py
+        - scripts/tests/check-schema-breaking.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -811,6 +815,7 @@ scripts:test:
     - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
+    - bash scripts/tests/check-schema-breaking.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -3577,6 +3582,35 @@ api:migration-constraint-safety:
     # gate still rejects one, and that all four safe shapes still pass (#3195).
     - python3 scripts/check-migration-constraint-safety.py --self-test
     - python3 scripts/check-migration-constraint-safety.py
+
+api:schema-breaking:
+  # stability.md promises a deprecation window for every Breaking change (field
+  # removal/rename, type change, status-code change, optional -> required, enum
+  # value removal), but api:schema-regression-style checks only compare path and
+  # schema NAMES against main - and a field dropped in one MR becomes main's
+  # baseline for the next (#4594). This diffs the schema's shape against the latest
+  # v* RELEASE TAG (prereleases included), which a merge cannot move.
+  #
+  # Pure stdlib Python on two JSON files read via `git show`: no DB, no Django, no
+  # install. GIT_DEPTH:0 + an explicit tag fetch make the tag available under
+  # GitLab's shallow clone; --require-baseline turns "no tag" into a failure rather
+  # than a silent skip, which would be a gate that always passes.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  variables:
+    GIT_DEPTH: "0"
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - git fetch origin --tags --quiet
+    - python3 scripts/check-schema-breaking.py --self-test
+    - python3 scripts/check-schema-breaking.py --require-baseline
 
 api:openapi-check:
   # drf-spectacular schema generation is pure view/serializer introspection;

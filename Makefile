@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety schema-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check api-scheduler-lock-check \
+        migrations-check migrations-numbering migrations-constraint-safety schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -142,6 +142,10 @@ migrations-constraint-safety: ## Detect an AddConstraint on a table that may alr
 	@# no gate at all. Pure static analysis: no Django, no DB, no fetch.
 	@python3 scripts/check-migration-constraint-safety.py --self-test
 	@python3 scripts/check-migration-constraint-safety.py
+
+schema-breaking-check: ## Run the api:schema-breaking CI job locally (#4594): Breaking API changes vs the latest v* tag
+	@python3 scripts/check-schema-breaking.py --self-test
+	@python3 scripts/check-schema-breaking.py
 
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
@@ -680,6 +684,7 @@ pre-push-checks: migrations-check
 pre-push-checks: migrations-numbering
 pre-push-checks: migrations-constraint-safety
 pre-push-checks: schema-check
+pre-push-checks: schema-breaking-check
 pre-push-checks: sonar-exclusions-check
 pre-push-checks: request-body-guards-check
 pre-push-checks: summary-duration-units-check
