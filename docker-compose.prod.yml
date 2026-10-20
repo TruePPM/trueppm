@@ -42,6 +42,9 @@
 # Optional .env variables:
 #   DJANGO_SUPERUSER_EMAIL=you@yourdomain.com  (default: admin@example.com,
 #     a reserved domain that cannot receive password-reset mail — set this)
+#   TRUEPPM_ADMIN_PROMOTE_EXISTING=true  (default: unset. Lets the bootstrap promote
+#     an existing non-superuser holding DJANGO_SUPERUSER_EMAIL when no superuser
+#     exists; unset it again afterwards)
 #   (TRUEPPM_ADMIN_PASSWORD_FILE is NOT settable from .env — the api and
 #     api-init services set it in `environment:`, which OVERRIDES `env_file:`,
 #     so a value in .env is read and then silently discarded. Same trap

@@ -4,15 +4,14 @@ Runs automatically on container startup (both Docker Compose and Kubernetes).
 Idempotent: if a superuser already exists the command exits immediately — it
 will NOT reset a production password on re-deploy.
 
-"A superuser already exists" is the *only* thing that stops it. When none does,
-the command resolves ``DJANGO_SUPERUSER_EMAIL`` with ``get_or_create`` and then
-sets ``is_staff``/``is_superuser`` and a fresh password unconditionally — so an
-existing **non-superuser** holding that address is promoted and has its password
-reset. That is intended (it is how an operator recovers an install whose only
-superuser was demoted), but it is a privilege grant, so it is announced on stdout
-rather than reported as an ordinary create (#3175).
+When no superuser exists, the command resolves ``DJANGO_SUPERUSER_EMAIL`` (matched
+case-insensitively) and either creates a fresh superuser or, for an existing
+**non-superuser** holding that address, promotes it and resets its password. The
+promotion is how an operator recovers an install whose only superuser was demoted,
+but it is a privilege grant, so it is announced on stdout rather than reported as an
+ordinary create (#3175).
 
-Because it is a privilege grant, promotion is **opt-in**: an existing non-superuser
+Promotion is **opt-in**: an existing non-superuser
 is promoted only when ``TRUEPPM_ADMIN_PROMOTE_EXISTING`` is truthy. Otherwise the
 command refuses, leaves the account untouched, and says how to proceed. Without the
 opt-in, anyone able to register ``DJANGO_SUPERUSER_EMAIL`` ahead of the operator
@@ -20,6 +19,10 @@ opt-in, anyone able to register ``DJANGO_SUPERUSER_EMAIL`` ahead of the operator
 after the real admin is demoted, keeping every PAT, refresh token, and SSO link they
 already held. When promotion does happen, the account's existing credentials are
 revoked in the same transaction (#4586).
+
+The command refuses, writing nothing, in three cases: an existing non-superuser holds
+the email and the opt-in is unset; several accounts share the email; or the target
+username already belongs to a different account.
 
 Concurrency
 -----------
@@ -156,7 +159,9 @@ class Command(BaseCommand):
         """
         User = get_user_model()
 
-        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@example.com").strip()
+        # Empty or whitespace counts as unset: compose's `DJANGO_SUPERUSER_EMAIL=` passes
+        # "" through, which would otherwise match every blank-email account.
+        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "").strip() or "admin@example.com"
         username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "").strip() or email.split("@")[0]
         password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "").strip() or secrets.token_urlsafe(
             16
@@ -260,8 +265,9 @@ class Command(BaseCommand):
                 self.style.WARNING(
                     f"WARNING: {email} already existed as a non-superuser. It has been "
                     "granted superuser + staff, its password has been RESET, and its tokens "
-                    "and SSO links have been revoked. If this "
-                    "was not intended, set DJANGO_SUPERUSER_EMAIL to an unused address."
+                    "and SSO links have been revoked. Now unset TRUEPPM_ADMIN_PROMOTE_EXISTING "
+                    "(Helm: admin.promoteExisting): left set, it silently re-applies the next "
+                    "time the only superuser is demoted."
                 )
             )
 

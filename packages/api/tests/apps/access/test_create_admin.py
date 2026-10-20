@@ -330,6 +330,22 @@ def test_username_collision_is_a_refusal_not_a_crash(
     assert not User.objects.filter(is_superuser=True).exists()
 
 
+@pytest.mark.django_db
+def test_empty_email_env_falls_back_to_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`DJANGO_SUPERUSER_EMAIL=` (empty) must not match blank-email accounts."""
+    monkeypatch.setenv("DJANGO_SUPERUSER_EMAIL", "")
+    monkeypatch.delenv("DJANGO_SUPERUSER_USERNAME", raising=False)
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
+    blank = User.objects.create_user(username="blank", email="", password="pw")
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=StringIO())
+    blank.refresh_from_db()
+    assert not blank.is_superuser
+    assert User.objects.get(email="admin@example.com").is_superuser
+
+
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_bootstraps_mint_exactly_one_password(tmp_path: Path) -> None:
     """Two pods bootstrapping at once must not both mint a password (#4039).
