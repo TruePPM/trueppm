@@ -11705,6 +11705,36 @@
                         "description": ""
                     },
                     "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
                         "description": "Missing new_owner_user_id, or new_owner_user_id/new_lead_user_id does not resolve to an existing active member of this program (an unknown id, a real id with no membership, and a deactivated member's id all return the same body — #4575)."
                     },
                     "429": {

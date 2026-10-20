@@ -22,6 +22,13 @@ Rules (each finding carries one rule id):
 * ``enum-value-removed``  - an enum value is gone (additions are NOT breaking)
 * ``became-required``     - a request property became required, or a new required
   request property appeared (optional -> required)
+* ``became-optional``     - a RESPONSE property that was always present may now be
+  absent (required -> optional); a client reading it unconditionally breaks
+* ``body-required``       - a request body that was optional is now required
+
+Enum direction: a removed value is flagged in BOTH directions (a request can no longer
+send it; a response consumer written against it loses a case). An added value is never
+flagged - stability.md calls it Additive.
 
 Deliberately out of scope (documented, not silent): ``oneOf``/``anyOf`` branches are
 not diffed (``allOf`` is flattened), ``format``/``nullable``/constraint changes are
@@ -167,6 +174,8 @@ class _Differ:
             if prop not in cp:
                 self.add("property-removed", f"{direction} {ploc}")
                 continue
+            if direction == "response" and prop in breq - creq:
+                self.add("became-optional", f"{direction} {ploc}")
             if direction == "request" and prop in creq - breq:
                 if not cp[prop].get("readOnly") if isinstance(cp[prop], dict) else True:
                     self.add("became-required", f"{direction} {ploc}")
@@ -198,6 +207,8 @@ class _Differ:
                 self.add("param-required", f"{loc} {key[1]}:{key[0]}")
         brb, _ = self._deref(self.base, b.get("requestBody", {}))
         crb, _ = self._deref(self.cand, c.get("requestBody", {}))
+        if crb and crb.get("required") and not (brb or {}).get("required"):
+            self.add("body-required", f"{loc} body")
         self._content(brb, crb, f"{loc} body", "request")
         bresp, cresp = b.get("responses", {}), c.get("responses", {})
         for code, br in bresp.items():

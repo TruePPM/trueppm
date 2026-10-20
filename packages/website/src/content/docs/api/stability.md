@@ -65,8 +65,9 @@ to break on an additive change that this policy considers backward-compatible.
 One stable element is scheduled for deprecation, and the Breaking changes taken
 without a window since the last release are listed with it — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the ten Breaking changes taken so far all
-bypassed it deliberately, and all ten are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal; the Breaking changes taken so far all
+bypassed it deliberately, and each is recorded inline in step 3 or under
+[Current deprecations](#current-deprecations). When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -347,7 +348,8 @@ against the schema at the latest `v*` release tag (prereleases included) and fai
 merge request on any Breaking change in the table above: a removed endpoint, method,
 response status code, property, parameter or enum value, a changed `type`, or an
 optional field made required. Enum value *additions* are Additive and never trip it.
-A Breaking change can merge only with an allowlist entry that cites one of the headings
+A response property that became optional and a request body that became required
+are Breaking too. A Breaking change can merge only with an allowlist entry that cites one of the headings
 below, which is why each accepted break has a row here. (`scripts/check-schema-breaking.py`;
 not diffed: `oneOf`/`anyOf` branches, `format`, `nullable` and constraint changes.)
 
@@ -393,8 +395,8 @@ the program/project visibility boundary. Resolve and render an @mention from `us
 `POST /api/v1/projects/{id}/transfer/` no longer answers `404` for a target user who
 does not resolve; it answers the same `400` it returns for every other unusable target,
 so the status code cannot be used to tell a real user id from an unknown one. The
-`400` on `POST /api/v1/programs/{id}/transfer-sponsorship/` is likewise re-declared
-with a description only. Changing an existing status code is **Breaking**; this is a
+`POST /api/v1/programs/{id}/transfer-sponsorship/` already answered `400` for these and
+is unchanged on the wire. Changing an existing status code is **Breaking**; this is a
 security-critical exception.
 
 | | |
@@ -410,7 +412,8 @@ endpoint does not read (only `notes`, `team_visibility` and `action_items` are r
 fields). It is now declared as the retro write schema, so a client
 generated from the OpenAPI schema loses those sprint properties from its retro request
 type. No request that worked before is refused. This is a schema-declaration correction,
-recorded here because the schema diff reports it as removed properties.
+recorded here because the schema diff reports it as removed properties. It is a
+declaration correction, not a change taken without a window.
 
 | | |
 |---|---|

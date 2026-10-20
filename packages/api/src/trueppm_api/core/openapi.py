@@ -37,7 +37,7 @@ personal token *can* write there since #2877 and is described by
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 from drf_spectacular.openapi import AutoSchema
 from rest_framework.permissions import SAFE_METHODS
@@ -681,6 +681,26 @@ _VALIDATION_RESPONSE = {
         }
     },
 }
+
+
+def validation_envelope_400(description: str) -> Any:
+    """Declare a 400 with a site-specific description and the shared error envelope.
+
+    The #3286 injection uses ``setdefault``, so an operation that declares its own 400
+    with a description only *replaces* the envelope body rather than refining it,
+    silently dropping the ``application/json`` schema every other 400 carries. Use this
+    where an endpoint wants its own wording but the standard ``detail``/``code``/
+    field-keyed body.
+    """
+    from drf_spectacular.utils import OpenApiResponse
+
+    return OpenApiResponse(
+        response=deepcopy(
+            cast("dict[str, Any]", _VALIDATION_RESPONSE["content"])[_JSON_MEDIA_TYPE]["schema"]
+        ),
+        description=description,
+    )
+
 
 # ---------------------------------------------------------------------------
 # #3319 — the 400 a BODYLESS write returns when it refuses on state
