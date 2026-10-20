@@ -1546,3 +1546,13 @@ def test_login_declares_401_and_403_detail_envelope(schema: dict) -> None:
         component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
         assert component["required"] == ["detail"]
         assert component["properties"]["detail"]["type"] == "string"
+
+
+def test_workspace_logo_writes_declare_auth_and_refusals(schema: dict) -> None:
+    """Logo writes are authenticated and declare every refusal they return (#4590)."""
+    ops = schema["paths"]["/api/v1/workspace/logo/"]
+    assert ops["get"]["security"] == []  # the public serve surface stays anonymous
+    for method, extra in (("post", {"413", "415"}), ("delete", set())):
+        op = ops[method]
+        assert op["security"], f"{method} must not be advertised as anonymous"
+        assert {"401", "403"} | extra <= set(op["responses"])

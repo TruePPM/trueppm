@@ -50536,7 +50536,17 @@
                         }
                     }
                 },
-                "security": [],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
                 "responses": {
                     "200": {
                         "content": {
@@ -50547,6 +50557,18 @@
                             }
                         },
                         "description": ""
+                    },
+                    "401": {
+                        "description": "Not authenticated."
+                    },
+                    "403": {
+                        "description": "Caller is not a workspace admin."
+                    },
+                    "413": {
+                        "description": "Logo is larger than 2 MB."
+                    },
+                    "415": {
+                        "description": "Logo is not a PNG or WebP image."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -50606,7 +50628,17 @@
                 "tags": [
                     "workspace"
                 ],
-                "security": [],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
                 "responses": {
                     "200": {
                         "content": {
@@ -50617,6 +50649,12 @@
                             }
                         },
                         "description": ""
+                    },
+                    "401": {
+                        "description": "Not authenticated."
+                    },
+                    "403": {
+                        "description": "Caller is not a workspace admin."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

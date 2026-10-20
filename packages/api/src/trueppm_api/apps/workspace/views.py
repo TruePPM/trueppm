@@ -1079,6 +1079,15 @@ def _sniff_logo_mime(head: bytes) -> str | None:
     return None
 
 
+# drf-spectacular's ``auth`` is typed ``Sequence[str]`` but emits each entry
+# verbatim as a security requirement, so requirement objects are what is correct.
+_LOGO_WRITE_AUTH: Any = [
+    {"personalApiTokenAuth": []},
+    {"jwtAuth": []},
+    {"cookieAuth": []},
+]
+
+
 class WorkspaceLogoView(IdempotencyMixin, APIView):
     """Workspace logo: POST upload, DELETE clear (admin), GET serve (public).
 
@@ -1134,7 +1143,17 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
                 "properties": {"file": {"type": "string", "format": "binary"}},
             }
         },
-        responses={200: WorkspaceSettingsSerializer},
+        responses={
+            200: WorkspaceSettingsSerializer,
+            401: OpenApiResponse(description="Not authenticated."),
+            403: OpenApiResponse(description="Caller is not a workspace admin."),
+            413: OpenApiResponse(description="Logo is larger than 2 MB."),
+            415: OpenApiResponse(description="Logo is not a PNG or WebP image."),
+        },
+        # The write methods authenticate, but the view's GET-only anonymous
+        # carve-out makes the generator see no authenticators and emit
+        # ``security: []``, which would advertise these writes as public.
+        auth=_LOGO_WRITE_AUTH,
     )
     def post(self, request: Request) -> Response:
         upload = request.FILES.get("file")
@@ -1156,7 +1175,14 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
         workspace = services.set_workspace_logo(file=upload, mime=mime)
         return Response(WorkspaceSettingsSerializer(workspace).data)
 
-    @extend_schema(responses={200: WorkspaceSettingsSerializer})
+    @extend_schema(
+        responses={
+            200: WorkspaceSettingsSerializer,
+            401: OpenApiResponse(description="Not authenticated."),
+            403: OpenApiResponse(description="Caller is not a workspace admin."),
+        },
+        auth=_LOGO_WRITE_AUTH,
+    )
     def delete(self, request: Request) -> Response:
         workspace = services.clear_workspace_logo()
         return Response(WorkspaceSettingsSerializer(workspace).data)
