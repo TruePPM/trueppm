@@ -51,21 +51,51 @@ Every change to the API falls into one of three classes.
 
 | Class | Examples | Compatibility |
 |-------|----------|---------------|
-| **Additive** | A new endpoint, a new optional request field, a new response field, a new enum value on a non-exhaustive field, a new WebSocket event type | Backward-compatible. Ships in any release. |
+| **Additive** | A new endpoint, a new optional request field, a new response field, a new value on an open enum (see [Open and exhaustive enums](#open-and-exhaustive-enums)), a new WebSocket event type | Backward-compatible. Ships in any release. |
 | **Behavioral** | A default value change, a validation tightening, a new required-only-on-new-resource constraint | Announced in the changelog. Ships in a minor release; avoided within a series where possible. |
-| **Breaking** | Removing or renaming an endpoint or field, changing a field type, changing an existing status code, making an existing optional field required, removing an enum value | Requires a deprecation window (below) and, at GA, a new API version. |
+| **Breaking** | Removing or renaming an endpoint or field, changing a field type, changing an existing status code, making an existing optional field required, removing an enum value, adding a value to an exhaustive enum | Requires a deprecation window (below) and, at GA, a new API version. |
 
 **Clients must tolerate additive change.** A conforming client ignores response
-fields it does not recognize and does not break when a new enum value or a new
-event type appears. Building a client that rejects unknown fields will cause it
+fields it does not recognize and does not break when a new value appears on an
+open enum or a new event type appears. Building a client that rejects unknown fields will cause it
 to break on an additive change that this policy considers backward-compatible.
+
+### Open and exhaustive enums
+
+Every enum in the [OpenAPI schema](/api/reference/#interactive-schema) carries a
+vendor extension saying which kind it is:
+
+- **`"x-trueppm-enum": "open"`** is the default. A later release may add a value.
+  On a response field, your client must accept a value it does not recognize. Treat
+  it as "something newer than I know about" rather than as an error. On a request
+  field, the server you are talking to accepts exactly the listed values and answers
+  `400` to anything else. A later release may accept more.
+- **`"x-trueppm-enum": "exhaustive"`** marks a closed set. Adding a value to it is a
+  Breaking change. Only a few enums are exhaustive: the structural `BlankEnum` and
+  `NullEnum`, the four dependency types (`DepTypeEnum`), the weekdays
+  (`DigestWeekdayEnum`), and the discriminator tags that say which variant of a
+  `oneOf` response you received.
+
+The `enum` list stays in the schema beside the marker, so generated clients keep
+their typed known values. Many generators build decoders that reject an unlisted
+value by default, so configure yours to keep unknown values on open enums. In
+openapi-generator, that is the `enumUnknownDefaultCase` option.
+
+**Role ordinals are not an enum.** `role`, `default_member_role` and `my_role` are
+published as the integer `RoleOrdinal`, in the range 1–400. The five built-in roles
+are `1`, `100`, `200`, `300` and `400`. The ranges between them (2–99, 101–199,
+201–299 and 301–399) are reserved for Enterprise custom roles, so an Enterprise
+installation can return one. To decide what a role may do, compare it with `>=`
+against the built-in ordinal at the bottom of its range. Show an ordinal you do not
+recognize by the range it falls in. A Community edition server accepts only the
+five built-in ordinals on write.
 
 ## Deprecation window & notice
 
 One stable element is scheduled for deprecation — see
 [Current deprecations](#current-deprecations) below. The window mechanism has not yet
-been exercised through to a removal; the ten Breaking changes taken so far all
-bypassed it deliberately, and all ten are recorded inline in step 3. When a **breaking** change to a
+been exercised through to a removal. The twelve Breaking changes taken so far all
+bypassed it deliberately, and all twelve are recorded inline in step 3. When a **breaking** change to a
 stable element becomes necessary, the intent is for it to go through a
 deprecation window rather than being removed outright:
 
@@ -333,6 +363,10 @@ deprecation window rather than being removed outright:
    view's `created_by` to a user id should compare it as a number. `/auth/me/` still
    returns `id` as a decimal string, so convert one side before you compare.
 
+   **Bypassed a twelfth time, in 0.4 (#4593).** The `RoleEnum` component is removed
+   and replaced by `RoleOrdinal`, a banded integer. It is recorded under
+   [Current deprecations](#roleenum-replaced-by-roleordinal) below.
+
    These exceptions are available because TruePPM is pre-1.0 alpha and the v1 surface is
    not yet under a GA compatibility promise. They should not be read as a precedent for
    removals after GA.
@@ -364,6 +398,32 @@ additive change and is safe for every existing client.
 | Behavior during the window | accepted, served as `none`, echoed as `none` |
 | Earliest removal | 0.6 |
 | Migration | send `none`; read the response's `group_by` field rather than assuming the request value was honored |
+
+### `RoleEnum` replaced by `RoleOrdinal`
+
+**This is a pre-GA break with no deprecation window, not a scheduled
+deprecation.** It is listed here so the break has one place to point to.
+
+The schema published `role` (project and program memberships) and
+`default_member_role` (projects) through a closed `RoleEnum` of
+`[1, 100, 200, 300, 400]`. That list ruled out the role ordinals reserved for
+Enterprise custom roles, so an Enterprise installation broke the published
+contract by design. In 0.4 the component is removed. Those fields, and `my_role`,
+now reference `RoleOrdinal`: an integer from 1 to 400, described in
+[Open and exhaustive enums](#open-and-exhaustive-enums) above.
+
+Removing a component is **Breaking** by the table above, because an SDK generated
+from the schema loses its `RoleEnum` type. No window applies, for two reasons. A
+`RoleEnum` kept during a window would go on declaring the reserved ordinals
+invalid, which is the defect itself. And no value the server sends changes: every
+role that was valid before is still valid.
+
+| | |
+|---|---|
+| Announced | 0.4 |
+| Behavior during the window | none — the component is replaced in the same release |
+| Wire values | unchanged; the Community edition still sends and accepts only `1`, `100`, `200`, `300`, `400` |
+| Migration | type role fields as an integer, not as a five-member enum. Compare with `>=` against the built-in ordinals, and accept any integer from 1 to 400 |
 
 ## Versioning approach
 

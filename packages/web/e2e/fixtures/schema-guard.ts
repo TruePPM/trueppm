@@ -44,16 +44,32 @@ import {
  * silently dropped, but it does not fail a spec. The four rules that DO fail are
  * the ones that catch the #2633 class: a wrong type, an unknown property, an
  * enum the server cannot emit, and a null on a non-nullable field.
+ *
+ * Nor does it fail a NEW value on an enum the schema marks open (ADR-1291): a
+ * newer server may send one, and a spec that mocks one is exercising the
+ * tolerance the stability policy demands of clients. That is measured as
+ * `open-enum-value`. A misspelling of a declared value is still enforced on an
+ * open enum, and every value outside an exhaustive enum is — see `enumViolation`.
  */
+
+/**
+ * The vendor extension `core/openapi.py` stamps on every enum (ADR-1291, #4593):
+ * `'open'` — a later server may emit a value not listed — or `'exhaustive'`.
+ */
+export const ENUM_OPENNESS_KEY = 'x-trueppm-enum';
 
 export type ViolationRule =
   | 'type'
   | 'unknown-property'
   | 'enum'
   | 'null-on-non-nullable'
-  | 'missing-required';
+  | 'missing-required'
+  | 'open-enum-value';
 
-/** The rules that fail a spec. `missing-required` is measured only — see the header. */
+/**
+ * The rules that fail a spec. `missing-required` and `open-enum-value` are
+ * measured only — see the header and {@link enumViolation}.
+ */
 const ENFORCED_RULES: ReadonlySet<ViolationRule> = new Set([
   'type',
   'unknown-property',
@@ -91,7 +107,12 @@ function inheritFirstSeen(merged: SchemaNode, flat: SchemaNode): void {
   if (flat.additionalProperties !== undefined && merged.additionalProperties === undefined) {
     merged.additionalProperties = flat.additionalProperties;
   }
-  if (flat.enum && !merged.enum) merged.enum = flat.enum;
+  if (flat.enum && !merged.enum) {
+    merged.enum = flat.enum;
+    // The openness marker belongs to the enum it sits beside; dropping it here
+    // would quietly close every open enum reached through `{allOf: [{$ref}]}`.
+    if (flat[ENUM_OPENNESS_KEY] !== undefined) merged[ENUM_OPENNESS_KEY] = flat[ENUM_OPENNESS_KEY];
+  }
   if (flat.items && !merged.items) merged.items = flat.items;
 }
 
@@ -112,6 +133,49 @@ function effectiveSchema(node: SchemaNode): SchemaNode {
   if (Object.keys(properties).length > 0) merged.properties = properties;
   if (required.size > 0) merged.required = [...required];
   return merged;
+}
+
+/** Case, `-`, `_` and spaces folded away: `'OPEN'`, `'on-track'` → `'open'`, `'ontrack'`. */
+function foldEnumValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value.toLowerCase().replace(/[-_\s]/g, '') : undefined;
+}
+
+/**
+ * Classify a value outside the declared list.
+ *
+ * On an **exhaustive** enum (or one with no marker) it is `enum` — enforced, the
+ * server cannot send it. On an **open** enum a new value is something a newer
+ * server may legitimately send, and a spec that mocks one is testing exactly the
+ * tolerance `stability.md` requires of clients — so it is `open-enum-value`,
+ * measured only. The exception is a **near-miss**: a value that equals a declared
+ * one once case and separators are folded (`'OPEN'` for `'open'`, the #3440 class
+ * that sat in 19 fixtures) is a typo, never a future value — the server will not
+ * add a value differing from an existing one only in spelling — so it stays
+ * enforced.
+ */
+function enumViolation(
+  value: unknown,
+  schema: SchemaNode,
+  declared: unknown[],
+  at: string,
+): Violation {
+  const listed = `${JSON.stringify(value)} is not one of ${JSON.stringify(declared)}`;
+  if (schema[ENUM_OPENNESS_KEY] !== 'open') return { rule: 'enum', at, message: listed };
+  const folded = foldEnumValue(value);
+  const nearMiss =
+    folded === undefined ? undefined : declared.find((known) => foldEnumValue(known) === folded);
+  if (nearMiss !== undefined) {
+    return {
+      rule: 'enum',
+      at,
+      message: `${listed} — it looks like a misspelling of ${JSON.stringify(nearMiss)}`,
+    };
+  }
+  return {
+    rule: 'open-enum-value',
+    at,
+    message: `${listed}; the enum is open, so a newer server may send it`,
+  };
 }
 
 function typeOf(value: unknown): string {
@@ -156,7 +220,10 @@ function validateOneOfAnyOf(
   const anyMatched = branches.some((branch) => {
     const probe: Violation[] = [];
     validate(value, branch, at, probe);
-    return probe.length === 0;
+    // A new value on an open enum is not a mismatch (ADR-1291) — without this a
+    // nullable choice field (`oneOf: [{X}, {BlankEnum}, {NullEnum}]`) would
+    // re-close every open enum through the branch matcher.
+    return probe.every((v) => v.rule === 'open-enum-value');
   });
   if (!anyMatched) {
     out.push({
@@ -245,11 +312,7 @@ function validate(value: unknown, rawSchema: SchemaNode, at: string, out: Violat
   }
 
   if (schema.enum && !schema.enum.includes(value as never)) {
-    out.push({
-      rule: 'enum',
-      at,
-      message: `${JSON.stringify(value)} is not one of ${JSON.stringify(schema.enum)}`,
-    });
+    out.push(enumViolation(value, schema, schema.enum, at));
     return;
   }
 

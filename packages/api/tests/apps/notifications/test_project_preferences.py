@@ -857,26 +857,23 @@ def test_declared_channel_delivery_keys_are_the_matrix_columns_themselves(
     assert declared == set(project_notification_channel_delivery())
 
 
-def test_quiet_hours_timezone_source_is_published_as_a_closed_enum(
+def test_quiet_hours_timezone_source_is_published_as_an_open_enum(
     committed_schema: dict,
 ) -> None:
-    """`stability.md` promises that a new value on a non-exhaustive field is Additive.
+    """`stability.md` promises that a new value on an open enum is Additive.
 
     That guarantee is vacuous while the field is published as a bare string — a
-    client has nothing to be non-exhaustive *about*. Four members, from the
-    resolver's four tiers.
+    client has nothing to be open *about*. Four members, from the resolver's four
+    tiers, and marked open (ADR-1291): a fifth tier is an additive change.
     """
     field = committed_schema["components"]["schemas"]["ProjectNotificationPreferenceDocument"][
         "properties"
     ]["quiet_hours_timezone_source"]
     ref = field.get("$ref") or field["allOf"][0]["$ref"]
 
-    assert set(committed_schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["enum"]) == {
-        "project",
-        "workspace",
-        "server",
-        "fallback",
-    }
+    component = committed_schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+    assert set(component["enum"]) == {"project", "workspace", "server", "fallback"}
+    assert component["x-trueppm-enum"] == "open"
 
 
 def test_matrix_is_published_as_the_event_by_channel_grid(committed_schema: dict) -> None:

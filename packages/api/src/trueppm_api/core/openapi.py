@@ -358,6 +358,9 @@ def postprocess_openapi(
     * replace the default ``"v1"`` tag with a meaningful resource tag;
     * set a document-level ``security`` default and mark public paths ``security: []``.
     * rewrite every bare ``format: "time"`` to a pattern (see ``_rewrite_time_format``).
+    * publish the role ordinal as a banded integer, not a closed enum
+      (see ``_publish_role_ordinal``, ADR-1291);
+    * mark every enum open or exhaustive (see ``_mark_enum_openness``, ADR-1291).
 
     Explicit ``@extend_schema`` values are never overwritten — a non-default tag is
     kept, and an existing summary is left untouched.
@@ -375,6 +378,10 @@ def postprocess_openapi(
     _register_validation_error_detail(result)
     _register_demo_read_only_error(result)
     _rewrite_time_format(result)
+    # Order matters: the role ordinal stops being an enum before the openness pass
+    # runs, so it is never marked as one.
+    _publish_role_ordinal(result)
+    _mark_enum_openness(result)
 
     # Document-level default so a client knows the baseline auth scheme.
     result["security"] = list(GLOBAL_SECURITY)
@@ -408,6 +415,166 @@ def _rewrite_time_format(node: Any) -> None:
     elif isinstance(node, list):
         for item in node:
             _rewrite_time_format(item)
+
+
+# ---------------------------------------------------------------------------
+# Enum openness (ADR-1291, #4593)
+# ---------------------------------------------------------------------------
+
+#: Vendor extension carried by every ``enum`` node in the published document.
+#: Namespaced rather than reusing Zalando's ``x-extensible-enum`` on purpose: that
+#: convention takes an *array* of values and *replaces* ``enum``, so a tool that
+#: knows it would misread a string flag sitting beside ``enum``. See ADR-1291 for
+#: why ``enum`` is kept instead of replaced.
+ENUM_OPENNESS_KEY = "x-trueppm-enum"
+ENUM_OPEN = "open"
+ENUM_EXHAUSTIVE = "exhaustive"
+
+#: The enum components that are genuinely closed. Everything else is open: a
+#: later release may add a value, and a client must tolerate one it does not know
+#: (``stability.md`` § Change classes). Keep this short — every entry is a promise
+#: that adding a value is a Breaking change — and give each one a reason.
+EXHAUSTIVE_ENUMS: dict[str, str] = {
+    # drf-spectacular's structural devices for "blank" and "null" on a nullable /
+    # blankable choice field (`oneOf: [{X}, {BlankEnum}, {NullEnum}]`). They are not
+    # vocabularies; opening them would make every such `oneOf` accept any value.
+    "BlankEnum": "drf-spectacular's empty-string branch of a blankable choice field",
+    "NullEnum": "drf-spectacular's null branch of a nullable choice field",
+    # The four precedence-diagramming relationships are the whole set by
+    # definition, and both scheduling engines hard-code exactly four. A fifth would
+    # be a new engine contract, which is Breaking whatever the schema says.
+    "DepTypeEnum": "FS/SS/FF/SF is the complete set of CPM dependency types",
+    # Python's weekday() integers. There is no eighth day.
+    "DigestWeekdayEnum": "the seven weekdays, 0 (Monday) to 6 (Sunday)",
+    # Discriminator tags. Each names which `oneOf` variant a response is; a client
+    # dispatches on it, and a new chart type or engine pass arrives as a new variant
+    # with its own tag rather than as a new value of an existing variant's tag.
+    "ProjectBurnCombinedChartTypeEnum": "discriminator tag of the ProjectBurnResponse variant",
+    "ProjectBurnSeriesChartTypeEnum": "discriminator tag of the ProjectBurnResponse variant",
+    "ScheduleCpmDerivationPassEnum": "tags the CPM variant of ScheduleDerivationResponse",
+    "ScheduleMonteCarloDerivationPassEnum": (
+        "tags the Monte Carlo variant of ScheduleDerivationResponse"
+    ),
+}
+
+
+def _inline_enum_openness(node: dict[str, Any]) -> str:
+    """Openness of an enum declared inline (a parameter or an anonymous property).
+
+    A boolean or null constant (``sent: [false]``) has no room to grow, so it is
+    exhaustive; any other inline vocabulary follows the open default.
+    """
+    if node.get("type") == "boolean" or all(v is None for v in node.get("enum", [])):
+        return ENUM_EXHAUSTIVE
+    return ENUM_OPEN
+
+
+def _mark_inline_enums(node: Any) -> None:
+    if isinstance(node, dict):
+        if "enum" in node and ENUM_OPENNESS_KEY not in node:
+            node[ENUM_OPENNESS_KEY] = _inline_enum_openness(node)
+        for value in node.values():
+            _mark_inline_enums(value)
+    elif isinstance(node, list):
+        for item in node:
+            _mark_inline_enums(item)
+
+
+def _mark_enum_openness(result: dict[str, Any]) -> None:
+    """Mark every ``enum`` node in the document ``open`` or ``exhaustive`` (#4593).
+
+    Before this every one of the 143 enum components was published closed, while
+    ``stability.md`` called a new enum value an Additive change — so the schema
+    told strict generated clients (and the e2e schema guard) to reject exactly the
+    change the policy promised was safe. The default is now open; the closed ones
+    are named in :data:`EXHAUSTIVE_ENUMS` with a reason each.
+
+    ``enum`` itself is kept rather than replaced, so typed clients still get the
+    known values and the reference docs still list them. The marker is what a
+    client reads to decide whether an unrecognized value is a bug or a newer
+    server; ADR-1291 records the trade-off.
+    """
+    schemas = result.get("components", {}).get("schemas", {})
+    for name, schema in schemas.items():
+        if isinstance(schema, dict) and "enum" in schema:
+            schema[ENUM_OPENNESS_KEY] = ENUM_EXHAUSTIVE if name in EXHAUSTIVE_ENUMS else ENUM_OPEN
+    # Then everything still unmarked: inline property, parameter and response enums.
+    _mark_inline_enums(result)
+
+
+#: The component every role field is published as (ADR-0072 Amendment 2, ADR-1291).
+ROLE_ORDINAL = "RoleOrdinal"
+_ROLE_ENUM_REF = "#/components/schemas/RoleEnum"
+_ROLE_ORDINAL_REF = f"#/components/schemas/{ROLE_ORDINAL}"
+
+
+def _role_ordinal_schema() -> dict[str, Any]:
+    """The banded-integer schema for a role ordinal, derived from ``Role`` itself.
+
+    Derived rather than written out so the published OSS ordinals cannot drift
+    from the model's choices.
+    """
+    from trueppm_api.apps.access.models import Role  # app code: import at call time
+
+    tiers = ", ".join(f"`{member.value}` {member.name}" for member in Role)
+    return {
+        "type": "integer",
+        "minimum": int(min(Role)),
+        "maximum": int(max(Role)),
+        "description": (
+            "A role ordinal (ADR-0072). This is a banded integer, not a closed set. "
+            f"The five OSS roles are {tiers}; their display names depend on the "
+            "project or program vocabulary. The ordinals between them (2-99, "
+            "101-199, 201-299 and 301-399) are reserved for Enterprise custom "
+            "roles, and an Enterprise install may return one. A client must accept "
+            "any integer in range: compare with `>=` against the OSS ordinal that "
+            "opens a band to decide what a role may do, and render an unrecognized "
+            "ordinal by the band it falls in. `0` and anything above the owner "
+            "ordinal are never assigned. An OSS server accepts only the five OSS "
+            "ordinals on write."
+        ),
+    }
+
+
+def _rewrite_ref(node: Any, old: str, new: str) -> None:
+    if isinstance(node, dict):
+        if node.get("$ref") == old:
+            node["$ref"] = new
+        for value in node.values():
+            _rewrite_ref(value, old, new)
+    elif isinstance(node, list):
+        for item in node:
+            _rewrite_ref(item, old, new)
+
+
+def _publish_role_ordinal(result: dict[str, Any]) -> None:
+    """Publish ``role`` / ``default_member_role`` / ``my_role`` as a banded integer.
+
+    drf-spectacular derives a closed ``RoleEnum = [1, 100, 200, 300, 400]`` from
+    the ``Role`` choices. That enum is closed over the very ordinals ADR-0072
+    reserves for Enterprise custom roles, so an Enterprise install returning a
+    role at 250 would violate the published OSS contract by design (#4593). The
+    component is replaced by :data:`ROLE_ORDINAL` and every reference repointed.
+
+    ``my_role`` is a ``SerializerMethodField`` typed plain ``integer`` with no
+    reference to the role at all; it is pointed at the same component so its
+    bands are documented in the one place the other role fields read them from.
+    """
+    schemas = result.get("components", {}).get("schemas")
+    if not schemas or "RoleEnum" not in schemas:
+        return
+    del schemas["RoleEnum"]
+    schemas[ROLE_ORDINAL] = _role_ordinal_schema()
+    _rewrite_ref(result, _ROLE_ENUM_REF, _ROLE_ORDINAL_REF)
+    for schema in schemas.values():
+        prop = schema.get("properties", {}).get("my_role") if isinstance(schema, dict) else None
+        if isinstance(prop, dict) and prop.get("type") == "integer":
+            del prop["type"]
+            rest = dict(prop)
+            prop.clear()
+            prop["allOf"] = [{"$ref": _ROLE_ORDINAL_REF}]
+            prop.update(rest)
+    result["components"]["schemas"] = dict(sorted(schemas.items()))
 
 
 def _register_validation_error_detail(result: dict[str, Any]) -> None:

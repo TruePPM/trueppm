@@ -4440,7 +4440,8 @@
                                 "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
                             ],
                             "type": "string",
-                            "minLength": 1
+                            "minLength": 1,
+                            "x-trueppm-enum": "open"
                         },
                         "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS",
                         "required": true
@@ -5050,7 +5051,8 @@
                                                 "opened_review",
                                                 "merged_complete"
                                             ],
-                                            "description": "draft: a draft/WIP pull/merge request opened — deliberately does not promote the card, the promotion happens when it is marked ready for review. duplicate: a provider redelivery of an event already processed. no_url: the payload carried no pull/merge request URL. no_link: no task in this project has a link pointing at this PR/MR, so there is no card to move — this is the most common reason a correctly configured webhook moves nothing. noop_forward_only: the card is already at or past the target status. opened_review / merged_complete: a card moved."
+                                            "description": "draft: a draft/WIP pull/merge request opened — deliberately does not promote the card, the promotion happens when it is marked ready for review. duplicate: a provider redelivery of an event already processed. no_url: the payload carried no pull/merge request URL. no_link: no task in this project has a link pointing at this PR/MR, so there is no card to move — this is the most common reason a correctly configured webhook moves nothing. noop_forward_only: the card is already at or past the target status. opened_review / merged_complete: a card moved.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
@@ -5112,7 +5114,8 @@
                             "enum": [
                                 "program",
                                 "project"
-                            ]
+                            ],
+                            "x-trueppm-enum": "open"
                         },
                         "required": true
                     },
@@ -7119,7 +7122,8 @@
                                 "project",
                                 "signals",
                                 "tasks"
-                            ]
+                            ],
+                            "x-trueppm-enum": "open"
                         },
                         "description": "Filter to one derived category: `mentions`, `tasks`, `signals`, or `project`. Orthogonal to the read-state filters. `mentions` also matches mention-sourced rows."
                     },
@@ -7412,7 +7416,8 @@
                                             "1h",
                                             "3h",
                                             "tomorrow"
-                                        ]
+                                        ],
+                                        "x-trueppm-enum": "open"
                                     },
                                     "until": {
                                         "type": "string",
@@ -19173,7 +19178,8 @@
                                 "burndown",
                                 "burnup",
                                 "combined"
-                            ]
+                            ],
+                            "x-trueppm-enum": "open"
                         },
                         "description": "Curve to return; one of burndown (default), burnup, or combined. combined merges the remaining (burndown) and completed (burnup) curves into one series."
                     },
@@ -19193,7 +19199,8 @@
                             "enum": [
                                 "points",
                                 "tasks"
-                            ]
+                            ],
+                            "x-trueppm-enum": "open"
                         },
                         "description": "Quantity to chart; tasks (default) or points (story points)."
                     },
@@ -22045,7 +22052,8 @@
                                 "none",
                                 "project",
                                 "role"
-                            ]
+                            ],
+                            "x-trueppm-enum": "open"
                         },
                         "description": "Row sort hint; one of role, project, none. Defaults to none. The response echoes the grouping actually applied in its `group_by` field. **`project` is deprecated and has no effect** — this endpoint is scoped to a single project, so grouping its rows by project is a single group by construction; the cross-project heat map is an Enterprise feature. Requests using it are served as `none` and the response says so. It is retained only for the deprecation window required by the API stability contract and will be removed; use `none`."
                     },
@@ -23069,7 +23077,8 @@
                                             "enum": [
                                                 "child_of_milestone"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     }
                                 }
@@ -26648,7 +26657,8 @@
                                             "iso"
                                         ],
                                         "default": "auto",
-                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback."
+                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback.",
+                                        "x-trueppm-enum": "open"
                                     }
                                 },
                                 "required": [
@@ -26895,7 +26905,8 @@
                                             "iso"
                                         ],
                                         "default": "auto",
-                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback."
+                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback.",
+                                        "x-trueppm-enum": "open"
                                     }
                                 },
                                 "required": [
@@ -32462,7 +32473,8 @@
                                             "enum": [
                                                 "attachment_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
@@ -33055,7 +33067,8 @@
                                             "enum": [
                                                 "reaction_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
@@ -33254,7 +33267,8 @@
                                             "enum": [
                                                 "comment_edit_not_author"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
@@ -33382,7 +33396,8 @@
                                             "enum": [
                                                 "comment_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
@@ -35278,7 +35293,8 @@
                                             "enum": [
                                                 "note_edit_not_author"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
@@ -35406,7 +35422,8 @@
                                             "enum": [
                                                 "note_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``."
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
@@ -37242,7 +37259,8 @@
                             "enum": [
                                 "program",
                                 "project"
-                            ]
+                            ],
+                            "x-trueppm-enum": "open"
                         },
                         "required": true
                     },
@@ -48667,7 +48685,8 @@
                                             "type": "boolean",
                                             "enum": [
                                                 false
-                                            ]
+                                            ],
+                                            "x-trueppm-enum": "exhaustive"
                                         },
                                         "error": {
                                             "type": "string"
@@ -48688,7 +48707,8 @@
                                             "type": "boolean",
                                             "enum": [
                                                 false
-                                            ]
+                                            ],
+                                            "x-trueppm-enum": "exhaustive"
                                         },
                                         "error": {
                                             "type": "string"
@@ -50042,7 +50062,8 @@
                                 "failed",
                                 "pending",
                                 "revoked"
-                            ]
+                            ],
+                            "x-trueppm-enum": "open"
                         },
                         "description": "Which invites to list. Defaults to `pending` — the working set the Members page shows. Pass a terminal status (`accepted`, `revoked`, `expired`, `failed`) or `all` to read the invite history, including rows the default hides. Unknown value → 400."
                     }
@@ -51886,7 +51907,8 @@
                     "used"
                 ],
                 "type": "string",
-                "description": "* `minted` - Minted\n* `revoked` - Revoked\n* `used` - Used"
+                "description": "* `minted` - Minted\n* `revoked` - Revoked\n* `used` - Used",
+                "x-trueppm-enum": "open"
             },
             "ActiveTimer": {
                 "type": "object",
@@ -52118,7 +52140,8 @@
                     "policy"
                 ],
                 "type": "string",
-                "description": "* `identity` - Identity\n* `policy` - Policy"
+                "description": "* `identity` - Identity\n* `policy` - Policy",
+                "x-trueppm-enum": "open"
             },
             "AgentActionVerdictEnum": {
                 "enum": [
@@ -52127,14 +52150,16 @@
                     "requires_approval"
                 ],
                 "type": "string",
-                "description": "* `allowed` - Allowed\n* `refused` - Refused\n* `requires_approval` - Requires approval"
+                "description": "* `allowed` - Allowed\n* `refused` - Refused\n* `requires_approval` - Requires approval",
+                "x-trueppm-enum": "open"
             },
             "AgentActorKindEnum": {
                 "enum": [
                     "mcp_token"
                 ],
                 "type": "string",
-                "description": "* `mcp_token` - MCP token"
+                "description": "* `mcp_token` - MCP token",
+                "x-trueppm-enum": "open"
             },
             "AggregationPolicyEnum": {
                 "enum": [
@@ -52144,7 +52169,8 @@
                     "task_weighted"
                 ],
                 "type": "string",
-                "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted"
+                "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted",
+                "x-trueppm-enum": "open"
             },
             "ApiTokenAuditEntry": {
                 "type": "object",
@@ -52711,7 +52737,8 @@
                     "archived"
                 ],
                 "type": "string",
-                "description": "* `proposed` - Proposed\n* `pulled` - Pulled\n* `archived` - Archived"
+                "description": "* `proposed` - Proposed\n* `pulled` - Pulled\n* `archived` - Archived",
+                "x-trueppm-enum": "open"
             },
             "Baseline": {
                 "type": "object",
@@ -52913,7 +52940,8 @@
             "BlankEnum": {
                 "enum": [
                     ""
-                ]
+                ],
+                "x-trueppm-enum": "exhaustive"
             },
             "BlockedTaskRow": {
                 "type": "object",
@@ -52997,7 +53025,8 @@
                     "other"
                 ],
                 "type": "string",
-                "description": "* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other"
+                "description": "* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other",
+                "x-trueppm-enum": "open"
             },
             "BoardActivityChange": {
                 "type": "object",
@@ -53101,7 +53130,8 @@
                     "continuous"
                 ],
                 "type": "string",
-                "description": "* `sprint` - Sprint-based\n* `continuous` - Continuous flow (Kanban)"
+                "description": "* `sprint` - Sprint-based\n* `continuous` - Continuous flow (Kanban)",
+                "x-trueppm-enum": "open"
             },
             "BoardCardSearchResult": {
                 "type": "object",
@@ -53255,7 +53285,8 @@
                     "on_milestone"
                 ],
                 "type": "string",
-                "description": "* `weekly` - Weekly\n* `biweekly` - Bi-weekly\n* `monthly` - Monthly\n* `on_milestone` - On milestone"
+                "description": "* `weekly` - Weekly\n* `biweekly` - Bi-weekly\n* `monthly` - Monthly\n* `on_milestone` - On milestone",
+                "x-trueppm-enum": "open"
             },
             "Calendar": {
                 "type": "object",
@@ -53457,7 +53488,8 @@
                     "dependencies"
                 ],
                 "type": "string",
-                "description": "* `dependencies` - Dependencies"
+                "description": "* `dependencies` - Dependencies",
+                "x-trueppm-enum": "open"
             },
             "CascadeClassificationOperation": {
                 "type": "object",
@@ -53638,7 +53670,8 @@
                     "PROJECT_MANAGEMENT"
                 ],
                 "type": "string",
-                "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management"
+                "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management",
+                "x-trueppm-enum": "open"
             },
             "CeilingProposal": {
                 "type": "object",
@@ -53734,7 +53767,8 @@
                     "superseded"
                 ],
                 "type": "string",
-                "description": "* `open` - Open for ratification\n* `ratified` - Ratified — raise applied\n* `rejected` - Rejected by the team\n* `expired` - Expired unratified\n* `superseded` - Superseded by a ceiling change"
+                "description": "* `open` - Open for ratification\n* `ratified` - Ratified — raise applied\n* `rejected` - Rejected by the team\n* `expired` - Expired unratified\n* `superseded` - Superseded by a ceiling change",
+                "x-trueppm-enum": "open"
             },
             "CeilingVote": {
                 "type": "object",
@@ -53888,7 +53922,8 @@
                     "deleted"
                 ],
                 "type": "string",
-                "description": "* `created` - created\n* `updated` - updated\n* `deleted` - deleted"
+                "description": "* `created` - created\n* `updated` - updated\n* `deleted` - deleted",
+                "x-trueppm-enum": "open"
             },
             "ChangelogEntry": {
                 "type": "object",
@@ -53963,7 +53998,8 @@
                     "reject"
                 ],
                 "type": "string",
-                "description": "* `approve` - approve\n* `reject` - reject"
+                "description": "* `approve` - approve\n* `reject` - reject",
+                "x-trueppm-enum": "open"
             },
             "ColorEnum": {
                 "enum": [
@@ -53977,7 +54013,8 @@
                     "cyan"
                 ],
                 "type": "string",
-                "description": "* `slate` - Slate\n* `teal` - Teal\n* `purple` - Purple\n* `blue` - Blue\n* `rose` - Rose\n* `amber` - Amber\n* `green` - Green\n* `cyan` - Cyan"
+                "description": "* `slate` - Slate\n* `teal` - Teal\n* `purple` - Purple\n* `blue` - Blue\n* `rose` - Rose\n* `amber` - Amber\n* `green` - Green\n* `cyan` - Cyan",
+                "x-trueppm-enum": "open"
             },
             "ColumnEnum": {
                 "enum": [
@@ -53986,7 +54023,8 @@
                     "ideas"
                 ],
                 "type": "string",
-                "description": "* `went_well` - What went well\n* `to_improve` - What to improve\n* `ideas` - Ideas & discussion"
+                "description": "* `went_well` - What went well\n* `to_improve` - What to improve\n* `ideas` - Ideas & discussion",
+                "x-trueppm-enum": "open"
             },
             "CommentAcknowledgement": {
                 "type": "object",
@@ -54122,7 +54160,8 @@
                     "schedule"
                 ],
                 "type": "string",
-                "description": "* `board` - Board\n* `schedule` - Schedule"
+                "description": "* `board` - Board\n* `schedule` - Schedule",
+                "x-trueppm-enum": "open"
             },
             "CredentialSummary": {
                 "type": "object",
@@ -54824,7 +54863,8 @@
                     "eu"
                 ],
                 "type": "string",
-                "description": "* `auto` - Automatic (based on your locale)\n* `iso` - 2026-07-14\n* `us` - Jul 14, 2026\n* `eu` - 14 Jul 2026"
+                "description": "* `auto` - Automatic (based on your locale)\n* `iso` - 2026-07-14\n* `us` - Jul 14, 2026\n* `eu` - 14 Jul 2026",
+                "x-trueppm-enum": "open"
             },
             "DecisionNote": {
                 "type": "object",
@@ -54914,7 +54954,8 @@
                     "portfolio"
                 ],
                 "type": "string",
-                "description": "* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio"
+                "description": "* `auto` - Automatic (based on your role)\n* `my_work` - My Work\n* `project_overview` - Project Overview\n* `portfolio` - Portfolio",
+                "x-trueppm-enum": "open"
             },
             "DefaultViewEnum": {
                 "enum": [
@@ -54924,7 +54965,8 @@
                     "OVERVIEW"
                 ],
                 "type": "string",
-                "description": "* `SCHEDULE` - Schedule\n* `BOARD` - Board\n* `TABLE` - Table\n* `OVERVIEW` - Overview"
+                "description": "* `SCHEDULE` - Schedule\n* `BOARD` - Board\n* `TABLE` - Table\n* `OVERVIEW` - Overview",
+                "x-trueppm-enum": "open"
             },
             "DeleteUntouchedSeededRequestRequest": {
                 "type": "object",
@@ -54946,7 +54988,8 @@
                     "milestone"
                 ],
                 "type": "string",
-                "description": "* `waterfall` - Waterfall\n* `scrum` - Scrum\n* `kanban` - Kanban\n* `milestone` - Milestone"
+                "description": "* `waterfall` - Waterfall\n* `scrum` - Scrum\n* `kanban` - Kanban\n* `milestone` - Milestone",
+                "x-trueppm-enum": "open"
             },
             "DemoAccessGate": {
                 "type": "object",
@@ -54992,7 +55035,8 @@
                         "enum": [
                             "demo_read_only"
                         ],
-                        "description": "Stable machine-readable refusal code. Branch on this."
+                        "description": "Stable machine-readable refusal code. Branch on this.",
+                        "x-trueppm-enum": "open"
                     }
                 },
                 "required": [
@@ -55009,7 +55053,8 @@
                     "SF"
                 ],
                 "type": "string",
-                "description": "* `FS` - Finish-to-Start\n* `SS` - Start-to-Start\n* `FF` - Finish-to-Finish\n* `SF` - Start-to-Finish"
+                "description": "* `FS` - Finish-to-Start\n* `SS` - Start-to-Start\n* `FF` - Finish-to-Finish\n* `SF` - Start-to-Finish",
+                "x-trueppm-enum": "exhaustive"
             },
             "Dependency": {
                 "type": "object",
@@ -55130,7 +55175,8 @@
                     "server"
                 ],
                 "type": "string",
-                "description": "* `cloud` - cloud\n* `server` - server"
+                "description": "* `cloud` - cloud\n* `server` - server",
+                "x-trueppm-enum": "open"
             },
             "DidntShipItem": {
                 "type": "object",
@@ -55201,7 +55247,8 @@
                     6
                 ],
                 "type": "integer",
-                "description": "* `0` - Monday\n* `1` - Tuesday\n* `2` - Wednesday\n* `3` - Thursday\n* `4` - Friday\n* `5` - Saturday\n* `6` - Sunday"
+                "description": "* `0` - Monday\n* `1` - Tuesday\n* `2` - Wednesday\n* `3` - Thursday\n* `4` - Friday\n* `5` - Saturday\n* `6` - Sunday",
+                "x-trueppm-enum": "exhaustive"
             },
             "DorStateEnum": {
                 "enum": [
@@ -55210,7 +55257,8 @@
                     "ready"
                 ],
                 "type": "string",
-                "description": "* `idea` - Idea\n* `refine` - Refine\n* `ready` - Ready"
+                "description": "* `idea` - Idea\n* `refine` - Refine\n* `ready` - Ready",
+                "x-trueppm-enum": "open"
             },
             "DurationUnitEnum": {
                 "enum": [
@@ -55218,7 +55266,8 @@
                     "hours"
                 ],
                 "type": "string",
-                "description": "* `days` - Days\n* `hours` - Hours"
+                "description": "* `days` - Days\n* `hours` - Hours",
+                "x-trueppm-enum": "open"
             },
             "EditionResponse": {
                 "type": "object",
@@ -55270,7 +55319,8 @@
                     "AFTER_N"
                 ],
                 "type": "string",
-                "description": "* `NEVER` - Never\n* `ON_DATE` - On date\n* `AFTER_N` - After N occurrences"
+                "description": "* `NEVER` - Never\n* `ON_DATE` - On date\n* `AFTER_N` - After N occurrences",
+                "x-trueppm-enum": "open"
             },
             "EstimateStatusEnum": {
                 "enum": [
@@ -55278,7 +55328,8 @@
                     "accepted"
                 ],
                 "type": "string",
-                "description": "* `pending` - Pending Approval\n* `accepted` - Accepted"
+                "description": "* `pending` - Pending Approval\n* `accepted` - Accepted",
+                "x-trueppm-enum": "open"
             },
             "EstimationModeEnum": {
                 "enum": [
@@ -55287,7 +55338,8 @@
                     "pm_only"
                 ],
                 "type": "string",
-                "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
+                "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only",
+                "x-trueppm-enum": "open"
             },
             "EstimationScaleEnum": {
                 "enum": [
@@ -55296,7 +55348,8 @@
                     "tshirt"
                 ],
                 "type": "string",
-                "description": "* `fibonacci` - Fibonacci (1, 2, 3, 5, 8, 13, 21)\n* `linear` - Linear (1-10)\n* `tshirt` - T-shirt (XS-XL)"
+                "description": "* `fibonacci` - Fibonacci (1, 2, 3, 5, 8, 13, 21)\n* `linear` - Linear (1-10)\n* `tshirt` - T-shirt (XS-XL)",
+                "x-trueppm-enum": "open"
             },
             "EventTypeEnum": {
                 "enum": [
@@ -55322,7 +55375,8 @@
                     "ping"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `ping` - Test Ping"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `ping` - Test Ping",
+                "x-trueppm-enum": "open"
             },
             "EventsEnum": {
                 "enum": [
@@ -55347,7 +55401,8 @@
                     "comment.created"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created",
+                "x-trueppm-enum": "open"
             },
             "ExternalConnectionError": {
                 "type": "object",
@@ -55896,7 +55951,8 @@
                     "retried"
                 ],
                 "type": "string",
-                "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
+                "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried",
+                "x-trueppm-enum": "open"
             },
             "FieldDiff": {
                 "type": "object",
@@ -55929,7 +55985,8 @@
                     "BOOLEAN"
                 ],
                 "type": "string",
-                "description": "* `TEXT` - Text\n* `NUMBER` - Number\n* `DATE` - Date\n* `SINGLE_SELECT` - Single-select\n* `MULTI_SELECT` - Multi-select\n* `USER` - Person\n* `BOOLEAN` - Boolean"
+                "description": "* `TEXT` - Text\n* `NUMBER` - Number\n* `DATE` - Date\n* `SINGLE_SELECT` - Single-select\n* `MULTI_SELECT` - Multi-select\n* `USER` - Person\n* `BOOLEAN` - Boolean",
+                "x-trueppm-enum": "open"
             },
             "FlowMetrics": {
                 "type": "object",
@@ -55991,7 +56048,8 @@
                     "velocity_band"
                 ],
                 "type": "string",
-                "description": "* `monte_carlo` - Monte Carlo\n* `velocity_band` - Velocity band"
+                "description": "* `monte_carlo` - Monte Carlo\n* `velocity_band` - Velocity band",
+                "x-trueppm-enum": "open"
             },
             "ForecastConfidenceEnum": {
                 "enum": [
@@ -56000,7 +56058,8 @@
                     "low"
                 ],
                 "type": "string",
-                "description": "* `high` - High\n* `medium` - Medium\n* `low` - Low"
+                "description": "* `high` - High\n* `medium` - Medium\n* `low` - Low",
+                "x-trueppm-enum": "open"
             },
             "ForecastSnapshot": {
                 "type": "object",
@@ -56129,7 +56188,8 @@
                     "unknown"
                 ],
                 "type": "string",
-                "description": "* `current` - current\n* `project_changed` - project_changed\n* `aged` - aged\n* `unknown` - unknown"
+                "description": "* `current` - current\n* `project_changed` - project_changed\n* `aged` - aged\n* `unknown` - unknown",
+                "x-trueppm-enum": "open"
             },
             "FrequencyEnum": {
                 "enum": [
@@ -56138,7 +56198,8 @@
                     "off"
                 ],
                 "type": "string",
-                "description": "* `daily` - Daily\n* `weekly` - Weekly\n* `off` - Off"
+                "description": "* `daily` - Daily\n* `weekly` - Weekly\n* `off` - Off",
+                "x-trueppm-enum": "open"
             },
             "GitAutomationConfig": {
                 "type": "object",
@@ -56263,7 +56324,8 @@
                     "hybrid"
                 ],
                 "type": "string",
-                "description": "* `gated` - Gated\n* `flow` - Flow\n* `hybrid` - Hybrid"
+                "description": "* `gated` - Gated\n* `flow` - Flow\n* `hybrid` - Hybrid",
+                "x-trueppm-enum": "open"
             },
             "Group": {
                 "type": "object",
@@ -56320,7 +56382,8 @@
                     "none"
                 ],
                 "type": "string",
-                "description": "* `role` - role\n* `none` - none"
+                "description": "* `role` - role\n* `none` - none",
+                "x-trueppm-enum": "open"
             },
             "GroupMemberAddRequest": {
                 "type": "object",
@@ -56403,7 +56466,8 @@
                     "critical"
                 ],
                 "type": "string",
-                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical"
+                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical",
+                "x-trueppm-enum": "open"
             },
             "HealthBandSourceEnum": {
                 "enum": [
@@ -56411,7 +56475,8 @@
                     "derived"
                 ],
                 "type": "string",
-                "description": "* `reported` - reported\n* `derived` - derived"
+                "description": "* `reported` - reported\n* `derived` - derived",
+                "x-trueppm-enum": "open"
             },
             "HealthEnum": {
                 "enum": [
@@ -56421,7 +56486,8 @@
                     "CRITICAL"
                 ],
                 "type": "string",
-                "description": "* `AUTO` - Auto\n* `ON_TRACK` - On track\n* `AT_RISK` - At risk\n* `CRITICAL` - Critical"
+                "description": "* `AUTO` - Auto\n* `ON_TRACK` - On track\n* `AT_RISK` - At risk\n* `CRITICAL` - Critical",
+                "x-trueppm-enum": "open"
             },
             "HealthResponse": {
                 "type": "object",
@@ -56587,7 +56653,8 @@
                     "dead"
                 ],
                 "type": "string",
-                "description": "* `pending` - Pending\n* `dispatched` - Dispatched\n* `done` - Done\n* `dead` - Dead"
+                "description": "* `pending` - Pending\n* `dispatched` - Dispatched\n* `done` - Done\n* `dead` - Dead",
+                "x-trueppm-enum": "open"
             },
             "InboundTaskSyncPayloadRequest": {
                 "type": "object",
@@ -56820,7 +56887,8 @@
                     "chore"
                 ],
                 "type": "string",
-                "description": "* `epic` - Epic\n* `feature` - Feature\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `chore` - Chore"
+                "description": "* `epic` - Epic\n* `feature` - Feature\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `chore` - Chore",
+                "x-trueppm-enum": "open"
             },
             "JiraImportQueuedResponse": {
                 "type": "object",
@@ -56848,7 +56916,8 @@
                     "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
                 ],
                 "type": "string",
-                "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
+                "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS",
+                "x-trueppm-enum": "open"
             },
             "KeyRequestError": {
                 "type": "object",
@@ -56896,7 +56965,8 @@
                     "invalid"
                 ],
                 "type": "string",
-                "description": "* `taken` - taken\n* `reserved` - reserved\n* `invalid` - invalid"
+                "description": "* `taken` - taken\n* `reserved` - reserved\n* `invalid` - invalid",
+                "x-trueppm-enum": "open"
             },
             "KindEnum": {
                 "enum": [
@@ -56904,7 +56974,8 @@
                     "link"
                 ],
                 "type": "string",
-                "description": "* `file` - file\n* `link` - link"
+                "description": "* `file` - file\n* `link` - link",
+                "x-trueppm-enum": "open"
             },
             "Label": {
                 "type": "object",
@@ -56985,7 +57056,8 @@
                     "over_capacity"
                 ],
                 "type": "string",
-                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `over_capacity` - over_capacity"
+                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `over_capacity` - over_capacity",
+                "x-trueppm-enum": "open"
             },
             "LabelRequest": {
                 "type": "object",
@@ -57041,7 +57113,8 @@
                     "merged_complete"
                 ],
                 "type": "string",
-                "description": "* `malformed_payload` - malformed_payload\n* `ignored` - ignored\n* `draft` - draft\n* `duplicate` - duplicate\n* `no_url` - no_url\n* `no_link` - no_link\n* `noop_forward_only` - noop_forward_only\n* `opened_review` - opened_review\n* `merged_complete` - merged_complete"
+                "description": "* `malformed_payload` - malformed_payload\n* `ignored` - ignored\n* `draft` - draft\n* `duplicate` - duplicate\n* `no_url` - no_url\n* `no_link` - no_link\n* `noop_forward_only` - noop_forward_only\n* `opened_review` - opened_review\n* `merged_complete` - merged_complete",
+                "x-trueppm-enum": "open"
             },
             "LastRefusalOutcomeEnum": {
                 "enum": [
@@ -57053,7 +57126,8 @@
                     "project_archived"
                 ],
                 "type": "string",
-                "description": "* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature\n* `project_archived` - project_archived"
+                "description": "* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature\n* `project_archived` - project_archived",
+                "x-trueppm-enum": "open"
             },
             "LifecycleEnum": {
                 "enum": [
@@ -57061,7 +57135,8 @@
                     "active"
                 ],
                 "type": "string",
-                "description": "* `draft` - Draft\n* `active` - Active"
+                "description": "* `draft` - Draft\n* `active` - Active",
+                "x-trueppm-enum": "open"
             },
             "LoadBandEnum": {
                 "enum": [
@@ -57070,7 +57145,8 @@
                     "critical"
                 ],
                 "type": "string",
-                "description": "* `on-track` - on-track\n* `at-risk` - at-risk\n* `critical` - critical"
+                "description": "* `on-track` - on-track\n* `at-risk` - at-risk\n* `critical` - critical",
+                "x-trueppm-enum": "open"
             },
             "LoadSampleResponse": {
                 "type": "object",
@@ -57112,7 +57188,8 @@
                     "none"
                 ],
                 "type": "string",
-                "description": "* `admin_owner` - Admins and Owners\n* `scheduler_plus` - Schedulers and above\n* `none` - No one"
+                "description": "* `admin_owner` - Admins and Owners\n* `scheduler_plus` - Schedulers and above\n* `none` - No one",
+                "x-trueppm-enum": "open"
             },
             "Me": {
                 "type": "object",
@@ -58142,7 +58219,8 @@
                     "HYBRID"
                 ],
                 "type": "string",
-                "description": "* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
+                "description": "* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid",
+                "x-trueppm-enum": "open"
             },
             "MetricEnum": {
                 "enum": [
@@ -58150,7 +58228,8 @@
                     "points"
                 ],
                 "type": "string",
-                "description": "* `tasks` - tasks\n* `points` - points"
+                "description": "* `tasks` - tasks\n* `points` - points",
+                "x-trueppm-enum": "open"
             },
             "MilestoneListItem": {
                 "type": "object",
@@ -58234,7 +58313,8 @@
                     "forecast"
                 ],
                 "type": "string",
-                "description": "* `actual` - actual\n* `forecast` - forecast"
+                "description": "* `actual` - actual\n* `forecast` - forecast",
+                "x-trueppm-enum": "open"
             },
             "MinProficiencyEnum": {
                 "enum": [
@@ -58243,7 +58323,8 @@
                     3
                 ],
                 "type": "integer",
-                "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
+                "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert",
+                "x-trueppm-enum": "open"
             },
             "ModeEnum": {
                 "enum": [
@@ -58251,7 +58332,8 @@
                     "probe"
                 ],
                 "type": "string",
-                "description": "* `export` - export\n* `probe` - probe"
+                "description": "* `export` - export\n* `probe` - probe",
+                "x-trueppm-enum": "open"
             },
             "MonteCarloConfidencePoint": {
                 "type": "object",
@@ -58560,7 +58642,8 @@
                     "no_estimates"
                 ],
                 "type": "string",
-                "description": "* `no_committed_tasks` - no_committed_tasks\n* `all_complete` - all_complete\n* `estimates_below_plan_duration` - estimates_below_plan_duration\n* `estimates_off_critical_path` - estimates_off_critical_path\n* `estimates_pending_approval` - estimates_pending_approval\n* `no_velocity_history` - no_velocity_history\n* `no_estimates` - no_estimates"
+                "description": "* `no_committed_tasks` - no_committed_tasks\n* `all_complete` - all_complete\n* `estimates_below_plan_duration` - estimates_below_plan_duration\n* `estimates_off_critical_path` - estimates_off_critical_path\n* `estimates_pending_approval` - estimates_pending_approval\n* `no_velocity_history` - no_velocity_history\n* `no_estimates` - no_estimates",
+                "x-trueppm-enum": "open"
             },
             "MonteCarloHistogramBucket": {
                 "type": "object",
@@ -59188,7 +59271,8 @@
             "NullEnum": {
                 "enum": [
                     null
-                ]
+                ],
+                "x-trueppm-enum": "exhaustive"
             },
             "OmniSearchResult": {
                 "type": "object",
@@ -59285,7 +59369,8 @@
                     "stop"
                 ],
                 "type": "string",
-                "description": "* `continue` - Continue and flag the failed table\n* `stop` - Stop the run on first error"
+                "description": "* `continue` - Continue and flag the failed table\n* `stop` - Stop the run on first error",
+                "x-trueppm-enum": "open"
             },
             "OpEnum": {
                 "enum": [
@@ -59294,7 +59379,8 @@
                     "delete"
                 ],
                 "type": "string",
-                "description": "* `create` - create\n* `update` - update\n* `delete` - delete"
+                "description": "* `create` - create\n* `update` - update\n* `delete` - delete",
+                "x-trueppm-enum": "open"
             },
             "OpenPokerRequest": {
                 "type": "object",
@@ -59314,7 +59400,8 @@
                     "paste"
                 ],
                 "type": "string",
-                "description": "* `paste` - paste"
+                "description": "* `paste` - paste",
+                "x-trueppm-enum": "open"
             },
             "OutcomeEnum": {
                 "enum": [
@@ -59323,7 +59410,8 @@
                     "failure"
                 ],
                 "type": "string",
-                "description": "* `success` - success\n* `reachable` - reachable\n* `failure` - failure"
+                "description": "* `success` - success\n* `reachable` - reachable\n* `failure` - failure",
+                "x-trueppm-enum": "open"
             },
             "PaginatedAcceptanceCriterionList": {
                 "type": "object",
@@ -61518,7 +61606,7 @@
                     "role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -62039,7 +62127,7 @@
                     "default_member_role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -63476,7 +63564,8 @@
                     21
                 ],
                 "type": "integer",
-                "description": "* `1` - 1\n* `2` - 2\n* `3` - 3\n* `5` - 5\n* `8` - 8\n* `13` - 13\n* `21` - 21"
+                "description": "* `1` - 1\n* `2` - 2\n* `3` - 3\n* `5` - 5\n* `8` - 8\n* `13` - 13\n* `21` - 21",
+                "x-trueppm-enum": "open"
             },
             "PokerSession": {
                 "type": "object",
@@ -63556,7 +63645,8 @@
                     "cancelled"
                 ],
                 "type": "string",
-                "description": "* `open` - Open for voting\n* `revealed` - Revealed\n* `committed` - Committed\n* `cancelled` - Cancelled"
+                "description": "* `open` - Open for voting\n* `revealed` - Revealed\n* `committed` - Committed\n* `cancelled` - Cancelled",
+                "x-trueppm-enum": "open"
             },
             "PolicyAppliedEnum": {
                 "enum": [
@@ -63565,7 +63655,8 @@
                     "confirm"
                 ],
                 "type": "string",
-                "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)"
+                "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)",
+                "x-trueppm-enum": "open"
             },
             "PresetEnum": {
                 "enum": [
@@ -63573,7 +63664,8 @@
                     "everything"
                 ],
                 "type": "string",
-                "description": "* `signal_only` - signal_only\n* `everything` - everything"
+                "description": "* `signal_only` - signal_only\n* `everything` - everything",
+                "x-trueppm-enum": "open"
             },
             "PreviewTypeEnum": {
                 "enum": [
@@ -63586,7 +63678,8 @@
                     "file"
                 ],
                 "type": "string",
-                "description": "* `document` - document\n* `spreadsheet` - spreadsheet\n* `presentation` - presentation\n* `image` - image\n* `pdf` - pdf\n* `folder` - folder\n* `file` - file"
+                "description": "* `document` - document\n* `spreadsheet` - spreadsheet\n* `presentation` - presentation\n* `image` - image\n* `pdf` - pdf\n* `folder` - folder\n* `file` - file",
+                "x-trueppm-enum": "open"
             },
             "PreviousForecastSnapshot": {
                 "type": "object",
@@ -63652,7 +63745,8 @@
                     "value_effort"
                 ],
                 "type": "string",
-                "description": "* `none` - None\n* `wsjf` - WSJF\n* `rice` - RICE\n* `value_effort` - Value / Effort"
+                "description": "* `none` - None\n* `wsjf` - WSJF\n* `rice` - RICE\n* `value_effort` - Value / Effort",
+                "x-trueppm-enum": "open"
             },
             "ProductBacklogAutoRankResult": {
                 "type": "object",
@@ -63797,7 +63891,8 @@
                     3
                 ],
                 "type": "integer",
-                "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
+                "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert",
+                "x-trueppm-enum": "open"
             },
             "Program": {
                 "type": "object",
@@ -64114,7 +64209,11 @@
                         "readOnly": true
                     },
                     "my_role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "nullable": true,
                         "readOnly": true
                     },
@@ -64488,7 +64587,7 @@
                     "role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -64545,7 +64644,7 @@
                     "role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -64727,7 +64826,11 @@
                         "readOnly": true
                     },
                     "my_role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "nullable": true,
                         "description": "Caller's role ordinal on this project (ADR-0186 §F, #504).\n\nBacked by the viewset's ``_my_role`` annotation (a Subquery over\nProjectMembership) so it costs one scalar per row, never an N+1. Falls\nback to ``None`` when the annotation is absent — e.g. a freshly-created\ninstance serialized before it is re-fetched through the annotated\nqueryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.",
                         "readOnly": true
@@ -65675,7 +65778,7 @@
                     "default_member_role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -65922,7 +66025,11 @@
                         "readOnly": true
                     },
                     "my_role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "nullable": true,
                         "description": "Caller's role ordinal on this project (ADR-0186 §F, #504).\n\nBacked by the viewset's ``_my_role`` annotation (a Subquery over\nProjectMembership) so it costs one scalar per row, never an N+1. Falls\nback to ``None`` when the annotation is absent — e.g. a freshly-created\ninstance serialized before it is re-fetched through the annotated\nqueryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.",
                         "readOnly": true
@@ -66247,7 +66354,8 @@
                     "overallocation"
                 ],
                 "type": "string",
-                "description": "* `critical_task_late` - critical_task_late\n* `unassigned_approaching` - unassigned_approaching\n* `baseline_drift` - baseline_drift\n* `overallocation` - overallocation"
+                "description": "* `critical_task_late` - critical_task_late\n* `unassigned_approaching` - unassigned_approaching\n* `baseline_drift` - baseline_drift\n* `overallocation` - overallocation",
+                "x-trueppm-enum": "open"
             },
             "ProjectBlockedRollup": {
                 "type": "object",
@@ -66351,7 +66459,8 @@
                     "combined"
                 ],
                 "type": "string",
-                "description": "* `combined` - combined"
+                "description": "* `combined` - combined",
+                "x-trueppm-enum": "exhaustive"
             },
             "ProjectBurnCombinedPoint": {
                 "type": "object",
@@ -66466,7 +66575,8 @@
                     "burnup"
                 ],
                 "type": "string",
-                "description": "* `burndown` - burndown\n* `burnup` - burnup"
+                "description": "* `burndown` - burndown\n* `burnup` - burnup",
+                "x-trueppm-enum": "exhaustive"
             },
             "ProjectBurnSeriesPoint": {
                 "type": "object",
@@ -66750,7 +66860,7 @@
                     "default_member_role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -66997,7 +67107,11 @@
                         "readOnly": true
                     },
                     "my_role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "nullable": true,
                         "description": "Caller's role ordinal on this project (ADR-0186 §F, #504).\n\nBacked by the viewset's ``_my_role`` annotation (a Subquery over\nProjectMembership) so it costs one scalar per row, never an N+1. Falls\nback to ``None`` when the annotation is absent — e.g. a freshly-created\ninstance serialized before it is re-fetched through the annotated\nqueryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.",
                         "readOnly": true
@@ -67716,7 +67830,7 @@
                     "role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -68498,7 +68612,7 @@
                     "default_member_role": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/RoleEnum"
+                                "$ref": "#/components/schemas/RoleOrdinal"
                             }
                         ],
                         "minimum": -2147483648,
@@ -69078,7 +69192,8 @@
                     "summary_in_sprint"
                 ],
                 "type": "string",
-                "description": "* `orphan` - orphan\n* `phase_span` - phase_span\n* `summary_in_sprint` - summary_in_sprint"
+                "description": "* `orphan` - orphan\n* `phase_span` - phase_span\n* `summary_in_sprint` - summary_in_sprint",
+                "x-trueppm-enum": "open"
             },
             "ProjectStatusSummary": {
                 "type": "object",
@@ -69791,7 +69906,8 @@
                     "failed"
                 ],
                 "type": "string",
-                "description": "* `running` - Running\n* `ok` - OK\n* `partial` - Partial\n* `failed` - Failed"
+                "description": "* `running` - Running\n* `ok` - OK\n* `partial` - Partial\n* `failed` - Failed",
+                "x-trueppm-enum": "open"
             },
             "PurgeRunTriggerEnum": {
                 "enum": [
@@ -69800,7 +69916,8 @@
                     "dry_run"
                 ],
                 "type": "string",
-                "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run"
+                "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run",
+                "x-trueppm-enum": "open"
             },
             "QuietHoursTimezoneSourceEnum": {
                 "enum": [
@@ -69810,7 +69927,8 @@
                     "fallback"
                 ],
                 "type": "string",
-                "description": "* `project` - project\n* `workspace` - workspace\n* `server` - server\n* `fallback` - fallback"
+                "description": "* `project` - project\n* `workspace` - workspace\n* `server` - server\n* `fallback` - fallback",
+                "x-trueppm-enum": "open"
             },
             "RaiseCeilingRequest": {
                 "type": "object",
@@ -69856,7 +69974,8 @@
                     "different_parent"
                 ],
                 "type": "string",
-                "description": "* `ancestor_selected` - ancestor_selected\n* `different_parent` - different_parent"
+                "description": "* `ancestor_selected` - ancestor_selected\n* `different_parent` - different_parent",
+                "x-trueppm-enum": "open"
             },
             "RecentProject": {
                 "type": "object",
@@ -69903,7 +70022,8 @@
                     "CUSTOM"
                 ],
                 "type": "string",
-                "description": "* `DAILY` - Daily\n* `WEEKLY` - Weekly\n* `MONTHLY` - Monthly\n* `CUSTOM` - Custom"
+                "description": "* `DAILY` - Daily\n* `WEEKLY` - Weekly\n* `MONTHLY` - Monthly\n* `CUSTOM` - Custom",
+                "x-trueppm-enum": "open"
             },
             "ReforecastPreview": {
                 "type": "object",
@@ -69973,7 +70093,8 @@
                     "engine_referee"
                 ],
                 "type": "string",
-                "description": "* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee"
+                "description": "* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee",
+                "x-trueppm-enum": "open"
             },
             "RelationTypeEnum": {
                 "enum": [
@@ -69982,7 +70103,8 @@
                     "duplicates"
                 ],
                 "type": "string",
-                "description": "* `relates_to` - Relates to\n* `blocks` - Blocks\n* `duplicates` - Duplicates"
+                "description": "* `relates_to` - Relates to\n* `blocks` - Blocks\n* `duplicates` - Duplicates",
+                "x-trueppm-enum": "open"
             },
             "ResolutionEnum": {
                 "enum": [
@@ -69990,7 +70112,8 @@
                     "auto_resolved"
                 ],
                 "type": "string",
-                "description": "* `unresolved` - Unresolved\n* `auto_resolved` - Auto-resolved"
+                "description": "* `unresolved` - Unresolved\n* `auto_resolved` - Auto-resolved",
+                "x-trueppm-enum": "open"
             },
             "ResolveResponse": {
                 "type": "object",
@@ -70040,7 +70163,8 @@
                     "risk"
                 ],
                 "type": "string",
-                "description": "* `project` - project\n* `program` - program\n* `task` - task\n* `sprint` - sprint\n* `risk` - risk"
+                "description": "* `project` - project\n* `program` - program\n* `task` - task\n* `sprint` - sprint\n* `risk` - risk",
+                "x-trueppm-enum": "open"
             },
             "Resource": {
                 "type": "object",
@@ -70261,7 +70385,8 @@
                     "ACCEPT"
                 ],
                 "type": "string",
-                "description": "* `AVOID` - Avoid\n* `MITIGATE` - Mitigate\n* `TRANSFER` - Transfer\n* `ACCEPT` - Accept"
+                "description": "* `AVOID` - Avoid\n* `MITIGATE` - Mitigate\n* `TRANSFER` - Transfer\n* `ACCEPT` - Accept",
+                "x-trueppm-enum": "open"
             },
             "RetentionImpact": {
                 "type": "object",
@@ -70879,7 +71004,8 @@
                     "negative"
                 ],
                 "type": "string",
-                "description": "* `not_run` - not_run\n* `unmeasurable` - unmeasurable\n* `stale` - stale\n* `zero` - zero\n* `premium` - premium\n* `negative` - negative"
+                "description": "* `not_run` - not_run\n* `unmeasurable` - unmeasurable\n* `stale` - stale\n* `zero` - zero\n* `premium` - premium\n* `negative` - negative",
+                "x-trueppm-enum": "open"
             },
             "RiskRequest": {
                 "type": "object",
@@ -70973,7 +71099,8 @@
                     "block"
                 ],
                 "type": "string",
-                "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
+                "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate",
+                "x-trueppm-enum": "open"
             },
             "RiskStatusEnum": {
                 "enum": [
@@ -70984,7 +71111,8 @@
                     "CLOSED"
                 ],
                 "type": "string",
-                "description": "* `OPEN` - Open\n* `MITIGATING` - Mitigating\n* `RESOLVED` - Resolved\n* `ACCEPTED` - Accepted\n* `CLOSED` - Closed"
+                "description": "* `OPEN` - Open\n* `MITIGATING` - Mitigating\n* `RESOLVED` - Resolved\n* `ACCEPTED` - Accepted\n* `CLOSED` - Closed",
+                "x-trueppm-enum": "open"
             },
             "RoleContextEnum": {
                 "enum": [
@@ -70993,18 +71121,8 @@
                     "unified"
                 ],
                 "type": "string",
-                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
-            },
-            "RoleEnum": {
-                "enum": [
-                    1,
-                    100,
-                    200,
-                    300,
-                    400
-                ],
-                "type": "integer",
-                "description": "* `1` - Viewer\n* `100` - Team Member\n* `200` - Resource Manager\n* `300` - Project Manager\n* `400` - Project Admin"
+                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today",
+                "x-trueppm-enum": "open"
             },
             "RoleF2cEnum": {
                 "enum": [
@@ -71013,7 +71131,14 @@
                     "workspace"
                 ],
                 "type": "string",
-                "description": "* `project` - Project\n* `holidays` - Holidays\n* `workspace` - Workspace / shutdown"
+                "description": "* `project` - Project\n* `holidays` - Holidays\n* `workspace` - Workspace / shutdown",
+                "x-trueppm-enum": "open"
+            },
+            "RoleOrdinal": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 400,
+                "description": "A role ordinal (ADR-0072). This is a banded integer, not a closed set. The five OSS roles are `1` VIEWER, `100` MEMBER, `200` SCHEDULER, `300` ADMIN, `400` OWNER; their display names depend on the project or program vocabulary. The ordinals between them (2-99, 101-199, 201-299 and 301-399) are reserved for Enterprise custom roles, and an Enterprise install may return one. A client must accept any integer in range: compare with `>=` against the OSS ordinal that opens a band to decide what a role may do, and render an unrecognized ordinal by the band it falls in. `0` and anything above the owner ordinal are never assigned. An OSS server accepts only the five OSS ordinals on write."
             },
             "RollupAggregationPolicyEnum": {
                 "enum": [
@@ -71023,7 +71148,8 @@
                     "task_weighted"
                 ],
                 "type": "string",
-                "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted"
+                "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted",
+                "x-trueppm-enum": "open"
             },
             "SampleCatalogEntry": {
                 "type": "object",
@@ -71155,7 +71281,8 @@
                     "float"
                 ],
                 "type": "string",
-                "description": "* `forward` - forward\n* `backward` - backward\n* `float` - float"
+                "description": "* `forward` - forward\n* `backward` - backward\n* `float` - float",
+                "x-trueppm-enum": "exhaustive"
             },
             "ScheduleCpmDerivationQuantityEnum": {
                 "enum": [
@@ -71168,7 +71295,8 @@
                     "scheduled_start"
                 ],
                 "type": "string",
-                "description": "* `early_start` - early_start\n* `early_finish` - early_finish\n* `late_start` - late_start\n* `late_finish` - late_finish\n* `total_float` - total_float\n* `free_float` - free_float\n* `scheduled_start` - scheduled_start"
+                "description": "* `early_start` - early_start\n* `early_finish` - early_finish\n* `late_start` - late_start\n* `late_finish` - late_finish\n* `total_float` - total_float\n* `free_float` - free_float\n* `scheduled_start` - scheduled_start",
+                "x-trueppm-enum": "open"
             },
             "ScheduleDerivationContribution": {
                 "type": "object",
@@ -71240,7 +71368,8 @@
                     "unknown"
                 ],
                 "type": "string",
-                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown"
+                "description": "* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown",
+                "x-trueppm-enum": "open"
             },
             "ScheduleMonteCarloDerivation": {
                 "type": "object",
@@ -71323,7 +71452,8 @@
                     "monte_carlo"
                 ],
                 "type": "string",
-                "description": "* `monte_carlo` - monte_carlo"
+                "description": "* `monte_carlo` - monte_carlo",
+                "x-trueppm-enum": "exhaustive"
             },
             "ScheduleMonteCarloDerivationQuantityEnum": {
                 "enum": [
@@ -71332,7 +71462,8 @@
                     "p95"
                 ],
                 "type": "string",
-                "description": "* `p50` - p50\n* `p80` - p80\n* `p95` - p95"
+                "description": "* `p50` - p50\n* `p80` - p80\n* `p95` - p95",
+                "x-trueppm-enum": "open"
             },
             "ScheduleTriggerResult": {
                 "type": "object",
@@ -71448,7 +71579,8 @@
                     "private"
                 ],
                 "type": "string",
-                "description": "* `project_visible` - Project visible\n* `team_only` - Team only\n* `private` - Private"
+                "description": "* `project_visible` - Project visible\n* `team_only` - Team only\n* `private` - Private",
+                "x-trueppm-enum": "open"
             },
             "ScopesEnum": {
                 "enum": [
@@ -71456,7 +71588,8 @@
                     "mcp:read"
                 ],
                 "type": "string",
-                "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read"
+                "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read",
+                "x-trueppm-enum": "open"
             },
             "SecurityEnum": {
                 "enum": [
@@ -71465,7 +71598,8 @@
                     "ssl"
                 ],
                 "type": "string",
-                "description": "* `none` - None\n* `tls` - STARTTLS\n* `ssl` - SSL/TLS"
+                "description": "* `none` - None\n* `tls` - STARTTLS\n* `ssl` - SSL/TLS",
+                "x-trueppm-enum": "open"
             },
             "SeedImportQueuedResponse": {
                 "type": "object",
@@ -71630,7 +71764,8 @@
                     "info"
                 ],
                 "type": "string",
-                "description": "* `critical` - critical\n* `warning` - warning\n* `info` - info"
+                "description": "* `critical` - critical\n* `warning` - warning\n* `info` - info",
+                "x-trueppm-enum": "open"
             },
             "ShareLink": {
                 "type": "object",
@@ -71923,7 +72058,8 @@
                     "program_shared"
                 ],
                 "type": "string",
-                "description": "* `team` - Team only\n* `team_sm` - Team + Scrum Master\n* `team_sm_pm` - Team + SM + PM\n* `program_shared` - Shared to program rollup (opt-in)"
+                "description": "* `team` - Team only\n* `team_sm` - Team + Scrum Master\n* `team_sm_pm` - Team + SM + PM\n* `program_shared` - Shared to program rollup (opt-in)",
+                "x-trueppm-enum": "open"
             },
             "SignalEnum": {
                 "enum": [
@@ -71933,7 +72069,8 @@
                     "flow_metrics"
                 ],
                 "type": "string",
-                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse\n* `flow_metrics` - flow_metrics"
+                "description": "* `velocity` - velocity\n* `throughput_rollup` - throughput_rollup\n* `pulse` - pulse\n* `flow_metrics` - flow_metrics",
+                "x-trueppm-enum": "open"
             },
             "SignalPrivacyPolicy": {
                 "type": "object",
@@ -72059,7 +72196,8 @@
                     "block"
                 ],
                 "type": "string",
-                "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
+                "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate",
+                "x-trueppm-enum": "open"
             },
             "SourceKindEnum": {
                 "enum": [
@@ -72072,7 +72210,8 @@
                     "paste"
                 ],
                 "type": "string",
-                "description": "* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows"
+                "description": "* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows",
+                "x-trueppm-enum": "open"
             },
             "Sprint": {
                 "type": "object",
@@ -72498,7 +72637,8 @@
                     "created"
                 ],
                 "type": "string",
-                "description": "* `new` - new\n* `exists` - exists\n* `created` - created"
+                "description": "* `new` - new\n* `exists` - exists\n* `created` - created",
+                "x-trueppm-enum": "open"
             },
             "SprintCapacity": {
                 "type": "object",
@@ -72575,7 +72715,8 @@
                     "no_history"
                 ],
                 "type": "string",
-                "description": "* `velocity_average` - velocity_average\n* `no_history` - no_history"
+                "description": "* `velocity_average` - velocity_average\n* `no_history` - no_history",
+                "x-trueppm-enum": "open"
             },
             "SprintCapacityMember": {
                 "type": "object",
@@ -72977,7 +73118,8 @@
                     "insufficient_flow_history"
                 ],
                 "type": "string",
-                "description": "* `ready` - ready\n* `warming_up` - warming_up\n* `insufficient_flow_history` - insufficient_flow_history"
+                "description": "* `ready` - ready\n* `warming_up` - warming_up\n* `insufficient_flow_history` - insufficient_flow_history",
+                "x-trueppm-enum": "open"
             },
             "SprintGenerateRequest": {
                 "type": "object",
@@ -73081,7 +73223,8 @@
                     "MISSED"
                 ],
                 "type": "string",
-                "description": "* `MET` - Met\n* `PARTIAL` - Partially met\n* `MISSED` - Missed"
+                "description": "* `MET` - Met\n* `PARTIAL` - Partially met\n* `MISSED` - Missed",
+                "x-trueppm-enum": "open"
             },
             "SprintOutcome": {
                 "type": "object",
@@ -73775,7 +73918,8 @@
                     "dropped"
                 ],
                 "type": "string",
-                "description": "* `completed` - Completed in sprint\n* `carried` - Carried to another sprint\n* `dropped` - Dropped (not carried forward)"
+                "description": "* `completed` - Completed in sprint\n* `carried` - Carried to another sprint\n* `dropped` - Dropped (not carried forward)",
+                "x-trueppm-enum": "open"
             },
             "SprintTaskOutcomeFlagForBacklogResult": {
                 "type": "object",
@@ -74246,7 +74390,8 @@
                     "CANCELLED"
                 ],
                 "type": "string",
-                "description": "* `PLANNED` - Planned\n* `ACTIVE` - Active\n* `COMPLETED` - Completed\n* `CANCELLED` - Cancelled"
+                "description": "* `PLANNED` - Planned\n* `ACTIVE` - Active\n* `COMPLETED` - Completed\n* `CANCELLED` - Cancelled",
+                "x-trueppm-enum": "open"
             },
             "Status9bdEnum": {
                 "enum": [
@@ -74257,7 +74402,8 @@
                     "cancelled"
                 ],
                 "type": "string",
-                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled",
+                "x-trueppm-enum": "open"
             },
             "StatusE83Enum": {
                 "enum": [
@@ -74265,7 +74411,8 @@
                     "undone"
                 ],
                 "type": "string",
-                "description": "* `active` - Active\n* `undone` - Undone"
+                "description": "* `active` - Active\n* `undone` - Undone",
+                "x-trueppm-enum": "open"
             },
             "StructuralOperation": {
                 "type": "object",
@@ -74367,7 +74514,8 @@
                     "ungroup"
                 ],
                 "type": "string",
-                "description": "* `indent` - Indent\n* `outdent` - Outdent\n* `reparent` - Reparent\n* `reorder` - Reorder\n* `group` - Group\n* `ungroup` - Ungroup"
+                "description": "* `indent` - Indent\n* `outdent` - Outdent\n* `reparent` - Reparent\n* `reorder` - Reorder\n* `group` - Group\n* `ungroup` - Ungroup",
+                "x-trueppm-enum": "open"
             },
             "StructuralOperationUndo": {
                 "type": "object",
@@ -74509,7 +74657,8 @@
                     "forbidden"
                 ],
                 "type": "string",
-                "description": "* `` - Undoable\n* `already_undone` - Already undone\n* `too_large` - Region too large to reverse\n* `not_top_of_stack` - Not top of stack\n* `shape_changed` - Outline changed since\n* `forbidden` - Forbidden"
+                "description": "* `` - Undoable\n* `already_undone` - Already undone\n* `too_large` - Region too large to reverse\n* `not_top_of_stack` - Not top of stack\n* `shape_changed` - Outline changed since\n* `forbidden` - Forbidden",
+                "x-trueppm-enum": "open"
             },
             "StructureRoleConflict": {
                 "type": "object",
@@ -74541,7 +74690,8 @@
                     "milestone"
                 ],
                 "type": "string",
-                "description": "* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
+                "description": "* `work` - Work\n* `container` - Container\n* `milestone` - Milestone",
+                "x-trueppm-enum": "open"
             },
             "SuggestionStateEnum": {
                 "enum": [
@@ -74549,7 +74699,8 @@
                     "owned"
                 ],
                 "type": "string",
-                "description": "* `suggested` - suggested\n* `owned` - owned"
+                "description": "* `suggested` - suggested\n* `owned` - owned",
+                "x-trueppm-enum": "open"
             },
             "SyncPullResponse": {
                 "type": "object",
@@ -75836,7 +75987,8 @@
                     "deleted"
                 ],
                 "type": "string",
-                "description": "* `created` - created\n* `updated` - updated\n* `unchanged` - unchanged\n* `deleted` - deleted"
+                "description": "* `created` - created\n* `updated` - updated\n* `unchanged` - unchanged\n* `deleted` - deleted",
+                "x-trueppm-enum": "open"
             },
             "TaskBulkDependencyApplied": {
                 "type": "object",
@@ -76004,7 +76156,8 @@
                     "milestone_gate"
                 ],
                 "type": "string",
-                "description": "* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate"
+                "description": "* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate",
+                "x-trueppm-enum": "open"
             },
             "TaskBulkRequest": {
                 "type": "object",
@@ -76669,7 +76822,8 @@
                     "cpm_cascade"
                 ],
                 "type": "string",
-                "description": "* `user_edit` - User edit\n* `cpm_cascade` - CPM cascade"
+                "description": "* `user_edit` - User edit\n* `cpm_cascade` - CPM cascade",
+                "x-trueppm-enum": "open"
             },
             "TaskDurationChangePercentPolicyEnum": {
                 "enum": [
@@ -76678,7 +76832,8 @@
                     "confirm"
                 ],
                 "type": "string",
-                "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)"
+                "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)",
+                "x-trueppm-enum": "open"
             },
             "TaskGroupContainer": {
                 "type": "object",
@@ -77126,7 +77281,8 @@
                     "unknown"
                 ],
                 "type": "string",
-                "description": "* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed\n* `unknown` - unknown"
+                "description": "* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed\n* `unknown` - unknown",
+                "x-trueppm-enum": "open"
             },
             "TaskNote": {
                 "type": "object",
@@ -78079,7 +78235,8 @@
                     "COMPLETE"
                 ],
                 "type": "string",
-                "description": "* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete"
+                "description": "* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete",
+                "x-trueppm-enum": "open"
             },
             "TaskSuggestionAcceptResponse": {
                 "type": "object",
@@ -78237,7 +78394,8 @@
                     "tech_debt"
                 ],
                 "type": "string",
-                "description": "* `epic` - Epic\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `tech_debt` - Tech Debt"
+                "description": "* `epic` - Epic\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `tech_debt` - Tech Debt",
+                "x-trueppm-enum": "open"
             },
             "TaskUngroupRequestRequest": {
                 "type": "object",
@@ -79188,7 +79346,8 @@
                     "admin"
                 ],
                 "type": "string",
-                "description": "* `member` - Member\n* `admin` - Admin"
+                "description": "* `member` - Member\n* `admin` - Admin",
+                "x-trueppm-enum": "open"
             },
             "TeamUtilizationReasonEnum": {
                 "enum": [
@@ -79196,7 +79355,8 @@
                     "no_capacity"
                 ],
                 "type": "string",
-                "description": "* `no_roster` - no_roster\n* `no_capacity` - no_capacity"
+                "description": "* `no_roster` - no_roster\n* `no_capacity` - no_capacity",
+                "x-trueppm-enum": "open"
             },
             "TeamVisibilityEnum": {
                 "enum": [
@@ -79205,7 +79365,8 @@
                     "org"
                 ],
                 "type": "string",
-                "description": "* `team_only` - Team Only\n* `project` - Project\n* `org` - Org"
+                "description": "* `team_only` - Team Only\n* `project` - Project\n* `org` - Org",
+                "x-trueppm-enum": "open"
             },
             "TelemetryTestExportResult": {
                 "type": "object",
@@ -79334,7 +79495,8 @@
                     "undone"
                 ],
                 "type": "string",
-                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `undone` - Undone"
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `undone` - Undone",
+                "x-trueppm-enum": "open"
             },
             "TemplateApplicationUndo": {
                 "type": "object",
@@ -79519,7 +79681,8 @@
                     "personal"
                 ],
                 "type": "string",
-                "description": "* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours"
+                "description": "* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours",
+                "x-trueppm-enum": "open"
             },
             "TermOverridePolicyEnum": {
                 "enum": [
@@ -79528,7 +79691,8 @@
                     "enforce"
                 ],
                 "type": "string",
-                "description": "* `inherit` - Inherit\n* `suggest` - Suggest\n* `enforce` - Enforce"
+                "description": "* `inherit` - Inherit\n* `suggest` - Suggest\n* `enforce` - Enforce",
+                "x-trueppm-enum": "open"
             },
             "TimeEntry": {
                 "type": "object",
@@ -79617,7 +79781,8 @@
                     "timer"
                 ],
                 "type": "string",
-                "description": "* `manual` - Manual\n* `timer` - Timer"
+                "description": "* `manual` - Manual\n* `timer` - Timer",
+                "x-trueppm-enum": "open"
             },
             "TimeEntryWeekly": {
                 "type": "object",
@@ -79752,7 +79917,8 @@
                     "warn"
                 ],
                 "type": "string",
-                "description": "* `info` - info\n* `warn` - warn"
+                "description": "* `info` - info\n* `warn` - warn",
+                "x-trueppm-enum": "open"
             },
             "TransferOwnershipRequest": {
                 "type": "object",
@@ -79774,7 +79940,8 @@
                     "ses"
                 ],
                 "type": "string",
-                "description": "* `cloud` - TruePPM cloud (Django settings)\n* `smtp` - Custom SMTP\n* `sendgrid` - SendGrid\n* `ses` - Amazon SES"
+                "description": "* `cloud` - TruePPM cloud (Django settings)\n* `smtp` - Custom SMTP\n* `sendgrid` - SendGrid\n* `ses` - Amazon SES",
+                "x-trueppm-enum": "open"
             },
             "TrashProjectList": {
                 "type": "object",
@@ -79812,7 +79979,11 @@
                         "nullable": true
                     },
                     "my_role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "nullable": true
                     },
                     "can_restore": {
@@ -79839,7 +80010,8 @@
                     "manual"
                 ],
                 "type": "string",
-                "description": "* `recompute` - Recompute\n* `scheduled` - Scheduled\n* `manual` - Manual"
+                "description": "* `recompute` - Recompute\n* `scheduled` - Scheduled\n* `manual` - Manual",
+                "x-trueppm-enum": "open"
             },
             "UnitEnum": {
                 "enum": [
@@ -79847,7 +80019,8 @@
                     "hours"
                 ],
                 "type": "string",
-                "description": "* `days` - days\n* `hours` - hours"
+                "description": "* `days` - days\n* `hours` - hours",
+                "x-trueppm-enum": "open"
             },
             "UserDefinedMentionGroupRead": {
                 "type": "object",
@@ -80086,7 +80259,8 @@
                     21
                 ],
                 "type": "integer",
-                "description": "* `1` - 1\n* `2` - 2\n* `3` - 3\n* `5` - 5\n* `8` - 8\n* `13` - 13\n* `21` - 21"
+                "description": "* `1` - 1\n* `2` - 2\n* `3` - 3\n* `5` - 5\n* `8` - 8\n* `13` - 13\n* `21` - 21",
+                "x-trueppm-enum": "open"
             },
             "VelocitySuggestion": {
                 "type": "object",
@@ -80183,7 +80357,8 @@
                     "PRIVATE"
                 ],
                 "type": "string",
-                "description": "* `WORKSPACE` - Workspace\n* `PRIVATE` - Private"
+                "description": "* `WORKSPACE` - Workspace\n* `PRIVATE` - Private",
+                "x-trueppm-enum": "open"
             },
             "WbsPathEntry": {
                 "type": "object",
@@ -80519,7 +80694,8 @@
                     "failed"
                 ],
                 "type": "string",
-                "description": "* `pending` - Pending\n* `success` - Success\n* `failed` - Failed"
+                "description": "* `pending` - Pending\n* `success` - Success\n* `failed` - Failed",
+                "x-trueppm-enum": "open"
             },
             "WebhookRequest": {
                 "type": "object",
@@ -80734,7 +80910,8 @@
                     "failed"
                 ],
                 "type": "string",
-                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed"
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed",
+                "x-trueppm-enum": "open"
             },
             "WorkspaceInvite": {
                 "type": "object",
@@ -80899,7 +81076,8 @@
                     "deactivated"
                 ],
                 "type": "string",
-                "description": "* `active` - Active\n* `guest` - Guest\n* `deactivated` - Deactivated"
+                "description": "* `active` - Active\n* `guest` - Guest\n* `deactivated` - Deactivated",
+                "x-trueppm-enum": "open"
             },
             "WorkspaceSettings": {
                 "type": "object",
@@ -81330,7 +81508,8 @@
                     "workspace"
                 ],
                 "type": "string",
-                "description": "* `holidays` - Holidays\n* `workspace` - Workspace / shutdown"
+                "description": "* `holidays` - Holidays\n* `workspace` - Workspace / shutdown",
+                "x-trueppm-enum": "open"
             },
             "_SignalPair": {
                 "type": "object",
@@ -81480,7 +81659,8 @@
                     "enum": [
                         "https",
                         "http"
-                    ]
+                    ],
+                    "x-trueppm-enum": "open"
                 },
                 "host": {
                     "default": "localhost:8000",

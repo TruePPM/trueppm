@@ -2507,7 +2507,10 @@ SPECTACULAR_SETTINGS = {
         # a pin drf-spectacular disambiguates both by hash and renames the stable
         # `RoleEnum` component (same regression class as ScopeChangeStatus above —
         # project memory project_drf_enum_name_collision). Pin the access role back
-        # to `RoleEnum` and the team role to `TeamRoleEnum`.
+        # to `RoleEnum` and the team role to `TeamRoleEnum`. `RoleEnum` never reaches
+        # the published schema: the post-processing hook finds it by this pinned name
+        # and replaces it with the banded-integer `RoleOrdinal` (ADR-1291), so the
+        # pin is what keeps that hook from silently missing a renamed component.
         "RoleEnum": "trueppm_api.apps.access.models.Role",
         "TeamRoleEnum": "trueppm_api.apps.teams.models.TeamRole",
         # ADR-0036 (#407): Task.governance_class / .delivery_mode add two new choice
