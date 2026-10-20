@@ -116,7 +116,7 @@ from trueppm_api.apps.projects.views import (
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 from trueppm_api.core.export_downloads import stream_export_job_or_error
-from trueppm_api.core.openapi import suppress_list_pagination
+from trueppm_api.core.openapi import suppress_list_pagination, validation_envelope_400
 from trueppm_api.core.request_body import object_body
 
 # Upper bound on sub-programs created by a single split call (#967). Generous
@@ -2454,13 +2454,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="Transfer program sponsorship to another member",
         responses={
             200: ProgramSerializer,
-            400: OpenApiResponse(
-                description=(
-                    "Missing new_owner_user_id, or new_owner_user_id/new_lead_user_id does "
-                    "not resolve to an existing active member of this program (an unknown "
-                    "id, a real id with no membership, and a deactivated member's id all "
-                    "return the same body — #4575)."
-                )
+            400: validation_envelope_400(
+                "Missing new_owner_user_id, or new_owner_user_id/new_lead_user_id does "
+                "not resolve to an existing active member of this program (an unknown "
+                "id, a real id with no membership, and a deactivated member's id all "
+                "return the same body — #4575)."
             ),
         },
     )
