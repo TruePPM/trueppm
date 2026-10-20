@@ -165,15 +165,13 @@ class Command(BaseCommand):
         # auth.User.email is not unique, so get_or_create(email=...) would raise
         # MultipleObjectsReturned and crash-loop the init container on every start.
         # Fetch two rows to detect ambiguity and fail closed instead of guessing.
-        matches = list(User.objects.filter(email=email).order_by("pk")[:2])
+        matches = list(User.objects.filter(email__iexact=email).order_by("pk")[:2])
         if len(matches) > 1:
-            self.stderr.write(
-                self.style.ERROR(
-                    f"ERROR: more than one account has the email {email!r} "
-                    f"(pk={matches[0].pk}, pk={matches[1].pk}, ...). Refusing to pick one "
-                    "to promote. Set DJANGO_SUPERUSER_EMAIL to an unused address, or "
-                    "make the email unique, then restart. No superuser was created."
-                )
+            self._refuse(
+                f"more than one account has the email {email!r} "
+                f"(pk={matches[0].pk}, pk={matches[1].pk}, ...). Refusing to pick one "
+                "to promote. Set DJANGO_SUPERUSER_EMAIL to an unused address, or "
+                "make the email unique, then restart. No superuser was created."
             )
             return None
 
@@ -183,16 +181,24 @@ class Command(BaseCommand):
         else:
             user = matches[0]
             if not _promote_existing_allowed():
-                self.stderr.write(
-                    self.style.ERROR(
-                        f"ERROR: {email} already exists as a non-superuser account and no "
-                        "superuser exists. Refusing to promote it (its existing tokens and "
-                        "SSO links would gain superuser). Set DJANGO_SUPERUSER_EMAIL to an "
-                        "unused address, or set TRUEPPM_ADMIN_PROMOTE_EXISTING=true to "
-                        "promote this account deliberately. No changes were made."
-                    )
+                self._refuse(
+                    f"{email} already exists as a non-superuser account and no "
+                    "superuser exists. Refusing to promote it (its existing tokens and "
+                    "SSO links would gain superuser). Set DJANGO_SUPERUSER_EMAIL to an "
+                    "unused address, or set TRUEPPM_ADMIN_PROMOTE_EXISTING=true to "
+                    "promote this account deliberately. No changes were made."
                 )
                 return None
+
+        # username is unique (case-sensitive) and may already belong to a different
+        # row; saving would raise IntegrityError and crash-loop the init container.
+        if User.objects.filter(username=username).exclude(pk=user.pk).exists():
+            self._refuse(
+                f"the username {username!r} already belongs to a different account "
+                f"than {email}. Set DJANGO_SUPERUSER_USERNAME to an unused username, "
+                "then restart. No superuser was created."
+            )
+            return None
 
         # Bootstrap-only: password is an operator-supplied env var or a
         # cryptographically random token (above), not interactive signup input —
@@ -208,13 +214,19 @@ class Command(BaseCommand):
             self._revoke_existing_credentials(user)
         return email, username, password, created
 
+    def _refuse(self, message: str) -> None:
+        """Report a refusal on stderr and the logger; the caller then exits 0."""
+        logger.error("create_admin: %s", message)
+        self.stderr.write(self.style.ERROR(f"ERROR: {message}"))
+
     def _revoke_existing_credentials(self, user: Any) -> None:
         """Cut off every credential the account held before it became superuser.
 
         The password reset alone does not touch PATs, refresh tokens, durable
-        grants or an SSO binding, all of which would now carry superuser. A
-        ``SocialAccount`` is deleted rather than kept: the IdP identity that
-        pre-claimed the address could otherwise sign straight back in.
+        grants, live sockets or an SSO binding, all of which would now carry superuser.
+        Deleting the ``SocialAccount`` forces a re-link; it does NOT lock the IdP
+        identity out, because ``sso/services.py`` still lets an IdP asserting a
+        verified matching email bind and sign in.
         """
         from allauth.socialaccount.models import SocialAccount
 
@@ -223,11 +235,13 @@ class Command(BaseCommand):
             revoke_all_refresh_tokens,
             revoke_personal_durable_grants,
         )
+        from trueppm_api.apps.access.signals import evict_all_live_project_sockets
 
         revoke_all_personal_access_tokens(user, reason="bootstrap_promotion")
         revoke_all_refresh_tokens(user)
         revoke_personal_durable_grants(user)
         SocialAccount.objects.filter(user=user).delete()
+        evict_all_live_project_sockets(user.pk)
 
     def _deliver(self, email: str, username: str, password: str, created: bool) -> None:
         """Announce the bootstrap and hand the password to the operator.

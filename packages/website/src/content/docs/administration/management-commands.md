@@ -29,19 +29,21 @@ Configured entirely through environment variables:
 | `DJANGO_SUPERUSER_EMAIL` | `admin@example.com` | Admin email. The default is a reserved domain and cannot receive mail — set it to an address you control. |
 | `DJANGO_SUPERUSER_USERNAME` | local part of the email | Admin username |
 | `DJANGO_SUPERUSER_PASSWORD` | secure random | Explicit password; if unset, a random one is generated |
-| `TRUEPPM_ADMIN_PROMOTE_EXISTING` | unset | Set to `true` to let the bootstrap promote an existing non-superuser account that holds `DJANGO_SUPERUSER_EMAIL`. Ships in 0.5; see below. |
+| `TRUEPPM_ADMIN_PROMOTE_EXISTING` | unset | Set to `true` to let the bootstrap promote an existing non-superuser account that holds `DJANGO_SUPERUSER_EMAIL`. See below. |
 | `TRUEPPM_ADMIN_PASSWORD_FILE` | `/tmp/trueppm_admin_password` | Where the generated password is written (mode `0600`) |
 
-From 0.5, if no superuser exists and an ordinary account already holds
-`DJANGO_SUPERUSER_EMAIL`, `create_admin` **refuses** to promote it unless
+If no superuser exists and an ordinary account already holds `DJANGO_SUPERUSER_EMAIL`
+(matched case-insensitively), `create_admin` **refuses** to promote it unless
 `TRUEPPM_ADMIN_PROMOTE_EXISTING=true` is set (Helm: `admin.promoteExisting`). With the
 opt-in, promotion resets the password and revokes the account's personal access
-tokens, refresh tokens, share links, git-automation secrets, outgoing webhooks, and SSO
-links. The same applies if several accounts share the email: the command refuses and
-names the problem rather than picking one. Both refusals are printed to stderr and the
-command still exits 0, so a misconfigured address cannot keep the API pod from
-starting; check the `bootstrap` init container logs if no admin was created. Before
-0.5, such an account is promoted without these checks.
+tokens, refresh tokens, share links, git-automation secrets, outgoing webhooks,
+pending workspace invites, and live project sockets, and unlinks its SSO identities.
+Unlinking forces a re-link; it does not stop an identity provider that asserts the same
+verified email from signing in again. The command also refuses, rather than picking
+one, when several accounts share the email or when the target username already belongs
+to a different account. Every refusal is printed to stderr and logged, and the command
+still exits 0, so a misconfigured address cannot keep the API pod from starting; check
+the `bootstrap` init container logs if no admin was created.
 
 When a password is generated rather than supplied, it is written to the password file
 (not the logs). See [Admin Password](/administration/admin-password/) for how to

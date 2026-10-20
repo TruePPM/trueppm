@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 import threading
+from datetime import date
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -19,7 +20,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from trueppm_api.apps.access.management.commands import create_admin as mod
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
-from trueppm_api.apps.projects.models import ApiToken, ApiTokenAuditEntry
+from trueppm_api.apps.projects.models import (
+    ApiToken,
+    ApiTokenAuditEntry,
+    Calendar,
+    Project,
+    ShareLink,
+)
 
 User = get_user_model()
 
@@ -255,6 +262,71 @@ def test_duplicate_bootstrap_email_is_a_clear_error_not_a_crash(
         call_command("create_admin", stdout=StringIO(), stderr=err)
 
     assert "more than one account" in err.getvalue()
+    assert not User.objects.filter(is_superuser=True).exists()
+
+
+@pytest.mark.django_db
+def test_email_match_is_case_insensitive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An account stored as ADMIN@example.com is the existing account, not a new one."""
+    monkeypatch.delenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", raising=False)
+    existing = User.objects.create_user(username="someone", email="ADMIN@example.com", password="x")
+    err = StringIO()
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=err)
+    existing.refresh_from_db()
+    assert not existing.is_superuser
+    assert User.objects.count() == 1
+    assert "TRUEPPM_ADMIN_PROMOTE_EXISTING" in err.getvalue()
+
+
+@pytest.mark.django_db
+def test_case_variant_duplicates_are_ambiguous(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
+    User.objects.create_user(username="a", email="ADMIN@example.com", password="pw")
+    User.objects.create_user(username="b", email="Admin@example.com", password="pw")
+    err = StringIO()
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=err)
+    assert "more than one account" in err.getvalue()
+    assert not User.objects.filter(is_superuser=True).exists()
+
+
+@pytest.mark.django_db
+def test_promotion_evicts_live_sockets_and_revokes_durable_grants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
+    existing = User.objects.create_user(username="someone", email="admin@example.com", password="x")
+    project = Project.objects.create(
+        name="P", start_date=date(2026, 4, 1), calendar=Calendar.objects.create(name="Std")
+    )
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix1",
+        token_hash=sha256_hex("a-share-link"),
+        created_by=existing,
+    )
+    target = "trueppm_api.apps.access.signals.evict_all_live_project_sockets"
+    with patch(_CMD, str(tmp_path / "pw")), patch(target) as evict:
+        call_command("create_admin", stdout=StringIO())
+    evict.assert_called_once_with(existing.pk)
+    link.refresh_from_db()
+    assert link.revoked_at is not None
+
+
+@pytest.mark.django_db
+def test_username_collision_is_a_refusal_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No email match but the derived username is taken: refuse instead of IntegrityError."""
+    monkeypatch.delenv("DJANGO_SUPERUSER_USERNAME", raising=False)
+    User.objects.create_user(username="admin", email="other@example.com", password="pw")
+    err = StringIO()
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=err)
+    assert "already belongs to a different account" in err.getvalue()
     assert not User.objects.filter(is_superuser=True).exists()
 
 
