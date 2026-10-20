@@ -927,3 +927,47 @@ def test_server_owned_task_field_rejects_direct_write(
         f"{field} is client-writable: a Member PATCHed it to {attacker_value!r}. "
         "Add it to TaskSerializer.Meta.read_only_fields."
     )
+
+
+# ---------------------------------------------------------------------------
+# can_user_write_estimates fails closed for non-members (#4585)
+# ---------------------------------------------------------------------------
+
+
+class _Req:
+    """Minimal request stand-in: the predicate reads only ``user``."""
+
+    def __init__(self, user: object) -> None:
+        self.user = user
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("mode", list(EstimationMode))
+def test_can_user_write_estimates_false_for_non_member_in_every_mode(
+    project: Project, mode: EstimationMode
+) -> None:
+    from trueppm_api.apps.access.permissions import can_user_write_estimates
+
+    project.estimation_mode = mode
+    project.save()
+    outsider = _make_user("outsider")
+    assert can_user_write_estimates(_Req(outsider), project) is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("mode", list(EstimationMode))
+def test_can_user_write_estimates_member_behavior_unchanged(
+    project: Project, mode: EstimationMode
+) -> None:
+    from trueppm_api.apps.access.permissions import can_user_write_estimates
+
+    project.estimation_mode = mode
+    project.save()
+    contributor = _make_user("c1")
+    _make_membership(project, contributor, Role.MEMBER)
+    pm = _make_user("pm1")
+    _make_membership(project, pm, Role.ADMIN)
+
+    expect_contributor = mode != EstimationMode.PM_ONLY
+    assert can_user_write_estimates(_Req(contributor), project) is expect_contributor
+    assert can_user_write_estimates(_Req(pm), project) is True
