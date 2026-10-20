@@ -446,11 +446,18 @@ def can_user_write_estimates(request: Request, project: Any) -> bool:
 
     from trueppm_api.apps.projects.models import EstimationMode
 
+    # Membership is resolved FIRST, for every mode: the OPEN / SUGGEST_APPROVE
+    # branch used to return True without consulting it, so a non-member was told
+    # they may write estimates (#4585). Both current callers sit behind task-level
+    # membership gates, which is why this was latent rather than exploitable.
+    role = _membership_role(request, str(project.pk))
+    if role is None:
+        return False
+
     if getattr(project, "estimation_mode", None) != EstimationMode.PM_ONLY:
         return True
 
-    role = _membership_role(request, str(project.pk))
-    return role is not None and role >= Role.ADMIN
+    return role >= Role.ADMIN
 
 
 def can_user_log_time(request: Request, task: Any) -> bool:
