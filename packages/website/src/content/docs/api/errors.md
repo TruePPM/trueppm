@@ -396,6 +396,10 @@ refusal is a property of the deployment, not of any one route.
 - **Reads are unaffected.** `GET`, `HEAD` and `OPTIONS` behave as on any other
   deployment, and a normal installation never returns this code.
 
+### Sign-in refusals (`POST /api/v1/auth/token/`)
+
+The login endpoint answers `401` (invalid credentials) and `403` (password sign-in disabled by policy, for example enforced single sign-on) with a bare `{"detail": "..."}` body and no `code` key.
+
 ### 404 / 409 — conflicts and protected references
 
 Refused deletes carry a count of the rows still pointing at the target, and —

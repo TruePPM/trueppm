@@ -1535,3 +1535,34 @@ def test_3652_operations_no_longer_declare_a_free_form_body(
         f"{method.upper()} {path} ({status_code}) regressed to a free-form body "
         f"the #3652 fix removed: {body}"
     )
+
+
+def test_login_declares_401_and_403_detail_envelope(schema: dict) -> None:
+    """POST /auth/token/ types both refusals it returns at runtime (#4590)."""
+    responses = schema["paths"]["/api/v1/auth/token/"]["post"]["responses"]
+    for code in ("401", "403"):
+        assert code in responses, f"login does not declare {code}"
+        ref = responses[code]["content"]["application/json"]["schema"]["$ref"]
+        component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+        assert component["required"] == ["detail"]
+        assert component["properties"]["detail"]["type"] == "string"
+
+
+def test_workspace_logo_writes_declare_auth_and_refusals(schema: dict) -> None:
+    """Logo writes are authenticated and declare every refusal they return (#4590)."""
+    ops = schema["paths"]["/api/v1/workspace/logo/"]
+    assert ops["get"]["security"] == []  # the public serve surface stays anonymous
+    for method, extra in (("post", {"413", "415"}), ("delete", set())):
+        op = ops[method]
+        assert op["security"], f"{method} must not be advertised as anonymous"
+        assert {"401", "403"} | extra <= set(op["responses"])
+
+
+def test_workspace_logo_413_and_415_declare_file_message_body(schema: dict) -> None:
+    """The 413/415 bodies are ``{"file": "<message>"}``, not a bare description."""
+    post = schema["paths"]["/api/v1/workspace/logo/"]["post"]
+    for code in ("413", "415"):
+        ref = post["responses"][code]["content"]["application/json"]["schema"]["$ref"]
+        component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+        assert component["required"] == ["file"]
+        assert component["properties"]["file"]["type"] == "string"

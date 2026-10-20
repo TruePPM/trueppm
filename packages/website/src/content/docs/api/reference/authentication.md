@@ -57,6 +57,10 @@ Returns **only** the access token in the body:
 {"access": "<jwt>"}
 ```
 
+Failures are a `{"detail": "..."}` body: `401` for invalid credentials, and
+`403` when password sign-in is disabled for the account by policy (for example,
+enforced single sign-on). Both are declared in the OpenAPI schema.
+
 The refresh token is set in a response cookie (default name `trueppm_refresh`),
 scoped to `Path=/api/v1/auth/token/refresh/` so it is sent only on the refresh
 request and never on ordinary API calls:

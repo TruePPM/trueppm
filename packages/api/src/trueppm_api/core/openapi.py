@@ -175,9 +175,15 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/v1/readyz",
         "/api/v1/integrations/projects/{project_pk}/git-webhook/",
         "/api/v1/workspace/invites/accept/",
-        "/api/v1/workspace/logo/",
     }
 )
+
+# Paths where only some methods are public. The workspace logo is served
+# anonymously (GET) but uploaded and cleared by an authenticated admin, so
+# marking the whole path public advertised the writes as unauthenticated.
+PUBLIC_METHODS_BY_PATH: dict[str, frozenset[str]] = {
+    "/api/v1/workspace/logo/": frozenset({"get"}),
+}
 
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options", "trace")
 
@@ -366,10 +372,12 @@ def postprocess_openapi(
     collection_paths = _collection_paths(paths)
 
     for path, operations in paths.items():
-        is_public = path in PUBLIC_PATHS
         for method, operation in operations.items():
             if method not in _HTTP_METHODS or not isinstance(operation, dict):
                 continue
+            is_public = path in PUBLIC_PATHS or method in PUBLIC_METHODS_BY_PATH.get(
+                path, frozenset()
+            )
             _annotate_operation(operation, path, method, collection_paths, is_public)
 
     _register_validation_error_detail(result)

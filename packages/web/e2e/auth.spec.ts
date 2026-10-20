@@ -46,7 +46,7 @@ test.describe('Login flow', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ access: 'mock-access-token', refresh: 'mock-refresh-token' }),
+        body: JSON.stringify({ access: 'mock-access-token' }),
       }),
     );
     // Stub the projects list so the app shell can render after redirect.
@@ -90,7 +90,11 @@ test.describe('Login flow', () => {
 
   test('invalid credentials shows error message', async ({ page }) => {
     await page.route(AUTH_TOKEN_URL, (route) =>
-      route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'No active account found with the given credentials' }),
+      }),
     );
 
     await page.goto('/login');
@@ -123,7 +127,7 @@ test.describe('Login flow', () => {
       await route.fulfill({
         status: 401,
         contentType: 'application/json',
-        body: '{}',
+        body: JSON.stringify({ detail: 'No active account found with the given credentials' }),
       });
     });
 

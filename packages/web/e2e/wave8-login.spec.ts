@@ -179,7 +179,7 @@ test.describe('Wave 8 — Login screen', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ access: 'mock-access', refresh: 'mock-refresh' }),
+        body: JSON.stringify({ access: 'mock-access' }),
       });
     });
     await page.route('**/api/v1/projects/**', (route) =>
