@@ -85,8 +85,11 @@ openapi-generator, that is the `enumUnknownDefaultCase` option.
 role is published as the integer `RoleOrdinal`, in the range 1–400. That covers
 `role` on project and program memberships (read and write) and on workspace-group
 project grants, `default_member_role`, `my_role`, and `max_project_role` on
-`/auth/me/`. Workspace roles (`workspace_role`, a workspace member's or invite's
-`role`) use a separate scale and are not `RoleOrdinal`. The five built-in roles
+`/auth/me/`. Workspace roles use a separate scale and are not `RoleOrdinal`:
+`workspace_role` on `/auth/me/`, `role_value` on workspace members and invites, the
+`role` you write to a workspace member or invite, and an SSO provider's
+`default_role`. On workspace member and invite reads, `role` is a string label,
+not an ordinal. The five built-in roles
 are `1`, `100`, `200`, `300` and `400`. The ranges between them (2–99, 101–199,
 201–299 and 301–399) are reserved for Enterprise custom roles, so an Enterprise
 installation can return one. To decide what a role may do, compare it with `>=`

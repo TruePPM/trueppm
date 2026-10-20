@@ -280,7 +280,8 @@ pasted block of rows:
 ```
 
 An unrecognized `origin` is a `400` — it is validated against the listed values,
-not free text. A later release may accept more values (the enum is open). `origin` has no effect on `update`/`delete` ops or on a `create` whose
+not free text. A later release may accept more values (the enum is open).
+`origin` has no effect on `update`/`delete` ops or on a `create` whose
 `id` resolves to an existing row (that applies as an edit, and an edit never
 rewrites the row's original provenance).
 

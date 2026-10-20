@@ -52,9 +52,10 @@ export function aggregate(ndjson) {
   const waived = new Set();
   const skipped = new Map(); // reason -> Set(operationKey)
   const ledger = new Map(); // operationKey -> Map(`at:rule` -> count)
-  // rule -> count of findings on responses that passed. Only the measured,
-  // never-enforced rules (`missing-required`, `open-enum-value`) can appear on an
-  // `ok` row, so this is where their counts live.
+  // rule -> count of measured-only findings (`missing-required`,
+  // `open-enum-value`) on responses that passed. A response that also failed an
+  // enforced rule is recorded as a violation, whose row carries only enforced
+  // rules — so this counts passing responses only, and the heading says so.
   const measured = new Map();
 
   for (const row of rows) {
@@ -97,7 +98,7 @@ export function render({ rows, ok, violating, waived, skipped, ledger, measured 
   }
   const ledgerLines = [...ledger.values()].reduce((n, m) => n + m.size, 0);
   lines.push('', `drift ledger lines        ${ledgerLines} across ${ledger.size} operations`);
-  lines.push('', 'measured, not enforced:');
+  lines.push('', 'measured on passing responses (not enforced):');
   for (const rule of ['missing-required', 'open-enum-value']) {
     lines.push(`  ${rule.padEnd(22)} ${measured?.get(rule) ?? 0} findings`);
   }

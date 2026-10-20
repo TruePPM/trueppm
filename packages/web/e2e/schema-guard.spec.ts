@@ -299,8 +299,46 @@ test.describe('e2e schema guard — enum openness (ADR-1291)', () => {
     expect(validateBody({ status: 'c' }, nullableChoice).map((v) => `${v.at}:${v.rule}`)).toEqual([
       'status:open-enum-value',
     ]);
-    // A clean branch match records nothing.
-    expect(validateBody({ status: null }, nullableChoice)).toEqual([]);
+    // A clean branch match records nothing. 'a' reaches the branch matcher
+    // (a null would return early on `nullable` and test nothing).
+    expect(validateBody({ status: 'a' }, nullableChoice)).toEqual([]);
+  });
+
+  // Synthetic variants with a closed discriminator and an open field, so each
+  // branch-matcher outcome below is known in advance.
+  const openField = { type: 'string', enum: ['a'], 'x-trueppm-enum': 'open' };
+  const variants: SchemaNode = {
+    oneOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: { kind: { type: 'string', enum: ['task'] }, st: openField },
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: { kind: { type: 'string', enum: ['milestone'] }, st: openField },
+      },
+    ],
+  };
+
+  test('an open-enum finding does not excuse another violation in the same branch', () => {
+    expect(enforced({ kind: 'task', st: 'z' }, variants)).toEqual([]);
+    expect(enforced({ kind: 'task', st: 'z', extra: 1 }, variants)).toContain(':type');
+  });
+
+  test('a miss on an exhaustive enum inside a branch still fails', () => {
+    expect(enforced({ kind: 'sprint', st: 'a' }, variants)).toContain(':type');
+  });
+
+  test('a clean branch wins over an earlier open-enum-only branch', () => {
+    // If the matcher took the first acceptable branch, it would forward that
+    // branch's `open-enum-value` finding for a value another branch matches cleanly.
+    const schema: SchemaNode = {
+      oneOf: [openField, { type: 'string', enum: ['b'] }],
+    };
+    expect(validateBody('b', schema)).toEqual([]);
+    expect(validateBody('q', schema).map((v) => `${v.at}:${v.rule}`)).toEqual([':open-enum-value']);
   });
 });
 
