@@ -347,10 +347,11 @@ deprecation window rather than being removed outright:
 against the schema at the latest `v*` release tag (prereleases included) and fails the
 merge request on any Breaking change in the table above: a removed endpoint, method,
 response status code, property, parameter or enum value, a changed `type`, or an
-optional field made required. Enum value *additions* are Additive and never trip it.
+optional field made required. A removed enum value is flagged in both the request and
+the response direction; an enum value *addition* is Additive and never trips it.
 A response property that became optional and a request body that became required
-are Breaking too. A Breaking change can merge only with an allowlist entry that cites one of the headings
-below, which is why each accepted break has a row here. (`scripts/check-schema-breaking.py`;
+are Breaking too. A Breaking change can merge only with an allowlist entry that cites
+one of the headings below, which is why each accepted break has a row here. (`scripts/check-schema-breaking.py`;
 not diffed: `oneOf`/`anyOf` branches, `format`, `nullable` and constraint changes.)
 
 ### `group_by=project` on the resource heatmap
