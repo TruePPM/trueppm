@@ -180,10 +180,14 @@ omit one.
 `skipped` is a documented no-op, never a failure: a `create` whose id matches a
 deleted row, or a classification that crossed a milestone gate.
 
-**`code` is a closed set, and the schema publishes it.** It is emitted as the
+**The schema publishes `code`, and the set is open.** It is emitted as the
 `TaskBulkRefusalCodeEnum` component, so a generated client types it as a union
 rather than as `string` and you can branch on it without reading our source. The
-"Retry" column is the distinction the enum exists to let you make.
+"Retry" column is the distinction the enum exists to let you make. The component
+is marked `"x-trueppm-enum": "open"` (see
+[Open and exhaustive enums](/api/stability/#open-and-exhaustive-enums)), so a later
+release may add a code. Treat a code you do not recognize as a refusal that is not
+retryable: report the row as failed and do not resend it unchanged.
 
 | `code` | Meaning | Retry? |
 |---|---|---|
@@ -275,8 +279,8 @@ pasted block of rows:
 }
 ```
 
-An unrecognized `origin` is a `400` — it is validated against a closed set, not
-free text. `origin` has no effect on `update`/`delete` ops or on a `create` whose
+An unrecognized `origin` is a `400` — it is validated against the listed values,
+not free text. A later release may accept more values (the enum is open). `origin` has no effect on `update`/`delete` ops or on a `create` whose
 `id` resolves to an existing row (that applies as an edit, and an edit never
 rewrites the row's original provenance).
 

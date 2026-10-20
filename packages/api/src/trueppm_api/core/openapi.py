@@ -556,9 +556,13 @@ def _publish_role_ordinal(result: dict[str, Any]) -> None:
     role at 250 would violate the published OSS contract by design (#4593). The
     component is replaced by :data:`ROLE_ORDINAL` and every reference repointed.
 
-    ``my_role`` is a ``SerializerMethodField`` typed plain ``integer`` with no
-    reference to the role at all; it is pointed at the same component so its
-    bands are documented in the one place the other role fields read them from.
+    Some fields carry a project ``Role`` ordinal as a plain ``integer`` with no
+    reference to the role at all: a ``SerializerMethodField`` (``my_role``,
+    ``max_project_role``) or a bare ``IntegerField`` whose choices are enforced in
+    ``validate`` rather than declared. They are pointed at the same component so
+    their bands are documented in the one place every role field reads them from.
+    ``my_role`` is matched on every component that declares it; the others are
+    named in :data:`_BARE_ROLE_FIELDS`.
     """
     schemas = result.get("components", {}).get("schemas")
     if not schemas or "RoleEnum" not in schemas:
@@ -566,15 +570,36 @@ def _publish_role_ordinal(result: dict[str, Any]) -> None:
     del schemas["RoleEnum"]
     schemas[ROLE_ORDINAL] = _role_ordinal_schema()
     _rewrite_ref(result, _ROLE_ENUM_REF, _ROLE_ORDINAL_REF)
-    for schema in schemas.values():
-        prop = schema.get("properties", {}).get("my_role") if isinstance(schema, dict) else None
-        if isinstance(prop, dict) and prop.get("type") == "integer":
-            del prop["type"]
-            rest = dict(prop)
-            prop.clear()
-            prop["allOf"] = [{"$ref": _ROLE_ORDINAL_REF}]
-            prop.update(rest)
+    for name, schema in schemas.items():
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        for field in ("my_role", *_BARE_ROLE_FIELDS.get(name, ())):
+            _point_at_role_ordinal(properties.get(field))
     result["components"]["schemas"] = dict(sorted(schemas.items()))
+
+
+#: Component -> properties that carry a project ``Role`` ordinal as a bare
+#: ``integer``. Workspace-role fields (``workspace_role``, ``role_value``, the
+#: workspace member/invite ``role``, SSO ``default_role``) are deliberately absent:
+#: they are ``WorkspaceRole`` ordinals, a different scale this component does not
+#: describe.
+_BARE_ROLE_FIELDS: dict[str, tuple[str, ...]] = {
+    "ProjectMembershipWriteRequest": ("role",),
+    "PatchedProjectMembershipUpdateRequest": ("role",),
+    "GroupProjectLink": ("role",),
+    "GroupProjectWriteRequest": ("role",),
+    "Me": ("max_project_role",),
+}
+
+
+def _point_at_role_ordinal(prop: Any) -> None:
+    """Turn ``{type: integer, ...}`` into ``{allOf: [RoleOrdinal], ...}`` in place."""
+    if not isinstance(prop, dict) or prop.get("type") != "integer":
+        return
+    del prop["type"]
+    rest = dict(prop)
+    prop.clear()
+    prop["allOf"] = [{"$ref": _ROLE_ORDINAL_REF}]
+    prop.update(rest)
 
 
 def _register_validation_error_detail(result: dict[str, Any]) -> None:

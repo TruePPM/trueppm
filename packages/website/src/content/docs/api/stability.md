@@ -81,8 +81,12 @@ their typed known values. Many generators build decoders that reject an unlisted
 value by default, so configure yours to keep unknown values on open enums. In
 openapi-generator, that is the `enumUnknownDefaultCase` option.
 
-**Role ordinals are not an enum.** `role`, `default_member_role` and `my_role` are
-published as the integer `RoleOrdinal`, in the range 1–400. The five built-in roles
+**Role ordinals are not an enum.** Every field that carries a project or program
+role is published as the integer `RoleOrdinal`, in the range 1–400. That covers
+`role` on project and program memberships (read and write) and on workspace-group
+project grants, `default_member_role`, `my_role`, and `max_project_role` on
+`/auth/me/`. Workspace roles (`workspace_role`, a workspace member's or invite's
+`role`) use a separate scale and are not `RoleOrdinal`. The five built-in roles
 are `1`, `100`, `200`, `300` and `400`. The ranges between them (2–99, 101–199,
 201–299 and 301–399) are reserved for Enterprise custom roles, so an Enterprise
 installation can return one. To decide what a role may do, compare it with `>=`
@@ -408,8 +412,10 @@ The schema published `role` (project and program memberships) and
 `default_member_role` (projects) through a closed `RoleEnum` of
 `[1, 100, 200, 300, 400]`. That list ruled out the role ordinals reserved for
 Enterprise custom roles, so an Enterprise installation broke the published
-contract by design. In 0.4 the component is removed. Those fields, and `my_role`,
-now reference `RoleOrdinal`: an integer from 1 to 400, described in
+contract by design. In 0.4 the component is removed. Those fields, and the
+project-role fields that were already bare integers (`my_role`, `max_project_role`,
+the membership write `role`, and the workspace-group project grant `role`), now
+reference `RoleOrdinal`: an integer from 1 to 400, described in
 [Open and exhaustive enums](#open-and-exhaustive-enums) above.
 
 Removing a component is **Breaking** by the table above, because an SDK generated

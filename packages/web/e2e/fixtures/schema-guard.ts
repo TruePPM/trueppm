@@ -217,14 +217,23 @@ function validateOneOfAnyOf(
 ): boolean {
   if (!(schema.oneOf?.length || schema.anyOf?.length)) return false;
   const branches = schema.oneOf ?? schema.anyOf ?? [];
-  const anyMatched = branches.some((branch) => {
+  const probes = branches.map((branch) => {
     const probe: Violation[] = [];
     validate(value, branch, at, probe);
-    // A new value on an open enum is not a mismatch (ADR-1291) — without this a
-    // nullable choice field (`oneOf: [{X}, {BlankEnum}, {NullEnum}]`) would
-    // re-close every open enum through the branch matcher.
-    return probe.every((v) => v.rule === 'open-enum-value');
+    return probe;
   });
+  // A clean branch wins outright. Failing that, a branch whose only findings are
+  // new values on an open enum still matches (ADR-1291) — otherwise a nullable
+  // choice field (`oneOf: [{X}, {BlankEnum}, {NullEnum}]`) would re-close every
+  // open enum through the branch matcher. Its `open-enum-value` findings are
+  // forwarded so the measurement is not lost inside the probe.
+  const anyMatched =
+    probes.some((probe) => probe.length === 0) ||
+    probes.some((probe) => {
+      if (!probe.every((v) => v.rule === 'open-enum-value')) return false;
+      out.push(...probe);
+      return true;
+    });
   if (!anyMatched) {
     out.push({
       rule: 'type',

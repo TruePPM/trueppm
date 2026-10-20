@@ -295,6 +295,12 @@ test.describe('e2e schema guard — enum openness (ADR-1291)', () => {
     };
     expect(enforced({ status: 'c' }, nullableChoice)).toEqual([]);
     expect(enforced({ status: 7 }, nullableChoice)).toContain('status:type');
+    // The new value is measured, not swallowed by the branch probe.
+    expect(validateBody({ status: 'c' }, nullableChoice).map((v) => `${v.at}:${v.rule}`)).toEqual([
+      'status:open-enum-value',
+    ]);
+    // A clean branch match records nothing.
+    expect(validateBody({ status: null }, nullableChoice)).toEqual([]);
   });
 });
 

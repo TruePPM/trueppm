@@ -56408,7 +56408,11 @@
                         "type": "string"
                     },
                     "role": {
-                        "type": "integer"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ]
                     },
                     "role_label": {
                         "type": "string"
@@ -56430,7 +56434,11 @@
                         "format": "uuid"
                     },
                     "role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "default": 100
                     }
                 },
@@ -57215,7 +57223,11 @@
                         "format": "email"
                     },
                     "max_project_role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "nullable": true,
                         "readOnly": true
                     },
@@ -61813,7 +61825,11 @@
                 "description": "PATCH body — ``role`` only.\n\nA separate class rather than ``read_only_fields`` on the add serializer so the\npublished schema tells the truth: ``user`` is genuinely not part of an update\nbody, and an integrator reading ``PatchedProjectMembershipWriteRequest`` would\notherwise still see it advertised as writable. Sending it anyway is refused by\nthe inherited ``validate`` rather than silently dropped (#3641).",
                 "properties": {
                     "role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
                     }
                 }
@@ -67894,7 +67910,11 @@
                         "description": "The stock auth.User integer primary key of the account to add. Bounded to accounts you can already reach: a workspace Admin may name any active account; anyone else may name themselves or somebody already on a project or program roster they belong to. Deactivated accounts are never accepted. An id outside that set is refused with 400 and the same message a nonexistent id gets, so this field is not an existence oracle — use a workspace invite to bring in anyone further out. Accepted on add only; a membership's user cannot be changed."
                     },
                     "role": {
-                        "type": "integer",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleOrdinal"
+                            }
+                        ],
                         "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
                     }
                 },

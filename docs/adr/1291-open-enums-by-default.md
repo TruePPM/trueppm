@@ -78,8 +78,11 @@ under it.
 
 The hook replaces the `RoleEnum` component with `RoleOrdinal` and repoints every
 reference to it. That covers `role` on project and program memberships and
-`default_member_role` on projects. It also points `my_role`, which was a bare
-`integer`, at the same component. `RoleOrdinal` is
+`default_member_role` on projects. It also points the project-role fields that
+were bare `integer`s at the same component: `my_role` wherever it appears, the
+membership write `role`, the workspace-group project grant `role`, and
+`max_project_role` on `/auth/me/` (`_BARE_ROLE_FIELDS`). Workspace-role fields
+are a separate `WorkspaceRole` scale and are left as they are. `RoleOrdinal` is
 `{type: integer, minimum: 1, maximum: 400}`. Its description is derived from the
 `Role` choices, names the five OSS ordinals and the four reserved bands, and
 tells a client to compare with `>=` against a band floor. This is the contract

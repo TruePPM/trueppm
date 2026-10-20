@@ -132,6 +132,13 @@ def test_role_is_published_as_a_banded_integer_not_a_closed_enum(schema: dict[st
         ("Project", "my_role"),
         ("Program", "my_role"),
         ("ProgramProjectRow", "my_role"),
+        # Bare `integer` fields carrying a project Role ordinal (the hook's
+        # _BARE_ROLE_FIELDS). A rename that drops one out of the rewrite fails here.
+        ("ProjectMembershipWriteRequest", "role"),
+        ("PatchedProjectMembershipUpdateRequest", "role"),
+        ("GroupProjectLink", "role"),
+        ("GroupProjectWriteRequest", "role"),
+        ("Me", "max_project_role"),
     ],
 )
 def test_role_fields_reference_the_ordinal(

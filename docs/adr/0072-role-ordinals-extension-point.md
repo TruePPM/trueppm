@@ -16,7 +16,8 @@ ordinal in the reserved bands invalid, so an Enterprise install returning a cust
 role at `250` violates the published OSS contract. The bands this ADR exists to
 reserve were unusable on the wire.
 
-The schema now publishes `role`, `default_member_role` and `my_role` through one
+The schema now publishes every project/program role field (`role`,
+`default_member_role`, `my_role`, `max_project_role`) through one
 `RoleOrdinal` component. It is `{type: integer, minimum: 1, maximum: 400}`, with the
 five OSS ordinals and the four reserved bands in its description. A client compares
 with `>=` against a band floor, which is the same contract this ADR already set for
