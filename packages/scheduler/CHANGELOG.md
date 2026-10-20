@@ -18,6 +18,10 @@ change between releases. Pin an exact version (e.g.
 
 _Nothing yet._
 
+## [0.4.0rc1] - 2026-10-20
+
+_No library-facing changes in this release._
+
 ## [0.4.0b9] - 2026-10-18
 
 ### Changed
@@ -834,7 +838,8 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b9...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0rc1...main
+[0.4.0rc1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b9...scheduler-v0.4.0rc1
 [0.4.0b9]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b8...scheduler-v0.4.0b9
 [0.4.0b8]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b7...scheduler-v0.4.0b8
 [0.4.0b7]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b6...scheduler-v0.4.0b7

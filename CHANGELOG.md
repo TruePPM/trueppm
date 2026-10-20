@@ -15,6 +15,127 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0-rc.1] — 2026-10-20
+
+This release supersedes `v0.4.0-beta.9`.
+
+**Should you upgrade? Yes — this release fixes ten security issues.** None of them is a remote-unauthenticated exploit; they are authorization and information-disclosure gaps in the account-containment, trash, invitation, and program-membership paths, listed under Security below. There is no urgent scheduling-correctness fix in this release.
+
+This is the first release candidate for 0.4. It is a hardening cut: no new user-facing feature, a short run of API-contract fixes, and a CI gate that now blocks undeclared breaking changes to the API schema.
+
+**Upgrading from beta.9 or earlier? Read this first.** Three changes can affect an existing install or integration:
+- **`create_admin` no longer promotes an existing account.** If a non-superuser account already holds `DJANGO_SUPERUSER_EMAIL`, the bootstrap now refuses instead of silently making it a superuser. To keep the old behavior, set `TRUEPPM_ADMIN_PROMOTE_EXISTING=true` (Helm `admin.promoteExisting`). When it does promote, it now revokes that account's tokens, durable grants, and SSO links.
+- **Generated API clients: the `RoleEnum` schema component is removed.** Every project or program role field now references `RoleOrdinal`, an integer from 1 to 400. Wire values are unchanged, so the web app and hand-written clients are unaffected, but an SDK generated from the schema must be regenerated.
+- **`POST /api/v1/sprints/{id}/retro/` is stricter.** A `story_points` sent as a numeric string or a non-integer, and an action item with an `id` but no `text`, now return `400` instead of being silently cast, truncated, or deleted.
+
+Security: a project in Trash stops granting access to its members immediately, and the notification inbox and `/auth/me` no longer count it. Program sponsorship transfer no longer leaks member emails or lets you promote a non-member to lead. Mention-group member payloads no longer include email. Pending workspace invitations are revoked when their sender is off-boarded or reset, and `revoke_api_tokens --user/--all-personal` now sweeps refresh tokens, share links, webhook secrets, outgoing webhooks, and live WebSockets. A dependency-cycle refusal no longer names tasks you cannot see, and two permission checks (`IsProgramNotClosed`, estimate-write) now fail closed.
+
+Also fixed: saving a sprint retro no longer deletes and re-creates every action item (which broke links to promoted backlog tasks and left offline clients holding removed items), cross-project dependency events now reach the downstream project and removing a cross-project predecessor now recalculates it, and several auth and workspace-logo responses are now declared in the OpenAPI schema.
+
+### Added
+CI now fails a merge request that makes a Breaking change to the API schema (a removed or retyped field, a removed status code or enum value, an optional field made required) relative to the latest `v*` release tag, unless the break cites a row under "Current deprecations" in the API stability policy. Previously only removed path and schema names were checked, against `main`.
+
+### Changed
+The published OpenAPI schema now says which enums may grow. Every enum carries
+`x-trueppm-enum: "open"` or `"exhaustive"`. Enums are open by default. A short,
+reviewed set is exhaustive: the dependency types, the weekdays, the response
+discriminator tags, and drf-spectacular's blank and null branches. The API
+stability page explains how a client should handle an unknown value on an open
+enum.
+
+**Breaking for generated SDKs:** the `RoleEnum` component is removed. Every
+project or program role field (`role`, `default_member_role`, `my_role`,
+`max_project_role`) now references `RoleOrdinal`, an integer from 1 to 400.
+The ordinals between the five built-in roles are reserved for
+Enterprise custom roles. A closed enum would have ruled those out. Wire values
+are unchanged.
+
+### Fixed
+- **`POST /api/v1/auth/token/` now declares its `401` and `403` responses in the OpenAPI schema.**
+  The wrong-credentials `401` and the password-sign-in-disabled `403` were
+  returned at runtime but missing from the schema, so generated clients had no
+  typed branch for either. `POST` and `DELETE /api/v1/workspace/logo/` likewise
+  now declare their `401`, `403`, `413` and `415` refusals and are no longer
+  advertised as anonymous. Swept every anonymous operation in the schema (the
+  12 `security: []` operations) plus the views that override permissions per
+  method; only login and the workspace logo writes needed changes. Schema only;
+  no behavior change.
+- **Saving a sprint retro no longer deletes and re-creates every action item.**
+  Each save used to hard-delete the retro's action items and insert new rows
+  from the request. That cut the link from a promoted item to its backlog task,
+  gave every item a new id, and left offline clients holding removed items
+  forever because a hard delete sends no sync tombstone. `POST
+  /api/v1/sprints/{id}/retro/` now applies `action_items` as a diff. An entry
+  with `id` edits that item in place and keeps its `promoted_task_id`. An entry
+  without `id` creates an item. An item the list no longer names is
+  soft-deleted and reaches offline clients as a tombstone. An `id` of an item
+  that retro already deleted (a teammate removed it while your draft was open)
+  creates a new item. Any other unknown `id`, and a `story_points` outside
+  0-32767, returns 400 instead of a 500. Newly created items now start at
+  `server_version` 1 instead of 0. The web retro panel sends each item's id,
+  keeps edits typed while a save is in flight, and picks up items teammates add
+  (including converted stickies) so the next save no longer deletes them.
+  Removed items are also no longer exported to seeds, and re-converting a sticky
+  whose action item was removed now returns 201.
+- **Breaking for API clients of `POST /api/v1/sprints/{id}/retro/`:** a
+  `story_points` sent as a numeric string (`"3"`) or a non-integer (`2.5`) is
+  now rejected with 400. Before, it was silently cast or truncated. An entry
+  with an `id` but no `text` is also a 400; it used to delete the item. The
+  retro panel rounds story points to whole numbers and shows the server's
+  reason when a save is refused.
+Cross-project dependency events (`dependency_created`, `dependency_updated`, `dependency_deleted`) now reach the successor project as well as the predecessor project, so the downstream team's open Schedule and pending-acceptance panel update live. Deleting or restoring a task (or trashing a project) that cascades to a cross-project dependency now recalculates the project on the other side and notifies it, so it no longer keeps CPM dates constrained by a predecessor that no longer exists.
+
+### Security
+- **`IsProgramNotClosed` now fails closed on an unresolvable program**: on a write
+  whose object has no path to a program, `has_object_permission` used to return
+  `True` (permit) — the same undocumented fail-open shape #3587 closed on the
+  project-lifecycle sibling (`IsProjectNotArchived`). It now returns `False`.
+- **Program sponsorship transfer no longer leaks member emails via `new_lead_user_id`**:
+  `POST /programs/{id}/transfer-sponsorship/` promoted any user id passed as the new
+  program lead with no membership check, and echoed that user's email back in the
+  response — an email-harvest oracle over the full user-id space. The lead must now
+  hold an active program membership, mirroring the existing check on the new owner.
+  An unknown id, a real id with no membership, and a deactivated member's id all
+  return the same 400 response on both `new_owner_user_id` and `new_lead_user_id`
+  (and on the sibling `POST /projects/{id}/transfer/`'s `new_owner_user_id`) — closing
+  the smaller id-existence oracle that previously distinguished them by status code.
+  Directly setting `lead` via `PATCH /programs/{id}/` or `PATCH /projects/{id}/` is
+  gated the same way: a deactivated member can no longer be assigned as lead.
+`manage.py revoke_api_tokens --user`/`--all-personal` now also revoke the
+account's refresh tokens, share links, git-automation webhook secret, and
+outgoing webhooks, and evict its live project WebSocket connections — the same
+containment a password reset or member off-boarding already performs. Previously
+these two scopes revoked personal access tokens only, leaving every other
+credential the documented off-boarding/stolen-laptop runbook implied was
+contained still live.
+A project moved to Trash now stops granting access right away: its members, Owners included, can no longer read or change its tasks, board settings, schedule or other contents while the background cleanup is still running, or if that cleanup never runs. Restoring the project from Trash still works for its Owner.
+- **Mention-group member payloads no longer include email**: a program or
+  project `@mention` group's `members` list returned each member's email
+  address, which let a program Viewer read the email of a member who belongs
+  only to a project they cannot otherwise see. Username is enough to resolve
+  an `@mention`, so email is dropped from the payload entirely.
+- **Unified the "add member" refusal message**: an unknown user id, an
+  inactive account, and a real account that isn't reachable from the group's
+  project or program now all return the identical `400` body, closing a
+  user-id existence oracle on the `add-member` action.
+`can_user_write_estimates` now returns False for users with no membership on the project in every estimation mode, matching its documented fail-closed contract. As a result `can_edit_estimates` on Task is now False for non-members; previously OPEN and SUGGEST_APPROVE projects answered True without checking membership.
+`create_admin` no longer silently promotes an existing non-superuser account that holds `DJANGO_SUPERUSER_EMAIL`: it now refuses unless `TRUEPPM_ADMIN_PROMOTE_EXISTING=true` (Helm `admin.promoteExisting`) is set, revokes the promoted account's personal access tokens, refresh tokens, durable grants, and SSO links, and reports accounts sharing the bootstrap email as an error instead of crash-looping with `MultipleObjectsReturned`.
+The notification inbox now redacts subjects, bodies, snippets, task ids, and
+project links for a project that is in Trash, and `/auth/me`'s
+`max_project_role` (and so `can_access_admin_settings`) no longer counts a
+trashed project. A trashed project confers no role (the "project was deleted" notice is the one deliberate exception), but these reads still
+counted the membership, so the inbox kept showing its content and the UI
+advertised admin settings the server refused.
+- **A dependency cycle refusal no longer discloses tasks from other projects in the
+  program**: a cross-project edge is cycle-checked over the whole program, and the
+  `400 cyclic_dependency` body named every task on the cycle path — including tasks
+  in a project the caller holds no role on, and interior tasks of a linked project
+  the caller reached only through a program role. Such a node is now withheld as a blank
+  placeholder (`id`, `name`, and `hex_id` all empty, and `""` in `offending`), and
+  the web toast labels it "a task you can’t view". The two linked tasks are always
+  named (#4588).
+Pending workspace invitations are now revoked when their sender is off-boarded, resets their password, or is swept by `manage.py revoke_api_tokens --user/--all-personal/--all`, and accepting an invitation now refuses it if the sender is inactive or no longer a workspace Admin. Previously an invitation minted by a contained admin to an outside address stayed acceptable for its full 7-day life. Demoting a sender also revokes their pending invitations at or above their new role, and resending an invitation whose sender no longer qualifies is refused with a 409.
+
 ## [0.4.0-beta.9] — 2026-10-18
 
 This release supersedes `v0.4.0-beta.8`.
