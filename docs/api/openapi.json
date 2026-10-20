@@ -50565,9 +50565,23 @@
                         "description": "Caller is not a workspace admin."
                     },
                     "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LogoUploadError"
+                                }
+                            }
+                        },
                         "description": "Logo is larger than 2 MB."
                     },
                     "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LogoUploadError"
+                                }
+                            }
+                        },
                         "description": "Logo is not a PNG or WebP image."
                     },
                     "429": {
@@ -57192,6 +57206,18 @@
                     "landing_project_id",
                     "program",
                     "sample_key"
+                ]
+            },
+            "LogoUploadError": {
+                "type": "object",
+                "description": "Body of a refused logo upload: the message keyed by the ``file`` field.",
+                "properties": {
+                    "file": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "file"
                 ]
             },
             "MarkAllReadResult": {

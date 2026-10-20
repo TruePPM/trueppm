@@ -277,8 +277,6 @@ DRF renders a validation detail through `ErrorDetail`, a `str` subclass.
 
 ### 403 — refused by policy
 
-`POST /api/v1/auth/token/` answers `401` (invalid credentials) and `403` (password sign-in disabled by policy) with a bare `{"detail": "..."}` body and no `code` key.
-
 | Code | Meaning |
 |------|---------|
 | `scope_accept_forbidden` | The caller may not accept this scope-injection request |
@@ -397,6 +395,10 @@ refusal is a property of the deployment, not of any one route.
   `POST /api/v1/auth/password/reset/`, is refused.
 - **Reads are unaffected.** `GET`, `HEAD` and `OPTIONS` behave as on any other
   deployment, and a normal installation never returns this code.
+
+### Sign-in refusals (`POST /api/v1/auth/token/`)
+
+The login endpoint answers `401` (invalid credentials) and `403` (password sign-in disabled by policy, for example enforced single sign-on) with a bare `{"detail": "..."}` body and no `code` key.
 
 ### 404 / 409 — conflicts and protected references
 

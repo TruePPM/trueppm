@@ -1081,6 +1081,12 @@ def _sniff_logo_mime(head: bytes) -> str | None:
 
 # drf-spectacular's ``auth`` is typed ``Sequence[str]`` but emits each entry
 # verbatim as a security requirement, so requirement objects are what is correct.
+class LogoUploadErrorSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """Body of a refused logo upload: the message keyed by the ``file`` field."""
+
+    file = serializers.CharField()
+
+
 _LOGO_WRITE_AUTH: Any = [
     {"personalApiTokenAuth": []},
     {"jwtAuth": []},
@@ -1147,8 +1153,14 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
             200: WorkspaceSettingsSerializer,
             401: OpenApiResponse(description="Not authenticated."),
             403: OpenApiResponse(description="Caller is not a workspace admin."),
-            413: OpenApiResponse(description="Logo is larger than 2 MB."),
-            415: OpenApiResponse(description="Logo is not a PNG or WebP image."),
+            413: OpenApiResponse(
+                response=LogoUploadErrorSerializer,
+                description="Logo is larger than 2 MB.",
+            ),
+            415: OpenApiResponse(
+                response=LogoUploadErrorSerializer,
+                description="Logo is not a PNG or WebP image.",
+            ),
         },
         # The write methods authenticate, but the view's GET-only anonymous
         # carve-out makes the generator see no authenticators and emit

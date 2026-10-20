@@ -1556,3 +1556,13 @@ def test_workspace_logo_writes_declare_auth_and_refusals(schema: dict) -> None:
         op = ops[method]
         assert op["security"], f"{method} must not be advertised as anonymous"
         assert {"401", "403"} | extra <= set(op["responses"])
+
+
+def test_workspace_logo_413_and_415_declare_file_message_body(schema: dict) -> None:
+    """The 413/415 bodies are ``{"file": "<message>"}``, not a bare description."""
+    post = schema["paths"]["/api/v1/workspace/logo/"]["post"]
+    for code in ("413", "415"):
+        ref = post["responses"][code]["content"]["application/json"]["schema"]["$ref"]
+        component = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+        assert component["required"] == ["file"]
+        assert component["properties"]["file"]["type"] == "string"
