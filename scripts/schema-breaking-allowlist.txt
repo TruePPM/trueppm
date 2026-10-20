@@ -1,0 +1,23 @@
+# Accepted Breaking API changes, read by scripts/check-schema-breaking.py (#4594).
+#
+# Format, one per line:   <rule> | <location glob> | <stability.md anchor> | <reason>
+#   rule      one of the rule ids in the script header, or * for any
+#   location  fnmatch glob against the location the gate prints on failure
+#   anchor    a '###' heading under '## Current deprecations' in
+#             packages/website/src/content/docs/api/stability.md - the gate FAILS if
+#             the heading does not exist, so a break cannot be allowed without being
+#             published to integrators
+#
+# The baseline is the latest v* release tag, so entries go stale harmlessly when the
+# next tag is cut and can be pruned then (the gate reports stale entries).
+
+# #4578 - email dropped from mention-group member payloads (security).
+property-removed | response #/*MentionGroupRead.members*.email | mention-group-member-email-removed-4578 | cross-boundary email disclosure (ADR-0070)
+
+# #4575 - an unresolvable project-transfer target now answers the unified 400 (security).
+status-removed | POST /api/v1/projects/{id}/transfer/ 404 | transfer-target-refusals-unified-to-400-4575 | 404 vs 400 distinguished real from unknown ids (enumeration oracle)
+
+# #4591 - the retro POST/PATCH request body was declared as the Sprint write schema; it
+# is now declared as the retro write schema. Declaration correction, same endpoint.
+property-removed | request POST /api/v1/sprints/{id}/retro/ body [[]SprintRequest->SprintRetroWriteRequest[]].* | sprint-retro-request-schema-corrected-4591 | request body re-pointed at the schema the endpoint actually reads
+property-removed | request PATCH /api/v1/sprints/{id}/retro/ body [[]PatchedSprintRequest->PatchedSprintRetroWriteRequest[]].* | sprint-retro-request-schema-corrected-4591 | request body re-pointed at the schema the endpoint actually reads
