@@ -729,10 +729,9 @@ scripts:test:
         - scripts/tests/resolve-prev-web-image.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
-        - scripts/check-migration-constraint-safety.py
-        - scripts/tests/check-migration-constraint-safety.test.sh
-        - scripts/check-schema-breaking.py
-        - scripts/tests/check-schema-breaking.test.sh
+        # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
+        # at exactly 50 before the schema-breaking gate joined it.
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -783,10 +782,9 @@ scripts:test:
         - scripts/tests/resolve-prev-web-image.test.sh
         - scripts/tests/helm-sentinel-schema-experimental.test.sh
         - scripts/tests/check-release-images.test.sh
-        - scripts/check-migration-constraint-safety.py
-        - scripts/tests/check-migration-constraint-safety.test.sh
-        - scripts/check-schema-breaking.py
-        - scripts/tests/check-schema-breaking.test.sh
+        # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
+        # at exactly 50 before the schema-breaking gate joined it.
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
