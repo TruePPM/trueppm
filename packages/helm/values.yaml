@@ -1740,6 +1740,11 @@ admin:
   # admin@trueppm.com, a domain the vendor owns rather than you (#3175).
   # NOTES.txt prints a warning when this is unset.
   email: ""
+  # Allow the bootstrap to promote an EXISTING non-superuser account that holds
+  # admin.email when no superuser exists (default: refuse). Promotion resets the
+  # password and revokes that account's tokens and SSO links. Leave false unless
+  # you are deliberately recovering an install whose only superuser was demoted.
+  promoteExisting: false
 
 # Public read-only demo mode (#2440, ADR-0658).
 #

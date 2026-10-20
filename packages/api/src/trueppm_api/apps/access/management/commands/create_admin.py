@@ -12,6 +12,15 @@ reset. That is intended (it is how an operator recovers an install whose only
 superuser was demoted), but it is a privilege grant, so it is announced on stdout
 rather than reported as an ordinary create (#3175).
 
+Because it is a privilege grant, promotion is **opt-in**: an existing non-superuser
+is promoted only when ``TRUEPPM_ADMIN_PROMOTE_EXISTING`` is truthy. Otherwise the
+command refuses, leaves the account untouched, and says how to proceed. Without the
+opt-in, anyone able to register ``DJANGO_SUPERUSER_EMAIL`` ahead of the operator
+(the default is a well-known address) would inherit superuser on the next pod start
+after the real admin is demoted, keeping every PAT, refresh token, and SSO link they
+already held. When promotion does happen, the account's existing credentials are
+revoked in the same transaction (#4586).
+
 Concurrency
 -----------
 The Helm chart runs this as a **per-pod** ``bootstrap`` init container, so at
@@ -49,6 +58,16 @@ Environment variables
 ``DJANGO_SUPERUSER_PASSWORD``
     Explicit password.  When omitted a secure random password is generated
     via :func:`secrets.token_urlsafe`.
+``TRUEPPM_ADMIN_PROMOTE_EXISTING``
+    Set to ``1``/``true``/``yes`` to allow promoting an existing non-superuser account
+    that holds ``DJANGO_SUPERUSER_EMAIL`` (default: refuse). Promotion revokes the
+    account's personal access tokens, refresh tokens, durable grants, and SSO links.
+
+Refusals (an unconfirmed promotion, or several accounts sharing the email) are
+reported on stderr and the command exits 0: the Helm ``bootstrap`` init container
+gates pod start, so a non-zero exit would turn a recoverable configuration problem
+into a full API outage on the next restart.
+
 ``TRUEPPM_ADMIN_PASSWORD_FILE``
     Path where the one-time password is written (default:
     ``/tmp/trueppm_admin_password``).  Override in production to a
@@ -60,6 +79,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -78,6 +98,15 @@ _PASSWORD_FILE = os.environ.get(  # nosec B108
 #: literal or the lock arbitrates nothing; not derived from ``hash()``, which is
 #: salted per process.
 BOOTSTRAP_ADVISORY_LOCK_KEY = 4_113_188_002
+
+
+def _promote_existing_allowed() -> bool:
+    """True when the operator opted in to promoting an existing non-superuser."""
+    return os.environ.get("TRUEPPM_ADMIN_PROMOTE_EXISTING", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 class Command(BaseCommand):
@@ -112,12 +141,19 @@ class Command(BaseCommand):
                 self.stdout.write("Admin user already exists — skipping bootstrap.")
                 return
 
-            email, username, password, created = self._bootstrap()
+            result = self._bootstrap()
 
+        if result is None:
+            return
+        email, username, password, created = result
         self._deliver(email, username, password, created)
 
-    def _bootstrap(self) -> tuple[str, str, str, bool]:
-        """Create or promote the superuser. Caller holds the bootstrap lock."""
+    def _bootstrap(self) -> tuple[str, str, str, bool] | None:
+        """Create or promote the superuser. Caller holds the bootstrap lock.
+
+        Returns ``None`` when it refused (ambiguous email, or promotion not opted
+        into); nothing has been written in that case.
+        """
         User = get_user_model()
 
         email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@example.com").strip()
@@ -126,11 +162,38 @@ class Command(BaseCommand):
             16
         )
 
-        # get-or-create-ok: bootstrap command, single CLI/env admin email — no duplicate reachable
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={"username": username},
-        )
+        # auth.User.email is not unique, so get_or_create(email=...) would raise
+        # MultipleObjectsReturned and crash-loop the init container on every start.
+        # Fetch two rows to detect ambiguity and fail closed instead of guessing.
+        matches = list(User.objects.filter(email=email).order_by("pk")[:2])
+        if len(matches) > 1:
+            self.stderr.write(
+                self.style.ERROR(
+                    f"ERROR: more than one account has the email {email!r} "
+                    f"(pk={matches[0].pk}, pk={matches[1].pk}, ...). Refusing to pick one "
+                    "to promote. Set DJANGO_SUPERUSER_EMAIL to an unused address, or "
+                    "make the email unique, then restart. No superuser was created."
+                )
+            )
+            return None
+
+        created = not matches
+        if created:
+            user = User(email=email, username=username)
+        else:
+            user = matches[0]
+            if not _promote_existing_allowed():
+                self.stderr.write(
+                    self.style.ERROR(
+                        f"ERROR: {email} already exists as a non-superuser account and no "
+                        "superuser exists. Refusing to promote it (its existing tokens and "
+                        "SSO links would gain superuser). Set DJANGO_SUPERUSER_EMAIL to an "
+                        "unused address, or set TRUEPPM_ADMIN_PROMOTE_EXISTING=true to "
+                        "promote this account deliberately. No changes were made."
+                    )
+                )
+                return None
+
         # Bootstrap-only: password is an operator-supplied env var or a
         # cryptographically random token (above), not interactive signup input —
         # AUTH_PASSWORD_VALIDATORS govern the registration path, not superuser
@@ -141,7 +204,30 @@ class Command(BaseCommand):
         user.is_staff = True
         user.is_superuser = True
         user.save()
+        if not created:
+            self._revoke_existing_credentials(user)
         return email, username, password, created
+
+    def _revoke_existing_credentials(self, user: Any) -> None:
+        """Cut off every credential the account held before it became superuser.
+
+        The password reset alone does not touch PATs, refresh tokens, durable
+        grants or an SSO binding, all of which would now carry superuser. A
+        ``SocialAccount`` is deleted rather than kept: the IdP identity that
+        pre-claimed the address could otherwise sign straight back in.
+        """
+        from allauth.socialaccount.models import SocialAccount
+
+        from trueppm_api.apps.access.services import (
+            revoke_all_personal_access_tokens,
+            revoke_all_refresh_tokens,
+            revoke_personal_durable_grants,
+        )
+
+        revoke_all_personal_access_tokens(user, reason="bootstrap_promotion")
+        revoke_all_refresh_tokens(user)
+        revoke_personal_durable_grants(user)
+        SocialAccount.objects.filter(user=user).delete()
 
     def _deliver(self, email: str, username: str, password: str, created: bool) -> None:
         """Announce the bootstrap and hand the password to the operator.
@@ -159,7 +245,8 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(
                     f"WARNING: {email} already existed as a non-superuser. It has been "
-                    "granted superuser + staff and its password has been RESET. If this "
+                    "granted superuser + staff, its password has been RESET, and its tokens "
+                    "and SSO links have been revoked. If this "
                     "was not intended, set DJANGO_SUPERUSER_EMAIL to an unused address."
                 )
             )

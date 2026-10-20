@@ -115,6 +115,10 @@ spec:
             - name: DJANGO_SUPERUSER_EMAIL
               value: {{ .Values.admin.email | quote }}
             {{- end }}
+            {{- if .Values.admin.promoteExisting }}
+            - name: TRUEPPM_ADMIN_PROMOTE_EXISTING
+              value: "true"
+            {{- end }}
           volumeMounts:
             - name: admin-password
               mountPath: /run/trueppm

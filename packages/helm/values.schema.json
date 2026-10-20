@@ -1288,6 +1288,9 @@
         },
         "email": {
           "type": "string"
+        },
+        "promoteExisting": {
+          "type": "boolean"
         }
       }
     },
