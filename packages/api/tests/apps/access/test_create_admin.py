@@ -330,12 +330,13 @@ def test_username_collision_is_a_refusal_not_a_crash(
     assert not User.objects.filter(is_superuser=True).exists()
 
 
+@pytest.mark.parametrize("raw", ["", "  "])
 @pytest.mark.django_db
 def test_empty_email_env_falls_back_to_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw: str
 ) -> None:
     """`DJANGO_SUPERUSER_EMAIL=` (empty) must not match blank-email accounts."""
-    monkeypatch.setenv("DJANGO_SUPERUSER_EMAIL", "")
+    monkeypatch.setenv("DJANGO_SUPERUSER_EMAIL", raw)
     monkeypatch.delenv("DJANGO_SUPERUSER_USERNAME", raising=False)
     monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
     blank = User.objects.create_user(username="blank", email="", password="pw")

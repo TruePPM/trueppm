@@ -66,6 +66,30 @@ Environment variables
     that holds ``DJANGO_SUPERUSER_EMAIL`` (default: refuse). Promotion revokes the
     account's personal access tokens, refresh tokens, durable grants, and SSO links.
 
+``TRUEPPM_ADMIN_PASSWORD_FILE`` environment variable.  If the file write fails
+the password falls back to management-command stdout *only* — it is never
+passed to ``logger.*`` which would forward it to log aggregators.
+
+Environment variables
+---------------------
+``DJANGO_SUPERUSER_EMAIL``
+    Admin email address (default: ``admin@example.com``).
+
+    The default is an RFC 2606 reserved domain, chosen so it can never be
+    delivered to. It used to be ``admin@trueppm.com`` — a domain the *vendor*
+    owns and the operator does not, which put every un-overridden install's
+    root account at an address its owner could not receive password-reset mail
+    at, and someone else could (#3175). Always set this explicitly.
+``DJANGO_SUPERUSER_USERNAME``
+    Admin username; defaults to the local part of the email.
+``DJANGO_SUPERUSER_PASSWORD``
+    Explicit password.  When omitted a secure random password is generated
+    via :func:`secrets.token_urlsafe`.
+``TRUEPPM_ADMIN_PROMOTE_EXISTING``
+    Set to ``1``/``true``/``yes`` to allow promoting an existing non-superuser account
+    that holds ``DJANGO_SUPERUSER_EMAIL`` (default: refuse). Promotion revokes the
+    account's personal access tokens, refresh tokens, durable grants, and SSO links.
+
 Refusals (an unconfirmed promotion, or several accounts sharing the email) are
 reported on stderr and the command exits 0: the Helm ``bootstrap`` init container
 gates pod start, so a non-zero exit would turn a recoverable configuration problem
@@ -75,6 +99,11 @@ into a full API outage on the next restart.
     Path where the one-time password is written (default:
     ``/tmp/trueppm_admin_password``).  Override in production to a
     non-world-writable location (e.g. an emptyDir volume mount).
+
+The three refusals above are reported on stderr and the logger, and the command
+exits 0: the Helm ``bootstrap`` init container gates pod start, so a non-zero exit
+would turn a recoverable configuration problem into a full API outage on the next
+restart.
 """
 
 from __future__ import annotations
@@ -154,8 +183,8 @@ class Command(BaseCommand):
     def _bootstrap(self) -> tuple[str, str, str, bool] | None:
         """Create or promote the superuser. Caller holds the bootstrap lock.
 
-        Returns ``None`` when it refused (ambiguous email, or promotion not opted
-        into); nothing has been written in that case.
+        Returns ``None`` when it refused (ambiguous email, promotion not opted into,
+        or username collision); nothing has been written in that case.
         """
         User = get_user_model()
 
