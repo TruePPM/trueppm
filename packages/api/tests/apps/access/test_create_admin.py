@@ -3,17 +3,30 @@
 from __future__ import annotations
 
 import os
+import secrets
 import threading
+from datetime import date
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.db import connection as default_connection
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from trueppm_api.apps.access.management.commands import create_admin as mod
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import (
+    ApiToken,
+    ApiTokenAuditEntry,
+    Calendar,
+    Project,
+    ShareLink,
+)
 
 User = get_user_model()
 
@@ -150,12 +163,15 @@ def test_default_email_is_a_reserved_domain(tmp_path: Path) -> None:
 
 
 @pytest.mark.django_db
-def test_promoting_an_existing_user_is_announced(tmp_path: Path) -> None:
+def test_promoting_an_existing_user_is_announced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Promotion is a privilege grant + password reset — it must not read as a create.
 
     Reachable whenever no superuser exists and some ordinary account already holds
-    DJANGO_SUPERUSER_EMAIL.
+    DJANGO_SUPERUSER_EMAIL and the operator opted in.
     """
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
     existing = User.objects.create_user(
         username="someone", email="admin@example.com", password="their-own-password"
     )
@@ -171,6 +187,164 @@ def test_promoting_an_existing_user_is_announced(tmp_path: Path) -> None:
     output = out.getvalue()
     assert "WARNING" in output
     assert "password has been RESET" in output
+
+
+def _mint_pat(owner: object) -> ApiToken:
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    return ApiToken.objects.create(
+        name="t",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        owner=owner,
+        created_by=owner,
+    )
+
+
+@pytest.mark.django_db
+def test_promotion_revokes_existing_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pre-claimed account keeps no PAT, refresh token, or SSO link after promotion (#4586)."""
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "1")
+    existing = User.objects.create_user(username="someone", email="admin@example.com", password="x")
+    pat = _mint_pat(existing)
+    refresh = RefreshToken.for_user(existing)
+    social = SocialAccount.objects.create(user=existing, provider="github", uid="123")
+
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO())
+
+    pat.refresh_from_db()
+    assert pat.revoked_at is not None
+    assert ApiTokenAuditEntry.objects.filter(
+        token=pat, detail__reason="bootstrap_promotion"
+    ).exists()
+    assert BlacklistedToken.objects.filter(token__jti=refresh["jti"]).exists()
+    assert not SocialAccount.objects.filter(pk=social.pk).exists()
+
+
+@pytest.mark.django_db
+def test_promotion_refused_without_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without the opt-in the pre-claimed account is untouched and the command exits 0."""
+    monkeypatch.delenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", raising=False)
+    existing = User.objects.create_user(
+        username="someone", email="admin@example.com", password="pw"
+    )
+    pat = _mint_pat(existing)
+    pw_file = tmp_path / "pw"
+
+    out, err = StringIO(), StringIO()
+    with patch(_CMD, str(pw_file)):
+        call_command("create_admin", stdout=out, stderr=err)
+
+    existing.refresh_from_db()
+    pat.refresh_from_db()
+    assert not existing.is_superuser
+    assert not existing.is_staff
+    assert existing.check_password("pw")
+    assert pat.revoked_at is None
+    assert not pw_file.exists()
+    assert "TRUEPPM_ADMIN_PROMOTE_EXISTING" in err.getvalue()
+    assert not User.objects.filter(is_superuser=True).exists()
+
+
+@pytest.mark.django_db
+def test_duplicate_bootstrap_email_is_a_clear_error_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """auth.User.email is not unique; two holders must not raise MultipleObjectsReturned."""
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
+    User.objects.create_user(username="a", email="admin@example.com", password="pw")
+    User.objects.create_user(username="b", email="admin@example.com", password="pw")
+
+    err = StringIO()
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=err)
+
+    assert "more than one account" in err.getvalue()
+    assert not User.objects.filter(is_superuser=True).exists()
+
+
+@pytest.mark.django_db
+def test_email_match_is_case_insensitive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An account stored as ADMIN@example.com is the existing account, not a new one."""
+    monkeypatch.delenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", raising=False)
+    existing = User.objects.create_user(username="someone", email="ADMIN@example.com", password="x")
+    err = StringIO()
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=err)
+    existing.refresh_from_db()
+    assert not existing.is_superuser
+    assert User.objects.count() == 1
+    assert "TRUEPPM_ADMIN_PROMOTE_EXISTING" in err.getvalue()
+
+
+@pytest.mark.django_db
+def test_case_variant_duplicates_are_ambiguous(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
+    User.objects.create_user(username="a", email="ADMIN@example.com", password="pw")
+    User.objects.create_user(username="b", email="Admin@example.com", password="pw")
+    err = StringIO()
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=err)
+    assert "more than one account" in err.getvalue()
+    assert not User.objects.filter(is_superuser=True).exists()
+
+
+@pytest.mark.django_db
+def test_promotion_evicts_live_sockets_and_revokes_durable_grants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
+    existing = User.objects.create_user(username="someone", email="admin@example.com", password="x")
+    project = Project.objects.create(
+        name="P", start_date=date(2026, 4, 1), calendar=Calendar.objects.create(name="Std")
+    )
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix1",
+        token_hash=sha256_hex("a-share-link"),
+        created_by=existing,
+    )
+    target = "trueppm_api.apps.access.signals.evict_all_live_project_sockets"
+    with patch(_CMD, str(tmp_path / "pw")), patch(target) as evict:
+        call_command("create_admin", stdout=StringIO())
+    evict.assert_called_once_with(existing.pk)
+    link.refresh_from_db()
+    assert link.revoked_at is not None
+
+
+@pytest.mark.django_db
+def test_username_collision_is_a_refusal_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No email match but the derived username is taken: refuse instead of IntegrityError."""
+    monkeypatch.delenv("DJANGO_SUPERUSER_USERNAME", raising=False)
+    User.objects.create_user(username="admin", email="other@example.com", password="pw")
+    err = StringIO()
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=err)
+    assert "already belongs to a different account" in err.getvalue()
+    assert not User.objects.filter(is_superuser=True).exists()
+
+
+@pytest.mark.parametrize("raw", ["", "  "])
+@pytest.mark.django_db
+def test_empty_email_env_falls_back_to_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    """`DJANGO_SUPERUSER_EMAIL=` (empty) must not match blank-email accounts."""
+    monkeypatch.setenv("DJANGO_SUPERUSER_EMAIL", raw)
+    monkeypatch.delenv("DJANGO_SUPERUSER_USERNAME", raising=False)
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "true")
+    blank = User.objects.create_user(username="blank", email="", password="pw")
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO(), stderr=StringIO())
+    blank.refresh_from_db()
+    assert not blank.is_superuser
+    assert User.objects.get(email="admin@example.com").is_superuser
 
 
 @pytest.mark.django_db(transaction=True)

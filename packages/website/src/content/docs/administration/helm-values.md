@@ -795,6 +795,7 @@ silent failure one step later.
 |---|---|---|
 | `admin.passwordFile` | `/run/trueppm/admin_password` | Where the one-time bootstrap password is written. Written on exactly one API pod (the first to bootstrap) — retrieve it by checking each pod, as in [Admin password setup](/administration/admin-password/#kubernetes--helm). |
 | `admin.email` | `""` | Bootstrap admin email. Set it — left empty the bootstrap uses `admin@example.com`, a reserved domain that cannot receive password-reset mail. |
+| `admin.promoteExisting` | `false` | Allow the bootstrap to promote an existing non-superuser account holding `admin.email` when no superuser exists. Off by default; promotion resets the password and revokes that account's tokens and grants and unlinks its SSO identities. |
 
 ## Public read-only demo mode
 

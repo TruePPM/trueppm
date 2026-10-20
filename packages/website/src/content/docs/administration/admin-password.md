@@ -19,7 +19,8 @@ The api container runs `create_admin` automatically on startup (both in `docker 
 2. Generates a URL-safe random password (16 bytes of entropy, about 22 characters), or honors `DJANGO_SUPERUSER_PASSWORD` if set.
 3. Creates the superuser with email `admin@example.com` (or `DJANGO_SUPERUSER_EMAIL` if set), username `admin` (or the local part of the email). The default is an RFC 2606 reserved domain and cannot receive mail, so set `DJANGO_SUPERUSER_EMAIL` before the first deploy or password reset for this account will not work.
 
-   If a **non-superuser** account already holds that address, it is promoted to superuser and its password is reset. The command prints a warning when it does this. Point `DJANGO_SUPERUSER_EMAIL` at an unused address if that is not what you want.
+   If a **non-superuser** account already holds that address, the command refuses to promote it and changes nothing, unless you set `TRUEPPM_ADMIN_PROMOTE_EXISTING=true` (Helm: `admin.promoteExisting`). With the opt-in, the account is promoted to superuser, its password is reset, its tokens, grants, and live sessions are revoked, and its SSO identities are unlinked; the command prints a warning when it does this. Unset the variable afterwards. Otherwise, point `DJANGO_SUPERUSER_EMAIL` at an unused address. See [`create_admin`](/administration/management-commands/#create_admin).
+
 4. Writes the password to `/tmp/trueppm_admin_password` with mode `0o600`.
 
 ## Retrieve the first-run password
