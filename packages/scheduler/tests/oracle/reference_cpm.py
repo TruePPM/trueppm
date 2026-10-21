@@ -98,7 +98,7 @@ project finish.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 ONE_DAY = timedelta(days=1)
@@ -130,11 +130,47 @@ class RefLink:
 
 
 @dataclass(frozen=True)
+class RefProgress:
+    """A task's recorded progress (ADR-0132/0136): plain input data."""
+
+    percent_complete: float = 0.0
+    actual_start: date | None = None
+    actual_finish: date | None = None
+
+    @property
+    def complete(self) -> bool:
+        """``actual_finish`` recorded, or ``percent_complete`` at 100 (ADR-0136)."""
+        return self.actual_finish is not None or self.percent_complete >= 100
+
+
+@dataclass(frozen=True)
 class RefProject:
     start: date
     durations: dict[str, int]  # task id -> working days (0 = milestone)
     links: tuple[RefLink, ...]
     calendar: RefCalendar = RefCalendar()
+    # Progress-era inputs (#4439). All default to "absent", and a project that sets
+    # none of them is the pure planning network every earlier case is.
+    status_date: date | None = None  # the data date
+    planned_start: dict[str, date] = field(default_factory=dict)  # SNET, per task
+    progress: dict[str, RefProgress] = field(default_factory=dict)
+    calendars: dict[str, RefCalendar] = field(default_factory=dict)  # per-task registry
+    task_calendar: dict[str, str] = field(default_factory=dict)  # task id -> registry id
+
+    @property
+    def plans_only(self) -> bool:
+        """No progress, data date, SNET or per-task calendar: a pure planning network."""
+        return not (
+            self.status_date is not None
+            or self.planned_start
+            or self.progress
+            or self.task_calendar
+        )
+
+    def calendar_of(self, tid: str) -> RefCalendar:
+        """The calendar ``tid`` works on: its registry entry, else the project's."""
+        cid = self.task_calendar.get(tid)
+        return self.calendars[cid] if cid is not None else self.calendar
 
 
 @dataclass
@@ -502,6 +538,11 @@ def _feeds_a_milestone(project: RefProject, tid: str) -> bool:
 
 def reference_schedule(project: RefProject) -> RefResult:
     """Run the reference forward pass, backward pass, and float computation."""
+    if not project.plans_only:
+        raise NotImplementedError(
+            "reference CPM models planning networks only: no progress, data date, "
+            "planned_start or per-task calendars (#4439)"
+        )
     cal = project.calendar
     order = topological_order(project)
     project_start = start_at_or_after(project.start, cal)
