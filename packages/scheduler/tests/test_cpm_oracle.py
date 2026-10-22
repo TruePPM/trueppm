@@ -33,8 +33,9 @@ The perturbation oracle (#4439)
 -------------------------------
 Progress, the data date, ``planned_start`` and per-task calendars are the input
 class behind every recent shared engine bug (#4343, #4344, #4345, #4431, #4433),
-and the reference does not model them. The perturbation properties reach that
-class without a model: each slips a live task through ``planned_start`` and checks
+and the reference does not model them (#4633). The perturbation properties reach
+the float half of that class without a model: each slips a live task through
+``planned_start`` and checks
 the engine's own floats against what the slip actually does — by its total float
 ``TF`` the shown project finish (day and end-of-day reading) stays put and by
 ``TF + 1`` it moves; by its free float ``FF`` nothing live downstream moves and by
@@ -44,6 +45,13 @@ and four-, five- and seven-day per-task calendars with exceptions. Not generated
 there: summary tasks, ``live_day_end_on``, Monte Carlo. One shape is excluded by
 name, the open #4436 (``_ends_in_a_start_of_day_finish_gap``), and pinned by a
 strict xfail so the exclusion cannot outlive the fix.
+
+A slip oracle sees only float that disagrees with what slipping does. A bug that
+moves early dates while keeping floats consistent is invisible to it: #4433 (a
+closed milestone pushing its successors a day) is one, pinned instead by a
+metamorphic closed-versus-live test; the open #4631 (an FF successor of a
+weekend ``actual_finish``) is another. In CI only the Python engine runs these
+properties — the scheduler image has no Rust toolchain.
 
 The Rust side runs in two ways. The Hypothesis properties drive a native build of
 the crate's ``oracle_runner`` example over stdin when ``cargo`` (or a prebuilt
@@ -514,9 +522,12 @@ def rust_engine() -> Iterator[RustRunner]:
     binary = _rust_runner_binary()
     if binary is None:
         pytest.skip(
-            "No Rust toolchain: the live Rust-vs-reference properties need `cargo` or "
-            "TRUEPPM_ORACLE_RUST_RUNNER. CI checks Rust against the committed oracle "
-            "corpus in wasm:test (tests/oracle_conformance.rs) instead."
+            "No Rust toolchain: the live Rust properties need `cargo` or "
+            "TRUEPPM_ORACLE_RUST_RUNNER. In CI, wasm:test holds Rust to the committed "
+            "oracle corpus (tests/oracle_conformance.rs), which covers planning networks "
+            "only; the perturbation properties (progress, data date, SNETs, per-task "
+            "calendars) run on Rust only locally, and in CI Rust is held to that input "
+            "class only transitively, through wasm:conformance against the Python engine."
         )
     runner = RustRunner(binary)
     yield runner
@@ -743,9 +754,10 @@ def test_a_shorter_lag_never_finishes_work_later(project: RefProject, which: int
 # ---------------------------------------------------------------------------
 # The perturbation oracle (#4439): float checked by slipping the task, not by a
 # reference. It needs no model of progress, the data date, ``planned_start`` or
-# per-task calendars, so it reaches the input class the reference above does not:
-# the class behind #4343, #4344, #4345, #4431 and #4433, which both engines shared
-# and which therefore passed ``wasm:conformance``.
+# per-task calendars, so it reaches the float half of the input class the reference
+# above does not: #4343, #4344, #4345 and #4431, which both engines shared and which
+# therefore passed ``wasm:conformance``. Early-date bugs with consistent floats
+# (#4433) need a metamorphic test instead.
 # ---------------------------------------------------------------------------
 
 
@@ -905,7 +917,7 @@ def _held_at(task: EngineTask, is_milestone: bool, cal: RefCalendar) -> tuple[da
 
 
 def _ends_in_a_start_of_day_finish_gap(
-    project: RefProject, base: EngineRun, slipped: EngineRun
+    project: RefProject, tid: str, base: EngineRun, slipped: EngineRun
 ) -> bool:
     """TODO(#4436): the known understated-float shape, excluded by name until fixed.
 
@@ -914,26 +926,24 @@ def _ends_in_a_start_of_day_finish_gap(
     milestone's calendar) and ``D`` is the same shown finish. A task on a wider
     calendar can finish on a day in that gap without moving it, but the engines seed
     its late finish at the last working day before the gap, so its float is short by
-    the gap's working days. This is true when the slipped run has live work finishing
-    inside such a gap — exactly the case a TF+1 slip that does not move the finish
-    hits. Delete this filter when #4436 closes.
+    the gap's working days. This is true when the slipped task ``tid``, or live work
+    downstream of it that the slip carried, finishes inside such a gap — exactly the
+    case a TF+1 slip that does not move the finish hits. Nothing else is excused:
+    work that is not ``tid`` or behind it did not move. Delete this filter when
+    #4436 closes.
     """
     if shown_finish(base, project)[1]:
         return False
     finish_day = base.project_finish
     gap: set[date] = set()
-    for tid, t in base.tasks.items():
+    for mid, t in base.tasks.items():
         start_of_day = not t.milestone_at_day_end
-        if project.durations[tid] == 0 and t.early_start == finish_day and start_of_day:
+        if project.durations[mid] == 0 and t.early_start == finish_day and start_of_day:
             day_before = finish_day - timedelta(days=1)
-            prior = last_working_on_or_before(day_before, project.calendar_of(tid))
+            prior = last_working_on_or_before(day_before, project.calendar_of(mid))
             gap |= {prior + timedelta(days=i) for i in range(1, (finish_day - prior).days)}
-    return any(
-        project.durations[tid] > 0
-        and not _complete(project, tid)
-        and slipped.tasks[tid].early_finish in gap
-        for tid in project.durations
-    )
+    carried = [tid, *_live_descendants(project, tid)]
+    return any(project.durations[t] > 0 and slipped.tasks[t].early_finish in gap for t in carried)
 
 
 def _live_descendants(project: RefProject, tid: str) -> list[str]:
@@ -990,7 +1000,7 @@ def float_perturbation_violations(
             if (
                 exclude_4436
                 and should_move
-                and _ends_in_a_start_of_day_finish_gap(project, base, after)
+                and _ends_in_a_start_of_day_finish_gap(project, tid, base, after)
             ):
                 continue
             out.append(
@@ -1005,16 +1015,16 @@ def float_perturbation_violations(
             after = run(_with_snet(project, tid, day))
             if first_working_on_or_after(after.tasks[tid].early_start, cal) != day:
                 continue
-            moved = [
+            moved_downstream = [
                 s
                 for s in live
                 if _held_at(after.tasks[s], project.durations[s] == 0, project.calendar_of(s))
                 != _held_at(base.tasks[s], project.durations[s] == 0, project.calendar_of(s))
             ]
-            if bool(moved) != should_move:
+            if bool(moved_downstream) != should_move:
                 out.append(
                     f"{tid}: FF {got.free_float} (TF {got.total_float}), slipped {slip} wd "
-                    f"to {day}: moved downstream {moved} of {live}"
+                    f"to {day}: moved downstream {moved_downstream} of {live}"
                 )
     return out
 
@@ -1060,7 +1070,9 @@ SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH = RefProject(
     progress={"T0": RefProgress(actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 6))},
 )
 #: #4433 — closing a milestone reached on the data date (``actual_finish``) pushed
-#: its FS successors a working day later than the same milestone live.
+#: its FS successors a working day later than the same milestone live. Floats stay
+#: consistent either way, so the slip oracle cannot see it; it is pinned by
+#: :func:`test_closing_a_milestone_on_the_data_date_moves_nothing` instead.
 MILESTONE_CLOSED_ON_THE_DATA_DATE = RefProject(
     start=date(2027, 3, 1),
     durations={"T0": 0, "T1": 2, "T2": 3},
@@ -1088,20 +1100,44 @@ START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK = RefProject(
     task_calendar={"T2": "seven"},
 )
 
+#: The fixed shapes the slip oracle separates from their pre-fix engines.
 FIXED_PROGRESS_SHAPES = (
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
     SUNDAY_FINISH_BEHIND_A_MILESTONE,
     SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE,
     SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
-    MILESTONE_CLOSED_ON_THE_DATA_DATE,
     SF_INTO_A_FOUR_DAY_MILESTONE,
 )
+
+
+def _closed_moves_nothing(project: RefProject, run: Callable[[RefProject], EngineRun]) -> None:
+    """Every task but the milestone ``T0`` sits where it does with ``T0`` still live.
+
+    The live twin drops ``T0``'s actuals; the data date holds it on the same day, at
+    the start of it. Recording that it happened then is a fact about the past, not a
+    change to the plan, so nothing downstream may move (#4433).
+    """
+    live = replace(project, progress={k: v for k, v in project.progress.items() if k != "T0"})
+    closed_run, live_run = run(project), run(live)
+    assert closed_run.project_finish == live_run.project_finish
+    for tid in project.durations:
+        if tid == "T0":
+            continue
+        got, want = closed_run.tasks[tid], live_run.tasks[tid]
+        assert (got.early_start, got.early_finish) == (want.early_start, want.early_finish), tid
 
 
 @pytest.mark.parametrize("project", FIXED_PROGRESS_SHAPES)
 def test_fixed_progress_shapes_survive_perturbation(project: RefProject) -> None:
     """The fixed findings of the 2026-10-09/16 audits, pinned on the Python engine."""
     assert_floats_survive_perturbation(project, python_run)
+
+
+def test_closing_a_milestone_on_the_data_date_moves_nothing() -> None:
+    """#4433, metamorphic: closed versus live, on the Python engine."""
+    _closed_moves_nothing(MILESTONE_CLOSED_ON_THE_DATA_DATE, python_run)
+    # The closed milestone is also float-consistent; the slip oracle checks that much.
+    assert_floats_survive_perturbation(MILESTONE_CLOSED_ON_THE_DATA_DATE, python_run)
 
 
 def test_the_4436_exclusion_is_what_hides_the_known_shape() -> None:
@@ -1135,6 +1171,12 @@ def test_rust_fixed_progress_shapes_survive_perturbation(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
     assert_floats_survive_perturbation(project, rust_engine.run)
+
+
+def test_rust_closing_a_milestone_on_the_data_date_moves_nothing(
+    rust_engine: RustRunner,
+) -> None:
+    _closed_moves_nothing(MILESTONE_CLOSED_ON_THE_DATA_DATE, rust_engine.run)
 
 
 @pytest.mark.fuzz

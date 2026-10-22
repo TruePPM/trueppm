@@ -86,9 +86,11 @@ Documented rules modeled
   link satisfied at that successor's early dates, capped at total float, and equal
   to total float for a task with no successor (#1828).
 
-Out of scope for this first cut (the generated networks never contain them):
-progress/actuals, the data date, ``planned_start``, per-task calendars, summary
-tasks, Monte Carlo. For a milestone the oracle states only *where in working time*
+Out of scope for this first cut: progress/actuals, the data date,
+``planned_start``, per-task calendars, summary tasks, Monte Carlo. A
+:class:`RefProject` can carry the first four (the perturbation properties draw
+them), but :func:`reference_schedule` refuses such a project rather than answer
+it; modeling them is #4633. For a milestone the oracle states only *where in working time*
 it sits. Which of two adjacent days it is *shown* on is a display convention
 (#4079, #4173, #4183) it does not model, and float is read from that shown day, so
 the oracle states no late dates or floats (``RefTask.late_stated``) for a milestone,

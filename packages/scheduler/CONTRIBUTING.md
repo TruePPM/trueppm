@@ -64,13 +64,33 @@ What is compared:
 | Milestone late dates and floats, `scheduled_start`, `critical_path`, `driving_edges` | Not compared (tracked in #4275) |
 | Monte Carlo | Not compared. Only the Python engine runs it; the Rust engine is deterministic CPM only |
 
-Not generated yet: progress and actuals, the data date, `planned_start`,
-per-task calendars, and summary tasks. Every link shape is generated, and none
+Not generated for the reference comparison: progress and actuals, the data date,
+`planned_start`, per-task calendars, and summary tasks — the reference refuses
+them (modeling the first four is #4633). Every link shape is generated, and none
 is excluded: when the engines disagree with the reference on one, fix the engine
 (or, with a concrete reason, the documented rule and the reference together) —
 do not carve the shape out of the generator. The last two exclusions, a lagged
 FF/SF link into a milestone (#4272) and an FF link out of one (#4273), were
 removed that way.
+
+The **perturbation oracle** in the same file covers the float side of the inputs
+the reference does not model. It draws progress and actuals (including actuals
+on non-working days and before the project start), a data date, `planned_start`,
+and four-, five- and seven-day per-task calendars with exceptions, then slips
+each live task through `planned_start`: by its total float the shown project
+finish must not move and by one more day it must; by its free float nothing live
+downstream may move and by one more day something must. It needs no model, so it
+cannot see a bug that moves early dates while keeping floats consistent — #4433
+is pinned by a metamorphic closed-versus-live test instead, and #4631 is the open
+question of that kind. It runs on Rust only where `cargo` (or
+`TRUEPPM_ORACLE_RUST_RUNNER`) is available; CI holds Rust to this input class
+only through `wasm:conformance` against Python.
+
+There is exactly one tracked exception to "do not carve the shape out": the open
+#4436 (understated float beside a start-of-day milestone finish) is excused by
+the named filter `_ends_in_a_start_of_day_finish_gap`, narrowed to the slipped
+task and the work its slip carried. A strict xfail on the unfiltered repro turns
+red when #4436 is fixed, so the filter must be deleted with the fix.
 
 The Rust engine is checked two ways. Locally, when `cargo` is on `PATH`, the
 Rust properties build the crate's `oracle_runner` example and feed it the same
