@@ -23,11 +23,35 @@ What is compared, exactly
 * Not compared at all: ``scheduled_start``, ``critical_path``, ``driving_edges``,
   ``project_finish`` (implied by the per-task dates), and Monte Carlo, which the
   Rust engine does not implement.
-* Not generated: progress/actuals, the data date, ``planned_start``, per-task
-  calendars, summary tasks. Every link shape is generated: the last two the
-  engines disagreed with the reference on — a lagged FF/SF link into a milestone
-  (#4272) and an FF link out of one (#4273) — were fixed in the engines, not
-  excluded here.
+* Not generated for the reference comparison: progress/actuals, the data date,
+  ``planned_start``, per-task calendars, summary tasks. Every link shape is
+  generated: the last two the engines disagreed with the reference on — a lagged
+  FF/SF link into a milestone (#4272) and an FF link out of one (#4273) — were
+  fixed in the engines, not excluded here.
+
+The perturbation oracle (#4439)
+-------------------------------
+Progress, the data date, ``planned_start`` and per-task calendars are the input
+class behind every recent shared engine bug (#4343, #4344, #4345, #4431, #4433),
+and the reference does not model them (#4633). The perturbation properties reach
+the float half of that class without a model: each slips a live task through
+``planned_start`` and checks
+the engine's own floats against what the slip actually does — by its total float
+``TF`` the shown project finish (day and end-of-day reading) stays put and by
+``TF + 1`` it moves; by its free float ``FF`` nothing live downstream moves and by
+``FF + 1`` something does. The networks carry percent complete, actual starts and
+finishes (on non-working days and before the project start), a data date, SNETs,
+and four-, five- and seven-day per-task calendars with exceptions. Not generated
+there: summary tasks, ``live_day_end_on``, Monte Carlo. One shape is excluded by
+name, the open #4436 (``_ends_in_a_start_of_day_finish_gap``), and pinned by a
+strict xfail so the exclusion cannot outlive the fix.
+
+A slip oracle sees only float that disagrees with what slipping does. A bug that
+moves early dates while keeping floats consistent is invisible to it: #4433 (a
+closed milestone pushing its successors a day) is one, pinned instead by a
+metamorphic closed-versus-live test; the open #4631 (an FF successor of a
+weekend ``actual_finish``) is another. In CI only the Python engine runs these
+properties — the scheduler image has no Rust toolchain.
 
 The Rust side runs in two ways. The Hypothesis properties drive a native build of
 the crate's ``oracle_runner`` example over stdin when ``cargo`` (or a prebuilt
@@ -48,7 +72,7 @@ import os
 import random
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -63,6 +87,7 @@ from tests.oracle.reference_cpm import (
     MON_TO_FRI,
     RefCalendar,
     RefLink,
+    RefProgress,
     RefProject,
     RefResult,
     first_working_on_or_after,
@@ -78,6 +103,7 @@ from trueppm_scheduler import (
     Dependency,
     DependencyType,
     Project,
+    ScheduleResult,
     Task,
     schedule,
 )
@@ -136,7 +162,10 @@ def _whole_days(seconds: float) -> int:
 
 
 def python_engine(project: RefProject) -> dict[str, EngineTask]:
-    result = schedule(to_engine_project(project))
+    return python_engine_tasks(schedule(to_engine_project(project)))
+
+
+def python_engine_tasks(result: ScheduleResult) -> dict[str, EngineTask]:
     return {
         t.id: EngineTask(
             early_start=t.early_start,
@@ -170,16 +199,33 @@ def _engine_task_from_json(row: dict[str, Any]) -> EngineTask:
 # ---------------------------------------------------------------------------
 
 
+def _engine_calendar(cal: RefCalendar) -> Calendar:
+    return Calendar(
+        working_days=cal.working_mask,
+        exceptions=[DateRange(start=lo, end=hi) for lo, hi in cal.exceptions],
+    )
+
+
+def _engine_task(project: RefProject, tid: str, n: int) -> Task:
+    progress = project.progress.get(tid, RefProgress())
+    return Task(
+        id=tid,
+        name=tid,
+        duration=timedelta(days=n),
+        planned_start=project.planned_start.get(tid),
+        percent_complete=progress.percent_complete,
+        actual_start=progress.actual_start,
+        actual_finish=progress.actual_finish,
+        calendar_id=project.task_calendar.get(tid),
+    )
+
+
 def to_engine_project(project: RefProject) -> Project:
-    cal = project.calendar
     return Project(
         id="oracle",
         name="oracle",
         start_date=project.start,
-        tasks=[
-            Task(id=tid, name=tid, duration=timedelta(days=n))
-            for tid, n in project.durations.items()
-        ],
+        tasks=[_engine_task(project, tid, n) for tid, n in project.durations.items()],
         dependencies=[
             Dependency(
                 predecessor_id=link.pred,
@@ -189,24 +235,50 @@ def to_engine_project(project: RefProject) -> Project:
             )
             for link in project.links
         ],
-        calendar=Calendar(
-            working_days=cal.working_mask,
-            exceptions=[DateRange(start=lo, end=hi) for lo, hi in cal.exceptions],
+        calendar=_engine_calendar(project.calendar),
+        status_date=project.status_date,
+        calendars=(
+            {cid: _engine_calendar(c) for cid, c in project.calendars.items()}
+            if project.calendars
+            else None
         ),
     )
 
 
+def _calendar_document(cal: RefCalendar) -> dict[str, Any]:
+    return {
+        "working_days": cal.working_mask,
+        "exceptions": [
+            {"start": lo.isoformat(), "end": hi.isoformat()} for lo, hi in cal.exceptions
+        ],
+    }
+
+
+def _task_document(project: RefProject, tid: str, n: int) -> dict[str, Any]:
+    """One task; a progress-era key is emitted only when set, so a planning network's
+    document (and the committed corpus built from it) is unchanged."""
+    row: dict[str, Any] = {"id": tid, "name": tid, "duration": n * 86400.0}
+    if tid in project.planned_start:
+        row["planned_start"] = project.planned_start[tid].isoformat()
+    progress = project.progress.get(tid)
+    if progress is not None:
+        row["percent_complete"] = progress.percent_complete
+        if progress.actual_start is not None:
+            row["actual_start"] = progress.actual_start.isoformat()
+        if progress.actual_finish is not None:
+            row["actual_finish"] = progress.actual_finish.isoformat()
+    if tid in project.task_calendar:
+        row["calendar_id"] = project.task_calendar[tid]
+    return row
+
+
 def project_document(project: RefProject) -> dict[str, Any]:
     """The minimal ``Project.from_dict`` document both engines parse (fixture shape)."""
-    cal = project.calendar
-    return {
+    doc: dict[str, Any] = {
         "id": "oracle",
         "name": "oracle",
         "start_date": project.start.isoformat(),
-        "tasks": [
-            {"id": tid, "name": tid, "duration": n * 86400.0}
-            for tid, n in project.durations.items()
-        ],
+        "tasks": [_task_document(project, tid, n) for tid, n in project.durations.items()],
         "dependencies": [
             {
                 "predecessor_id": link.pred,
@@ -216,13 +288,13 @@ def project_document(project: RefProject) -> dict[str, Any]:
             }
             for link in project.links
         ],
-        "calendar": {
-            "working_days": cal.working_mask,
-            "exceptions": [
-                {"start": lo.isoformat(), "end": hi.isoformat()} for lo, hi in cal.exceptions
-            ],
-        },
+        "calendar": _calendar_document(project.calendar),
     }
+    if project.status_date is not None:
+        doc["status_date"] = project.status_date.isoformat()
+    if project.calendars:
+        doc["calendars"] = {cid: _calendar_document(c) for cid, c in project.calendars.items()}
+    return doc
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +480,7 @@ class RustRunner:
             text=True,
         )
 
-    def schedule(self, project: RefProject) -> dict[str, EngineTask]:
+    def run(self, project: RefProject) -> EngineRun:
         assert self._proc.stdin is not None
         assert self._proc.stdout is not None
         doc = json.dumps(project_document(project))
@@ -416,7 +488,13 @@ class RustRunner:
         self._proc.stdin.flush()
         reply = json.loads(self._proc.stdout.readline())
         assert "ok" in reply, reply
-        return {row["id"]: _engine_task_from_json(row) for row in reply["ok"]["tasks"]}
+        return EngineRun(
+            date.fromisoformat(reply["ok"]["project_finish"]),
+            {row["id"]: _engine_task_from_json(row) for row in reply["ok"]["tasks"]},
+        )
+
+    def schedule(self, project: RefProject) -> dict[str, EngineTask]:
+        return self.run(project).tasks
 
     def close(self) -> None:
         if self._proc.stdin is not None:
@@ -444,9 +522,12 @@ def rust_engine() -> Iterator[RustRunner]:
     binary = _rust_runner_binary()
     if binary is None:
         pytest.skip(
-            "No Rust toolchain: the live Rust-vs-reference properties need `cargo` or "
-            "TRUEPPM_ORACLE_RUST_RUNNER. CI checks Rust against the committed oracle "
-            "corpus in wasm:test (tests/oracle_conformance.rs) instead."
+            "No Rust toolchain: the live Rust properties need `cargo` or "
+            "TRUEPPM_ORACLE_RUST_RUNNER. In CI, wasm:test holds Rust to the committed "
+            "oracle corpus (tests/oracle_conformance.rs), which covers planning networks "
+            "only; the perturbation properties (progress, data date, SNETs, per-task "
+            "calendars) run on Rust only locally, and in CI Rust is held to that input "
+            "class only transitively, through wasm:conformance against the Python engine."
         )
     runner = RustRunner(binary)
     yield runner
@@ -668,6 +749,440 @@ def test_a_shorter_lag_never_finishes_work_later(project: RefProject, which: int
             continue
         assert ref_after.tasks[tid].finish_at <= ref_before.tasks[tid].finish_at, tid
         assert eng_after[tid].early_finish <= eng_before[tid].early_finish, tid
+
+
+# ---------------------------------------------------------------------------
+# The perturbation oracle (#4439): float checked by slipping the task, not by a
+# reference. It needs no model of progress, the data date, ``planned_start`` or
+# per-task calendars, so it reaches the float half of the input class the reference
+# above does not: #4343, #4344, #4345 and #4431, which both engines shared and which
+# therefore passed ``wasm:conformance``. Early-date bugs with consistent floats
+# (#4433) need a metamorphic test instead.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EngineRun:
+    project_finish: date
+    tasks: dict[str, EngineTask]
+
+
+def python_run(project: RefProject) -> EngineRun:
+    result = schedule(to_engine_project(project))
+    return EngineRun(result.project_finish, python_engine_tasks(result))
+
+
+_FOUR_DAY = 0b0001111  # Monday..Thursday
+_SEVEN_DAY = 0b1111111
+
+
+@st.composite
+def _calendar_with_exceptions(draw: st.DrawFn, mask: int) -> RefCalendar:
+    ranges = []
+    for _ in range(draw(st.integers(0, 1))):
+        lo = _EPOCH + timedelta(days=draw(st.integers(0, 30)))
+        ranges.append((lo, lo + timedelta(days=draw(st.integers(0, 3)))))
+    return RefCalendar(working_mask=mask, exceptions=tuple(ranges))
+
+
+@st.composite
+def _progress(draw: st.DrawFn, start: date, n: int) -> RefProgress | None:
+    """Recorded progress for one task, or ``None`` for an untouched one.
+
+    Every actual is drawn as a raw calendar day around the project start, so
+    weekend, holiday and pre-project-start actuals all occur — the API records
+    whatever day a card was moved on.
+    """
+
+    def day(lo: int, hi: int) -> date:
+        return start + timedelta(days=draw(st.integers(lo, hi)))
+
+    state = draw(st.sampled_from(("none", "none", "started", "done", "done_recorded")))
+    if state == "none":
+        return None
+    if state == "started":
+        pct = 0.0 if n == 0 else draw(st.sampled_from((0.0, 20.0, 50.0, 80.0)))
+        actual_start = draw(st.none() | st.just(day(-6, 4)))
+        if pct == 0.0 and actual_start is None:
+            return None
+        return RefProgress(percent_complete=pct, actual_start=actual_start)
+    if state == "done":  # 100% with at most a recorded start (no actual_finish)
+        actual_start = draw(st.none() | st.just(day(-6, 3)))
+        return RefProgress(percent_complete=100.0, actual_start=actual_start)
+    finish = day(-5, 6)
+    actual_start = draw(st.none() | st.just(finish - timedelta(days=draw(st.integers(0, 6)))))
+    pct = draw(st.sampled_from((0.0, 100.0)))
+    return RefProgress(percent_complete=pct, actual_start=actual_start, actual_finish=finish)
+
+
+@st.composite
+def progress_projects(draw: st.DrawFn, max_tasks: int = 6) -> RefProject:
+    """A random DAG carrying progress, a data date, SNETs and per-task calendars.
+
+    Per-task calendars are Monday-to-Friday, Monday-to-Thursday and seven-day weeks, each
+    with its own exceptions, beside a project calendar with any working-day mask.
+    """
+    n = draw(st.integers(1, max_tasks))
+    start = _EPOCH + timedelta(days=draw(st.integers(0, 6)))
+    durations = {f"T{i}": draw(st.integers(0, 5)) for i in range(n)}
+    links = []
+    for j in range(n):
+        for i in range(j):
+            if draw(st.integers(0, 2)) == 0:
+                links.append(
+                    RefLink(
+                        pred=f"T{i}",
+                        succ=f"T{j}",
+                        kind=draw(st.sampled_from(LINK_TYPES)),
+                        lag=draw(st.integers(-3, 5)),
+                    )
+                )
+    calendars: dict[str, RefCalendar] = {}
+    task_calendar: dict[str, str] = {}
+    if draw(st.booleans()):
+        calendars = {
+            "five": draw(_calendar_with_exceptions(MON_TO_FRI)),
+            "four": draw(_calendar_with_exceptions(_FOUR_DAY)),
+            "seven": draw(_calendar_with_exceptions(_SEVEN_DAY)),
+        }
+        for tid in durations:
+            cid = draw(st.sampled_from((None, "five", "four", "seven")))
+            if cid is not None:
+                task_calendar[tid] = cid
+    status_date = draw(st.none() | st.integers(-3, 8).map(lambda d: start + timedelta(days=d)))
+    planned_start = {}
+    progress = {}
+    for tid, dur in durations.items():
+        if draw(st.integers(0, 3)) == 0:
+            planned_start[tid] = start + timedelta(days=draw(st.integers(-3, 12)))
+        recorded = draw(_progress(start, dur))
+        if recorded is not None:
+            progress[tid] = recorded
+    # Monday-to-Friday, every day, and a scattered week with two holes in it.
+    project_mask = draw(st.sampled_from((MON_TO_FRI, _SEVEN_DAY, 0b1011101)))
+    return RefProject(
+        start=start,
+        durations=durations,
+        links=tuple(links),
+        calendar=draw(_calendar_with_exceptions(project_mask)),
+        status_date=status_date,
+        planned_start=planned_start,
+        progress=progress,
+        calendars=calendars,
+        task_calendar=task_calendar,
+    )
+
+
+def _complete(project: RefProject, tid: str) -> bool:
+    recorded = project.progress.get(tid)
+    return recorded is not None and recorded.complete
+
+
+def _working_days_after(day: date, k: int, cal: RefCalendar) -> date:
+    """The ``k``-th working day after the first working day at or after ``day``."""
+    day = first_working_on_or_after(day, cal)
+    for _ in range(k):
+        day = first_working_on_or_after(day + timedelta(days=1), cal)
+    return day
+
+
+def _with_snet(project: RefProject, tid: str, day: date) -> RefProject:
+    return replace(project, planned_start={**project.planned_start, tid: day})
+
+
+def shown_finish(run: EngineRun, project: RefProject) -> tuple[date, bool]:
+    """The project finish as shown: its day, and whether it reads at that day's end.
+
+    Float is defined against this shown position (#4183, #4344): a milestone moving
+    from the start of the finish day to its end moves the finish.
+    """
+    at_end = any(
+        t.early_finish == run.project_finish
+        and (project.durations[tid] > 0 or t.milestone_at_day_end)
+        for tid, t in run.tasks.items()
+    )
+    return run.project_finish, at_end
+
+
+def _held_at(task: EngineTask, is_milestone: bool, cal: RefCalendar) -> tuple[date, date | bool]:
+    """A downstream task's early position, as free float reads it.
+
+    A verbatim non-working ``actual_start`` is the working day after it (#4332) —
+    for a milestone held there too, whose shown day is that start. A task with
+    work is otherwise its early finish; a milestone is the edge of its day it is
+    shown on, which counts as a move, as it does for the shown finish.
+    """
+    held = first_working_on_or_after(task.early_start, cal)
+    return (held, task.milestone_at_day_end) if is_milestone else (held, task.early_finish)
+
+
+def _ends_in_a_start_of_day_finish_gap(
+    project: RefProject, tid: str, base: EngineRun, slipped: EngineRun
+) -> bool:
+    """TODO(#4436): the known understated-float shape, excluded by name until fixed.
+
+    A start-of-day milestone that decides the finish sits at the start of day ``D``,
+    and every midnight between the close of the working day before ``D`` (on the
+    milestone's calendar) and ``D`` is the same shown finish. A task on a wider
+    calendar can finish on a day in that gap without moving it, but the engines seed
+    its late finish at the last working day before the gap, so its float is short by
+    the gap's working days. This is true when the slipped task ``tid``, or live work
+    downstream of it that the slip carried, finishes inside such a gap — exactly the
+    case a TF+1 slip that does not move the finish hits. Nothing else is excused:
+    work that is not ``tid`` or behind it did not move. Delete this filter when
+    #4436 closes.
+    """
+    if shown_finish(base, project)[1]:
+        return False
+    finish_day = base.project_finish
+    gap: set[date] = set()
+    for mid, t in base.tasks.items():
+        start_of_day = not t.milestone_at_day_end
+        if project.durations[mid] == 0 and t.early_start == finish_day and start_of_day:
+            day_before = finish_day - timedelta(days=1)
+            prior = last_working_on_or_before(day_before, project.calendar_of(mid))
+            gap |= {prior + timedelta(days=i) for i in range(1, (finish_day - prior).days)}
+    carried = [tid, *_live_descendants(project, tid)]
+    return any(project.durations[t] > 0 and slipped.tasks[t].early_finish in gap for t in carried)
+
+
+def _live_descendants(project: RefProject, tid: str) -> list[str]:
+    """Every live task downstream of ``tid``.
+
+    Free float is read off these rather than off the direct successors alone: a
+    milestone the project start holds on its shown day still measures its own
+    successors from its raw, earlier instant (#4225), so a slip can move that
+    instant — and everything behind it — while the milestone's shown position
+    stays put. Nothing else downstream can move unless a successor did.
+    """
+    seen: set[str] = set()
+    frontier = [tid]
+    while frontier:
+        current = frontier.pop()
+        for ln in project.links:
+            if ln.pred == current and ln.succ not in seen:
+                seen.add(ln.succ)
+                frontier.append(ln.succ)
+    return sorted(t for t in seen if not _complete(project, t))
+
+
+def float_perturbation_violations(
+    project: RefProject, run: Callable[[RefProject], EngineRun], *, exclude_4436: bool = True
+) -> list[str]:
+    """Slip each live task with work through ``planned_start`` and check its floats.
+
+    * Total float ``TF``: a slip of ``TF`` working days (on the task's own calendar)
+      leaves the shown project finish where it is; ``TF + 1`` moves it later.
+    * Free float ``FF`` (when below ``TF``): a slip of ``FF`` moves no live task
+      downstream of it (:func:`_live_descendants`); ``FF + 1`` moves at least one.
+
+    A slip the engine does not realize — the task lands somewhere other than the
+    SNET asked for, because a finish link right-aligns it — proves nothing and is
+    skipped. Milestones and completed tasks are not slipped: a completed task is
+    pinned at its actuals and has no float to spend (ADR-0136).
+    """
+    base = run(project)
+    out: list[str] = []
+    for tid, n in sorted(project.durations.items()):
+        if n == 0 or _complete(project, tid):
+            continue
+        cal = project.calendar_of(tid)
+        got = base.tasks[tid]
+        first = first_working_on_or_after(got.early_start, cal)
+        for slip, should_move in ((got.total_float, False), (got.total_float + 1, True)):
+            day = _working_days_after(first, slip, cal)
+            after = run(_with_snet(project, tid, day))
+            if first_working_on_or_after(after.tasks[tid].early_start, cal) != day:
+                continue
+            moved = shown_finish(after, project) > shown_finish(base, project)
+            if moved == should_move:
+                continue
+            if (
+                exclude_4436
+                and should_move
+                and _ends_in_a_start_of_day_finish_gap(project, tid, base, after)
+            ):
+                continue
+            out.append(
+                f"{tid}: TF {got.total_float}, slipped {slip} wd to {day}: shown finish "
+                f"{shown_finish(base, project)} -> {shown_finish(after, project)}"
+            )
+        if got.free_float >= got.total_float:
+            continue
+        live = _live_descendants(project, tid)
+        for slip, should_move in ((got.free_float, False), (got.free_float + 1, True)):
+            day = _working_days_after(first, slip, cal)
+            after = run(_with_snet(project, tid, day))
+            if first_working_on_or_after(after.tasks[tid].early_start, cal) != day:
+                continue
+            moved_downstream = [
+                s
+                for s in live
+                if _held_at(after.tasks[s], project.durations[s] == 0, project.calendar_of(s))
+                != _held_at(base.tasks[s], project.durations[s] == 0, project.calendar_of(s))
+            ]
+            if bool(moved_downstream) != should_move:
+                out.append(
+                    f"{tid}: FF {got.free_float} (TF {got.total_float}), slipped {slip} wd "
+                    f"to {day}: moved downstream {moved_downstream} of {live}"
+                )
+    return out
+
+
+def assert_floats_survive_perturbation(
+    project: RefProject, run: Callable[[RefProject], EngineRun]
+) -> None:
+    problems = float_perturbation_violations(project, run)
+    assert not problems, "\n".join([repr(project), *problems])
+
+
+#: #4343 — a 100%-complete task with no actuals between two live ones. ``T0``'s
+#: float was 5 when slipping it 3 working days moved the finish.
+COMPLETE_WITHOUT_ACTUALS_MID_CHAIN = RefProject(
+    start=date(2026, 3, 2),
+    durations={"T0": 5, "T1": 3, "T2": 2},
+    links=(RefLink("T0", "T1", "FS", 0), RefLink("T1", "T2", "FS", 0)),
+    progress={"T1": RefProgress(percent_complete=100.0)},
+)
+#: #4344 — a project finish on a Sunday (a completed task's weekend actual) and a
+#: milestone behind work: ``T0`` was a working day short of its float, critical
+#: under an SNET of 03-18.
+SUNDAY_FINISH_BEHIND_A_MILESTONE = RefProject(
+    start=date(2026, 3, 2),
+    durations={"T0": 2, "T1": 0, "T2": 3},
+    links=(RefLink("T0", "T1", "FS", 0),),
+    progress={"T2": RefProgress(actual_start=date(2026, 3, 18), actual_finish=date(2026, 3, 22))},
+)
+#: #4345 — a milestone's free instant read a successor's raw Saturday
+#: ``actual_start``: ``T0``'s free float was 1 where slipping it 2 moved nothing.
+SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE = RefProject(
+    start=date(2026, 3, 2),
+    durations={"T0": 1, "T1": 0, "T2": 1},
+    links=(RefLink("T0", "T1", "SS", 5), RefLink("T1", "T2", "FS", 6)),
+    progress={"T2": RefProgress(percent_complete=10.0, actual_start=date(2026, 3, 14))},
+)
+#: #4431 — ``X -SF+5d-> M`` beside a completed task finishing on a Saturday: ``X``
+#: reported a day of float that, spent, moved the finish.
+SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH = RefProject(
+    start=date(2027, 3, 1),
+    durations={"T0": 5, "T1": 1, "T2": 0},
+    links=(RefLink("T1", "T2", "SF", 5),),
+    progress={"T0": RefProgress(actual_start=date(2027, 3, 1), actual_finish=date(2027, 3, 6))},
+)
+#: #4433 — closing a milestone reached on the data date (``actual_finish``) pushed
+#: its FS successors a working day later than the same milestone live. Floats stay
+#: consistent either way, so the slip oracle cannot see it; it is pinned by
+#: :func:`test_closing_a_milestone_on_the_data_date_moves_nothing` instead.
+MILESTONE_CLOSED_ON_THE_DATA_DATE = RefProject(
+    start=date(2027, 3, 1),
+    durations={"T0": 0, "T1": 2, "T2": 3},
+    links=(RefLink("T0", "T1", "FS", 0), RefLink("T1", "T2", "FS", 0)),
+    status_date=date(2027, 3, 3),
+    progress={"T0": RefProgress(actual_start=date(2027, 3, 3), actual_finish=date(2027, 3, 3))},
+)
+#: #4431's mixed-calendar shape: ``X -SF+2d-> M`` with ``M`` on a Monday-to-Thursday week.
+SF_INTO_A_FOUR_DAY_MILESTONE = RefProject(
+    start=date(2027, 3, 1),
+    durations={"T0": 5, "T1": 1, "T2": 0},
+    links=(RefLink("T1", "T2", "SF", 2),),
+    calendars={"four": RefCalendar(working_mask=_FOUR_DAY)},
+    task_calendar={"T2": "four"},
+)
+
+#: #4436 (open) — ``W(5d) -FS+1d-> M`` puts ``M`` at Sunday midnight, shown at the
+#: start of Monday; a seven-day-calendar ``X`` can finish on Sunday without moving
+#: that, but its late finish is seeded on Saturday, so its float is a day short.
+START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK = RefProject(
+    start=date(2027, 3, 1),
+    durations={"T0": 5, "T1": 0, "T2": 1},
+    links=(RefLink("T0", "T1", "FS", 1),),
+    calendars={"seven": RefCalendar(working_mask=_SEVEN_DAY)},
+    task_calendar={"T2": "seven"},
+)
+
+#: The fixed shapes the slip oracle separates from their pre-fix engines.
+FIXED_PROGRESS_SHAPES = (
+    COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
+    SUNDAY_FINISH_BEHIND_A_MILESTONE,
+    SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE,
+    SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
+    SF_INTO_A_FOUR_DAY_MILESTONE,
+)
+
+
+def _closed_moves_nothing(project: RefProject, run: Callable[[RefProject], EngineRun]) -> None:
+    """Every task but the milestone ``T0`` sits where it does with ``T0`` still live.
+
+    The live twin drops ``T0``'s actuals; the data date holds it on the same day, at
+    the start of it. Recording that it happened then is a fact about the past, not a
+    change to the plan, so nothing downstream may move (#4433).
+    """
+    live = replace(project, progress={k: v for k, v in project.progress.items() if k != "T0"})
+    closed_run, live_run = run(project), run(live)
+    assert closed_run.project_finish == live_run.project_finish
+    for tid in project.durations:
+        if tid == "T0":
+            continue
+        got, want = closed_run.tasks[tid], live_run.tasks[tid]
+        assert (got.early_start, got.early_finish) == (want.early_start, want.early_finish), tid
+
+
+@pytest.mark.parametrize("project", FIXED_PROGRESS_SHAPES)
+def test_fixed_progress_shapes_survive_perturbation(project: RefProject) -> None:
+    """The fixed findings of the 2026-10-09/16 audits, pinned on the Python engine."""
+    assert_floats_survive_perturbation(project, python_run)
+
+
+def test_closing_a_milestone_on_the_data_date_moves_nothing() -> None:
+    """#4433, metamorphic: closed versus live, on the Python engine."""
+    _closed_moves_nothing(MILESTONE_CLOSED_ON_THE_DATA_DATE, python_run)
+    # The closed milestone is also float-consistent; the slip oracle checks that much.
+    assert_floats_survive_perturbation(MILESTONE_CLOSED_ON_THE_DATA_DATE, python_run)
+
+
+def test_the_4436_exclusion_is_what_hides_the_known_shape() -> None:
+    """The filter excludes #4436's repro and nothing about it passes on its own merits."""
+    project = START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK
+    assert float_perturbation_violations(project, python_run) == []
+    assert float_perturbation_violations(project, python_run, exclude_4436=False) != []
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="TODO(#4436): the work-task late-finish seed ignores a start-of-day project "
+    "finish; when this XPASSes, delete _ends_in_a_start_of_day_finish_gap",
+)
+def test_float_beside_a_start_of_day_milestone_finish() -> None:
+    problems = float_perturbation_violations(
+        START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK, python_run, exclude_4436=False
+    )
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.fuzz
+@given(progress_projects())
+def test_python_floats_survive_perturbation(project: RefProject) -> None:
+    """Total and free float agree with what slipping the task actually does."""
+    assert_floats_survive_perturbation(project, python_run)
+
+
+@pytest.mark.parametrize("project", FIXED_PROGRESS_SHAPES)
+def test_rust_fixed_progress_shapes_survive_perturbation(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    assert_floats_survive_perturbation(project, rust_engine.run)
+
+
+def test_rust_closing_a_milestone_on_the_data_date_moves_nothing(
+    rust_engine: RustRunner,
+) -> None:
+    _closed_moves_nothing(MILESTONE_CLOSED_ON_THE_DATA_DATE, rust_engine.run)
+
+
+@pytest.mark.fuzz
+@given(project=progress_projects())
+def test_rust_floats_survive_perturbation(rust_engine: RustRunner, project: RefProject) -> None:
+    assert_floats_survive_perturbation(project, rust_engine.run)
 
 
 # ---------------------------------------------------------------------------

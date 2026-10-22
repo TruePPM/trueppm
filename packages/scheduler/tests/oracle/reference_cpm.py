@@ -86,9 +86,11 @@ Documented rules modeled
   link satisfied at that successor's early dates, capped at total float, and equal
   to total float for a task with no successor (#1828).
 
-Out of scope for this first cut (the generated networks never contain them):
-progress/actuals, the data date, ``planned_start``, per-task calendars, summary
-tasks, Monte Carlo. For a milestone the oracle states only *where in working time*
+Out of scope for this first cut: progress/actuals, the data date,
+``planned_start``, per-task calendars, summary tasks, Monte Carlo. A
+:class:`RefProject` can carry the first four (the perturbation properties draw
+them), but :func:`reference_schedule` refuses such a project rather than answer
+it; modeling them is #4633. For a milestone the oracle states only *where in working time*
 it sits. Which of two adjacent days it is *shown* on is a display convention
 (#4079, #4173, #4183) it does not model, and float is read from that shown day, so
 the oracle states no late dates or floats (``RefTask.late_stated``) for a milestone,
@@ -98,7 +100,7 @@ project finish.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 ONE_DAY = timedelta(days=1)
@@ -130,11 +132,47 @@ class RefLink:
 
 
 @dataclass(frozen=True)
+class RefProgress:
+    """A task's recorded progress (ADR-0132/0136): plain input data."""
+
+    percent_complete: float = 0.0
+    actual_start: date | None = None
+    actual_finish: date | None = None
+
+    @property
+    def complete(self) -> bool:
+        """``actual_finish`` recorded, or ``percent_complete`` at 100 (ADR-0136)."""
+        return self.actual_finish is not None or self.percent_complete >= 100
+
+
+@dataclass(frozen=True)
 class RefProject:
     start: date
     durations: dict[str, int]  # task id -> working days (0 = milestone)
     links: tuple[RefLink, ...]
     calendar: RefCalendar = RefCalendar()
+    # Progress-era inputs (#4439). All default to "absent", and a project that sets
+    # none of them is the pure planning network every earlier case is.
+    status_date: date | None = None  # the data date
+    planned_start: dict[str, date] = field(default_factory=dict)  # SNET, per task
+    progress: dict[str, RefProgress] = field(default_factory=dict)
+    calendars: dict[str, RefCalendar] = field(default_factory=dict)  # per-task registry
+    task_calendar: dict[str, str] = field(default_factory=dict)  # task id -> registry id
+
+    @property
+    def plans_only(self) -> bool:
+        """No progress, data date, SNET or per-task calendar: a pure planning network."""
+        return not (
+            self.status_date is not None
+            or self.planned_start
+            or self.progress
+            or self.task_calendar
+        )
+
+    def calendar_of(self, tid: str) -> RefCalendar:
+        """The calendar ``tid`` works on: its registry entry, else the project's."""
+        cid = self.task_calendar.get(tid)
+        return self.calendars[cid] if cid is not None else self.calendar
 
 
 @dataclass
@@ -502,6 +540,11 @@ def _feeds_a_milestone(project: RefProject, tid: str) -> bool:
 
 def reference_schedule(project: RefProject) -> RefResult:
     """Run the reference forward pass, backward pass, and float computation."""
+    if not project.plans_only:
+        raise NotImplementedError(
+            "reference CPM models planning networks only: no progress, data date, "
+            "planned_start or per-task calendars (#4439)"
+        )
     cal = project.calendar
     order = topological_order(project)
     project_start = start_at_or_after(project.start, cal)
