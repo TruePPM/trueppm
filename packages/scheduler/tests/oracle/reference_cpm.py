@@ -86,16 +86,63 @@ Documented rules modeled
   link satisfied at that successor's early dates, capped at total float, and equal
   to total float for a task with no successor (#1828).
 
-Out of scope for this first cut: progress/actuals, the data date,
-``planned_start``, per-task calendars, summary tasks, Monte Carlo. A
-:class:`RefProject` can carry the first four (the perturbation properties draw
-them), but :func:`reference_schedule` refuses such a project rather than answer
-it; modeling them is #4633. For a milestone the oracle states only *where in working time*
-it sits. Which of two adjacent days it is *shown* on is a display convention
-(#4079, #4173, #4183) it does not model, and float is read from that shown day, so
-the oracle states no late dates or floats (``RefTask.late_stated``) for a milestone,
-for any task upstream of one, or for anything at all when a milestone decides the
-project finish.
+Progress rules modeled (ADR-0132, ADR-0136; #4633)
+---------------------------------------------------
+* **Per-task calendars.** Each task's durations, floors and float are counted on
+  its own calendar (:meth:`RefProject.calendar_of`). A link's anchor is read on the
+  predecessor's calendar and its successor's requirement snapped on the
+  successor's.
+* **Floors.** Live work and live milestones are floored at the data date and at
+  an SNET (``planned_start``), each snapped to a working-day start on the task's
+  own calendar, and at the project start as above. A recorded ``actual_start`` is
+  a floor kept **verbatim**, even on a non-working day; when it is the latest
+  floor the task's window opens there and its first working day is the one after
+  (#4332).
+* **Remaining duration.** Live work at ``p`` percent schedules only its remaining
+  ``n - floor(n * p / 100)`` working days (ADR-0132 §3): its early and late dates
+  are that remaining window.
+* **Start-side links (ADR-0132 §2a).** SS and SF links out of live work measure
+  from its *link start*: its recorded ``actual_start``; else, with elapsed work,
+  its derived span start (the full duration backed off its early finish); else
+  its early start. A link measured from a **recorded** start is history: it bounds
+  neither the predecessor's late dates nor its free float. One measured from a
+  derived start keeps its bound, slipping with the remaining window.
+* **Completed work is pinned (ADR-0136).** A task with ``actual_finish`` or at
+  100% keeps its full duration, laid out from whatever actuals exist (both: the
+  actuals verbatim; one: the other end derived), or with none from the project
+  start or a later SNET, never from its predecessors or the data date. Its late
+  dates equal its early ones, its floats are 0, and it is never critical. A link
+  *into* completed work bounds nothing: its predecessor's late dates and free
+  float ignore it.
+* **Completed milestones** with no actuals are an instant at the start of the
+  pinned day; their SNET binds the instant they are linked from (#4343, #4225).
+* **Late dates never precede early ones (#3963).** The backward search is floored
+  at the early span. This is modeled but not discriminated: the search already
+  stops at or after the early span, so no generated or pinned case makes the
+  floor bind, and a mutation removing it (here or in the Python engine) survives
+  every property (see :func:`_backward_task`).
+
+Not modeled, and refused by :func:`reference_schedule` rather than answered:
+
+* an FF or SF link between two tasks on different calendars — which calendar
+  reads its zero-lag close and snaps its finish is not documented, and the
+  engines' choice is not one the docs let this module derive;
+* a completed milestone with recorded actuals, which keeps the day edge it had
+  live (#4433, #4525) — a display convention this oracle does not model.
+
+Out of scope: summary tasks, ``live_day_end_on``, Monte Carlo. One shape is
+modeled but excluded from the engine comparison by name: an FF link out of
+completed work whose ``actual_finish`` is a non-working day, which this module
+reads in working time and both engines read as the verbatim day (#4631, open;
+``_ff_out_of_a_non_working_actual_finish`` in ``test_cpm_oracle.py``).
+
+For a milestone the oracle states only *where in working time* it sits. Which of
+two adjacent days it is *shown* on is a display convention (#4079, #4173, #4183)
+it does not model, and float is read from that shown day, so the oracle states no
+late dates or floats (``RefTask.late_stated``) for a milestone, for any live task
+upstream of one, or for any live task at all when a milestone decides the project
+finish. Completed work is always stated: pinned, its late dates are its early
+ones whatever the finish.
 """
 
 from __future__ import annotations
@@ -159,16 +206,6 @@ class RefProject:
     calendars: dict[str, RefCalendar] = field(default_factory=dict)  # per-task registry
     task_calendar: dict[str, str] = field(default_factory=dict)  # task id -> registry id
 
-    @property
-    def plans_only(self) -> bool:
-        """No progress, data date, SNET or per-task calendar: a pure planning network."""
-        return not (
-            self.status_date is not None
-            or self.planned_start
-            or self.progress
-            or self.task_calendar
-        )
-
     def calendar_of(self, tid: str) -> RefCalendar:
         """The calendar ``tid`` works on: its registry entry, else the project's."""
         cid = self.task_calendar.get(tid)
@@ -192,6 +229,12 @@ class RefTask:
     late_stated: bool = True
     # A milestone's shown instant: ``start_at`` floored at the project start.
     shown_at: date | None = None
+    # Completed (ADR-0136): pinned, zero float, never critical.
+    complete: bool = False
+
+    @property
+    def is_critical(self) -> bool:
+        return self.total_float == 0 and not self.complete
 
     @property
     def is_milestone(self) -> bool:
@@ -353,15 +396,27 @@ def finish_meeting(link: RefLink, need: date, cal: RefCalendar) -> date:
 
 
 def link_holds(
-    link: RefLink, pred: Span, succ: Span, succ_is_milestone: bool, cal: RefCalendar
+    link: RefLink,
+    pred: Span,
+    succ: Span,
+    succ_is_milestone: bool,
+    pred_cal: RefCalendar,
+    succ_cal: RefCalendar | None = None,
 ) -> bool:
-    """Is ``link`` satisfied with the predecessor at ``pred`` and successor at ``succ``?"""
-    need = link_need(link, pred, cal)
+    """Is ``link`` satisfied with the predecessor at ``pred`` and successor at ``succ``?
+
+    ``pred`` is the span the predecessor's links measure from (its link start and
+    finish). The successor's own calendar snaps what it needs; a successor start on
+    a non-working day — a recorded actual start, kept verbatim — is the working day
+    after it (#4332).
+    """
+    cal = pred_cal if succ_cal is None else succ_cal
+    need = link_need(link, pred, pred_cal)
     succ_start, succ_finish = succ
     if succ_is_milestone:
         return need <= succ_start
     if constrains_start(link):
-        return start_at_or_after(need, cal) <= succ_start
+        return start_at_or_after(need, cal) <= start_at_or_after(succ_start, cal)
     return finish_meeting(link, need, cal) <= succ_finish
 
 
@@ -400,34 +455,168 @@ def outgoing(project: RefProject, tid: str) -> list[RefLink]:
 
 
 # ---------------------------------------------------------------------------
+# Progress (ADR-0132, ADR-0136): what a task's recorded progress does to it
+# ---------------------------------------------------------------------------
+
+
+def _progress(project: RefProject, tid: str) -> RefProgress:
+    return project.progress.get(tid, RefProgress())
+
+
+def is_complete(project: RefProject, tid: str) -> bool:
+    """Completed work is pinned at its actuals and leaves network logic (ADR-0136)."""
+    return _progress(project, tid).complete
+
+
+def remaining_days(project: RefProject, tid: str) -> int:
+    """Working days of live work still to do: ``n - floor(n * pct / 100)`` (ADR-0132 §3)."""
+    n = project.durations[tid]
+    pct = _progress(project, tid).percent_complete
+    return n - int(n * pct / 100) if pct > 0 else n
+
+
+def _start_is_recorded(project: RefProject, tid: str) -> bool:
+    """Live work with an ``actual_start``: its start already happened (ADR-0132 §2a)."""
+    return (
+        project.durations[tid] > 0
+        and not is_complete(project, tid)
+        and _progress(project, tid).actual_start is not None
+    )
+
+
+def link_start(project: RefProject, tid: str, span: Span) -> date:
+    """The start an SS or SF link out of ``tid`` measures from (ADR-0132 §2a).
+
+    The recorded ``actual_start`` of live work; for live work with elapsed days but
+    no recorded start, the full duration backed off from its finish (the derived
+    span start); otherwise the start of ``span`` itself.
+    """
+    if _start_is_recorded(project, tid):
+        recorded = _progress(project, tid).actual_start
+        assert recorded is not None
+        return recorded
+    n = project.durations[tid]
+    if n > 0 and not is_complete(project, tid) and remaining_days(project, tid) < n:
+        return start_from_finish(span[1], n, project.calendar_of(tid))
+    return span[0]
+
+
+def _start_fixed(project: RefProject, link: RefLink) -> bool:
+    """An SS/SF link measured from a recorded start: no slip of the predecessor's
+    remaining work moves its successor through it, so it bounds neither the
+    predecessor's late dates nor its free float (ADR-0132 §2a).
+
+    In this search-based model the exclusion is also true by construction — a link
+    measured from a constant recorded start holds at every candidate slip — so
+    dropping it changes no answer here. The engines compute the bound by formula,
+    where keeping it does (it floors the late window at the early one and reports
+    slack work critical), and the engine-side mutation is caught."""
+    return link.kind in ("SS", "SF") and _start_is_recorded(project, link.pred)
+
+
+def _pinned(project: RefProject, tid: str) -> tuple[Span, date]:
+    """A completed task's span and the instant its links measure from (ADR-0136).
+
+    Work spans its full duration from whatever actuals exist, a missing end derived
+    from the other; with none, it is laid out from the project start (or a later
+    SNET), never the data date — completed work is history. A completed milestone
+    with no actuals is an instant at the start of that day, and its links measure
+    from its SNET when one is set (#4343, #4225).
+    """
+    cal = project.calendar_of(tid)
+    n = project.durations[tid]
+    recorded = _progress(project, tid)
+    base = start_at_or_after(project.start, cal)
+    snet = project.planned_start.get(tid)
+    if n == 0:
+        if recorded.actual_start is not None or recorded.actual_finish is not None:
+            raise NotImplementedError(
+                "reference CPM: a completed milestone with recorded actuals keeps the "
+                "day edge it had live (#4433, #4525), which this oracle does not model"
+            )
+        shown = base if snet is None else max(base, start_at_or_after(snet, cal))
+        return (shown, shown), shown if snet is None else start_at_or_after(snet, cal)
+    if recorded.actual_finish is not None:
+        finish = recorded.actual_finish + ONE_DAY
+        start = recorded.actual_start or start_from_finish(finish, n, cal)
+        return (start, finish), start
+    if recorded.actual_start is not None:
+        start = recorded.actual_start
+        return (start, finish_from_start(start, n, cal)), start
+    start = base if snet is None else max(base, start_at_or_after(snet, cal))
+    return (start, finish_from_start(start, n, cal)), start
+
+
+# ---------------------------------------------------------------------------
 # Forward pass
 # ---------------------------------------------------------------------------
 
 
-def _forward_task(
-    project: RefProject, tid: str, early: dict[str, Span], project_start: date
-) -> Span:
-    """Early span of one task, its predecessors already placed."""
-    cal = project.calendar
-    n = project.durations[tid]
-    links = incoming(project, tid)
-    needs = [(link, link_need(link, early[link.pred], cal)) for link in links]
+def _needs(
+    project: RefProject, tid: str, links_from: dict[str, Span]
+) -> list[tuple[RefLink, date]]:
+    """Each incoming link and the raw instant it requires of ``tid``.
 
-    if n == 0:
+    ``links_from`` holds, per placed task, the span its links measure from: its link
+    start (:func:`link_start`) and its finish — for a milestone, its link instant.
+    """
+    return [
+        (link, link_need(link, links_from[link.pred], project.calendar_of(link.pred)))
+        for link in incoming(project, tid)
+    ]
+
+
+def _snapped_floors(project: RefProject, tid: str) -> list[date]:
+    """The floors that bind ``tid`` beyond the project start and its actual start: the
+    data date and an SNET, each the start of a working day on its own calendar."""
+    cal = project.calendar_of(tid)
+    out = []
+    if project.status_date is not None:
+        out.append(start_at_or_after(project.status_date, cal))
+    if tid in project.planned_start:
+        out.append(start_at_or_after(project.planned_start[tid], cal))
+    return out
+
+
+def _forward_task(
+    project: RefProject, tid: str, early: dict[str, Span], links_from: dict[str, Span]
+) -> Span:
+    """Early span of one live task, its predecessors already placed.
+
+    For live work it is the window of its *remaining* days (ADR-0132). A recorded
+    actual start is a floor kept verbatim, even on a non-working day; the other
+    floors are the start of a working day.
+    """
+    cal = project.calendar_of(tid)
+    needs = _needs(project, tid, links_from)
+
+    recorded = _progress(project, tid).actual_start
+    floors = _snapped_floors(project, tid)
+
+    if project.durations[tid] == 0:
         # A milestone is one raw instant: the latest of everything that holds it.
-        instant = max(need for _, need in needs) if needs else project_start
+        held = [need for _, need in needs] + floors
+        if recorded is not None:
+            held.append(recorded)
+        instant = max(held) if held else start_at_or_after(project.start, cal)
         return instant, instant
 
-    start_needs = [need for link, need in needs if constrains_start(link)]
+    n = remaining_days(project, tid)
+    start_needs = [need for link, need in needs if constrains_start(link)] + floors
     if not _sf_linked(project, tid):
-        start_needs.append(project_start)
+        start_needs.append(project.start)
 
     finishes = [
         finish_meeting(link, need, cal) for link, need in needs if not constrains_start(link)
     ]
-    if start_needs:
-        finishes.append(finish_from_start(start_at_or_after(max(start_needs), cal), n, cal))
+    start: date | None = None
+    if start_needs or recorded is not None:
+        snapped = [start_at_or_after(max(start_needs), cal)] if start_needs else []
+        start = max(snapped + ([recorded] if recorded is not None else []))
+        finishes.append(finish_from_start(start, n, cal))
     finish = max(finishes)  # non-empty: a floor, or at least one SF link
+    if start is not None and finish == finish_from_start(start, n, cal):
+        return start, finish
     return start_from_finish(finish, n, cal), finish
 
 
@@ -436,45 +625,77 @@ def _forward_task(
 # ---------------------------------------------------------------------------
 
 
-def _all_hold(project: RefProject, tid: str, span: Span, placed: dict[str, Span]) -> bool:
-    cal = project.calendar
+def _all_hold(
+    project: RefProject, tid: str, span: Span, placed: dict[str, Span], links: list[RefLink]
+) -> bool:
+    pred_cal = project.calendar_of(tid)
+    pred = (link_start(project, tid, span), span[1])
     return all(
-        link_holds(link, span, placed[link.succ], project.durations[link.succ] == 0, cal)
-        for link in outgoing(project, tid)
+        link_holds(
+            link,
+            pred,
+            placed[link.succ],
+            project.durations[link.succ] == 0,
+            pred_cal,
+            project.calendar_of(link.succ),
+        )
+        for link in links
     )
 
 
+def _binding_links(project: RefProject, tid: str) -> list[RefLink]:
+    """The outgoing links a slip of ``tid`` can break: to live successors, and not
+    measured from a recorded start (ADR-0136, ADR-0132 §2a)."""
+    return [
+        link
+        for link in outgoing(project, tid)
+        if not is_complete(project, link.succ) and not _start_fixed(project, link)
+    ]
+
+
 def _backward_task(
-    project: RefProject, tid: str, late: dict[str, Span], project_finish: date
+    project: RefProject, tid: str, early: Span, late: dict[str, Span], project_finish: date
 ) -> Span:
-    """Latest span of one task that finishes by the project finish and keeps every
-    outgoing link satisfied at its successor's late dates."""
-    cal = project.calendar
-    n = project.durations[tid]
-    if n == 0:
+    """Latest span of one live task that finishes by the project finish and keeps every
+    binding outgoing link satisfied at its successor's late dates, never before its
+    early span (#3963).
+
+    The search starts at the latest candidate and stops at the first that holds, and
+    the early span always holds, so on generated networks the floor has not been
+    seen to bind (a mutation removing it survives 30,000 examples). It is stated
+    anyway: it is the documented rule, and it is what keeps a verbatim non-working
+    ``actual_start`` (early ``Sat``, latest working-day candidate ``Mon``) from
+    reading as a late date before the early one."""
+    cal = project.calendar_of(tid)
+    links = _binding_links(project, tid)
+    if project.durations[tid] == 0:
         instant = project_finish
-        while not _all_hold(project, tid, (instant, instant), late):
+        while not _all_hold(project, tid, (instant, instant), late, links):
             instant -= ONE_DAY
         return instant, instant
+    n = remaining_days(project, tid)
     finish = close_of_previous_working_day(project_finish, cal)
     start = start_from_finish(finish, n, cal)
-    while not _all_hold(project, tid, (start, finish_from_start(start, n, cal)), late):
+    while not _all_hold(project, tid, (start, finish_from_start(start, n, cal)), late, links):
         start = previous_working_start(start, cal)
-    return start, finish_from_start(start, n, cal)
+    return max(start, early[0]), max(finish_from_start(start, n, cal), early[1])
 
 
 def _free_float(project: RefProject, tid: str, early: dict[str, Span], total_float: int) -> int:
-    """Largest slip (working days, <= total float) keeping every successor at its early dates."""
-    cal = project.calendar
-    n = project.durations[tid]
-    links = outgoing(project, tid)
+    """Largest slip (working days, <= total float) keeping every live successor at its
+    early dates."""
+    cal = project.calendar_of(tid)
+    n = remaining_days(project, tid)
+    links = _binding_links(project, tid)
     if not links:
         return total_float
-    start = early[tid][0]
+    # A verbatim non-working actual start is the working day after it: slipping to
+    # that day is no slip at all (#4332).
+    start = start_at_or_after(early[tid][0], cal)
     slip = 0
     while slip < total_float:
         start = next_working_start(start, cal)
-        if not _all_hold(project, tid, (start, finish_from_start(start, n, cal)), early):
+        if not _all_hold(project, tid, (start, finish_from_start(start, n, cal)), early, links):
             break
         slip += 1
     return slip
@@ -486,7 +707,7 @@ def _free_float(project: RefProject, tid: str, early: dict[str, Span], total_flo
 
 
 def _project_finish(
-    project: RefProject, early: dict[str, Span], project_start: date
+    project: RefProject, early: dict[str, Span], shown: dict[str, date], project_start: date
 ) -> tuple[date, bool]:
     """The project finish instant, and whether work alone decides it.
 
@@ -500,11 +721,7 @@ def _project_finish(
     """
     cal = project.calendar
     work = [early[t][1] for t, n in project.durations.items() if n > 0]
-    marks = [
-        _shown_instant(project, t, early, project_start)
-        for t, n in project.durations.items()
-        if n == 0
-    ]
+    marks = [shown[t] for t, n in project.durations.items() if n == 0]
     finish = max(work + marks)
     furthest = position_of(finish, project_start, cal)
     by_work = [i for i in work if position_of(i, project_start, cal) == furthest]
@@ -517,13 +734,12 @@ def _sf_linked(project: RefProject, tid: str) -> bool:
     return any(link.kind == "SF" for link in incoming(project, tid))
 
 
-def _shown_instant(
-    project: RefProject, tid: str, early: dict[str, Span], project_start: date
-) -> date:
-    """Where a milestone is shown: its raw instant, but never before the project start
-    (#4225) — unless it has an SF link, which lifts the floor (#4218, #4220)."""
-    raw = early[tid][0]
-    return raw if _sf_linked(project, tid) else max(raw, project_start)
+def _shown_instant(project: RefProject, tid: str, raw: date) -> date:
+    """Where a live milestone is shown: its raw instant, but never before the project
+    start (#4225) — unless it has an SF link, which lifts the floor (#4218, #4220)."""
+    if _sf_linked(project, tid):
+        return raw
+    return max(raw, start_at_or_after(project.start, project.calendar_of(tid)))
 
 
 def _feeds_a_milestone(project: RefProject, tid: str) -> bool:
@@ -538,45 +754,77 @@ def _feeds_a_milestone(project: RefProject, tid: str) -> bool:
     return False
 
 
+def _same_calendar(project: RefProject, link: RefLink) -> bool:
+    return project.calendar_of(link.pred) == project.calendar_of(link.succ)
+
+
+def _check_modeled(project: RefProject) -> None:
+    """Refuse the inputs this oracle does not model rather than answer them wrongly."""
+    for link in project.links:
+        if link.kind in ("FF", "SF") and not _same_calendar(project, link):
+            raise NotImplementedError(
+                "reference CPM: an FF or SF link between tasks on different calendars "
+                "is not modeled; which calendar reads its anchor and snaps its finish "
+                "is not documented"
+            )
+
+
 def reference_schedule(project: RefProject) -> RefResult:
     """Run the reference forward pass, backward pass, and float computation."""
-    if not project.plans_only:
-        raise NotImplementedError(
-            "reference CPM models planning networks only: no progress, data date, "
-            "planned_start or per-task calendars (#4439)"
-        )
+    _check_modeled(project)
     cal = project.calendar
     order = topological_order(project)
     project_start = start_at_or_after(project.start, cal)
 
     early: dict[str, Span] = {}
+    links_from: dict[str, Span] = {}
+    shown: dict[str, date] = {}
     for tid in order:
-        early[tid] = _forward_task(project, tid, early, project_start)
+        if is_complete(project, tid):
+            early[tid], start = _pinned(project, tid)
+            links_from[tid] = (start, early[tid][1] if project.durations[tid] else start)
+            if project.durations[tid] == 0:
+                shown[tid] = early[tid][0]
+            continue
+        early[tid] = _forward_task(project, tid, early, links_from)
+        if project.durations[tid] == 0:
+            links_from[tid] = early[tid]
+            shown[tid] = _shown_instant(project, tid, early[tid][0])
+        else:
+            links_from[tid] = (link_start(project, tid, early[tid]), early[tid][1])
 
-    project_finish, finish_by_work = _project_finish(project, early, project_start)
+    project_finish, finish_by_work = _project_finish(project, early, shown, project_start)
 
     late: dict[str, Span] = {}
     for tid in reversed(order):
-        late[tid] = _backward_task(project, tid, late, project_finish)
+        if is_complete(project, tid):
+            late[tid] = early[tid]  # done: no slack, and no bound on its predecessors
+        else:
+            late[tid] = _backward_task(project, tid, early[tid], late, project_finish)
 
     tasks: dict[str, RefTask] = {}
     for tid in order:
-        total = working_days_between(early[tid][0], late[tid][0], cal)
+        own = project.calendar_of(tid)
+        total = working_days_between(early[tid][0], late[tid][0], own)
         n = project.durations[tid]
-        stated = finish_by_work and not _feeds_a_milestone(project, tid)
+        complete = is_complete(project, tid)
+        stated = complete or (finish_by_work and not _feeds_a_milestone(project, tid))
+        if complete:
+            free: int | None = 0
+        else:
+            free = _free_float(project, tid, early, total) if stated else None
         tasks[tid] = RefTask(
             id=tid,
-            duration=project.durations[tid],
+            duration=n,
             start_at=early[tid][0],
             finish_at=early[tid][1],
             late_start_at=late[tid][0],
             late_finish_at=late[tid][1],
             total_float=total,
-            free_float=_free_float(project, tid, early, total) if stated else None,
+            free_float=free,
             late_stated=stated,
-            shown_at=(
-                _shown_instant(project, tid, early, project_start) if n == 0 else early[tid][0]
-            ),
+            complete=complete,
+            shown_at=shown.get(tid, early[tid][0]),
         )
     return RefResult(tasks=tasks, project_start_at=project_start, project_finish_at=project_finish)
 
