@@ -1,0 +1,1 @@
+Raised the `djangorestframework` floor to 3.18.2 and updated `graphql-core` (3.2.13), `dompurify` (3.4.17), `astro` (7.3.3), and the OpenTelemetry packages (1.45.1 / 0.66b1) to clear the OSV advisories reported by `security:osv`.
