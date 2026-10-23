@@ -309,6 +309,13 @@ provisioned by **auto-create** (no pre-existing account) will not get this
 email — there is no existing owner to notify, and that path is covered by the
 workspace [audit log](/administration/audit-log/) instead.
 
+**Superuser and staff accounts are never linked by email.** If a verified IdP
+email matches an account that is a superuser or has staff access, TruePPM refuses
+the sign-in (the user sees `SSO_NO_MEMBER`) and writes no link. An email address
+proves a mailbox, not ownership of a privileged account, so these accounts can only
+be bound to an identity by an operator. Accounts that already have a linked
+identity keep signing in as before.
+
 ## Removing a provider
 
 Use **Remove** on a provider to delete its configuration. This also unlinks

@@ -1089,7 +1089,8 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     2. **Verified email** — require ``email`` present and ``email_verified is True``
        and the domain in the allow-list; otherwise fail closed.
     3. **Link** — exactly one existing local user with that email → bind a new
-       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link.) A best-effort
+       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link; a superuser
+       or staff match is refused outright, #4629.) A best-effort
        notice email is deferred to commit (#3554) so the local account learns a new
        sign-in method was just added — this is the one branch that hands a federated
        credential to an account whose owner may not have expected it.
@@ -1150,6 +1151,21 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
         # SocialAccount row behind, or reactivating the member later would silently
         # skip the verified-email link step that created it.
         _require_active(existing[0], ctx)
+        # An IdP-asserted email is a claim about the *mailbox*, not proof the caller
+        # owns a privileged local account. Auto-linking is therefore refused for
+        # ``is_superuser`` and ``is_staff`` accounts (#4629): a squatter who pre-claimed
+        # an address that later became privileged (the ``create_admin`` bootstrap email)
+        # would otherwise be signed in as that admin on first IdP assertion, and
+        # ``create_admin`` clearing SocialAccount rows only forces a re-link. ``is_staff``
+        # is included because it grants Django-admin access, the other elevated tier.
+        # Fail closed with the same refusal as the ambiguous-email case, before any
+        # binding is written; a privileged account links only via an explicit,
+        # authenticated session (or an operator), never by email match.
+        if existing[0].is_superuser or existing[0].is_staff:
+            logger.warning(
+                "sso verified-email auto-link refused for privileged user %s", existing[0].pk
+            )
+            raise OIDCNoMember("verified-email link to a privileged account is not permitted")
         SocialAccount.objects.create(
             user=existing[0], provider=provider_key, uid=subject, extra_data={"iss": issuer}
         )
