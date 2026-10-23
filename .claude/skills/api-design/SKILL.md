@@ -50,7 +50,7 @@ You design APIs for TruePPM following these rules:
 ## WebSocket Channels (canonical: `packages/api/src/trueppm_api/routing.py`)
 - `ws/v1/projects/{project_id}/` — `ProjectConsumer`: board/schedule events + presence. It is the only route; read `routing.py` rather than trusting a list here
 - Auth: single-use `?ticket=<id>` from `POST /api/v1/ws/ticket/` (ADR-0141); the `?token=<jwt>` fallback is disabled
-- Frames: `{ "protocol_version": 1, "event_type": "task_updated", "payload": { ... }, "seq": n }`. Event names are snake_case and frozen in `FROZEN_WS_EVENT_TYPES` (`packages/api/tests/apps/sync/test_broadcast.py`); `docs/api/websockets.md` is the published list
+- Frames: `{ "protocol_version": 1, "event_type": "task_updated", "payload": { ... }, "seq": n }`. Event names are snake_case and frozen in `FROZEN_WS_EVENT_TYPES` (`packages/api/tests/apps/sync/test_broadcast.py`); `packages/website/src/content/docs/api/websockets.md` is the published list
 
 ## Output Format
 Produce a DRF-style specification:

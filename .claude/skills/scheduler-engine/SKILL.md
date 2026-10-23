@@ -125,11 +125,17 @@ Any code path that computes a schedule **twice** — deterministically and proba
 
 ### Floors combine — a change to one is tested against every floor it meets
 
+Python == Rust agreement proves the engines agree, not that either is right: they share the `expected/` snapshots and a faithful port of a wrong rule passes both. Every engine change names the independent oracle it is checked against (a property, or the PMBOK/MS Project/P6 definition), not only the other engine.
+
 The engine places work at the latest of several lower bounds: project start, data date (status date), SNET and other constraints, actuals, and incoming links. Each rule about one floor can be correct alone and wrong in combination, and the defect lands only when two changes merged at different times meet. #4635 is the case: the API passes today as the status date whenever none is set, and the milestone instant deliberately omits the project-start floor (#4225), so every future-start project's free milestones were placed before the start and lost lag days.
 
 - [ ] **Metamorphic, not known-answer.** For any change to how a floor or default is computed, assert relations that must hold for every network: adding a floor that does not bind moves nothing; a floor at or **below** the project start (data date, SNET) never moves work earlier than having no floor; raising a lag never finishes work earlier. Run them over all four link types, with and without actuals, on completed and open milestones.
 - [ ] **Cross the change with the floors it does not mention.** List every floor the engine applies and generate inputs where the changed one interacts with each, especially the values production actually passes. "None" in the library can mean "today" by the time the API calls it (`resolve_cpm_status_date`), so a status date before a future project start is the common case in production, not an edge case.
 - [ ] **Check the fuzz generator's ranges before trusting a green fuzz run.** A generator that only draws status dates after the project start can never reach this class.
+
+### A published invariant needs a test of the exact sentence
+
+README and docs state invariants in plain words ("`is_critical` is exactly `total_float == 0`", "a shorter lag never finishes work later"). Each one needs a property test asserting that exact identity, and a claim the engine deliberately breaks (completed tasks are excluded from `is_critical`; a completed-milestone lag convention) must be reworded to say so. Grep the package README for `exactly`, `always`, `never` and `must`, and find the test for each.
 
 ### A date convention needs an oracle, not a snapshot
 

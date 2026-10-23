@@ -377,6 +377,7 @@ Annotate every finding in the report with one of these tags:
 - `(tracked in #N)` — open issue already exists; do not re-file
 - `(closed #N — <date>, <one-line close reason>)` — closed issue matches; user will classify in Step 3
 - `(untracked)` — no open or closed match
+- `(untracked?)` — an agent's provisional tag from the run's issue dump only; the consolidator resolves every one to a tag above
 
 `(untracked)` requires the all-state search above with two or three keywords drawn from the finding's file path, symbol and mechanism, not its title. A title-only match misses issues written in different words.
 

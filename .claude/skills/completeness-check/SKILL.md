@@ -95,10 +95,12 @@ The brief asks it to be **the reviewer who must block a bad merge**, and to chec
    produced the two regressions above; it is invisible from the diff. Include the rules
    it **combines** with: when the branch changes a default, fallback or bound, find the
    other rules that read the same value, including ones merged long before, and check
-   the invariant that relates them. #4635 went through this gate: !2898 (#4225) passed an
-   Opus round with 0 findings, but its milestone floor, correct alone, met an API
-   fallback (status date = today) merged two months earlier, and the forecast shortened
-   for every future-start project.
+   the invariant that relates them. #4635 went through this gate: !2898 (#4225) ran an Opus
+   first pass (5 findings: docs overclaim, stale docstrings, an unverified MSP/P6 claim,
+   two non-discriminating tests, a fuzz that excluded the lag case) and a Sonnet
+   re-verification (0). None of those was the interaction. Its milestone floor, correct
+   alone, met an API fallback (status date = today) merged two months earlier, and the
+   forecast shortened for every future-start project.
 4. **Try to break it.** Adversarial inputs, races (check-then-act across a slow call),
    PUT vs PATCH, forged exemptions, the default/empty/null case, the upgrade path of an
    existing row.
