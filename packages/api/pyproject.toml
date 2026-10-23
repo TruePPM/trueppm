@@ -168,20 +168,20 @@ dependencies = [
     # -sdk gives the TracerProvider/MeterProvider + batch processors; -exporter-otlp
     # is the OTLP exporter meta-package (gRPC + HTTP). Capped one major up per the
     # bounding convention above.
-    "opentelemetry-sdk>=1.43,<2",
-    "opentelemetry-exporter-otlp>=1.43,<2",
+    "opentelemetry-sdk>=1.45.1,<2",
+    "opentelemetry-exporter-otlp>=1.45.1,<2",
     # OpenTelemetry auto-instrumentation (ADR-0223 Phase 1, #709). Apache-2.0, as is
     # the full added closure (-instrumentation base, -semantic-conventions, -util-http,
     # -wsgi, -dbapi; wrapt is BSD-2, asgiref BSD-3) — no copyleft, license:check:py
-    # stays green. These are the b-series (0.64b0) that pairs with the 1.43 core pins
+    # stays green. These are the b-series (0.66b1) that pairs with the 1.45 core pins
     # above; instrumentation versions independently of the stable packages, so they
     # carry their own floor. -django and -celery instrument the request/task paths,
     # -psycopg the DB driver (psycopg v3 — NOT psycopg2), -asgi the Channels/ASGI
     # stack. Still OPT-IN: no spans are emitted unless an OTLP endpoint is configured.
-    "opentelemetry-instrumentation-django>=0.64b0,<1",
-    "opentelemetry-instrumentation-celery>=0.64b0,<1",
-    "opentelemetry-instrumentation-psycopg>=0.64b0,<1",
-    "opentelemetry-instrumentation-asgi>=0.64b0,<1",
+    "opentelemetry-instrumentation-django>=0.66b1,<1",
+    "opentelemetry-instrumentation-celery>=0.66b1,<1",
+    "opentelemetry-instrumentation-psycopg>=0.66b1,<1",
+    "opentelemetry-instrumentation-asgi>=0.66b1,<1",
     # Structured JSON log formatter (#1899). MIT — permissive, Apache-2.0 compatible,
     # so license:check:py stays green. Pure-Python, no runtime transitive deps. Emits
     # single-line JSON so log records carry the OTel trace_id/span_id/request_id as
