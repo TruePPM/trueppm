@@ -1172,7 +1172,7 @@ def apply_dependency_edges(
     than batch size, and a paste-many of 38 rows that creates no edges must not pay
     for the rare case that does.
     """
-    from trueppm_api.apps.projects.serializers import DependencySerializer
+    from trueppm_api.apps.projects.serializers import CycleDetectedError, DependencySerializer
 
     if not edge_rows:
         return set()
@@ -1215,6 +1215,23 @@ def apply_dependency_edges(
         except PermissionDenied as exc:
             del out.dep_applied[before[0] :]
             out.dep_reject(index, CODE_FORBIDDEN, str(exc.detail))
+        except CycleDetectedError as exc:
+            # The union-graph guard above sees only edges whose predecessor is in this
+            # project; a cross-project edge is cycle-checked over the whole program
+            # (ADR-0120 D1), so a cycle through another project's edge first surfaces
+            # here, from ``DependencySerializer.validate``. It is a plain Exception, not
+            # a DRF error, so without this clause it escapes as a 500 and rolls the
+            # whole batch back (#4626). Raised before any write, so the savepoint holds
+            # nothing to undo. ``exc.cycle`` already blanks nodes the caller cannot read
+            # (#4588); ``offending`` is built from it so this rejection leaks no
+            # task id the direct endpoint would not.
+            del out.dep_applied[before[0] :]
+            out.dep_reject(
+                index,
+                CODE_CYCLIC_DEPENDENCY,
+                "This dependency would create a cycle.",
+                offending=[node["id"] for node in exc.cycle],
+            )
         except DRFValidationError as exc:
             del out.dep_applied[before[0] :]
             out.dep_reject(index, CODE_INVALID, _first_error_message(exc))
