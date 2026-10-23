@@ -38,8 +38,9 @@ If no superuser exists and an ordinary account already holds `DJANGO_SUPERUSER_E
 opt-in, promotion resets the password and revokes the account's personal access
 tokens, refresh tokens, share links, git-automation secrets, outgoing webhooks,
 pending workspace invites, and live project sockets, and unlinks its SSO identities.
-Unlinking forces a re-link; it does not stop an identity provider that asserts the same
-verified email from signing in again. The command also refuses, rather than picking
+Unlinking forces a re-link, and that re-link is refused for the promoted account: SSO
+never binds an identity to a superuser or staff account by verified email (see
+[Single sign-on](/administration/single-sign-on/)). The command also refuses, rather than picking
 one, when several accounts share the email or when the target username already belongs
 to a different account. Every refusal is printed to stderr and logged, and the command
 still exits 0, so a misconfigured address cannot keep the API pod from starting; check

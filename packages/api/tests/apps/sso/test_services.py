@@ -577,6 +577,39 @@ def test_resolve_links_single_existing_account(provider_ctx: services.ProviderCo
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("flag", ["is_superuser", "is_staff"])
+def test_resolve_refuses_autolink_onto_privileged_account(
+    provider_ctx: services.ProviderContext, flag: str
+) -> None:
+    """#4629: a verified email must not bind an IdP identity to an elevated account."""
+    user = User.objects.create_user(username="root", email="root@example.com", password="pw")
+    setattr(user, flag, True)
+    user.save()
+    with pytest.raises(services.OIDCNoMember):
+        services.resolve_user(
+            provider_ctx, {"sub": "sub-root", "email": "root@example.com", "email_verified": True}
+        )
+    assert not SocialAccount.objects.filter(user=user).exists()
+    assert not SocialAccount.objects.filter(provider="generic", uid="sub-root").exists()
+
+
+@pytest.mark.django_db
+def test_resolve_privileged_account_with_existing_binding_still_signs_in(
+    provider_ctx: services.ProviderContext,
+) -> None:
+    """The refusal is first-link only; an established durable binding is unaffected."""
+    user = User.objects.create_user(username="root2", email="r2@example.com", password="pw")
+    user.is_superuser = True
+    user.save()
+    SocialAccount.objects.create(
+        user=user, provider="generic", uid="sub-r2", extra_data={"iss": provider_ctx.issuer}
+    )
+    resolved, created = services.resolve_user(provider_ctx, {"sub": "sub-r2"})
+    assert resolved == user
+    assert created is False
+
+
+@pytest.mark.django_db
 def test_resolve_ambiguous_email_fails_closed(provider_ctx: services.ProviderContext) -> None:
     User.objects.create_user(username="c1", email="dup@example.com", password="pw")
     User.objects.create_user(username="c2", email="dup@example.com", password="pw")

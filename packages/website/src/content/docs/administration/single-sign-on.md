@@ -309,6 +309,26 @@ provisioned by **auto-create** (no pre-existing account) will not get this
 email — there is no existing owner to notify, and that path is covered by the
 workspace [audit log](/administration/audit-log/) instead.
 
+**Superuser and staff accounts are never linked by email.** If a verified IdP
+email matches an account that is a superuser or has staff access, TruePPM refuses
+the sign-in and writes no link. An email address proves a mailbox, not ownership
+of a privileged account. Accounts that already have a linked identity keep signing
+in as before. Workspace Owner and Admin roles are not affected; the refusal keys
+on the account's superuser and staff flags only.
+
+The refused user sees the same `SSO_NO_MEMBER` ("not a member yet") message as any
+unknown account. That is intentional: a distinct error would tell anyone who can
+sign in at your IdP which email addresses belong to privileged accounts.
+
+To bind an IdP identity to a privileged account, an operator creates the link by
+hand. In Django admin, add a **Social account** with **Provider** set to the
+provider's slug (the same slug shown for that provider in the SSO settings), **Uid**
+set to the IdP's `sub` claim for that user (for GitHub, the numeric user id), and
+**Extra data** set to `{"iss": "<issuer>"}` using the provider's exact issuer URL (`https://github.com` for GitHub).
+Later sign-ins then resolve by that identity. An authenticated "link my identity"
+flow that removes the manual step is tracked in #4634. Until it ships, a privileged
+account such as the bootstrap superuser can instead sign in with its password.
+
 ## Removing a provider
 
 Use **Remove** on a provider to delete its configuration. This also unlinks
