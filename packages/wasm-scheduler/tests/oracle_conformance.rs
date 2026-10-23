@@ -7,7 +7,9 @@
 //! `packages/scheduler/tests/oracle/reference_cpm.py` — a slow reference written
 //! from the documented CPM math that imports neither engine — over a seeded set of
 //! random networks (all four link types, leads and lags, random working-day masks
-//! and calendar exceptions, milestones). The Python side
+//! and calendar exceptions, milestones), plus — since #4633 — networks carrying
+//! progress, a data date, SNETs and per-task calendars (ADR-0132/ADR-0136). The
+//! Python side
 //! (`tests/test_cpm_oracle.py`) asserts the corpus still matches the reference and
 //! holds the Python engine to it too.
 //!

@@ -23,18 +23,30 @@ What is compared, exactly
 * Not compared at all: ``scheduled_start``, ``critical_path``, ``driving_edges``,
   ``project_finish`` (implied by the per-task dates), and Monte Carlo, which the
   Rust engine does not implement.
-* Not generated for the reference comparison: progress/actuals, the data date,
-  ``planned_start``, per-task calendars, summary tasks. Every link shape is
-  generated: the last two the engines disagreed with the reference on — a lagged
-  FF/SF link into a milestone (#4272) and an FF link out of one (#4273) — were
-  fixed in the engines, not excluded here.
+* Completed work (ADR-0136) is compared like any task with work; the reference
+  states it pinned, with zero float, and never critical.
+* Generated for the reference comparison: every link shape with leads and lags,
+  any working-day calendar, milestones, and — in the ``*_with_progress``
+  properties (#4633) — percent complete, actual starts and finishes (on
+  non-working days and before the project start), a data date, SNETs, and four-,
+  five- and seven-day per-task calendars with exceptions. Not generated there:
+  summary tasks, ``live_day_end_on``; and, because the reference refuses them, an
+  FF/SF link across two calendars (``_on_one_calendar`` makes it FS/SS) and a
+  completed milestone with recorded actuals (its actuals are dropped). One shape
+  is drawn but excluded by name, the open #4631
+  (``_ff_out_of_a_non_working_actual_finish``), and pinned by a strict xfail so
+  the exclusion cannot outlive the decision. The last planning-network shapes the
+  engines disagreed with the reference on — a lagged FF/SF link into a milestone
+  (#4272) and an FF link out of one (#4273) — were fixed in the engines, not
+  excluded here.
 
 The perturbation oracle (#4439)
 -------------------------------
 Progress, the data date, ``planned_start`` and per-task calendars are the input
-class behind every recent shared engine bug (#4343, #4344, #4345, #4431, #4433),
-and the reference does not model them (#4633). The perturbation properties reach
-the float half of that class without a model: each slips a live task through
+class behind every recent shared engine bug (#4343, #4344, #4345, #4431, #4433).
+The reference models them now (#4633), but the perturbation properties predate
+that and check something it cannot: they need no model at all, so they also
+cover the shapes the reference refuses. Each slips a live task through
 ``planned_start`` and checks
 the engine's own floats against what the slip actually does — by its total float
 ``TF`` the shown project finish (day and end-of-day reading) stays put and by
@@ -50,8 +62,9 @@ A slip oracle sees only float that disagrees with what slipping does. A bug that
 moves early dates while keeping floats consistent is invisible to it: #4433 (a
 closed milestone pushing its successors a day) is one, pinned instead by a
 metamorphic closed-versus-live test; the open #4631 (an FF successor of a
-weekend ``actual_finish``) is another. In CI only the Python engine runs these
-properties — the scheduler image has no Rust toolchain.
+weekend ``actual_finish``) is another, and that class is what the
+``*_with_progress`` reference properties now cover. In CI only the Python engine
+runs these properties — the scheduler image has no Rust toolchain.
 
 The Rust side runs in two ways. The Hypothesis properties drive a native build of
 the crate's ``oracle_runner`` example over stdin when ``cargo`` (or a prebuilt
@@ -59,7 +72,9 @@ runner named by ``TRUEPPM_ORACLE_RUST_RUNNER``) is available, and skip otherwise
 the ``scheduler:*`` CI image has no Rust toolchain. CI instead checks Rust against
 a committed, seeded corpus generated *by the reference*
 (``packages/wasm-scheduler/fixtures/oracle/corpus.json``), asserted by
-``packages/wasm-scheduler/tests/oracle_conformance.rs`` under ``wasm:test``; the
+``packages/wasm-scheduler/tests/oracle_conformance.rs`` under ``wasm:test``. It
+holds 160 planning networks and, since #4633, 80 progress networks drawn the
+way ``progress_projects(modeled=True)`` draws them. The
 corpus tests below keep that file in lock-step with the reference and check the
 Python engine against it too. Regenerate with
 ``REGEN_ORACLE_CORPUS=1 pytest tests/test_cpm_oracle.py -k corpus``.
@@ -132,6 +147,10 @@ CORPUS_PATH = WASM_DIR / "fixtures" / "oracle" / "corpus.json"
 REGEN_CORPUS = os.environ.get("REGEN_ORACLE_CORPUS") == "1"
 CORPUS_SEED = 3987
 CORPUS_SIZE = 160
+# Progress cases (#4633) follow the planning cases, from their own seed, so adding
+# them left the first 160 byte-identical.
+PROGRESS_CORPUS_SEED = 4633
+PROGRESS_CORPUS_SIZE = 80
 # Same monorepo detection as test_wasm_conformance.py (#3856): outside the monorepo
 # (an unpacked sdist) the corpus is absent and its tests skip; inside it, a missing
 # corpus must fail loudly rather than silently skip (#1506).
@@ -314,11 +333,11 @@ def engine_milestone_position(task: EngineTask, ref: RefResult, cal: RefCalendar
 
 def mismatches(engine: dict[str, EngineTask], ref: RefResult, project: RefProject) -> list[str]:
     """Every field (in the compared set) where the engine disagrees with the reference."""
-    cal = project.calendar
     out: list[str] = []
     assert set(engine) == set(ref.tasks)
     for tid, want in sorted(ref.tasks.items()):
         got = engine[tid]
+        cal = project.calendar_of(tid)  # a milestone's position is read on its own week
         if want.is_milestone:
             have = engine_milestone_position(got, ref, cal)
             need = milestone_shown_position(want, ref, cal)
@@ -337,7 +356,7 @@ def mismatches(engine: dict[str, EngineTask], ref: RefResult, project: RefProjec
                 ("late_start", got.late_start, want.late_start),
                 ("late_finish", got.late_finish, want.late_finish),
                 ("total_float", got.total_float, want.total_float),
-                ("is_critical", got.is_critical, want.total_float == 0),
+                ("is_critical", got.is_critical, want.is_critical),
                 ("free_float", got.free_float, want.free_float),
             ]
         out.extend(f"{tid}: {name} {g} != reference {w}" for name, g, w in pairs if g != w)
@@ -413,6 +432,90 @@ def random_ref_project(rng: random.Random) -> RefProject:
         durations=durations,
         links=links,
         calendar=RefCalendar(working_mask=mask, exceptions=tuple(ranges)),
+    )
+
+
+def random_progress_project(rng: random.Random) -> RefProject:
+    """The corpus's progress cases: the shape of ``progress_projects(modeled=True)``.
+
+    Drawn from a seeded RNG, and redrawn until the case is one the reference models
+    and is not the open #4631 shape (``_ff_out_of_a_non_working_actual_finish``).
+    """
+    while True:
+        project = _random_progress_project(rng)
+        if not _ff_out_of_a_non_working_actual_finish(project):
+            return project
+
+
+def _random_progress_project(rng: random.Random) -> RefProject:
+    start = _EPOCH + timedelta(days=rng.randint(0, 6))
+    n = rng.randint(1, 6)
+    durations = {f"T{i}": rng.randint(0, 5) for i in range(n)}
+
+    def calendar(mask: int) -> RefCalendar:
+        ranges = []
+        if rng.random() < 0.5:
+            lo = _EPOCH + timedelta(days=rng.randint(0, 30))
+            ranges.append((lo, lo + timedelta(days=rng.randint(0, 3))))
+        return RefCalendar(working_mask=mask, exceptions=tuple(ranges))
+
+    calendars: dict[str, RefCalendar] = {}
+    task_calendar: dict[str, str] = {}
+    if rng.random() < 0.5:
+        calendars = {
+            "five": calendar(MON_TO_FRI),
+            "four": calendar(_FOUR_DAY),
+            "seven": calendar(_SEVEN_DAY),
+        }
+        for tid in durations:
+            cid = rng.choice((None, "five", "four", "seven"))
+            if cid is not None:
+                task_calendar[tid] = cid
+    links = [
+        _on_one_calendar(
+            RefLink(f"T{i}", f"T{j}", rng.choice(LINK_TYPES), rng.randint(-3, 5)), task_calendar
+        )
+        for j in range(n)
+        for i in range(j)
+        if rng.random() < 0.35
+    ]
+
+    def day(lo: int, hi: int) -> date:
+        return start + timedelta(days=rng.randint(lo, hi))
+
+    planned_start: dict[str, date] = {}
+    progress: dict[str, RefProgress] = {}
+    for tid, dur in durations.items():
+        if rng.random() < 0.25:
+            planned_start[tid] = day(-3, 12)
+        state = rng.choice(("none", "none", "started", "done", "done_recorded"))
+        if state == "started":
+            pct = 0.0 if dur == 0 else rng.choice((0.0, 20.0, 50.0, 80.0))
+            actual_start = day(-6, 4) if rng.random() < 0.5 else None
+            if pct or actual_start is not None:
+                progress[tid] = RefProgress(percent_complete=pct, actual_start=actual_start)
+        elif state == "done" or (state == "done_recorded" and dur == 0):
+            # A completed milestone with recorded actuals is not modeled.
+            started = day(-6, 3) if dur and rng.random() < 0.5 else None
+            progress[tid] = RefProgress(percent_complete=100.0, actual_start=started)
+        elif state == "done_recorded":
+            finish = day(-5, 6)
+            started = finish - timedelta(days=rng.randint(0, 6)) if rng.random() < 0.5 else None
+            pct = rng.choice((0.0, 100.0))
+            progress[tid] = RefProgress(
+                percent_complete=pct, actual_start=started, actual_finish=finish
+            )
+    status_date = day(-3, 8) if rng.random() < 0.5 else None
+    return RefProject(
+        start=start,
+        durations=durations,
+        links=tuple(links),
+        calendar=calendar(rng.choice((MON_TO_FRI, _SEVEN_DAY, 0b1011101))),
+        status_date=status_date,
+        planned_start=planned_start,
+        progress=progress,
+        calendars=calendars,
+        task_calendar=task_calendar,
     )
 
 
@@ -524,10 +627,9 @@ def rust_engine() -> Iterator[RustRunner]:
         pytest.skip(
             "No Rust toolchain: the live Rust properties need `cargo` or "
             "TRUEPPM_ORACLE_RUST_RUNNER. In CI, wasm:test holds Rust to the committed "
-            "oracle corpus (tests/oracle_conformance.rs), which covers planning networks "
-            "only; the perturbation properties (progress, data date, SNETs, per-task "
-            "calendars) run on Rust only locally, and in CI Rust is held to that input "
-            "class only transitively, through wasm:conformance against the Python engine."
+            "oracle corpus (tests/oracle_conformance.rs): 160 planning networks and 80 "
+            "progress networks. The random properties, and the perturbation properties "
+            "over shapes the reference refuses, run on Rust only locally."
         )
     runner = RustRunner(binary)
     yield runner
@@ -754,10 +856,11 @@ def test_a_shorter_lag_never_finishes_work_later(project: RefProject, which: int
 # ---------------------------------------------------------------------------
 # The perturbation oracle (#4439): float checked by slipping the task, not by a
 # reference. It needs no model of progress, the data date, ``planned_start`` or
-# per-task calendars, so it reaches the float half of the input class the reference
-# above does not: #4343, #4344, #4345 and #4431, which both engines shared and which
-# therefore passed ``wasm:conformance``. Early-date bugs with consistent floats
-# (#4433) need a metamorphic test instead.
+# per-task calendars, so it reaches the float half of that input class — #4343,
+# #4344, #4345 and #4431, which both engines shared and which therefore passed
+# ``wasm:conformance`` — including the shapes the reference refuses. Early-date
+# bugs with consistent floats (#4433) need a metamorphic test or the reference
+# properties further down.
 # ---------------------------------------------------------------------------
 
 
@@ -815,16 +918,28 @@ def _progress(draw: st.DrawFn, start: date, n: int) -> RefProgress | None:
     return RefProgress(percent_complete=pct, actual_start=actual_start, actual_finish=finish)
 
 
+def _on_one_calendar(link: RefLink, task_calendar: dict[str, str]) -> RefLink:
+    """An FF/SF link across two calendars, made FS/SS: the reference refuses it."""
+    if link.kind in ("FS", "SS") or task_calendar.get(link.pred) == task_calendar.get(link.succ):
+        return link
+    return replace(link, kind="FS" if link.kind == "FF" else "SS")
+
+
 @st.composite
-def progress_projects(draw: st.DrawFn, max_tasks: int = 6) -> RefProject:
+def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False) -> RefProject:
     """A random DAG carrying progress, a data date, SNETs and per-task calendars.
 
     Per-task calendars are Monday-to-Friday, Monday-to-Thursday and seven-day weeks, each
     with its own exceptions, beside a project calendar with any working-day mask.
+
+    ``modeled`` keeps to what the reference models (:func:`reference_schedule`
+    refuses the rest): per-task calendars only on a network of FS/SS links, and a
+    completed milestone only without recorded actuals.
     """
     n = draw(st.integers(1, max_tasks))
     start = _EPOCH + timedelta(days=draw(st.integers(0, 6)))
     durations = {f"T{i}": draw(st.integers(0, 5)) for i in range(n)}
+    per_task_calendars = draw(st.booleans())
     links = []
     for j in range(n):
         for i in range(j):
@@ -839,7 +954,7 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6) -> RefProject:
                 )
     calendars: dict[str, RefCalendar] = {}
     task_calendar: dict[str, str] = {}
-    if draw(st.booleans()):
+    if per_task_calendars:
         calendars = {
             "five": draw(_calendar_with_exceptions(MON_TO_FRI)),
             "four": draw(_calendar_with_exceptions(_FOUR_DAY)),
@@ -849,6 +964,8 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6) -> RefProject:
             cid = draw(st.sampled_from((None, "five", "four", "seven")))
             if cid is not None:
                 task_calendar[tid] = cid
+    if modeled:
+        links = [_on_one_calendar(link, task_calendar) for link in links]
     status_date = draw(st.none() | st.integers(-3, 8).map(lambda d: start + timedelta(days=d)))
     planned_start = {}
     progress = {}
@@ -856,6 +973,8 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6) -> RefProject:
         if draw(st.integers(0, 3)) == 0:
             planned_start[tid] = start + timedelta(days=draw(st.integers(-3, 12)))
         recorded = draw(_progress(start, dur))
+        if modeled and dur == 0 and recorded is not None and recorded.complete:
+            recorded = RefProgress(percent_complete=100.0)
         if recorded is not None:
             progress[tid] = recorded
     # Monday-to-Friday, every day, and a scattered week with two holes in it.
@@ -1186,6 +1305,200 @@ def test_rust_floats_survive_perturbation(rust_engine: RustRunner, project: RefP
 
 
 # ---------------------------------------------------------------------------
+# Engines == reference with progress (#4633): the early-date half of the input
+# class the slip oracle cannot see, and every float it can, against a model of
+# ADR-0132/ADR-0136 rather than against the engines' own floats.
+# ---------------------------------------------------------------------------
+
+
+def _ff_out_of_a_non_working_actual_finish(project: RefProject) -> bool:
+    """TODO(#4631): the open semantics question, excluded by name until it is decided.
+
+    An FF link out of completed work whose ``actual_finish`` is a non-working day of
+    that work's calendar. The reference reads the finish in working time (the end of
+    Sunday is the end of Friday, so ``FF+0`` lands its successor on Friday); both
+    engines read the verbatim day and land it on Monday. The docs say neither. True
+    only for that link shape — an FS link out of the same task, an FF link out of
+    the same task with a working-day finish, and every other input still compare.
+    Delete this when #4631 closes, and move the reference with it if the decision
+    is the verbatim reading.
+    """
+    for link in project.links:
+        recorded = project.progress.get(link.pred)
+        if (
+            link.kind == "FF"
+            and project.durations[link.pred] > 0
+            and recorded is not None
+            and recorded.actual_finish is not None
+            and not project.calendar_of(link.pred).is_working(recorded.actual_finish)
+        ):
+            return True
+    return False
+
+
+#: #4631 (open) — ``A(2d)`` completed on Saturday 01-10, ``A -FF-> B(1d)``: the
+#: reference puts ``B`` on Friday 01-09, the engines on Monday 01-12.
+FF_OUT_OF_A_SATURDAY_ACTUAL_FINISH = RefProject(
+    start=_EPOCH,
+    durations={"A": 2, "B": 1},
+    links=(RefLink("A", "B", "FF", 0),),
+    progress={"A": RefProgress(actual_finish=date(2026, 1, 10))},
+)
+
+#: ADR-0132 §2a (#4523) — ``A`` started Mon 03-02, ``A -SS+10d-> B``. ``B`` measures
+#: from the recorded start, so it sits on Thu 03-12 whatever the data date, where
+#: it once moved two days with every two days of data date.
+SS_OUT_OF_A_RECORDED_START = RefProject(
+    start=date(2026, 3, 2),
+    durations={"A": 10, "B": 2},
+    links=(RefLink("A", "B", "SS", 10),),
+    status_date=date(2026, 3, 4),
+    progress={"A": RefProgress(percent_complete=20.0, actual_start=date(2026, 3, 2))},
+)
+#: ADR-0132 §2a — the same task in progress with no recorded start: its links
+#: measure from the derived span start, the elapsed days backed off its remaining
+#: window, so ``B`` follows the span (``next_wd(scheduled_start + 10d)``).
+SS_OUT_OF_A_DERIVED_START = replace(
+    SS_OUT_OF_A_RECORDED_START,
+    progress={"A": RefProgress(percent_complete=20.0)},
+)
+#: ADR-0132 §2a — a recorded start bounds neither late dates nor free float: ``A``
+#: keeps the float of its remaining work although ``A -SS-> B`` is what holds ``B``.
+START_FIXED_LINK_LEAVES_FLOAT = RefProject(
+    start=date(2026, 3, 2),
+    durations={"A": 3, "B": 10},
+    links=(RefLink("A", "B", "SS", 0),),
+    status_date=date(2026, 3, 4),
+    progress={"A": RefProgress(percent_complete=0.0, actual_start=date(2026, 3, 2))},
+)
+#: ADR-0136 (#4343) — completed work with no actuals, pinned at the project start
+#: although its predecessor finishes later, between two live tasks.
+COMPLETE_WITHOUT_ACTUALS_PINNED = RefProject(
+    start=date(2026, 3, 2),
+    durations={"A": 5, "B": 3, "C": 2},
+    links=(RefLink("A", "B", "FS", 0), RefLink("B", "C", "FS", 0)),
+    progress={"B": RefProgress(percent_complete=100.0)},
+)
+#: #4332 — a Saturday ``actual_start`` kept verbatim, with a data date the Monday
+#: after: the remaining window opens on the data date.
+SATURDAY_ACTUAL_START = RefProject(
+    start=date(2026, 3, 2),
+    durations={"A": 4, "B": 1},
+    links=(RefLink("A", "B", "FS", 0),),
+    status_date=date(2026, 3, 9),
+    progress={"A": RefProgress(percent_complete=50.0, actual_start=date(2026, 3, 7))},
+)
+
+PROGRESS_EXAMPLES = (
+    SS_OUT_OF_A_RECORDED_START,
+    SS_OUT_OF_A_DERIVED_START,
+    START_FIXED_LINK_LEAVES_FLOAT,
+    COMPLETE_WITHOUT_ACTUALS_PINNED,
+    SATURDAY_ACTUAL_START,
+    COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
+    SUNDAY_FINISH_BEHIND_A_MILESTONE,
+    SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE,
+    SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
+    # Not SF_INTO_A_FOUR_DAY_MILESTONE: an SF link across two calendars, which the
+    # reference refuses (``_check_modeled``).
+)
+
+
+def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
+    """The named examples, asserted on the reference alone, from the ADR text.
+
+    Agreement with an engine is the property below; this is what keeps the
+    reference from drifting into agreeing with a wrong engine.
+    """
+    tasks = reference_schedule(SS_OUT_OF_A_RECORDED_START).tasks
+    assert tasks["B"].early_start == date(2026, 3, 12)
+    later = replace(SS_OUT_OF_A_RECORDED_START, status_date=date(2026, 3, 6))
+    assert reference_schedule(later).tasks["B"].early_start == date(2026, 3, 12)
+
+    # Derived: 2 of 10 days elapsed, the remaining 8 from the data date (Wed 03-04)
+    # finish Fri 03-13; the span starts 10 working days earlier, Mon 03-02, and
+    # B at 03-02 + 10 calendar days = Thu 03-12.
+    derived = reference_schedule(SS_OUT_OF_A_DERIVED_START).tasks
+    assert (derived["A"].early_start, derived["A"].early_finish) == (
+        date(2026, 3, 4),
+        date(2026, 3, 13),
+    )
+    assert derived["B"].early_start == date(2026, 3, 12)
+
+    fixed = reference_schedule(START_FIXED_LINK_LEAVES_FLOAT).tasks
+    assert fixed["B"].early_start == date(2026, 3, 4)  # the data date floors B
+    assert fixed["A"].total_float == fixed["A"].free_float == 7  # B ends 03-17, A 03-06
+
+    pinned = reference_schedule(COMPLETE_WITHOUT_ACTUALS_PINNED).tasks
+    assert (pinned["B"].early_start, pinned["B"].early_finish) == (
+        date(2026, 3, 2),
+        date(2026, 3, 4),
+    )
+    assert pinned["B"].total_float == 0 and not pinned["B"].is_critical
+    assert pinned["C"].early_start == date(2026, 3, 5)  # behind B, not behind A
+    assert pinned["A"].free_float == pinned["A"].total_float  # B does not bound A
+
+    saturday = reference_schedule(SATURDAY_ACTUAL_START).tasks
+    assert (saturday["A"].early_start, saturday["A"].early_finish) == (
+        date(2026, 3, 9),
+        date(2026, 3, 10),
+    )
+    # Late dates never precede early ones (#3963).
+    for project in PROGRESS_EXAMPLES:
+        for t in reference_schedule(project).tasks.values():
+            if t.late_stated:
+                assert t.late_start_at >= t.start_at and t.late_finish_at >= t.finish_at
+
+
+def test_the_4631_exclusion_is_what_hides_the_open_shape() -> None:
+    """The filter matches #4631's repro, and the repro genuinely disagrees."""
+    project = FF_OUT_OF_A_SATURDAY_ACTUAL_FINISH
+    assert _ff_out_of_a_non_working_actual_finish(project)
+    assert mismatches(python_engine(project), reference_schedule(project), project)
+    fs = replace(project, links=(RefLink("A", "B", "FS", 0),))
+    friday = replace(project, progress={"A": RefProgress(actual_finish=date(2026, 1, 9))})
+    for neighbor in (fs, friday):
+        assert not _ff_out_of_a_non_working_actual_finish(neighbor)
+        assert_matches_reference(python_engine(neighbor), neighbor)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="TODO(#4631): an FF successor of a weekend actual_finish lands on Monday in "
+    "both engines and on Friday in the reference; when this XPASSes, delete "
+    "_ff_out_of_a_non_working_actual_finish",
+)
+def test_ff_successor_of_a_non_working_actual_finish() -> None:
+    project = FF_OUT_OF_A_SATURDAY_ACTUAL_FINISH
+    assert_matches_reference(python_engine(project), project)
+
+
+def _with_progress_examples(test: Callable[..., None]) -> Callable[..., None]:
+    for project in PROGRESS_EXAMPLES:
+        test = example(project=project)(test)
+    return test
+
+
+@pytest.mark.fuzz
+@given(project=progress_projects(modeled=True))
+@_with_progress_examples
+def test_python_engine_matches_reference_with_progress(project: RefProject) -> None:
+    """Progress, the data date, SNETs and per-task calendars: every compared field."""
+    assume(not _ff_out_of_a_non_working_actual_finish(project))
+    assert_matches_reference(python_engine(project), project)
+
+
+@pytest.mark.fuzz
+@given(project=progress_projects(modeled=True))
+@_with_progress_examples
+def test_rust_engine_matches_reference_with_progress(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    assume(not _ff_out_of_a_non_working_actual_finish(project))
+    assert_matches_reference(rust_engine.schedule(project), project)
+
+
+# ---------------------------------------------------------------------------
 # The committed corpus — how Rust is held to the reference in CI.
 # ---------------------------------------------------------------------------
 
@@ -1193,7 +1506,7 @@ def test_rust_floats_survive_perturbation(rust_engine: RustRunner, project: RefP
 def _expected_row(project: RefProject, ref: RefResult, tid: str) -> dict[str, Any]:
     """What ``oracle_conformance.rs`` asserts for one task, from the reference alone."""
     want = ref.tasks[tid]
-    cal = project.calendar
+    cal = project.calendar_of(tid)
     if want.is_milestone:
         # Either shown reading of the reference instant is accepted: the start of
         # the first working day at or after it, or the end of the working day
@@ -1216,26 +1529,33 @@ def _expected_row(project: RefProject, ref: RefResult, tid: str) -> dict[str, An
     return row
 
 
+def _corpus_case(name: str, project: RefProject) -> dict[str, Any]:
+    ref = reference_schedule(project)
+    return {
+        "name": name,
+        "project": project_document(project),
+        "expected": {tid: _expected_row(project, ref, tid) for tid in project.durations},
+    }
+
+
 def build_corpus() -> dict[str, Any]:
     rng = random.Random(CORPUS_SEED)
-    cases = []
-    for k in range(CORPUS_SIZE):
-        project = random_ref_project(rng)
-        ref = reference_schedule(project)
-        cases.append(
-            {
-                "name": f"case_{k:03d}",
-                "project": project_document(project),
-                "expected": {tid: _expected_row(project, ref, tid) for tid in project.durations},
-            }
-        )
+    cases = [_corpus_case(f"case_{k:03d}", random_ref_project(rng)) for k in range(CORPUS_SIZE)]
+    rng = random.Random(PROGRESS_CORPUS_SEED)
+    cases += [
+        _corpus_case(f"progress_{k:03d}", random_progress_project(rng))
+        for k in range(PROGRESS_CORPUS_SIZE)
+    ]
     return {
         "_comment": (
             "Generated by the independent reference CPM (packages/scheduler/tests/oracle/"
-            "reference_cpm.py), NOT by either engine (#3987). Regenerate with "
+            "reference_cpm.py), NOT by either engine (#3987). case_* are planning "
+            "networks; progress_* carry progress, a data date, SNETs and per-task "
+            "calendars (#4633). Regenerate with "
             "REGEN_ORACLE_CORPUS=1 pytest packages/scheduler/tests/test_cpm_oracle.py -k corpus"
         ),
         "seed": CORPUS_SEED,
+        "progress_seed": PROGRESS_CORPUS_SEED,
         "cases": cases,
     }
 
@@ -1289,7 +1609,7 @@ def _corpus_row_mismatches(row: dict[str, Any], got: EngineTask) -> list[str]:
 def test_python_engine_matches_the_oracle_corpus() -> None:
     """The same check ``oracle_conformance.rs`` runs on Rust, run on Python."""
     corpus = _load_corpus()
-    assert len(corpus["cases"]) == CORPUS_SIZE
+    assert len(corpus["cases"]) == CORPUS_SIZE + PROGRESS_CORPUS_SIZE
     problems = []
     for case in corpus["cases"]:
         result = schedule(Project.from_dict(case["project"]))

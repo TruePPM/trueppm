@@ -64,40 +64,59 @@ What is compared:
 | Milestone late dates and floats, `scheduled_start`, `critical_path`, `driving_edges` | Not compared (tracked in #4275) |
 | Monte Carlo | Not compared. Only the Python engine runs it; the Rust engine is deterministic CPM only |
 
-Not generated for the reference comparison: progress and actuals, the data date,
-`planned_start`, per-task calendars, and summary tasks — the reference refuses
-them (modeling the first four is #4633). Every link shape is generated, and none
-is excluded: when the engines disagree with the reference on one, fix the engine
-(or, with a concrete reason, the documented rule and the reference together) —
-do not carve the shape out of the generator. The last two exclusions, a lagged
-FF/SF link into a milestone (#4272) and an FF link out of one (#4273), were
-removed that way.
+The reference also models progress (ADR-0132, ADR-0136; #4633): remaining
+duration, the data-date and SNET floors, a verbatim `actual_start` as a floor,
+SS/SF links measured from the recorded or derived start (ADR-0132 §2a), completed
+work pinned at its actuals, completed milestones, completed successors and
+recorded-start links left out of the late-date and free-float searches, late
+dates floored at the early ones (#3963), and per-task calendars. The
+`*_with_progress` properties draw percent complete, actual starts and finishes
+(including on non-working days and before the project start), a data date,
+`planned_start`, and four-, five- and seven-day per-task calendars with
+exceptions, and compare both engines against it. Completed tasks are compared
+like any other work: pinned, zero float, never critical.
 
-The **perturbation oracle** in the same file covers the float side of the inputs
-the reference does not model. It draws progress and actuals (including actuals
-on non-working days and before the project start), a data date, `planned_start`,
-and four-, five- and seven-day per-task calendars with exceptions, then slips
-each live task through `planned_start`: by its total float the shown project
-finish must not move and by one more day it must; by its free float nothing live
-downstream may move and by one more day something must. It needs no model, so it
-cannot see a bug that moves early dates while keeping floats consistent — #4433
-is pinned by a metamorphic closed-versus-live test instead, and #4631 is the open
-question of that kind. It runs on Rust only where `cargo` (or
-`TRUEPPM_ORACLE_RUST_RUNNER`) is available; CI holds Rust to this input class
-only through `wasm:conformance` against Python.
+Not generated for the reference comparison: summary tasks and
+`live_day_end_on`. Two inputs the reference refuses rather than answer, so the
+progress generator does not draw them: an FF or SF link between tasks on
+different calendars (the generator makes it FS/SS — which calendar reads its
+anchor is not documented) and a completed milestone with recorded actuals
+(the generator drops the actuals — its day edge is a display rule, #4433/#4525).
+Every link shape is otherwise generated, and none is excluded: when the engines
+disagree with the reference on one, fix the engine (or, with a concrete reason,
+the documented rule and the reference together) — do not carve the shape out of
+the generator. The last two planning-network exclusions, a lagged FF/SF link
+into a milestone (#4272) and an FF link out of one (#4273), were removed that
+way.
 
-There is exactly one tracked exception to "do not carve the shape out": the open
-#4436 (understated float beside a start-of-day milestone finish) is excused by
-the named filter `_ends_in_a_start_of_day_finish_gap`, narrowed to the slipped
-task and the work its slip carried. A strict xfail on the unfiltered repro turns
-red when #4436 is fixed, so the filter must be deleted with the fix.
+The **perturbation oracle** in the same file checks float without any model. It
+draws the same progress inputs, including the shapes the reference refuses, then
+slips each live task through `planned_start`: by its total float the shown
+project finish must not move and by one more day it must; by its free float
+nothing live downstream may move and by one more day something must. It cannot
+see a bug that moves early dates while keeping floats consistent — #4433 is
+pinned by a metamorphic closed-versus-live test, and the reference properties
+above now cover that class. It runs on Rust only where `cargo` (or
+`TRUEPPM_ORACLE_RUST_RUNNER`) is available.
+
+There are exactly two tracked exceptions to "do not carve the shape out", each
+excused by a named filter and pinned by a strict xfail on its unfiltered repro
+that turns red when the issue is resolved, so the filter must be deleted then:
+
+- the open #4631 (an FF successor of completed work whose `actual_finish` is a
+  non-working day: the reference reads it in working time, the engines as the
+  verbatim day; the semantics are undecided) — `_ff_out_of_a_non_working_actual_finish`,
+  in the reference properties and the corpus generator;
+- the open #4436 (understated float beside a start-of-day milestone finish) —
+  `_ends_in_a_start_of_day_finish_gap`, in the perturbation properties only,
+  narrowed to the slipped task and the work its slip carried.
 
 The Rust engine is checked two ways. Locally, when `cargo` is on `PATH`, the
 Rust properties build the crate's `oracle_runner` example and feed it the same
 generated networks; without a toolchain they skip. In CI, `wasm:test` runs
 `packages/wasm-scheduler/tests/oracle_conformance.rs` against
 `packages/wasm-scheduler/fixtures/oracle/corpus.json`, a seeded corpus generated
-**by the reference**, and `scheduler:test` fails if that corpus no longer matches
+**by the reference** (160 planning networks and 80 progress networks), and `scheduler:test` fails if that corpus no longer matches
 the reference. After changing the reference, regenerate it with:
 
 ```bash
