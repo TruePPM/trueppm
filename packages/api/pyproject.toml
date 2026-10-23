@@ -46,7 +46,7 @@ dependencies = [
     # both need verifying against our error contract and our ATOMIC_REQUESTS
     # refusal paths before we take them. uv resolves to 3.18.0 without this.
     # Tracked in #3323; lift the ceiling there, not here.
-    "djangorestframework>=3.17.2,<3.18",
+    "djangorestframework>=3.18.2,<3.19",
     "djangorestframework-simplejwt>=5.3.1,<6.0",
     # [socialaccount] is what declares requests/oauthlib/pyjwt, which the
     # openid_connect provider imports at django.setup(). Without it requests
