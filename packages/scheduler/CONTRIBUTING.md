@@ -69,7 +69,9 @@ duration, the data-date and SNET floors, a verbatim `actual_start` as a floor,
 SS/SF links measured from the recorded or derived start (ADR-0132 §2a), completed
 work pinned at its actuals, completed milestones, completed successors and
 recorded-start links left out of the late-date and free-float searches, late
-dates floored at the early ones (#3963), and per-task calendars. The
+dates floored at the early ones (#3963; modeled, but not discriminated by any
+generated or pinned case — the search never reaches the floor), and per-task
+calendars. The
 `*_with_progress` properties draw percent complete, actual starts and finishes
 (including on non-working days and before the project start), a data date,
 `planned_start`, and four-, five- and seven-day per-task calendars with
@@ -94,9 +96,10 @@ draws the same progress inputs, including the shapes the reference refuses, then
 slips each live task through `planned_start`: by its total float the shown
 project finish must not move and by one more day it must; by its free float
 nothing live downstream may move and by one more day something must. It cannot
-see a bug that moves early dates while keeping floats consistent — #4433 is
-pinned by a metamorphic closed-versus-live test, and the reference properties
-above now cover that class. It runs on Rust only where `cargo` (or
+see a bug that moves early dates while keeping floats consistent. The reference
+properties above cover that class, except for a completed milestone with
+recorded actuals — #4433's shape, which the reference refuses and which stays
+pinned by a metamorphic closed-versus-live test — and the excluded #4631 shape. It runs on Rust only where `cargo` (or
 `TRUEPPM_ORACLE_RUST_RUNNER`) is available.
 
 There are exactly two tracked exceptions to "do not carve the shape out", each

@@ -62,9 +62,12 @@ A slip oracle sees only float that disagrees with what slipping does. A bug that
 moves early dates while keeping floats consistent is invisible to it: #4433 (a
 closed milestone pushing its successors a day) is one, pinned instead by a
 metamorphic closed-versus-live test; the open #4631 (an FF successor of a
-weekend ``actual_finish``) is another, and that class is what the
-``*_with_progress`` reference properties now cover. In CI only the Python engine
-runs these properties — the scheduler image has no Rust toolchain.
+weekend ``actual_finish``) is another. The ``*_with_progress`` reference
+properties cover that early-date class, except for two shapes: a completed
+milestone with recorded actuals, which is #4433's own shape and which the
+reference refuses (it stays with the metamorphic test), and the excluded #4631
+shape. In CI only the Python engine runs these properties — the scheduler image
+has no Rust toolchain.
 
 The Rust side runs in two ways. The Hypothesis properties drive a native build of
 the crate's ``oracle_runner`` example over stdin when ``cargo`` (or a prebuilt
@@ -859,8 +862,9 @@ def test_a_shorter_lag_never_finishes_work_later(project: RefProject, which: int
 # per-task calendars, so it reaches the float half of that input class — #4343,
 # #4344, #4345 and #4431, which both engines shared and which therefore passed
 # ``wasm:conformance`` — including the shapes the reference refuses. Early-date
-# bugs with consistent floats (#4433) need a metamorphic test or the reference
-# properties further down.
+# bugs with consistent floats need the reference properties further down, or a
+# metamorphic test for what the reference refuses (#4433: a completed milestone
+# with recorded actuals).
 # ---------------------------------------------------------------------------
 
 

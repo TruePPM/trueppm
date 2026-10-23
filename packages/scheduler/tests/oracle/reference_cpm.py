@@ -117,8 +117,10 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
 * **Completed milestones** with no actuals are an instant at the start of the
   pinned day; their SNET binds the instant they are linked from (#4343, #4225).
 * **Late dates never precede early ones (#3963).** The backward search is floored
-  at the early span — out-of-sequence actuals can otherwise ask live work to have
-  started in the past.
+  at the early span. This is modeled but not discriminated: the search already
+  stops at or after the early span, so no generated or pinned case makes the
+  floor bind, and a mutation removing it (here or in the Python engine) survives
+  every property (see :func:`_backward_task`).
 
 Not modeled, and refused by :func:`reference_schedule` rather than answered:
 
