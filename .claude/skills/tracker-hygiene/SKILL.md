@@ -179,6 +179,47 @@ supposed to be a place issues go to be forgotten. 90 days with no update on an
 unmilestoned `direction` issue is a candidate to either pull into a milestone or close as
 no-longer-intended; this skill only surfaces the candidate.
 
+## Step 5b — Issues closed by an MR that was about a different issue
+
+GitLab closes any issue named after a closing keyword anywhere in an MR description, and
+ignores negation ("this MR does not close #N" closes #N). An issue closed that way looks
+resolved and leaves every list. Four were found on 2026-10-23: #4293 (!3068), #604 and
+#3464 (!2499), and #2657 (!2996). A hit needs all three of these tells:
+
+1. the closing MR's source branch names a **different** issue number;
+2. the issue closed within two minutes of that MR merging, which rules out an MR that
+   only mentions an issue some other change closed earlier or later;
+3. the MR description has no intentional `Closes|Fixes|Resolves … #N` line for the
+   issue. Most bundled closes are deliberate and carry one.
+
+```bash
+SINCE=$(date -v-30d +%Y-%m-%dT00:00:00Z 2>/dev/null || date -d '30 days ago' +%Y-%m-%dT00:00:00Z)
+glab api --paginate "projects/trueppm%2Ftrueppm/issues?state=closed&updated_after=$SINCE&per_page=100" 2>/dev/null \
+  | read_pages | python3 -c "
+import json, subprocess, sys, re
+from datetime import datetime
+def get(path):
+    return json.loads(subprocess.run(['glab','api',path], capture_output=True, text=True).stdout or 'null')
+ts = lambda s: datetime.fromisoformat(s.replace('Z','+00:00'))
+for i in json.load(sys.stdin):
+    n = i['iid']
+    for mr in get(f'projects/trueppm%2Ftrueppm/issues/{n}/closed_by') or []:
+        b = re.match(r'[a-z]+/(\d+)-', mr.get('source_branch', ''))
+        if not b or int(b.group(1)) == n or not mr.get('merged_at') or not i.get('closed_at'):
+            continue
+        if abs((ts(i['closed_at']) - ts(mr['merged_at'])).total_seconds()) > 120:
+            continue
+        body = mr.get('description') or ''
+        if any(re.match(r'\s*[-*]?\s*(close|fix|resolve)[sd]?[: ]+.*#%d\b' % n, l, re.I) for l in body.splitlines()):
+            continue
+        print(f\"#{n:>4}  closed by !{mr['iid']} ({mr['source_branch'][:40]})  {i['title'][:60]}\")
+"
+```
+
+A hit is a candidate, not a finding: read the MR's mentions of the issue before reporting
+it for reopening, and never reopen one from this skill. The step makes one `closed_by`
+call per closed issue (about 2.5 minutes for 350 issues), so keep the window short.
+
 ## Step 6 — Report
 
 ```
@@ -195,6 +236,9 @@ no-longer-intended; this skill only surfaces the candidate.
 
 ### Stale `direction` issues (Step 5)
 <issue list with idle days, or "none">
+
+### Closed by an MR about a different issue (Step 5b)
+<issue → MR pairs, each with "reopen" or "legitimate", or "none">
 
 ### Recommended next step
 <one sentence — e.g. "N issues need a release:: decision; raise with the user directly

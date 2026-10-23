@@ -52,50 +52,55 @@ Checklist:
 - [ ] **Per-recipient field-leak check** — a broadcast fans out to every connected subscriber on the channel without filtering. Any field that the REST serializer hides for a subset of roles (e.g. admin-only metadata, owner-only fields, internal scheduling state) **must** also be either (a) absent from the broadcast payload entirely, or (b) filtered per-recipient at the consumer's `<event_handler>`. When a serializer's `to_representation` strips a field based on `context['request'].user`, the broadcast layer needs the same gate. Audit every new "stripped on REST, broadcast as-is" pattern as HIGH.
 - [ ] `server_version` is included so clients can detect ordering / conflict
 - [ ] Large payloads (e.g., full schedule recalc) use a delta format, not the full object graph
-- [ ] **Terminal-event payload shape** — for `*.deleted` events, payload should be `{"<resource>_uid": "<uid>"}` only. Adding integer/UUID PKs to deletion payloads (`"task_id"`, `"project_id"`) creates contract drift — every other deletion event uses uid-only and clients build that assumption.
+- [ ] **Terminal-event payload shape** — `*_deleted` events carry the deleted row's identity only, as `{"id": "<id>"}` (`dependency_deleted` is the reference shape). Adding sibling keys (`"task_id"`, `"project_id"`) or a different identity key creates contract drift, because clients are written against the shape the existing deletion events use. Identity-key drift that is already shipped is tracked (#4088, #4406); do not add to it.
 - [ ] **`transaction.on_commit()` closures must capture plain values, not ORM instances** — a closure that holds an ORM `Task`, `Project`, etc. carries an object that may be evicted, mutated, or deleted between the atomic-block exit and the on_commit fire. Build the payload dict inside the atomic block, then pass it through default-argument values to the closure:
 
   ```python
-  # WRONG — closure holds ORM instances; payload may serialize stale or deleted state
+  # WRONG — closure holds ORM instances, and ships serializer output to every subscriber
   with transaction.atomic():
       task.save()
       def _send():
           data = TaskSerializer(task, context={"project": project}).data
-          broadcast_project_event(project.id, "project.task.updated", data)
+          broadcast_board_event(project.id, "task_updated", data)
       transaction.on_commit(_send)
 
-  # RIGHT — payload built inside the atomic block, closure carries plain data
+  # RIGHT — plain values bound inside the atomic block; the payload is the ADR-0152 delta
   with transaction.atomic():
       task.save()
-      project_id = project.id
-      payload = TaskSerializer(task, context={"project": project}).data
+      pid, tid, ver = str(project.id), str(task.id), task.server_version
+      fields, actor_id = sorted(changed), str(request.user.pk)  # plain values only
       transaction.on_commit(
-          lambda pid=project_id, pl=payload: broadcast_project_event(pid, "project.task.updated", pl)
+          lambda: broadcast_task_updated(
+              pid, task_id=tid, changed_fields=fields, version=ver, actor_id=actor_id
+          )
       )
   ```
+
+  The payload carries *which* fields changed, never their values: task fields are role-gated, so a client re-reads through the serializer (see `broadcast_task_updated` in `apps/sync/broadcast.py`).
 
 ### Channel Group Scoping
 - [ ] Broadcasts are scoped to `project_{project_pk}` channel group — no global broadcasts
 - [ ] Cross-project resources (shared calendars, resources, cross-project dependencies) broadcast to **all** affected project groups, not just one
-- [ ] **Event-name contract: `noun.verb_past` with a dot separator** — `project.task.updated`, `project.dependency.created`, `project.member.removed`. Underscored or non-past-tense forms (`task_updated`, `task.update`) are a regression — the schema is `{event, data}` and the names are part of the public WebSocket contract. Renaming an event is a breaking change for any connected client.
-- [ ] Sub-resource writes broadcast on the parent's channel group — easy to miss for resources nested under a project (dependencies, baselines, custom fields, comments). A `Dependency.delete()` should fire `project.dependency.deleted` on `project_{project_pk}`, not be silent.
+- [ ] **Event-name contract: snake_case `noun_verb_past`** — `task_updated`, `dependency_created`, `member_removed`, matching every name in `FROZEN_WS_EVENT_TYPES`. A dotted or non-past-tense form (`project.task.updated`, `task_update`) is a regression. Clients receive `{protocol_version, event_type, payload, seq}`, and the names are part of the public WebSocket contract, so renaming an event is a breaking change for any connected client. Enforcing this grammar in the freeze test is #4481.
+- [ ] Sub-resource writes broadcast on the parent's channel group — easy to miss for resources nested under a project (dependencies, baselines, custom fields, comments). A `Dependency.delete()` should fire `dependency_deleted` on `project_{project_pk}`, not be silent.
 
 ### Consumer Safety
 - [ ] Consumers authenticate on `connect()` and re-validate project membership
 - [ ] Consumers do not perform synchronous ORM queries in the event handler (use async ORM)
-- [ ] Consumers handle `project.deleted` by closing the connection gracefully
+- [ ] Consumers handle `project_deleted` by closing the connection gracefully
 - [ ] Fan-out load: for projects with >500 members, broadcast is rate-limited or batched
 
 ### Missing Broadcasts
 - [ ] Schedule recalculation result (CPM outputs) broadcasts updated task dates
 - [ ] Baseline create/restore broadcasts all affected task dates
-- [ ] Member add/remove broadcasts a `project.membership.changed` event
+- [ ] Member add/remove broadcasts `member_added` / `member_removed`
+- [ ] **A field change on the parent record broadcasts that record's event, even when it happens off the PATCH path** — lifecycle transitions (draft → active commit, archive, restore), imports and service helpers flip fields on `Project` and other parent rows as a side effect of some other action. Such a path usually broadcasts the event for the thing it created (`baseline_created`) and forgets the parent's `*_updated`. Peers then keep stale state, because their handler for the created thing does not invalidate the parent query. For every write the diff makes to a parent record's fields, confirm the parent's event fires.
 - [ ] **Sibling write paths that produce the same user-visible effect all broadcast** — when several code paths converge on one outcome (three importers that can each shift a project's start date; several delete paths that each remove a project), enumerate them together and confirm every one emits. A broadcast added to the path that surfaced the bug and not to its siblings is the single most repeated defect shape in this codebase: the emitting sibling is proof of the intended contract, so its absence next door is a regression, not a design choice. Ask "what are the *other* ways this same thing happens?" before signing off.
 - [ ] **Bulk and cascade deletes broadcast, and hard deletes broadcast loudest** — a path that removes rows via `Model.objects.filter(...).delete()`, a cascade, or a "replace existing" teardown bypasses per-instance signals and per-object views, so it is the easiest place to lose a broadcast entirely. A **hard** delete additionally emits no tombstone, so offline/WatermelonDB clients never learn the row is gone and keep editing it. For any path that hard-deletes user-visible data, confirm both that it broadcasts and that soft-delete was genuinely inappropriate there.
 - [ ] **A payload that ships the whole collection instead of the delta is a broadcast defect, not just a perf issue** — when a recalculation or bulk write emits every row rather than the changed subset, clients hit the truncation fallback and refetch the full paginated list, turning one edit into O(pages × clients) requests. If the changed subset is already computed in the same function (a before/after map is the usual tell), emitting the full set is a bug. Check what the payload *contains*, not merely that a broadcast fires.
 
 ### Event ↔ Frontend Handler Pairing
-- [ ] **Every newly-emitted event type has a registered frontend handler — and every handler maps to an emitter (bidirectional)** — an event the backend fires that the frontend never handles is a silently-dropped update, not just a "missing broadcast"; a handler listening for an event nothing emits is dead code that masks the real event name. Check the socket-handler registry in the project websocket hook under `packages/web/src` and confirm each new backend event type has a matching handler, and that no handler references an event type that no backend path emits. A name mismatch (`project.task.updated` emitted vs `task.updated` handled) is a finding under this check.
+- [ ] **Every newly-emitted event type has a registered frontend handler — and every handler maps to an emitter (bidirectional)** — an event the backend fires that the frontend never handles is a silently-dropped update, not just a "missing broadcast"; a handler listening for an event nothing emits is dead code that masks the real event name. Check the socket-handler registry in the project websocket hook under `packages/web/src` and confirm each new backend event type has a matching handler, and that no handler references an event type that no backend path emits. A name mismatch (`task_update` emitted vs `task_updated` handled) is a finding under this check.
 
 ### WS Event-Type Freeze Coverage
 - [ ] **Indirect (wrapper) emitters are reconciled against the frozen set — the AST freeze guard only sees *direct literal* call sites.** The CI guard `test_ws_event_type_set_is_frozen` re-derives the live event set by AST-scanning only the `event_type` literal passed **directly** to `broadcast_board_event` / `abroadcast_board_event`; it *intentionally skips* call sites that pass `event_type` as a **variable**, assuming those merely forward an already-frozen literal. A **wrapper emitter** breaks that assumption: a helper like `taskruns/tracker.py:_broadcast(event_type, payload)` receives a brand-new literal at its *own* call sites and forwards it to the broadcast helper as a variable, so the literal exists in source but never at a direct helper call — and escapes the freeze set entirely (this is exactly how `task_run_*` slipped through). For any write path that emits via such a wrapper: enumerate the wrapper's own call sites, collect the literal `event_type` values they pass, and confirm **each is present in `FROZEN_WS_EVENT_TYPES`** (`packages/api/tests/apps/sync/test_broadcast.py`) **and** documented in `packages/website/src/content/docs/api/websockets.md`. An event reachable only through a variable-forwarding wrapper, absent from the frozen set, is a finding under this check — the freeze test will pass while the WS contract silently drifts.

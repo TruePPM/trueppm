@@ -331,6 +331,15 @@ The same concept must have one wire shape. Before adding a field, enum, or query
 
 This is mechanical; count the variants rather than eyeballing one schema. A new endpoint that adds a variant makes the next freeze more expensive. Report it even when the endpoint itself is internally consistent.
 
+The same applies to two other contract surfaces:
+- **Field types across schemas:** one field (`percent_complete`, a forecast range) declared `integer` in one schema and `number` in another is one concept with two wire shapes.
+- **Operator names:** every new env var the code reads and every new Helm values key is an operator contract. New app-specific env vars carry the `TRUEPPM_` prefix (#3791); Django- and library-standard names (`DATABASE_URL`, `EMAIL_*`, `ALLOWED_HOSTS`) keep theirs. A rename after release needs a dual-read window. List the names the code reads at HEAD and at the last tag, and diff the two lists rather than reviewing only the names the diff mentions:
+
+```bash
+grep -rhoE "(environ(\.get)?|getenv|env(\.[a-z]+)?)\(['\"][A-Z][A-Z0-9_]+" packages/api/src \
+  | sed -E "s/.*\(['\"]//" | sort -u
+```
+
 ## Key Architectural Constraints
 
 - **PostgreSQL is the only database.** No graph DB, no MongoDB, no DynamoDB.

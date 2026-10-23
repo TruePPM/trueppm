@@ -259,6 +259,10 @@ Enumerate **every** render site of `<EnterpriseBadge>`, plus padlock icons, disa
 
 A dispatch wrapper that catches a receiver's Python exception does **not** isolate the OSS write path when the receiver raises a database error. Under `ATOMIC_REQUESTS`, an `IntegrityError` or statement timeout inside a receiver leaves the enclosing transaction aborted. The OSS save then 500s, or loses its write with no error. For every extension signal fired inside a request transaction, check that each receiver runs inside its own savepoint and that a test covers a receiver raising a `DatabaseError`.
 
+### Derive the seam set; do not recall it
+
+Provider seams (an OSS module variable that Enterprise replaces through a `register_*` call) need the same isolation: a provider that raises must not break the OSS call site that invoked it. Enumerate the seams from the `register_*` definitions themselves (`grep -rn "def register_" packages/api/src`), then grep each provider variable's **call sites**. A hand-maintained list undercounts, and the missed call is the one on a hot path such as CPM. Report N seams, M guarded.
+
 ## Decision Framework
 
 Ask in order:

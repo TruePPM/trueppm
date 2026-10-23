@@ -142,6 +142,17 @@ wider thirds are what keeps shipping:
   `program_rollup.py`. An integrator's documented hard NO is exactly this: "a field
   documented as a constraint that the server does not enforce."
 
+- [ ] **MCP tools are API consumers, and their parameters are declarations.** Every parameter a `packages/mcp` tool sends must be read by the operation it calls: grep the param name in the target view or filterset, not in the MCP client. A tool test that asserts the client *forwards* a filter passes on a filter the server silently ignores, and an agent then acts on a wrong result set with no error. Docstring examples for enum-valued params must be actual enum members, in the server's case, because exact-match filters return an empty list for anything else.
+
+### The request side is declared too
+
+Response-shape accuracy is the high-value check, but request declarations are what a
+generated client actually sends:
+
+- [ ] **`inline_serializer` field types come from what the view resolves.** A field the view passes to `User.objects.get(pk=...)` is an integer, not `UUIDField`. Guessing the type publishes a schema no client can satisfy. Check every `inline_serializer` and `OpenApiParameter` type against the lookup that consumes it, and check the docs example the same way.
+- [ ] **A view that reads named keys declares a body, and a view that reads a query param declares it.** An empty free-form request body, or a query param read in `get_queryset` and declared on no operation, is undocumented API surface.
+- [ ] **Component names are SDK type names.** Review new `components.schemas` names in the regenerated schema: a `…RequestRequest` double suffix or a hash-suffixed enum (`RoleF2cEnum`) becomes a permanent generated type name. Fix it with `component_name` or an `ENUM_NAME_OVERRIDES` entry before the version ships.
+
 ### operationId churn is a breaking change
 
 - [ ] **Check the `operationId` diff separately from the schema diff.** spectacular

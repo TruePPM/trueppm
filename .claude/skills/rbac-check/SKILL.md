@@ -56,6 +56,8 @@ You are auditing TruePPM's role-based access control for a new or modified endpo
 
 ### Gate parity across write paths
 - [ ] For every model with more than one write path (REST, sync upload, importers, service helpers), the create/update/delete role gate is identical on every path, or the difference is documented at both sites. A gate added to REST later (e.g. a plan-author check) is the usual source of drift; enumerate the writers by grepping `.objects.create(`/`.save(`/`.soft_delete(` for the model, not by recalling them.
+- [ ] **The permission class is the unit, not the endpoint.** For every permission class or `can_user_*` helper on a create/update/delete, grep its name across every non-REST writer of that model: sync upload, importers, bulk endpoints, MCP and agent tools, management commands. Zero hits outside the REST view means the gate exists on one path only. The model-writer grep above can miss these paths, because a sync or import path often creates rows through a helper that does not name the model at the call site. A comment claiming parity ("matches TaskViewSet create") is not evidence; diff the actual class lists.
+- [ ] **A role that any account can grant itself is not a privilege boundary.** Creating a project makes the caller its Owner, so project Owner and Admin, and any "org admin" derived from them, are self-grantable. A gate or a triage note that reasons "only Admins can reach this" is a finding when the reach extends beyond that project: shared catalogs, other projects' data, outbound requests. Name the role that actually bounds the surface (`IsWorkspaceAdminStrict`, superuser) or record the exposure as accepted.
 
 ### Privilege Escalation
 - [ ] Users cannot assign themselves a higher role than they currently hold
