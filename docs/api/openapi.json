@@ -52884,7 +52884,8 @@
                     },
                     "is_active": {
                         "type": "boolean",
-                        "readOnly": true
+                        "readOnly": true,
+                        "default": false
                     },
                     "has_cpm_dates": {
                         "type": "boolean",
@@ -52936,7 +52937,8 @@
                     },
                     "is_active": {
                         "type": "boolean",
-                        "readOnly": true
+                        "readOnly": true,
+                        "default": false
                     },
                     "has_cpm_dates": {
                         "type": "boolean",
@@ -64631,7 +64633,8 @@
                     },
                     "short_id": {
                         "type": "string",
-                        "readOnly": true
+                        "readOnly": true,
+                        "default": ""
                     },
                     "name": {
                         "type": "string",
@@ -70870,7 +70873,8 @@
                     },
                     "short_id": {
                         "type": "string",
-                        "readOnly": true
+                        "readOnly": true,
+                        "default": ""
                     },
                     "short_id_display": {
                         "type": "string",
@@ -72374,7 +72378,8 @@
                     },
                     "short_id": {
                         "type": "string",
-                        "readOnly": true
+                        "readOnly": true,
+                        "default": ""
                     },
                     "short_id_display": {
                         "type": "string",
@@ -75110,7 +75115,8 @@
                     },
                     "short_id": {
                         "type": "string",
-                        "readOnly": true
+                        "readOnly": true,
+                        "default": ""
                     },
                     "short_id_display": {
                         "type": "string",
@@ -78622,7 +78628,8 @@
                     },
                     "short_id": {
                         "type": "string",
-                        "readOnly": true
+                        "readOnly": true,
+                        "default": ""
                     },
                     "short_id_display": {
                         "type": "string",
