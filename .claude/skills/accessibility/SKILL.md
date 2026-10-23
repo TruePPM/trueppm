@@ -22,6 +22,7 @@ description: >
 
 ### General Web
 - All interactive elements focusable with visible focus ring
+- **2.4.7 Focus Visible is decided by `outline-none`, not by the absence of a ring class.** Grep `outline-none` and `outline-0` across `packages/web/src`. For each hit, the element or a wrapper must supply a replacement indicator (`focus-visible:ring-*`, or `focus-within:ring-*` on the wrapper of an input). An element with neither class keeps the browser default and passes. Weight a hit higher when focus lands on that element automatically (`autoFocus`, `useFocusTrap`'s initial focus), because a keyboard user arrives there with no visible cue at all.
 - Tab order follows visual layout
 - Skip-to-main-content link
 - Headings in logical hierarchy (h1 → h2 → h3, no skips)

@@ -37,6 +37,8 @@ You are auditing TruePPM API code for performance regressions before merge.
 - [ ] **`SerializerMethodField` that calls a service function** — a method field whose body looks query-free because it delegates to a service/helper (`compute_x(obj)`, `service.get_y(obj)`) still N+1s if that service queries per call. Trace *into* the service: any ORM access (`.filter()`, `.get()`, `.aggregate()`, a related lookup) reached from a per-row method field is one query per serialized row on a list path. Flag the field even when the serializer body itself touches no ORM.
 - [ ] **Bulk endpoints re-fetch through the prefetched queryset before serializing** — a bulk create/update/reorder must not serialize its results with a bare per-instance serializer (`Serializer(obj).data` in a loop, or `Serializer(bulk_result, many=True)` over the raw `bulk_create`/`bulk_update` return). Those instances carry no `select_related`/`prefetch_related` and re-query per row. Re-fetch the affected PKs through the viewset's prefetched `get_queryset()`, then serialize that queryset once.
 
+- [ ] **A prefetch nothing reads is a full extra load.** For each `prefetch_related`/`select_related` on a view's queryset, find the code that reads the relation. Views that prefetch `"tasks"` and then query the committed tasks again load every row twice, including deleted ones. That load also happens outside any admission bound placed on the work that follows.
+
 ### Pagination
 - [ ] Every list endpoint paginates — no endpoint returns an unbounded queryset
 - [ ] Default page size is 50 or fewer; maximum is 200 or fewer
@@ -56,7 +58,7 @@ You are auditing TruePPM API code for performance regressions before merge.
 - [ ] Write serializers do not trigger validation queries that re-read what was just written
 
 ### Scheduling Engine
-- [ ] `schedule()` is never called synchronously in a request handler
+- [ ] `schedule()` is never called synchronously in a request handler. Prove it by grepping every engine entrypoint (`schedule(`, `monte_carlo(`, `derive_value(`, what-if and preview helpers) in the view and service modules, then tracing each hit to its caller. Do not spot-check; this rule has had live violations while a sampled audit reported it clean. A synchronous call that is intended must have a per-process concurrency bound, not only a per-user throttle.
 - [ ] CPM recalculation is always dispatched via Celery (`recalculate_schedule.delay()`)
 - [ ] Monte Carlo simulation is Celery-only — never in a view or serializer
 

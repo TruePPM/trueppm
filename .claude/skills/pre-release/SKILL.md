@@ -163,7 +163,7 @@ These six patterns keep a 20+ agent run cheap and stable without weakening any c
 
 1. **Detached worktree.** Run the audit against a detached read-only worktree at the true tip: `git fetch origin main && git worktree add <tmpdir> origin/main --detach`. Agents see `origin/main` rather than a stale or dirty local checkout, branch switches in the main checkout can't disturb them mid-run, and the user's working tree stays untouched. Remove the worktree (`git worktree remove <tmpdir>`) when the audit completes.
 
-2. **Shared issue dump.** Before launching any wave, dump **all** open issues exactly once — `glab api` paginated, formatted as `#iid<TAB>milestone<TAB>title<TAB>[labels]` — to a run file, and pass that file's path to every agent for its tracking annotations. One API sweep replaces every agent independently running ~20 `glab issue list --search` calls (the 2026-06-09 run: a single dump replaced an estimated 300+ searches).
+2. **Shared issue dump.** Before launching any wave, dump **all** open issues exactly once — `glab api` paginated, formatted as `#iid<TAB>milestone<TAB>title<TAB>[labels]` — to a run file, and pass that file's path to every agent for its tracking annotations. One API sweep replaces every agent independently running ~20 `glab issue list --search` calls (the 2026-06-09 run: a single dump replaced an estimated 300+ searches). **A title grep of the dump is a candidate list, not a tracking verdict.** In the 2026-10-23 run, agents tagged five tracked findings `(untracked)` (#4466, #3583, #4616, #4624, and closed #4293) because the issue's title used different words, and the dump's milestone column was stale for #4629. Tell agents to tag `(untracked?)` from the dump; the consolidator confirms each one in Step 2.
 
 3. **Reports to files, compact returns.** Every agent writes its full report to a shared run directory (`<run-dir>/reports/<agent>.md`) and returns to the orchestrator **only** a compact summary: counts, one line per 🔴, and the top 🟡 titles. This keeps the orchestrator's context flat across a 20+ agent run; the consolidation step reads the full reports from disk.
 
@@ -377,6 +377,10 @@ Annotate every finding in the report with one of these tags:
 - `(tracked in #N)` — open issue already exists; do not re-file
 - `(closed #N — <date>, <one-line close reason>)` — closed issue matches; user will classify in Step 3
 - `(untracked)` — no open or closed match
+
+`(untracked)` requires the all-state search above with two or three keywords drawn from the finding's file path, symbol and mechanism, not its title. A title-only match misses issues written in different words.
+
+For every finding that matches a **closed** issue, check how it closed. If it closed when an MR merged that was about another issue (`tracker-hygiene` Step 5b), it may have been closed by a negated keyword in that MR's description and never fixed. Two of the 2026-10-23 run's 8 blocker/high findings traced to this: #4293 itself, and #4636, whose trackers #3464 and #604 had been closed that way.
 
 Then produce a consolidated report using this format:
 

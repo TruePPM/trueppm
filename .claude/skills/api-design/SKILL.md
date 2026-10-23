@@ -48,10 +48,9 @@ You design APIs for TruePPM following these rules:
   Response includes: accepted changes, conflicts, new server_version.
 
 ## WebSocket Channels (canonical: `packages/api/src/trueppm_api/routing.py`)
-- `ws/v1/projects/{project_id}/` — `ProjectConsumer`: board/schedule events + presence
-- `ws/v1/projects/{project_id}/workshop/` — `WorkshopConsumer`: live workshop session (requires an active `WorkshopSession`)
-- Auth: JWT in first message or query param
-- Events: JSON with `{ "type": "task.updated", "data": { ... }, "event_id": "uuid" }`
+- `ws/v1/projects/{project_id}/` — `ProjectConsumer`: board/schedule events + presence. It is the only route; read `routing.py` rather than trusting a list here
+- Auth: single-use `?ticket=<id>` from `POST /api/v1/ws/ticket/` (ADR-0141); the `?token=<jwt>` fallback is disabled
+- Frames: `{ "protocol_version": 1, "event_type": "task_updated", "payload": { ... }, "seq": n }`. Event names are snake_case and frozen in `FROZEN_WS_EVENT_TYPES` (`packages/api/tests/apps/sync/test_broadcast.py`); `docs/api/websockets.md` is the published list
 
 ## Output Format
 Produce a DRF-style specification:
@@ -59,7 +58,7 @@ Produce a DRF-style specification:
 # URL: POST /api/v1/projects/{id}/schedule/
 # Permission: PM, Admin
 # Rate Limit: heavy (5/min)
-# Side Effects: Celery task compute_schedule, WS event schedule.recalculated
+# Side Effects: Celery task compute_schedule, WS event cpm_complete
 # OSS: Yes (community edition)
 
 class ScheduleSerializer(serializers.Serializer):

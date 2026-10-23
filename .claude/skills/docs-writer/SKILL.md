@@ -51,6 +51,8 @@ When a feature's *behavior* changes (not just a field rename), the narrative des
   model from 0.8 to 0.5 on the roadmap left five other pages and the README saying 0.8
   (#4159); an SBOM backfill note left the old "no attestation" claim in a changelog
   fragment. Grep for the old version number, the old date, and the old noun phrase.
+- **Every configuration value a page states is checked against the settings that set it.** Sizing, Helm and observability pages quote defaults (`CONN_MAX_AGE`, worker counts, timeouts). Grep each value in `packages/api/src/trueppm_api/settings/` and `packages/helm/values*.yaml`, because base and prod settings often disagree and pages copy whichever one their author read. Also confirm the behavior the page attributes to the value is real under the server model (see `performance` on ASGI).
+- **A copy-paste recipe must match the safety prose on the same page.** A page that says "never bind 0.0.0.0" and then ships a `docker run … --host 0.0.0.0 -p 8000:8000` recipe teaches the recipe. Read every command block against the page's own warnings.
 - Hard-flag any doc page that still references a feature name, env var, setting key, or enum value that grep can no longer find in the current source — that is a guaranteed reader confusion. Run `grep -r 'old_name' packages/website/src/content/docs/` before marking the update complete.
 
 ## What a docs pass verifies, and what it does not (read before reporting done)

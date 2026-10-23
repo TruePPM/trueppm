@@ -80,7 +80,11 @@ The brief asks it to be **the reviewer who must block a bad merge**, and to chec
 1. **Requirements traceability.** Read the issue *and its comments* (`glab issue view N
    --comments`) — scope corrections live in comments. Every acceptance criterion and every
    test-plan line is MET (file:line), or DEFERRED to an **open** issue that is not the one
-   being closed. A test-plan line nobody ran is a gap, not a nicety.
+   being closed. A test-plan line nobody ran is a gap, not a nicety. Then list **every
+   issue the merge will close**: every number after a closing keyword anywhere in the MR
+   description or commit messages, not only on the `Closes` lines. GitLab ignores
+   negation, so "do not fix #N here" closes #N. Each one is either resolved by this
+   diff or a BLOCKER (see `mr` § Notes).
 2. **The class, not the instance.** Enumerate the set the fix belongs to structurally
    (every implementation, every call site of the *shape*, every sibling page, every
    export/dump path, every write path) and report the denominator. The reported path is
@@ -88,7 +92,13 @@ The brief asks it to be **the reviewer who must block a bad merge**, and to chec
 3. **Collateral consumers.** When the branch narrows, broadens, or moves a *shared* rule
    (a permission class, a gate, an engine semantic, a serializer field, a shared helper),
    list every consumer of the old behavior and check each. This is the class that
-   produced the two regressions above; it is invisible from the diff.
+   produced the two regressions above; it is invisible from the diff. Include the rules
+   it **combines** with: when the branch changes a default, fallback or bound, find the
+   other rules that read the same value, including ones merged long before, and check
+   the invariant that relates them. #4635 went through this gate: !2898 (#4225) passed an
+   Opus round with 0 findings, but its milestone floor, correct alone, met an API
+   fallback (status date = today) merged two months earlier, and the forecast shortened
+   for every future-start project.
 4. **Try to break it.** Adversarial inputs, races (check-then-act across a slow call),
    PUT vs PATCH, forged exemptions, the default/empty/null case, the upgrade path of an
    existing row.
