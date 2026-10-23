@@ -258,9 +258,10 @@ class Command(BaseCommand):
 
         The password reset alone does not touch PATs, refresh tokens, durable
         grants, live sockets or an SSO binding, all of which would now carry superuser.
-        Deleting the ``SocialAccount`` forces a re-link; it does NOT lock the IdP
-        identity out, because ``sso/services.py`` still lets an IdP asserting a
-        verified matching email bind and sign in.
+        Deleting the ``SocialAccount`` forces a re-link, and that re-link is refused
+        for the now-superuser account: ``sso/services.py`` will not auto-bind an IdP
+        identity to a superuser or staff account by verified email (#4629), so the
+        old identity cannot sign back in as the promoted admin.
         """
         from allauth.socialaccount.models import SocialAccount
 
