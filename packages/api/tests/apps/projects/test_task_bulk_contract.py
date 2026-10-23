@@ -1558,3 +1558,46 @@ def test_a_cross_project_cycle_through_an_unreadable_edge_is_rejected_not_500(
     assert str(c1.pk) not in rejected[0]["offending"]
     assert "Charlie" not in str(r.data)
     assert not Dependency.objects.filter(predecessor=b1, successor=a1).exists()
+
+
+@pytest.mark.django_db
+def test_a_cross_project_cycle_between_readable_projects_names_every_node(
+    calendar: Calendar,
+) -> None:
+    """#4626 test plan 2 — two projects, caller Admin on both: nothing is over-redacted.
+
+    A1 -> B1 is persisted; B1 -> A1 closes the cycle. The bulk guard misses it (B1's
+    edge is not read as the successor side is checked per project), so it is the
+    ``CycleDetectedError`` clause that rejects it, and both real ids must survive.
+    """
+    program = Program.objects.create(name="Pair")
+    p_a, p_b = (
+        Project.objects.create(
+            name=n, start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        for n in ("Alpha", "Bravo")
+    )
+    caller = get_user_model().objects.create_user(username="pair-caller", password="pw")
+    ProjectMembership.objects.create(project=p_a, user=caller, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=p_b, user=caller, role=Role.ADMIN)
+    a1 = Task.objects.create(project=p_a, name="Alpha task", duration=2)
+    b1 = Task.objects.create(project=p_b, name="Bravo task", duration=2)
+    Dependency.objects.create(predecessor=a1, successor=b1)
+    client = APIClient()
+    client.force_authenticate(user=caller)
+    with _no_side_effects():
+        r = client.post(
+            url(p_a),
+            {
+                "operations": [{"op": "update", "id": str(a1.pk), "data": {"name": "Renamed"}}],
+                "dependencies": {"created": [{"predecessor": str(b1.pk), "successor": str(a1.pk)}]},
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    rejected = r.data["dependencies"]["rejected"]
+    assert [e["code"] for e in rejected] == ["cyclic_dependency"]
+    offending = rejected[0]["offending"]
+    assert "" not in offending
+    assert {str(a1.pk), str(b1.pk)} <= set(offending)
+    assert not Dependency.objects.filter(predecessor=b1, successor=a1).exists()
