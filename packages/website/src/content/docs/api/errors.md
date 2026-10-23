@@ -231,6 +231,12 @@ past four members the chain elides its middle to `… (N more)`, so a long cycle
 never produces a proportionally long sentence. `offending` stays the raw, complete
 ordered id list — branch and highlight rows on that.
 
+A cross-project edge is cycle-checked over the whole program, so a batch edge can
+close a cycle that runs through tasks in a project you cannot read. That edge is
+still rejected row by row as `cyclic_dependency`, but each unreadable node in
+`offending` is an empty string (`""`): the path keeps its length and discloses no
+task id.
+
 **The direct `POST/PATCH /dependencies/` cycle refusal carries two deprecated
 legacy keys alongside the pair above (#3800).** That endpoint's `CycleDetectedError`
 predates the `code`/`offending` contract and is a different exception from the one

@@ -1484,3 +1484,120 @@ def test_subtask_spawn_bumps_the_parents_server_version_and_reports_it_mutated(
         c.args[2] for c in mock_bcast.call_args_list if c.args[1] == "tasks_bulk_mutated"
     )
     assert str(phase.pk) in payload["task_ids"]
+
+
+def _program_with_hidden_cycle_path(
+    calendar: Calendar,
+) -> tuple[APIClient, Project, Task, Task, Task]:
+    """A1 -> C1 -> B1 persisted by another Scheduler; the caller is Admin on A and B only.
+
+    Returns the caller's client, project A, and tasks A1, B1, C1. C1 sits in a third
+    project of the program the caller has no role on, so the edge C1 -> B1 is invisible
+    to the bulk guard (its predecessor is outside project A) and to the caller.
+    """
+    program = Program.objects.create(name="Launch")
+    p_a, p_b, p_c = (
+        Project.objects.create(
+            name=n, start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        for n in ("Alpha", "Bravo", "Charlie")
+    )
+    User = get_user_model()
+    caller = User.objects.create_user(username="cycle-caller", password="pw")
+    ProjectMembership.objects.create(project=p_a, user=caller, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=p_b, user=caller, role=Role.ADMIN)
+    a1 = Task.objects.create(project=p_a, name="Alpha task", duration=2)
+    b1 = Task.objects.create(project=p_b, name="Bravo task", duration=2)
+    c1 = Task.objects.create(project=p_c, name="Charlie secret title", duration=2)
+    other = User.objects.create_user(username="cycle-scheduler", password="pw")
+    for p in (p_a, p_b, p_c):
+        ProjectMembership.objects.create(project=p, user=other, role=Role.SCHEDULER)
+    other_client = APIClient()
+    other_client.force_authenticate(user=other)
+    for pred, succ in ((a1, c1), (c1, b1)):
+        r = other_client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(pred.pk), "successor": str(succ.pk), "dep_type": "FS"},
+            format="json",
+        )
+        assert r.status_code == 201, r.data
+    client = APIClient()
+    client.force_authenticate(user=caller)
+    return client, p_a, a1, b1, c1
+
+
+@pytest.mark.django_db
+def test_a_cross_project_cycle_through_an_unreadable_edge_is_rejected_not_500(
+    calendar: Calendar,
+) -> None:
+    """#4626 — B1 -> A1 closes A1 -> C1 -> B1, an edge the bulk guard never loads.
+
+    The batch's other op still applies, the edge is rejected as ``cyclic_dependency``
+    in the same shape as the in-project rejection, and nothing about C1 leaks.
+    """
+    client, p_a, a1, b1, c1 = _program_with_hidden_cycle_path(calendar)
+    with _no_side_effects():
+        r = client.post(
+            url(p_a),
+            {
+                "operations": [{"op": "update", "id": str(a1.pk), "data": {"name": "Renamed"}}],
+                "dependencies": {"created": [{"predecessor": str(b1.pk), "successor": str(a1.pk)}]},
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 1
+    a1.refresh_from_db()
+    assert a1.name == "Renamed"
+    rejected = r.data["dependencies"]["rejected"]
+    assert [e["code"] for e in rejected] == ["cyclic_dependency"]
+    assert rejected[0]["id"] is None
+    assert rejected[0]["message"] == "This dependency would create a cycle."
+    # Unreadable node is a blank placeholder: path keeps its length, id withheld.
+    assert "" in rejected[0]["offending"]
+    assert str(c1.pk) not in rejected[0]["offending"]
+    assert "Charlie" not in str(r.data)
+    assert not Dependency.objects.filter(predecessor=b1, successor=a1).exists()
+
+
+@pytest.mark.django_db
+def test_a_cross_project_cycle_between_readable_projects_names_every_node(
+    calendar: Calendar,
+) -> None:
+    """#4626 test plan 2 — two projects, caller Admin on both: nothing is over-redacted.
+
+    A1 -> B1 is persisted; B1 -> A1 closes the cycle. The bulk guard misses it (B1's
+    edge is not read as the successor side is checked per project), so it is the
+    ``CycleDetectedError`` clause that rejects it, and both real ids must survive.
+    """
+    program = Program.objects.create(name="Pair")
+    p_a, p_b = (
+        Project.objects.create(
+            name=n, start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        for n in ("Alpha", "Bravo")
+    )
+    caller = get_user_model().objects.create_user(username="pair-caller", password="pw")
+    ProjectMembership.objects.create(project=p_a, user=caller, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=p_b, user=caller, role=Role.ADMIN)
+    a1 = Task.objects.create(project=p_a, name="Alpha task", duration=2)
+    b1 = Task.objects.create(project=p_b, name="Bravo task", duration=2)
+    Dependency.objects.create(predecessor=a1, successor=b1)
+    client = APIClient()
+    client.force_authenticate(user=caller)
+    with _no_side_effects():
+        r = client.post(
+            url(p_a),
+            {
+                "operations": [{"op": "update", "id": str(a1.pk), "data": {"name": "Renamed"}}],
+                "dependencies": {"created": [{"predecessor": str(b1.pk), "successor": str(a1.pk)}]},
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    rejected = r.data["dependencies"]["rejected"]
+    assert [e["code"] for e in rejected] == ["cyclic_dependency"]
+    offending = rejected[0]["offending"]
+    assert "" not in offending
+    assert {str(a1.pk), str(b1.pk)} <= set(offending)
+    assert not Dependency.objects.filter(predecessor=b1, successor=a1).exists()
