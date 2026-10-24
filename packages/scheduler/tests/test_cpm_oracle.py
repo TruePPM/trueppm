@@ -1051,9 +1051,17 @@ def _ends_in_a_start_of_day_finish_gap(
     its late finish at the last working day before the gap, so its float is short by
     the gap's working days. This is true when the slipped task ``tid``, or live work
     downstream of it that the slip carried, finishes inside such a gap — exactly the
-    case a TF+1 slip that does not move the finish hits. Nothing else is excused:
-    work that is not ``tid`` or behind it did not move. Delete this filter when
-    #4436 closes.
+    case a TF+1 slip that does not move the finish hits.
+
+    A carried live *milestone* that ends inside the gap counts too (#4641): its own
+    bound, :func:`~trueppm_scheduler.engine._milestone_finish_bound`, widens the
+    finish to the next working day on the milestone's *own* calendar, not on the
+    calendar of the milestone that ends the project. So a seven-day milestone behind
+    ``tid`` stops at the start of a Saturday the five-day finisher shows as Monday,
+    and ``tid``'s float stops short of the gap with it. This is #4436's narrower-
+    finisher direction, the case its 2026-10-18 comment names. Nothing else is
+    excused: work and milestones that are not ``tid`` or behind it did not move.
+    Delete this filter when #4436 closes.
     """
     if shown_finish(base, project)[1]:
         return False
@@ -1066,7 +1074,20 @@ def _ends_in_a_start_of_day_finish_gap(
             prior = last_working_on_or_before(day_before, project.calendar_of(mid))
             gap |= {prior + timedelta(days=i) for i in range(1, (finish_day - prior).days)}
     carried = [tid, *_live_descendants(project, tid)]
-    return any(project.durations[t] > 0 and slipped.tasks[t].early_finish in gap for t in carried)
+    return any(_day_it_closes(project, slipped, t) in gap for t in carried)
+
+
+def _day_it_closes(project: RefProject, run: EngineRun, tid: str) -> date:
+    """The day whose end is ``tid``'s end instant.
+
+    Work ends at the end of its early finish, and so does a milestone shown at the
+    end of its day. A milestone at the start of day ``d`` sits on the midnight that
+    closes ``d - 1``.
+    """
+    task = run.tasks[tid]
+    if project.durations[tid] > 0 or task.milestone_at_day_end:
+        return task.early_finish
+    return task.early_start - timedelta(days=1)
 
 
 def _live_descendants(project: RefProject, tid: str) -> list[str]:
@@ -1223,6 +1244,44 @@ START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK = RefProject(
     task_calendar={"T2": "seven"},
 )
 
+#: #4436 (open), narrower-finisher direction, found by the nightly fuzz (#4641).
+#: ``T0`` (SNET Sat 01-17) ``-FS->`` ``T3`` on a Monday-to-Friday week, so the
+#: finish shows at the start of Monday 01-19; ``T1 -FS+1d-> T5``, all else on a
+#: seven-day week. ``T5`` may sit anywhere up to that Monday, but its late bound is
+#: the next working day on its *own* calendar, Saturday, so ``T1`` reports 9 days of
+#: float where 11 spend nothing.
+START_OF_DAY_FINISH_ON_A_NARROWER_CALENDAR = RefProject(
+    start=date(2026, 1, 6),
+    durations={"T0": 0, "T1": 1, "T3": 0, "T5": 0},
+    links=(
+        RefLink("T0", "T3", "FS", 0),
+        RefLink("T1", "T3", "FS", 0),
+        RefLink("T1", "T5", "FS", 1),
+    ),
+    calendar=RefCalendar(working_mask=_SEVEN_DAY),
+    planned_start={"T0": date(2026, 1, 17)},
+    calendars={"five": RefCalendar(working_mask=MON_TO_FRI)},
+    task_calendar={"T3": "five"},
+)
+
+#: #4641 — a milestone closed after work on a Saturday that its Monday-to-Friday
+#: calendar does not work: ``T1(4d, done) -FS+4d-> T2``, ``T2`` with
+#: ``actual_finish`` Sat 01-10, on a seven-day project. ``T2`` was shown at the
+#: *start* of Saturday while the finish was seeded from its end, so the unlinked
+#: ``T5(1d)`` reported 5 days of float and spending them moved the shown finish.
+CLOSED_AFTER_WORK_ON_A_NON_WORKING_DAY = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T1": 4, "T2": 0, "T5": 1},
+    links=(RefLink("T1", "T2", "FS", 4),),
+    calendar=RefCalendar(working_mask=_SEVEN_DAY),
+    progress={
+        "T1": RefProgress(percent_complete=100.0),
+        "T2": RefProgress(percent_complete=0.0, actual_finish=date(2026, 1, 10)),
+    },
+    calendars={"five": RefCalendar(working_mask=MON_TO_FRI)},
+    task_calendar={"T2": "five"},
+)
+
 #: The fixed shapes the slip oracle separates from their pre-fix engines.
 FIXED_PROGRESS_SHAPES = (
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
@@ -1230,6 +1289,13 @@ FIXED_PROGRESS_SHAPES = (
     SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE,
     SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
     SF_INTO_A_FOUR_DAY_MILESTONE,
+    CLOSED_AFTER_WORK_ON_A_NON_WORKING_DAY,
+)
+
+#: The open #4436 shapes :func:`_ends_in_a_start_of_day_finish_gap` excludes.
+KNOWN_4436_SHAPES = (
+    START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK,
+    START_OF_DAY_FINISH_ON_A_NARROWER_CALENDAR,
 )
 
 
@@ -1263,9 +1329,9 @@ def test_closing_a_milestone_on_the_data_date_moves_nothing() -> None:
     assert_floats_survive_perturbation(MILESTONE_CLOSED_ON_THE_DATA_DATE, python_run)
 
 
-def test_the_4436_exclusion_is_what_hides_the_known_shape() -> None:
-    """The filter excludes #4436's repro and nothing about it passes on its own merits."""
-    project = START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK
+@pytest.mark.parametrize("project", KNOWN_4436_SHAPES)
+def test_the_4436_exclusion_is_what_hides_the_known_shape(project: RefProject) -> None:
+    """The filter excludes #4436's repros and nothing about them passes on its own merits."""
     assert float_perturbation_violations(project, python_run) == []
     assert float_perturbation_violations(project, python_run, exclude_4436=False) != []
 
@@ -1273,12 +1339,12 @@ def test_the_4436_exclusion_is_what_hides_the_known_shape() -> None:
 @pytest.mark.xfail(
     strict=True,
     reason="TODO(#4436): the work-task late-finish seed ignores a start-of-day project "
-    "finish; when this XPASSes, delete _ends_in_a_start_of_day_finish_gap",
+    "finish, and the milestone bound widens it on the milestone's own calendar rather "
+    "than the finisher's; when both XPASS, delete _ends_in_a_start_of_day_finish_gap",
 )
-def test_float_beside_a_start_of_day_milestone_finish() -> None:
-    problems = float_perturbation_violations(
-        START_OF_DAY_FINISH_BESIDE_SEVEN_DAY_WORK, python_run, exclude_4436=False
-    )
+@pytest.mark.parametrize("project", KNOWN_4436_SHAPES)
+def test_float_beside_a_start_of_day_milestone_finish(project: RefProject) -> None:
+    problems = float_perturbation_violations(project, python_run, exclude_4436=False)
     assert not problems, "\n".join(problems)
 
 

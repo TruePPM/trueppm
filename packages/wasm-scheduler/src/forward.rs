@@ -683,13 +683,15 @@ fn pinned_milestone_instant(
     live_start: bool,
 ) -> Result<(Instant, Instant), String> {
     if let Some(recorded) = task.actual_finish.or(task.actual_start) {
-        let actual = if live_start {
-            (recorded, true)
-        } else {
-            let raw = checked_offset_days(recorded, 1)?;
-            (raw, start_reading(raw, false, calendar)?)
-        };
-        return Ok((actual, actual));
+        if live_start {
+            return Ok(((recorded, true), (recorded, true)));
+        }
+        // Shown at the end of the recorded day, verbatim; successors read the
+        // link like an FS proposal from work, so a weekend actual snaps forward
+        // there only. Pairing the snapped reading with the recorded day showed
+        // the milestone a day before its instant (#4641).
+        let raw = checked_offset_days(recorded, 1)?;
+        return Ok(((raw, false), (raw, start_reading(raw, false, calendar)?)));
     }
     let shown = (day, true);
     match task.planned_start {
