@@ -56,6 +56,8 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN printf '%s\n' 'pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70' > /tmp/pip-req.txt \
  && pip install --no-cache-dir --require-hashes -r /tmp/pip-req.txt \
  && rm /tmp/pip-req.txt
+# Fail the build if the pin above ever stops taking effect (#4642).
+RUN /venv/bin/python -c "import pip,sys; v=tuple(int(x) for x in pip.__version__.split('.')[:3]); sys.exit(0 if v>=(26,2,2) else 'pip %s < 26.2.2' % pip.__version__)"
 
 # Patch the venv-seeded build tooling forward before installing so the published
 # image scans clean (mirrors the api image hardening, #1388): 3.11's ensurepip
@@ -135,7 +137,10 @@ COPY --from=builder /venv /venv
 # script and never invokes them at runtime, but Trivy scans them and fails the
 # release on their fixable CVEs (mirrors the api image, #1388).
 RUN python -m pip uninstall -y wheel setuptools pip \
- && /venv/bin/python -m pip uninstall -y wheel setuptools pip
+ && /venv/bin/python -m pip uninstall -y wheel setuptools pip \
+ && rm -f /usr/local/lib/python3.11/ensurepip/_bundled/*.whl
+# The base image's ensurepip carries its own pip wheel (24.0 here, with the same
+# vendored certifi); deleted so `python -m ensurepip` cannot resurrect an old pip (#4642).
 
 # Non-root runtime user.
 RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm

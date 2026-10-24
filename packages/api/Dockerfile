@@ -53,6 +53,8 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN printf '%s\n' 'pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70' > /tmp/pip-req.txt \
  && pip install --no-cache-dir --require-hashes -r /tmp/pip-req.txt \
  && rm /tmp/pip-req.txt
+# Fail the build if the pin above ever stops taking effect (#4642).
+RUN /venv/bin/python -c "import pip,sys; v=tuple(int(x) for x in pip.__version__.split('.')[:3]); sys.exit(0 if v>=(26,2,2) else 'pip %s < 26.2.2' % pip.__version__)"
 
 # python:3.11-slim seeds the venv with wheel 0.45.1 via ensurepip (3.11 still
 # bundles wheel; 3.12 dropped it). That build tool is copied wholesale into the
@@ -197,7 +199,10 @@ COPY --from=builder /venv /venv
 # system interpreter here (this runs before ENV PATH=/venv/bin); pip uninstalls
 # itself last when listed after its peers.
 RUN python -m pip uninstall -y wheel setuptools pip \
- && /venv/bin/python -m pip uninstall -y wheel setuptools pip
+ && /venv/bin/python -m pip uninstall -y wheel setuptools pip \
+ && rm -f /usr/local/lib/python3.11/ensurepip/_bundled/*.whl
+# The base image's ensurepip carries its own pip wheel (24.0 here, with the same
+# vendored certifi); deleted so `python -m ensurepip` cannot resurrect an old pip (#4642).
 
 # manage.py is not installed by pip — copy it explicitly so management
 # commands (migrate, collectstatic, create_admin) are available at runtime.

@@ -3829,6 +3829,7 @@ api:image-lock-check:
         - packages/scheduler/pyproject.toml
         - scripts/check-api-image-lock.py
         - scripts/check-api-wheel-imports.py
+        - scripts/check-image-pip.py
         - .gitlab-ci.yml
   script:
     - set -euo pipefail
@@ -3838,7 +3839,7 @@ api:image-lock-check:
     - docker build -f packages/api/Dockerfile --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" -t "$IMAGE" .
     - echo "--- self-test first (a gate's failure mode is a green pipeline) ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
-    - echo "--- pip floor (#4642): no interpreter in the image may carry pip < 26.2.2 (vendored certifi still trusts emSign); self-test first ---"
+    - echo "--- pip tripwire (#4642): the runtime image ships NO pip (uninstalled, bundled ensurepip wheel deleted); fail if one is reintroduced. The 26.2.2 floor itself is asserted in the Dockerfile builder stage; self-test first ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py --self-test
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py
     - docker run --rm -i "$IMAGE" /usr/local/bin/python3 - < scripts/check-image-pip.py
