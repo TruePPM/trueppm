@@ -901,9 +901,9 @@ PyPI package**, which is signed (see above) but does not yet generate one:
 ## OpenSSF Scorecard (project posture report)
 
 The `security:scorecard` CI job runs [OpenSSF Scorecard](https://github.com/ossf/scorecard)
-against the TruePPM repository on every push to `main` and on the scheduled
-pipeline. It is **report-only**: the job is `allow_failure`, never runs on merge
-requests, and cannot block a pipeline. There is no minimum score yet; one will
+against the TruePPM repository on the nightly scheduled pipeline only. It is
+**report-only**: the job is `allow_failure`, never runs on merge requests or
+pushes, and cannot block a pipeline. There is no minimum score yet; one will
 be set once a baseline exists.
 
 **Reading the result.** Open the job log for a per-check list sorted worst
