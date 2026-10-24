@@ -35,6 +35,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CI_CONFIG = _REPO_ROOT / ".gitlab-ci.yml"
 _API_PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
+
+class _GitLabLoader(yaml.SafeLoader):
+    """SafeLoader that accepts GitLab's ``!reference`` tag as its plain list.
+
+    ``!reference [.job, key]`` is resolved by GitLab, not by YAML, so a stock
+    ``safe_load`` raises ConstructorError on any config that uses one.
+    """
+
+
+_GitLabLoader.add_constructor("!reference", lambda loader, node: loader.construct_sequence(node))
+
+
 # Every server setting whose absence would put the api:test workload back on the
 # disk. Named individually rather than matched loosely so that removing one is a
 # failure rather than a silently weaker guarantee.
@@ -49,9 +61,11 @@ def ci_config() -> dict[str, Any]:
     file alone makes a moved job vanish — a lookup here would KeyError, and a
     looser check would pass on a job it can no longer see.
     """
-    loaded: dict[str, Any] = yaml.safe_load(_CI_CONFIG.read_text())
+    loaded: dict[str, Any] = yaml.load(_CI_CONFIG.read_text(), Loader=_GitLabLoader)
     for entry in loaded.pop("include", []):
-        included: dict[str, Any] = yaml.safe_load((_REPO_ROOT / entry["local"]).read_text())
+        included: dict[str, Any] = yaml.load(
+            (_REPO_ROOT / entry["local"]).read_text(), Loader=_GitLabLoader
+        )
         overlap = loaded.keys() & included.keys()
         assert not overlap, f"{entry['local']} redefines {sorted(overlap)} from the root file"
         loaded.update(included)
