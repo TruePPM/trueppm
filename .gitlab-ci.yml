@@ -94,7 +94,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-c15023abf510"
+  CI_API_TAG: "py3.11-7640c1dd4583"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -3819,6 +3819,7 @@ api:image-lock-check:
         - packages/scheduler/pyproject.toml
         - scripts/check-api-image-lock.py
         - scripts/check-api-wheel-imports.py
+        - scripts/check-image-pip.py
         - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
@@ -3828,6 +3829,7 @@ api:image-lock-check:
         - packages/scheduler/pyproject.toml
         - scripts/check-api-image-lock.py
         - scripts/check-api-wheel-imports.py
+        - scripts/check-image-pip.py
         - .gitlab-ci.yml
   script:
     - set -euo pipefail
@@ -3837,6 +3839,10 @@ api:image-lock-check:
     - docker build -f packages/api/Dockerfile --build-arg DOCKERHUB_PREFIX="${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}" -t "$IMAGE" .
     - echo "--- self-test first (a gate's failure mode is a green pipeline) ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
+    - 'echo "--- pip tripwire (#4642): the runtime image ships NO pip (uninstalled, bundled ensurepip wheel deleted); fail if one is reintroduced. The 26.2.2 floor itself is asserted in the Dockerfile builder stage; self-test first ---"'
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py --self-test
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py
+    - docker run --rm -i "$IMAGE" /usr/local/bin/python3 - < scripts/check-image-pip.py
     - echo "--- diff the image's installed set against packages/api/uv.lock ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py
     - 'echo "--- boot smoke self-test first (scripts/check-api-wheel-imports.py, same job per #3194) ---"'
