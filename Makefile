@@ -454,6 +454,9 @@ ci-api-tag-check: ## Fail if CI_API_TAG no longer matches the ci-api image input
 	@# plus the three baked pyproject.toml files; this recomputes it. No network.
 	@bash scripts/check-ci-api-tag.sh
 
+image-pip-check: ## Self-test the image pip-floor assertion (the real check runs in api:image-lock-check, #4642)
+	@python3 scripts/check-image-pip.py --self-test
+
 helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the app never emits (#2805)
 	@# A PromQL name with no matching series is not an error anywhere in the
 	@# stack: the alert silently never fires and the panel is silently blank.
@@ -707,6 +710,7 @@ pre-push-checks: playwright-pins-check
 pre-push-checks: nul-bytes-check
 pre-push-checks: api-scheduler-lock-check
 pre-push-checks: ci-api-tag-check
+pre-push-checks: image-pip-check
 pre-push-checks: web-rule-numbers-check
 pre-push-checks: web-row-vocabulary-check
 pre-push-checks: design-system-check

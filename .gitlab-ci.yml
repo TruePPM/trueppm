@@ -3839,7 +3839,7 @@ api:image-lock-check:
     - echo "--- self-test first (a gate's failure mode is a green pipeline) ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py --self-test
     - echo "--- pip floor (#4642): no interpreter in the image may carry pip < 26.2.2 (vendored certifi still trusts emSign); self-test first ---"
-    - docker run --rm -i "$IMAGE" /venv/bin/python - --self-test < scripts/check-image-pip.py
+    - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py --self-test
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py
     - docker run --rm -i "$IMAGE" /usr/local/bin/python3 - < scripts/check-image-pip.py
     - echo "--- diff the image's installed set against packages/api/uv.lock ---"
