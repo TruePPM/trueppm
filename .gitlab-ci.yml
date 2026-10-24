@@ -122,6 +122,25 @@ variables:
   }
 
 # ---------------------------------------------------------------------------
+# .pip-floor — raise pip to >= 26.2.2 from a hash-checked wheel (#4643).
+# Per the python.org incident notice (eMudhra/emSign CA), pip releases older than
+# 26.2.2 ship a vendored certifi bundle that still trusts the affected emSign
+# intermediates, and the digest-pinned python:3.11-slim image carries such a pip. CPython's
+# ensurepip fix (GH-159910) will not reach a
+# pinned 3.11 image on any schedule we control, so bumping the digest is not the
+# fix. Every job on that image that runs `pip install` (publish jobs above all,
+# since they upload to PyPI over TLS) starts with
+#   - !reference [.pip-floor, before_script]
+# as the FIRST before_script line. `extends:` replaces before_script wholesale,
+# which is why this is a !reference and not an inherited key. Do NOT remove it as
+# redundant once the base image catches up: confirm `pip --version` in the job
+# log on the new digest first. The wheel URL + SHA256 live in the script.
+# ---------------------------------------------------------------------------
+.pip-floor:
+  before_script:
+    - bash scripts/ci/pip-floor.sh
+
+# ---------------------------------------------------------------------------
 # Prevent duplicate pipelines.
 # MR pipeline runs when an MR exists for the branch; branch pipeline runs
 # for pushes without an open MR. Both run on main after merge.
@@ -731,7 +750,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh}
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -784,7 +803,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh}
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -814,6 +833,7 @@ scripts:test:
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
     - bash scripts/tests/check-schema-breaking.test.sh
+    - bash scripts/tests/pip-floor.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -2780,6 +2800,7 @@ api:lint:
   # --no-cache-dir also stops pip writing a cache no later job can use.
   <<: *rules-api
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install ruff --quiet --no-cache-dir
   script:
     - cd packages/api
@@ -3393,6 +3414,7 @@ mcp:lint:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-mcp
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install ruff --quiet
   script:
     - cd packages/mcp
@@ -3673,6 +3695,7 @@ api:uv-lock-check:
         - packages/api/uv.lock
         - .gitlab-ci.yml
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
     - cd packages/api
@@ -3713,6 +3736,7 @@ api:wheel-install-probe:
         - scripts/api-wheel-install-probe.sh
         - .gitlab-ci.yml
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
     - python scripts/check-api-wheel-imports.py --self-test
@@ -3853,6 +3877,7 @@ scheduler:uv-lock-check:
         - packages/scheduler/uv.lock
         - .gitlab-ci.yml
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
     - cd packages/scheduler
@@ -3879,6 +3904,7 @@ scheduler:sdist-check:
         - scripts/check-scheduler-sdist.sh
         - .gitlab-ci.yml
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
     - bash scripts/check-scheduler-sdist.sh --self-test
@@ -3905,6 +3931,7 @@ mcp:uv-lock-check:
         - packages/mcp/uv.lock
         - .gitlab-ci.yml
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
     - cd packages/mcp
@@ -3999,6 +4026,7 @@ security:bandit:scheduler:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-scheduler
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install bandit --quiet
   script:
     - bandit -r packages/scheduler/src/ -ll
@@ -4014,6 +4042,7 @@ security:bandit:api:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   <<: *rules-api
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install bandit --quiet
   script:
     - bandit -r packages/api/src/ -ll
@@ -6672,7 +6701,10 @@ license:check:mcp:
         - .gitlab-ci.yml
   before_script:
     - python -m venv /tmp/mcp-venv
-    - /tmp/mcp-venv/bin/pip install --quiet --upgrade pip
+    # Floor pip inside the venv (it is seeded with the image's affected pip) from
+    # the hash-checked wheel, replacing the old `pip install --upgrade pip`
+    # which fetched whatever PyPI served using the unfixed pip (#4643).
+    - bash scripts/ci/pip-floor.sh /tmp/mcp-venv/bin/python
     - /tmp/mcp-venv/bin/pip install --quiet pip-licenses
     - /tmp/mcp-venv/bin/pip install --quiet ./packages/mcp
   script:
@@ -6807,6 +6839,7 @@ scheduler:publish:
     # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
+    - !reference [.pip-floor, before_script]
     # cyclonedx-bom pinned to match the resident version in the ci-scheduler
     # image (.gitlab/ci-images/scheduler.Dockerfile); this job runs on the
     # python:3.11-slim base, so it installs the tooling here. twine>=6.1 uploads
@@ -7006,6 +7039,7 @@ mcp:publish:
     # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
+    - !reference [.pip-floor, before_script]
     # Same pinned tool set as scheduler:publish — this job runs on the vanilla
     # python:3.11-slim base, so everything installs here. twine >= 6.1 uploads
     # the PEP 740 attestation sidecars passed to it; pypi-attestations signs
@@ -8486,6 +8520,7 @@ ci:pypi-build-dry-run:
   variables:
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install build "twine>=6.1" --quiet
   script:
     - |
@@ -8551,6 +8586,7 @@ ci:pypi-mint-probe:
   variables:
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
+    - !reference [.pip-floor, before_script]
     - pip install build "twine>=6.1" pypi-attestations==0.0.28 --quiet
   script:
     - |
@@ -8676,6 +8712,7 @@ api:publish:pypi:
     # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
+    - !reference [.pip-floor, before_script]
     # twine>=6.1 uploads the PEP 740 attestation sidecars passed to it (see the
     # upload step below); pypi-attestations signs them via Sigstore — pinned so
     # its CLI cannot drift silently, matching scheduler:publish / mcp:publish.
