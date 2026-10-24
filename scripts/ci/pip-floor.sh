@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Raise pip to >= 26.2.2 from a hash-checked wheel (#4643).
 #
-# Why this exists: pip older than 26.2.2 keeps trusting the compromised emSign
-# intermediates through its vendored certifi (emudhra/emSign CA incident). The
+# Why this exists: per the python.org incident notice (eMudhra/emSign CA), pip
+# releases older than 26.2.2 ship a vendored certifi bundle that still trusts the
+# affected emSign intermediates, and pip cannot be told to use another. The
 # digest-pinned python:3.11-slim image carries an affected pip, and CPython's
 # ensurepip fix (GH-159910) will not reach a pinned 3.11 image on a schedule we
 # control, so bumping the base digest is not the fix. Do NOT remove this step as
@@ -17,8 +18,11 @@
 set -euo pipefail
 
 PIP_FLOOR_VERSION="26.2.2"
-PIP_FLOOR_URL="https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl"
-PIP_FLOOR_SHA256="fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+# PIP_FLOOR_URL / PIP_FLOOR_SHA256 may be overridden from the environment. They
+# exist only so scripts/tests/pip-floor.test.sh can drive the mismatch path
+# (e.g. a file:// URL); CI never sets them.
+PIP_FLOOR_URL="${PIP_FLOOR_URL:-https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl}"
+PIP_FLOOR_SHA256="${PIP_FLOOR_SHA256:-fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70}"
 
 PY="${1:-python}"
 WORK="$(mktemp -d)"

@@ -123,9 +123,10 @@ variables:
 
 # ---------------------------------------------------------------------------
 # .pip-floor — raise pip to >= 26.2.2 from a hash-checked wheel (#4643).
-# pip older than 26.2.2 keeps trusting the compromised emSign intermediates
-# through its vendored certifi, and the digest-pinned python:3.11-slim image
-# carries an affected pip. CPython's ensurepip fix (GH-159910) will not reach a
+# Per the python.org incident notice (eMudhra/emSign CA), pip releases older than
+# 26.2.2 ship a vendored certifi bundle that still trusts the affected emSign
+# intermediates, and the digest-pinned python:3.11-slim image carries such a pip. CPython's
+# ensurepip fix (GH-159910) will not reach a
 # pinned 3.11 image on any schedule we control, so bumping the digest is not the
 # fix. Every job on that image that runs `pip install` (publish jobs above all,
 # since they upload to PyPI over TLS) starts with
@@ -749,7 +750,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh}
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -802,7 +803,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh}
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -832,6 +833,7 @@ scripts:test:
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
     - bash scripts/tests/check-schema-breaking.test.sh
+    - bash scripts/tests/pip-floor.test.sh
 
 boundary:check:
   extends: .fast-job
