@@ -6272,7 +6272,7 @@ security:scorecard:
   # Surfaces pinned dependencies, SAST, fuzzing, license, security policy,
   # dependency-update tooling and (remote mode) branch protection / code review
   # as a per-check table plus a JSON artifact. It never gates: allow_failure is
-  # true and the job does not run on MRs. Gating on a minimum score is a
+  # true and the job runs only on the nightly schedule, never on MRs or pushes. Gating on a minimum score is a
   # follow-up once a baseline exists.
   #
   # Scan target (decision documented in administration/security.md):
@@ -6309,9 +6309,10 @@ security:scorecard:
     SCORECARD_VERSION: "5.5.0"
     SCORECARD_SHA256: "83b90a05c1540ef1390db1cd5711e5fd04be9c1d8537fb84d39d02092d6a8dff"
   rules:
-    # Covers both the push to main and the scheduled pipeline (schedules run on
-    # main). Deliberately no merge_request_event rule: job quota.
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    # Nightly only (the SONAR_SCHEDULED schedule, which runs on main). The
+    # posture changes slowly, so a run per push to main buys nothing but job
+    # quota. No merge_request_event rule either.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SONAR_SCHEDULED == "true"'
   before_script:
     - apk add --no-cache wget jq
     - wget -q -O /tmp/scorecard.tgz "https://github.com/ossf/scorecard/releases/download/v${SCORECARD_VERSION}/scorecard_${SCORECARD_VERSION}_linux_amd64.tar.gz"
