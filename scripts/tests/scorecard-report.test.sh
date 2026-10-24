@@ -63,7 +63,7 @@ check "-1 listed as n/a" "$([[ "$OUT" == *"n/a  Packaging"* ]] && echo 0 || echo
 check "n/a names are summarized" "$([[ "$OUT" == *"Not evaluable on this target: Packaging, Token-Permissions"* ]] && echo 0 || echo 1)"
 
 run_report "$TMP/low.json" 3
-check "threshold arg respected (3 -> only the 0 is low)" "$([[ $RC -eq 2 && "$OUT" == *"0/10  SAST"* && "$OUT" != *"4/10  Fuzzing - r"*$'\n'"#"* ]] && echo 0 || echo 1)"
+check "threshold arg respected (3 -> only the 0 is low)" "$([[ $RC -eq 2 && "$OUT" == *"0/10  SAST"* && "$OUT" != *"4/10  Fuzzing - r-Fuzzing"* ]] && echo 0 || echo 1)"
 run_report "$TMP/low.json" 0
 check "threshold 0 -> nothing is low -> exit 0" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
 
