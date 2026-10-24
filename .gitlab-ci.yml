@@ -696,7 +696,7 @@ scripts:test:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   before_script:
     # wt-reserve.test.sh needs a real git binary (it stages sandbox repos);
-    # osv-severity-gate.test.sh needs jq (the gate classifies OSV JSON with it).
+    # osv-severity-gate.test.sh and scorecard-report.test.sh need jq (they classify JSON with it).
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git jq
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -750,7 +750,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh}
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -803,7 +803,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh}
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -819,6 +819,7 @@ scripts:test:
     - bash scripts/tests/wt-stash.test.sh
     - bash scripts/tests/wt-testdb.test.sh
     - bash scripts/tests/osv-severity-gate.test.sh
+    - bash scripts/tests/scorecard-report.test.sh
     - bash scripts/tests/backup-s3.test.sh
     - bash scripts/tests/backup-media.test.sh
     - bash scripts/tests/check-enterprise-imports.test.sh
@@ -6259,6 +6260,81 @@ security:osv:
         -L packages/mcp/uv.lock
         --format json --output-file osv-results.json || true
     - sh scripts/osv-severity-gate.sh osv-results.json
+
+security:scorecard:
+  # OpenSSF Scorecard supply-chain / repo-hygiene posture, REPORT-ONLY (#4644).
+  # Surfaces pinned dependencies, SAST, fuzzing, license, security policy,
+  # dependency-update tooling and (remote mode) branch protection / code review
+  # as a per-check table plus a JSON artifact. It never gates: allow_failure is
+  # true and the job does not run on MRs. Gating on a minimum score is a
+  # follow-up once a baseline exists.
+  #
+  # Scan target (decision documented in administration/security.md):
+  #   - `--local=.` ALWAYS runs. Deterministic, needs no token, reads only the
+  #     checked-out tree, so it works on GitLab. Observed on v5.5.0 it returns
+  #     11 checks: Binary-Artifacts, Dangerous-Workflow, Dependency-Update-Tool,
+  #     Fuzzing, License, Packaging, Pinned-Dependencies, SAST, Security-Policy,
+  #     Token-Permissions, Vulnerabilities. Dangerous-Workflow, Packaging and
+  #     Token-Permissions came back -1 (n/a: no GitHub Actions workflows) and
+  #     SAST came back 0 (no tool detected from the file tree).
+  #   - `--repo=gitlab.com/trueppm/trueppm` additionally runs when the masked
+  #     CI/CD variable SCORECARD_GITLAB_TOKEN (read_api + read_repository) is
+  #     set. Scorecard's GitLab support is partial; remote mode is what can
+  #     evaluate Branch-Protection and Code-Review. Without the variable the log
+  #     says so and the local report stands alone.
+  # The GitHub mirror is NOT scanned: it is read-only, carries none of the
+  # branch-protection or review history, so its score would describe the mirror.
+  #
+  # Pinned (#904): the official image is distroless/shell-less (like OSV's), so
+  # we download the release tarball and verify its SHA-256 against a value
+  # committed here, which is stronger than the tag-only pin on the osv job.
+  # Bump version and checksum together (compute with sha256sum on the linux_amd64 tarball).
+  #
+  # Exit contract (scripts/scorecard-report.sh): 0 all checks >= 5, 2 some check
+  # below 5, 1 scan did not complete. allow_failure: true makes all of them
+  # non-blocking; a low score exits 2 so the job renders ORANGE rather than a
+  # green that would read as a pass.
+  stage: security
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  needs: []
+  allow_failure: true
+  interruptible: false
+  variables:
+    SCORECARD_VERSION: "5.5.0"
+    SCORECARD_SHA256: "83b90a05c1540ef1390db1cd5711e5fd04be9c1d8537fb84d39d02092d6a8dff"
+  rules:
+    # Covers both the push to main and the scheduled pipeline (schedules run on
+    # main). Deliberately no merge_request_event rule: job quota.
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache wget jq
+    - wget -q -O /tmp/scorecard.tgz "https://github.com/ossf/scorecard/releases/download/v${SCORECARD_VERSION}/scorecard_${SCORECARD_VERSION}_linux_amd64.tar.gz"
+    - echo "${SCORECARD_SHA256}  /tmp/scorecard.tgz" | sha256sum -c -
+    - tar -xzf /tmp/scorecard.tgz -C /usr/local/bin scorecard
+  script:
+    - |
+      status=0
+      echo "== Scorecard --local=. (file-based checks) =="
+      scorecard --local=. --format=json --output=scorecard-local.json || true
+      sh scripts/scorecard-report.sh scorecard-local.json 5 || status=$?
+      if [ -n "${SCORECARD_GITLAB_TOKEN:-}" ]; then
+        echo
+        echo "== Scorecard --repo=gitlab.com/${CI_PROJECT_PATH} (remote checks) =="
+        GITLAB_AUTH_TOKEN="$SCORECARD_GITLAB_TOKEN" scorecard --repo="gitlab.com/${CI_PROJECT_PATH}" --format=json --output=scorecard-remote.json || true
+        remote=0
+        sh scripts/scorecard-report.sh scorecard-remote.json 5 || remote=$?
+        if [ "$remote" -gt "$status" ]; then status=$remote; fi
+      else
+        echo
+        echo "NOTE: SCORECARD_GITLAB_TOKEN is not set, so remote-only checks (Branch-Protection, Code-Review, CI-Tests, Maintained, ...) were NOT evaluated. Only the local file-based report above ran."
+      fi
+      exit $status
+  artifacts:
+    when: always
+    paths:
+      - scorecard-local.json
+      - scorecard-remote.json
+    expire_in: 30 days
 
 security:gitleaks:
   # Secret scanning across the whole working tree (#1251). The one scanner the

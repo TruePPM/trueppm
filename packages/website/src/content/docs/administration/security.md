@@ -898,6 +898,52 @@ PyPI package**, which is signed (see above) but does not yet generate one:
 | Helm chart | Generated from the chart's own dependency graph (`helm dependency list` — the bundled `postgresql`/`valkey` subcharts and their versions; it does not describe the container images those subcharts reference) | Attached as a Cosign attestation on the chart digest, and as a non-expiring `helm-sbom-<tag>` CI job artifact |
 | `trueppm-scheduler` / `trueppm-mcp` | [cyclonedx-py](https://github.com/CycloneDX/cyclonedx-python), against the locked `uv.lock` runtime closure | Attached to the package's [GitLab Release](https://gitlab.com/trueppm/trueppm/-/releases) (`scheduler-v<version>` / `mcp-v<version>`) as a **CycloneDX SBOM** asset link, served from the Generic Package Registry at a stable, versioned URL: `https://gitlab.com/api/v4/projects/trueppm%2Ftrueppm/packages/generic/trueppm-scheduler-sbom/<version>/sbom.cdx.json` (and `trueppm-mcp-sbom`), where `<version>` is the PyPI version — `0.4.0b1`, not the tag. Still retained as a non-expiring CI job artifact (`packages/scheduler/dist/sbom.cdx.json`, `packages/mcp/dist/sbom.cdx.json`) as a second copy. It is not attached to the PyPI upload itself, which carries [PEP 740](https://peps.python.org/pep-0740/) attestations rather than an SBOM. The automation attaches this Release asset starting with the first package tag cut after `0.4.0-beta.1`; `scheduler-v0.4.0b1` and `mcp-v0.4.0b1` were cut before that automation existed and were backfilled manually onto their Release pages — for any version published before `0.4.0b1`, use the tag pipeline's artifact |
 
+## OpenSSF Scorecard (project posture report)
+
+The `security:scorecard` CI job runs [OpenSSF Scorecard](https://github.com/ossf/scorecard)
+against the TruePPM repository on every push to `main` and on the scheduled
+pipeline. It is **report-only**: the job is `allow_failure`, never runs on merge
+requests, and cannot block a pipeline. There is no minimum score yet; one will
+be set once a baseline exists.
+
+**Reading the result.** Open the job log for a per-check list sorted worst
+first, an aggregate score, and a banner naming every check below 5/10. A low
+score makes the job exit 2, which GitLab shows as an orange warning rather than
+green, so a passing-looking job is not read as a good posture. A check marked
+`n/a` could not be evaluated on that target and is not counted as low. The full
+JSON is kept for 30 days as the `scorecard-local.json` (and, when enabled,
+`scorecard-remote.json`) job artifact.
+
+**Scan target.** The canonical repository is on GitLab, and the GitHub mirror is
+read-only, so:
+
+- `--local=.` always runs. It needs no token and reads the checked-out tree.
+  Observed with Scorecard v5.5.0, it returns 11 checks: Binary-Artifacts,
+  Dangerous-Workflow, Dependency-Update-Tool, Fuzzing, License, Packaging,
+  Pinned-Dependencies, SAST, Security-Policy, Token-Permissions and
+  Vulnerabilities. In that run Dangerous-Workflow, Packaging and
+  Token-Permissions were not evaluable (no GitHub Actions workflows exist),
+  Fuzzing and SAST scored 0, and Pinned-Dependencies scored 5. SAST scored 0
+  because Scorecard detected no tool from the file tree, even though CodeQL
+  and Sonar run elsewhere. A local run on a developer checkout also counts
+  gitignored files such as `__pycache__`, so Binary-Artifacts can score lower
+  there than on a clean CI checkout.
+- `--repo=gitlab.com/trueppm/trueppm` runs in addition when the masked CI/CD
+  variable `SCORECARD_GITLAB_TOKEN` (scopes `read_api`, `read_repository`) is
+  set. Per the Scorecard v5.5.0 README (not run here), Branch-Protection,
+  Code-Review, CI-Tests, Maintained and similar checks need the hosting
+  platform's API, so they are only possible in this mode, and GitLab support is
+  marked partial ("Validating" or "Unsupported" for several checks). The remote
+  mode has not been run against this project yet. Without the variable
+  the log says remote checks were skipped.
+- The GitHub mirror is not scanned. It does not carry GitLab's branch
+  protection or review history, so its score would describe the mirror, not
+  the project.
+
+The tool is pinned to a release version with a SHA-256 checksum verified in the
+job (`SCORECARD_VERSION` and `SCORECARD_SHA256` in `.gitlab-ci.yml`); bump both
+together.
+
 ## Reporting vulnerabilities
 
 If you discover a security vulnerability in TruePPM, please report it privately —
