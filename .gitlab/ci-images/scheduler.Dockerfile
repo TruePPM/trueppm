@@ -42,6 +42,16 @@ COPY packages/scheduler/README.md      ./scheduler/README.md
 # build with "Forced include not found".
 COPY packages/scheduler/CHANGELOG.md   ./scheduler/CHANGELOG.md
 
+# pip >= 26.2.2 (emSign CA incident, #4642): pip always trusts its OWN vendored
+# certifi bundle and cannot be told otherwise, so any pip older than 26.2.2 still
+# trusts the emSign roots that certifi dropped, whatever the OS trust store says.
+# Install the wheel by direct URL with a hash so the upgrade does not depend on
+# the bundle it is replacing. Keep this even once the base image ships a newer
+# pip: it is the pin that makes the floor explicit.
+RUN printf '%s\n' 'pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70' > /tmp/pip-req.txt \
+ && pip install --no-cache-dir --require-hashes -r /tmp/pip-req.txt \
+ && rm /tmp/pip-req.txt
+
 # Stub the source root so hatchling can build the editable wheel. The stub
 # package is uninstalled at the end — only the dep wheels remain.
 RUN mkdir -p scheduler/src/trueppm_scheduler \
