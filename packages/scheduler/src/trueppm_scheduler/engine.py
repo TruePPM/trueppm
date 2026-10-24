@@ -2505,17 +2505,25 @@ def _pinned_milestone_instant(
     every FS successor a working day the moment the milestone was closed (#4433).
     One placed by work finishing that day stays at the end of it, so closing it
     then does not pull its successors into the day the work was still finishing.
+
+    At the end of the recorded day, ``shown`` and ``link`` differ in their reading
+    when that day is non-working on ``cal`` (#4641). Successors read ``link`` the
+    way an FS proposal from work is read, so a weekend actual snaps forward to the
+    start of the next working day (:func:`_start_reading`). ``shown`` stays at the
+    end of the recorded day, because the shown day *is* the recorded day, kept
+    verbatim the way completed work's weekend ``actual_finish`` is. Pairing the
+    snapped start-of-day reading with the recorded day showed the milestone at the
+    start of its day, a day before the instant the backward pass seeds from. That
+    gave work finishing later the same day float it did not have: a 1-day task
+    reported 5 days of float, and spending all 5 moved the shown finish.
     """
     recorded = task.actual_finish if task.actual_finish is not None else task.actual_start
     if recorded is not None:
         if live_start:
             actual: _Instant = (recorded, True)
-        else:
-            # The end of the recorded day is the next midnight, read the way an FS
-            # proposal from work is (_start_reading: a weekend actual snaps forward).
-            raw = _safe_offset(recorded, _ONE_DAY)
-            actual = (raw, _start_reading(raw, False, cal))
-        return actual, actual
+            return actual, actual
+        raw = _safe_offset(recorded, _ONE_DAY)
+        return (raw, False), (raw, _start_reading(raw, False, cal))
     shown: _Instant = (day, True)
     if task.planned_start is None:
         return shown, shown

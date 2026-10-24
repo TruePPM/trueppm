@@ -16,7 +16,14 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- A completed milestone that follows work and was closed on a day its own
+  calendar does not work is now shown at the end of that day
+  (`milestone_at_day_end=True`), the edge it had live. It was shown at the start
+  of the day while `project_finish` was seeded from its end, so a task beside it
+  could report total float that, spent, moved the shown finish. Successor dates
+  are unchanged ([#4641](https://gitlab.com/trueppm/trueppm/-/issues/4641)).
 
 ## [0.4.0rc1] - 2026-10-20
 
