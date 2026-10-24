@@ -42,7 +42,7 @@ echo
 LOW="$(jq -r --argjson t "$THRESHOLD" \
   '.checks[] | select(.score >= 0 and .score < $t) | "  " + (.score|tostring) + "/10  " + .name + " - " + .reason' "$RESULTS")"
 NA="$(jq -r '[.checks[] | select(.score < 0) | .name] | join(", ")' "$RESULTS")"
-[ -n "$NA" ] && echo "Not evaluable on this target: $NA"
+if [ -n "$NA" ]; then echo "Not evaluable on this target: $NA"; fi
 
 if [ -n "$LOW" ]; then
   echo

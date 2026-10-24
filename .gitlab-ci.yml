@@ -677,7 +677,7 @@ scripts:test:
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   before_script:
     # wt-reserve.test.sh needs a real git binary (it stages sandbox repos);
-    # osv-severity-gate.test.sh needs jq (the gate classifies OSV JSON with it).
+    # osv-severity-gate.test.sh and scorecard-report.test.sh need jq (they classify JSON with it).
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git jq
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -687,6 +687,7 @@ scripts:test:
         - scripts/release.sh
         - scripts/wt
         - scripts/osv-severity-gate.sh
+        - scripts/scorecard-report.sh
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
@@ -717,6 +718,7 @@ scripts:test:
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
+        - scripts/tests/scorecard-report.test.sh
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/backup-media.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
@@ -740,6 +742,7 @@ scripts:test:
         - scripts/release.sh
         - scripts/wt
         - scripts/osv-severity-gate.sh
+        - scripts/scorecard-report.sh
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
@@ -770,6 +773,7 @@ scripts:test:
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
+        - scripts/tests/scorecard-report.test.sh
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/backup-media.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
@@ -800,6 +804,7 @@ scripts:test:
     - bash scripts/tests/wt-stash.test.sh
     - bash scripts/tests/wt-testdb.test.sh
     - bash scripts/tests/osv-severity-gate.test.sh
+    - bash scripts/tests/scorecard-report.test.sh
     - bash scripts/tests/backup-s3.test.sh
     - bash scripts/tests/backup-media.test.sh
     - bash scripts/tests/check-enterprise-imports.test.sh
@@ -6241,12 +6246,12 @@ security:scorecard:
   #
   # Scan target (decision documented in administration/security.md):
   #   - `--local=.` ALWAYS runs. Deterministic, needs no token, reads only the
-  #     checked-out tree, so it works on GitLab. Evaluates a file-based subset
-  #     (Binary-Artifacts, Dependency-Update-Tool, Fuzzing, License, Packaging,
-  #     Pinned-Dependencies, SAST, Security-Policy, Token-Permissions,
-  #     Vulnerabilities, Dangerous-Workflow). Its SAST/Token-Permissions/
-  #     Dangerous-Workflow/Packaging results look for GitHub Actions
-  #     workflows, and the canonical repo has none, so those read 0 or n/a.
+  #     checked-out tree, so it works on GitLab. Observed on v5.5.0 it returns
+  #     11 checks: Binary-Artifacts, Dangerous-Workflow, Dependency-Update-Tool,
+  #     Fuzzing, License, Packaging, Pinned-Dependencies, SAST, Security-Policy,
+  #     Token-Permissions, Vulnerabilities. Dangerous-Workflow, Packaging and
+  #     Token-Permissions came back -1 (n/a: no GitHub Actions workflows) and
+  #     SAST came back 0 (no tool detected from the file tree).
   #   - `--repo=gitlab.com/trueppm/trueppm` additionally runs when the masked
   #     CI/CD variable SCORECARD_GITLAB_TOKEN (read_api + read_repository) is
   #     set. Scorecard's GitLab support is partial; remote mode is what can

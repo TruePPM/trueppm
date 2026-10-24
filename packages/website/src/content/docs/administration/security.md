@@ -918,18 +918,23 @@ JSON is kept for 30 days as the `scorecard-local.json` (and, when enabled,
 read-only, so:
 
 - `--local=.` always runs. It needs no token and reads the checked-out tree.
-  It evaluates Binary-Artifacts, Dependency-Update-Tool, Fuzzing, License,
-  Pinned-Dependencies, Security-Policy and Vulnerabilities from files. Its
-  SAST, Token-Permissions, Dangerous-Workflow and Packaging checks look for
-  GitHub Actions workflows, which this repository does not have, so they report
-  `0` or `n/a`. SAST in particular scores 0 even though CodeQL and Sonar run,
-  because Scorecard cannot see them from the file tree.
+  Observed with Scorecard v5.5.0, it returns 11 checks: Binary-Artifacts,
+  Dangerous-Workflow, Dependency-Update-Tool, Fuzzing, License, Packaging,
+  Pinned-Dependencies, SAST, Security-Policy, Token-Permissions and
+  Vulnerabilities. In that run Dangerous-Workflow, Packaging and
+  Token-Permissions were not evaluable (no GitHub Actions workflows exist),
+  Fuzzing and SAST scored 0, and Pinned-Dependencies scored 5. SAST scored 0
+  because Scorecard detected no tool from the file tree, even though CodeQL
+  and Sonar run elsewhere. A local run on a developer checkout also counts
+  gitignored files such as `__pycache__`, so Binary-Artifacts can score lower
+  there than on a clean CI checkout.
 - `--repo=gitlab.com/trueppm/trueppm` runs in addition when the masked CI/CD
   variable `SCORECARD_GITLAB_TOKEN` (scopes `read_api`, `read_repository`) is
-  set. This is the only mode that can evaluate Branch-Protection and
-  Code-Review. Scorecard's GitLab support is upstream-marked partial, and
-  several checks (CII-Best-Practices, Contributors, Signed-Releases,
-  Webhooks) are not meaningful or not supported there. Without the variable
+  set. Per the Scorecard v5.5.0 README (not run here), Branch-Protection,
+  Code-Review, CI-Tests, Maintained and similar checks need the hosting
+  platform's API, so they are only possible in this mode, and GitLab support is
+  marked partial ("Validating" or "Unsupported" for several checks). The remote
+  mode has not been run against this project yet. Without the variable
   the log says remote checks were skipped.
 - The GitHub mirror is not scanned. It does not carry GitLab's branch
   protection or review history, so its score would describe the mirror, not
