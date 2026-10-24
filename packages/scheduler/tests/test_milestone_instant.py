@@ -909,6 +909,60 @@ class TestMilestoneAtDayEnd:
         # Ignored on a live milestone: its edge is always computed.
         assert run(False, False, date(2027, 3, 10)) == (True, fri)
 
+    @pytest.mark.parametrize("kind", list(DependencyType))
+    def test_reopening_work_behind_a_weekend_close_moves_nothing(
+        self, kind: DependencyType
+    ) -> None:
+        """A milestone closed after work on its own non-working day freezes its edge (#4641).
+
+        ``A(4d) -FS+4d-> M -kind-> S`` on a seven-day project, ``M`` on a Mon-Fri
+        calendar and closed on Saturday 01-10. The run that closes it shows ``M`` at
+        the end of Saturday, so the API hands that day back as ``live_day_end_on``.
+        Reopening ``A`` then keeps that edge and moves no successor. Before #4641
+        the closing run showed ``M`` at the start of Saturday, nothing was handed
+        back, and reopening ``A`` pulled ``S`` a day earlier.
+        """
+        sat = date(2026, 1, 10)
+
+        def run(a_done: bool, freeze: date | None) -> tuple[Task, Task]:
+            pct = 100.0 if a_done else 50.0
+            a = Task(id="A", name="A", duration=timedelta(days=4), percent_complete=pct)
+            m = Task(
+                id="M",
+                name="M",
+                duration=timedelta(0),
+                actual_finish=sat,
+                calendar_id="five",
+                live_day_end_on=freeze,
+            )
+            r = schedule(
+                Project(
+                    id="p",
+                    name="p",
+                    start_date=MON,
+                    calendar=Calendar(working_days=0b1111111),
+                    calendars={"five": Calendar(working_days=0b0011111)},
+                    tasks=[a, m, Task(id="S", name="S", duration=timedelta(days=1))],
+                    dependencies=[
+                        Dependency("A", "M", lag=timedelta(days=4)),
+                        Dependency("M", "S", dep_type=kind),
+                    ],
+                )
+            )
+            by_id = {t.id: t for t in r.tasks}
+            return by_id["M"], by_id["S"]
+
+        closed_m, closed_s = run(a_done=True, freeze=None)
+        assert (closed_m.early_finish, closed_m.milestone_at_day_end) == (sat, True)
+        # What the API persists and hands back on the next run (services.py).
+        handed_back = closed_m.early_finish if closed_m.milestone_at_day_end else None
+        reopened_m, reopened_s = run(a_done=False, freeze=handed_back)
+        assert reopened_m.milestone_at_day_end is True
+        assert (reopened_s.early_start, reopened_s.early_finish) == (
+            closed_s.early_start,
+            closed_s.early_finish,
+        )
+
     @pytest.mark.parametrize("a_open", [False, True], ids=["a_done", "a_open"])
     def test_a_frozen_day_that_is_not_the_recorded_day_does_not_hold(self, a_open: bool) -> None:
         """Signed off on a later day than it was live: the frozen edge does not carry (#4525).
