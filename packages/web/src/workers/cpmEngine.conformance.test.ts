@@ -165,6 +165,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // only, per the file header) — excluded for the same actuals/status-date
   // adapter gap as every other progress_* fixture.
   progress_non_working_actual_start_driving_edge: 'adapter: does not thread actuals/status date',
+  // #4641. A milestone closed on a non-working day after work: the fix is in the
+  // two server engines; this engine's adapter cannot feed the actual_finish.
+  progress_closed_milestone_non_working_day_after_work:
+    'adapter: does not thread actuals/status date',
   // #4345. Pins a milestone's free instant reading a work successor's Saturday
   // actual_start at its working-day start. Free float is outside this suite's
   // scope (forward pass only); excluded for the same actuals adapter gap.
