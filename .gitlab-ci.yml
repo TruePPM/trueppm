@@ -687,7 +687,6 @@ scripts:test:
         - scripts/release.sh
         - scripts/wt
         - scripts/osv-severity-gate.sh
-        - scripts/scorecard-report.sh
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
@@ -718,7 +717,6 @@ scripts:test:
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
-        - scripts/tests/scorecard-report.test.sh
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/backup-media.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
@@ -733,7 +731,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh}
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -742,7 +740,6 @@ scripts:test:
         - scripts/release.sh
         - scripts/wt
         - scripts/osv-severity-gate.sh
-        - scripts/scorecard-report.sh
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
@@ -773,7 +770,6 @@ scripts:test:
         - scripts/tests/wt-stash.test.sh
         - scripts/tests/wt-testdb.test.sh
         - scripts/tests/osv-severity-gate.test.sh
-        - scripts/tests/scorecard-report.test.sh
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/backup-media.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
@@ -788,7 +784,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh}
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
