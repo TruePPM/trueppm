@@ -6,6 +6,8 @@ import { BoardViewDropdown } from './BoardViewDropdown';
 import * as savedViewsHook from '@/hooks/useBoardSavedViews';
 import * as labelsHook from '@/hooks/useLabels';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
+import * as roleHook from '@/hooks/useCurrentUserRole';
+import { ROLE_MEMBER, ROLE_SCHEDULER, ROLE_VIEWER } from '@/lib/roles';
 
 const DEFAULT_CONFIG: BoardViewConfig = {
   sort: 'priority',
@@ -36,7 +38,14 @@ function renderDropdown(overrides: Partial<ComponentProps<typeof BoardViewDropdo
   return { onApply };
 }
 
+function mockRole(role: number | null) {
+  vi.spyOn(roleHook, 'useCurrentUserRole').mockReturnValue({
+    role,
+  } as unknown as ReturnType<typeof roleHook.useCurrentUserRole>);
+}
+
 beforeEach(() => {
+  mockRole(ROLE_MEMBER);
   // The saved-view meta line resolves label ids against the project catalog
   // (#2394) — never the board's card-derived name map.
   vi.spyOn(labelsHook, 'useLabels').mockReturnValue({
@@ -373,5 +382,52 @@ describe('saved-view meta line (#2394, frame D1)', () => {
         screen.getByRole('menuitem', { name: /Q3 triage.*1 deleted label, not applied/ }),
       ).toBeInTheDocument(),
     );
+  });
+});
+
+describe('BoardViewDropdown delete gate (#4595)', () => {
+  function withTwoViews() {
+    vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
+      views: ['Mine', 'Theirs'].map((name, i) => ({
+        id: `sv-${name}`,
+        name,
+        config: DEFAULT_CONFIG,
+        schemaVersion: 1,
+        createdBy: i === 0 ? 7 : 8,
+        serverVersion: 1,
+        createdAt: '',
+        updatedAt: '',
+      })),
+      isLoading: false,
+      create: { mutate: vi.fn(), isPending: false },
+      update: { mutate: vi.fn(), isPending: false },
+      remove: { mutate: vi.fn(), isPending: false },
+    } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>);
+  }
+  function open() {
+    renderDropdown({ currentUserId: '7' });
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+  }
+
+  it('hides delete from a creator demoted to Viewer', () => {
+    mockRole(ROLE_VIEWER);
+    withTwoViews();
+    open();
+    expect(screen.queryByLabelText('Delete view "Mine"')).not.toBeInTheDocument();
+  });
+
+  it('shows delete to a Member on their own view only', () => {
+    mockRole(ROLE_MEMBER);
+    withTwoViews();
+    open();
+    expect(screen.getByLabelText('Delete view "Mine"')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Delete view "Theirs"')).not.toBeInTheDocument();
+  });
+
+  it('shows delete to a Scheduler on a view they did not create', () => {
+    mockRole(ROLE_SCHEDULER);
+    withTwoViews();
+    open();
+    expect(screen.getByLabelText('Delete view "Theirs"')).toBeInTheDocument();
   });
 });

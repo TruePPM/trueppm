@@ -28,6 +28,8 @@ import {
 } from '@/hooks/useBoardSavedViews';
 import { CheckIcon } from '@/components/Icons';
 import { isSameUser } from '@/lib/userId';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useLabels } from '@/hooks/useLabels';
 import { labelDotStyle } from '@/lib/labelColors';
@@ -203,6 +205,14 @@ export function BoardViewDropdown({
   const [showSave, setShowSave] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { views, create, remove } = useBoardSavedViews(projectId || null);
+  const { role } = useCurrentUserRole(projectId || undefined);
+  // Mirrors the server gate on PATCH/DELETE (#4595): Member+ on the project AND
+  // (the view's creator OR Scheduler+). A creator demoted to Viewer, or a Member
+  // looking at someone else's view, would only get a 403 the UI never surfaces.
+  const canDeleteView = (sv: BoardSavedView) =>
+    role != null &&
+    role >= ROLE_MEMBER &&
+    (role >= ROLE_SCHEDULER || isSameUser(sv.createdBy, currentUserId));
   // The project's label catalog — the ONLY source used to resolve a saved
   // view's label ids to names. Deliberately not the board's card-derived
   // `labelNameById`: that map omits live labels no visible card carries, so it
@@ -400,8 +410,8 @@ export function BoardViewDropdown({
                       </span>
                       <SavedViewMeta summary={summaryOf(sv)} />
                     </button>
-                    {/* Delete — shown on hover; always visible for creator */}
-                    {(isSameUser(sv.createdBy, currentUserId) || sv.createdBy == null) && (
+                    {/* Delete — shown on hover; Member+ creator, or any Scheduler+ */}
+                    {canDeleteView(sv) && (
                       <button
                         type="button"
                         onClick={(e) => handleDelete(e, sv)}
