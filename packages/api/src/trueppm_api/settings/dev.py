@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 
 def _assert_dev_environment_safe(
@@ -55,6 +56,28 @@ def _assert_dev_environment_safe(
 
 
 _assert_dev_environment_safe()
+
+
+def _assert_jwt_signing_key_set(env: Mapping[str, str] | None = None) -> None:
+    """Refuse to boot when the compose stack's generated JWT key went missing.
+
+    ``docker-compose.yml`` generates a random ``JWT_SIGNING_KEY`` inside the api
+    ``command`` and sets ``TRUEPPM_REQUIRE_JWT_SIGNING_KEY=1``. Overriding that
+    ``command`` (docs tell operators to, for ``--workers``) silently drops the
+    generation, and base settings then fall back to the public dev
+    ``SECRET_KEY``, so tokens become forgeable with no error. The flag turns
+    that silent fallback into a startup failure. Unset outside compose.
+    """
+    env = env if env is not None else os.environ
+    if env.get("TRUEPPM_REQUIRE_JWT_SIGNING_KEY") == "1" and not env.get("JWT_SIGNING_KEY"):
+        raise ImproperlyConfigured(
+            "TRUEPPM_REQUIRE_JWT_SIGNING_KEY=1 but JWT_SIGNING_KEY is unset: the api "
+            "command's key generation was overridden away. Keep the K=... / export "
+            "JWT_SIGNING_KEY lines from docker-compose.yml when overriding `command`."
+        )
+
+
+_assert_jwt_signing_key_set()
 
 
 from .base import *  # noqa: F403, E402

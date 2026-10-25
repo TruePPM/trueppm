@@ -75,8 +75,12 @@ other than the single-machine one `docker compose up -d` gives you.
 
 **Not for shared or production use, even a small team.** This stack hardcodes
 `POSTGRES_PASSWORD: trueppm` and `SECRET_KEY: dev-secret-key-change-in-prod` in
-the tracked compose file, and it publishes PostgreSQL on the host. That port
-binds to `127.0.0.1` as of 0.4; before 0.4 it published on
+the tracked compose file, and it publishes PostgreSQL, the API (`:8000`) and the web
+server (`:5173`) on the host. PostgreSQL binds to `127.0.0.1` as of 0.4, and the API and web ports bind there
+by default too. Setting
+`TRUEPPM_DEV_BIND_ADDR=0.0.0.0` publishes the API and web ports on every
+interface; do that only on an isolated host, never on a shared network. Before
+0.4 the PostgreSQL port published on
 `0.0.0.0`, reachable from the network with that password — and Docker's
 published ports bypass most host firewalls, because the `DOCKER` chain is
 consulted before `INPUT`. For anything more than one developer's machine, use the

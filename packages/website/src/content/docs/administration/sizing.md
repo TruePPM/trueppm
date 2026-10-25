@@ -172,7 +172,7 @@ The image's `CMD` is `uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port
 
 | Path | How |
 |---|---|
-| **Docker Compose** | Override the `api` service's `command` in `docker-compose.override.yml`, appending `--workers 2`. |
+| **Docker Compose** | Override the `api` service's `command` in `docker-compose.override.yml`, appending `--workers 2`. Copy the `K=...` and `export JWT_SIGNING_KEY=...` lines from the base file's `command` into your override: without them the API refuses to start (it would otherwise sign tokens with the public dev key). |
 | **Single server with systemd** | Add `--workers N` to the `ExecStart` line. |
 | **Helm** | Set `processes.api.workers` (default `1`, the shipped single-process behavior, unchanged). Builds that include [#3833](https://gitlab.com/trueppm/trueppm/-/issues/3833) render it as `--workers N` on the `api` container's command — the same escape-hatch shape as `processes.worker.extraArgs`. See [`processes.api.workers`](/administration/helm-values/#image-and-replicas) in the values reference. |
 

@@ -104,6 +104,8 @@ services:
       # which is why the ports stay on loopback. Restarting the api container
       # signs everyone out. celery/celery-beat never sign or verify JWTs.
       TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
+      # Fail startup if an overridden `command` drops the key generation above.
+      TRUEPPM_REQUIRE_JWT_SIGNING_KEY: "1"
       STATIC_ROOT: /app/staticfiles
       # Prepend the bind-mounted source so uvicorn --reload picks up changes
       # to Python files without requiring a container rebuild.

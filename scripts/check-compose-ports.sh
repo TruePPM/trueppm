@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/check-compose-ports.sh — every `ports:` entry in every tracked compose
+# scripts/check-compose-ports.sh — every `ports:` entry in every git-tracked compose
 # file binds loopback or the TRUEPPM_DEV_BIND_ADDR knob (#4648).
 #
 # docker-compose.yml runs settings.dev (DEBUG, AllowAny, public SECRET_KEY). A
@@ -32,11 +32,14 @@ scan() {
     inblock {
       if (line ~ /^[ \t]*-/ && indent(line) >= kind) {   # same-indent dash is valid YAML
         e = line; sub(/^[ \t]*-[ \t]*/, "", e); gsub(/["\047]/, "", e)
-        if (e ~ /^[A-Za-z_]+:/ || e ~ /^[{\[]/) { bad("long-form or flow ports entry cannot be verified: " e) }
-        else if (e !~ /^127\.0\.0\.1:/ && e !~ /^\[::1\]:/ && e !~ /^\$\{TRUEPPM_DEV_BIND_ADDR(:-[^}]*)?\}:/) { bad("publishes on all interfaces: " e) }
+        if (e ~ /^[A-Za-z_]+:/ || e ~ /^[{]/ || (e ~ /^[\[]/ && e !~ /^\[::1\]:/)) { bad("long-form or flow ports entry cannot be verified: " e) }
+        else if (e !~ /^127\.0\.0\.1:/ && e !~ /^\[::1\]:/ && e !~ /^\$\{TRUEPPM_DEV_BIND_ADDR:-(127\.0\.0\.1|::1)\}:/) { bad("publishes on all interfaces: " e) }
         next
       }
       inblock = 0
+    }
+    line ~ /^[ \t]*-?[ \t]*["\047]ports["\047][ \t]*:/ || line ~ /[{,][ \t]*["\047]?ports["\047]?[ \t]*:/ {
+      seen++; bad("ports key in a quoted or flow form cannot be verified"); next
     }
     line ~ /^[ \t]*ports:/ {
       rest = line; sub(/^[ \t]*ports:[ \t]*/, "", rest)
@@ -61,10 +64,20 @@ run_check() {
   return $rc
 }
 
+# Tracked files only: a gitignored docker-compose.override.yml is a developer's
+# own opt-in (e.g. publishing db on 5432) and is not ours to gate. Outside a git
+# work tree (a source tarball) fall back to find and say so.
 tracked_files() {
-  local root="$1" f
-  find "$root" -type f \( -name 'docker-compose*.yml' -o -name 'docker-compose*.yaml' -o -name 'compose*.yml' \) \
-    -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/.venv/*' | sort | while read -r f; do
+  local root="$1" f list
+  if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    list="$(git -C "$root" ls-files | grep -E '(^|/)(docker-)?compose[^/]*\.ya?ml$|(^|/)[^/]*\.compose\.ya?ml$' | sed "s|^|$root/|" || true)"
+  else
+    echo "note: not a git work tree, scanning the filesystem instead" >&2
+    list="$(find "$root" -type f \( -name 'docker-compose*.y*ml' -o -name 'compose*.y*ml' -o -name '*.compose.y*ml' \) \
+      -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/.venv/*' | sort)"
+  fi
+  printf '%s\n' "$list" | while read -r f; do
+    [[ -n "$f" ]] || continue
     case " $EXEMPT_NAMES " in *" $(basename "$f") "*) continue ;; esac
     printf '%s\n' "$f"
   done
@@ -80,7 +93,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     printf 'services:\n  a:\n    image: x\n%s\n' "$2" >"$tmp/t.yml"
     if ! run_check "$tmp/t.yml" >/dev/null 2>&1; then echo "SELF-TEST FAILED: false positive: $1" >&2; exit 1; fi
   }
-  expect_pass loopback $'    ports:\n      - "127.0.0.1:1:1"\n      - "${TRUEPPM_DEV_BIND_ADDR:-127.0.0.1}:2:2"\n      - "${TRUEPPM_DEV_BIND_ADDR}:3:3"'
+  expect_pass loopback $'    ports:\n      - "127.0.0.1:1:1"\n      - "${TRUEPPM_DEV_BIND_ADDR:-127.0.0.1}:2:2"\n      - "[::1]:4:4"'
   expect_pass same-indent-loopback $'    ports:\n    - "127.0.0.1:1:1"'
   expect_fail bare $'    ports:\n      - "8000:8000"'
   expect_fail bind-all $'    ports:\n      - "0.0.0.0:8000:8000"'
@@ -89,6 +102,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
   expect_fail same-indent-dash $'    ports:\n    - "8000:8000"'
   expect_fail override-list $'    ports: !override\n      - "8000:8000"'
   expect_fail prefix-no-brace $'    ports:\n      - "${TRUEPPM_DEV_BIND_ADDR_X}:9:9"'
+  expect_fail default-all $'    ports:\n      - "${TRUEPPM_DEV_BIND_ADDR:-0.0.0.0}:8000:8000"'
+  expect_fail no-default $'    ports:\n      - "${TRUEPPM_DEV_BIND_ADDR}:3:3"'
+  expect_fail quoted-key $'    "ports":\n      - "8000:8000"'
+  expect_fail flow-mapping '  b: {ports: ["8000:8000"]}'
+  expect_fail flow-mapping-quoted '  b: {"ports": ["8000:8000"]}'
   expect_fail long-form $'    ports:\n      - target: 80\n        published: 80'
   expect_fail second-entry $'    ports:\n      - "127.0.0.1:1:1"\n      - "5432:5432"'
   echo "self-test OK: clean forms pass; bare, 0.0.0.0, inline, !override, same-indent, prefix and long-form are caught."
