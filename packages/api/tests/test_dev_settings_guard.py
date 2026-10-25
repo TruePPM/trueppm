@@ -42,3 +42,27 @@ def test_empty_opt_in_value_does_not_count() -> None:
     """An empty TRUEPPM_ALLOW_DEV_SETTINGS does not opt in."""
     with pytest.raises(RuntimeError):
         _assert_dev_environment_safe(env={"TRUEPPM_ALLOW_DEV_SETTINGS": ""}, modules={})
+
+
+def test_jwt_key_required_flag_without_key_raises() -> None:
+    """Compose sets the flag; an overridden command that drops the key must fail loudly."""
+    from django.core.exceptions import ImproperlyConfigured
+
+    from trueppm_api.settings.dev import _assert_jwt_signing_key_set
+
+    with pytest.raises(ImproperlyConfigured, match="JWT_SIGNING_KEY"):
+        _assert_jwt_signing_key_set(env={"TRUEPPM_REQUIRE_JWT_SIGNING_KEY": "1"})
+    with pytest.raises(ImproperlyConfigured):
+        _assert_jwt_signing_key_set(
+            env={"TRUEPPM_REQUIRE_JWT_SIGNING_KEY": "1", "JWT_SIGNING_KEY": ""}
+        )
+
+
+def test_jwt_key_required_flag_with_key_or_without_flag_passes() -> None:
+    """The guard is inert outside compose and satisfied once the key is exported."""
+    from trueppm_api.settings.dev import _assert_jwt_signing_key_set
+
+    _assert_jwt_signing_key_set(
+        env={"TRUEPPM_REQUIRE_JWT_SIGNING_KEY": "1", "JWT_SIGNING_KEY": "k"}
+    )
+    _assert_jwt_signing_key_set(env={})

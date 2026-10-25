@@ -259,6 +259,12 @@ if [ "${DRILL_MODE}" = "dev" ]; then
   # only-plumbing reasoning as the demo leg's ALLOWED_HOSTS export below.
   export DEV_SERVER_ALLOWED_HOSTS="${PROBE_HOST}"
 
+  # docker-compose.yml publishes api/web on 127.0.0.1 by default (#4648). The
+  # drill reaches them through the dind service (PROBE_HOST), where a loopback
+  # publish is unreachable from this job container, so bind all interfaces on
+  # the isolated, throwaway dind daemon only.
+  export TRUEPPM_DEV_BIND_ADDR=0.0.0.0
+
   log "booting the unmodified dev stack (docker compose up -d --build)"
   compose up -d --build
 
@@ -284,6 +290,27 @@ if [ "${DRILL_MODE}" = "dev" ]; then
     -d "{\"username\":\"admin\",\"password\":\"${admin_password}\"}" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin).get("access",""))')"
   [ -n "${token}" ] || fail "could not obtain an admin JWT — the retrieved password did not authenticate"
+
+  # A token signed with the PUBLIC dev SECRET_KEY must be rejected (#4648): the
+  # api generates its own JWT_SIGNING_KEY at start. Re-sign the real token's
+  # claims (same user_id) with the old public key and expect 401. The real
+  # token is the positive control: the beat check below requires it to get 200.
+  log "asserting a JWT forged with the public dev SECRET_KEY is rejected"
+  forged="$(TOKEN="${token}" python3 - <<'PY'
+import base64, hashlib, hmac, json, os
+def b64(b): return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+payload = os.environ["TOKEN"].split(".")[1]
+payload += "=" * (-len(payload) % 4)
+claims = base64.urlsafe_b64decode(payload)
+head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+body = b64(claims)
+sig = hmac.new(b"dev-secret-key-change-in-prod", f"{head}.{body}".encode(), hashlib.sha256).digest()
+print(f"{head}.{body}.{b64(sig)}")
+PY
+)"
+  [ -n "${forged}" ] || fail "could not build the forged token"
+  forged_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${forged}" "${API_BASE_URL}/api/v1/health/beat/")"
+  [ "${forged_code}" = "401" ] || fail "a JWT signed with the public dev SECRET_KEY got HTTP ${forged_code}, expected 401"
 
   log "waiting for the Vite dev server on :5173 to serve the SPA"
   wait_http_200 "${WEB_BASE_URL}/"

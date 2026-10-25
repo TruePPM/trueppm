@@ -671,6 +671,11 @@ compose-project-names-check: ## Fail if a standalone compose file has no `name:`
 	@# a second, and needs no docker daemon.
 	@bash scripts/check-compose-project-names.sh
 
+compose-ports-check: ## Fail if docker-compose.yml publishes a port on a non-loopback interface (#4648)
+	@# The dev stack runs DEBUG + AllowAny + a public SECRET_KEY; #3189 loopback-bound
+	@# db/mailpit but left api/web on 0.0.0.0. Pure text scan; no docker daemon.
+	@bash scripts/check-compose-ports.sh
+
 # ONE PREREQUISITE PER LINE (#3743). Make accumulates prerequisites across
 # repeated recipe-less rule lines, so this is the same target as one long line.
 # It is split because every new gate used to append to that one line, so any two
@@ -706,6 +711,7 @@ pre-push-checks: compose-image-pins-check
 pre-push-checks: sigpipe-readers-check
 pre-push-checks: served-assets-check
 pre-push-checks: compose-project-names-check
+pre-push-checks: compose-ports-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: nul-bytes-check
 pre-push-checks: api-scheduler-lock-check

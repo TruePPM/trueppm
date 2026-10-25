@@ -20,7 +20,14 @@ from your project admin and go straight to
 TruePPM ships as pre-built Docker images and a Python package on PyPI. Release images publish to the GitLab Container Registry and, since the 0.4 beta, also to the **GitHub Container Registry (GHCR)** as a public pull path — `ghcr.io/trueppm/{api,web}` for the images and `oci://ghcr.io/trueppm/charts` for the chart — with every published artifact Trivy-scanned and Cosign-signed (keyless), and CycloneDX SBOM-attested (the `web` image for `0.4.0-beta.4` is the one exception: its SBOM attestation was backfilled afterwards and verifies with a different signer identity — see [Backfilled SBOM attestations](/administration/deployment/#backfilled-sbom-attestations)). See [Deployment](/administration/deployment/#verifying-image-and-chart-signatures) for how to verify a signed artifact.
 
 :::note[The development Compose stack builds from source — it does not pull those images]
-The `docker compose up -d` path below is the *development* stack. It builds the
+The `docker compose up -d` path below is the *development* stack. It is a local
+development stack bound to localhost (`127.0.0.1:8000` and `127.0.0.1:5173`): it
+runs with `DEBUG` on and relaxed permissions. To reach TruePPM from another
+machine, use `docker-compose.prod.yml` or Helm. Setting
+`TRUEPPM_DEV_BIND_ADDR=0.0.0.0` publishes the dev stack on every interface and
+is intended only for isolated hosts such as CI; never use it on a shared
+network. If you previously reached the dev stack from another machine, that
+stopped working: move to the production compose file. It builds the
 API and web images from your checkout and runs `npm install` in the web
 container, so the **first** start is a multi-minute build, not a pull. That is on
 purpose: it is the path contributors and evaluators use against `main`.

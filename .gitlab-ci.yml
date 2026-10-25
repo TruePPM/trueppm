@@ -2644,6 +2644,22 @@ compose:project-names:
     - bash scripts/check-compose-project-names.sh --self-test
     - bash scripts/check-compose-project-names.sh
 
+compose:ports:
+  extends: .fast-job
+  # docker-compose.yml runs settings.dev (DEBUG, AllowAny, public SECRET_KEY), so
+  # every published port must bind loopback or ${TRUEPPM_DEV_BIND_ADDR} (#4648).
+  # Text scan only: no install, no build, no docker daemon.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep
+  script:
+    - bash scripts/check-compose-ports.sh --self-test
+    - bash scripts/check-compose-ports.sh
+
 helm:metric-names:
   extends: .fast-job
   # The chart's PromQL must only name series the application emits (#2805).
