@@ -624,3 +624,44 @@ def test_patch_can_clear_filter_labels(pm_client, project):
     assert resp.status_code == 200
     assert resp.json()["config"]["filter_labels"] == []
     assert BoardSavedView.objects.get(pk=view_id).config["filter_labels"] == []
+
+
+# ---------------------------------------------------------------------------
+# RBAC: PATCH/DELETE carry a Member+ floor, not just creator-or-Scheduler (#4595)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def member_saved_view(project, member):
+    return BoardSavedView.objects.create(
+        project=project, name="Mine", config=VALID_CONFIG, created_by=member
+    )
+
+
+def test_demoted_creator_cannot_patch(project, member, member_saved_view):
+    """A creator demoted to Viewer is read-only again — Viewer = read-only (#4595)."""
+    ProjectMembership.objects.filter(project=project, user=member).update(role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(member)
+    resp = c.patch(_url(project.pk, member_saved_view.pk), {"name": "Nope"}, format="json")
+    assert resp.status_code == 403
+    member_saved_view.refresh_from_db()
+    assert member_saved_view.name == "Mine"
+
+
+def test_demoted_creator_cannot_delete(project, member, member_saved_view):
+    ProjectMembership.objects.filter(project=project, user=member).update(role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(member)
+    resp = c.delete(_url(project.pk, member_saved_view.pk))
+    assert resp.status_code == 403
+    assert BoardSavedView.objects.filter(pk=member_saved_view.pk).exists()
+
+
+def test_member_creator_can_patch_and_delete(member_client, project, member_saved_view):
+    resp = member_client.patch(
+        _url(project.pk, member_saved_view.pk), {"name": "New"}, format="json"
+    )
+    assert resp.status_code == 200
+    resp = member_client.delete(_url(project.pk, member_saved_view.pk))
+    assert resp.status_code == 204
