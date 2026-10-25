@@ -28,6 +28,11 @@ vi.mock('@/hooks/useBoardSavedViews', () => ({
   }),
 }));
 
+// Saved-view writes are gated on a Member+ project role (#4595).
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: 100, isError: false }),
+}));
+
 vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     user: mocks.currentUser,

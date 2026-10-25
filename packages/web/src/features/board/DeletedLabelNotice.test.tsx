@@ -171,3 +171,17 @@ describe('dismissKeyFor — a canonical key, not an alphabetical list (#2456)', 
     expect(isNoticeDismissed('v1', ['gone-1', 'gone-2'])).toBe(true);
   });
 });
+
+describe('DeletedLabelNotice — canRepair (#4595)', () => {
+  it('hides both write actions when the viewer cannot edit the view, keeps the dismiss', () => {
+    renderNotice({ canRepair: false });
+    expect(screen.queryByRole('button', { name: 'Remove it from this view' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create a replacement label' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Keep for now' })).toBeInTheDocument();
+  });
+
+  it('shows the repairs by default', () => {
+    renderNotice();
+    expect(screen.getByRole('button', { name: 'Remove it from this view' })).toBeInTheDocument();
+  });
+});

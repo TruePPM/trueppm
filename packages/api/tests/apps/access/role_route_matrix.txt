@@ -62,7 +62,7 @@
 -----++  DELETE api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/::destroy
 --+++++  DELETE api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/::destroy
 ------+  DELETE api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/::destroy
---+++++  DELETE api/v1/projects/<pk>/board-views/<view_pk>/::delete
+---++++  DELETE api/v1/projects/<pk>/board-views/<view_pk>/::delete
 -----++  DELETE api/v1/projects/<project_pk>/api-tokens/<pk>/::destroy
 ------+  DELETE api/v1/projects/<project_pk>/baselines/<pk>/::destroy
 ----+++  DELETE api/v1/projects/<project_pk>/fields/<pk>/::destroy
@@ -383,7 +383,7 @@
 -----++  PATCH api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/::partial_update
 -----++  PATCH api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/::partial_update
 ------+  PATCH api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/::partial_update
---+++++  PATCH api/v1/projects/<pk>/board-views/<view_pk>/::patch
+---++++  PATCH api/v1/projects/<pk>/board-views/<view_pk>/::patch
 -----++  PATCH api/v1/projects/<pk>/phases/reorder/::patch
 ---+-++  PATCH api/v1/projects/<pk>/tasks/classification/::patch
 --+++++  PATCH api/v1/projects/<project_pk>/decisions-policy/::patch

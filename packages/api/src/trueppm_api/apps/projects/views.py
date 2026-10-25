@@ -12486,9 +12486,9 @@ class BoardSavedViewListView(IdempotencyMixin, APIView):
 class BoardSavedViewDetailView(IdempotencyMixin, APIView):
     """PATCH/DELETE a single board saved view.
 
-    PATCH updates name and/or config. Only the creator or a Scheduler-role
-    member (role ≥ 2) may modify a view.
-    DELETE removes the view with the same role constraints.
+    PATCH updates name and/or config. The caller must hold Member+ on the
+    project (IsProjectMemberWrite) AND be the creator or hold Scheduler or
+    above. DELETE removes the view with the same constraints.
     """
 
     # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
@@ -12496,7 +12496,11 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
     # returns True for everyone — the gate reads as live in review and enforces
     # nothing. Declared per view because `pk` means something else on other routes.
     project_url_kwarg = "pk"
-    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # IsProjectMemberWrite is the Member+ floor: it admits Viewer+ on safe methods
+    # and requires Member+ on PATCH/DELETE. Without it the creator-or-Scheduler
+    # check below is the only gate, so a creator later demoted to Viewer kept
+    # write access to a shared view (#4595). The in-body check narrows further.
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def _get_view_or_403(self, request: Request, pk: str, view_pk: str) -> BoardSavedView:
         """Return the view, enforcing creator-or-Scheduler write permission."""
