@@ -72,6 +72,7 @@ file on disk, which keeps it spawnable as a subprocess with no state to manage.
 |----------|----------|-------------|
 | `TRUEPPM_API_URL` | yes | Base URL of your instance, e.g. `https://ppm.example.com`. The `/api/v1` suffix is appended automatically if you omit it (and is idempotent if you include it). |
 | `TRUEPPM_API_TOKEN` | yes | A personal access token (`tppm_<64-hex>`) with the `mcp:read` scope and an expiry. |
+| `TRUEPPM_MCP_ALLOWED_HOSTS` | no | Comma-separated extra `Host` names the HTTP/SSE transports accept, e.g. a reverse-proxy hostname. Same as repeating `--allowed-host`. See [HTTP / SSE](#http--sse). |
 
 If either variable is missing or blank, the process exits immediately with exit
 code `2` and an actionable message on stderr — it names the absent variable and
@@ -81,14 +82,15 @@ error rather than letting every query 401 later.
 
 ## Transports
 
-Select the transport with `--transport`. `--host` and `--port` apply only to the
-network transports and are ignored for stdio.
+Select the transport with `--transport`. `--host`, `--port` and `--allowed-host`
+apply only to the network transports and are ignored for stdio.
 
 | Flag | Transport | Default host / port | Use it when |
 |------|-----------|---------------------|-------------|
 | `--transport stdio` | stdio (default) | — | The AI client spawns the server as a local subprocess. |
 | `--transport http` | Streamable HTTP | `127.0.0.1:8000` | A web/shared assistant connects over HTTP. |
 | `--transport sse` | Server-Sent Events | `127.0.0.1:8000` | A client that only speaks the older SSE transport. |
+| `--allowed-host HOST` | http / sse | none (loopback only) | Accept this `Host` name too (repeatable), e.g. a reverse-proxy hostname. |
 
 ### stdio (default)
 
@@ -115,6 +117,19 @@ never exposes the server on a public interface. Bind to `0.0.0.0` **only** behin
 a reverse proxy that terminates TLS and controls access; the server itself speaks
 plain HTTP and holds a live credential, so it must never face the public internet
 directly.
+
+The server always validates the `Host` and `Origin` headers (DNS-rebinding
+protection), including when bound to `0.0.0.0`, so a web page that rebinds a
+hostname to your loopback address cannot reach it. The loopback names
+`127.0.0.1`, `localhost` and `[::1]` are accepted by default, with or without a
+port, and so is the exact `host:port` you bind when it is not a wildcard. Nothing
+else is: a LAN IP, a Kubernetes Service name or `host.docker.internal` must be
+named explicitly. If a reverse proxy forwards a different public hostname, allow it with
+`--allowed-host ppm-mcp.example.com` (repeatable) or the
+`TRUEPPM_MCP_ALLOWED_HOSTS` environment variable (comma-separated); any other
+`Host` is refused with `421` and any other `Origin` with `403`. `--allowed-host` takes a hostname or IP, with or without `:port` (matched
+case-insensitively, any port); a URL is rejected. `trueppm-mcp` requires
+`mcp` >= 1.23.
 
 :::caution[The HTTP/SSE transport has no client-side authentication]
 The network transports authenticate the server *to TruePPM* (with your token),
@@ -295,16 +310,23 @@ docker run --rm -i \
   trueppm-mcp
 ```
 
-Run it as a network service — publish the port and bind to `0.0.0.0` inside the
-container (the container boundary is the loopback equivalent here; still front it
-with a TLS-terminating proxy for anything beyond a private network):
+Run it as a network service — bind to `0.0.0.0` inside the container, which is
+required for Docker's port forwarding to reach it, and publish the port on the
+host's loopback only. A bare `-p 8000:8000` publishes on every host interface and
+exposes the token owner's read access to your network; keep the `127.0.0.1:`
+prefix, and front it with a TLS-terminating, authenticated proxy for anything
+beyond the local machine:
 
 ```bash
-docker run --rm -p 8000:8000 \
+docker run --rm -p 127.0.0.1:8000:8000 \
   -e TRUEPPM_API_URL=https://ppm.example.com \
   -e TRUEPPM_API_TOKEN=tppm_your_token_here \
   trueppm-mcp --transport http --host 0.0.0.0 --port 8000
 ```
+
+Behind a reverse proxy that forwards its own hostname, add
+`--allowed-host ppm-mcp.example.com` (or set `TRUEPPM_MCP_ALLOWED_HOSTS`) so the
+`Host` check accepts it.
 
 Pass the token via a Docker/Kubernetes secret or an env-file, never on the
 command line where it would land in shell history and the process table.
@@ -544,5 +566,6 @@ own mint and revoke history is at
 | Exit code `2`, "Configuration error" on stderr | `TRUEPPM_API_URL` or `TRUEPPM_API_TOKEN` is unset or blank. |
 | Boot fails with "the TruePPM API rejected the configured token (HTTP 401)" | The token is missing, malformed, or revoked. Mint a fresh `mcp:read` token. |
 | Boot fails with "this token is a full-access personal credential ... not an agent credential" | `TRUEPPM_API_TOKEN` holds a `legacy:full` personal access token, not an `mcp:read` one — the default scope the token mint form gives you unless you pick "Read-only for AI assistants". It authenticates, but neither the [instance kill switch](#security-posture) nor a [team's agent opt-out](#team-level-opt-out) governs it, so the server refuses to boot on it rather than run unprotected. Mint an `mcp:read` token instead. |
+| HTTP/SSE requests fail with `421 Invalid Host header` or `403 Invalid Origin header` (often right after upgrading a server bound to `0.0.0.0`) | DNS-rebinding protection only accepts loopback names and the host you bind. A client reaching the server by a LAN IP, a Kubernetes Service name, `host.docker.internal` or a proxy hostname now sends a `Host` that is not allowed. Add it with `--allowed-host <name>` (repeatable) or `TRUEPPM_MCP_ALLOWED_HOSTS=<name>,<name>`; the name is matched with or without a port, and `http`/`https` origins on it are accepted. |
 | A tool returns a 404 for a resource you expect to see | The token's role on its project/program does not permit reading that resource — 404 is the deliberate existence oracle, identical to the web client. |
 | A tool that used to work now errors on a write | An `mcp:read` token is refused at write paths by design; this server issues no writes, so this indicates a misrouted call, not a permission gap to widen. |

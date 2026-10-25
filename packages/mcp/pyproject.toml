@@ -51,7 +51,11 @@ classifiers = [
 # Bounds cap one major above the resolved version so an unpinned install can't
 # silently pull a breaking release.
 dependencies = [
-    "mcp[cli]>=1.2,<2",
+    # Floor 1.23: the first SDK release whose FastMCP enables DNS-rebinding
+    # (Host/Origin) protection by default for a loopback bind. Older releases
+    # serve with no check at all. build_server() installs the protection itself
+    # regardless of bind host; the floor keeps the SDK-side default as a second layer.
+    "mcp[cli]>=1.23,<2",
     "httpx>=0.27,<1",
     # Transitive via mcp[cli] -> pyjwt[crypto]; promoted to a direct dep purely to
     # force the resolver past 49.0.0, which clears GHSA-g6cj-pr64-35w5 (PKCS#7

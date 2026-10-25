@@ -82,6 +82,12 @@ Or expose the HTTP/SSE transport for a web-based assistant:
 trueppm-mcp --transport http --host 127.0.0.1 --port 8000
 ```
 
+Host/Origin validation (DNS-rebinding protection) is always on, even when bound to
+`0.0.0.0`. Behind a reverse proxy or any non-loopback hostname, name it with
+`--allowed-host ppm-mcp.example.com` (repeatable) or `TRUEPPM_MCP_ALLOWED_HOSTS`
+(comma-separated); other `Host` headers get `421`. In Docker publish on loopback only
+(`-p 127.0.0.1:8000:8000`).
+
 See [`packages/website/src/content/docs/administration/mcp-server.md`](https://docs.trueppm.com/administration/mcp-server/)
 for wiring it into Claude Desktop's `claude_desktop_config.json`.
 

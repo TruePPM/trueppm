@@ -10,12 +10,14 @@
 # Run (stdio):
 #   docker run --rm -i -e TRUEPPM_API_URL=... -e TRUEPPM_API_TOKEN=... trueppm-mcp
 # Run (HTTP, port 8000):
-#   docker run --rm -p 8000:8000 -e TRUEPPM_API_URL=... -e TRUEPPM_API_TOKEN=... \
-#     trueppm-mcp --transport http --host 0.0.0.0 --port 8000
+#   docker run --rm -p 127.0.0.1:8000:8000 -e TRUEPPM_API_URL=... \
+#     -e TRUEPPM_API_TOKEN=... trueppm-mcp --transport http --host 0.0.0.0 --port 8000
 #   WARNING: the HTTP/SSE transport has no client-side auth — anyone who can reach
-#   the published port acts as the token owner. Only publish it behind an
-#   authenticated, TLS-terminating ingress; otherwise keep it loopback-only. See
-#   administration/mcp-server.md ("Security posture").
+#   the published port acts as the token owner. Publish on the host loopback only
+#   (`127.0.0.1:` prefix; a bare `-p 8000:8000` binds every host interface), or put
+#   it behind an authenticated, TLS-terminating ingress and name that hostname with
+#   `--allowed-host`. Host/Origin validation (DNS-rebinding protection) is always
+#   on, even when binding 0.0.0.0. See administration/mcp-server.md.
 
 # ---------------------------------------------------------------------------
 # Stage 1: builder — install the package into an isolated virtualenv
@@ -150,5 +152,5 @@ WORKDIR /app
 USER trueppm
 
 # stdio by default; override CMD args for http/sse, e.g.
-#   docker run ... trueppm-mcp --transport http --host 0.0.0.0
+#   docker run -p 127.0.0.1:8000:8000 ... trueppm-mcp --transport http --host 0.0.0.0
 ENTRYPOINT ["trueppm-mcp"]
