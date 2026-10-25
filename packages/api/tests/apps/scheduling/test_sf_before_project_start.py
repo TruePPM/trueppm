@@ -76,7 +76,8 @@ def test_a_data_date_after_the_start_still_holds_the_successor(project: Project)
 
 @pytest.mark.django_db
 def test_a_data_date_on_the_start_does_not_hold_the_successor(project: Project) -> None:
-    """A data date on the project start is the project-start floor (#4635, "clamp SF too").
+    """A data date on the project start is the project-start floor (#4635, the data-date
+    clamp on SF-linked tasks).
 
     An SF-only task does not take that floor (#4218), so it keeps its SF placement.
     """

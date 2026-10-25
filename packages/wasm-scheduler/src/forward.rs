@@ -215,8 +215,9 @@ pub(crate) fn start_reading(
 ///
 /// The project-start floor (`start_floor`) only bounds where the milestone is
 /// *shown* (#4225); `floors` holds the others (data date, SNET, a recorded actual
-/// start), which bind `link` too — a data date or SNET only when after the project
-/// start (`floor_above_start`, #4635). Every successor carries the project-start floor
+/// start), which bind `link` too — a data date only when after the project start, and
+/// an SNET likewise unless the milestone is SF-linked (`floor_above_start`, #4635).
+/// Every successor carries the project-start floor
 /// itself, so a milestone held at it by that floor alone has nothing to add
 /// downstream — measuring a successor's lag from the floored instant made
 /// `A -FS-> M -FS(2cd)-> B` put `B` a working day after `A -FS(2cd)-> B` whenever
@@ -323,9 +324,11 @@ fn start_floors_for(
 ///
 /// Raised to the project-start floor, a bound at or before it *is* that floor, so it
 /// is dropped: every task that takes the project-start floor already has it, and the
-/// two places that leave it out — an SF-linked task (#4218) and a milestone's link
-/// instant (#4225) — must not get it back through the data date or an SNET (#4635,
-/// "clamp SF too"). Compared after snapping. Mirrors the Python `_floor_above_start`.
+/// places that leave it out must not get it back through it (#4635). The data date
+/// is dropped for every task, an SF-linked one (#4218) included; an SNET for a
+/// milestone's link instant (#4225) and a completed milestone's link, but kept
+/// verbatim on an SF-linked task, where it can only hold the task later. Compared
+/// after snapping. Mirrors the Python `_floor_above_start`.
 fn floor_above_start(
     floor: NaiveDate,
     cal: &Calendar,
@@ -490,9 +493,17 @@ pub fn forward_pass(
             hard_floors.push(actual_start);
         }
         // An SNET at or before the project start is no floor, like a data date
-        // there (#4635): mirrors the Python `_early_start_floors`.
+        // there (#4635) — except on an SF-linked task, which takes no project-start
+        // floor, so its SNET can only hold it later and is kept verbatim (the UI's
+        // snap-to-start commits write exactly such an SNET). Mirrors the Python
+        // `_early_start_floors`.
         if let Some(ps) = tasks[i].planned_start {
-            if let Some(snet) = floor_above_start(ps, node_cal, start_base)? {
+            let snet = if is_sf_linked {
+                Some(next_working_day(ps, node_cal)?)
+            } else {
+                floor_above_start(ps, node_cal, start_base)?
+            };
+            if let Some(snet) = snet {
                 es_constraints.push(snet);
                 hard_floors.push(snet);
             }

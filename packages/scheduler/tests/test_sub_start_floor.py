@@ -17,11 +17,13 @@ outgoing lag from that earlier day, and ``K -FS(+10cd)-> A`` finished ``A`` up t
 ``timezone.localdate()`` as the status date whenever none is set
 (``resolve_cpm_status_date``), so this was every future-start project in production.
 
-The rule these tests pin, in both engines (README "Floors at or before the project
-start"): a data date or SNET that snaps to a day at or before the project-start floor
-is no floor at all — for every task, SF-linked ones included (the "clamp SF too"
-decision). A recorded actual start is kept verbatim; it is a fact, and a fact may
-precede the plan.
+The rule these tests pin, in both engines (the package README): a data date that
+snaps to a day at or before the project-start floor is no floor at all, for every
+task, SF-linked ones included; an SNET there is no floor either, except on an
+SF-linked task, which takes no project-start floor, so its SNET can only hold it
+later and is kept verbatim (the Schedule's snap-to-start commits write exactly such
+an SNET, see ``test_sf_from_work.py``). A recorded actual start is kept verbatim; it
+is a fact, and a fact may precede the plan.
 """
 
 from __future__ import annotations
@@ -98,28 +100,36 @@ def _free_milestone(
     )
 
 
-_SUB_START = [
+_SUB_START_DATA_DATES = [
     {"status_date": date(2026, 1, 15)},
     {"status_date": _START},
     {"status_date": date(2026, 2, 1)},  # Sunday: snaps to the start itself
+]
+_SUB_START = [
+    *_SUB_START_DATA_DATES,
     {"snet": date(2026, 1, 20)},
     {"snet": _START},
     {"status_date": date(2026, 1, 15), "snet": date(2026, 1, 20)},
 ]
+_CASES = [
+    *[pytest.param(f, False, id=f"free-{f!r}") for f in _SUB_START],
+    # An SF-linked milestone keeps a sub-start SNET (see the test below), so only
+    # the data date is clamped on it.
+    *[pytest.param(f, True, id=f"sf-linked-{f!r}") for f in _SUB_START_DATA_DATES],
+]
 
 
 @pytest.mark.parametrize("dep_type", _LINKS, ids=lambda d: d.value)
-@pytest.mark.parametrize("floors", _SUB_START, ids=repr)
-@pytest.mark.parametrize("sf_into_k", [False, True], ids=["free", "sf-linked"])
+@pytest.mark.parametrize(("floors", "sf_into_k"), _CASES)
 def test_sub_start_floor_on_a_milestone_moves_nothing(
     dep_type: DependencyType, floors: dict[str, date], sf_into_k: bool
 ) -> None:
     """The issue's table: every link type, data date and SNET before/at the start.
 
     Before the fix ``A`` finished on 02-06 (FS/SS/FF) or 02-02 (SF) instead of 02-18 /
-    02-11 with a free ``K``. The SF-linked rows pin the "clamp SF too" decision: an
-    SF-linked milestone sits wherever its SF link puts it, and a sub-start data date
-    or SNET does not pull it up toward the start either.
+    02-11 with a free ``K``. The SF-linked rows pin the data-date half of the rule
+    on an SF-linked milestone: it sits wherever its SF link puts it, and a sub-start
+    data date does not pull it up toward the start.
     """
     baseline = schedule(_free_milestone(dep_type, sf_into_k=sf_into_k))
     floored = schedule(_free_milestone(dep_type, sf_into_k=sf_into_k, **floors))
@@ -178,6 +188,30 @@ def test_a_completed_milestone_with_a_pre_start_snet_links_from_the_start() -> N
     assert {t.id: t for t in floored.tasks}["A"].early_start == date(2026, 2, 12)
     mc = monte_carlo(build(date(2026, 1, 20)), runs=8, seed=3)
     assert mc.p50 == mc.p95 == floored.project_finish
+
+
+@pytest.mark.parametrize("dep_type", _LINKS, ids=lambda d: d.value)
+def test_an_sf_linked_milestone_keeps_its_sub_start_snet(dep_type: DependencyType) -> None:
+    """An SF-linked milestone's SNET on the start holds it there, verbatim (#4635).
+
+    ``W -SF-> K`` places ``K`` before the start (it takes no project-start floor,
+    #4218); an SNET on the start lifts it, and its successor, to 02-02 — later than
+    without the SNET, never earlier. A sub-start SNET below the SF placement binds
+    nothing, as any non-binding floor.
+    """
+    bare = {t.id: t for t in schedule(_free_milestone(dep_type, sf_into_k=True)).tasks}
+    held_project = _free_milestone(dep_type, sf_into_k=True, snet=_START)
+    held_result = schedule(held_project)
+    held = {t.id: t for t in held_result.tasks}
+    # Monte Carlo reads the same SNET (``_mc_milestone_floors``).
+    mc = monte_carlo(held_project, runs=8, seed=3)
+    assert mc.p50 == mc.p95 == held_result.project_finish
+    assert bare["K"].early_start is not None and bare["K"].early_start < _START
+    assert held["K"].early_start == _START
+    assert held["A"].early_finish is not None and bare["A"].early_finish is not None
+    assert held["A"].early_finish > bare["A"].early_finish
+    below = schedule(_free_milestone(dep_type, sf_into_k=True, snet=date(2025, 12, 1)))
+    assert _positions(below) == _positions(schedule(_free_milestone(dep_type, sf_into_k=True)))
 
 
 def test_a_status_date_after_the_start_still_binds() -> None:
@@ -247,7 +281,7 @@ def _with_free_milestone(draw: st.DrawFn) -> Project:
         lag=timedelta(days=draw(st.integers(min_value=0, max_value=15))),
     )
     if draw(st.booleans()):
-        # Make K SF-linked too: the "clamp SF too" half of the rule.
+        # Make K SF-linked too: the data date is clamped on it as well.
         w = Task(id="W", name="W", duration=timedelta(days=draw(st.integers(1, 5))))
         into = Dependency(
             predecessor_id="W",
@@ -284,8 +318,13 @@ def test_a_status_date_at_or_before_the_start_moves_nothing(project: Project, ba
 def test_an_snet_at_or_before_the_start_moves_nothing(
     project: Project, back: int, data: st.DataObject
 ) -> None:
-    """Replacing a task's absent SNET with one at or before the start moves nothing."""
-    candidates = [t.id for t in project.tasks if t.planned_start is None]
+    """Replacing a task's absent SNET with one at or before the start moves nothing.
+
+    Not on an SF-linked task, which keeps a sub-start SNET verbatim (it takes no
+    project-start floor, so the SNET can hold it later).
+    """
+    sf_linked = {d.successor_id for d in project.dependencies if d.dep_type is DependencyType.SF}
+    candidates = [t.id for t in project.tasks if t.planned_start is None and t.id not in sf_linked]
     if not candidates:
         return
     tid = data.draw(st.sampled_from(candidates))
@@ -344,7 +383,7 @@ def _sf_work_project(**kw: object) -> Project:
         ({}, date(2026, 1, 26)),
         ({"planned_start": date(2026, 1, 27)}, None),
         # A Saturday actual start after the plan opens takes the verbatim-actual
-        # path (``_mc_verbatim_actuals``), whose SF branch drops the same floors.
+        # path (``_mc_verbatim_actuals``), whose SF branch drops the same data date.
         # There the drop cannot change the outcome (an actual after the start always
         # beats a floor at or before it), so these two only pin that the path stays
         # consistent with the deterministic pass.
@@ -356,16 +395,15 @@ def _sf_work_project(**kw: object) -> Project:
     ],
     ids=["data-date", "snet", "saturday-actual+data-date", "saturday-actual+data-date-on-start"],
 )
-def test_monte_carlo_drops_the_same_sub_start_floors(
+def test_monte_carlo_treats_sub_start_floors_like_cpm(
     task_kw: dict[str, object], status_date: date | None
 ) -> None:
     """Zero-variance Monte Carlo agrees with ``schedule()`` on an SF-linked task (#4635).
 
-    Both passes must drop a sub-start data date and SNET from an SF-linked task, or
-    the simulation samples from a window the deterministic pass no longer uses. The
-    finish is B's (W finishes 02-04; B, held pre-start, would not set it), so a
-    lagged ``B -FS(+20cd)-> C`` carries B's placement to the finish where a
-    mismatch shows.
+    Both passes must drop a sub-start data date from an SF-linked task and keep its
+    sub-start SNET, or the simulation samples from a window the deterministic pass
+    does not use. B is placed before the start, so a lagged ``B -FS(+20cd)-> C``
+    carries B's placement to the finish where a mismatch shows.
     """
     base = _sf_work_project(**task_kw)
     project = dataclasses.replace(
@@ -377,12 +415,12 @@ def test_monte_carlo_drops_the_same_sub_start_floors(
             Dependency(predecessor_id="B", successor_id="C", lag=timedelta(days=20)),
         ],
     )
-    cpm = schedule(project).project_finish
-    bare = dataclasses.replace(
-        project,
-        status_date=None,
-        tasks=[dataclasses.replace(t, planned_start=None) for t in project.tasks],
-    )
-    assert cpm == schedule(bare).project_finish
+    result = schedule(project)
+    cpm = result.project_finish
+    if "planned_start" in task_kw:
+        # Kept verbatim: the 01-27 SNET holds B past its SF placement.
+        assert {t.id: t for t in result.tasks}["B"].early_start == date(2026, 1, 27)
+    else:
+        assert cpm == schedule(dataclasses.replace(project, status_date=None)).project_finish
     mc = monte_carlo(project, runs=8, seed=3)
     assert mc.p50 == mc.p80 == mc.p95 == cpm

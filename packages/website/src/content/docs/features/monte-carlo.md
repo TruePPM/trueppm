@@ -309,7 +309,12 @@ progresses, the simulation will:
   estimate.
 - **Anchor remaining work at a data date.** Not-started and remaining work will
   be scheduled no earlier than the project's **status date**, so the forecast
-  never places future work in the past.
+  never places future work in the past. The one exception is a task with a
+  Start-to-Finish link when the status date is on or before the project start
+  (including a project that starts in the future and has no status date, where
+  the data date is today): the project start does not floor such a task, and a
+  data date before the start does not either, so it sits where its links (or
+  its own SNET) place it ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)).
 - **Floor in-progress work at its recorded actual start.** A task that actually
   began *after* the data date will be forecast from the day it really started,
   not from the status date — actuals are truth and are never smoothed back to an

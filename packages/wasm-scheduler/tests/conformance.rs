@@ -351,3 +351,34 @@ fn sub_start_floors_move_nothing() {
         );
     }
 }
+
+/// #4635 audit probe: the Schedule's three placement commits for an SF-linked task
+/// before the project start each write an SNET at or before the (auto-shifted)
+/// start, and that SNET must hold the task. `A(3d) -SF(-10cd)-> B(5d)` from Mon
+/// 02-02 places B on Wed 01-14; "snap to start" (SNET 02-02), "move project start"
+/// (start and SNET 01-26) and "start at the earliest" (start and SNET 01-14) must
+/// hold B on its SNET. Dropping a sub-start SNET on an SF-linked task left B on
+/// 01-14, 01-07 and 12-30, while the UI reported it placed.
+#[test]
+fn sf_linked_snet_commit_paths_hold_the_task() {
+    let d = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    for (stem, b_start) in [
+        ("sf_linked_snet_snap_to_start", "2026-02-02"),
+        ("sf_linked_snet_move_project_start", "2026-01-26"),
+        ("sf_linked_snet_start_at_earliest", "2026-01-14"),
+    ] {
+        let project = load_project(stem);
+        let result = schedule_impl(&project).unwrap();
+        let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+        assert_eq!(b.early_start, d(b_start), "{stem}");
+
+        // Without the SNET the SF link places B earlier than that SNET: the SNET binds.
+        let mut bare = project.clone();
+        for t in bare.tasks.iter_mut() {
+            t.planned_start = None;
+        }
+        let free = schedule_impl(&bare).unwrap();
+        let free_b = free.tasks.iter().find(|t| t.id == "B").unwrap();
+        assert!(free_b.early_start < b.early_start, "{stem}");
+    }
+}

@@ -594,9 +594,10 @@ def _forward_floor_contribs(
 
     ``include_project_start`` is false for a task with an SF link, whose
     project-start floor is ``min(project start, SF placement)`` and never binds
-    (#4218, #4220). Such a task takes no data date or SNET at or before the project
-    start either (``engine._floor_above_start``, #4635), so neither is offered: a
-    candidate the engine never considered would read as a floor it ignored.
+    (#4218, #4220). Such a task takes no data date at or before the project start
+    either (``engine._floor_above_start``, #4635), so none is offered: a candidate the
+    engine never considered would read as a floor it ignored. Its SNET is offered
+    wherever it falls, as the engine keeps it verbatim on an SF-linked task.
 
     ``actual_start`` (ADR-0132 §2, #2621) is only reachable here for a task that
     is not complete (``_derive_forward`` routes completed tasks through
@@ -634,7 +635,7 @@ def _forward_floor_contribs(
                 imposed_date=task.actual_start,
             )
         )
-    if task.planned_start is not None and offered(task.planned_start):
+    if task.planned_start is not None:
         snapped = _next_working_day(task.planned_start, cal)
         contribs.append(
             DerivationContribution(

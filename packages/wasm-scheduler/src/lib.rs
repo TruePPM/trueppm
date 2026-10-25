@@ -1607,14 +1607,14 @@ mod tests {
 
         // Slipping T1 by one working day (to its total float, past its free
         // float) must move T3 — the thing free float promises will NOT happen
-        // within free float itself. The slip is an SS link from work on the
-        // project start, not an SNET: an SNET on the start is no floor (#4635).
+        // within free float itself.
         let mut shifted = project.clone();
-        shifted.tasks.push(make_task("P", 1));
-        shifted.dependencies.push(Dependency {
-            dep_type: DependencyType::SS,
-            ..dep("P", "T1")
-        });
+        shifted
+            .tasks
+            .iter_mut()
+            .find(|t| t.id == "T1")
+            .unwrap()
+            .planned_start = Some(d(2026, 1, 5));
         let after = schedule_impl(&shifted).unwrap();
         assert_eq!(find(&result, "T3").early_start, d(2026, 1, 5));
         assert_eq!(find(&after, "T3").early_start, d(2026, 1, 6));

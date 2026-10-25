@@ -499,6 +499,43 @@ after recalculation can show milestone-driven variance that reflects the
 convention change, not a schedule change. To compare like with like, capture a new
 baseline after the project recalculates.
 
+### Data dates and SNETs before the project start
+
+Upgrading from `0.4.0-rc.1` or earlier changes how the scheduler treats a data
+date (status date), or a task's start-no-earlier-than date (SNET), that falls on
+or before the project start ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)).
+No migration runs and no stored date changes during the upgrade itself. The new
+dates appear the next time each project's schedule recalculates, which happens on
+the next edit that affects the schedule.
+
+A project with no status date uses today as its data date, so this mostly affects
+**projects that start in the future**. Earlier versions measured a lag out of a
+milestone with no predecessor, such as a kickoff milestone, from that earlier
+data date rather than from the project start. The same happened with a completed
+milestone that has no recorded dates, and with any milestone whose SNET is before
+the start. The work after such a milestone lost up to the gap between today and
+the project start from every lag. A data date or SNET on or before the project
+start now holds nothing back, except that an SNET still holds a task that has a
+Start-to-Finish link.
+
+What you will see after recalculation:
+
+- **Dates after a kickoff milestone move later.** On a project that starts in the
+  future, the successors of a milestone with no predecessor regain their full lag.
+  Their dates, the forecast finish, and the critical path move later by up to the
+  gap between today and the project start.
+- **Some Start-to-Finish tasks move earlier.** A task with a Start-to-Finish link
+  that its link places before the project start is no longer held at a data date
+  that is on or before the start. It moves to where its links place it, unless its
+  own SNET holds it. On a project that is already underway, the data date still
+  holds it.
+- **Monte Carlo forecasts move with the schedule.** P50/P80/P95 use the same rule.
+
+Baselines and saved forecast snapshots keep the old dates, so the first comparison
+after recalculation shows a one-time step that reflects the rule change, not a
+schedule change. To compare like with like, capture a new baseline after the
+project recalculates.
+
 ### Completed milestones after the first recalculation
 
 The scheduler now keeps a completed milestone in place no matter how the open work

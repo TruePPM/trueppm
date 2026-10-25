@@ -435,7 +435,7 @@ def test_the_data_date_still_floors_an_sf_only_task() -> None:
 def test_a_data_date_at_or_before_the_project_start_does_not_floor_an_sf_only_task(
     status_date: date,
 ) -> None:
-    """ "Clamp SF too" (#4635): a data date at or before the start moves nothing.
+    """A data date at or before the start moves an SF-linked task nowhere (#4635).
 
     Raised to the project start, such a data date *is* the project-start floor, which
     an SF-linked task does not take (#4218). B (5d) therefore keeps its SF placement,
@@ -461,16 +461,18 @@ def test_an_snet_on_the_sf_successor_still_wins() -> None:
     assert by["B"].early_start == date(2026, 3, 4)
 
 
-def test_an_snet_before_the_project_start_does_not_bind_an_sf_only_task() -> None:
-    """ "Clamp SF too" (#4635): an SNET before the project start (Wed 02-25) is no floor.
+def test_an_snet_before_the_project_start_binds_an_sf_only_task() -> None:
+    """…including an SNET that is itself before the project start (Wed 02-25).
 
-    SF alone starts B Mon 02-23 (5d finishing Fri 02-27), and B stays there. Raised to
-    the project start, a sub-start SNET is the project-start floor, which an SF-linked
-    task does not take; it used to hold B on 02-25.
+    #4635 clamps a sub-start *data date* on an SF-linked task but keeps its SNET
+    verbatim: an SF-linked task takes no project-start floor, so its SNET can only
+    hold it later than its SF placement, and the UI's snap-to-start commits write
+    exactly such an SNET.
     """
     by = _sf(0, b_dur=5, b_planned_start=date(2026, 2, 25))
-    assert by["B"].early_start == date(2026, 2, 23)
-    assert by["B"].early_start == _sf(0, b_dur=5)["B"].early_start
+    # SF alone would start B Mon 02-23 (5d finishing Fri 02-27); the SNET wins.
+    assert by["B"].early_start == date(2026, 2, 25)
+    assert _sf(0, b_dur=5)["B"].early_start == date(2026, 2, 23)
 
 
 def test_a_binding_lead_on_an_sf_linked_task_may_sit_before_the_start() -> None:
@@ -763,7 +765,7 @@ def test_the_data_date_still_floors_a_mixed_link_task(status_date: date, expecte
     but with the status date on Tue 03-03 D is held there like any remaining work.
 
     A data date on the start itself is the project-start floor, which D does not take
-    (#4635, "clamp SF too"): D keeps its pre-start SF placement, Fri 02-27.
+    (#4635, the data-date clamp on SF-linked tasks): D keeps its pre-start SF placement, Fri 02-27.
     """
     result = _schedule(
         [
@@ -1100,3 +1102,58 @@ def test_monte_carlo_matches_cpm_for_a_positive_sf_lag_from_a_monday(
     result = schedule(project)
     mc = monte_carlo(project, runs=16, seed=5, max_runs=None, max_tasks=None)
     assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
+def _commit_probe(start: date, snet: date | None) -> Task:
+    """``A(3d) -SF(-10cd)-> B(5d)`` from ``start``; returns B (#4635 audit probe).
+
+    With the 02-02 start and no SNET, B is placed before the start, on Wed 01-14.
+    """
+    result = schedule(
+        Project(
+            id="p",
+            name="p",
+            start_date=start,
+            calendar=Calendar(),
+            tasks=[
+                Task(id="A", name="A", duration=_days(3)),
+                Task(id="B", name="B", duration=_days(5), planned_start=snet),
+            ],
+            dependencies=[_sf_dep("A", "B", -10)],
+        )
+    )
+    return {t.id: t for t in result.tasks}["B"]
+
+
+_PROBE_START = date(2026, 2, 2)
+
+
+@pytest.mark.parametrize(
+    ("start", "snet", "expected"),
+    [
+        # "Snap to project start": SNET on the start itself.
+        pytest.param(_PROBE_START, _PROBE_START, _PROBE_START, id="snap-to-start"),
+        # "Move project start" to 01-26, writing the same SNET; the API's #867
+        # auto-shift has already moved the start back to it.
+        pytest.param(date(2026, 1, 26), date(2026, 1, 26), date(2026, 1, 26), id="move-start"),
+        # "Start at the earliest": commits B's own placement, 01-14, which pulls
+        # the project start back to 01-14 too.
+        pytest.param(date(2026, 1, 14), date(2026, 1, 14), date(2026, 1, 14), id="earliest"),
+    ],
+)
+def test_ui_commit_paths_hold_an_sf_linked_task_at_its_snet(
+    start: date, snet: date, expected: date
+) -> None:
+    """An SNET at or before the project start still holds an SF-linked task (#4635).
+
+    Each of the Schedule's three placement commits for a task before the project
+    start writes an SNET at or before the (possibly auto-shifted) start. #4635 first
+    dropped every such SNET, so each commit left B where its SF link put it while
+    the UI reported it placed: "snap to start" left B on 01-14, "move start" landed
+    it on 01-07 and "start at the earliest" on 12-30, and every commit ratcheted the
+    project start earlier. An SF-linked task takes no project-start floor, so its
+    SNET can only hold it later; it is kept verbatim. The data date is still
+    clamped on it (see the tests above).
+    """
+    assert _commit_probe(_PROBE_START, None).early_start == date(2026, 1, 14)
+    assert _commit_probe(start, snet).early_start == expected

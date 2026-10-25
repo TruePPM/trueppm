@@ -490,7 +490,8 @@ def _random_progress_project(rng: random.Random) -> RefProject:
     progress: dict[str, RefProgress] = {}
     for tid, dur in durations.items():
         if rng.random() < 0.25:
-            planned_start[tid] = day(-3, 12)
+            # Three weeks before the start, as in progress_projects (#4635).
+            planned_start[tid] = day(-21, 12)
         state = rng.choice(("none", "none", "started", "done", "done_recorded"))
         if state == "started":
             pct = 0.0 if dur == 0 else rng.choice((0.0, 20.0, 50.0, 80.0))
@@ -508,7 +509,7 @@ def _random_progress_project(rng: random.Random) -> RefProject:
             progress[tid] = RefProgress(
                 percent_complete=pct, actual_start=started, actual_finish=finish
             )
-    status_date = day(-3, 8) if rng.random() < 0.5 else None
+    status_date = day(-21, 8) if rng.random() < 0.5 else None
     return RefProject(
         start=start,
         durations=durations,

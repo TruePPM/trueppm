@@ -94,10 +94,11 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   successor's.
 * **Floors.** Live work and live milestones are floored at the data date and at
   an SNET (``planned_start``), each snapped to a working-day start on the task's
-  own calendar, and at the project start as above. A data date or SNET that snaps
-  to a day at or before the project start is no floor at all (#4635, the package
-  README): it is the project-start floor, which an SF-linked task and a milestone's
-  link instant do not take. A recorded ``actual_start`` is
+  own calendar, and at the project start as above. A data date that snaps to a
+  day at or before the project start is no floor at all, and neither is such an
+  SNET on a task with no SF link (#4635, the package README): it is the
+  project-start floor, which an SF-linked task and a milestone's link instant do
+  not take. An SF-linked task's SNET binds wherever it falls. A recorded ``actual_start`` is
   a floor kept **verbatim**, even on a non-working day; when it is the latest
   floor the task's window opens there and its first working day is the one after
   (#4332).
@@ -573,13 +574,21 @@ def _needs(
 
 def _snapped_floors(project: RefProject, tid: str) -> list[date]:
     """The floors that bind ``tid`` beyond the project start and its actual start: the
-    data date and an SNET, each the start of a working day on its own calendar, and
-    each only when that day is after the project start's (#4635)."""
+    data date and an SNET, each the start of a working day on its own calendar. The
+    data date binds only when that day is after the project start's, and so does the
+    SNET of a task with no SF link (#4635)."""
     cal = project.calendar_of(tid)
     base = start_at_or_after(project.start, cal)
-    raw = [project.status_date, project.planned_start.get(tid)]
-    snapped = [start_at_or_after(d, cal) for d in raw if d is not None]
-    return [d for d in snapped if d > base]
+    out = []
+    if project.status_date is not None:
+        data_date = start_at_or_after(project.status_date, cal)
+        if data_date > base:
+            out.append(data_date)
+    if tid in project.planned_start:
+        snet = start_at_or_after(project.planned_start[tid], cal)
+        if snet > base or _sf_linked(project, tid):
+            out.append(snet)
+    return out
 
 
 def _forward_task(

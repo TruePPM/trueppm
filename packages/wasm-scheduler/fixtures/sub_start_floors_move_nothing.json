@@ -1,6 +1,6 @@
 {
   "id": "p-sub-start-floor",
-  "name": "A data date and SNETs before the project start move nothing (#4635): every task lands where the same network with neither puts it",
+  "name": "A data date before the project start, and pre-start SNETs on tasks with no SF link, move nothing (#4635): every task lands where the same network with neither puts it",
   "start_date": "2026-02-02",
   "status_date": "2026-01-15",
   "tasks": [
@@ -95,9 +95,8 @@
     },
     {
       "id": "KS",
-      "name": "KS: SF-linked milestone with a pre-start SNET",
-      "duration": 0.0,
-      "planned_start": "2026-01-28"
+      "name": "KS: SF-linked milestone, held by nothing but the pre-start data date",
+      "duration": 0.0
     },
     {
       "id": "AS",
@@ -111,9 +110,8 @@
     },
     {
       "id": "B",
-      "name": "B: SF-linked work with a pre-start SNET",
-      "duration": 432000.0,
-      "planned_start": "2026-01-27"
+      "name": "B: SF-linked work, held by nothing but the pre-start data date",
+      "duration": 432000.0
     },
     {
       "id": "C",

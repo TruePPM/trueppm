@@ -1493,10 +1493,6 @@ def test_total_float_is_the_slip_the_finish_absorbs(p: Project) -> None:
             shifted = copy.deepcopy(p)
             pinned = next(x for x in shifted.tasks if x.id == t.id)
             pinned.planned_start = _advance_working_days(t.early_start, slip, p.calendar)
-            if pinned.planned_start <= _next_working_day(p.start_date, p.calendar):
-                # An SNET at or before the project start is no floor (#4635), so it
-                # cannot express a slip of an SF-linked task placed before the start.
-                continue
             finish_moved = schedule(shifted).project_finish != result.project_finish
             moved = finish_moved or (moves and position(shifted) != base_position)
             assert moved is moves, (t.id, tf, slip)
@@ -1678,8 +1674,6 @@ def test_free_float_is_the_slip_every_successor_absorbs(p: Project) -> None:
     open-issue placeholder this test carried before the two branches were combined
     is resolved, and both directions hold unconditionally.
     """
-    from trueppm_scheduler.engine import _next_working_day
-
     result = schedule(p)
     has_successor = {d.predecessor_id for d in p.dependencies}
     for t in result.tasks:
@@ -1692,10 +1686,6 @@ def test_free_float_is_the_slip_every_successor_absorbs(p: Project) -> None:
             shifted = copy.deepcopy(p)
             pinned = next(x for x in shifted.tasks if x.id == t.id)
             pinned.planned_start = _advance_working_days(t.early_start, slip, p.calendar)
-            if pinned.planned_start <= _next_working_day(p.start_date, p.calendar):
-                # An SNET at or before the project start is no floor (#4635), so it
-                # cannot express a slip of an SF-linked task placed before the start.
-                continue
             after = _by_id(shifted)
             moved = any(
                 _early_position(after[x.id]) != _early_position(x)
