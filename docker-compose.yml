@@ -80,7 +80,9 @@ services:
     image: trueppm-api:local
     command: >
       sh -c "
-        export JWT_SIGNING_KEY=$$(python -c 'import secrets; print(secrets.token_urlsafe(48))') &&
+        K=$$(python -c 'import secrets; print(secrets.token_urlsafe(48))') &&
+        [ -n \"$$K\" ] &&
+        export JWT_SIGNING_KEY=\"$$K\" &&
         until python manage.py migrate --noinput; do
           echo 'DB not ready yet (DNS or connection), retrying in 2s...';
           sleep 2;
@@ -95,9 +97,12 @@ services:
       TRUEPPM_ALLOW_DEV_SETTINGS: "1"
       SECRET_KEY: dev-secret-key-change-in-prod
       # JWT_SIGNING_KEY is NOT set here: the command above generates a random
-      # one per container start (#4648), so an access token cannot be forged
-      # from the public SECRET_KEY. Restarting the api container signs everyone
-      # out. celery/celery-beat never sign or verify JWTs.
+      # one per container start (#4648), so a JWT cannot be forged from the
+      # public SECRET_KEY, and the container refuses to start if generation
+      # fails. SECRET_KEY itself is STILL public (Django sessions and CSRF
+      # signing use it): this closes token forgery, not the whole key problem,
+      # which is why the ports stay on loopback. Restarting the api container
+      # signs everyone out. celery/celery-beat never sign or verify JWTs.
       TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
       STATIC_ROOT: /app/staticfiles
       # Prepend the bind-mounted source so uvicorn --reload picks up changes
