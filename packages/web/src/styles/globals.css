@@ -423,7 +423,7 @@
      does), so no @media guard needed here. */
   @keyframes milestone-pulse {
     0%   { r: 0;  opacity: 0.7; }
-    100% { r: 24; opacity: 0;   }
+    100% { r: 24px; opacity: 0;  }
   }
   .animate-milestone-pulse {
     animation: milestone-pulse 1.5s ease-out forwards;
