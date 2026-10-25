@@ -288,7 +288,7 @@ writes will get a transient `500` from any request landing on an old pod:
   `Project.agile_features` / `HistoricalProject.agile_features` outright
   (#2025), with no deprecation window and no migration docstring. `Project`
   and `HistoricalProject` reads happen on nearly every authenticated request
-  path, so this has the broadest blast radius of the three — but no data-loss
+  path, so this has the broadest blast radius of the four — but no data-loss
   concern: the field is re-exposed as a derived, read-only
   `SerializerMethodField` (`ProjectSerializer.get_agile_features`), so this is
   dead-column removal, not a feature regression. What is missing is purely the
