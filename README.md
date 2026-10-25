@@ -60,6 +60,8 @@ cd trueppm
 docker compose up -d
 ```
 
+> **This is a local development stack, bound to localhost** (`127.0.0.1:8000` and `:5173`). It runs with `DEBUG` on and relaxed permissions, so do not expose it to a network. To reach TruePPM from another machine, use `docker-compose.prod.yml` or Helm, not `TRUEPPM_DEV_BIND_ADDR=0.0.0.0` (that variable publishes the dev stack on every interface and exists only for isolated CI hosts).
+
 Migrations and admin bootstrap run automatically on first startup (~20 seconds). Then load the bundled Atlas sample program, with persona logins:
 
 ```bash

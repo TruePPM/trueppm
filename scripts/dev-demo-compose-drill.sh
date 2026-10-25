@@ -259,6 +259,12 @@ if [ "${DRILL_MODE}" = "dev" ]; then
   # only-plumbing reasoning as the demo leg's ALLOWED_HOSTS export below.
   export DEV_SERVER_ALLOWED_HOSTS="${PROBE_HOST}"
 
+  # docker-compose.yml publishes api/web on 127.0.0.1 by default (#4648). The
+  # drill reaches them through the dind service (PROBE_HOST), where a loopback
+  # publish is unreachable from this job container, so bind all interfaces on
+  # the isolated, throwaway dind daemon only.
+  export TRUEPPM_DEV_BIND_ADDR=0.0.0.0
+
   log "booting the unmodified dev stack (docker compose up -d --build)"
   compose up -d --build
 
