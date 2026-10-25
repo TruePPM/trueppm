@@ -143,3 +143,55 @@ def test_cli_flag_and_env_plumbing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_env_name_is_documented() -> None:
     assert ENV_ALLOWED_HOSTS == "TRUEPPM_MCP_ALLOWED_HOSTS"
+
+
+def test_ipv6_bind_host_is_bracketed() -> None:
+    ts = build_transport_security("fd00::5", 9000, [])
+    assert "[fd00::5]:9000" in ts.allowed_hosts
+    assert "http://[fd00::5]:9000" in ts.allowed_origins
+    assert "fd00::5:9000" not in ts.allowed_hosts
+
+
+def test_ipv6_allowed_host_literal_bare_or_bracketed() -> None:
+    for given in ("fd00::7", "[fd00::7]"):
+        ts = build_transport_security("0.0.0.0", 8000, [given])
+        assert "[fd00::7]" in ts.allowed_hosts
+        assert "[fd00::7]:*" in ts.allowed_hosts
+        assert "https://[fd00::7]" in ts.allowed_origins
+
+
+async def test_ipv6_host_header_validates() -> None:
+    ts = build_transport_security("fd00::5", 9000, [])
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "headers": [(b"host", b"[fd00::5]:9000"), (b"content-type", b"application/json")],
+        }
+    )
+    assert await TransportSecurityMiddleware(ts).validate_request(request, is_post=True) is None
+
+
+async def test_portless_loopback_host_accepted() -> None:
+    assert await _validate("localhost") is None
+    assert await _validate("127.0.0.1", "http://127.0.0.1") is None
+
+
+async def test_sse_app_rejects_foreign_host(settings: Settings) -> None:
+    client = TruePPMClient(settings)
+    try:
+        app = build_server(client, host="0.0.0.0").sse_app()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://x",
+        ) as http:
+            bad = await http.get("/sse", headers={"host": "evil.example"})
+            bad_post = await http.post(
+                "/messages/?session_id=0" + "0" * 31,
+                json={},
+                headers={"host": "evil.example", "content-type": "application/json"},
+            )
+        assert bad.status_code == 421
+        assert bad_post.status_code == 421
+    finally:
+        await client.aclose()

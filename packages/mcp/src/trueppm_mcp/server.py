@@ -24,8 +24,17 @@ SERVER_NAME = "trueppm"
 ENV_ALLOWED_HOSTS = "TRUEPPM_MCP_ALLOWED_HOSTS"
 
 #: Loopback ``Host`` / ``Origin`` values always accepted (any port).
-_LOOPBACK_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
-_LOOPBACK_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+#: The SDK's ``:*`` pattern needs a port in the header, so the portless forms
+#: (a client on port 80 sends ``Host: localhost``) are listed explicitly.
+_LOOPBACK_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*", "127.0.0.1", "localhost", "[::1]"]
+_LOOPBACK_ORIGINS = [
+    "http://127.0.0.1:*",
+    "http://localhost:*",
+    "http://[::1]:*",
+    "http://127.0.0.1",
+    "http://localhost",
+    "http://[::1]",
+]
 
 #: Bind addresses that name "every interface" rather than a reachable hostname.
 _WILDCARD_BINDS = {"0.0.0.0", "::", ""}  # noqa: S104
@@ -34,6 +43,12 @@ _WILDCARD_BINDS = {"0.0.0.0", "::", ""}  # noqa: S104
 def parse_allowed_hosts(raw: str | None) -> list[str]:
     """Split a comma-separated host list (the env-var form), dropping blanks."""
     return [h.strip() for h in (raw or "").split(",") if h.strip()]
+
+
+def _authority(host: str) -> str:
+    """Return ``host`` as it appears in a Host/Origin header (IPv6 literals bracketed)."""
+    bare = host.strip("[]")
+    return f"[{bare}]" if ":" in bare else bare
 
 
 def build_transport_security(
@@ -50,9 +65,10 @@ def build_transport_security(
     hosts = list(_LOOPBACK_HOSTS)
     origins = list(_LOOPBACK_ORIGINS)
     if host not in _WILDCARD_BINDS and host not in ("127.0.0.1", "localhost", "::1"):
-        hosts.append(f"{host}:{port}")
-        origins.append(f"http://{host}:{port}")
-    for name in allowed_hosts:
+        hosts.append(f"{_authority(host)}:{port}")
+        origins.append(f"http://{_authority(host)}:{port}")
+    for raw in allowed_hosts:
+        name = _authority(raw)
         hosts.extend([name, f"{name}:*"])
         for scheme in ("http", "https"):
             origins.extend([f"{scheme}://{name}", f"{scheme}://{name}:*"])
