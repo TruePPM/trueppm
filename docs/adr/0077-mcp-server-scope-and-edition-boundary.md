@@ -99,7 +99,7 @@ for a path absent from `openapi.json`, so the schema is the single source of tru
 tool surface. Enterprise tools wrapping Enterprise-only endpoints register through the
 backend `MCP_TOOL_PROVIDERS` registry (§G), not through this OSS schema walk.
 
-**Project / task** (scope `project:read`): `list_projects`, `get_project`, `list_tasks` (filters: status/assignee/sprint/blocked/project), `get_task`, `list_my_tasks`, `get_my_blockers` (response includes blocker assignee + deep link).
+**Project / task** (scope `project:read`): `list_projects`, `get_project`, `list_tasks` (filters: status/assignee/sprint/blocked/project; *superseded in part by ADR-0186 / #4637: `assignee` and `blocked` are not `list_tasks` filters*), `get_task`, `list_my_tasks`, `get_my_blockers` (response includes blocker assignee + deep link).
 
 **Schedule** (scope `project:read`): `get_schedule_summary` — CPM critical path, milestones, slipping tasks.
 
