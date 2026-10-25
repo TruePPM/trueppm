@@ -177,7 +177,7 @@ Uploads a WatermelonDB-shaped delta batch (ADR-0082). The request body is an env
 - **Writable surface** — only the `tasks` collection may be uploaded in v1; any other collection key is rejected with 400. All other mutations go via REST.
 - **Idempotent replay** — `client_batch_id` is a client-generated UUID. The first request to apply the batch records it and its response atomically; a retry carrying the same id (within the retention window, default 24 hours) replays the stored response without re-applying. Safe against flaky mobile networks.
 - **All-or-nothing** — the whole batch applies inside one transaction. A row that fails validation or RBAC rejects the entire batch.
-- **Same rules as REST** — apply reuses the same serializer as `PATCH /tasks/{id}/`, so an upload can never do something the caller could not do over REST. Requires at least the Team Member role; archived projects are rejected.
+- **Same rules as REST** — apply reuses the same serializer as `PATCH /tasks/{id}/`, so an upload can never do something the caller could not do over REST. Requires at least the Team Member role; archived projects are rejected. Creating a row additionally requires the plan-authoring rule REST `POST /tasks/` applies, so a Scheduler-role caller (who can create nothing over REST either) gets a 403 and the whole batch is rolled back.
 - **Conflict resolution** — plain last-writer-wins; each row is applied unconditionally and `server_version` is bumped.
 - **Limits** — the POST path is rate-throttled, and a batch is capped at 500 rows by default (`TRUEPPM_SYNC_BATCH_MAX_ROWS`).
 

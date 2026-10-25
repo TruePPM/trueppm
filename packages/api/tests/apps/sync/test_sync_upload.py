@@ -398,6 +398,60 @@ def test_scheduler_cannot_edit_task_content(project: Project) -> None:
 
 
 @pytest.mark.django_db
+def test_scheduler_cannot_create_task_via_sync(project: Project) -> None:
+    """Sync create applies REST create's IsProjectPlanAuthor rule (#4466).
+
+    The Scheduler band clears the endpoint's ``>= MEMBER`` floor but is refused task
+    content, so a create it could push would commit a row it can never edit or delete
+    (the half-authored plan, ADR-0773). The refusal is a 403 and nothing survives:
+    no Task row and no SyncBatch envelope. The batch carries a create ONLY — a rider
+    update would be refused on its own (the band cannot edit content) and make the
+    rollback assertion pass for the wrong reason, which is how the first draft of
+    this test went green before the fix.
+    """
+    sched = User.objects.create_user(username="sched_create", password="pw")
+    _make_membership(project, sched, Role.SCHEDULER)
+    new_id = str(uuid.uuid4())
+    c = APIClient()
+    c.force_authenticate(user=sched)
+    resp = c.post(
+        _url(project),
+        _payload(created=[{"id": new_id, "name": "Half-authored"}]),
+        format="json",
+    )
+    assert resp.status_code == 403
+    assert not Task.objects.filter(pk=new_id).exists()
+    assert not SyncBatch.objects.exists()
+
+
+@pytest.mark.django_db
+def test_viewer_cannot_create_task_via_sync(project: Project) -> None:
+    viewer = User.objects.create_user(username="viewer_create", password="pw")
+    _make_membership(project, viewer, Role.VIEWER)
+    new_id = str(uuid.uuid4())
+    c = APIClient()
+    c.force_authenticate(user=viewer)
+    resp = c.post(_url(project), _payload(created=[{"id": new_id, "name": "Nope"}]), format="json")
+    assert resp.status_code == 403
+    assert not Task.objects.filter(pk=new_id).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.ADMIN])
+def test_plan_authoring_roles_can_create_task_via_sync(project: Project, role: int) -> None:
+    author = User.objects.create_user(username=f"author_{role}", password="pw")
+    _make_membership(project, author, role)
+    new_id = str(uuid.uuid4())
+    c = APIClient()
+    c.force_authenticate(user=author)
+    resp = c.post(
+        _url(project), _payload(created=[{"id": new_id, "name": "Authored"}]), format="json"
+    )
+    assert resp.status_code == 200
+    assert Task.objects.filter(pk=new_id).exists()
+
+
+@pytest.mark.django_db
 def test_scheduler_cannot_delete_task(project: Project) -> None:
     sched = User.objects.create_user(username="sched2", password="pw")
     _make_membership(project, sched, Role.SCHEDULER)

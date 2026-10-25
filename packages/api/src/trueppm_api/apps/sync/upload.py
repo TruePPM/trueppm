@@ -38,7 +38,7 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
-from trueppm_api.apps.access.permissions import can_user_edit_task
+from trueppm_api.apps.access.permissions import can_user_author_plan, can_user_edit_task
 from trueppm_api.apps.projects.models import (
     Task,
     resync_structural_parent_after_delete,
@@ -357,10 +357,17 @@ def _apply_created_row(
         maybe_record_scope_injection(task, old_sprint_id, ctx.request.user)
         result.events.append(("task_updated", str(task.pk)))
     else:
-        # New row. role >= MEMBER (the endpoint gate) is the create bar,
-        # matching TaskViewSet create (IsProjectMemberWrite). project is
-        # injected from the URL (not the client row, which is stripped) so a
-        # push can never create into a different project.
+        # New row. The endpoint's role >= MEMBER floor is NOT the create bar: REST
+        # create carries IsProjectPlanAuthor alongside IsProjectMemberWrite (#3034,
+        # ADR-0773), which refuses the Scheduler band (and any Enterprise role in the
+        # 2xx band). Admitting it here would commit a row the caller can never edit or
+        # delete (the can_user_edit_task refusal on the other two buckets). The same
+        # predicate REST uses is called so custom roles get an identical answer, and
+        # the PermissionDenied rolls the whole batch back (all-or-nothing). project is
+        # injected from the URL (not the client row, which is stripped) so a push can
+        # never create into a different project.
+        if not can_user_author_plan(ctx.request, ctx.project):
+            raise PermissionDenied("Your role on this project cannot author the plan.")
         data = _content(row)
         data["project"] = ctx.project.pk
         ser = TaskSerializer(data=data, context=ctx.serializer_context)
