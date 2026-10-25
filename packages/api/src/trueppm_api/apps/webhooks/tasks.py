@@ -9,7 +9,7 @@ import logging
 import urllib.error
 import urllib.request
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
@@ -22,8 +22,8 @@ from trueppm_api.apps.integrations.encryption import CredentialEncryptionError
 from trueppm_api.apps.integrations.http import (
     EgressBlocked,
     EgressError,
-    NoRedirectHandler,
     assert_url_allowed,
+    build_guarded_opener,
 )
 from trueppm_api.core.idempotent import idempotent_task
 
@@ -47,10 +47,11 @@ _BACKOFF_BASE = 30
 # Redirect-disabled opener (#808). The default urllib opener follows 3xx
 # responses to arbitrary destinations, which would let a malicious receiver
 # bounce a signed webhook payload at a private/loopback/cloud-metadata host
-# *after* assert_url_allowed has validated the original URL. We share the same
-# no-redirect handler used by the integrations SSRF chokepoint so the guard is
-# implemented once.
-_no_redirect_opener = urllib.request.build_opener(NoRedirectHandler)
+# *after* assert_url_allowed has validated the original URL. The opener is the
+# integrations chokepoint's guarded opener, which also re-checks the connected
+# peer address at connect time so a DNS-rebinding answer between the pre-flight
+# and the connection is refused (#3849); the guard is implemented once.
+_no_redirect_opener = build_guarded_opener()
 
 # 4xx statuses that are nonetheless worth retrying (#2884). Everything else in
 # the 4xx range is a *permanent* client error — the request itself is wrong, so
@@ -293,6 +294,34 @@ def _retry_or_dead_letter(
     ) from None
 
 
+def _fail_ssrf_blocked(
+    task: Any, delivery: WebhookDelivery, webhook: Webhook, exc: Exception
+) -> None:
+    """Park a delivery the SSRF guard refused, at pre-flight or at connect time."""
+    # Permanent: a private/loopback/bad-scheme URL will never be deliverable.
+    logger.warning(
+        "deliver_webhook: delivery %s blocked by SSRF guard: %s",
+        delivery.pk,
+        exc,
+    )
+    _fail_delivery(
+        task,
+        delivery,
+        webhook,
+        reason="Blocked by the SSRF egress guard (URL resolves to a "
+        "private, loopback, or link-local address)",
+        extra_fields=("attempt_count",),
+        # Kept out of the auto-disable counter: assert_url_allowed re-resolves
+        # DNS on every delivery, so anyone with influence over how the receiver's
+        # hostname resolves — a dynamic-DNS receiver, a poisoned resolver, a
+        # momentary RFC1918 answer — could otherwise deactivate an admin's
+        # integration in five resolution windows. The block itself still stands
+        # (the delivery is refused and parked); it just is not evidence about the
+        # receiver's health.
+        count_against_guard=False,
+    )
+
+
 @shared_task(  # type: ignore[untyped-decorator]
     bind=True,
     max_retries=_MAX_RETRIES,
@@ -383,28 +412,7 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     try:
         assert_url_allowed(webhook.url)
     except EgressBlocked as exc:
-        # Permanent: a private/loopback/bad-scheme URL will never be deliverable.
-        logger.warning(
-            "deliver_webhook: delivery %s blocked by SSRF guard: %s",
-            delivery.pk,
-            exc,
-        )
-        _fail_delivery(
-            self,
-            delivery,
-            webhook,
-            reason="Blocked by the SSRF egress guard (URL resolves to a "
-            "private, loopback, or link-local address)",
-            extra_fields=("attempt_count",),
-            # Kept out of the auto-disable counter: assert_url_allowed re-resolves
-            # DNS on every delivery, so anyone with influence over how the receiver's
-            # hostname resolves — a dynamic-DNS receiver, a poisoned resolver, a
-            # momentary RFC1918 answer — could otherwise deactivate an admin's
-            # integration in five resolution windows. The block itself still stands
-            # (the delivery is refused and parked); it just is not evidence about the
-            # receiver's health.
-            count_against_guard=False,
-        )
+        _fail_ssrf_blocked(self, delivery, webhook, exc)
         return
     except EgressError as exc:
         # Host did not resolve — transient, treated like any network error: retry.
@@ -468,6 +476,11 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
             status_code = resp.status
     except urllib.error.HTTPError as exc:
         status_code = exc.code
+    except EgressBlocked as exc:
+        # The connect-time peer check refused a rebinding answer (#3849): same
+        # permanent, guard-neutral outcome as the pre-flight refusal.
+        _fail_ssrf_blocked(self, delivery, webhook, exc)
+        return
     except (urllib.error.URLError, OSError) as exc:
         # Network error — retry.
         logger.warning(

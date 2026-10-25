@@ -13,10 +13,20 @@ time-bounded, redirect-disabled GET with a capped response body. Both #677 and
 #637 route through it so the guard is implemented and tested once.
 
 The guard resolves the hostname and checks **every** returned address — a host
-with one public and one private A record is rejected. A residual DNS-rebinding
-TOCTOU window (re-resolution between check and connect) is accepted for the OSS
-tier; pinning the connection to the validated IP would break TLS SNI / cert
-validation and is an Enterprise hardening item (ADR-0049 §6).
+with one public and one private A record is rejected. That pre-flight check
+alone is resolve-then-reconnect: the connection performs its own lookup, so a
+low-TTL record could answer the check with a public address and the connect with
+``169.254.169.254``. The connection layer therefore re-checks the address the
+socket is *actually connected to* (``getpeername()``) after the TCP handshake and
+before TLS or any request byte (:func:`build_guarded_opener`), which closes the
+DNS-rebinding window without rewriting the URL (the hostname — and so SNI and
+certificate verification — is untouched). Every urllib-based egress caller must
+use that opener; webhook delivery shares it.
+
+**Proxies.** The guarded opener ignores ``HTTP_PROXY`` / ``HTTPS_PROXY``. Through
+a forward proxy the socket's peer is the proxy, not the target, so the connect
+-time check could neither see nor police the real destination (and would reject a
+private proxy address). Egress is therefore always direct.
 
 **Operator allow-list (ADR-0590).** A self-hoster who runs an identity provider
 *inside the same cluster* has an OIDC issuer that resolves to a private ClusterIP
@@ -36,6 +46,7 @@ trust, documented for operators alongside the setting.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
 import socket
@@ -212,7 +223,102 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_opener = urllib.request.build_opener(NoRedirectHandler)
+def _peer_ip(sock: socket.socket) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Return the connected peer's IP, or ``None`` if the socket has no peer."""
+    try:
+        addr = sock.getpeername()[0]
+    except OSError:
+        return None
+    # Strip an IPv6 zone id (``fe80::1%eth0``) that ip_address() rejects.
+    try:
+        return ipaddress.ip_address(str(addr).split("%", 1)[0])
+    except ValueError:
+        return None
+
+
+_DEFAULT_SOCKET_TIMEOUT = socket.getdefaulttimeout()
+
+
+def _guarded_create_connection(
+    address: tuple[str, int],
+    timeout: Any = _DEFAULT_SOCKET_TIMEOUT,
+    source_address: tuple[str, int] | None = None,
+) -> socket.socket:
+    """``socket.create_connection`` that refuses a non-public connected peer.
+
+    The pre-flight :func:`assert_url_allowed` and the connect each resolve the
+    name, so only the peer the kernel actually connected to is authoritative
+    (DNS-rebinding, #3849). Runs right after the TCP handshake — before the TLS
+    wrap and before any request byte is written. An operator-allow-listed host
+    (ADR-0590, exact match, same rule as :func:`assert_url_allowed`) is exempt.
+    """
+    host = address[0]
+    sock = socket.create_connection(address, timeout, source_address)
+    if host.lower().strip("[]") in _allowlisted_hosts():
+        return sock
+    ip = _peer_ip(sock)
+    if ip is None or _is_blocked_ip(ip):
+        sock.close()
+        raise EgressBlocked(f"host {host!r} connected to a non-public address")
+    return sock
+
+
+class _GuardedHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection whose connected peer is deny-list checked (#3849)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _guarded_create_connection
+
+
+class _GuardedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection whose peer is checked before the TLS handshake.
+
+    ``HTTPSConnection.connect`` calls the parent ``connect`` (which uses
+    ``_create_connection``) and then wraps with ``server_hostname=self.host``, so
+    SNI and certificate hostname verification keep using the original name.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _guarded_create_connection
+
+
+class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(_GuardedHTTPConnection, req)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(_GuardedHTTPSConnection, req, context=self._context)  # type: ignore[attr-defined]
+
+
+def build_guarded_opener() -> urllib.request.OpenerDirector:
+    """Build the one opener every user-controlled-URL egress call must use.
+
+    Redirects disabled, env proxies ignored (see module docstring) and the
+    connected peer re-checked at connect time. A refused peer surfaces as
+    ``URLError(EgressBlocked)`` from ``open`` — use :func:`blocked_reason` to
+    recognize it.
+    """
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        NoRedirectHandler,
+        _GuardedHTTPHandler,
+        _GuardedHTTPSHandler,
+    )
+
+
+def blocked_reason(exc: BaseException) -> EgressBlocked | None:
+    """Return the :class:`EgressBlocked` wrapped in a urllib error, if any."""
+    if isinstance(exc, EgressBlocked):
+        return exc
+    reason = getattr(exc, "reason", None)
+    return reason if isinstance(reason, EgressBlocked) else None
+
+
+_opener = build_guarded_opener()
 
 
 def assert_url_allowed(url: str) -> None:
@@ -341,10 +447,15 @@ def get(
     except TimeoutError as exc:
         raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
     except urllib.error.URLError as exc:
+        blocked = blocked_reason(exc)
+        if blocked is not None:
+            raise blocked from exc
         # URLError wraps socket.timeout on some platforms.
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
         raise EgressError(f"request to {url!r} failed: {exc.reason}") from exc
+    except EgressBlocked:
+        raise
     except OSError as exc:
         raise EgressError(f"request to {url!r} failed: {exc}") from exc
 
@@ -396,8 +507,13 @@ def post_form(
     except TimeoutError as exc:
         raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
     except urllib.error.URLError as exc:
+        blocked = blocked_reason(exc)
+        if blocked is not None:
+            raise blocked from exc
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
         raise EgressError(f"request to {url!r} failed: {exc.reason}") from exc
+    except EgressBlocked:
+        raise
     except OSError as exc:
         raise EgressError(f"request to {url!r} failed: {exc}") from exc
