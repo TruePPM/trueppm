@@ -23,10 +23,13 @@ DNS-rebinding window without rewriting the URL (the hostname — and so SNI and
 certificate verification — is untouched). Every urllib-based egress caller must
 use that opener; webhook delivery shares it.
 
-**Proxies.** The guarded opener ignores ``HTTP_PROXY`` / ``HTTPS_PROXY``. Through
-a forward proxy the socket's peer is the proxy, not the target, so the connect
--time check could neither see nor police the real destination (and would reject a
-private proxy address). Egress is therefore always direct.
+**Proxies.** The opener honors ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY``
+through urllib's normal ``ProxyHandler``. A request that goes **direct** gets the
+connect-time peer check. A request that goes **through a proxy** gets only the
+resolve-time pre-flight (:func:`assert_url_allowed`, advisory): the connected
+peer is the proxy, which does the resolving and is the real egress control, so
+checking it would be meaningless (and would reject a private proxy address). A
+one-time WARNING is logged when a proxied request is first made.
 
 **Operator allow-list (ADR-0590).** A self-hoster who runs an identity provider
 *inside the same cluster* has an OIDC issuer that resolves to a private ClusterIP
@@ -49,6 +52,7 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import json
+import logging
 import socket
 import urllib.error
 import urllib.parse
@@ -56,6 +60,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # Synchronous, request-cycle calls — the user is staring at a spinner. Short
 # by design; 5s is the ADR-0049 §3 budget for the refresh endpoint.
@@ -284,26 +290,53 @@ class _GuardedHTTPSConnection(http.client.HTTPSConnection):
         self._create_connection = _guarded_create_connection
 
 
+_proxy_warned = False
+
+
+def _is_proxied(req: urllib.request.Request) -> bool:
+    """True if urllib's ProxyHandler rerouted ``req`` through a proxy."""
+    return req.has_proxy() or getattr(req, "_tunnel_host", None) is not None
+
+
+def _note_proxied() -> None:
+    global _proxy_warned
+    if not _proxy_warned:
+        _proxy_warned = True
+        logger.warning(
+            "Outbound request is going through a proxy (HTTP_PROXY/HTTPS_PROXY): the "
+            "connected-IP SSRF guard does not apply behind a proxy; only the resolve-time "
+            "pre-flight does. The proxy must enforce egress policy."
+        )
+
+
 class _GuardedHTTPHandler(urllib.request.HTTPHandler):
     def http_open(self, req: urllib.request.Request) -> Any:
+        if _is_proxied(req):
+            _note_proxied()
+            return self.do_open(http.client.HTTPConnection, req)
         return self.do_open(_GuardedHTTPConnection, req)
 
 
 class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
     def https_open(self, req: urllib.request.Request) -> Any:
-        return self.do_open(_GuardedHTTPSConnection, req, context=self._context)  # type: ignore[attr-defined]
+        ctx = self._context  # type: ignore[attr-defined]
+        if _is_proxied(req):
+            _note_proxied()
+            return self.do_open(http.client.HTTPSConnection, req, context=ctx)
+        return self.do_open(_GuardedHTTPSConnection, req, context=ctx)
 
 
 def build_guarded_opener() -> urllib.request.OpenerDirector:
     """Build the one opener every user-controlled-URL egress call must use.
 
-    Redirects disabled, env proxies ignored (see module docstring) and the
-    connected peer re-checked at connect time. A refused peer surfaces as
-    ``URLError(EgressBlocked)`` from ``open`` — use :func:`blocked_reason` to
-    recognize it.
+    Redirects disabled; env proxies honored (see module docstring); direct
+    connections have their connected peer re-checked at connect time. A refused
+    peer raises :class:`EgressBlocked` out of ``open`` *unwrapped* — it is not an
+    ``OSError``, so urllib's ``do_open`` does not convert it to ``URLError``.
+    Proxy settings are read from the environment when this is called.
     """
     return urllib.request.build_opener(
-        urllib.request.ProxyHandler({}),
+        urllib.request.ProxyHandler(),
         NoRedirectHandler,
         _GuardedHTTPHandler,
         _GuardedHTTPSHandler,
@@ -311,7 +344,11 @@ def build_guarded_opener() -> urllib.request.OpenerDirector:
 
 
 def blocked_reason(exc: BaseException) -> EgressBlocked | None:
-    """Return the :class:`EgressBlocked` wrapped in a urllib error, if any."""
+    """Return ``exc`` if it is an :class:`EgressBlocked`, or one wrapped as ``.reason``.
+
+    Defensive: the guarded connection's refusal normally propagates unwrapped,
+    but a caller may hold a ``URLError`` whose ``reason`` carries it.
+    """
     if isinstance(exc, EgressBlocked):
         return exc
     reason = getattr(exc, "reason", None)

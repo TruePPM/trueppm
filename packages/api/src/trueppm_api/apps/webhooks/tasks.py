@@ -405,10 +405,11 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     # SSRF guard (ADR-0049 §3): Webhook.url is configured by a project admin —
     # an RBAC role, not an infra operator — so outbound delivery is untrusted
     # egress. Re-resolve and reject private / loopback / link-local targets at
-    # delivery time (not only at registration) to close the DNS-rebinding
-    # window, reusing the same chokepoint as the integrations PAT / git-link
-    # calls. Without this, an admin could point a webhook at 169.254.169.254
-    # (cloud metadata) or an RFC1918 cluster service.
+    # delivery time (not only at registration) as a fast, advisory check. It
+    # does NOT close DNS-rebinding by itself — the delivery opener's connect-time
+    # peer check does, for direct egress (#3849). Same chokepoint as the
+    # integrations PAT / git-link calls. Without this, an admin could point a
+    # webhook at 169.254.169.254 (cloud metadata) or an RFC1918 cluster service.
     try:
         assert_url_allowed(webhook.url)
     except EgressBlocked as exc:

@@ -188,20 +188,123 @@ def test_allowlist_is_not_widened_to_lookalike_at_connect(
     assert bytes(internal_server.received) == b""
 
 
-def test_env_proxy_is_ignored(
+def _proxied_opener(monkeypatch: pytest.MonkeyPatch, proxy_port: int, no_proxy: str = "") -> Any:
+    for k in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"):
+        monkeypatch.setenv(k, f"http://127.0.0.1:{proxy_port}")
+    monkeypatch.setenv("NO_PROXY", no_proxy)
+    monkeypatch.setenv("no_proxy", no_proxy)
+    return egress.build_guarded_opener()
+
+
+def test_proxy_preflight_still_blocks_literal_private_host(
     internal_server: _LocalServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A proxy env var must not redirect the socket: the peer check needs the real target."""
-    monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{internal_server.port}")
-    monkeypatch.setenv("http_proxy", f"http://127.0.0.1:{internal_server.port}")
-    fake, _ = _rebinding_getaddrinfo(1, first=PUBLIC_IP, then="127.0.0.1")
-    # Connection goes to the (closed) port 1 on the target, not to the proxy.
-    with (
-        patch.object(socket, "getaddrinfo", fake),
-        pytest.raises((egress.EgressError, egress.EgressBlocked)),
-    ):
-        egress.get(f"http://{HOST}:1/", timeout=1)
+    opener = _proxied_opener(monkeypatch, internal_server.port)
+    with patch.object(egress, "_opener", opener), pytest.raises(egress.EgressBlocked):
+        egress.get("http://169.254.169.254/latest/meta-data/")
     assert internal_server.accepted == 0
+
+
+def test_proxy_preflight_blocks_name_resolving_private(
+    internal_server: _LocalServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opener = _proxied_opener(monkeypatch, internal_server.port)
+    fake, _ = _rebinding_getaddrinfo(80, first="10.0.0.5", then="10.0.0.5")
+    with (
+        patch.object(egress, "_opener", opener),
+        patch.object(socket, "getaddrinfo", fake),
+        pytest.raises(egress.EgressBlocked),
+    ):
+        egress.get(f"http://{HOST}/")
+    assert internal_server.accepted == 0
+
+
+def test_proxy_applies_no_peer_check_to_proxy_address(
+    internal_server: _LocalServer,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The proxy (127.0.0.1 here, non-public) is NOT refused; the request reaches it."""
+    opener = _proxied_opener(monkeypatch, internal_server.port)
+    monkeypatch.setattr(egress, "_proxy_warned", False)
+    fake, _ = _rebinding_getaddrinfo(80, first=PUBLIC_IP, then=PUBLIC_IP)
+    with (
+        patch.object(egress, "_opener", opener),
+        patch.object(socket, "getaddrinfo", fake),
+        caplog.at_level("WARNING", logger=egress.logger.name),
+    ):
+        resp = egress.get(f"http://{HOST}/x")
+        egress.get(f"http://{HOST}/y")
+    assert resp.status == 200
+    assert b"GET http://" + HOST.encode() + b"/x" in bytes(internal_server.received)
+    warnings = [r for r in caplog.records if "proxy" in r.getMessage().lower()]
+    assert len(warnings) == 1  # one-time
+
+
+def test_no_proxy_bypass_uses_guarded_direct_path(
+    internal_server: _LocalServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opener = _proxied_opener(monkeypatch, internal_server.port, no_proxy=HOST)
+    fake, _ = _rebinding_getaddrinfo(internal_server.port, first=PUBLIC_IP, then="127.0.0.1")
+    with (
+        patch.object(egress, "_opener", opener),
+        patch.object(socket, "getaddrinfo", fake),
+        pytest.raises(egress.EgressBlocked),
+    ):
+        egress.get(f"http://{HOST}:{internal_server.port}/")
+    assert bytes(internal_server.received) == b""
+
+
+# --- _peer_ip -------------------------------------------------------------------
+
+
+class _FakePeerSock:
+    def __init__(self, peer: Any) -> None:
+        self._peer = peer
+
+    def getpeername(self) -> Any:
+        if isinstance(self._peer, Exception):
+            raise self._peer
+        return self._peer
+
+
+def test_peer_ip_none_for_unconnected_socket() -> None:
+    with socket.socket() as s:
+        assert egress._peer_ip(s) is None
+
+
+def test_unconnected_peer_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    unconnected = socket.socket()
+    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: unconnected)
+    with pytest.raises(egress.EgressBlocked):
+        egress._guarded_create_connection((HOST, 80))
+    assert unconnected.fileno() == -1  # closed
+
+
+def test_peer_ip_strips_ipv6_zone_id() -> None:
+    ip = egress._peer_ip(_FakePeerSock(("fe80::1%eth0", 80, 0, 2)))  # type: ignore[arg-type]
+    assert ip == ipaddress.ip_address("fe80::1")
+    assert egress._is_blocked_ip(ip)
+
+
+def test_peer_ip_ipv4_mapped_from_real_getpeername() -> None:
+    try:
+        srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        srv.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        srv.bind(("::", 0))
+    except OSError:
+        pytest.skip("dual-stack IPv6 unavailable")
+    srv.listen(1)
+    cli = socket.create_connection(("127.0.0.1", srv.getsockname()[1]))
+    conn, _ = srv.accept()
+    try:
+        ip = egress._peer_ip(conn)
+        assert ip == ipaddress.ip_address("::ffff:127.0.0.1")
+        assert egress._is_blocked_ip(ip)
+    finally:
+        conn.close()
+        cli.close()
+        srv.close()
 
 
 # --- HTTPS: SNI / hostname verification survive the peer check -----------------
@@ -341,6 +444,39 @@ def test_https_default_context_rejects_self_signed(tls_server: tuple[_TLSServer,
         _https_get(srv.port, ssl.create_default_context())
 
 
+def test_production_opener_verifies_certificates_by_default(
+    tls_server: tuple[_TLSServer, Path],
+) -> None:
+    """The unmodified ``build_guarded_opener()`` HTTPS path verifies cert + hostname."""
+    srv, _ = tls_server
+    https_handlers = [
+        h
+        for h in egress.build_guarded_opener().handlers
+        if isinstance(h, egress._GuardedHTTPSHandler)
+    ]
+    assert len(https_handlers) == 1
+    conn = egress._GuardedHTTPSConnection(HOST, srv.port, context=None)
+    ctx = conn._context  # type: ignore[attr-defined]
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.check_hostname is True
+    with (
+        patch.object(egress, "_opener", egress.build_guarded_opener()),
+        patch.object(egress, "assert_url_allowed", lambda u: None),
+        patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address(PUBLIC_IP)),
+        patch.object(
+            socket,
+            "getaddrinfo",
+            lambda h, p, *a, **k: (
+                [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", srv.port))]
+                if h == HOST
+                else _real_getaddrinfo(h, p, *a, **k)
+            ),
+        ),
+        pytest.raises(egress.EgressError, match=r"certificate|verify"),
+    ):
+        egress.get(f"https://{HOST}:{srv.port}/", timeout=3)
+
+
 def test_https_rebinding_refused_before_tls_handshake(internal_server: _LocalServer) -> None:
     """The peer is refused after TCP connect and before the TLS ClientHello."""
     fake, _ = _rebinding_getaddrinfo(internal_server.port, first=PUBLIC_IP, then="127.0.0.1")
@@ -388,6 +524,7 @@ def test_webhook_delivery_rebinding_refused_and_not_counted(
     # Guard-neutral: a rebinding answer is not evidence about receiver health.
     delivery.webhook.refresh_from_db()
     assert delivery.webhook.is_active
+    assert delivery.webhook.consecutive_failures == 0
 
 
 @pytest.mark.django_db
