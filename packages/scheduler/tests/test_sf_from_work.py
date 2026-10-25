@@ -410,38 +410,49 @@ def test_floats_stay_consistent_for_a_pre_start_task() -> None:
 
 
 def test_the_data_date_still_floors_an_sf_only_task() -> None:
-    """The data date is not the project start: remaining work is never forecast
-    into the past, so an SF anchor behind it leaves the task late, not early.
+    """The data date is not the project start: once it is past the start, remaining
+    work is never forecast into the past, so an SF anchor behind it leaves the task
+    late, not early.
 
-    With the status date on the project start (the #4218 import fixture's own
-    shape before it was corrected), B is held on Mon 03-02; the finish is then
-    driven by B's duration, not the SF bound.
+    With the status date on Tue 03-03, B is held there; the finish is then driven by
+    B's duration, not the SF bound.
     """
     result = _schedule(
         [Task(id="A", name="A", duration=_days(3)), Task(id="B", name="B", duration=_days(2))],
         [_sf_dep("A", "B")],
-        status_date=PROJECT_START,
+        status_date=date(2026, 3, 3),
     )
     b = {t.id: t for t in result.tasks}["B"]
-    assert b.early_start == PROJECT_START
-    assert b.early_finish == date(2026, 3, 3)
+    assert b.early_start == date(2026, 3, 3)
+    assert b.early_finish == date(2026, 3, 4)
 
 
-def test_a_data_date_before_the_project_start_floors_there_not_at_the_start() -> None:
-    """Only the project-start floor is lifted: a data date before it still binds.
+@pytest.mark.parametrize(
+    "status_date",
+    [PROJECT_START, date(2026, 2, 25), date(2026, 3, 1)],
+    ids=["on-start", "before-start", "weekend-before-start"],
+)
+def test_a_data_date_at_or_before_the_project_start_does_not_floor_an_sf_only_task(
+    status_date: date,
+) -> None:
+    """A data date at or before the start moves an SF-linked task nowhere (#4635).
 
-    B (5d) would start Tue 02-24 (see the lagged case above); a status date of
-    Wed 02-25 holds it there, so it runs Wed 02-25..Tue 03-03 — still before the
-    project start, never before "as of now".
+    Raised to the project start, such a data date *is* the project-start floor, which
+    an SF-linked task does not take (#4218). B (5d) therefore keeps its SF placement,
+    Tue 02-24..Mon 03-02, exactly as with no status date. This used to hold B on the
+    data date (Wed 02-25 here, or the start itself), so the default data date the API
+    passes on a future-start project — today — moved SF-linked work.
     """
+    tasks = [Task(id="A", name="A", duration=_days(3)), Task(id="B", name="B", duration=_days(5))]
+    without = {t.id: t for t in _schedule(tasks, [_sf_dep("A", "B", 1)]).tasks}["B"]
     result = _schedule(
         [Task(id="A", name="A", duration=_days(3)), Task(id="B", name="B", duration=_days(5))],
         [_sf_dep("A", "B", 1)],
-        status_date=date(2026, 2, 25),
+        status_date=status_date,
     )
     b = {t.id: t for t in result.tasks}["B"]
-    assert b.early_start == date(2026, 2, 25)
-    assert b.early_finish == date(2026, 3, 3)
+    assert (b.early_start, b.early_finish) == (date(2026, 2, 24), PROJECT_START)
+    assert (b.early_start, b.early_finish) == (without.early_start, without.early_finish)
 
 
 def test_an_snet_on_the_sf_successor_still_wins() -> None:
@@ -451,10 +462,17 @@ def test_an_snet_on_the_sf_successor_still_wins() -> None:
 
 
 def test_an_snet_before_the_project_start_binds_an_sf_only_task() -> None:
-    """…including an SNET that is itself before the project start (Wed 02-25)."""
+    """…including an SNET that is itself before the project start (Wed 02-25).
+
+    #4635 clamps a sub-start *data date* on an SF-linked task but keeps its SNET
+    verbatim: an SF-linked task takes no project-start floor, so its SNET can only
+    hold it later than its SF placement, and the UI's snap-to-start commits write
+    exactly such an SNET.
+    """
     by = _sf(0, b_dur=5, b_planned_start=date(2026, 2, 25))
     # SF alone would start B Mon 02-23 (5d finishing Fri 02-27); the SNET wins.
     assert by["B"].early_start == date(2026, 2, 25)
+    assert _sf(0, b_dur=5)["B"].early_start == date(2026, 2, 23)
 
 
 def test_a_binding_lead_on_an_sf_linked_task_may_sit_before_the_start() -> None:
@@ -737,9 +755,18 @@ def test_derivation_names_a_binding_lead_on_an_sf_linked_task() -> None:
     assert d.binding.imposed_date == date(2026, 2, 27)
 
 
-def test_the_data_date_still_floors_a_mixed_link_task() -> None:
-    """Waiving the project start never waives the data date: D's SF link binds, but
-    with the status date on Mon 03-02 D is held there like any remaining work."""
+@pytest.mark.parametrize(
+    ("status_date", "expected"),
+    [(date(2026, 3, 3), date(2026, 3, 3)), (PROJECT_START, date(2026, 2, 27))],
+    ids=["after-start", "on-start"],
+)
+def test_the_data_date_still_floors_a_mixed_link_task(status_date: date, expected: date) -> None:
+    """Waiving the project start never waives a data date past it: D's SF link binds,
+    but with the status date on Tue 03-03 D is held there like any remaining work.
+
+    A data date on the start itself is the project-start floor, which D does not take
+    (#4635, the data-date clamp on SF-linked tasks): D keeps its pre-start SF placement, Fri 02-27.
+    """
     result = _schedule(
         [
             Task(id="A", name="A", duration=_days(3)),
@@ -747,10 +774,10 @@ def test_the_data_date_still_floors_a_mixed_link_task() -> None:
             Task(id="D", name="D", duration=_days(1)),
         ],
         [_sf_dep("A", "B"), _sf_dep("A", "D"), Dependency("B", "D", dep_type=DependencyType.SS)],
-        status_date=PROJECT_START,
+        status_date=status_date,
     )
     d = {t.id: t for t in result.tasks}["D"]
-    assert d.early_start == PROJECT_START
+    assert d.early_start == expected
 
 
 @pytest.mark.parametrize(
@@ -1075,3 +1102,58 @@ def test_monte_carlo_matches_cpm_for_a_positive_sf_lag_from_a_monday(
     result = schedule(project)
     mc = monte_carlo(project, runs=16, seed=5, max_runs=None, max_tasks=None)
     assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
+def _commit_probe(start: date, snet: date | None) -> Task:
+    """``A(3d) -SF(-10cd)-> B(5d)`` from ``start``; returns B (#4635 audit probe).
+
+    With the 02-02 start and no SNET, B is placed before the start, on Wed 01-14.
+    """
+    result = schedule(
+        Project(
+            id="p",
+            name="p",
+            start_date=start,
+            calendar=Calendar(),
+            tasks=[
+                Task(id="A", name="A", duration=_days(3)),
+                Task(id="B", name="B", duration=_days(5), planned_start=snet),
+            ],
+            dependencies=[_sf_dep("A", "B", -10)],
+        )
+    )
+    return {t.id: t for t in result.tasks}["B"]
+
+
+_PROBE_START = date(2026, 2, 2)
+
+
+@pytest.mark.parametrize(
+    ("start", "snet", "expected"),
+    [
+        # "Snap to project start": SNET on the start itself.
+        pytest.param(_PROBE_START, _PROBE_START, _PROBE_START, id="snap-to-start"),
+        # "Move project start" to 01-26, writing the same SNET; the API's #867
+        # auto-shift has already moved the start back to it.
+        pytest.param(date(2026, 1, 26), date(2026, 1, 26), date(2026, 1, 26), id="move-start"),
+        # "Start at the earliest": commits B's own placement, 01-14, which pulls
+        # the project start back to 01-14 too.
+        pytest.param(date(2026, 1, 14), date(2026, 1, 14), date(2026, 1, 14), id="earliest"),
+    ],
+)
+def test_ui_commit_paths_hold_an_sf_linked_task_at_its_snet(
+    start: date, snet: date, expected: date
+) -> None:
+    """An SNET at or before the project start still holds an SF-linked task (#4635).
+
+    Each of the Schedule's three placement commits for a task before the project
+    start writes an SNET at or before the (possibly auto-shifted) start. #4635 first
+    dropped every such SNET, so each commit left B where its SF link put it while
+    the UI reported it placed: "snap to start" left B on 01-14, "move start" landed
+    it on 01-07 and "start at the earliest" on 12-30, and every commit ratcheted the
+    project start earlier. An SF-linked task takes no project-start floor, so its
+    SNET can only hold it later; it is kept verbatim. The data date is still
+    clamped on it (see the tests above).
+    """
+    assert _commit_probe(_PROBE_START, None).early_start == date(2026, 1, 14)
+    assert _commit_probe(start, snet).early_start == expected

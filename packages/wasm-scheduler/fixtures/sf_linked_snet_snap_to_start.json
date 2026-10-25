@@ -1,0 +1,32 @@
+{
+  "id": "p-sf-linked-snet-snap-to-start",
+  "name": "Schedule 'snap to project start': an SF-linked task's SNET on the start holds it there (#4635)",
+  "start_date": "2026-02-02",
+  "tasks": [
+    {
+      "id": "A",
+      "name": "A",
+      "duration": 259200.0
+    },
+    {
+      "id": "B",
+      "name": "B: SF-linked, SNET at or before the start",
+      "duration": 432000.0,
+      "planned_start": "2026-02-02"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "SF",
+      "lag": -864000.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

@@ -499,6 +499,68 @@ after recalculation can show milestone-driven variance that reflects the
 convention change, not a schedule change. To compare like with like, capture a new
 baseline after the project recalculates.
 
+### Data dates and SNETs before the project start
+
+Upgrading from `0.4.0-rc.1` or earlier changes how the scheduler treats a data
+date (status date), or a task's start-no-earlier-than date (SNET), that falls on
+or before the project start ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)).
+No migration runs and no stored date changes during the upgrade itself. The new
+dates appear the next time each project's schedule recalculates, which happens on
+the next edit that affects the schedule.
+
+A project with no status date uses today as its data date, so this mostly affects
+**projects that start in the future**. Earlier versions measured a lag out of a
+milestone with no predecessor, such as a kickoff milestone, from that earlier
+data date rather than from the project start. The same happened with any
+milestone whose SNET is before the start, including a completed milestone that has
+no recorded dates and carries such an SNET. The work after such a milestone lost up to the gap between today and
+the project start from every lag. A data date or SNET on or before the project
+start now holds nothing back, except that an SNET still holds a task that has a
+Start-to-Finish link.
+
+What you will see after recalculation:
+
+- **Dates after a kickoff milestone move later.** On a project that starts in the
+  future, the successors of a milestone with no predecessor regain their full lag.
+  Their dates, the forecast finish, and the critical path move later by up to the
+  gap between today and the project start.
+- **Some milestone successors move earlier.** A milestone with no Start-to-Finish
+  link that a lead places before the project start used to be held at a data date
+  or SNET that fell between that earlier point and the start, and its successors
+  measured their lags from there. That bound is now ignored, so they measure from
+  where the links place the milestone. For example, with `P (3 days) -FS-10d->
+  M -FS+5d-> X` and the project starting Monday 02-02, a status date of 01-30 used
+  to start `X` on 02-04; it now starts on 02-02, as with no status date.
+- **Some Start-to-Finish tasks move earlier.** A task with a Start-to-Finish link
+  that its link places before the project start is no longer held at a data date
+  that is on or before the start. It moves to where its links place it, unless its
+  own SNET holds it. On a project that is already underway, the data date still
+  holds it.
+- **Monte Carlo forecasts move with the schedule.** P50/P80/P95 use the same rule.
+
+What the Schedule's **Snap to project start** and **Move project start** options
+do for a task before the project start now depends on its links. Both write a
+start-no-earlier-than date (SNET) on or before the (possibly moved) start:
+
+- **A task with a Start-to-Finish link is held there.** Its links alone would put
+  it earlier, and the SNET is the only thing holding it, so the engine keeps it.
+- **A milestone with no Start-to-Finish link stays where it is shown, but its
+  successors follow its links.** A lead from its predecessor places it before the
+  start. The milestone itself is still shown on the project start, or the new
+  start, as before, but the lags out of it are measured from where its links place
+  it, not from the SNET. For example, with `P (3 days) -FS-10d-> M -FS+5d-> X`
+  from 02-02, snapping `M` to the start used to start `X` on 02-09 and now starts
+  it on 02-02. Moving the start to 01-26 used to start `X` on 02-02 and now starts
+  it on 01-26. The old behavior was the defect this release fixes: a pre-start SNET
+  on such a milestone pulled its successors in a way that also depended on today's
+  date. The milestone's placement comes from its links, so its SNET carries no
+  information about when its successors can start.
+
+Baselines and saved forecast snapshots keep the old dates, so the first comparison
+after recalculation shows a one-time step that reflects the rule change, not a
+schedule change. To compare like with like, capture a new baseline after the
+project recalculates.
+
 ### Completed milestones after the first recalculation
 
 The scheduler now keeps a completed milestone in place no matter how the open work

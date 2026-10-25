@@ -1,0 +1,335 @@
+{
+  "project_id": "p-sub-start-floor",
+  "project_start": "2026-01-14",
+  "project_finish": "2026-02-18",
+  "tasks": [
+    {
+      "id": "K_FS",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-02",
+      "late_finish": "2026-02-02",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "A_FS",
+      "early_start": "2026-02-12",
+      "early_finish": "2026-02-18",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-12"
+    },
+    {
+      "id": "S_FS",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-02",
+      "late_finish": "2026-02-02",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "SA_FS",
+      "early_start": "2026-02-12",
+      "early_finish": "2026-02-18",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-12"
+    },
+    {
+      "id": "K_SS",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-02",
+      "late_finish": "2026-02-02",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "A_SS",
+      "early_start": "2026-02-12",
+      "early_finish": "2026-02-18",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-12"
+    },
+    {
+      "id": "S_SS",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-02",
+      "late_finish": "2026-02-02",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "SA_SS",
+      "early_start": "2026-02-12",
+      "early_finish": "2026-02-18",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-12"
+    },
+    {
+      "id": "K_FF",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-09",
+      "late_finish": "2026-02-09",
+      "total_float": 432000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "A_FF",
+      "early_start": "2026-02-05",
+      "early_finish": "2026-02-11",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-05"
+    },
+    {
+      "id": "S_FF",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-09",
+      "late_finish": "2026-02-09",
+      "total_float": 432000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "SA_FF",
+      "early_start": "2026-02-05",
+      "early_finish": "2026-02-11",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-05"
+    },
+    {
+      "id": "K_SF",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-09",
+      "late_finish": "2026-02-09",
+      "total_float": 432000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "A_SF",
+      "early_start": "2026-02-05",
+      "early_finish": "2026-02-11",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-05"
+    },
+    {
+      "id": "S_SF",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-09",
+      "late_finish": "2026-02-09",
+      "total_float": 432000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "SA_SF",
+      "early_start": "2026-02-05",
+      "early_finish": "2026-02-11",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-05"
+    },
+    {
+      "id": "W",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-04",
+      "late_start": "2026-02-02",
+      "late_finish": "2026-02-04",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "KS",
+      "early_start": "2026-01-20",
+      "early_finish": "2026-01-20",
+      "late_start": "2026-01-22",
+      "late_finish": "2026-01-22",
+      "total_float": 172800.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-20",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "AS",
+      "early_start": "2026-02-10",
+      "early_finish": "2026-02-16",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 172800.0,
+      "free_float": 172800.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-10"
+    },
+    {
+      "id": "WB",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-04",
+      "late_start": "2026-02-16",
+      "late_finish": "2026-02-18",
+      "total_float": 864000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "B",
+      "early_start": "2026-01-14",
+      "early_finish": "2026-01-20",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 1814400.0,
+      "free_float": 1814400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-14"
+    },
+    {
+      "id": "C",
+      "early_start": "2026-02-02",
+      "early_finish": "2026-02-02",
+      "late_start": "2026-02-02",
+      "late_finish": "2026-02-02",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-02-02"
+    },
+    {
+      "id": "CA",
+      "early_start": "2026-02-12",
+      "early_finish": "2026-02-18",
+      "late_start": "2026-02-12",
+      "late_finish": "2026-02-18",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-02-12"
+    }
+  ],
+  "critical_path": [
+    "K_FS",
+    "K_SS",
+    "S_FS",
+    "S_SS",
+    "W",
+    "A_FS",
+    "A_SS",
+    "CA",
+    "SA_FS",
+    "SA_SS"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "C",
+      "successor_id": "CA",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "KS",
+      "successor_id": "AS",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "K_FF",
+      "successor_id": "A_FF",
+      "dep_type": "FF"
+    },
+    {
+      "predecessor_id": "K_FS",
+      "successor_id": "A_FS",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "K_SF",
+      "successor_id": "A_SF",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "K_SS",
+      "successor_id": "A_SS",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "S_FF",
+      "successor_id": "SA_FF",
+      "dep_type": "FF"
+    },
+    {
+      "predecessor_id": "S_FS",
+      "successor_id": "SA_FS",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "S_SF",
+      "successor_id": "SA_SF",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "S_SS",
+      "successor_id": "SA_SS",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "W",
+      "successor_id": "KS",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "WB",
+      "successor_id": "B",
+      "dep_type": "SF"
+    }
+  ]
+}

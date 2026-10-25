@@ -276,3 +276,28 @@ def test_parse_reject_fixture_rejected_at_parse(parse_reject_name: str) -> None:
         data = json.load(f)
     with pytest.raises(SchedulerError):
         Project.from_dict(data)
+
+
+def test_sub_start_floor_fixture_matches_the_same_network_without_floors() -> None:
+    """The #4635 fixture's snapshot is only right if it equals the floor-free network.
+
+    ``sub_start_floors_move_nothing.json`` carries a pre-start data date and
+    pre-start SNETs on free milestones (all four link types out), an SF-linked
+    milestone and SF-linked work. Both engines are pinned to its committed
+    ``expected/`` snapshot, and an engine agreeing with a snapshot proves nothing if
+    the snapshot re-encodes the defect. So this asserts the relation that makes it
+    correct: removing every one of those floors moves nothing.
+    """
+    # Imported here, not at module level: this module is also run copied outside
+    # the package (test_standalone_collection.py), where ``tests`` is not importable.
+    from tests.test_sub_start_floor import _positions
+
+    raw = json.loads((FIXTURES_DIR / "sub_start_floors_move_nothing.json").read_text())
+    bare = {
+        **raw,
+        "status_date": None,
+        "tasks": [{k: v for k, v in t.items() if k != "planned_start"} for t in raw["tasks"]],
+    }
+    assert _positions(schedule(Project.from_dict(raw))) == _positions(
+        schedule(Project.from_dict(bare))
+    )

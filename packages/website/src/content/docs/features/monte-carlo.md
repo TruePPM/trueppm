@@ -309,7 +309,12 @@ progresses, the simulation will:
   estimate.
 - **Anchor remaining work at a data date.** Not-started and remaining work will
   be scheduled no earlier than the project's **status date**, so the forecast
-  never places future work in the past.
+  never places future work in the past. The one exception is a task with a
+  Start-to-Finish link when the status date is on or before the project start
+  (including a project that starts in the future and has no status date, where
+  the data date is today): the project start does not floor such a task, and a
+  data date before the start does not either, so it sits where its links (or
+  its own SNET) place it ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)).
 - **Floor in-progress work at its recorded actual start.** A task that actually
   began *after* the data date will be forecast from the day it really started,
   not from the status date — actuals are truth and are never smoothed back to an
@@ -332,9 +337,14 @@ consistent.
 Whichever date actually anchors a given simulation — the project's explicit
 `status_date`, or today when it is unset — is recorded as `status_date` on that
 run's response and on its history row, so a forecast is always traceable to the
-data date that produced it. Re-running an otherwise-unchanged project on two
-different days will show different percentiles with different recorded
-`status_date` values, rather than looking like an unexplained change.
+data date that produced it. Once a project is underway, re-running it unchanged
+on two different days with no status date set will show different percentiles,
+because today floors the remaining work, and each run records its own
+`status_date`, so the change is explained rather than mysterious. A project that
+starts in the future does not drift this way: a data date on or before the
+project start moves nothing ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)),
+so its percentiles stay the same from day to day until today reaches the start,
+even though each run still records the day it ran as its `status_date`.
 
 ## The math
 

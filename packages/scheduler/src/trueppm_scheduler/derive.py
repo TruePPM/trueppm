@@ -43,6 +43,7 @@ from trueppm_scheduler.engine import (
     _effective_duration_days,
     _finish_from_start,
     _float_late_instant,
+    _floor_above_start,
     _free_start_ref,
     _Instant,
     _instant_day,
@@ -593,7 +594,10 @@ def _forward_floor_contribs(
 
     ``include_project_start`` is false for a task with an SF link, whose
     project-start floor is ``min(project start, SF placement)`` and never binds
-    (#4218, #4220).
+    (#4218, #4220). Such a task takes no data date at or before the project start
+    either (``engine._floor_above_start``, #4635), so none is offered: a candidate the
+    engine never considered would read as a floor it ignored. Its SNET is offered
+    wherever it falls, as the engine keeps it verbatim on an SF-linked task.
 
     ``actual_start`` (ADR-0132 §2, #2621) is only reachable here for a task that
     is not complete (``_derive_forward`` routes completed tasks through
@@ -602,8 +606,12 @@ def _forward_floor_contribs(
     truth and are never renegotiated onto a working day.
     """
     contribs: list[DerivationContribution] = []
+    start_base = _next_working_day(project_start, cal)
+
+    def offered(floor: date) -> bool:
+        return include_project_start or _floor_above_start(floor, cal, start_base) is not None
+
     if include_project_start:
-        start_base = _next_working_day(project_start, cal)
         contribs.append(
             DerivationContribution(
                 kind="project_start",
@@ -611,7 +619,7 @@ def _forward_floor_contribs(
                 calendar_days_added=_days_between(project_start, start_base),
             )
         )
-    if status_date is not None:
+    if status_date is not None and offered(status_date):
         snapped = _next_working_day(status_date, cal)
         contribs.append(
             DerivationContribution(

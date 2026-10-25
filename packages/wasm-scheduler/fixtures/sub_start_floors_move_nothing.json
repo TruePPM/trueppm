@@ -1,0 +1,209 @@
+{
+  "id": "p-sub-start-floor",
+  "name": "A data date before the project start, and pre-start SNETs on tasks with no SF link, move nothing (#4635): every task lands where the same network with neither puts it",
+  "start_date": "2026-02-02",
+  "status_date": "2026-01-15",
+  "tasks": [
+    {
+      "id": "K_FS",
+      "name": "K free milestone, FS out",
+      "duration": 0.0
+    },
+    {
+      "id": "A_FS",
+      "name": "A after K_FS",
+      "duration": 432000.0
+    },
+    {
+      "id": "S_FS",
+      "name": "S free milestone with a pre-start SNET, FS out",
+      "duration": 0.0,
+      "planned_start": "2026-01-20"
+    },
+    {
+      "id": "SA_FS",
+      "name": "A after S_FS",
+      "duration": 432000.0
+    },
+    {
+      "id": "K_SS",
+      "name": "K free milestone, SS out",
+      "duration": 0.0
+    },
+    {
+      "id": "A_SS",
+      "name": "A after K_SS",
+      "duration": 432000.0
+    },
+    {
+      "id": "S_SS",
+      "name": "S free milestone with a pre-start SNET, SS out",
+      "duration": 0.0,
+      "planned_start": "2026-01-20"
+    },
+    {
+      "id": "SA_SS",
+      "name": "A after S_SS",
+      "duration": 432000.0
+    },
+    {
+      "id": "K_FF",
+      "name": "K free milestone, FF out",
+      "duration": 0.0
+    },
+    {
+      "id": "A_FF",
+      "name": "A after K_FF",
+      "duration": 432000.0
+    },
+    {
+      "id": "S_FF",
+      "name": "S free milestone with a pre-start SNET, FF out",
+      "duration": 0.0,
+      "planned_start": "2026-01-20"
+    },
+    {
+      "id": "SA_FF",
+      "name": "A after S_FF",
+      "duration": 432000.0
+    },
+    {
+      "id": "K_SF",
+      "name": "K free milestone, SF out",
+      "duration": 0.0
+    },
+    {
+      "id": "A_SF",
+      "name": "A after K_SF",
+      "duration": 432000.0
+    },
+    {
+      "id": "S_SF",
+      "name": "S free milestone with a pre-start SNET, SF out",
+      "duration": 0.0,
+      "planned_start": "2026-01-20"
+    },
+    {
+      "id": "SA_SF",
+      "name": "A after S_SF",
+      "duration": 432000.0
+    },
+    {
+      "id": "W",
+      "name": "W: SF predecessor placing KS before the start",
+      "duration": 259200.0
+    },
+    {
+      "id": "KS",
+      "name": "KS: SF-linked milestone, held by nothing but the pre-start data date",
+      "duration": 0.0
+    },
+    {
+      "id": "AS",
+      "name": "A after KS",
+      "duration": 432000.0
+    },
+    {
+      "id": "WB",
+      "name": "WB: SF predecessor placing B before the start",
+      "duration": 259200.0
+    },
+    {
+      "id": "B",
+      "name": "B: SF-linked work, held by nothing but the pre-start data date",
+      "duration": 432000.0
+    },
+    {
+      "id": "C",
+      "name": "C: completed milestone (100%, no actuals) with a pre-start SNET",
+      "duration": 0.0,
+      "planned_start": "2026-01-20",
+      "percent_complete": 100.0
+    },
+    {
+      "id": "CA",
+      "name": "A after C",
+      "duration": 432000.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "K_FS",
+      "successor_id": "A_FS",
+      "dep_type": "FS",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "S_FS",
+      "successor_id": "SA_FS",
+      "dep_type": "FS",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "K_SS",
+      "successor_id": "A_SS",
+      "dep_type": "SS",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "S_SS",
+      "successor_id": "SA_SS",
+      "dep_type": "SS",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "K_FF",
+      "successor_id": "A_FF",
+      "dep_type": "FF",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "S_FF",
+      "successor_id": "SA_FF",
+      "dep_type": "FF",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "K_SF",
+      "successor_id": "A_SF",
+      "dep_type": "SF",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "S_SF",
+      "successor_id": "SA_SF",
+      "dep_type": "SF",
+      "lag": 864000.0
+    },
+    {
+      "predecessor_id": "W",
+      "successor_id": "KS",
+      "dep_type": "SF",
+      "lag": -864000.0
+    },
+    {
+      "predecessor_id": "KS",
+      "successor_id": "AS",
+      "dep_type": "FS",
+      "lag": 1728000.0
+    },
+    {
+      "predecessor_id": "WB",
+      "successor_id": "B",
+      "dep_type": "SF",
+      "lag": -864000.0
+    },
+    {
+      "predecessor_id": "C",
+      "successor_id": "CA",
+      "dep_type": "FS",
+      "lag": 864000.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

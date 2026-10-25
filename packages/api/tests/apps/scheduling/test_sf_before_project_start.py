@@ -33,9 +33,9 @@ def _schedule(project: Project) -> dict[str, Task]:
 
 @pytest.fixture
 def project(db: object) -> Project:
-    # The status date is set explicitly before the SF anchor: the API resolves a
-    # null one to today, and the data date still floors an SF-only task, so an
-    # unset value would make the result depend on the clock.
+    # The status date is set explicitly before the project start: the API resolves a
+    # null one to today, and a data date after the start still floors an SF-only
+    # task, so an unset value would make the result depend on the clock.
     return Project.objects.create(
         name="SF before project start",
         start_date=PROJECT_START,
@@ -63,11 +63,72 @@ def test_sf_only_successor_is_scheduled_before_the_project_start(project: Projec
 
 
 @pytest.mark.django_db
-def test_a_data_date_after_the_anchor_still_holds_the_successor(project: Project) -> None:
+def test_a_data_date_after_the_start_still_holds_the_successor(project: Project) -> None:
+    held = date(2026, 10, 6)
+    project.status_date = held
+    project.save(update_fields=["status_date"])
+    design = Task.objects.create(project=project, name="Design", duration=3)
+    sf_task = Task.objects.create(project=project, name="Dependency SF", duration=2)
+    Dependency.objects.create(predecessor=design, successor=sf_task, dep_type="SF", lag=0)
+
+    assert _schedule(project)["Dependency SF"].early_start == held
+
+
+@pytest.mark.django_db
+def test_a_data_date_on_the_start_does_not_hold_the_successor(project: Project) -> None:
+    """A data date on the project start is the project-start floor (#4635, the data-date
+    clamp on SF-linked tasks).
+
+    An SF-only task does not take that floor (#4218), so it keeps its SF placement.
+    """
     project.status_date = PROJECT_START
     project.save(update_fields=["status_date"])
     design = Task.objects.create(project=project, name="Design", duration=3)
     sf_task = Task.objects.create(project=project, name="Dependency SF", duration=2)
     Dependency.objects.create(predecessor=design, successor=sf_task, dep_type="SF", lag=0)
 
-    assert _schedule(project)["Dependency SF"].early_start == PROJECT_START
+    assert _schedule(project)["Dependency SF"].early_start == date(2026, 10, 1)
+
+
+def _cpm_dates(project: Project) -> dict[str, tuple[object, ...]]:
+    return {
+        name: (t.early_start, t.early_finish, t.late_start, t.late_finish, t.total_float)
+        for name, t in _schedule(project).items()
+    }
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("dep_type", ["FS", "SS", "FF", "SF"])
+def test_a_future_start_with_no_status_date_keeps_every_lag(dep_type: str) -> None:
+    """A null status date on a future-start project schedules like one on the start (#4635).
+
+    ``resolve_cpm_status_date`` turns a null status date into today, which on a
+    project that starts in the future is a date before the start. The engine used to
+    measure a free milestone's outgoing lag from that earlier day, so ``Kickoff
+    -X(+10cd)-> Build`` finished Build up to (start - today) days early. Today is
+    pinned well before the start so the result does not depend on the clock.
+    """
+    project = Project.objects.create(
+        name="Future start",
+        start_date=PROJECT_START,
+        status_date=None,
+        calendar=Calendar.objects.create(name="Standard"),
+    )
+    kickoff = Task.objects.create(project=project, name="Kickoff", duration=0)
+    build = Task.objects.create(project=project, name="Build", duration=5)
+    Dependency.objects.create(predecessor=kickoff, successor=build, dep_type=dep_type, lag=10)
+
+    with patch(
+        "trueppm_api.apps.scheduling.services.timezone.localdate",
+        return_value=date(2026, 8, 3),
+    ):
+        null_status = _cpm_dates(project)
+    project.status_date = PROJECT_START
+    project.save(update_fields=["status_date"])
+    on_start = _cpm_dates(project)
+
+    assert null_status == on_start
+    # Kickoff on Mon 10-05 plus ten calendar days: FS/SS start Build on Thu 10-15;
+    # FF/SF bound its finish at the end of Wed 10-14.
+    expected_finish = date(2026, 10, 21) if dep_type in ("FS", "SS") else date(2026, 10, 14)
+    assert null_status["Build"][1] == expected_finish

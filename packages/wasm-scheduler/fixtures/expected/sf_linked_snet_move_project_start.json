@@ -1,0 +1,33 @@
+{
+  "project_id": "p-sf-linked-snet-move-project-start",
+  "project_start": "2026-01-26",
+  "project_finish": "2026-01-30",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-01-26",
+      "early_finish": "2026-01-28",
+      "late_start": "2026-01-28",
+      "late_finish": "2026-01-30",
+      "total_float": 172800.0,
+      "free_float": 172800.0,
+      "is_critical": false,
+      "scheduled_start": "2026-01-26"
+    },
+    {
+      "id": "B",
+      "early_start": "2026-01-26",
+      "early_finish": "2026-01-30",
+      "late_start": "2026-01-26",
+      "late_finish": "2026-01-30",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-01-26"
+    }
+  ],
+  "critical_path": [
+    "B"
+  ],
+  "driving_edges": []
+}

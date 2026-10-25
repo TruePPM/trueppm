@@ -309,3 +309,76 @@ fn assert_incremental_matches_full(stem: &str, base: &Project, changed: &str) {
         );
     }
 }
+
+/// #4635: a data date and SNETs at or before the project start move nothing.
+///
+/// The fixture's `expected/` snapshot pins both engines, and an engine agreeing with
+/// a snapshot proves nothing if the snapshot re-encodes the defect. This asserts the
+/// relation that makes it right, in the Rust engine itself: stripping the pre-start
+/// data date and every SNET leaves every task, the finish and the critical path
+/// exactly where they were. The Python half is
+/// `test_sub_start_floor_fixture_matches_the_same_network_without_floors`.
+#[test]
+fn sub_start_floors_move_nothing() {
+    let floored = load_project("sub_start_floors_move_nothing");
+    let mut bare = floored.clone();
+    bare.status_date = None;
+    for t in bare.tasks.iter_mut() {
+        t.planned_start = None;
+    }
+    let a = schedule_impl(&floored).unwrap();
+    let b = schedule_impl(&bare).unwrap();
+    assert_eq!(a.project_finish, b.project_finish);
+    assert_eq!(a.critical_path, b.critical_path);
+    for (x, y) in a.tasks.iter().zip(b.tasks.iter()) {
+        assert_eq!(
+            (
+                &x.id,
+                x.early_start,
+                x.early_finish,
+                x.late_start,
+                x.late_finish,
+                x.total_float
+            ),
+            (
+                &y.id,
+                y.early_start,
+                y.early_finish,
+                y.late_start,
+                y.late_finish,
+                y.total_float
+            ),
+        );
+    }
+}
+
+/// #4635 audit probe: the Schedule's three placement commits for an SF-linked task
+/// before the project start each write an SNET at or before the (auto-shifted)
+/// start, and that SNET must hold the task. `A(3d) -SF(-10cd)-> B(5d)` from Mon
+/// 02-02 places B on Wed 01-14; "snap to start" (SNET 02-02), "move project start"
+/// (start and SNET 01-26) and "start at the earliest" (start and SNET 01-14) must
+/// hold B on its SNET. Dropping a sub-start SNET on an SF-linked task left B on
+/// 01-14, 01-07 and 12-30, while the UI reported it placed.
+#[test]
+fn sf_linked_snet_commit_paths_hold_the_task() {
+    let d = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+    for (stem, b_start) in [
+        ("sf_linked_snet_snap_to_start", "2026-02-02"),
+        ("sf_linked_snet_move_project_start", "2026-01-26"),
+        ("sf_linked_snet_start_at_earliest", "2026-01-14"),
+    ] {
+        let project = load_project(stem);
+        let result = schedule_impl(&project).unwrap();
+        let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+        assert_eq!(b.early_start, d(b_start), "{stem}");
+
+        // Without the SNET the SF link places B earlier than that SNET: the SNET binds.
+        let mut bare = project.clone();
+        for t in bare.tasks.iter_mut() {
+            t.planned_start = None;
+        }
+        let free = schedule_impl(&bare).unwrap();
+        let free_b = free.tasks.iter().find(|t| t.id == "B").unwrap();
+        assert!(free_b.early_start < b.early_start, "{stem}");
+    }
+}
