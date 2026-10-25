@@ -19791,14 +19791,13 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             # audit row is the durable record either way.
             if self._scope_field == "project":
                 project_id = str(scope_obj.pk)
-                token_name = token.name
+                token_id = str(token.pk)
 
-                def _broadcast_mint(
-                    pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
-                ) -> None:
-                    broadcast_board_event(
-                        pid, "api_token_minted", {"token_prefix": pfx, "name": nm}
-                    )
+                # Payload is the opaque id only: the web handler just refetches
+                # the token list, so name and secret prefix need not ride the
+                # socket or persist in the BoardEvent replay buffer.
+                def _broadcast_mint(pid: str = project_id, tid: str = token_id) -> None:
+                    broadcast_board_event(pid, "api_token_minted", {"id": tid})
 
                 transaction.on_commit(_broadcast_mint)
 
@@ -19835,15 +19834,11 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 )
                 if token.project_id is not None:
                     project_id = str(token.project_id)
-                    token_prefix = token.token_prefix
-                    token_name = token.name
+                    token_id = str(token.pk)
 
-                    def _broadcast_revoke(
-                        pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
-                    ) -> None:
-                        broadcast_board_event(
-                            pid, "api_token_revoked", {"token_prefix": pfx, "name": nm}
-                        )
+                    # Opaque id only — see _broadcast_mint for why.
+                    def _broadcast_revoke(pid: str = project_id, tid: str = token_id) -> None:
+                        broadcast_board_event(pid, "api_token_revoked", {"id": tid})
 
                     transaction.on_commit(_broadcast_revoke)
         return Response(status=status.HTTP_204_NO_CONTENT)

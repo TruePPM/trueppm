@@ -254,7 +254,7 @@ the team-visible signal in v1 is:
    app.
 2. **Real-time broadcast** of token mint/revoke fires
    `broadcast_board_event(project_id, "api_token_minted" | "api_token_revoked",
-   {"token_prefix": ..., "name": ...})` inside `transaction.on_commit()` so
+   {"id": ...})` inside `transaction.on_commit()` so
    live UI surfaces (when they exist) can react.
 3. **Push notifications** to members (in-app or email) are explicitly
    deferred to the notifications-app implementation under ADR-0049.

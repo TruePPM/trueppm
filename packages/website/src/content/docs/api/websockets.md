@@ -214,9 +214,10 @@ The set is open-ended and grows as features land; current event types include:
 - **Task suggestions**: `suggestion_created`, `suggestion_declined`,
   `suggestion_revoked` (decline/revoke carry only the suggestion + task id — never
   the actor — a silent state reconciliation, not a callout)
-- **API tokens**: `api_token_minted`, `api_token_revoked` (project/program-scoped
-  tokens only — payload carries `token_prefix` + `name`, never the raw token or
-  hash; personal access tokens broadcast nothing, see
+- **API tokens**: `api_token_minted`, `api_token_revoked` (project-scoped
+  tokens only — payload is `{"id": "<token uuid>"}`; the name, secret prefix, raw token and
+  hash are never sent, so refetch the token list for details; program-scoped and
+  personal access tokens broadcast nothing, see
   [API reference](/api/reference/authentication/#personal-access-tokens-apiv1meapi-tokens-adr-0214))
 - **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`, `slip_conflicts_updated`
 - **Velocity suggestions**: `velocity_suggestion_accepted`, `velocity_suggestion_dismissed`
