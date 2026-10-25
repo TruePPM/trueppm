@@ -568,6 +568,30 @@ def test_admin_can_revoke_token(project: Project, admin_user: Any) -> None:
     assert token.revoked_at is not None
 
 
+@pytest.mark.django_db(transaction=True)
+def test_token_mint_and_revoke_broadcast_only_the_opaque_id(
+    project: Project, admin_user: Any
+) -> None:
+    """The WS group is Member+ but token management is Admin-only, and the
+    payload persists in the replay buffer, so neither name nor secret prefix
+    may ride the event (#4597)."""
+    client = APIClient()
+    client.force_authenticate(user=admin_user)
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast_mock:
+        mint = client.post(
+            f"/api/v1/projects/{project.pk}/api-tokens/",
+            {"name": "Jira Production"},
+            format="json",
+        )
+        assert mint.status_code == 201
+        token_id = mint.data["id"]
+        revoke = client.delete(f"/api/v1/projects/{project.pk}/api-tokens/{token_id}/")
+        assert revoke.status_code == 204
+    events = {c.args[1]: c.args[2] for c in broadcast_mock.call_args_list}
+    assert events["api_token_minted"] == {"id": str(token_id)}
+    assert events["api_token_revoked"] == {"id": str(token_id)}
+
+
 @pytest.mark.django_db
 def test_status_map_value_must_be_valid_task_status(project: Project, admin_user: Any) -> None:
     """Defensive validation — invalid TaskStatus values are rejected at mint time."""
