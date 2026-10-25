@@ -90,14 +90,28 @@ are each monotone in their inputs: a shorter lag never finishes work later, and
 adding a link never moves any task later unless that link binds. Adding an SF link
 can move its successor *earlier*, because it lifts that task's project-start floor.
 
-The **data date** still floors every task. The project start is a planning
-convention the network may overrule; the data date is a fact about time — remaining
-work cannot be forecast to happen before "as of now" — and an SF anchor in the past
-says the successor is already late, not that it finished. An SNET or a recorded
-actual start still binds. Whether MS Project floors a task with mixed SF and FS/SS/FF
-links, or a lead, the same way is **unverified** (#4319). :func:`monte_carlo` widens
-its working-day index backwards to hold the same placements
-(:func:`_mc_pre_start_pad_days`).
+The **data date** still floors every task once it is after the project start. The
+project start is a planning convention the network may overrule; the data date is a
+fact about time — remaining work cannot be forecast to happen before "as of now" —
+and an SF anchor in the past says the successor is already late, not that it
+finished. An SNET or a recorded actual start still binds. Whether MS Project floors
+a task with mixed SF and FS/SS/FF links, or a lead, the same way is **unverified**
+(#4319). :func:`monte_carlo` widens its working-day index backwards to hold the same
+placements (:func:`_mc_pre_start_pad_days`).
+
+**A data date or SNET at or before the project start floors nothing (#4635)** — on
+any task, an SF-linked one included. Each is raised to the project-start floor
+(:func:`_floor_above_start`), and on the tasks where that floor does not bind (an
+SF-linked task, or a milestone's link instant, #4225) a floor raised to it is no
+floor at all. Leaving them verbatim made a sub-start bound pull work *earlier* than
+no bound: a free milestone measured its outgoing lags from the earlier day, and
+because the API passes today as the data date when none is set, every future-start
+project lost up to (start - today) days of every lag out of its kickoff milestones.
+The SF half is a decision ("clamp SF too"), not a consequence: a sub-start data date
+could hold an SF-linked task that its link places even earlier, and it no longer
+does. Holding it would let the data date the API passes by default move work on
+every future-start project, the effect this rule exists to remove. A recorded actual
+start is kept verbatim: a fact may precede the plan.
 
 Completed tasks are pinned out of network logic (ADR-0136) and keep their recorded
 dates. A pinned task with work is ordinary work to its successors; a pinned
@@ -1717,7 +1731,10 @@ def _place_milestone(
     The **project-start floor** (``start_floor``) only places the milestone where it
     is *shown* (#4225). ``es_floors`` holds the others — data date, SNET, a recorded
     actual start — which are facts about when the milestone can happen, so they bind
-    ``link`` as well. The project start is a display bound: nothing is shown before
+    ``link`` as well. A data date or SNET at or before the project start is not
+    among them (:func:`_floor_above_start`, #4635): it is the project-start floor,
+    and binding ``link`` with it measured every successor's lag from before the plan
+    opened. The project start is a display bound: nothing is shown before
     the plan opens, but every successor carries that same floor itself, so a
     milestone held at it by the floor alone has nothing to add downstream. Measuring
     a successor's lag from the floored instant instead made the milestone a node
@@ -2171,14 +2188,17 @@ def _forward_pass(
 
         sf_linked = _sf_linked(node_id, g)
         duration_days, es_constraints = _early_start_floors(
-            task, cal, start, data_floor, sf_linked=sf_linked
+            task, cal, start, data_floor, start_base=start_base, sf_linked=sf_linked
         )
 
         if duration_days == 0:
             # Every floor but the project start's — the list an SF-linked task gets —
             # binds the instant successors measure from; the project start only
             # bounds where the milestone is shown (#4225, see _place_milestone).
-            _, hard_floors = _early_start_floors(task, cal, start, data_floor, sf_linked=True)
+            # A data date or SNET at or before the start is not in it (#4635).
+            _, hard_floors = _early_start_floors(
+                task, cal, start, data_floor, start_base=start_base, sf_linked=True
+            )
             instant, day, links[node_id] = _place_milestone(
                 node_id,
                 task_map,
@@ -2256,6 +2276,7 @@ def _early_start_floors(
     start: date,
     data_floor: date | None = None,
     *,
+    start_base: date,
     sf_linked: bool = False,
 ) -> tuple[int, list[date]]:
     """Return ``(duration_days, es_constraints)``: the duration to schedule and the ES lower bounds.
@@ -2263,6 +2284,13 @@ def _early_start_floors(
     The bounds cover the project-start / data-date floor, an in-progress task's
     ``actual_start``, and ``planned_start`` (SNET). Predecessor-driven bounds are
     added by the caller.
+
+    An SNET at or before ``start_base`` (the project-start floor) is left out, like a
+    data date there (:func:`_calendar_floors`): raised to the project start it is the
+    project-start floor, which ``start`` already carries, and which an SF-linked task
+    and a milestone's link instant deliberately do not take (#4635). Left in, it
+    pulled those two *earlier* than no SNET at all. ``actual_start`` is never
+    dropped: a recorded fact may precede the plan.
 
     ``sf_linked`` (:func:`_sf_linked`) drops the project-start floor and keeps only the
     data date (``data_floor``, ``None`` when no status date is set), so the list
@@ -2296,8 +2324,25 @@ def _early_start_floors(
     # planned_start (SNET) is an additional ES lower-bound: the task may
     # not start before this date regardless of network logic.
     if task.planned_start is not None:
-        es_constraints.append(_next_working_day(task.planned_start, cal))
+        snet = _floor_above_start(task.planned_start, cal, start_base)
+        if snet is not None:
+            es_constraints.append(snet)
     return duration_days, es_constraints
+
+
+def _floor_above_start(floor: date, cal: Calendar, start_base: date) -> date | None:
+    """``floor`` (a data date or SNET) snapped to ``cal``, or ``None`` at or before the start.
+
+    Raised to the project-start floor ``start_base``, a bound at or before it *is* that
+    floor, so it is dropped: every task that takes the project-start floor already has
+    it, and the two places that leave it out — an SF-linked task (#4218) and a
+    milestone's link instant (#4225) — must not get it back through the data date or
+    an SNET either (#4635). Compared after snapping, so a status date on the weekend
+    before a Monday start is at the start. One definition for both passes and the
+    Rust engine (``forward.rs::floor_above_start``).
+    """
+    snapped = _next_working_day(floor, cal)
+    return snapped if snapped > start_base else None
 
 
 def _calendar_floors(
@@ -2323,8 +2368,10 @@ def _calendar_floors(
     Returns ``(start_base, start, data_floor)`` — the project-start floor, that floor
     raised to the data date when one is set, and the data-date floor on its own
     (``None`` without a status date). A status date at or before project start is
-    already covered by the project-start floor in ``start``; ``data_floor`` is what an
-    SF-linked task, which the project start does not floor, is held at (#4218).
+    already covered by the project-start floor in ``start``, so ``data_floor`` is
+    ``None`` for it too (:func:`_floor_above_start`, #4635); otherwise it is what an
+    SF-linked task, which the project start does not floor, is held at (#4218), and
+    what binds a milestone's link instant (#4225).
     """
     key = id(cal)
     cached = cache.get(key)
@@ -2337,8 +2384,9 @@ def _calendar_floors(
     if status_date is not None:
         # The data date floors all not-yet-finished work: nothing remaining can be
         # scheduled before "as of now".
-        data_floor = _next_working_day(status_date, cal)
-        start = max(start_base, data_floor)
+        data_floor = _floor_above_start(status_date, cal, start_base)
+        if data_floor is not None:
+            start = data_floor
     cache[key] = (start_base, start, data_floor)
     return start_base, start, data_floor
 
@@ -2493,8 +2541,10 @@ def _pinned_milestone_instant(
     as a live milestone with no links is (#4343); the pair is what
     :func:`_place_milestone` returns with no predecessors: the SNET is a fact
     about when the milestone happens and binds ``link``; the project start only
-    bounds where it is shown (#4225), so ``link`` falls back to it only when no
-    SNET is set.
+    bounds where it is shown (#4225). ``day`` already is the later of the two
+    (:func:`_pinned_placement`), and an SNET at or before the project start is no
+    floor (#4635) — linking from it measured successors' lags from before the plan
+    opened — so ``link`` is ``shown``.
 
     With actuals recorded — the API's normal path, since ``COMPLETE`` stamps
     ``actual_finish`` — the day is the recorded one (``actual_finish``, else
@@ -2525,9 +2575,7 @@ def _pinned_milestone_instant(
         raw = _safe_offset(recorded, _ONE_DAY)
         return (raw, False), (raw, _start_reading(raw, False, cal))
     shown: _Instant = (day, True)
-    if task.planned_start is None:
-        return shown, shown
-    return shown, (_next_working_day(task.planned_start, cal), True)
+    return shown, shown
 
 
 def _forward_edge_constraints(
@@ -5417,7 +5465,7 @@ def _mc_pre_start_pad_days(
             lo[tid] = _next_working_day(project.start_date, cal)
             if task.duration.days == 0:
                 proposals = [
-                    *_milestone_hard_floors(task, cal, project.status_date),
+                    *_milestone_hard_floors(task, cal, project.status_date, project.start_date),
                     *_link_lower_bound(g, tid, link_lo, cal_of),
                 ]
                 if proposals:
@@ -5982,8 +6030,9 @@ def _mc_es_floors(
     (:func:`_sf_linked`, #4218) does not take. Offset 0 is the project start only while
     the index opens there; once :func:`_mc_pre_start_pad_days` opens it earlier, every
     other task carries its project-start offset explicitly, and an SF-linked task keeps
-    just its data date, SNET and actual start, each read wherever it falls on the
-    index — before the project start included, as ``schedule()`` reads them.
+    just its actual start, read wherever it falls on the index — before the project
+    start included, as ``schedule()`` reads it — and its data date and SNET only when
+    they fall after the start (:func:`_floor_above_start`, #4635).
     """
 
     def _snap_offset(d: date, tid: str) -> float:
@@ -6001,14 +6050,20 @@ def _mc_es_floors(
             _raise_mc_index_overrun()
         return 0.0 if snapped < index[0] else float(len(index) - 1)
 
+    def _above_start(d: date, tid: str) -> bool:
+        cal = cal_of[tid]
+        return _floor_above_start(d, cal, _next_working_day(project.start_date, cal)) is not None
+
     es_floor: dict[str, float] = {}
     status_date = project.status_date
     for t in task_map.values():
         if t.id in sf_linked:
+            # A data date or SNET at or before the project start is no floor here,
+            # exactly as in _early_start_floors (#4635).
             floor = 0.0
-            if t.planned_start is not None:
+            if t.planned_start is not None and _above_start(t.planned_start, t.id):
                 floor = _snap_offset(t.planned_start, t.id)
-            if status_date is not None and not _is_complete(t):
+            if status_date is not None and not _is_complete(t) and _above_start(status_date, t.id):
                 floor = max(floor, _snap_offset(status_date, t.id))
             if t.actual_start is not None and not _is_complete(t):
                 floor = max(floor, _snap_offset(t.actual_start, t.id))
@@ -6047,22 +6102,28 @@ later (#4220).
 """
 
 
-def _milestone_hard_floors(task: Task, cal: Calendar, status_date: date | None) -> list[date]:
+def _milestone_hard_floors(
+    task: Task, cal: Calendar, status_date: date | None, project_start: date
+) -> list[date]:
     """A live milestone's hard floors — the ``hard`` half of :data:`_MilestoneFloors`.
 
-    The data date and SNET snapped to the milestone's own working days, the recorded
-    actual start verbatim. One definition, because two readers must agree on it:
-    :func:`_mc_milestone_floors` places the link instant from these, and
+    The data date and SNET snapped to the milestone's own working days — each only
+    when after the project-start floor (:func:`_floor_above_start`, #4635) — and the
+    recorded actual start verbatim. One definition, because two readers must agree on
+    it: :func:`_mc_milestone_floors` places the link instant from these, and
     :func:`_mc_pre_start_pad_days` bounds that instant from below with them (#4510) —
     a pad bound computed from a different set could sit above the instant it bounds.
     """
+    start_base = _next_working_day(project_start, cal)
     hard: list[date] = []
-    if status_date is not None:
-        hard.append(_next_working_day(status_date, cal))
+    if status_date is not None and (df := _floor_above_start(status_date, cal, start_base)):
+        hard.append(df)
     if task.actual_start is not None:
         hard.append(task.actual_start)
-    if task.planned_start is not None:
-        hard.append(_next_working_day(task.planned_start, cal))
+    if task.planned_start is not None and (
+        snet := _floor_above_start(task.planned_start, cal, start_base)
+    ):
+        hard.append(snet)
     return hard
 
 
@@ -6083,7 +6144,7 @@ def _mc_milestone_floors(
     out: dict[str, _MilestoneFloors] = {}
     for tid in milestone_ids:
         cal = cal_of[tid]
-        hard = _milestone_hard_floors(task_map[tid], cal, project.status_date)
+        hard = _milestone_hard_floors(task_map[tid], cal, project.status_date, project.start_date)
         out[tid] = (
             max(hard).toordinal() if hard else None,
             None if tid in sf_linked else _next_working_day(project.start_date, cal).toordinal(),
@@ -6141,10 +6202,12 @@ def _mc_verbatim_actuals(
         offset_of = offset_of_by_cal[cal_key]
         last = float(len(wd_index_by_cal[cal_key]) - 1)
         if t.id in sf_linked:
+            # Sub-start data date / SNET left out, as in _mc_es_floors (#4635).
+            start_base = _next_working_day(project.start_date, cal)
             other = 0.0
-            if t.planned_start is not None:
+            if t.planned_start is not None and _floor_above_start(t.planned_start, cal, start_base):
                 other = _snapped_offset(t.planned_start, cal, offset_of, last)
-            if status_date is not None:
+            if status_date is not None and _floor_above_start(status_date, cal, start_base):
                 other = max(other, _snapped_offset(status_date, cal, offset_of, last))
             out[t.id] = (actual.toordinal(), _snapped_offset(actual, cal, offset_of, last), other)
             continue

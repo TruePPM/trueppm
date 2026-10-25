@@ -970,12 +970,15 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False
                 task_calendar[tid] = cid
     if modeled:
         links = [_on_one_calendar(link, task_calendar) for link in links]
-    status_date = draw(st.none() | st.integers(-3, 8).map(lambda d: start + timedelta(days=d)))
+    # Reaches three weeks before the start (#4635): a data date only a weekend before
+    # it snaps onto the start itself, so the -3 floor this range had almost never
+    # produced a data date the engines read as before the start.
+    status_date = draw(st.none() | st.integers(-21, 8).map(lambda d: start + timedelta(days=d)))
     planned_start = {}
     progress = {}
     for tid, dur in durations.items():
         if draw(st.integers(0, 3)) == 0:
-            planned_start[tid] = start + timedelta(days=draw(st.integers(-3, 12)))
+            planned_start[tid] = start + timedelta(days=draw(st.integers(-21, 12)))
         recorded = draw(_progress(start, dur))
         if modeled and dur == 0 and recorded is not None and recorded.complete:
             recorded = RefProgress(percent_complete=100.0)
@@ -1459,6 +1462,18 @@ SATURDAY_ACTUAL_START = RefProject(
     progress={"A": RefProgress(percent_complete=50.0, actual_start=date(2026, 3, 7))},
 )
 
+#: #4635 — floors before the project start: a pre-start data date and a pre-start
+#: SNET on the free milestone ``K``, whose FS+10d link to ``A`` must still count
+#: from the project start (Mon 02-02), as with neither floor: ``A`` starts Thu 02-12.
+#: Both engines counted from the earlier floor and started ``A`` on 02-02.
+SUB_START_FLOORS_ON_A_FREE_MILESTONE = RefProject(
+    start=date(2026, 2, 2),
+    durations={"K": 0, "A": 5},
+    links=(RefLink("K", "A", "FS", 10),),
+    status_date=date(2026, 1, 15),
+    planned_start={"K": date(2026, 1, 20)},
+)
+
 PROGRESS_EXAMPLES = (
     SS_OUT_OF_A_RECORDED_START,
     SS_OUT_OF_A_DERIVED_START,
@@ -1469,6 +1484,7 @@ PROGRESS_EXAMPLES = (
     SUNDAY_FINISH_BEHIND_A_MILESTONE,
     SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE,
     SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
+    SUB_START_FLOORS_ON_A_FREE_MILESTONE,
     # Not SF_INTO_A_FOUR_DAY_MILESTONE: an SF link across two calendars, which the
     # reference refuses (``_check_modeled``).
 )
@@ -1513,6 +1529,10 @@ def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
         date(2026, 3, 9),
         date(2026, 3, 10),
     )
+    # A data date or SNET at or before the start is no floor (#4635).
+    sub_start = reference_schedule(SUB_START_FLOORS_ON_A_FREE_MILESTONE).tasks
+    assert sub_start["A"].early_start == date(2026, 2, 12)
+
     # Late dates never precede early ones (#3963).
     for project in PROGRESS_EXAMPLES:
         for t in reference_schedule(project).tasks.values():

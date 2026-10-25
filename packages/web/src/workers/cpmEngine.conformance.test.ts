@@ -195,6 +195,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   sf_before_project_start:
     'adapter: seeds all tasks at project start, overriding SNET; mixed-link project-start floor not modeled',
   sf_before_project_start_data_date: 'adapter: does not thread actuals/status date',
+  // #4635. A pre-start data date and pre-start SNETs on free, completed and
+  // SF-linked tasks, with several unlinked sources; the harness feeds none of it.
+  sub_start_floors_move_nothing:
+    'adapter: does not thread actuals/status date; adapter: seeds all tasks at project start, overriding SNET',
   // #4220. The waiver is decided by which link binds, and this engine models no
   // project-start floor for mixed links at all (see `sf_before_project_start`).
   sf_mixed_links_binding_rule: 'engine gap: mixed-link project-start floor not modeled',

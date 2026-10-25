@@ -309,3 +309,45 @@ fn assert_incremental_matches_full(stem: &str, base: &Project, changed: &str) {
         );
     }
 }
+
+/// #4635: a data date and SNETs at or before the project start move nothing.
+///
+/// The fixture's `expected/` snapshot pins both engines, and an engine agreeing with
+/// a snapshot proves nothing if the snapshot re-encodes the defect. This asserts the
+/// relation that makes it right, in the Rust engine itself: stripping the pre-start
+/// data date and every SNET leaves every task, the finish and the critical path
+/// exactly where they were. The Python half is
+/// `test_sub_start_floor_fixture_matches_the_same_network_without_floors`.
+#[test]
+fn sub_start_floors_move_nothing() {
+    let floored = load_project("sub_start_floors_move_nothing");
+    let mut bare = floored.clone();
+    bare.status_date = None;
+    for t in bare.tasks.iter_mut() {
+        t.planned_start = None;
+    }
+    let a = schedule_impl(&floored).unwrap();
+    let b = schedule_impl(&bare).unwrap();
+    assert_eq!(a.project_finish, b.project_finish);
+    assert_eq!(a.critical_path, b.critical_path);
+    for (x, y) in a.tasks.iter().zip(b.tasks.iter()) {
+        assert_eq!(
+            (
+                &x.id,
+                x.early_start,
+                x.early_finish,
+                x.late_start,
+                x.late_finish,
+                x.total_float
+            ),
+            (
+                &y.id,
+                y.early_start,
+                y.early_finish,
+                y.late_start,
+                y.late_finish,
+                y.total_float
+            ),
+        );
+    }
+}

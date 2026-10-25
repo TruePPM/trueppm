@@ -94,7 +94,10 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   successor's.
 * **Floors.** Live work and live milestones are floored at the data date and at
   an SNET (``planned_start``), each snapped to a working-day start on the task's
-  own calendar, and at the project start as above. A recorded ``actual_start`` is
+  own calendar, and at the project start as above. A data date or SNET that snaps
+  to a day at or before the project start is no floor at all (#4635, the package
+  README): it is the project-start floor, which an SF-linked task and a milestone's
+  link instant do not take. A recorded ``actual_start`` is
   a floor kept **verbatim**, even on a non-working day; when it is the latest
   floor the task's window opens there and its first working day is the one after
   (#4332).
@@ -115,7 +118,8 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   *into* completed work bounds nothing: its predecessor's late dates and free
   float ignore it.
 * **Completed milestones** with no actuals are an instant at the start of the
-  pinned day; their SNET binds the instant they are linked from (#4343, #4225).
+  pinned day — the later of the project start and their SNET — and are linked
+  from that instant (#4343, #4225, #4635).
 * **Late dates never precede early ones (#3963).** The backward search is floored
   at the early span. This is modeled but not discriminated: the search already
   stops at or after the early span, so no generated or pinned case makes the
@@ -534,8 +538,9 @@ def _pinned(project: RefProject, tid: str) -> tuple[Span, date]:
                 "reference CPM: a completed milestone with recorded actuals keeps the "
                 "day edge it had live (#4433, #4525), which this oracle does not model"
             )
+        # An SNET at or before the start is no floor (#4635): link from the shown day.
         shown = base if snet is None else max(base, start_at_or_after(snet, cal))
-        return (shown, shown), shown if snet is None else start_at_or_after(snet, cal)
+        return (shown, shown), shown
     if recorded.actual_finish is not None:
         finish = recorded.actual_finish + ONE_DAY
         start = recorded.actual_start or start_from_finish(finish, n, cal)
@@ -568,14 +573,13 @@ def _needs(
 
 def _snapped_floors(project: RefProject, tid: str) -> list[date]:
     """The floors that bind ``tid`` beyond the project start and its actual start: the
-    data date and an SNET, each the start of a working day on its own calendar."""
+    data date and an SNET, each the start of a working day on its own calendar, and
+    each only when that day is after the project start's (#4635)."""
     cal = project.calendar_of(tid)
-    out = []
-    if project.status_date is not None:
-        out.append(start_at_or_after(project.status_date, cal))
-    if tid in project.planned_start:
-        out.append(start_at_or_after(project.planned_start[tid], cal))
-    return out
+    base = start_at_or_after(project.start, cal)
+    raw = [project.status_date, project.planned_start.get(tid)]
+    snapped = [start_at_or_after(d, cal) for d in raw if d is not None]
+    return [d for d in snapped if d > base]
 
 
 def _forward_task(

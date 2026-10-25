@@ -215,7 +215,8 @@ pub(crate) fn start_reading(
 ///
 /// The project-start floor (`start_floor`) only bounds where the milestone is
 /// *shown* (#4225); `floors` holds the others (data date, SNET, a recorded actual
-/// start), which bind `link` too. Every successor carries the project-start floor
+/// start), which bind `link` too — a data date or SNET only when after the project
+/// start (`floor_above_start`, #4635). Every successor carries the project-start floor
 /// itself, so a milestone held at it by that floor alone has nothing to add
 /// downstream — measuring a successor's lag from the floored instant made
 /// `A -FS-> M -FS(2cd)-> B` put `B` a working day after `A -FS(2cd)-> B` whenever
@@ -293,7 +294,8 @@ type StartFloors = (NaiveDate, NaiveDate, Option<NaiveDate>);
 /// calendar address (mirroring the Python pass's `id(cal)` memo, #1824) so the
 /// snap runs once per calendar rather than once per task — a sparse calendar's
 /// snap walk is not free. The third element is the data-date floor on its own
-/// (`None` without a status date): what an SF-linked task, which the project start
+/// (`None` without a status date, or one at or before the project start —
+/// `floor_above_start`, #4635): what an SF-linked task, which the project start
 /// does not floor, is held at (#4218). Mirrors the Python `_calendar_floors`.
 fn start_floors_for(
     memo: &mut HashMap<*const Calendar, StartFloors>,
@@ -305,16 +307,32 @@ fn start_floors_for(
         Entry::Occupied(e) => Ok(*e.get()),
         Entry::Vacant(e) => {
             let base = next_working_day(project_start, node_cal)?;
+            // A status date at or before project start is already covered by the
+            // project-start floor, so it is no data-date floor at all (#4635).
             let data_floor = match status_date {
-                Some(sd) => Some(next_working_day(sd, node_cal)?),
+                Some(sd) => floor_above_start(sd, node_cal, base)?,
                 None => None,
             };
-            // A status date at or before project start is already covered by the
-            // project-start floor, hence the max().
-            let floored = data_floor.map_or(base, |df| base.max(df));
+            let floored = data_floor.unwrap_or(base);
             Ok(*e.insert((base, floored, data_floor)))
         }
     }
+}
+
+/// `floor` (a data date or SNET) snapped to `cal`, or `None` at or before `start_base`.
+///
+/// Raised to the project-start floor, a bound at or before it *is* that floor, so it
+/// is dropped: every task that takes the project-start floor already has it, and the
+/// two places that leave it out — an SF-linked task (#4218) and a milestone's link
+/// instant (#4225) — must not get it back through the data date or an SNET (#4635,
+/// "clamp SF too"). Compared after snapping. Mirrors the Python `_floor_above_start`.
+fn floor_above_start(
+    floor: NaiveDate,
+    cal: &Calendar,
+    start_base: NaiveDate,
+) -> Result<Option<NaiveDate>, String> {
+    let snapped = next_working_day(floor, cal)?;
+    Ok((snapped > start_base).then_some(snapped))
 }
 
 /// Pull ES/EF forward to satisfy the FF/SF constraints, if any bind.
@@ -444,9 +462,9 @@ pub fn forward_pass(
         // was pinned above (#4343), so none reaches the network placement below.
         let duration_days = tasks[i].effective_duration_days();
 
-        // A task with an SF link is not floored at the project start — only at the
-        // data date (#4218, #4220): its project-start floor is `min(project start,
-        // SF placement)`, which its SF link already enforces. The project start is a
+        // A task with an SF link is not floored at the project start — only at a
+        // data date past it (#4218, #4220, #4635): its project-start floor is
+        // `min(project start, SF placement)`, which its SF link already enforces. The project start is a
         // planning convention an SF link may overrule (MS Project schedules such a
         // successor ahead of it); the data date is a fact about time, and remaining
         // work cannot be forecast into the past. Mirrors the Python
@@ -471,10 +489,13 @@ pub fn forward_pass(
             es_constraints.push(actual_start);
             hard_floors.push(actual_start);
         }
+        // An SNET at or before the project start is no floor, like a data date
+        // there (#4635): mirrors the Python `_early_start_floors`.
         if let Some(ps) = tasks[i].planned_start {
-            let snet = next_working_day(ps, node_cal)?;
-            es_constraints.push(snet);
-            hard_floors.push(snet);
+            if let Some(snet) = floor_above_start(ps, node_cal, start_base)? {
+                es_constraints.push(snet);
+                hard_floors.push(snet);
+            }
         }
         if duration_days == 0 {
             let start_floor = (!is_sf_linked).then_some(start_base);
@@ -665,8 +686,9 @@ fn live_milestone_edge(
 ///
 /// With no actuals it is an instant at the start of its pinned day, as a live
 /// milestone with no links is (#4343): the pair `place_milestone` returns with no
-/// predecessors — the SNET binds `link`; the project start only bounds where it
-/// is shown (#4225). With actuals the day is the recorded one (`actual_finish`,
+/// predecessors — an SNET after the project start binds `link`, which is then the
+/// shown instant itself; the project start only bounds where it is shown (#4225),
+/// and an SNET at or before it is no floor (#4635). With actuals the day is the recorded one (`actual_finish`,
 /// else `actual_start`), shown and linked from alike, on the edge of that day the
 /// milestone had live (`live_start`, `live_milestone_edge`): the start when
 /// nothing precedes it, a floor held it, or open work behind it was never
@@ -693,11 +715,11 @@ fn pinned_milestone_instant(
         let raw = checked_offset_days(recorded, 1)?;
         return Ok(((raw, false), (raw, start_reading(raw, false, calendar)?)));
     }
+    // `day` is already the later of the project start and the SNET
+    // (`pinned_placement`), and an SNET at or before the start is no floor
+    // (#4635), so the link is the shown instant.
     let shown = (day, true);
-    match task.planned_start {
-        None => Ok((shown, shown)),
-        Some(ps) => Ok((shown, (next_working_day(ps, calendar)?, true))),
-    }
+    Ok((shown, shown))
 }
 
 /// Whether `idx` has at least one incoming SF link (#4218, #4220).
