@@ -56332,7 +56332,6 @@
                     },
                     "configured_by": {
                         "type": "string",
-                        "format": "uuid",
                         "nullable": true
                     },
                     "secret_set_at": {
@@ -58332,8 +58331,7 @@
                 "type": "object",
                 "properties": {
                     "user": {
-                        "type": "string",
-                        "format": "uuid"
+                        "type": "integer"
                     }
                 },
                 "required": [
@@ -58344,8 +58342,7 @@
                 "type": "object",
                 "properties": {
                     "user": {
-                        "type": "string",
-                        "format": "uuid"
+                        "type": "integer"
                     }
                 },
                 "required": [
@@ -64809,8 +64806,7 @@
                 "type": "object",
                 "properties": {
                     "user": {
-                        "type": "string",
-                        "format": "uuid"
+                        "type": "integer"
                     }
                 },
                 "required": [
@@ -64821,8 +64817,7 @@
                 "type": "object",
                 "properties": {
                     "user": {
-                        "type": "string",
-                        "format": "uuid"
+                        "type": "integer"
                     }
                 },
                 "required": [
@@ -69251,8 +69246,7 @@
                         "readOnly": true
                     },
                     "assignee_id": {
-                        "type": "string",
-                        "format": "uuid",
+                        "type": "integer",
                         "readOnly": true,
                         "nullable": true
                     },
@@ -80116,7 +80110,6 @@
                     },
                     "deleted_by": {
                         "type": "string",
-                        "format": "uuid",
                         "nullable": true
                     },
                     "deleted_by_name": {

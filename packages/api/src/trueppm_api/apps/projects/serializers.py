@@ -12783,7 +12783,7 @@ class ProjectRetroCarryoverItemSerializer(serializers.Serializer[dict[str, Any]]
     promoted_task_status = serializers.CharField(read_only=True, allow_null=True)
     promoted_task_short_id = serializers.CharField(read_only=True, allow_null=True)
     age_days = serializers.IntegerField(read_only=True)
-    assignee_id = serializers.UUIDField(read_only=True, allow_null=True)
+    assignee_id = serializers.IntegerField(read_only=True, allow_null=True)
     assignee_username = serializers.CharField(read_only=True, allow_null=True)
     story_points = serializers.IntegerField(read_only=True, allow_null=True)
 

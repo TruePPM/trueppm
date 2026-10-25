@@ -462,6 +462,30 @@ declaration correction, not a change taken without a window.
 | Announced | 0.4 |
 | Migration | regenerate clients; send the retro fields the endpoint documents |
 
+### User ids declared as integers (#4293)
+
+The four mention-group roster request bodies (`add-member` and `remove-member`, on both
+the project and the program routes) declared `user` as `format: uuid`. The endpoint
+resolves it as a user primary key, which is an integer, so a client that validates the
+declared format could not send a real id. `user` is now declared `integer`. The server
+already accepted an integer, and still accepts a stringified integer such as `"42"`, so
+no request that worked before is refused. `assignee_id` on the retro carryover response
+(`GET /api/v1/projects/{id}/retrospective/carryover/`) is declared `integer` for the same
+reason: it always carried an integer. `deleted_by` (Trash list) and `configured_by`
+(Git automation) are declared `string`, which is what they always emitted.
+
+Changing a declared type is **Breaking** by the table above. The exception is available
+because the mention-group roster schemas are new in the 0.4 line and have only appeared
+in pre-release tags (the betas and `v0.4.0-rc.1`, which is the breaking-check baseline,
+so the gate flags the change). It is a pre-GA declaration correction with unchanged wire
+behavior, following the #4591 precedent; after `0.4.0` the same change would need a full
+window.
+
+| | |
+|---|---|
+| Announced | 0.4 (schema declaration corrected; wire behavior unchanged) |
+| Migration | regenerate clients; send `user` as an integer id |
+
 ### `RoleEnum` replaced by `RoleOrdinal`
 
 **This is a pre-GA break with no deprecation window, not a scheduled

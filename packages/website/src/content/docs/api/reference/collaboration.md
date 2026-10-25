@@ -246,8 +246,10 @@ other and take identical payloads.
 **`add-member` and `remove-member` take a body**, and it is required:
 
 ```json
-{ "user": "9c2d0f7e-…" }
+{ "user": 42 }
 ```
+
+`user` is the integer id of an active project (or program) member; a stringified integer such as `"42"` is also accepted.
 
 The response to all four actions is the group's read shape — `id`, `name`,
 `members` (id + username only — no email, so a program Viewer reading a
