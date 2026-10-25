@@ -475,8 +475,11 @@ reason: it always carried an integer. `deleted_by` (Trash list) and `configured_
 (Git automation) are declared `string`, which is what they always emitted.
 
 Changing a declared type is **Breaking** by the table above. The exception is available
-because the mention-group roster schemas are new in 0.4 and have only appeared in beta
-tags; after `0.4.0` the same change would need a full window.
+because the mention-group roster schemas are new in the 0.4 line and have only appeared
+in pre-release tags (the betas and `v0.4.0-rc.1`, which is the breaking-check baseline,
+so the gate flags the change). It is a pre-GA declaration correction with unchanged wire
+behavior, following the #4591 precedent; after `0.4.0` the same change would need a full
+window.
 
 | | |
 |---|---|

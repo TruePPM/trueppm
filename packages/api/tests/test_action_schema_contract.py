@@ -257,49 +257,81 @@ def test_add_and_remove_member_accept_integer_and_stringified_integer_user(
 
 
 @pytest.mark.django_db
-def test_program_add_and_remove_member_accept_an_integer_user(
-    program: Program, project: Project, admin_user: Any, teammate: Any
+@pytest.mark.parametrize("as_string", [False, True], ids=["integer", "stringified-integer"])
+def test_program_add_and_remove_member_accept_integer_and_stringified_user(
+    program: Program, project: Project, admin_user: Any, teammate: Any, as_string: bool
 ) -> None:
     group = ProgramUserDefinedMentionGroup.objects.create(program=program, name="leads")
     base = f"/api/v1/programs/{program.id}/mention-groups/{group.id}"
+    value: Any = str(teammate.pk) if as_string else teammate.pk
 
-    added = _client(admin_user).post(f"{base}/add-member/", {"user": teammate.pk}, format="json")
+    added = _client(admin_user).post(f"{base}/add-member/", {"user": value}, format="json")
     assert added.status_code == 200, added.data
     assert group.members.filter(pk=teammate.pk).exists()
 
-    removed = _client(admin_user).post(
-        f"{base}/remove-member/", {"user": teammate.pk}, format="json"
-    )
+    removed = _client(admin_user).post(f"{base}/remove-member/", {"user": value}, format="json")
     assert removed.status_code == 200, removed.data
     assert not group.members.filter(pk=teammate.pk).exists()
 
 
-# Properties that carry a ``User`` primary key (an integer AutoField). Declaring
-# one ``format: uuid`` is a claim no value can satisfy (#4293, same class as #2633).
-_USER_PK_PROPERTY_NAMES = frozenset(
+_USER_PK_EXACT_NAMES = frozenset(
+    {"user", "actor", "owner", "assignee", "author", "reviewer", "approver", "requester"}
+)
+
+# Known non-user uuid ids that the name patterns below would otherwise flag.
+_NON_USER_UUID_ALLOWLIST = frozenset(
     {
-        "user",
-        "user_id",
-        "deleted_by",
-        "configured_by",
-        "assignee_id",
-        "actor",
-        "actor_id",
-        "owner_id",
-        "author_id",
-        "created_by",
+        "SprintCapacityMember.member_id",  # a Resource id
+        "AuditEvent.target_id",  # the audited object, any model
+        "ApiTokenAuditEntry.token",  # a token row id
     }
 )
 
 
-def test_no_user_pk_property_is_declared_uuid(schema: dict[str, Any]) -> None:
-    """No component property named for a user reference may declare ``format: uuid``."""
-    offenders = [
+def _looks_like_user_ref(prop: str) -> bool:
+    return (
+        prop in _USER_PK_EXACT_NAMES
+        or prop.endswith("_by")
+        or prop.endswith("_by_id")
+        or any(prop == f"{n}_id" or prop == f"{n}_ids" for n in _USER_PK_EXACT_NAMES)
+        or prop in {"user_ids", "member_ids"}
+    )
+
+
+def _declares_uuid(node: dict[str, Any]) -> bool:
+    """True when the node, its ``items`` or any ``allOf``/``oneOf``/``anyOf`` arm is a uuid."""
+    if node.get("format") == "uuid":
+        return True
+    if isinstance(node.get("items"), dict) and _declares_uuid(node["items"]):
+        return True
+    return any(
+        _declares_uuid(arm)
+        for key in ("allOf", "oneOf", "anyOf")
+        for arm in node.get(key, [])
+        if isinstance(arm, dict)
+    )
+
+
+def _user_pk_uuid_offenders(schema: dict[str, Any]) -> list[str]:
+    return [
         f"{comp}.{prop}"
         for comp, body in schema["components"]["schemas"].items()
         for prop, node in (body.get("properties") or {}).items()
-        if prop in _USER_PK_PROPERTY_NAMES and node.get("format") == "uuid"
+        if _looks_like_user_ref(prop)
+        and _declares_uuid(node)
+        and f"{comp}.{prop}" not in _NON_USER_UUID_ALLOWLIST
     ]
+
+
+def test_no_user_pk_property_is_declared_uuid(schema: dict[str, Any]) -> None:
+    """No component property named like a user reference may declare ``format: uuid``.
+
+    This is a NAME heuristic, not a proof: a user id under an unrelated name
+    (``lead``, ``who``) is not seen, and a match is judged by name alone, hence
+    the small explicit allowlist of known non-user ids. User PKs are integers, so
+    a uuid claim on one is a claim no value can satisfy (#4293, same class as #2633).
+    """
+    offenders = _user_pk_uuid_offenders(schema)
     assert not offenders, f"User PKs are integers, not UUIDs: {offenders}"
 
 
