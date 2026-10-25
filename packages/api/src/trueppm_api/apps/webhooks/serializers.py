@@ -220,9 +220,11 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
 
         Webhook delivery is server-side egress to an admin-supplied URL, so it
         is an SSRF vector (cloud metadata, cluster-internal services). We reject
-        obviously unsafe targets at registration for fast feedback; the
-        ``deliver_webhook`` task re-checks at delivery time as the authoritative
-        guard (closing the DNS-rebinding window). A host that cannot be resolved
+        obviously unsafe targets at registration for fast feedback only. This is
+        advisory: a name can resolve differently later. The authoritative guard
+        is the connect-time peer-address check on the delivery opener
+        (``build_guarded_opener``), which refuses a socket that actually
+        connected to a non-public address (DNS-rebinding). A host that cannot be resolved
         *now* is allowed through — it may resolve later and delivery re-validates.
         Shares the integrations egress chokepoint (ADR-0049 §3).
         """

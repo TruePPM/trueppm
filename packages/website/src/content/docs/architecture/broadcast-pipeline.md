@@ -135,9 +135,11 @@ redirect response as a failure instead.
 **The destination is re-validated at delivery time, not only at registration
 time.** An admin-configured webhook URL is user-supplied input, and the same
 SSRF guard [Auth architecture](/architecture/auth/#outbound-requests-are-never-trusted-by-default)
-describes for OIDC egress applies here — re-checked on every delivery attempt,
-specifically to close a DNS-rebinding window between when a URL was approved
-and when it's actually dialed.
+describes for OIDC egress applies here — re-checked on every delivery attempt.
+That pre-flight is advisory: a name can resolve differently between the check and
+the connection, so the delivery opener also re-checks the address the socket
+actually connected to, which closes the DNS-rebinding window for direct egress
+(behind a configured proxy only the pre-flight applies).
 
 ### The drain: recovering from a lost dispatch
 

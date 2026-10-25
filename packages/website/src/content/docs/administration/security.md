@@ -223,19 +223,43 @@ first install rather than shipping a default credential — see
 
 ## Outbound requests (SSRF boundary)
 
-Features that fetch a user- or admin-supplied URL — currently the outbound
-webhook delivery path — run behind an egress guard that rejects requests
+Features that fetch a user- or admin-supplied URL run behind an egress guard that rejects requests
 resolving to private, loopback, link-local, or otherwise non-public address
 ranges, blocking the common server-side request forgery (SSRF) vectors.
 
-The OSS guard validates the resolved address at request time. It does **not**
-pin that address for the life of the connection, so a name that resolves to a
-public IP at check time and a private IP a moment later (DNS-rebinding) is a
-residual, admin-gated risk accepted by design (ADR-0049 §6). Mitigate it at the
-network layer: run the API's outbound traffic through an egress proxy or
-NetworkPolicy that denies the internal ranges you care about, rather than
-relying on the application guard alone. Connection-time IP pinning is an
-Enterprise hardening.
+The guard checks every address a hostname resolves to before connecting, and
+then resolves once more at connection time, refuses if any answer is non-public,
+and only dials those checked addresses (re-checking the connected peer as defense
+in depth) — before the TLS handshake or any request byte is sent. A name that
+answers the pre-flight lookup with a public IP and the connection's own lookup
+with a private one (DNS-rebinding) is therefore refused without ever opening a
+connection to the private address, so an open and a closed internal port look
+identical. The
+hostname is never rewritten, so TLS SNI and certificate hostname verification
+are unchanged. Webhook delivery, SSO discovery, JWKS, token-exchange and GitHub
+OAuth/user calls, Jira external task sources, link previews, git-link status
+refresh, and PAT verification all share this one guarded opener.
+
+Two behaviors to know:
+
+- **The connected-IP guard is for direct egress only.** `HTTP_PROXY` /
+  `HTTPS_PROXY` / `NO_PROXY` are honored with urllib's normal semantics. A request
+  that goes direct (no proxy configured, or the host matches `NO_PROXY`) gets the
+  connect-time check. A request that goes through a proxy keeps only the
+  resolve-time pre-flight, which refuses a destination host that resolves to a
+  non-public address but is **advisory**: the proxy does the real resolving, so
+  the proxy must enforce your egress policy. TruePPM logs a one-time warning when
+  a proxied request is first made. This is the same behavior proxied installs had
+  before the connected-IP guard existed, so there is no upgrade action. Using an
+  egress proxy or NetworkPolicy that denies internal ranges remains the right
+  layered defense.
+- **`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` applies identically at connect time**
+  (exact, case-insensitive hostname; no wildcards) and is not widened.
+
+The SMTP relay is checked with the same deny-list at save and send time but uses
+Django's SMTP backend, which re-resolves the host when it connects, so it keeps a
+DNS-rebinding residual (tracked in #4647). Keep a NetworkPolicy denying internal
+ranges in front of mail egress if that matters to you.
 
 ## Browser-side third-party requests (none)
 

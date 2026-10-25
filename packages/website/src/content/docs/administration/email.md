@@ -214,7 +214,7 @@ Alongside the transport, the page configures:
 
 The SMTP host is **SSRF-guarded**: a host that resolves to a private, loopback,
 link-local, or cloud-metadata address is rejected, and it is re-checked at send
-time to close the DNS-rebinding window. This is the case the **None** security
+time, which narrows the DNS-rebinding window (the residual is tracked in #4647). This is the case the **None** security
 row above calls out — a trusted internal relay on a private network is exactly
 what the guard blocks by default, so a save against one fails with a specific
 error naming the host as not permitted, distinct from a generic connect

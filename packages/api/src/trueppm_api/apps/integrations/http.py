@@ -13,10 +13,25 @@ time-bounded, redirect-disabled GET with a capped response body. Both #677 and
 #637 route through it so the guard is implemented and tested once.
 
 The guard resolves the hostname and checks **every** returned address — a host
-with one public and one private A record is rejected. A residual DNS-rebinding
-TOCTOU window (re-resolution between check and connect) is accepted for the OSS
-tier; pinning the connection to the validated IP would break TLS SNI / cert
-validation and is an Enterprise hardening item (ADR-0049 §6).
+with one public and one private A record is rejected. That pre-flight check
+alone is resolve-then-reconnect: the connection performs its own lookup, so a
+low-TTL record could answer the check with a public address and the connect with
+``169.254.169.254``. The connection layer therefore resolves the name once,
+refuses if any answer is non-public, and dials only those checked addresses —
+never connecting to a rebinding answer — then re-checks ``getpeername()`` as
+defense in depth, all before TLS or any request byte
+(:func:`build_guarded_opener`). This closes the
+DNS-rebinding window without rewriting the URL (the hostname — and so SNI and
+certificate verification — is untouched). Every urllib-based egress caller must
+use that opener; webhook delivery shares it.
+
+**Proxies.** The opener honors ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY``
+through urllib's normal ``ProxyHandler``. A request that goes **direct** gets the
+connect-time peer check. A request that goes **through a proxy** gets only the
+resolve-time pre-flight (:func:`assert_url_allowed`, advisory): the connected
+peer is the proxy, which does the resolving and is the real egress control, so
+checking it would be meaningless (and would reject a private proxy address). A
+one-time WARNING is logged when a proxied request is first made.
 
 **Operator allow-list (ADR-0590).** A self-hoster who runs an identity provider
 *inside the same cluster* has an OIDC issuer that resolves to a private ClusterIP
@@ -36,8 +51,10 @@ trust, documented for operators alongside the setting.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
+import logging
 import socket
 import urllib.error
 import urllib.parse
@@ -45,6 +62,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # Synchronous, request-cycle calls — the user is staring at a spinner. Short
 # by design; 5s is the ADR-0049 §3 budget for the refresh endpoint.
@@ -212,7 +231,171 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_opener = urllib.request.build_opener(NoRedirectHandler)
+def _peer_ip(sock: socket.socket) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Return the connected peer's IP, or ``None`` if the socket has no peer."""
+    try:
+        addr = sock.getpeername()[0]
+    except OSError:
+        return None
+    # Strip an IPv6 zone id (``fe80::1%eth0``) that ip_address() rejects.
+    try:
+        return ipaddress.ip_address(str(addr).split("%", 1)[0])
+    except ValueError:
+        return None
+
+
+_DEFAULT_SOCKET_TIMEOUT = socket.getdefaulttimeout()
+
+
+def _assert_addrinfos_public(host: str, infos: list[Any]) -> None:
+    """Refuse if ANY resolved address is non-public (same rule as the pre-flight)."""
+    for info in infos:
+        addr = str(info[4][0]).split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            raise EgressBlocked(f"unparseable address {addr!r}") from None
+        if _is_blocked_ip(ip):
+            raise EgressBlocked(f"host {host!r} resolves to non-public address {addr}")
+
+
+def _guarded_create_connection(
+    address: tuple[str, int],
+    timeout: Any = _DEFAULT_SOCKET_TIMEOUT,
+    source_address: tuple[str, int] | None = None,
+) -> socket.socket:
+    """``socket.create_connection`` that only ever dials checked addresses (#3849).
+
+    Resolves the name ONCE, refuses if any returned address is non-public, then
+    connects to those already-checked sockaddrs with the stdlib try-each-address
+    loop. The pre-flight :func:`assert_url_allowed` and a plain connect each
+    resolve independently, so a rebinding answer must never be dialed: refusing
+    before ``connect`` also means an open and a closed internal port are
+    indistinguishable (both a permanent ``EgressBlocked``, no handshake). The
+    ``getpeername()`` check after the handshake stays as defense in depth. Runs
+    before the TLS wrap and any request byte; the hostname is untouched so SNI and
+    certificate verification are unchanged. An operator-allow-listed host
+    (ADR-0590, exact match) skips the deny-list, as in :func:`assert_url_allowed`.
+    """
+    host, port = address[0], address[1]
+    allowlisted = host.lower().strip("[]") in _allowlisted_hosts()
+    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    if not infos:
+        raise OSError("getaddrinfo returns an empty list")
+    if not allowlisted:
+        _assert_addrinfos_public(host, infos)
+    err: OSError | None = None
+    for af, socktype, proto, _canon, sa in infos:
+        sock: socket.socket | None = None
+        try:
+            sock = socket.socket(af, socktype, proto)
+            if timeout is not _DEFAULT_SOCKET_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sa)
+        except OSError as exc:
+            err = exc
+            if sock is not None:
+                sock.close()
+            continue
+        if not allowlisted:
+            ip = _peer_ip(sock)
+            if ip is None or _is_blocked_ip(ip):
+                sock.close()
+                raise EgressBlocked(f"host {host!r} connected to a non-public address")
+        return sock
+    assert err is not None
+    raise err
+
+
+class _GuardedHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection whose connected peer is deny-list checked (#3849)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _guarded_create_connection
+
+
+class _GuardedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection whose peer is checked before the TLS handshake.
+
+    ``HTTPSConnection.connect`` calls the parent ``connect`` (which uses
+    ``_create_connection``) and then wraps with ``server_hostname=self.host``, so
+    SNI and certificate hostname verification keep using the original name.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._create_connection = _guarded_create_connection
+
+
+_proxy_warned = False
+
+
+def _is_proxied(req: urllib.request.Request) -> bool:
+    """True if urllib's ProxyHandler rerouted ``req`` through a proxy."""
+    return req.has_proxy() or getattr(req, "_tunnel_host", None) is not None
+
+
+def _note_proxied() -> None:
+    global _proxy_warned
+    if not _proxy_warned:
+        _proxy_warned = True
+        logger.warning(
+            "Outbound request is going through a proxy (HTTP_PROXY/HTTPS_PROXY): the "
+            "connected-IP SSRF guard does not apply behind a proxy; only the resolve-time "
+            "pre-flight does. The proxy must enforce egress policy."
+        )
+
+
+class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req: urllib.request.Request) -> Any:
+        if _is_proxied(req):
+            _note_proxied()
+            return self.do_open(http.client.HTTPConnection, req)
+        return self.do_open(_GuardedHTTPConnection, req)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req: urllib.request.Request) -> Any:
+        ctx = self._context  # type: ignore[attr-defined]
+        if _is_proxied(req):
+            _note_proxied()
+            return self.do_open(http.client.HTTPSConnection, req, context=ctx)
+        return self.do_open(_GuardedHTTPSConnection, req, context=ctx)
+
+
+def build_guarded_opener() -> urllib.request.OpenerDirector:
+    """Build the one opener every user-controlled-URL egress call must use.
+
+    Redirects disabled; env proxies honored (see module docstring); direct
+    connections have their connected peer re-checked at connect time. A refused
+    peer raises :class:`EgressBlocked` out of ``open`` *unwrapped* — it is not an
+    ``OSError``, so urllib's ``do_open`` does not convert it to ``URLError``.
+    Proxy settings are read from the environment when this is called.
+    """
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler(),
+        NoRedirectHandler,
+        _GuardedHTTPHandler,
+        _GuardedHTTPSHandler,
+    )
+
+
+def blocked_reason(exc: BaseException) -> EgressBlocked | None:
+    """Return ``exc`` if it is an :class:`EgressBlocked`, or one wrapped as ``.reason``.
+
+    Defensive: the guarded connection's refusal normally propagates unwrapped,
+    but a caller may hold a ``URLError`` whose ``reason`` carries it.
+    """
+    if isinstance(exc, EgressBlocked):
+        return exc
+    reason = getattr(exc, "reason", None)
+    return reason if isinstance(reason, EgressBlocked) else None
+
+
+_opener = build_guarded_opener()
 
 
 def assert_url_allowed(url: str) -> None:
@@ -269,7 +452,8 @@ def assert_host_allowed(host: str, port: int) -> None:
     resolved address must be globally routable) but without the ``http``/
     ``https`` scheme gate, which would reject an SMTP target outright. Reused by
     the workspace-SMTP serializer (validate-at-save) *and* the connection
-    resolver (re-validate at send, closing the DNS-rebinding gap — ADR-0213 §4).
+    resolver (re-validate at send, which narrows but does not close the
+    DNS-rebinding window — the SMTP residual is tracked in #4647; ADR-0213 §4).
 
     Raises:
         EgressBlocked: Missing host or a resolved address is private /
@@ -341,10 +525,15 @@ def get(
     except TimeoutError as exc:
         raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
     except urllib.error.URLError as exc:
+        blocked = blocked_reason(exc)
+        if blocked is not None:
+            raise blocked from exc
         # URLError wraps socket.timeout on some platforms.
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
         raise EgressError(f"request to {url!r} failed: {exc.reason}") from exc
+    except EgressBlocked:
+        raise
     except OSError as exc:
         raise EgressError(f"request to {url!r} failed: {exc}") from exc
 
@@ -396,8 +585,13 @@ def post_form(
     except TimeoutError as exc:
         raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
     except urllib.error.URLError as exc:
+        blocked = blocked_reason(exc)
+        if blocked is not None:
+            raise blocked from exc
         if isinstance(exc.reason, (TimeoutError, socket.timeout)):
             raise EgressTimeout(f"request to {url!r} timed out after {timeout}s") from exc
         raise EgressError(f"request to {url!r} failed: {exc.reason}") from exc
+    except EgressBlocked:
+        raise
     except OSError as exc:
         raise EgressError(f"request to {url!r} failed: {exc}") from exc
