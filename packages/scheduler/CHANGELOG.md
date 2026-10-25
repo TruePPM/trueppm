@@ -18,6 +18,17 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- A `status_date` at or before `Project.start_date` no longer moves any task, and
+  neither does a `planned_start` (SNET) at or before the start on a task with no SF
+  link. A milestone with no predecessors, a completed milestone with no actuals
+  and a pre-start SNET, or a milestone with a pre-start SNET used to measure its
+  successors' lags from that earlier date, so a future-start project scheduled
+  with today as its data date finished up to (start - today) days early. Results
+  can therefore move later after upgrading, and some can move earlier: a milestone
+  a lead places before the start is no longer held at a pre-start data date or
+  SNET. On an SF-linked task a pre-start data date is now ignored too, while its
+  SNET is kept wherever it falls. `monte_carlo()` and `derive_value()` apply the
+  same rule ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)).
 - A completed milestone that follows work and was closed on a day its own
   calendar does not work is now shown at the end of that day
   (`milestone_at_day_end=True`), the edge it had live. It was shown at the start

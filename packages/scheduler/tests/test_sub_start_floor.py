@@ -46,6 +46,7 @@ from trueppm_scheduler import (
     monte_carlo,
     schedule,
 )
+from trueppm_scheduler.derive import Quantity, derive_value
 
 _START = date(2026, 2, 2)  # Monday
 _LINKS = list(DependencyType)
@@ -424,3 +425,31 @@ def test_monte_carlo_treats_sub_start_floors_like_cpm(
         assert cpm == schedule(dataclasses.replace(project, status_date=None)).project_finish
     mc = monte_carlo(project, runs=8, seed=3)
     assert mc.p50 == mc.p80 == mc.p95 == cpm
+
+
+@pytest.mark.parametrize(
+    ("status_date", "offers_data_date"),
+    [
+        (date(2026, 1, 20), False),  # before the start
+        (_START, False),  # on the start
+        (date(2026, 2, 4), True),  # after the start: still a floor
+    ],
+    ids=["before-start", "on-start", "after-start"],
+)
+def test_derivation_offers_the_floors_the_engine_uses_on_an_sf_linked_task(
+    status_date: date, offers_data_date: bool
+) -> None:
+    """``derive_value`` offers an SF-linked task exactly the floors the engine reads (#4635).
+
+    The engine drops a data date at or before the project start on every task, an
+    SF-linked one included, so the derivation must not offer it as a candidate the
+    engine "ignored". A sub-start SNET on an SF-linked task is kept verbatim by the
+    engine, so it is still offered. A data date after the start is still a floor.
+    """
+    project = _sf_work_project(planned_start=date(2026, 1, 27))
+    project = dataclasses.replace(project, status_date=status_date)
+    d = derive_value(project, "B", Quantity.EARLY_START)
+    kinds = {c.kind for c in d.contributions}
+    assert ("data_date" in kinds) is offers_data_date
+    assert "planned_start_snet" in kinds
+    assert "project_start" not in kinds
