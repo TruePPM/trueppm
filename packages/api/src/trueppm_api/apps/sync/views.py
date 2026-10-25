@@ -522,9 +522,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             403: OpenApiResponse(
                 description=(
                     "Not a project member, below the Team Member role (Viewer), project "
-                    "archived, a per-row edit/delete the caller may not perform, or a "
-                    "created task from a role that cannot author the plan (Scheduler "
-                    "band; Enterprise 2xx-band roles). The whole batch is rolled back."
+                    "archived, or a row the caller may not write: per-row edit/delete "
+                    "rights, a field-level policy such as PM-only estimates or backlog "
+                    "fields, or creating a task from a role that cannot author the plan "
+                    "(the Scheduler band and Enterprise 2xx-band roles). The whole batch "
+                    "is rolled back."
                 )
             ),
             409: OpenApiTypes.OBJECT,
