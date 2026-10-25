@@ -152,8 +152,8 @@ endpoint and returning only what your role permits:
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
   `get_program_health` (single-program only; cross-program rollups are Enterprise),
   `list_program_backlog`.
-- **Tasks & work** — `list_tasks` (filterable by status, assignee, sprint,
-  criticality, type, and `updated_after`), `get_task`, `get_board_state`,
+- **Tasks & work** — `list_tasks` (filterable by status, sprint,
+  criticality, and type), `get_task`, `get_board_state`,
   `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary`, `get_monte_carlo_forecast`
   (latest persisted run; read-only, never triggers a new simulation),

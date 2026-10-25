@@ -426,26 +426,20 @@ def _task_params(
     project_id: str,
     *,
     status: str | None,
-    assignee: str | None,
     sprint: str | None,
     is_critical: bool | None,
     task_type: str | None,
-    updated_after: str | None,
 ) -> dict[str, Any]:
     """Build the ``/tasks/`` query string, omitting unset filters."""
     params: dict[str, Any] = {"project": project_id}
     if status is not None:
         params["status"] = status
-    if assignee is not None:
-        params["assignee"] = assignee
     if sprint is not None:
         params["sprint"] = sprint
     if is_critical is not None:
         params["is_critical"] = "true" if is_critical else "false"
     if task_type is not None:
         params["type"] = task_type
-    if updated_after is not None:
-        params["updated_after"] = updated_after
     return params
 
 
@@ -454,21 +448,17 @@ async def _list_tasks(
     project_id: str,
     *,
     status: str | None = None,
-    assignee: str | None = None,
     sprint: str | None = None,
     is_critical: bool | None = None,
     task_type: str | None = None,
-    updated_after: str | None = None,
 ) -> dict[str, Any]:
     """Tasks in a project, filterable and compacted."""
     params = _task_params(
         project_id,
         status=status,
-        assignee=assignee,
         sprint=sprint,
         is_critical=is_critical,
         task_type=task_type,
-        updated_after=updated_after,
     )
     rows, total, truncated = await client.get_paginated(_TASKS_PATH, params=params)
     return _list_result(rows, total, truncated)
@@ -712,12 +702,9 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
     async def list_tasks(
         project_id: str,
         status: str | None = None,
-        assignee: str | None = None,
         sprint: str | None = None,
         is_critical: bool | None = None,
         type: str | None = None,  # mirrors the API's ?type= filter
-        updated_after: str | None = None,
-        since: str | None = None,
     ) -> dict[str, Any]:
         """List a project's tasks, optionally filtered.
 
@@ -727,24 +714,21 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
         Args:
             project_id: The project's UUID (required).
-            status: Filter by workflow status (e.g. ``TODO``, ``IN_PROGRESS``).
-            assignee: Filter by assignee (user UUID).
+            status: Filter by workflow status — exact match, one of ``BACKLOG``,
+                ``NOT_STARTED``, ``IN_PROGRESS``, ``REVIEW``, ``ON_HOLD``,
+                ``COMPLETE``.
             sprint: Filter by sprint UUID.
             is_critical: Only critical-path tasks when true.
-            type: Filter by task type (e.g. ``TASK``, ``STORY``, ``EPIC``).
-            updated_after: ISO-8601 timestamp — only tasks changed since then
-                (for incremental re-reads). ``since`` is an accepted alias.
-            since: Alias for ``updated_after``.
+            type: Filter by task type — exact match, lowercase, one of ``epic``,
+                ``story``, ``task``, ``bug``, ``spike``, ``tech_debt``.
         """
         return await _list_tasks(
             client,
             project_id,
             status=status,
-            assignee=assignee,
             sprint=sprint,
             is_critical=is_critical,
             task_type=type,
-            updated_after=updated_after if updated_after is not None else since,
         )
 
     @server.tool()
