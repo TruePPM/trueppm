@@ -21,6 +21,7 @@ from trueppm_mcp.server import (
     ENV_ALLOWED_HOSTS,
     build_server,
     build_transport_security,
+    normalize_allowed_host,
     parse_allowed_hosts,
 )
 
@@ -64,6 +65,28 @@ async def _post(server_host: str, host_header: str, origin: str | None = None) -
         await client.aclose()
 
 
+async def _post_status(server_host: str, host_header: str) -> int:
+    """GET /mcp with no session: a passing Host reaches the SDK's own 4xx, never hangs."""
+    settings = Settings.from_env(
+        {"TRUEPPM_API_URL": SAMPLE_API_URL, "TRUEPPM_API_TOKEN": SAMPLE_TOKEN}
+    )
+    client = TruePPMClient(settings)
+    try:
+        server = build_server(client, host=server_host, allowed_hosts=["mcp.example.test"])
+        app = server.streamable_http_app()
+        async with (
+            server.session_manager.run(),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+                base_url="http://x",
+            ) as http,
+        ):
+            headers = {"host": host_header, "accept": "text/event-stream"}
+            return (await http.get("/mcp", headers=headers)).status_code
+    finally:
+        await client.aclose()
+
+
 @pytest.mark.parametrize("bind_host", ["0.0.0.0", "127.0.0.1", "::"])
 def test_protection_enabled_for_every_bind_host(settings: Settings, bind_host: str) -> None:
     server = build_server(TruePPMClient(settings), host=bind_host)
@@ -81,9 +104,11 @@ async def test_foreign_origin_rejected() -> None:
     assert await _post("0.0.0.0", "localhost:8000", origin="http://evil.example") == 403
 
 
-async def _validate(host_header: str, origin: str | None = None) -> int | None:
+async def _validate(
+    host_header: str, origin: str | None = None, allowed: list[str] | None = None
+) -> int | None:
     """Run the SDK's own Host/Origin check against our settings; ``None`` means accepted."""
-    ts = build_transport_security("0.0.0.0", 8000, ["mcp.example.test"])
+    ts = build_transport_security("0.0.0.0", 8000, allowed or ["mcp.example.test"])
     headers = [(b"host", host_header.encode()), (b"content-type", b"application/json")]
     if origin:
         headers.append((b"origin", origin.encode()))
@@ -195,3 +220,71 @@ async def test_sse_app_rejects_foreign_host(settings: Settings) -> None:
         assert bad_post.status_code == 421
     finally:
         await client.aclose()
+
+
+@pytest.mark.parametrize(
+    ("given", "host_header", "origin"),
+    [
+        ("10.0.0.5:8000", "10.0.0.5:8000", "http://10.0.0.5:8000"),
+        ("10.0.0.5:8000", "10.0.0.5:9999", None),
+        ("mcp.example.com:8443", "mcp.example.com:8443", "https://mcp.example.com"),
+        ("mcp.example.com:8443", "mcp.example.com", None),
+        ("  MCP.Example.COM  ", "mcp.example.com", "https://mcp.example.com"),
+        ("mcp.example.com.", "mcp.example.com", None),
+        ("[fd00::7]:8443", "[fd00::7]:8443", None),
+        ("FD00::7", "[fd00::7]", None),
+    ],
+)
+async def test_allowed_host_forms_accepted_by_sdk_middleware(
+    given: str, host_header: str, origin: str | None
+) -> None:
+    assert await _validate(host_header, origin, [given]) is None
+    assert await _validate("evil.example", None, [given]) == 421
+
+
+@pytest.mark.parametrize("bad", ["http://mcp.example.com", "https://x.test:8443/", "", "  "])
+def test_url_or_empty_allowed_host_rejected(bad: str) -> None:
+    with pytest.raises(ValueError):
+        normalize_allowed_host(bad)
+
+
+def test_cli_rejects_url_flag_and_env(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TRUEPPM_API_URL", SAMPLE_API_URL)
+    monkeypatch.setenv("TRUEPPM_API_TOKEN", SAMPLE_TOKEN)
+    monkeypatch.delenv(ENV_ALLOWED_HOSTS, raising=False)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--transport", "http", "--allowed-host", "http://mcp.example.com"])
+    assert exc.value.code == 2
+    assert "not a URL" in capsys.readouterr().err
+    monkeypatch.setenv(ENV_ALLOWED_HOSTS, "https://mcp.example.com")
+    assert cli.main(["--transport", "http"]) == 2
+    assert "not a URL" in capsys.readouterr().err
+
+
+def test_cli_normalizes_flag_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRUEPPM_API_URL", SAMPLE_API_URL)
+    monkeypatch.setenv("TRUEPPM_API_TOKEN", SAMPLE_TOKEN)
+    monkeypatch.delenv(ENV_ALLOWED_HOSTS, raising=False)
+    seen: dict[str, object] = {}
+
+    class _Fake:
+        def run(self, transport: str) -> None:
+            pass
+
+    def _capture(_client: object, **kwargs: object) -> _Fake:
+        seen.update(kwargs)
+        return _Fake()
+
+    monkeypatch.setattr(cli, "build_server", _capture)
+    assert cli.main(["--allowed-host", " MCP.Example.com:8443 "]) == 0
+    assert seen["allowed_hosts"] == ["mcp.example.com"]
+
+
+async def test_app_level_allowed_host_not_rejected_by_security_layer() -> None:
+    """An app that refused every Host would fail here; the foreign-host tests alone would not."""
+    status = await _post_status("0.0.0.0", "mcp.example.test")
+    assert status not in (421, 403)
+    # No session id and no initialize: the SDK answers 4xx other than our security codes, or 200.
+    assert status in (200, 400, 406)

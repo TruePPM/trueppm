@@ -15,7 +15,12 @@ from typing import Literal
 
 from trueppm_mcp.client import TruePPMClient
 from trueppm_mcp.config import ConfigError, Settings
-from trueppm_mcp.server import ENV_ALLOWED_HOSTS, build_server, parse_allowed_hosts
+from trueppm_mcp.server import (
+    ENV_ALLOWED_HOSTS,
+    build_server,
+    normalize_allowed_host,
+    parse_allowed_hosts,
+)
 
 #: Map our CLI transport names onto FastMCP's literal transport identifiers.
 _TRANSPORTS: dict[str, Literal["stdio", "sse", "streamable-http"]] = {
@@ -23,6 +28,13 @@ _TRANSPORTS: dict[str, Literal["stdio", "sse", "streamable-http"]] = {
     "sse": "sse",
     "http": "streamable-http",
 }
+
+
+def _allowed_host_arg(value: str) -> str:
+    try:
+        return normalize_allowed_host(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -50,6 +62,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allowed-host",
         action="append",
+        type=_allowed_host_arg,
         default=[],
         metavar="HOST",
         help=(
@@ -77,11 +90,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
 
-    client = TruePPMClient(settings)
+    try:
+        env_hosts = parse_allowed_hosts(os.environ.get(ENV_ALLOWED_HOSTS))
+    except ValueError as exc:
+        print(f"Configuration error: {ENV_ALLOWED_HOSTS}: {exc}", file=sys.stderr)
+        return 2
     # dict.fromkeys: de-duplicate while keeping env-then-flag order.
-    allowed_hosts = list(
-        dict.fromkeys([*parse_allowed_hosts(os.environ.get(ENV_ALLOWED_HOSTS)), *args.allowed_host])
-    )
+    allowed_hosts = list(dict.fromkeys([*env_hosts, *args.allowed_host]))
+    client = TruePPMClient(settings)
     server = build_server(client, host=args.host, port=args.port, allowed_hosts=allowed_hosts)
     server.run(transport=_TRANSPORTS[args.transport])
     return 0

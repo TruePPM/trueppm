@@ -127,8 +127,9 @@ else is: a LAN IP, a Kubernetes Service name or `host.docker.internal` must be
 named explicitly. If a reverse proxy forwards a different public hostname, allow it with
 `--allowed-host ppm-mcp.example.com` (repeatable) or the
 `TRUEPPM_MCP_ALLOWED_HOSTS` environment variable (comma-separated); any other
-`Host` is refused with `421` and any other `Origin` with `403`. This needs
-`mcp` SDK 1.23 or newer, which `trueppm-mcp` now requires.
+`Host` is refused with `421` and any other `Origin` with `403`. `--allowed-host` takes a hostname or IP, with or without `:port` (matched
+case-insensitively, any port); a URL is rejected. `trueppm-mcp` requires
+`mcp` >= 1.23.
 
 :::caution[The HTTP/SSE transport has no client-side authentication]
 The network transports authenticate the server *to TruePPM* (with your token),

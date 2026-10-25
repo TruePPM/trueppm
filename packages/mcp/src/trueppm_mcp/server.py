@@ -41,14 +41,45 @@ _WILDCARD_BINDS = {"0.0.0.0", "::", ""}  # noqa: S104
 
 
 def parse_allowed_hosts(raw: str | None) -> list[str]:
-    """Split a comma-separated host list (the env-var form), dropping blanks."""
-    return [h.strip() for h in (raw or "").split(",") if h.strip()]
+    """Split a comma-separated host list (the env-var form), dropping blanks.
+
+    Raises:
+        ValueError: if an entry is a URL (see :func:`normalize_allowed_host`).
+    """
+    return [normalize_allowed_host(h) for h in (raw or "").split(",") if h.strip()]
 
 
 def _authority(host: str) -> str:
     """Return ``host`` as it appears in a Host/Origin header (IPv6 literals bracketed)."""
     bare = host.strip("[]")
     return f"[{bare}]" if ":" in bare else bare
+
+
+def normalize_allowed_host(value: str) -> str:
+    """Reduce an operator-supplied ``--allowed-host`` value to a bare, lowercase name.
+
+    Accepts a hostname, IPv4 or IPv6 literal, optionally with a trailing ``:port``
+    (``10.0.0.5:8000``, ``[fd00::7]:8443``); the port is dropped because the
+    allow-list matches any port. The SDK compares ``Host`` case-sensitively and
+    browsers send it lowercase, so the value is lowercased and a trailing dot
+    removed. A URL is rejected: ``Host`` carries no scheme.
+
+    Raises:
+        ValueError: if the value is empty or contains ``://``.
+    """
+    v = value.strip().lower().rstrip(".")
+    if "://" in v:
+        raise ValueError(
+            f"invalid allowed host {value!r}: give a hostname or IP (optionally with :port), "
+            "not a URL"
+        )
+    if not v:
+        raise ValueError("invalid allowed host: empty value")
+    if v.startswith("["):
+        return v.split("]", 1)[0] + "]"
+    if v.count(":") == 1:
+        return v.split(":", 1)[0]
+    return v
 
 
 def build_transport_security(
@@ -68,7 +99,7 @@ def build_transport_security(
         hosts.append(f"{_authority(host)}:{port}")
         origins.append(f"http://{_authority(host)}:{port}")
     for raw in allowed_hosts:
-        name = _authority(raw)
+        name = _authority(normalize_allowed_host(raw))
         hosts.extend([name, f"{name}:*"])
         for scheme in ("http", "https"):
             origins.extend([f"{scheme}://{name}", f"{scheme}://{name}:*"])
