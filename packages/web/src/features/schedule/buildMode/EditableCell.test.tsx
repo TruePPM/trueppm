@@ -110,6 +110,20 @@ describe('EditableCell — static state', () => {
   });
 });
 
+describe('EditableCell — keyboard entry is row-level, not cell-level (#4397)', () => {
+  it('the static cell is not focusable and has no key handler of its own', () => {
+    const onStartEdit = vi.fn();
+    render(<EditableCell {...baseProps} isEditing={false} onStartEdit={onStartEdit} />);
+    const cell = screen.getByText(baseProps.value).closest('[data-column]') as HTMLElement;
+    expect(cell).not.toHaveAttribute('tabindex');
+    cell.focus();
+    expect(document.activeElement).not.toBe(cell);
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    fireEvent.keyDown(cell, { key: ' ' });
+    expect(onStartEdit).not.toHaveBeenCalled();
+  });
+});
+
 describe('EditableCell — editing state', () => {
   it('renders an input with the current value', () => {
     render(<EditableCell {...baseProps} isEditing={true} />);

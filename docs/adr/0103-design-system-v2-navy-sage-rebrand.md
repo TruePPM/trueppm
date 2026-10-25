@@ -153,6 +153,8 @@ the action, **and a positive state**." This is a deliberate unification, not a c
 "complete vs selected vs on-track" differentiation is carried by **component role** (sage
 *fill* = complete/on-track; navy *ring* = selected; sage vertical *line* = today), per the D4
 distinguishability constraint — never by hue alone (WCAG 1.4.1, web-rules 6/7).
+*Amended (#4397):* the critical-path frame is dashed and the selection ring solid, so
+those two frames differ by pattern as well as hue (see ADR-0280).
 
 Cleanups: `--avatar-color-0 #1C6B3A` and `cellColor.ts` / `--chrome-row-active`'s raw
 `rgba(28,107,58)` (which encoded *brand* green) re-point to **sage**.

@@ -1631,14 +1631,20 @@ export function drawTaskBar(
   // barFillColor. External bars carry their own red outline above; summary bars
   // keep their neutral treatment. Drawn LAST so the higher-priority risk signal is
   // never occluded by the selection ring on bars too narrow to nest it. The 2px
-  // frame clears WCAG 1.4.11 (>=3:1) against the surface; criticality is also
-  // backed non-color by the task-list red dot.
+  // frame clears WCAG 1.4.11 (>=3:1) against the surface. The frame is DASHED
+  // (CRITICAL_FRAME_DASH) so it differs from the solid selection ring by pattern,
+  // not only by hue (WCAG 1.4.1, #4397): frame presence already separates a
+  // critical bar from an unframed one, but a selected non-critical bar also wears
+  // a frame. The task-list red dot is a second COLOR cue in another pane and does
+  // not satisfy 1.4.1 for the bar itself.
   if (criticalFrame) {
     ctx.strokeStyle = _palette.barCritical;
     ctx.lineWidth = 2;
+    ctx.setLineDash(CRITICAL_FRAME_DASH);
     ctx.beginPath();
     ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   if (shouldDrawTaskBarChip(task, barWidth)) {
@@ -1838,6 +1844,10 @@ function drawModeBodyTexture(
   }
 }
 
+/** Dash pattern of the critical-path frame (bar frame and external outline alike);
+ *  the selection ring stays solid so the two differ by pattern, not only hue. */
+const CRITICAL_FRAME_DASH: number[] = [6, 3];
+
 /** Diagonal hatch marking a redacted external task (ADR-0120 D5 / ADR-0182) — a
  *  task in a member project the viewer can't access, so it reads as "not yours".
  *  Criticality shows as a red OUTLINE (never a red fill), keeping the
@@ -1866,9 +1876,13 @@ function drawExternalRedaction(
   if (isCritical) {
     ctx.strokeStyle = _palette.barCritical;
     ctx.lineWidth = 1.5;
+    // Dashed like the in-bar critical frame; reset so it cannot leak into the
+    // solid selection ring drawn next.
+    ctx.setLineDash(CRITICAL_FRAME_DASH);
     ctx.beginPath();
     ctx.roundRect(barLeft + 0.75, barTop + 0.75, barWidth - 1.5, BAR_HEIGHT - 1.5, 3);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 }
 

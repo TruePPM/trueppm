@@ -565,6 +565,34 @@ describe('drawTaskBar — critical path as a red border frame (#1699)', () => {
     expect(styles(calls, 'strokeStyle')).not.toContain(COLOR.barCritical);
   });
 
+  it('strokes the critical frame with a dash pattern the selection ring never uses (WCAG 1.4.1, #4397)', () => {
+    // Frame presence alone separates a critical bar from an unframed one, but a
+    // SELECTED non-critical bar also wears a frame — the two differ only by hue.
+    // Walk the call stream and record the dash pattern live at each stroke().
+    const strokeDash = (selected: boolean, isCritical: boolean) => {
+      const { ctx, calls } = makeCtxSpy();
+      drawTaskBar(ctx, makeBarTask({ isCritical, progress: 40 }), 0, scales, 0, selected, VIEWPORT_W);
+      let dash: unknown = [];
+      let color: unknown;
+      const out: Record<string, unknown> = {};
+      for (const c of calls) {
+        if (c.name === 'setLineDash') dash = c.args[0];
+        if (c.name === 'strokeStyle') color = c.args[0];
+        if (c.name === 'stroke' && typeof color === 'string') out[color] = dash;
+      }
+      return out;
+    };
+    const critical = strokeDash(false, true);
+    expect(critical[COLOR.barCritical]).toEqual([6, 3]);
+    const ringOnly = strokeDash(true, false);
+    expect(ringOnly[COLOR.selectionRing]).toEqual([]);
+    expect(critical[COLOR.barCritical]).not.toEqual(ringOnly[COLOR.selectionRing]);
+    // Critical AND selected: both cues remain distinguishable.
+    const both = strokeDash(true, true);
+    expect(both[COLOR.barCritical]).toEqual([6, 3]);
+    expect(both[COLOR.selectionRing]).toEqual([]);
+  });
+
   it('nests the selection ring inside the critical frame so both channels stay visible', () => {
     const { ctx, calls } = makeCtxSpy();
     const t = makeBarTask({ isCritical: true, progress: 40 });
@@ -2414,6 +2442,20 @@ describe('drawTaskBar — redacted external rows and missing dates (#2459)', () 
     const calls = draw(makeBarTask({ isExternal: true, isCritical: true, progress: 0 }));
     expect(styleValues(calls, 'strokeStyle')).toContain(COLOR.barCritical);
     expect(styleValues(calls, 'fillStyle')).not.toContain(COLOR.barCritical);
+  });
+
+  it('dashes the critical external outline and keeps the selection ring solid (WCAG 1.4.1, #4397)', () => {
+    const calls = draw(makeBarTask({ isExternal: true, isCritical: true, progress: 0 }), true);
+    let dash: unknown = [];
+    let color: unknown;
+    const out: Record<string, unknown> = {};
+    for (const c of calls) {
+      if (c.name === 'setLineDash') dash = c.args[0];
+      if (c.name === 'strokeStyle') color = c.args[0];
+      if (c.name === 'stroke' && typeof color === 'string') out[color] = dash;
+    }
+    expect(out[COLOR.barCritical]).toEqual([6, 3]);
+    expect(out[COLOR.selectionRing]).toEqual([]);
   });
 
   it('leaves a non-critical external task without a red outline', () => {
