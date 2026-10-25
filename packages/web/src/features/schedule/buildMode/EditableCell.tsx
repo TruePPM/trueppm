@@ -235,6 +235,7 @@ export function EditableCell({
             ? 'bg-semantic-critical-bg'
             : '';
     return (
+      // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- the cell is never a focus target; keyboard entry to edit is row-level (useScheduleFocus -> enterCellEdit), see the note below (#4397)
       <div
         role={role}
         aria-label={ariaLabel}
@@ -258,13 +259,9 @@ export function EditableCell({
           e.stopPropagation();
           onStartEdit();
         }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            e.stopPropagation();
-            onStartEdit();
-          }
-        }}
+        // No onKeyDown / tabIndex on purpose (#4397): the static cell is never a
+        // focus target. Keyboard entry to edit mode is row-level (useScheduleFocus
+        // -> enterCellEdit); a cell-level Enter/Space handler here was unreachable.
       >
         {display ?? value}
       </div>

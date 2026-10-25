@@ -28,6 +28,11 @@ describe('ScheduleLegend', () => {
     expect(screen.getByText('Merged trunk')).toBeInTheDocument();
   });
 
+  it('draws the Critical path swatch with a dashed frame, a non-hue cue (WCAG 1.4.1, #4397)', () => {
+    const { container } = render(<ScheduleLegend taskListWidth={240} canLink />);
+    expect(container.querySelector('span.border-dashed.border-semantic-critical')).not.toBeNull();
+  });
+
   it('does not name a "Planned baseline" mark the canvas never draws (ADR-0376)', () => {
     // ADR-0376 keeps the baseline ghost-bar overlay out of 0.4; the comparison
     // table is the variance surface. A legend entry for an undrawn mark tells the

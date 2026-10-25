@@ -1631,14 +1631,20 @@ export function drawTaskBar(
   // barFillColor. External bars carry their own red outline above; summary bars
   // keep their neutral treatment. Drawn LAST so the higher-priority risk signal is
   // never occluded by the selection ring on bars too narrow to nest it. The 2px
-  // frame clears WCAG 1.4.11 (>=3:1) against the surface; criticality is also
-  // backed non-color by the task-list red dot.
+  // frame clears WCAG 1.4.11 (>=3:1) against the surface. The frame is DASHED
+  // (CRITICAL_FRAME_DASH) so it differs from the solid selection ring by pattern,
+  // not only by hue (WCAG 1.4.1, #4397): frame presence already separates a
+  // critical bar from an unframed one, but a selected non-critical bar also wears
+  // a frame. The task-list red dot is a second COLOR cue in another pane and does
+  // not satisfy 1.4.1 for the bar itself.
   if (criticalFrame) {
     ctx.strokeStyle = _palette.barCritical;
     ctx.lineWidth = 2;
+    ctx.setLineDash(CRITICAL_FRAME_DASH);
     ctx.beginPath();
     ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   if (shouldDrawTaskBarChip(task, barWidth)) {
@@ -1907,6 +1913,9 @@ function drawProgressOverlay(
  *  collide, so the ring falls back to the standard inset and the critical frame
  *  (drawn after it) paints on top — risk outranks selection, so a narrow selected
  *  critical bar keeps its red frame rather than losing it to the ring. */
+/** Dash pattern of the critical-path frame; the selection ring stays solid. */
+const CRITICAL_FRAME_DASH: number[] = [6, 3];
+
 function drawSelectionRing(
   ctx: CanvasRenderingContext2D,
   barLeft: number,
