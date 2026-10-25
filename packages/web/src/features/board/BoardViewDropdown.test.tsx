@@ -38,9 +38,10 @@ function renderDropdown(overrides: Partial<ComponentProps<typeof BoardViewDropdo
   return { onApply };
 }
 
-function mockRole(role: number | null) {
+function mockRole(role: number | null, isError = false) {
   vi.spyOn(roleHook, 'useCurrentUserRole').mockReturnValue({
     role,
+    isError,
   } as unknown as ReturnType<typeof roleHook.useCurrentUserRole>);
 }
 
@@ -429,5 +430,101 @@ describe('BoardViewDropdown delete gate (#4595)', () => {
     withTwoViews();
     open();
     expect(screen.getByLabelText('Delete view "Theirs"')).toBeInTheDocument();
+  });
+
+  it('hides delete from a Member on a view with no recorded creator, shows it to a Scheduler', () => {
+    vi.spyOn(savedViewsHook, 'useBoardSavedViews').mockReturnValue({
+      views: [
+        {
+          id: 'sv-null',
+          name: 'Orphan',
+          config: DEFAULT_CONFIG,
+          schemaVersion: 1,
+          createdBy: null,
+          serverVersion: 1,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      isLoading: false,
+      create: { mutate: vi.fn(), isPending: false },
+      update: { mutate: vi.fn(), isPending: false },
+      remove: { mutate: vi.fn(), isPending: false },
+    } as unknown as ReturnType<typeof savedViewsHook.useBoardSavedViews>);
+    mockRole(ROLE_MEMBER);
+    const { unmount } = render(
+      <BoardViewDropdown
+        projectId="proj-1"
+        currentConfig={DEFAULT_CONFIG}
+        activeViewId={null}
+        onApply={vi.fn()}
+        currentUserId="7"
+      />,
+      { wrapper },
+    );
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.queryByLabelText('Delete view "Orphan"')).not.toBeInTheDocument();
+    unmount();
+    mockRole(ROLE_SCHEDULER);
+    renderDropdown({ currentUserId: '7' });
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.getByLabelText('Delete view "Orphan"')).toBeInTheDocument();
+  });
+
+  it('keeps the creator delete when the role read FAILED (unsettled, not denial)', () => {
+    mockRole(null, true);
+    withTwoViews();
+    open();
+    expect(screen.getByLabelText('Delete view "Mine"')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Delete view "Theirs"')).not.toBeInTheDocument();
+  });
+
+  it('hides the delete while the role is still loading', () => {
+    mockRole(null, false);
+    withTwoViews();
+    open();
+    expect(screen.queryByLabelText('Delete view "Mine"')).not.toBeInTheDocument();
+  });
+
+  it('hides "Save current view" from a Viewer and while loading, shows it to a Member', () => {
+    mockRole(ROLE_VIEWER);
+    const first = render(
+      <BoardViewDropdown
+        projectId="proj-1"
+        currentConfig={DEFAULT_CONFIG}
+        activeViewId={null}
+        onApply={vi.fn()}
+      />,
+      { wrapper },
+    );
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.queryByRole('menuitem', { name: /Save current view/ })).toBeNull();
+    first.unmount();
+
+    mockRole(null, false);
+    const second = render(
+      <BoardViewDropdown
+        projectId="proj-1"
+        currentConfig={DEFAULT_CONFIG}
+        activeViewId={null}
+        onApply={vi.fn()}
+      />,
+      { wrapper },
+    );
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.queryByRole('menuitem', { name: /Save current view/ })).toBeNull();
+    second.unmount();
+
+    mockRole(ROLE_MEMBER);
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.getByRole('menuitem', { name: /Save current view/ })).toBeInTheDocument();
+  });
+
+  it('still offers "Save current view" when the role read failed', () => {
+    mockRole(null, true);
+    renderDropdown();
+    fireEvent.click(screen.getByRole('button', { name: /board view/i }));
+    expect(screen.getByRole('menuitem', { name: /Save current view/ })).toBeInTheDocument();
   });
 });

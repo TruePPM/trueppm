@@ -147,6 +147,8 @@ import { BoardDropNotice } from './BoardDropNotice';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { BoardCardScopeActions } from './BoardCard';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { canEditSavedView } from './savedViewPermissions';
 import { toast } from '@/components/Toast/toast';
 import { fmtUtcLong } from '@/lib/formatUtcDate';
 import { buildBoardPrintData } from './export/boardPrintData';
@@ -2332,6 +2334,8 @@ export function BoardView() {
   // already-filtered `phases`/`COLUMNS` the live board draws, so the export
   // honors the active sprint scope and saved-view filters with no re-derivation.
   const { user: currentUser } = useCurrentUser();
+  const { role: boardRole, isError: boardRoleIsError = false } =
+    useCurrentUserRole(projectIdOrUndefined);
   const currentUserName = displayNameOf(currentUser);
   const boardPrintRef = useRef<HTMLDivElement>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -3354,6 +3358,12 @@ export function BoardView() {
               matchCount={facetMatchCount}
               totalCount={committedTasks.length}
               isRepairing={updateSavedView.isPending}
+              canRepair={canEditSavedView(
+                boardRole,
+                boardRoleIsError,
+                activeSavedView.createdBy,
+                currentUser?.id,
+              )}
               onRepair={(config) => {
                 updateSavedView.mutate(
                   { id: activeSavedView.id, config },

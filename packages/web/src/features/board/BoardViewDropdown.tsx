@@ -27,9 +27,8 @@ import {
   type BoardViewConfig,
 } from '@/hooks/useBoardSavedViews';
 import { CheckIcon } from '@/components/Icons';
-import { isSameUser } from '@/lib/userId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
+import { canCreateSavedView, canEditSavedView } from './savedViewPermissions';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useLabels } from '@/hooks/useLabels';
 import { labelDotStyle } from '@/lib/labelColors';
@@ -205,14 +204,11 @@ export function BoardViewDropdown({
   const [showSave, setShowSave] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { views, create, remove } = useBoardSavedViews(projectId || null);
-  const { role } = useCurrentUserRole(projectId || undefined);
-  // Mirrors the server gate on PATCH/DELETE (#4595): Member+ on the project AND
-  // (the view's creator OR Scheduler+). A creator demoted to Viewer, or a Member
-  // looking at someone else's view, would only get a 403 the UI never surfaces.
+  const { role, isError: roleIsError = false } = useCurrentUserRole(projectId || undefined);
+  // Mirrors the server gate on saved-view writes (#4595); see savedViewPermissions.
   const canDeleteView = (sv: BoardSavedView) =>
-    role != null &&
-    role >= ROLE_MEMBER &&
-    (role >= ROLE_SCHEDULER || isSameUser(sv.createdBy, currentUserId));
+    canEditSavedView(role, roleIsError, sv.createdBy, currentUserId);
+  const canSaveView = canCreateSavedView(role, roleIsError);
   // The project's label catalog — the ONLY source used to resolve a saved
   // view's label ids to names. Deliberately not the board's card-derived
   // `labelNameById`: that map omits live labels no visible card carries, so it
@@ -429,18 +425,22 @@ export function BoardViewDropdown({
               </>
             )}
 
-            {/* Save current view */}
-            <hr className="border-neutral-border my-1" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => setShowSave(true)}
-              className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
-              hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary
-              focus:outline-none"
-            >
-              + Save current view…
-            </button>
+            {canSaveView && (
+              <>
+                {/* Save current view */}
+                <hr className="border-neutral-border my-1" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => setShowSave(true)}
+                  className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
+                  hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary
+                  focus:outline-none"
+                >
+                  + Save current view…
+                </button>
+              </>
+            )}
           </div>,
           document.body,
         )}

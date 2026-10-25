@@ -12487,8 +12487,8 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
     """PATCH/DELETE a single board saved view.
 
     PATCH updates name and/or config. The caller must hold Member+ on the
-    project (IsProjectMemberWrite) AND be the creator or a Scheduler-role
-    member (role ≥ 2). DELETE removes the view with the same constraints.
+    project (IsProjectMemberWrite) AND be the creator or hold Scheduler or
+    above. DELETE removes the view with the same constraints.
     """
 
     # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without

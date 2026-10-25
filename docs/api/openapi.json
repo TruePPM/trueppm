@@ -19040,7 +19040,7 @@
         "/api/v1/projects/{id}/board-views/{view_pk}/": {
             "patch": {
                 "operationId": "v1_projects_board_views_partial_update",
-                "description": "PATCH/DELETE a single board saved view.\n\nPATCH updates name and/or config. The caller must hold Member+ on the\nproject (IsProjectMemberWrite) AND be the creator or a Scheduler-role\nmember (role ≥ 2). DELETE removes the view with the same constraints.",
+                "description": "PATCH/DELETE a single board saved view.\n\nPATCH updates name and/or config. The caller must hold Member+ on the\nproject (IsProjectMemberWrite) AND be the creator or hold Scheduler or\nabove. DELETE removes the view with the same constraints.",
                 "summary": "Update a board saved view",
                 "parameters": [
                     {
@@ -19157,7 +19157,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_board_views_destroy",
-                "description": "PATCH/DELETE a single board saved view.\n\nPATCH updates name and/or config. The caller must hold Member+ on the\nproject (IsProjectMemberWrite) AND be the creator or a Scheduler-role\nmember (role ≥ 2). DELETE removes the view with the same constraints.",
+                "description": "PATCH/DELETE a single board saved view.\n\nPATCH updates name and/or config. The caller must hold Member+ on the\nproject (IsProjectMemberWrite) AND be the creator or hold Scheduler or\nabove. DELETE removes the view with the same constraints.",
                 "parameters": [
                     {
                         "in": "path",

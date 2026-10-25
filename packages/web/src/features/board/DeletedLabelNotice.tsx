@@ -78,6 +78,13 @@ interface DeletedLabelNoticeProps {
   /** Persist a repaired config for this view. */
   onRepair: (config: BoardViewConfig) => void;
   isRepairing: boolean;
+  /**
+   * Whether the viewer may rewrite this view (Member+ and creator-or-Scheduler,
+   * #4595). Both repairs PATCH the view, so without it they only 403 silently;
+   * false hides them and leaves the read-only notice plus "Keep for now".
+   * Defaults to true so existing callers keep working.
+   */
+  canRepair?: boolean;
 }
 
 export function DeletedLabelNotice({
@@ -90,6 +97,7 @@ export function DeletedLabelNotice({
   totalCount,
   onRepair,
   isRepairing,
+  canRepair = true,
 }: DeletedLabelNoticeProps) {
   const [dismissed, setDismissed] = useState(() => isNoticeDismissed(viewId, missingIds));
   const [naming, setNaming] = useState(false);
@@ -197,12 +205,18 @@ export function DeletedLabelNotice({
         </span>
       ) : (
         <span className="flex shrink-0 items-center gap-2">
-          <NoticeAction onClick={handleRemove} disabled={isRepairing}>
-            Remove it from this view
-          </NoticeAction>
-          {/* Not "Re-create the label": the old name is unknowable (the catalog
-              omits deleted rows), so this creates a NEW label the user names. */}
-          <NoticeAction onClick={() => setNaming(true)}>Create a replacement label</NoticeAction>
+          {canRepair && (
+            <>
+              <NoticeAction onClick={handleRemove} disabled={isRepairing}>
+                Remove it from this view
+              </NoticeAction>
+              {/* Not "Re-create the label": the old name is unknowable (the catalog
+                  omits deleted rows), so this creates a NEW label the user names. */}
+              <NoticeAction onClick={() => setNaming(true)}>
+                Create a replacement label
+              </NoticeAction>
+            </>
+          )}
           <NoticeAction onClick={handleKeep}>Keep for now</NoticeAction>
         </span>
       )}
