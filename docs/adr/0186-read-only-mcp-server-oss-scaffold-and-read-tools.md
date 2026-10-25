@@ -230,7 +230,7 @@ API layer. `*` marks the #504 acceptance MVP.
 |---|---|---|
 | `list_projects`* | `GET /projects/` (+ `my_role` enrichment, F) | `ProjectViewSet` / `ProjectSerializer` |
 | `get_project`* | `GET /projects/{id}/` + `GET /projects/{id}/overview/` (health) | `ProjectViewSet` / `ProjectDetailSerializer` + `ProjectOverviewView` |
-| `list_tasks`* | `GET /tasks/?project=&status=&mine=&sprint=&is_critical=&type=&updated_after=` | `TaskViewSet` / `TaskSerializer` |
+| `list_tasks`* | `GET /tasks/?project=&status=&mine=&sprint=&is_critical=&type=` | `TaskViewSet` / `TaskSerializer` |
 | `get_task`* | `GET /tasks/{id}/` | `TaskViewSet` / `TaskSerializer` |
 | `get_board_state`* | `GET /projects/{id}/board-config/` + `GET /tasks/?project=` (composed columns+cards) | `BoardColumnConfigView` + `TaskViewSet` |
 | `get_schedule_summary`* | `GET /projects/{id}/forecast/` (+ `/tasks/?is_critical=true` count) | `ProjectForecastView` |

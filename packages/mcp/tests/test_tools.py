@@ -243,20 +243,16 @@ async def test_list_tasks_forwards_all_filters_as_query_params(settings: Setting
             client,
             "p-1",
             status="IN_PROGRESS",
-            assignee="u-9",
             sprint="s-3",
             is_critical=True,
-            task_type="STORY",
-            updated_after="2026-06-01T00:00:00Z",
+            task_type="story",
         )
     assert seen == {
         "project": "p-1",
         "status": "IN_PROGRESS",
-        "assignee": "u-9",
         "sprint": "s-3",
         "is_critical": "true",
-        "type": "STORY",
-        "updated_after": "2026-06-01T00:00:00Z",
+        "type": "story",
     }
 
 
@@ -1059,8 +1055,7 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
 
     Calls every registered tool's underlying function through the tool manager,
     with a transport that answers each tool's endpoint(s), to prove the wrappers
-    are wired to the client and — for ``list_tasks`` — resolve the ``since``
-    alias to ``updated_after``.
+    are wired to the client.
     """
     seen_task_params: dict[str, str] = {}
 
@@ -1124,20 +1119,14 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         }
         assert (await call("whoami"))["id"] == "u-1"
 
-        # ``since`` is the accepted alias for ``updated_after``.
+        # ``assignee`` / ``updated_after`` / ``since`` were advertised but never
+        # applied by the API (#4637); the tool must no longer expose them.
         seen_task_params.clear()
-        await call("list_tasks", project_id="p-1", since="2026-06-01T00:00:00Z")
-        assert seen_task_params == {"project": "p-1", "updated_after": "2026-06-01T00:00:00Z"}
-
-        # An explicit ``updated_after`` wins over ``since``.
-        seen_task_params.clear()
-        await call(
-            "list_tasks",
-            project_id="p-1",
-            updated_after="2026-06-10T00:00:00Z",
-            since="2026-06-01T00:00:00Z",
-        )
-        assert seen_task_params["updated_after"] == "2026-06-10T00:00:00Z"
+        await call("list_tasks", project_id="p-1", status="IN_PROGRESS")
+        assert seen_task_params == {"project": "p-1", "status": "IN_PROGRESS"}
+        tool = manager.get_tool("list_tasks")
+        assert tool is not None
+        assert {"assignee", "updated_after", "since"}.isdisjoint(tool.parameters["properties"])
     finally:
         await client.aclose()
 

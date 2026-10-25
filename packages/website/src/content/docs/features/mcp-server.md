@@ -144,7 +144,7 @@ rather than reason over an incomplete list.
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `list_tasks` | `project_id`, and optional `status`, `assignee`, `sprint`, `is_critical`, `type`, `updated_after` (alias `since`) | A project's tasks, filtered and compacted. |
+| `list_tasks` | `project_id`, and optional `status` (`BACKLOG`, `NOT_STARTED`, `IN_PROGRESS`, `REVIEW`, `ON_HOLD`, `COMPLETE`), `sprint`, `is_critical`, `type` (`epic`, `story`, `task`, `bug`, `spike`, `tech_debt`) | A project's tasks, filtered and compacted. `status` and `type` are exact, case-sensitive matches. |
 | `get_task` | `task_id` | Full detail for one task (dates, assignee, acceptance criteria, sprint), plus a compact `why` — whether the task is on the critical path and how much total float it has. |
 | `get_board_state` | `project_id` | The board's columns and their task cards for one project. |
 | `list_my_work` | — | Your assigned tasks across every project you belong to. |
