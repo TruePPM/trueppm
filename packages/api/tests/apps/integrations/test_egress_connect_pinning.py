@@ -87,6 +87,20 @@ def internal_server() -> Iterator[_LocalServer]:
     srv.close()
 
 
+@pytest.fixture
+def connect_log(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Record every ``socket.connect`` sockaddr (the handshake itself, not accept())."""
+    calls: list[Any] = []
+    real = socket.socket.connect
+
+    def spy(self: socket.socket, address: Any) -> Any:
+        calls.append(address)
+        return real(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", spy)
+    return calls
+
+
 def _rebinding_getaddrinfo(
     port: int, *, first: str, then: str, host: str = HOST
 ) -> tuple[Any, list[str]]:
@@ -115,6 +129,28 @@ def test_rebinding_public_then_private_is_refused_at_connect(
     assert bytes(internal_server.received) == b""
 
 
+def test_rebinding_makes_zero_connection_attempts(
+    internal_server: _LocalServer, connect_log: list[Any]
+) -> None:
+    fake, _ = _rebinding_getaddrinfo(internal_server.port, first=PUBLIC_IP, then="127.0.0.1")
+    with patch.object(socket, "getaddrinfo", fake), pytest.raises(egress.EgressBlocked):
+        egress.get(f"http://{HOST}:{internal_server.port}/")
+    assert [c for c in connect_log if c[0] == "127.0.0.1"] == []
+
+
+def test_open_and_closed_private_ports_are_indistinguishable(
+    internal_server: _LocalServer,
+) -> None:
+    """No open/closed probe: both end in the same permanent refusal, same message."""
+    results = []
+    for port in (internal_server.port, 1):
+        fake, _ = _rebinding_getaddrinfo(port, first=PUBLIC_IP, then="127.0.0.1")
+        with patch.object(socket, "getaddrinfo", fake), pytest.raises(egress.EgressBlocked) as ei:
+            egress.get(f"http://{HOST}:{port}/")
+        results.append((type(ei.value), str(ei.value)))
+    assert results[0] == results[1]
+
+
 def test_post_form_rebinding_is_refused_at_connect(internal_server: _LocalServer) -> None:
     fake, _ = _rebinding_getaddrinfo(internal_server.port, first=PUBLIC_IP, then="127.0.0.1")
     with patch.object(socket, "getaddrinfo", fake), pytest.raises(egress.EgressBlocked):
@@ -125,10 +161,16 @@ def test_post_form_rebinding_is_refused_at_connect(internal_server: _LocalServer
 def test_metadata_address_at_connect_is_refused(internal_server: _LocalServer) -> None:
     """The peer classifier is the shared one (``_is_blocked_ip``): a tunneled
     IPv4 metadata address is blocked by the same unwrapping the pre-flight uses."""
-    with patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address("::ffff:169.254.169.254")):
-        fake, _ = _rebinding_getaddrinfo(internal_server.port, first=PUBLIC_IP, then="127.0.0.1")
-        with patch.object(socket, "getaddrinfo", fake), pytest.raises(egress.EgressBlocked):
-            egress.get(f"http://{HOST}:{internal_server.port}/")
+    # Bypass the connect-time address pre-check so the getpeername() layer (defense
+    # in depth) is what refuses here.
+    fake, _ = _rebinding_getaddrinfo(internal_server.port, first=PUBLIC_IP, then="127.0.0.1")
+    with (
+        patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
+        patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address("::ffff:169.254.169.254")),
+        patch.object(socket, "getaddrinfo", fake),
+        pytest.raises(egress.EgressBlocked),
+    ):
+        egress.get(f"http://{HOST}:{internal_server.port}/")
 
 
 def test_public_then_public_succeeds(internal_server: _LocalServer) -> None:
@@ -154,6 +196,7 @@ def test_public_then_public_succeeds(internal_server: _LocalServer) -> None:
     with (
         patch.object(socket, "getaddrinfo", fake2),
         patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address(PUBLIC_IP)),
+        patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
     ):
         resp = egress.get(f"http://{HOST}:{internal_server.port}/")
     assert resp.status == 200
@@ -273,12 +316,15 @@ def test_peer_ip_none_for_unconnected_socket() -> None:
         assert egress._peer_ip(s) is None
 
 
-def test_unconnected_peer_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    unconnected = socket.socket()
-    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: unconnected)
-    with pytest.raises(egress.EgressBlocked):
-        egress._guarded_create_connection((HOST, 80))
-    assert unconnected.fileno() == -1  # closed
+def test_peer_none_is_refused_as_defense_in_depth(internal_server: _LocalServer) -> None:
+    fake, _ = _rebinding_getaddrinfo(internal_server.port, first=PUBLIC_IP, then="127.0.0.1")
+    with (
+        patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
+        patch.object(egress, "_peer_ip", lambda s: None),
+        patch.object(socket, "getaddrinfo", fake),
+        pytest.raises(egress.EgressBlocked),
+    ):
+        egress.get(f"http://{HOST}:{internal_server.port}/")
 
 
 def test_peer_ip_strips_ipv6_zone_id() -> None:
@@ -405,6 +451,7 @@ def _https_get(port: int, ctx: ssl.SSLContext, host: str = HOST) -> egress.Egres
         patch.object(egress, "_opener", opener),
         patch.object(egress, "assert_url_allowed", lambda u: None),
         patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address(PUBLIC_IP)),
+        patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
         patch.object(
             socket,
             "getaddrinfo",
@@ -463,6 +510,7 @@ def test_production_opener_verifies_certificates_by_default(
         patch.object(egress, "_opener", egress.build_guarded_opener()),
         patch.object(egress, "assert_url_allowed", lambda u: None),
         patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address(PUBLIC_IP)),
+        patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
         patch.object(
             socket,
             "getaddrinfo",
@@ -509,7 +557,7 @@ def delivery(db: object) -> WebhookDelivery:
 
 @pytest.mark.django_db
 def test_webhook_delivery_rebinding_refused_and_not_counted(
-    delivery: WebhookDelivery, internal_server: _LocalServer
+    delivery: WebhookDelivery, internal_server: _LocalServer, connect_log: list[Any]
 ) -> None:
     Webhook.objects.filter(pk=delivery.webhook_id).update(
         url=f"http://{HOST}:{internal_server.port}/hook"
@@ -518,6 +566,7 @@ def test_webhook_delivery_rebinding_refused_and_not_counted(
     with patch.object(socket, "getaddrinfo", fake):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
     assert bytes(internal_server.received) == b""
+    assert [c for c in connect_log if c[0] == "127.0.0.1"] == []
     delivery.refresh_from_db()
     assert delivery.status == DeliveryStatus.FAILED
     assert delivery.response_status is None
@@ -545,6 +594,7 @@ def test_webhook_delivery_stable_public_answer_delivers(
     with (
         patch.object(socket, "getaddrinfo", fake),
         patch.object(egress, "_peer_ip", lambda s: ipaddress.ip_address(PUBLIC_IP)),
+        patch.object(egress, "_assert_addrinfos_public", lambda h, i: None),
     ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
     delivery.refresh_from_db()

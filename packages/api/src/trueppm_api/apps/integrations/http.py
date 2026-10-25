@@ -16,9 +16,11 @@ The guard resolves the hostname and checks **every** returned address — a host
 with one public and one private A record is rejected. That pre-flight check
 alone is resolve-then-reconnect: the connection performs its own lookup, so a
 low-TTL record could answer the check with a public address and the connect with
-``169.254.169.254``. The connection layer therefore re-checks the address the
-socket is *actually connected to* (``getpeername()``) after the TCP handshake and
-before TLS or any request byte (:func:`build_guarded_opener`), which closes the
+``169.254.169.254``. The connection layer therefore resolves the name once,
+refuses if any answer is non-public, and dials only those checked addresses —
+never connecting to a rebinding answer — then re-checks ``getpeername()`` as
+defense in depth, all before TLS or any request byte
+(:func:`build_guarded_opener`). This closes the
 DNS-rebinding window without rewriting the URL (the hostname — and so SNI and
 certificate verification — is untouched). Every urllib-based egress caller must
 use that opener; webhook delivery shares it.
@@ -245,28 +247,66 @@ def _peer_ip(sock: socket.socket) -> ipaddress.IPv4Address | ipaddress.IPv6Addre
 _DEFAULT_SOCKET_TIMEOUT = socket.getdefaulttimeout()
 
 
+def _assert_addrinfos_public(host: str, infos: list[Any]) -> None:
+    """Refuse if ANY resolved address is non-public (same rule as the pre-flight)."""
+    for info in infos:
+        addr = str(info[4][0]).split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            raise EgressBlocked(f"unparseable address {addr!r}") from None
+        if _is_blocked_ip(ip):
+            raise EgressBlocked(f"host {host!r} resolves to non-public address {addr}")
+
+
 def _guarded_create_connection(
     address: tuple[str, int],
     timeout: Any = _DEFAULT_SOCKET_TIMEOUT,
     source_address: tuple[str, int] | None = None,
 ) -> socket.socket:
-    """``socket.create_connection`` that refuses a non-public connected peer.
+    """``socket.create_connection`` that only ever dials checked addresses (#3849).
 
-    The pre-flight :func:`assert_url_allowed` and the connect each resolve the
-    name, so only the peer the kernel actually connected to is authoritative
-    (DNS-rebinding, #3849). Runs right after the TCP handshake — before the TLS
-    wrap and before any request byte is written. An operator-allow-listed host
-    (ADR-0590, exact match, same rule as :func:`assert_url_allowed`) is exempt.
+    Resolves the name ONCE, refuses if any returned address is non-public, then
+    connects to those already-checked sockaddrs with the stdlib try-each-address
+    loop. The pre-flight :func:`assert_url_allowed` and a plain connect each
+    resolve independently, so a rebinding answer must never be dialed: refusing
+    before ``connect`` also means an open and a closed internal port are
+    indistinguishable (both a permanent ``EgressBlocked``, no handshake). The
+    ``getpeername()`` check after the handshake stays as defense in depth. Runs
+    before the TLS wrap and any request byte; the hostname is untouched so SNI and
+    certificate verification are unchanged. An operator-allow-listed host
+    (ADR-0590, exact match) skips the deny-list, as in :func:`assert_url_allowed`.
     """
-    host = address[0]
-    sock = socket.create_connection(address, timeout, source_address)
-    if host.lower().strip("[]") in _allowlisted_hosts():
+    host, port = address[0], address[1]
+    allowlisted = host.lower().strip("[]") in _allowlisted_hosts()
+    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    if not infos:
+        raise OSError("getaddrinfo returns an empty list")
+    if not allowlisted:
+        _assert_addrinfos_public(host, infos)
+    err: OSError | None = None
+    for af, socktype, proto, _canon, sa in infos:
+        sock: socket.socket | None = None
+        try:
+            sock = socket.socket(af, socktype, proto)
+            if timeout is not _DEFAULT_SOCKET_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sa)
+        except OSError as exc:
+            err = exc
+            if sock is not None:
+                sock.close()
+            continue
+        if not allowlisted:
+            ip = _peer_ip(sock)
+            if ip is None or _is_blocked_ip(ip):
+                sock.close()
+                raise EgressBlocked(f"host {host!r} connected to a non-public address")
         return sock
-    ip = _peer_ip(sock)
-    if ip is None or _is_blocked_ip(ip):
-        sock.close()
-        raise EgressBlocked(f"host {host!r} connected to a non-public address")
-    return sock
+    assert err is not None
+    raise err
 
 
 class _GuardedHTTPConnection(http.client.HTTPConnection):
@@ -412,7 +452,8 @@ def assert_host_allowed(host: str, port: int) -> None:
     resolved address must be globally routable) but without the ``http``/
     ``https`` scheme gate, which would reject an SMTP target outright. Reused by
     the workspace-SMTP serializer (validate-at-save) *and* the connection
-    resolver (re-validate at send, closing the DNS-rebinding gap — ADR-0213 §4).
+    resolver (re-validate at send, which narrows but does not close the
+    DNS-rebinding window — the SMTP residual is tracked in #4647; ADR-0213 §4).
 
     Raises:
         EgressBlocked: Missing host or a resolved address is private /

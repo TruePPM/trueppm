@@ -228,10 +228,13 @@ resolving to private, loopback, link-local, or otherwise non-public address
 ranges, blocking the common server-side request forgery (SSRF) vectors.
 
 The guard checks every address a hostname resolves to before connecting, and
-then checks again the address the socket **actually connected to** — after the
-TCP handshake and before TLS or any request byte is sent. A name that answers
-the pre-flight lookup with a public IP and the connection's own lookup with a
-private one (DNS-rebinding) is therefore refused rather than delivered. The
+then resolves once more at connection time, refuses if any answer is non-public,
+and only dials those checked addresses (re-checking the connected peer as defense
+in depth) — before the TLS handshake or any request byte is sent. A name that
+answers the pre-flight lookup with a public IP and the connection's own lookup
+with a private one (DNS-rebinding) is therefore refused without ever opening a
+connection to the private address, so an open and a closed internal port look
+identical. The
 hostname is never rewritten, so TLS SNI and certificate hostname verification
 are unchanged. Webhook delivery, SSO discovery, JWKS, token-exchange and GitHub
 OAuth/user calls, Jira external task sources, link previews, git-link status
