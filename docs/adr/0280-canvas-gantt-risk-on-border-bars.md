@@ -86,7 +86,7 @@ band data is plumbed to canvas tasks.
   export) and ADR-0103 (distinguishability triad).
 
 **Amended (#4397): the critical frame is dashed.** The 2px frame in this ADR (and the
-redacted-external critical outline) is stroked with `CRITICAL_FRAME_DASH` (`[6, 3]`), and the
+1.5px redacted-external critical outline) is stroked with `CRITICAL_FRAME_DASH` (`[6, 3]`), and the
 legend's `CriticalSwatch` is a dashed-red-framed bar. A selected non-critical bar also wears a
 frame (the solid navy ring), so without a pattern difference the two differed only by hue
 (WCAG 1.4.1). The ring stays solid. Everything else here is unchanged.
