@@ -572,9 +572,7 @@ def test_admin_can_revoke_token(project: Project, admin_user: Any) -> None:
 def test_token_mint_and_revoke_broadcast_only_the_opaque_id(
     project: Project, admin_user: Any
 ) -> None:
-    """The WS group is Member+ but token management is Admin-only, and the
-    payload persists in the replay buffer, so neither name nor secret prefix
-    may ride the event (#4597)."""
+    """Payload minimization: neither name nor secret prefix rides the event (#4597)."""
     client = APIClient()
     client.force_authenticate(user=admin_user)
     with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast_mock:

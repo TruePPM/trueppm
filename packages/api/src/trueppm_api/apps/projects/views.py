@@ -19793,11 +19793,9 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 project_id = str(scope_obj.pk)
                 token_id = str(token.pk)
 
-                # Payload is the opaque id only: the token REST surface is
-                # Admin-only to mint/revoke, but this group is Member+ and the
-                # payload persists in the BoardEvent replay buffer, so the name
-                # and secret prefix must never ride it. The web handler only
-                # invalidates the token list, so it needs no payload.
+                # Payload is the opaque id only: the web handler just refetches
+                # the token list, so name and secret prefix need not ride the
+                # socket or persist in the BoardEvent replay buffer.
                 def _broadcast_mint(pid: str = project_id, tid: str = token_id) -> None:
                     broadcast_board_event(pid, "api_token_minted", {"id": tid})
 
