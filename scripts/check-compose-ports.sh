@@ -26,6 +26,7 @@ scan() {
     function bad(msg) { print "line " NR ": " msg; n++ }
     {
       line = $0
+      sub(/\r$/, "", line)                  # CRLF
       sub(/[ \t]+#.*$/, "", line)          # trailing comment
       if (line ~ /^[ \t]*#/ || line ~ /^[ \t]*$/) next
     }
@@ -46,7 +47,7 @@ scan() {
       sub(/^!(override|reset)[ \t]*/, "", rest)
       seen++
       if (rest == "") { inblock = 1; kind = indent(line); next }
-      bad("ports: not a block list (" rest "), cannot be verified")
+      bad("ports: is not a plain block list (inline value \"" rest "\", anchor, or CRLF line endings?), cannot be verified")
     }
     END { if (n == 0 && seen == 0) print "NOPORTS" }
   ' "$1"
@@ -64,6 +65,8 @@ run_check() {
   return $rc
 }
 
+# docker-compose.override.yml.example is tracked but deliberately NOT matched
+# (it ends in .example): it is a template of opt-ins, not a stack we ship.
 # Tracked files only: a gitignored docker-compose.override.yml is a developer's
 # own opt-in (e.g. publishing db on 5432) and is not ours to gate. Outside a git
 # work tree (a source tarball) fall back to find and say so.
@@ -107,8 +110,15 @@ if [[ "${1:-}" == "--self-test" ]]; then
   expect_fail quoted-key $'    "ports":\n      - "8000:8000"'
   expect_fail flow-mapping '  b: {ports: ["8000:8000"]}'
   expect_fail flow-mapping-quoted '  b: {"ports": ["8000:8000"]}'
+  expect_fail anchor $'    ports: &p\n      - "8000:8000"'
+  expect_fail reset-tag $'    ports: !reset\n      - "8000:8000"'
+  expect_fail reset-null '    ports: !reset []'
   expect_fail long-form $'    ports:\n      - target: 80\n        published: 80'
   expect_fail second-entry $'    ports:\n      - "127.0.0.1:1:1"\n      - "5432:5432"'
+  printf 'services:\r\n  a:\r\n    ports:\r\n      - "8000:8000"\r\n' >"$tmp/crlf.yml"
+  if run_check "$tmp/crlf.yml" >/dev/null 2>&1; then echo "SELF-TEST FAILED: not caught: crlf" >&2; exit 1; fi
+  printf 'services:\r\n  a:\r\n    ports:\r\n      - "127.0.0.1:1:1"\r\n' >"$tmp/crlf-ok.yml"
+  run_check "$tmp/crlf-ok.yml" >/dev/null 2>&1 || { echo "SELF-TEST FAILED: false positive: crlf-ok" >&2; exit 1; }
   echo "self-test OK: clean forms pass; bare, 0.0.0.0, inline, !override, same-indent, prefix and long-form are caught."
   exit 0
 fi
