@@ -142,7 +142,7 @@ Three things about it are operator-visible:
   duplicates, expect some tasks to appear under different WBS codes afterward.
 :::
 
-:::caution[Four 0.4 index builds and one constraint lock `projects_task` for their duration]
+:::caution[Four 0.4 index builds and one constraint lock `projects_task` for their duration, and 0128 locks eleven more tables]
 Several migrations new or changed in 0.4 add an index or a constraint to the
 task table with a non-concurrent statement. Each of these takes a lock on
 `projects_task` for as long as it runs. The index builds below hold a lock that
@@ -152,9 +152,10 @@ below holds a lock that **blocks reads as well**.
 - `projects.0104_historicalproject_stale_task_threshold_days_and_more` builds
   `task_status_changed_idx` with a plain `CREATE INDEX`.
 - `projects.0128_acceptancecriterion_sync_seq_apitoken_sync_seq_and_more` builds
-  `task_proj_syncseq_idx` with a plain `CREATE INDEX`. The same migration
-  builds eleven more sync indexes on other tables; see the list after these
-  bullets.
+  `task_proj_syncseq_idx` with a plain `CREATE INDEX`. Unlike the other
+  index builds here, this migration also locks `projects_task` against reads
+  until it commits. It builds eleven more sync indexes on other tables; see the
+  list after these bullets.
 - `projects.0134_task_edited_at_task_seeded_at_task_source_id_and_more` builds
   `task_untouched_seeded_idx` with a plain `CREATE INDEX`.
 - `projects.0152_aggregate_task_wbs_name_idx` builds `task_proj_wbs_name_idx`
@@ -166,8 +167,10 @@ below holds a lock that **blocks reads as well**.
   crash loop.
 
 `projects.0128` also builds the following indexes, each with a plain
-`CREATE INDEX` that **blocks writes** to its table for the duration of the
-build (reads continue):
+`CREATE INDEX`. The migration runs in one transaction and first adds a
+`sync_seq` column to each of these tables, which takes a lock that **blocks
+reads as well as writes**. Every table below, and `projects_task`, stays locked
+until the whole of `projects.0128` commits, not just for its own index build:
 
 | Table | Index |
 |---|---|
