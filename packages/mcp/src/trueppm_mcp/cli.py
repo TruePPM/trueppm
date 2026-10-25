@@ -9,12 +9,13 @@ assistants.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from typing import Literal
 
 from trueppm_mcp.client import TruePPMClient
 from trueppm_mcp.config import ConfigError, Settings
-from trueppm_mcp.server import build_server
+from trueppm_mcp.server import ENV_ALLOWED_HOSTS, build_server, parse_allowed_hosts
 
 #: Map our CLI transport names onto FastMCP's literal transport identifiers.
 _TRANSPORTS: dict[str, Literal["stdio", "sse", "streamable-http"]] = {
@@ -46,6 +47,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=8000,
         help="Bind port for the http/sse transports (default: 8000).",
     )
+    parser.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help=(
+            "Extra Host name to accept on the http/sse transports, e.g. a "
+            "reverse-proxy hostname (repeatable). Also read, comma-separated, from "
+            f"{ENV_ALLOWED_HOSTS}. Loopback names are always accepted."
+        ),
+    )
     return parser
 
 
@@ -66,7 +78,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     client = TruePPMClient(settings)
-    server = build_server(client, host=args.host, port=args.port)
+    # dict.fromkeys: de-duplicate while keeping env-then-flag order.
+    allowed_hosts = list(
+        dict.fromkeys([*parse_allowed_hosts(os.environ.get(ENV_ALLOWED_HOSTS)), *args.allowed_host])
+    )
+    server = build_server(client, host=args.host, port=args.port, allowed_hosts=allowed_hosts)
     server.run(transport=_TRANSPORTS[args.transport])
     return 0
 

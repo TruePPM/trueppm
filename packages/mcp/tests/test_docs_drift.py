@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from trueppm_mcp.client import TruePPMClient
 from trueppm_mcp.config import Settings
 from trueppm_mcp.server import build_server
@@ -38,3 +40,39 @@ async def test_readme_tool_count_matches_registered_surface(settings: Settings) 
         f"README advertises {match.group(1)} read-only tools but the server "
         f"registers {len(tools)}; update packages/mcp/README.md to match."
     )
+
+
+# --- #4636: no recipe may publish the unauthenticated HTTP transport on every host interface ---
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_RECIPE_FILES = [
+    Path(__file__).resolve().parent.parent / "Dockerfile",
+    Path(__file__).resolve().parent.parent / "README.md",
+    _REPO_ROOT / "packages/website/src/content/docs/administration/mcp-server.md",
+]
+#: Oldest ``mcp`` SDK with the FastMCP loopback DNS-rebinding default.
+_MIN_SAFE_SDK = (1, 23)
+
+
+@pytest.mark.parametrize("path", _RECIPE_FILES, ids=lambda p: p.name)
+def test_no_recipe_publishes_on_all_interfaces(path: Path) -> None:
+    """``-p 8000:8000`` (all host interfaces) must never accompany ``--host 0.0.0.0``."""
+    text = path.read_text(encoding="utf-8")
+    unsafe = re.compile(
+        r"-p\s+(?:0\.0\.0\.0:)?\d+:\d+\b[^`]*?"
+        r"--host\s+0\.0\.0\.0",
+        re.DOTALL,
+    )
+    # Join shell line continuations (and Dockerfile comment prefixes) before matching.
+    flat = re.sub(r"\\\n\s*(?:#\s*)?", " ", text)
+    assert not unsafe.search(flat), (
+        f"{path.name} publishes the HTTP transport on all host interfaces"
+    )
+    assert "loopback equivalent" not in text
+
+
+def test_sdk_floor_has_dns_rebinding_default() -> None:
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    match = re.search(r'"mcp\[cli\]>=(\d+)\.(\d+)', pyproject.read_text(encoding="utf-8"))
+    assert match is not None
+    assert (int(match.group(1)), int(match.group(2))) >= _MIN_SAFE_SDK

@@ -11,12 +11,57 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from trueppm_mcp.client import TruePPMClient
 from trueppm_mcp.tools import register_tools
 
 #: MCP server name advertised to clients in the initialize handshake.
 SERVER_NAME = "trueppm"
+
+#: Environment variable carrying extra comma-separated ``Host`` names to accept
+#: (a reverse-proxy hostname), merged with any ``--allowed-host`` flags.
+ENV_ALLOWED_HOSTS = "TRUEPPM_MCP_ALLOWED_HOSTS"
+
+#: Loopback ``Host`` / ``Origin`` values always accepted (any port).
+_LOOPBACK_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_LOOPBACK_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+
+#: Bind addresses that name "every interface" rather than a reachable hostname.
+_WILDCARD_BINDS = {"0.0.0.0", "::", ""}  # noqa: S104
+
+
+def parse_allowed_hosts(raw: str | None) -> list[str]:
+    """Split a comma-separated host list (the env-var form), dropping blanks."""
+    return [h.strip() for h in (raw or "").split(",") if h.strip()]
+
+
+def build_transport_security(
+    host: str, port: int, allowed_hosts: list[str]
+) -> TransportSecuritySettings:
+    """Build the Host/Origin allow-list for the HTTP/SSE transports.
+
+    The SDK only enables DNS-rebinding protection by itself when the bind host
+    is loopback. A container must bind ``0.0.0.0``, which would switch the check
+    off and let any web page that rebinds a hostname to the published port talk
+    to a server holding the token owner's read authority. So protection is always
+    on; a proxied deployment names its public hostname via ``allowed_hosts``.
+    """
+    hosts = list(_LOOPBACK_HOSTS)
+    origins = list(_LOOPBACK_ORIGINS)
+    if host not in _WILDCARD_BINDS and host not in ("127.0.0.1", "localhost", "::1"):
+        hosts.append(f"{host}:{port}")
+        origins.append(f"http://{host}:{port}")
+    for name in allowed_hosts:
+        hosts.extend([name, f"{name}:*"])
+        for scheme in ("http", "https"):
+            origins.extend([f"{scheme}://{name}", f"{scheme}://{name}:*"])
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=hosts,
+        allowed_origins=origins,
+    )
+
 
 #: Server-level instructions shown to the model so it understands the surface.
 SERVER_INSTRUCTIONS = (
@@ -63,6 +108,7 @@ def build_server(
     *,
     host: str = "127.0.0.1",
     port: int = 8000,
+    allowed_hosts: list[str] | None = None,
 ) -> FastMCP[TruePPMClient]:
     """Construct the FastMCP server bound to an API client.
 
@@ -73,6 +119,8 @@ def build_server(
         client: The :class:`~trueppm_mcp.client.TruePPMClient` every tool will use.
         host: Bind host for the HTTP/SSE transports (ignored for stdio).
         port: Bind port for the HTTP/SSE transports (ignored for stdio).
+        allowed_hosts: Extra ``Host`` names to accept (e.g. a reverse-proxy
+            hostname). Loopback names are always accepted.
 
     Returns:
         A configured :class:`FastMCP` instance with the read-only tools registered.
@@ -83,6 +131,7 @@ def build_server(
         host=host,
         port=port,
         lifespan=make_lifespan(client),
+        transport_security=build_transport_security(host, port, allowed_hosts or []),
     )
     # The #504 read-tool surface. Each tool closes over ``client`` — the same
     # instance the lifespan authenticates at boot and closes on shutdown.

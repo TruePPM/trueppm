@@ -116,6 +116,15 @@ a reverse proxy that terminates TLS and controls access; the server itself speak
 plain HTTP and holds a live credential, so it must never face the public internet
 directly.
 
+The server always validates the `Host` and `Origin` headers (DNS-rebinding
+protection), including when bound to `0.0.0.0`, so a web page that rebinds a
+hostname to your loopback address cannot reach it. Loopback names are accepted by
+default. If a reverse proxy forwards a different public hostname, allow it with
+`--allowed-host ppm-mcp.example.com` (repeatable) or the
+`TRUEPPM_MCP_ALLOWED_HOSTS` environment variable (comma-separated); any other
+`Host` is refused with `421` and any other `Origin` with `403`. This needs
+`mcp` SDK 1.23 or newer, which `trueppm-mcp` now requires.
+
 :::caution[The HTTP/SSE transport has no client-side authentication]
 The network transports authenticate the server *to TruePPM* (with your token),
 but they do **not** authenticate clients *to the server*: the MCP session itself
@@ -295,16 +304,23 @@ docker run --rm -i \
   trueppm-mcp
 ```
 
-Run it as a network service — publish the port and bind to `0.0.0.0` inside the
-container (the container boundary is the loopback equivalent here; still front it
-with a TLS-terminating proxy for anything beyond a private network):
+Run it as a network service — bind to `0.0.0.0` inside the container, which is
+required for Docker's port forwarding to reach it, and publish the port on the
+host's loopback only. A bare `-p 8000:8000` publishes on every host interface and
+exposes the token owner's read access to your network; keep the `127.0.0.1:`
+prefix, and front it with a TLS-terminating, authenticated proxy for anything
+beyond the local machine:
 
 ```bash
-docker run --rm -p 8000:8000 \
+docker run --rm -p 127.0.0.1:8000:8000 \
   -e TRUEPPM_API_URL=https://ppm.example.com \
   -e TRUEPPM_API_TOKEN=tppm_your_token_here \
   trueppm-mcp --transport http --host 0.0.0.0 --port 8000
 ```
+
+Behind a reverse proxy that forwards its own hostname, add
+`--allowed-host ppm-mcp.example.com` (or set `TRUEPPM_MCP_ALLOWED_HOSTS`) so the
+`Host` check accepts it.
 
 Pass the token via a Docker/Kubernetes secret or an env-file, never on the
 command line where it would land in shell history and the process table.
