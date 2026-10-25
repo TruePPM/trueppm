@@ -10,7 +10,12 @@ from django.db import IntegrityError, transaction
 from django.db.models import BooleanField, Prefetch
 from django.db.models.expressions import RawSQL
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -514,6 +519,16 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         request=SyncUploadRequestSerializer,
         responses={
             200: SyncUploadResponseSerializer,
+            403: OpenApiResponse(
+                description=(
+                    "Not a project member, below the Team Member role (Viewer), project "
+                    "archived, or a row the caller may not write: per-row edit/delete "
+                    "rights, a field-level policy such as PM-only estimates or backlog "
+                    "fields, or creating a task from a role that cannot author the plan "
+                    "(the Scheduler band and Enterprise 2xx-band roles). The whole batch "
+                    "is rolled back."
+                )
+            ),
             409: OpenApiTypes.OBJECT,
         },
         description=(
@@ -559,6 +574,8 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         # RBAC: only project members with a write role may push. Per-row
         # ownership (Member edits own tasks; Scheduler cannot edit content) is
         # enforced inside apply_task_changes, mirroring IsProjectMemberWriteOrOwn.
+        # Creating a row also requires the plan-authoring rule (IsProjectPlanAuthor
+        # on REST create), so the Scheduler band cannot create either.
         role = _membership_role(request, project.pk)
         if role is None:
             raise PermissionDenied("You must be a member of this project.")

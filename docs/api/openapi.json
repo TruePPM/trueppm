@@ -22882,6 +22882,9 @@
                         },
                         "description": ""
                     },
+                    "403": {
+                        "description": "Not a project member, below the Team Member role (Viewer), project archived, or a row the caller may not write: per-row edit/delete rights, a field-level policy such as PM-only estimates or backlog fields, or creating a task from a role that cannot author the plan (the Scheduler band and Enterprise 2xx-band roles). The whole batch is rolled back."
+                    },
                     "409": {
                         "content": {
                             "application/json": {
