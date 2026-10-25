@@ -2444,6 +2444,20 @@ describe('drawTaskBar — redacted external rows and missing dates (#2459)', () 
     expect(styleValues(calls, 'fillStyle')).not.toContain(COLOR.barCritical);
   });
 
+  it('dashes the critical external outline and keeps the selection ring solid (WCAG 1.4.1, #4397)', () => {
+    const calls = draw(makeBarTask({ isExternal: true, isCritical: true, progress: 0 }), true);
+    let dash: unknown = [];
+    let color: unknown;
+    const out: Record<string, unknown> = {};
+    for (const c of calls) {
+      if (c.name === 'setLineDash') dash = c.args[0];
+      if (c.name === 'strokeStyle') color = c.args[0];
+      if (c.name === 'stroke' && typeof color === 'string') out[color] = dash;
+    }
+    expect(out[COLOR.barCritical]).toEqual([6, 3]);
+    expect(out[COLOR.selectionRing]).toEqual([]);
+  });
+
   it('leaves a non-critical external task without a red outline', () => {
     const calls = draw(makeBarTask({ isExternal: true, progress: 0 }));
     expect(styleValues(calls, 'strokeStyle')).not.toContain(COLOR.barCritical);

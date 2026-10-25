@@ -248,7 +248,7 @@ These rules are enforced at review time. Violations block merge.
 
 *The canvas is outside the DOM, so it inherits none of the guarantees above.*
 
-235. **On the interactive canvas Gantt, the task bar FILL carries task STATE and the critical path is a red BORDER frame — never colour the fill by criticality.** → [rule](../../docs/design/invariants/235-on-the-interactive-canvas-gantt-the-task-bar-fill-carries.md)
+235. **On the interactive canvas Gantt, the task bar FILL carries task STATE and the critical path is a red DASHED BORDER frame — never colour the fill by criticality.** → [rule](../../docs/design/invariants/235-on-the-interactive-canvas-gantt-the-task-bar-fill-carries.md)
 244. **A `<canvas>` is not touched by the forced-colors (Windows High Contrast) user-agent transform, so canvas-drawn UI must detect `(forced-colors: active)` and repaint with CSS *system-color* keywords — otherwise it renders its fixed colors into a high-contrast theme and becomes invisible/unreadable.** → [rule](../../docs/design/invariants/244-a-canvas-is-not-touched-by-the-forced-colors-windows-high.md)
 295. **A forced-colors palette entry that collapses an alpha tint to a solid system colour (`Canvas`/`CanvasText`) is only safe if that fill paints BEFORE everything it would occlude — check the draw ORDER, not just the palette.** → [rule](../../docs/design/invariants/295-a-forced-colors-palette-entry-that-collapses-an-alpha-tint.md)
 

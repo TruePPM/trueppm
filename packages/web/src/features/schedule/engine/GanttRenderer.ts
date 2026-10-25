@@ -1844,6 +1844,10 @@ function drawModeBodyTexture(
   }
 }
 
+/** Dash pattern of the critical-path frame (bar frame and external outline alike);
+ *  the selection ring stays solid so the two differ by pattern, not only hue. */
+const CRITICAL_FRAME_DASH: number[] = [6, 3];
+
 /** Diagonal hatch marking a redacted external task (ADR-0120 D5 / ADR-0182) — a
  *  task in a member project the viewer can't access, so it reads as "not yours".
  *  Criticality shows as a red OUTLINE (never a red fill), keeping the
@@ -1872,9 +1876,13 @@ function drawExternalRedaction(
   if (isCritical) {
     ctx.strokeStyle = _palette.barCritical;
     ctx.lineWidth = 1.5;
+    // Dashed like the in-bar critical frame; reset so it cannot leak into the
+    // solid selection ring drawn next.
+    ctx.setLineDash(CRITICAL_FRAME_DASH);
     ctx.beginPath();
     ctx.roundRect(barLeft + 0.75, barTop + 0.75, barWidth - 1.5, BAR_HEIGHT - 1.5, 3);
     ctx.stroke();
+    ctx.setLineDash([]);
   }
 }
 
@@ -1913,9 +1921,6 @@ function drawProgressOverlay(
  *  collide, so the ring falls back to the standard inset and the critical frame
  *  (drawn after it) paints on top — risk outranks selection, so a narrow selected
  *  critical bar keeps its red frame rather than losing it to the ring. */
-/** Dash pattern of the critical-path frame; the selection ring stays solid. */
-const CRITICAL_FRAME_DASH: number[] = [6, 3];
-
 function drawSelectionRing(
   ctx: CanvasRenderingContext2D,
   barLeft: number,
