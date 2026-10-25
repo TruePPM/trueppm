@@ -142,7 +142,7 @@ Three things about it are operator-visible:
   duplicates, expect some tasks to appear under different WBS codes afterward.
 :::
 
-:::caution[Four 0.4 index builds and one constraint lock `projects_task` for their duration]
+:::caution[Four 0.4 index builds and one constraint lock `projects_task` for their duration, and 0128 locks eleven more tables]
 Several migrations new or changed in 0.4 add an index or a constraint to the
 task table with a non-concurrent statement. Each of these takes a lock on
 `projects_task` for as long as it runs. The index builds below hold a lock that
@@ -152,7 +152,10 @@ below holds a lock that **blocks reads as well**.
 - `projects.0104_historicalproject_stale_task_threshold_days_and_more` builds
   `task_status_changed_idx` with a plain `CREATE INDEX`.
 - `projects.0128_acceptancecriterion_sync_seq_apitoken_sync_seq_and_more` builds
-  `task_proj_syncseq_idx` with a plain `CREATE INDEX`.
+  `task_proj_syncseq_idx` with a plain `CREATE INDEX`. Unlike the other
+  index builds here, this migration also locks `projects_task` against reads
+  until it commits. It builds eleven more sync indexes on other tables; see the
+  list after these bullets.
 - `projects.0134_task_edited_at_task_seeded_at_task_source_id_and_more` builds
   `task_untouched_seeded_idx` with a plain `CREATE INDEX`.
 - `projects.0152_aggregate_task_wbs_name_idx` builds `task_proj_wbs_name_idx`
@@ -162,6 +165,30 @@ below holds a lock that **blocks reads as well**.
   validates every row. The migration runs a repair step first that clears
   mis-ordered three-point estimates, so the risk here is lock time, not a
   crash loop.
+
+`projects.0128` also builds the following indexes, each with a plain
+`CREATE INDEX`. The migration runs in one transaction and first adds a
+`sync_seq` column to each of these tables, which takes a lock that **blocks
+reads as well as writes**. Every table below, and `projects_task`, stays locked
+until the whole of `projects.0128` commits, not just for its own index build:
+
+| Table | Index |
+|---|---|
+| `projects_dependency` | `dep_pred_syncseq_idx` |
+| `projects_label` | `label_proj_syncseq_idx` |
+| `projects_risk` | `risk_proj_syncseq_idx` |
+| `projects_sprint` | `sprint_proj_syncseq_idx` |
+| `projects_sprintretro` | `retro_sprint_syncseq_idx` |
+| `projects_pulseresponse` | `pulse_retro_syncseq_idx` |
+| `projects_retroactionitem` | `rai_retro_syncseq_idx` |
+| `projects_retroboarditem` | `rbi_retro_syncseq_idx` |
+| `projects_taskrecurrencerule` | `trr_task_syncseq_idx` |
+| `projects_task_relation` | `taskrel_source_syncseq_idx` |
+| `projects_tasksuggestedassignee` | `tsa_task_syncseq_idx` |
+
+`projects_dependency` holds one row per task link, so on a large install its
+build is the one that scales with project size, like the task-table builds
+above. The others are sized by their own row counts.
 
 The build time grows with the number of task rows, so on a large install,
 task writes (and, for the constraint, reads) pause for that long on each step.
@@ -235,7 +262,7 @@ See cause 4 under
 [The browser shows a blank page](/administration/troubleshooting/#the-browser-shows-a-blank-page)
 and [#4341](https://gitlab.com/trueppm/trueppm/-/issues/4341).
 
-**Known transient-500 windows on multi-replica installs.** Three of the five
+**Known transient-500 windows on multi-replica installs.** Four of the five
 migrations drop a column or table outright, with no intervening
 `null=True`-then-remove deprecation release, so an old pod's code still names
 what the new schema no longer has. If you run the API at `replicaCount` >= 2
@@ -264,13 +291,23 @@ writes will get a transient `500` from any request landing on an old pod:
   `Project.agile_features` / `HistoricalProject.agile_features` outright
   (#2025), with no deprecation window and no migration docstring. `Project`
   and `HistoricalProject` reads happen on nearly every authenticated request
-  path, so this has the broadest blast radius of the three — but no data-loss
+  path, so this has the broadest blast radius of the four — but no data-loss
   concern: the field is re-exposed as a derived, read-only
   `SerializerMethodField` (`ProjectSerializer.get_agile_features`), so this is
   dead-column removal, not a feature regression. What is missing is purely the
   HA-safety disclosure this entry now provides.
+- `projects.0149_drop_workshops_tables` — drops the `workshops_session` and
+  `workshops_participant` tables. A 0.3 pod's code still serves Board Workshop
+  Mode, so its `/api/v1/projects/{id}/workshop/*` requests fail with
+  `relation "workshops_session" does not exist` for the duration of the
+  window. Nothing else reads those tables, so the blast radius is limited to
+  workshop requests; the data loss itself is covered in the danger box above.
 
-This is a known, bounded, and accepted trade-off for each of the three, not a
+`sso.0002_remove_oidcprovider_workspace_ssoproviderpolicy_and_more` also drops
+tables, but it has no window: it first shipped in `v0.4.0-beta.1` together with
+`sso.0001`, so no earlier release has code that reads the tables it removes.
+
+This is a known, bounded, and accepted trade-off for each of the four, not a
 regression to report: no crash-loop, no data loss beyond what each entry
 states, and every window closes as soon as the rollout finishes.
 **Single-replica installs never see any of this.** If you are on
@@ -313,8 +350,8 @@ section before upgrading.
 **Pre-upgrade action:** back up PostgreSQL (always — see [Before you
 upgrade](#before-you-upgrade)); if you have workshop data, export or preserve
 it before running `migrate` (see the danger box above); if you cannot tolerate
-a transient-500 window on webhook deliveries or `/auth/me/`/project reads
-during rollout, scale to one replica first.
+a transient-500 window on webhook deliveries, `/auth/me/`, project reads or
+workshop endpoints during rollout, scale to one replica first.
 **Post-upgrade verification:** see the [checklist below](#post-upgrade-verification).
 **Rollback notes:** all five migrations are destructive or table-dropping —
 per [migration reversibility](#migration-reversibility--read-this-first), a
