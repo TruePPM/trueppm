@@ -11,7 +11,7 @@ against itself and passed.
 Three shapes are pinned:
 
 * ``add-member`` / ``remove-member`` (both mention-group viewsets) — a required
-  ``{"user": <uuid>}`` body. Before the fix the operations declared **no
+  ``{"user": <integer pk>}`` body. Before the fix the operations declared **no
   requestBody at all**, because the custom-action fallback is the *read* serializer
   and a read serializer has no writable fields. A generated SDK method took no
   arguments for an endpoint that 400s without one.
@@ -165,7 +165,7 @@ def teammate(project: Project, program: Program) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# 1. Mention-group roster: a required {"user": uuid} body
+# 1. Mention-group roster: a required {"user": <integer pk>} body
 # ---------------------------------------------------------------------------
 
 
@@ -184,7 +184,10 @@ def test_roster_actions_declare_the_required_user_body(schema: dict[str, Any], p
         "the `user` the endpoint requires — the original #2840 defect."
     )
     body = _request_schema(schema, op)
-    assert body["properties"]["user"]["format"] == "uuid"
+    # User PKs are integers (#4293): the handler runs ``User.objects.get(pk=...)``,
+    # so ``format: uuid`` made the body unsendable for a schema-validating SDK.
+    assert body["properties"]["user"]["type"] == "integer"
+    assert "format" not in body["properties"]["user"]
     assert body["required"] == ["user"]
 
 
@@ -232,6 +235,72 @@ def test_program_add_member_accepts_the_documented_body(
     declared = _resolve(schema, _response_schema(schema, _operation(schema, PROGRAM_ADD)))
     assert set(response.data) >= set(declared["required"])
     assert group.members.filter(pk=teammate.pk).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("as_string", [False, True], ids=["integer", "stringified-integer"])
+def test_add_and_remove_member_accept_integer_and_stringified_integer_user(
+    project: Project, admin_user: Any, teammate: Any, as_string: bool
+) -> None:
+    """The declared integer body works, and so does the web client's stringified one (#4293)."""
+    group = UserDefinedMentionGroup.objects.create(project=project, name="devs")
+    base = f"/api/v1/projects/{project.id}/mention-groups/{group.id}"
+    value: Any = str(teammate.pk) if as_string else teammate.pk
+
+    added = _client(admin_user).post(f"{base}/add-member/", {"user": value}, format="json")
+    assert added.status_code == 200, added.data
+    assert group.members.filter(pk=teammate.pk).exists()
+
+    removed = _client(admin_user).post(f"{base}/remove-member/", {"user": value}, format="json")
+    assert removed.status_code == 200, removed.data
+    assert not group.members.filter(pk=teammate.pk).exists()
+
+
+@pytest.mark.django_db
+def test_program_add_and_remove_member_accept_an_integer_user(
+    program: Program, project: Project, admin_user: Any, teammate: Any
+) -> None:
+    group = ProgramUserDefinedMentionGroup.objects.create(program=program, name="leads")
+    base = f"/api/v1/programs/{program.id}/mention-groups/{group.id}"
+
+    added = _client(admin_user).post(f"{base}/add-member/", {"user": teammate.pk}, format="json")
+    assert added.status_code == 200, added.data
+    assert group.members.filter(pk=teammate.pk).exists()
+
+    removed = _client(admin_user).post(
+        f"{base}/remove-member/", {"user": teammate.pk}, format="json"
+    )
+    assert removed.status_code == 200, removed.data
+    assert not group.members.filter(pk=teammate.pk).exists()
+
+
+# Properties that carry a ``User`` primary key (an integer AutoField). Declaring
+# one ``format: uuid`` is a claim no value can satisfy (#4293, same class as #2633).
+_USER_PK_PROPERTY_NAMES = frozenset(
+    {
+        "user",
+        "user_id",
+        "deleted_by",
+        "configured_by",
+        "assignee_id",
+        "actor",
+        "actor_id",
+        "owner_id",
+        "author_id",
+        "created_by",
+    }
+)
+
+
+def test_no_user_pk_property_is_declared_uuid(schema: dict[str, Any]) -> None:
+    """No component property named for a user reference may declare ``format: uuid``."""
+    offenders = [
+        f"{comp}.{prop}"
+        for comp, body in schema["components"]["schemas"].items()
+        for prop, node in (body.get("properties") or {}).items()
+        if prop in _USER_PK_PROPERTY_NAMES and node.get("format") == "uuid"
+    ]
+    assert not offenders, f"User PKs are integers, not UUIDs: {offenders}"
 
 
 # ---------------------------------------------------------------------------
@@ -442,3 +511,18 @@ def test_pull_returns_the_documented_envelope(
     envelope = _resolve(schema, _response_schema(schema, _operation(schema, PULL), "201"))
     assert set(response.data) == set(envelope["properties"])
     assert Task.objects.filter(pk=response.data["task"]["id"]).exists()
+
+
+def test_documented_roster_body_example_matches_the_declared_type(schema: dict[str, Any]) -> None:
+    """The published ``add-member`` JSON example must satisfy the declared body type (#4293)."""
+    doc = (
+        Path(__file__).resolve().parents[3]
+        / "packages/website/src/content/docs/api/reference/collaboration.md"
+    ).read_text()
+    marker = "**`add-member` and `remove-member` take a body**"
+    assert marker in doc
+    block = doc.split(marker, 1)[1].split("```json", 1)[1].split("```", 1)[0]
+    example = json.loads(block)
+    declared = _request_schema(schema, _operation(schema, PROJECT_ADD))["properties"]["user"]
+    assert declared["type"] == "integer"
+    assert isinstance(example["user"], int), example

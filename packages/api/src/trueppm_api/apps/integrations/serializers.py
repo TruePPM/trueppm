@@ -304,7 +304,7 @@ class GitAutomationConfigSerializer(serializers.Serializer[Any]):
     enabled = serializers.BooleanField()
     secret_set = serializers.BooleanField()
     webhook_url = serializers.CharField()
-    configured_by = serializers.UUIDField(allow_null=True)
+    configured_by = serializers.CharField(allow_null=True)
     secret_set_at = serializers.DateTimeField(allow_null=True)
     updated_at = serializers.DateTimeField(allow_null=True)
     # Delivery diagnostics (#2882). Before these, a webhook that failed or matched

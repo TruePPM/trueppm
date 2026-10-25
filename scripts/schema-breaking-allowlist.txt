@@ -21,3 +21,8 @@ status-removed | POST /api/v1/projects/{id}/transfer/ 404 | transfer-target-refu
 # is now declared as the retro write schema. Declaration correction, same endpoint.
 property-removed | request POST /api/v1/sprints/{id}/retro/ body [[]SprintRequest->SprintRetroWriteRequest[]].* | sprint-retro-request-schema-corrected-4591 | request body re-pointed at the schema the endpoint actually reads
 property-removed | request PATCH /api/v1/sprints/{id}/retro/ body [[]PatchedSprintRequest->PatchedSprintRetroWriteRequest[]].* | sprint-retro-request-schema-corrected-4591 | request body re-pointed at the schema the endpoint actually reads
+
+# #4293 - user ids were declared format: uuid; they are integers. Declaration correction,
+# wire behavior unchanged (a stringified integer is still accepted).
+type-changed | request #/*MentionGroup*MemberRequestRequest.user | user-ids-declared-as-integers-4293 | request body declared the user PK as a uuid; it is an integer
+type-changed | response #/ProjectRetroCarryoverItem.assignee_id | user-ids-declared-as-integers-4293 | response always carried an integer user PK

@@ -2487,7 +2487,7 @@ class ProjectViewSet(
                     "name": serializers.CharField(),
                     "code": serializers.CharField(),
                     "deleted_at": serializers.DateTimeField(allow_null=True),
-                    "deleted_by": serializers.UUIDField(allow_null=True),
+                    "deleted_by": serializers.CharField(allow_null=True),
                     "deleted_by_name": serializers.CharField(allow_null=True),
                     "days_remaining": serializers.IntegerField(allow_null=True),
                     "retention_days": serializers.IntegerField(allow_null=True),

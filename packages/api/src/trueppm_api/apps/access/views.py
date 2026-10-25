@@ -1007,7 +1007,7 @@ class UserDefinedMentionGroupViewSet(
         summary="Add a project member to this @mention group",
         request=inline_serializer(
             name="MentionGroupAddMemberRequest",
-            fields={"user": drf_serializers.UUIDField()},
+            fields={"user": drf_serializers.IntegerField()},
         ),
         responses={200: UserDefinedMentionGroupReadSerializer},
     )
@@ -1019,7 +1019,7 @@ class UserDefinedMentionGroupViewSet(
         summary="Remove a member from this @mention group",
         request=inline_serializer(
             name="MentionGroupRemoveMemberRequest",
-            fields={"user": drf_serializers.UUIDField()},
+            fields={"user": drf_serializers.IntegerField()},
         ),
         responses={200: UserDefinedMentionGroupReadSerializer},
     )
@@ -1296,7 +1296,7 @@ class ProgramUserDefinedMentionGroupViewSet(
         summary="Add a program member to this @mention group",
         request=inline_serializer(
             name="ProgramMentionGroupAddMemberRequest",
-            fields={"user": drf_serializers.UUIDField()},
+            fields={"user": drf_serializers.IntegerField()},
         ),
         responses={200: ProgramUserDefinedMentionGroupReadSerializer},
     )
@@ -1308,7 +1308,7 @@ class ProgramUserDefinedMentionGroupViewSet(
         summary="Remove a member from this @mention group",
         request=inline_serializer(
             name="ProgramMentionGroupRemoveMemberRequest",
-            fields={"user": drf_serializers.UUIDField()},
+            fields={"user": drf_serializers.IntegerField()},
         ),
         responses={200: ProgramUserDefinedMentionGroupReadSerializer},
     )
