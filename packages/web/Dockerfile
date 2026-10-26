@@ -8,7 +8,7 @@ ARG PREV_WEB_IMAGE=
 
 # Dev stage — Vite dev server with HMR.
 # Source is bind-mounted from the host; no COPY of src needed here.
-FROM ${DOCKERHUB_PREFIX}/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS dev
+FROM ${DOCKERHUB_PREFIX}/node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS dev
 
 WORKDIR /app
 # npm ci installs the exact, resolved versions from the committed lockfile
@@ -20,7 +20,7 @@ EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 
 # Build stage — compiles the production bundle.
-FROM ${DOCKERHUB_PREFIX}/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS builder
+FROM ${DOCKERHUB_PREFIX}/node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS builder
 
 WORKDIR /app
 # npm ci — locked, reproducible install from the committed lockfile.
@@ -47,7 +47,7 @@ FROM ${PREV_WEB_IMAGE:-scratch} AS prev
 # one except those plain files. The prior filesystem is only bind-mounted and
 # read: nothing from it executes. Node is the JSON parser, from the same pinned
 # image the builder stage already pulled.
-FROM ${DOCKERHUB_PREFIX}/node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS prev-assets
+FROM ${DOCKERHUB_PREFIX}/node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS prev-assets
 ARG PREV_WEB_IMAGE
 COPY scripts/collect-prior-assets.mjs /collect-prior-assets.mjs
 RUN --mount=type=bind,from=prev,target=/prev \
