@@ -1,10 +1,11 @@
 import { RouterProvider } from 'react-router/dom';
 import { router } from './router';
+import { logRouterError } from '@/lib/redactErrorForLog';
 import { useThemeInit } from '@/hooks/useThemeInit';
 
 // QueryClientProvider lives inside AppShell so route loaders can access queryClient
 // via closure from router.tsx without needing React context.
 export function App() {
   useThemeInit();
-  return <RouterProvider router={router} />;
+  return <RouterProvider router={router} onError={logRouterError} />;
 }

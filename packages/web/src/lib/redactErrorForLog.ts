@@ -51,3 +51,27 @@ export function redactErrorForLog(error: unknown): LoggableError {
   }
   return { name: typeof error, message: typeof error === 'string' ? error : '' };
 }
+
+/**
+ * `RouterProvider`'s `onError`. With no handler React Router's own boundary does
+ * `console.error("...caught the following error during render", error)` with the
+ * raw value, in production builds too, which would re-leak what
+ * {@link redactErrorForLog} strips (#3562).
+ */
+export function logRouterError(error: unknown): void {
+  console.error('[Router] caught an error:', redactErrorForLog(error));
+}
+
+/**
+ * `createRoot` error options. React 19 otherwise logs caught/uncaught render
+ * errors itself (dev builds print the raw error with `%o`); route them through
+ * the redactor instead.
+ */
+export const redactedRootErrorOptions = {
+  onCaughtError(error: unknown, info: { componentStack?: string | null }): void {
+    console.error('[React] caught render error:', redactErrorForLog(error), info.componentStack);
+  },
+  onUncaughtError(error: unknown, info: { componentStack?: string | null }): void {
+    console.error('[React] uncaught render error:', redactErrorForLog(error), info.componentStack);
+  },
+};

@@ -12,9 +12,7 @@ function makeAxiosError(url: string, status?: number): AxiosError {
     data: '{"password":"hunter2"}',
   } as InternalAxiosRequestConfig;
   const response =
-    status === undefined
-      ? undefined
-      : { status, statusText: '', data: {}, headers: {}, config };
+    status === undefined ? undefined : { status, statusText: '', data: {}, headers: {}, config };
   return new AxiosError('Request failed', 'ERR_BAD_RESPONSE', config, {}, response);
 }
 
@@ -53,5 +51,12 @@ describe('redactErrorForLog', () => {
       message: '',
     });
     expect(redactErrorForLog('plain string')).toEqual({ name: 'string', message: 'plain string' });
+  });
+
+  it('tolerates an AxiosError with no config, and null/undefined', () => {
+    const bare = new AxiosError('Network Error', 'ERR_NETWORK');
+    expect(redactErrorForLog(bare)).toMatchObject({ name: 'AxiosError', code: 'ERR_NETWORK' });
+    expect(redactErrorForLog(null)).toEqual({ name: 'object', message: '' });
+    expect(redactErrorForLog(undefined)).toEqual({ name: 'undefined', message: '' });
   });
 });
