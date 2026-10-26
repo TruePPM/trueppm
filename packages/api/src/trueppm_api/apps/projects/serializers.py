@@ -123,7 +123,9 @@ from trueppm_api.apps.projects.sprint_cadence import (
     render_sprint_name,
 )
 from trueppm_api.apps.projects.task_bulk import (
+    MSG_PROGRESS_NEEDS_ANCHOR,
     MSG_TOO_MANY_OWNERS_IN_BATCH,
+    MSG_ZERO_DURATION_NOT_MILESTONE,
     TASK_BULK_MAX_DEPENDENCIES,
     TASK_BULK_MAX_OPERATIONS,
     TASK_BULK_MAX_OWNERS,
@@ -7280,7 +7282,54 @@ def _cycle_readable_project_ids(request: Any, project_ids: set[Any]) -> set[Any]
     return member_of
 
 
-class ProgressAnchorError(Exception):
+#: REST body text for :class:`MilestoneRollupLockedError`. The bulk endpoint words
+#: its per-row rejection differently on purpose (it is one row of many); the REST
+#: and sync-upload bodies are the same response and share this one string.
+MSG_MILESTONE_ROLLUP_LOCKED = (
+    "This milestone's progress is rolled up from its linked sprint(s) "
+    "and cannot be edited manually. Close or unlink the sprint to edit."
+)
+
+
+class TaskWriteRefusal(APIException):
+    """Base for the structured refusals ``TaskSerializer.validate`` raises.
+
+    Each subclass carries the whole ``{"code", "detail", "suggested_action"}`` body
+    a client branches on, built once by :meth:`body`. They bypass DRF's
+    :class:`serializers.ValidationError` on purpose: a field-level ``ErrorDetail``'s
+    ``code`` is dropped from the JSON body, so a ``ValidationError`` would reach an
+    HTTP client as a bare message string (ADR-0055).
+
+    They derive from :class:`APIException` (status 400) rather than plain
+    ``Exception`` so that **every** writer reusing ``TaskSerializer`` inherits the
+    400 mapping. As plain exceptions they escaped ``is_valid()`` and reached DRF's
+    handler as an unstructured 500 on any path without its own ``except`` arm — the
+    mobile sync upload among them — and a 5xx tells an offline client to retry a
+    refusal forever. ``is_valid()`` still does not swallow them (DRF's
+    ``run_validation`` catches only ``ValidationError``), so the paths that map them
+    by hand — ``TaskViewSet`` and the bulk row helper — keep their exact behavior;
+    the exception handler is the net for every path that does not.
+    """
+
+    # No ``default_code`` here: the base is never raised, and each subclass's code
+    # is the wire ``code`` a client branches on.
+    status_code = status.HTTP_400_BAD_REQUEST
+    message: str = ""
+    suggested_action: str = ""
+
+    def __init__(self) -> None:
+        super().__init__(detail=self.body())
+
+    def body(self) -> dict[str, str]:
+        """The JSON body a client receives — identical on REST and sync upload."""
+        return {
+            "code": str(self.default_code),
+            "detail": self.message,
+            "suggested_action": self.suggested_action,
+        }
+
+
+class ProgressAnchorError(TaskWriteRefusal):
     """Raised by ``TaskSerializer.validate`` when ``percent_complete > 0`` lacks
     a schedule anchor.
 
@@ -7289,34 +7338,30 @@ class ProgressAnchorError(Exception):
     cannot have meaningful completion without being scheduled (ADR-0057 Q5).
 
     ADMIN+ users are exempt so project managers can correct imported data.
-
-    Bypasses DRF's :class:`serializers.ValidationError` for the same reason as
-    :class:`CycleDetectedError` — the frontend expects a structured
-    ``{"code": ..., "detail": ..., "suggested_action": ...}`` response body
-    without ``ErrorDetail`` wrapping (ADR-0055).
     """
 
-    pass
+    default_code = "progress_requires_anchor"
+    message = MSG_PROGRESS_NEEDS_ANCHOR
+    suggested_action = "set_planned_start"
 
 
-class MilestoneRollupLockedError(Exception):
+class MilestoneRollupLockedError(TaskWriteRefusal):
     """Raised by ``TaskSerializer.validate`` when ``percent_complete`` is written
     on a milestone task that has one or more live targeting sprints.
 
     A milestone whose progress rolls up from linked sprint(s) cannot be
     edited manually — the rolled-up value is the source of truth. PMs who
     need to override unlink or close the sprint first; subsequent edits
-    unlock automatically (ADR-0074).
-
-    Bypasses DRF's :class:`serializers.ValidationError` so the frontend
-    receives a stable error code (``milestone_rollup_locked``) the UI can
-    map to its lock affordance and toast copy without scraping a message.
+    unlock automatically (ADR-0074). The stable ``milestone_rollup_locked`` code
+    lets the UI map it to its lock affordance without scraping a message.
     """
 
-    pass
+    default_code = "milestone_rollup_locked"
+    message = MSG_MILESTONE_ROLLUP_LOCKED
+    suggested_action = "unlink_or_close_sprint"
 
 
-class ZeroDurationNotMilestoneError(Exception):
+class ZeroDurationNotMilestoneError(TaskWriteRefusal):
     """Raised by ``TaskSerializer.validate`` when a write lands ``duration = 0``
     on a row that is not a milestone (#3265).
 
@@ -7324,37 +7369,43 @@ class ZeroDurationNotMilestoneError(Exception):
     ``duration = 0`` — was enforced downward only, so a bare ``duration: 0``
     landed a state the ADR says cannot exist and every consumer keying on
     ``is_milestone`` read as work with no duration.
-
-    Bypasses DRF's :class:`serializers.ValidationError` for the reason the whole
-    class of these exist: a field-level ``ErrorDetail``'s ``code`` is **dropped
-    from the JSON body**. It is readable in-process as ``res.data[f][0].code``
-    and an HTTP client sees only ``{"duration": ["<message>"]}`` — a bare 400
-    string, which is exactly what a refusal reachable by MCP write tools and API
-    integrators must not be.
     """
 
-    pass
+    default_code = "zero_duration_not_milestone"
+    message = MSG_ZERO_DURATION_NOT_MILESTONE
+    suggested_action = "set_is_milestone"
 
 
-class GuardrailBlockedError(Exception):
+class GuardrailBlockedError(TaskWriteRefusal):
     """Raised by ``TaskSerializer.validate`` when a sprint assignment trips a
     guardrail rule the project has escalated to BLOCK (ADR-0101 §3).
 
-    Carries the offending ``rule`` key so the viewset can emit a structured
-    ``{"code": "guardrail_blocked", "rule": ..., "detail": ..., "suggested_action": ...}``
-    body. A block is overridable only by removing the offending state, never
-    silently — so unlike the warn path there is no override token.
+    Carries the offending ``rule`` key, so the body is
+    ``{"code": "guardrail_blocked", "rule": ..., "detail": ..., "suggested_action": ...}``.
+    A block is overridable only by removing the offending state, never
+    silently — so unlike the warn path there is no override token. The frontend
+    maps the stable ``rule`` code to its block affordance and fix-it copy.
 
-    Bypasses DRF's :class:`serializers.ValidationError` for the same reason as the
-    sibling errors above (ADR-0055): the frontend maps the stable ``rule`` code to
-    its block affordance and fix-it copy without scraping a message string.
+    The human sentence is stored as ``message``, not ``detail``: on an
+    :class:`APIException`, ``detail`` is the whole rendered body.
     """
+
+    default_code = "guardrail_blocked"
 
     def __init__(self, rule: str, detail: str, suggested_action: str) -> None:
         self.rule = rule
-        self.detail = detail
+        self.message = detail
         self.suggested_action = suggested_action
-        super().__init__(detail)
+        super().__init__()
+
+    def body(self) -> dict[str, str]:
+        """The base body with ``rule`` after ``code`` — the REST key order."""
+        return {
+            "code": str(self.default_code),
+            "rule": self.rule,
+            "detail": self.message,
+            "suggested_action": self.suggested_action,
+        }
 
 
 # Outcome-language warning copy keyed by rule (ADR-0101 Tier 1). Deliberately phrased

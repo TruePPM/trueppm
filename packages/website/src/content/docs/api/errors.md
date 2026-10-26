@@ -158,8 +158,8 @@ the envelope uses; every other field key is unambiguous.
 | Code | Meaning | Extra keys |
 |------|---------|-----------|
 | `invalid_body` | The request body parsed as valid JSON but is not an **object** — a top-level array, string, or number. No field is at fault; the envelope is the wrong shape. See [Non-object request bodies](#non-object-request-bodies) | — |
-| `progress_requires_anchor` | Progress was set on a task with no date to anchor it to | — |
-| `milestone_rollup_locked` | The value is rolled up to the milestone and cannot be set directly | — |
+| `progress_requires_anchor` | Progress was set on a task with no date to anchor it to | `suggested_action` |
+| `milestone_rollup_locked` | The value is rolled up to the milestone and cannot be set directly | `suggested_action` |
 | `child_of_milestone` | A milestone is a zero-duration gate and cannot be given children | — |
 | `zero_duration_not_milestone` | A write set an existing, non-zero duration to `0` on a task that is not a milestone — removing the estimate without saying what the row became. Send `is_milestone: true` (or `delivery_mode: "milestone"`) to make it a gate, or a duration of at least `1` to keep it as work. Creating a task at `duration: 0`, or re-writing a `0` that is already `0`, is **not** refused — an unestimated row is legal | `suggested_action` |
 | `guardrail_blocked` | A configured guardrail refused the write | `rule`, `suggested_action` |
@@ -174,6 +174,15 @@ the envelope uses; every other field key is unambiguous.
 | `calendar_has_no_working_day` | The project's working calendar defines no usable working day, so sprint cadence/dates cannot be generated — fix the calendar in calendar settings first | — |
 | `not_a_sample` | `POST .../programs/{id}/shift-sample-dates/` refused: the program is not sample data, so it has no anchor date to shift from | — |
 | `no_anchor_recorded` | `POST .../programs/{id}/shift-sample-dates/` refused: the sample was loaded before #3481 and carries no recorded anchor date — reload the sample instead of shifting it | — |
+
+The four task-write refusals — `progress_requires_anchor`, `milestone_rollup_locked`,
+`zero_duration_not_milestone` and `guardrail_blocked` — come from the task
+serializer itself, so they arrive with the **same body** from every endpoint that
+writes a task through it: `POST /api/v1/tasks/`, `PATCH /api/v1/tasks/{id}/`, and the offline
+[sync upload](/features/offline-sync/#upload-endpoint), where one refused row
+refuses the whole batch with this `400`. On the bulk endpoint
+(`POST .../tasks/bulk/`) a refused row is instead reported per row in `rejected[]`
+with the code `invalid`.
 
 ### Non-object request bodies
 

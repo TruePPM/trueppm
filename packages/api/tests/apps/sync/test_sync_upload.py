@@ -1557,3 +1557,206 @@ def test_concurrency_slot_does_not_block_replay(admin_client: APIClient, project
     assert replay.status_code == 200
     assert replay.json() == first.json()
     assert SyncBatch.objects.filter(client_batch_id=batch_id).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Structured TaskSerializer refusals are a 400 with the REST body (#4649)
+# ---------------------------------------------------------------------------
+
+# The REST bodies, written out as literals rather than derived from the exception
+# classes: the point is that sync returns exactly what `PATCH /tasks/{id}/` returned
+# before these refusals became `APIException`s, so deriving the expectation from the
+# code under test would make it vacuous.
+_PROGRESS_BODY = {
+    "code": "progress_requires_anchor",
+    "detail": "Cannot record progress without a planned start date or sprint assignment.",
+    "suggested_action": "set_planned_start",
+}
+_ROLLUP_BODY = {
+    "code": "milestone_rollup_locked",
+    "detail": (
+        "This milestone's progress is rolled up from its linked sprint(s) "
+        "and cannot be edited manually. Close or unlink the sprint to edit."
+    ),
+    "suggested_action": "unlink_or_close_sprint",
+}
+_ZERO_DURATION_BODY = {
+    "code": "zero_duration_not_milestone",
+    "detail": (
+        "A task with zero duration is a milestone — send is_milestone=true (or "
+        "delivery_mode='milestone') to make one. To record work with no estimate, use "
+        "a duration of at least 1."
+    ),
+    "suggested_action": "set_is_milestone",
+}
+_GUARDRAIL_BODY = {
+    "code": "guardrail_blocked",
+    "rule": "summary_in_sprint",
+    "detail": "This double-counts in velocity — its child tasks already carry the points.",
+    "suggested_action": "assign_child_tasks",
+}
+
+
+def _refusal_progress(project: Project, user: Any) -> tuple[int, Task, dict[str, Any]]:
+    """A Team Member records progress on an unanchored task (ADMIN+ is exempt)."""
+    task = Task.objects.create(project=project, name="Unanchored", duration=3, assignee=user)
+    return Role.MEMBER, task, {"percent_complete": 50}
+
+
+def _refusal_rollup(project: Project, user: Any) -> tuple[int, Task, dict[str, Any]]:
+    """A milestone a live sprint targets has computed progress (ADR-0074)."""
+    milestone = Task.objects.create(project=project, name="Launch", duration=0, is_milestone=True)
+    Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.ACTIVE,
+        target_milestone=milestone,
+    )
+    return Role.ADMIN, milestone, {"percent_complete": 50}
+
+
+def _refusal_zero_duration(project: Project, user: Any) -> tuple[int, Task, dict[str, Any]]:
+    """A bare ``duration: 0`` on a work row (#3265)."""
+    task = Task.objects.create(project=project, name="Work", duration=5)
+    return Role.ADMIN, task, {"duration": 0}
+
+
+def _refusal_guardrail(project: Project, user: Any) -> tuple[int, Task, dict[str, Any]]:
+    """A summary assigned to a sprint under an Owner-escalated BLOCK (ADR-0101 §3)."""
+    from trueppm_api.apps.projects.models import (
+        GuardrailLevel,
+        GuardrailPolicySource,
+        ProjectGuardrailPolicy,
+    )
+
+    # Off the WBS L1 root so the escalatable summary rule fires, not the phase hard block.
+    Task.objects.create(project=project, name="Feature", wbs_path="2", duration=1)
+    summary = Task.objects.create(project=project, name="Sub-feature", wbs_path="2.1", duration=1)
+    Task.objects.create(
+        project=project, name="Subtask", wbs_path="2.1.1", duration=1, is_subtask=True
+    )
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 5),
+        finish_date=date(2026, 1, 16),
+        state=SprintState.ACTIVE,
+    )
+    ProjectGuardrailPolicy.objects.create(
+        project=project,
+        levels={"summary_in_sprint": GuardrailLevel.BLOCK},
+        source=GuardrailPolicySource.OWNER,
+    )
+    return Role.OWNER, summary, {"sprint": str(sprint.pk)}
+
+
+_REFUSAL_CASES = [
+    pytest.param(_refusal_progress, _PROGRESS_BODY, id="progress_requires_anchor"),
+    pytest.param(_refusal_rollup, _ROLLUP_BODY, id="milestone_rollup_locked"),
+    pytest.param(_refusal_zero_duration, _ZERO_DURATION_BODY, id="zero_duration_not_milestone"),
+    pytest.param(_refusal_guardrail, _GUARDRAIL_BODY, id="guardrail_blocked"),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("arrange", "expected_body"), _REFUSAL_CASES)
+def test_structured_refusal_is_400_with_the_rest_body(
+    project: Project, user: Any, arrange: Any, expected_body: dict[str, str]
+) -> None:
+    """Each structured refusal is a 400 carrying REST's exact body — not a 500.
+
+    These four exceptions bypass ``ValidationError`` so their ``code`` survives, which
+    used to mean ``is_valid()`` let them escape the upload as an unstructured 500 —
+    and a 5xx tells an offline client to retry a refusal forever. The REST PATCH of the
+    same change on the same state must answer with the identical bytes: one refusal,
+    one wire shape, whichever path the client took.
+    """
+    role, task, change = arrange(project, user)
+    _make_membership(project, user, role)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    before = Task.objects.values().get(pk=task.pk)
+    batch_id = str(uuid.uuid4())
+
+    resp = client.post(
+        _url(project),
+        _payload(client_batch_id=batch_id, updated=[{"id": str(task.pk), **change}]),
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert resp.json() == expected_body
+    # All-or-nothing: the refused row did not land, and the batch is not recorded.
+    assert Task.objects.values().get(pk=task.pk) == before
+    assert not SyncBatch.objects.filter(client_batch_id=batch_id).exists()
+
+    # Replaying the same client_batch_id re-validates (a refusal is never recorded
+    # against the batch id, like every other 4xx here) and refuses identically.
+    replay = client.post(
+        _url(project),
+        _payload(client_batch_id=batch_id, updated=[{"id": str(task.pk), **change}]),
+        format="json",
+    )
+    assert replay.status_code == 400
+    assert replay.content == resp.content
+    assert Task.objects.values().get(pk=task.pk) == before
+    assert not SyncBatch.objects.filter(client_batch_id=batch_id).exists()
+
+    rest = client.patch(f"/api/v1/tasks/{task.pk}/", change, format="json")
+    assert rest.status_code == 400, rest.content
+    assert rest.content == resp.content
+
+
+@pytest.mark.django_db
+def test_structured_refusal_in_created_bucket_is_400(project: Project, user: Any) -> None:
+    """A brand-new row refused by the progress-anchor gate is a 400, not a 500.
+
+    The created bucket runs ``TaskSerializer`` unbound, a separate ``is_valid()`` call
+    from the updated bucket, and the progress-anchor gate is the one structured
+    refusal that can fire on a create.
+    """
+    _make_membership(project, user, Role.MEMBER)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    row_id = str(uuid.uuid4())
+
+    resp = client.post(
+        _url(project),
+        _payload(created=[{"id": row_id, "name": "Ghost progress", "percent_complete": 50}]),
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.content
+    assert resp.json() == _PROGRESS_BODY
+    assert not Task.objects.filter(pk=row_id).exists()
+    assert not SyncBatch.objects.exists()
+
+
+@pytest.mark.django_db
+def test_refused_batch_applies_once_the_blocking_state_is_fixed(
+    project: Project, user: Any
+) -> None:
+    """Why a refusal is not recorded against ``client_batch_id``.
+
+    The milestone lock is state-dependent: unlinking the sprint lifts it. Had the 400
+    been stored as the batch's outcome, the client's retry of the same batch would
+    replay the stale refusal for the whole retention window instead of applying.
+    """
+    _role, milestone, change = _refusal_rollup(project, user)
+    _make_membership(project, user, Role.ADMIN)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    batch_id = str(uuid.uuid4())
+    payload = _payload(client_batch_id=batch_id, updated=[{"id": str(milestone.pk), **change}])
+
+    assert client.post(_url(project), payload, format="json").status_code == 400
+
+    Sprint.objects.filter(target_milestone=milestone).update(target_milestone=None)
+    resp = client.post(_url(project), payload, format="json")
+
+    assert resp.status_code == 200, resp.content
+    milestone.refresh_from_db()
+    assert milestone.percent_complete == 50
+    assert SyncBatch.objects.get(client_batch_id=batch_id).status == SyncBatchStatus.COMPLETED

@@ -346,18 +346,19 @@ def _validate_or_reject(ser: Any, index: int, row_id: Any, out: BulkOutcome) -> 
 
     The failures are caught separately rather than as one ``Exception`` arm
     because clients match on the pair ``(code, message)`` and each carries a
-    different remediation. ``ProgressAnchorError``, ``MilestoneRollupLockedError``
-    and ``ZeroDurationNotMilestoneError`` all derive from plain ``Exception``, not
-    from ``DRFValidationError``, so the order of the arms is not load-bearing —
-    but omitting an arm is: the refusal would escape the row's savepoint and 500
-    the whole batch rather than rejecting one row.
+    different remediation. The structured refusals (``TaskWriteRefusal`` subclasses)
+    derive from ``APIException``, not from ``DRFValidationError``, so the order of
+    the arms is not load-bearing — but omitting an arm is: the refusal would escape
+    the row's savepoint and refuse the whole batch with a 400 rather than rejecting
+    one row.
 
-    Safe to use on the create path even though ``MilestoneRollupLockedError`` cannot
-    arise there: ``_enforce_milestone_rollup_lock`` short-circuits on
-    ``self.instance is None``, so that arm is dead for an unbound serializer rather
-    than newly-reachable behavior.
+    Safe to use on the create path even though ``MilestoneRollupLockedError`` and
+    ``GuardrailBlockedError`` cannot arise there: both checks short-circuit on
+    ``self.instance is None``, so those arms are dead for an unbound serializer
+    rather than newly-reachable behavior.
     """
     from trueppm_api.apps.projects.serializers import (
+        GuardrailBlockedError,
         MilestoneRollupLockedError,
         ProgressAnchorError,
         ZeroDurationNotMilestoneError,
@@ -369,16 +370,17 @@ def _validate_or_reject(ser: Any, index: int, row_id: Any, out: BulkOutcome) -> 
         out.reject(index, row_id, CODE_INVALID, MSG_PROGRESS_NEEDS_ANCHOR)
         return False
     except ZeroDurationNotMilestoneError:
-        # Needs its own arm for a reason the other two do not illustrate: this
-        # exception does NOT derive from DRFValidationError, so without it the
-        # refusal escapes the row's savepoint and 500s the whole batch instead of
-        # rejecting one row (#3265).
         out.reject(index, row_id, CODE_INVALID, MSG_ZERO_DURATION_NOT_MILESTONE)
         return False
     except MilestoneRollupLockedError:
         out.reject(
             index, row_id, CODE_INVALID, "This milestone's progress is rolled up from a sprint."
         )
+        return False
+    except GuardrailBlockedError as exc:
+        # A bulk ``sprint`` write can trip an Owner-escalated BLOCK rule exactly as a
+        # PATCH can; without this arm that one row refused the whole batch (#4649).
+        out.reject(index, row_id, CODE_INVALID, exc.message)
         return False
     except DRFValidationError as exc:
         out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))

@@ -204,7 +204,6 @@ from trueppm_api.apps.projects.serializers import (
     DependencySerializer,
     FlowMetricsSerializer,
     ForecastSnapshotSerializer,
-    GuardrailBlockedError,
     InboundTaskSyncPayloadSerializer,
     InboundTaskSyncResultSerializer,
     IncomingCarryoverSerializer,
@@ -213,12 +212,10 @@ from trueppm_api.apps.projects.serializers import (
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
     MilestoneListItemSerializer,
-    MilestoneRollupLockedError,
     MyApiTokenCreateSerializer,
     MyApiTokenSerializer,
     OmniSearchResultSerializer,
     PhaseSerializer,
-    ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
     ProjectApiTokenSerializer,
     ProjectAttentionSerializer,
@@ -285,8 +282,8 @@ from trueppm_api.apps.projects.serializers import (
     TaskRelationSerializer,
     TaskReorderSerializer,
     TaskSerializer,
+    TaskWriteRefusal,
     TaskWriteResponseSerializer,
-    ZeroDurationNotMilestoneError,
 )
 
 # Module-level on purpose, against the lazy-import convention the rest of this file
@@ -303,8 +300,6 @@ from trueppm_api.apps.projects.services import (
 )
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
 from trueppm_api.apps.projects.task_bulk import (
-    MSG_PROGRESS_NEEDS_ANCHOR,
-    MSG_ZERO_DURATION_NOT_MILESTONE,
     BulkOutcome,
 )
 from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
@@ -770,21 +765,19 @@ class TaskUngroupResponseSerializer(serializers.Serializer[Any]):
     )
 
 
-def _zero_duration_not_milestone_response() -> Response:
-    """The 400 body for a zero duration written onto a non-milestone row (#3265).
+def _task_write_refusal_response(exc: TaskWriteRefusal) -> Response:
+    """The 400 for a structured ``TaskSerializer`` refusal, built from the exception.
 
-    One builder rather than two literals: the update path refuses this and the
-    create path carries a defensive arm for it, and clients match on the pair
-    ``(code, message)``, so a drifted copy reads as a different error.
+    The body comes from :meth:`TaskWriteRefusal.body`, the one place it is defined,
+    so this response and the one the DRF exception handler renders for a writer
+    without its own arm (the mobile sync upload) are the same bytes. Clients match
+    on the pair ``(code, message)``, so a drifted copy reads as a different error.
+
+    Mapped here rather than left to the exception handler because a returned 400
+    does not mark the request transaction for rollback, which keeps an
+    ``Idempotency-Key`` claim recorded for the refusal exactly as before.
     """
-    return Response(
-        {
-            "code": "zero_duration_not_milestone",
-            "detail": MSG_ZERO_DURATION_NOT_MILESTONE,
-            "suggested_action": "set_is_milestone",
-        },
-        status=status.HTTP_400_BAD_REQUEST,
-    )
+    return Response(exc.body(), status=status.HTTP_400_BAD_REQUEST)
 
 
 class TaskBulkAppliedEntrySerializer(serializers.Serializer[Any]):
@@ -6405,20 +6398,14 @@ class TaskViewSet(
         ),
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # A defensive backstop, not a live path (#3265). As the guard is currently
-        # scoped it cannot fire on a create at all: it keys on
-        # `self.instance.duration != 0`, and a create has no instance — creating at
-        # `duration: 0` is legal and deliberately so (Board intake, "Add phase").
-        # The arm is kept because the cost of being wrong is asymmetric: this
-        # exception does NOT derive from `DRFValidationError`, so were the guard
-        # ever widened to fire on creates, it would escape `is_valid()` entirely and
-        # surface as a **500** — a refusal turned into an outage, on the path an
-        # importer or MCP client uses first. `_handle_task_write` covers `update` /
-        # `partial_update` only and cannot cover this one.
+        # Of the structured refusals only the progress-anchor gate can fire on a
+        # create today (the zero-duration, rollup-lock and guardrail checks all key on
+        # an existing instance). Mapped here, as `_handle_task_write` does for
+        # update, so a create refusal is the same returned 400 as an update refusal.
         try:
             response: Response = super().create(request, *args, **kwargs)
-        except ZeroDurationNotMilestoneError:
-            return _zero_duration_not_milestone_response()
+        except TaskWriteRefusal as exc:
+            return _task_write_refusal_response(exc)
         _attach_dropped_field_warnings(
             request, response, _task_serializer_field_names(self.get_serializer()), created=True
         )
@@ -6591,44 +6578,13 @@ class TaskViewSet(
         — on a successful write — attaches any tripped *warn*-level guardrails as a
         ``warnings`` array (ADR-0101). Warnings never change the status code: the
         write succeeded; the client shows a non-blocking notice + one-tap override.
-        A *block*-level guardrail raised :class:`GuardrailBlockedError` instead, and
+        A *block*-level guardrail raised ``GuardrailBlockedError`` instead, and
         is returned here as a 400 with the offending rule.
         """
         try:
             response: Response = super_method(request, *args, **kwargs)
-        except ProgressAnchorError:
-            return Response(
-                {
-                    "code": "progress_requires_anchor",
-                    "detail": MSG_PROGRESS_NEEDS_ANCHOR,
-                    "suggested_action": "set_planned_start",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except MilestoneRollupLockedError:
-            return Response(
-                {
-                    "code": "milestone_rollup_locked",
-                    "detail": (
-                        "This milestone's progress is rolled up from its linked sprint(s) "
-                        "and cannot be edited manually. Close or unlink the sprint to edit."
-                    ),
-                    "suggested_action": "unlink_or_close_sprint",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except ZeroDurationNotMilestoneError:
-            return _zero_duration_not_milestone_response()
-        except GuardrailBlockedError as exc:
-            return Response(
-                {
-                    "code": "guardrail_blocked",
-                    "rule": exc.rule,
-                    "detail": exc.detail,
-                    "suggested_action": exc.suggested_action,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except TaskWriteRefusal as exc:
+            return _task_write_refusal_response(exc)
 
         # Surface warn-level guardrails the serializer recorded during validate().
         # The serializer instance is the one bound to this request; read the rules
