@@ -17,6 +17,11 @@ vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'user-alice' }, isLoading: false }),
 }));
 
+const roleHolder = { role: 100 as number | null };
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: roleHolder.role, isLoading: false }),
+}));
+
 const policyHolder = { data: null as SignalPrivacyPolicy | null };
 
 vi.mock('./useSignalPrivacy', async (importOriginal) => {
@@ -107,6 +112,7 @@ beforeEach(() => {
   voteMutate.mockClear();
   withdrawMutate.mockClear();
   policyHolder.data = policy();
+  roleHolder.role = 100;
 });
 
 describe('ProjectSignalPrivacyPage', () => {
@@ -228,6 +234,39 @@ describe('ProjectSignalPrivacyPage', () => {
       await user.click(within(card).getByRole('button', { name: 'Withdraw proposal' }));
       await user.click(within(card).getByRole('button', { name: 'Withdraw' }));
       expect(withdrawMutate).toHaveBeenCalledWith({ proposalId: 'prop-velocity' });
+    });
+
+    it('hides Withdraw from a proposer demoted to Viewer (#4673)', () => {
+      roleHolder.role = 1;
+      policyHolder.data = policy({
+        can_set_audience: false,
+        open_proposals: { velocity: proposal('velocity') },
+      });
+      renderWithRouter(<ProjectSignalPrivacyPage />);
+      const card = screen.getByLabelText('Pending ceiling raise for Velocity');
+      expect(within(card).queryByRole('button', { name: 'Withdraw proposal' })).toBeNull();
+    });
+
+    it('shows Withdraw to a Member proposer without the facilitator facet', () => {
+      roleHolder.role = 100;
+      policyHolder.data = policy({
+        can_set_audience: false,
+        open_proposals: { velocity: proposal('velocity') },
+      });
+      renderWithRouter(<ProjectSignalPrivacyPage />);
+      const card = screen.getByLabelText('Pending ceiling raise for Velocity');
+      expect(within(card).getByRole('button', { name: 'Withdraw proposal' })).toBeInTheDocument();
+    });
+
+    it('shows Withdraw to a Viewer-role facilitator on someone else\'s proposal', () => {
+      roleHolder.role = 1;
+      policyHolder.data = policy({
+        can_set_audience: true,
+        open_proposals: { velocity: proposal('velocity', { proposed_by: 'user-bob' }) },
+      });
+      renderWithRouter(<ProjectSignalPrivacyPage />);
+      const card = screen.getByLabelText('Pending ceiling raise for Velocity');
+      expect(within(card).getByRole('button', { name: 'Withdraw proposal' })).toBeInTheDocument();
     });
 
     it('blocks opening a second raise while one is pending for that signal', () => {

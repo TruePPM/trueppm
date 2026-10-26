@@ -12,6 +12,9 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { ROLE_MEMBER } from '@/lib/roles';
+import { isSameUser } from '@/lib/userId';
 import { SignalLadder } from './SignalLadder';
 import { SignalMatrixLens } from './SignalMatrixLens';
 import { RaiseCeilingDialog } from './RaiseCeilingDialog';
@@ -37,6 +40,7 @@ type View = 'ladder' | 'matrix';
 export function ProjectSignalPrivacyPage() {
   const projectId = useProjectId();
   const { user } = useCurrentUser();
+  const { role } = useCurrentUserRole(projectId || undefined);
   const { data: policy, isLoading, isError } = useSignalPrivacy(projectId);
   const { setAudience, raiseCeiling, ratchetDown, voteOnProposal, withdrawProposal } =
     useSignalPrivacyMutations(projectId);
@@ -222,8 +226,13 @@ export function ProjectSignalPrivacyPage() {
                         proposal={proposal}
                         signalTitle={title}
                         currentUserId={user?.id}
+                        // Mirrors the server gate (#4673): the proposer needs Member+, but a
+                        // facilitator/Admin (can_set_audience) is independent of project role.
                         canWithdraw={
-                          proposal.proposed_by === user?.id || policy.can_set_audience
+                          (isSameUser(proposal.proposed_by, user?.id) &&
+                            role != null &&
+                            role >= ROLE_MEMBER) ||
+                          policy.can_set_audience
                         }
                         voting={
                           voteOnProposal.isPending &&
