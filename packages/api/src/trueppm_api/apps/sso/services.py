@@ -1090,8 +1090,8 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     2. **Verified email** — require ``email`` present and ``email_verified is True``
        and the domain in the allow-list; otherwise fail closed.
     3. **Link** — exactly one existing local user with that email → bind a new
-       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link; a superuser
-       or staff match is refused outright, #4629.) A best-effort
+       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link; a superuser,
+       staff, or workspace Owner/Admin match is refused outright, #4629, #4651.) A best-effort
        notice email is deferred to commit (#3554) so the local account learns a new
        sign-in method was just added — this is the one branch that hands a federated
        credential to an account whose owner may not have expected it.
@@ -1279,7 +1279,11 @@ def removal_impact(slugs: list[str]) -> dict[str, RemovalImpact]:
     Why this has to exist: the DELETE path purges the provider's ``SocialAccount``
     rows, and that purge is **load-bearing** — it is exactly what lets users
     re-link by verified email when an admin follows the documented remove-and-re-add
-    route to move a provider to a new issuer. Keeping the rows instead would leave
+    route to move a provider to a new issuer. That holds for ordinary members only:
+    workspace Owner/Admin, superuser, and staff accounts are refused by branch 3 (#4629,
+    #4651), so an SSO-created one needs an operator-added link or a password.
+
+    Keeping the rows instead would leave
     every binding stamped with the old ``iss``, and ``resolve_user`` would fail
     them closed forever.
 

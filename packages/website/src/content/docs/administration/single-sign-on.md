@@ -314,8 +314,9 @@ verified IdP email matches an account that holds the workspace **Owner** or **Ad
 role, is a superuser, or has staff access, TruePPM refuses the sign-in and writes no
 link. An email address proves a mailbox, not ownership of a privileged account.
 Accounts that already have a linked identity keep signing in as before, and
-accounts with the Member, Scheduler, or Viewer roles still link by email as
-described above. There is no setting to turn this refusal off.
+accounts whose workspace role is **Member** still link by email as described
+above. Only the workspace role matters here: project roles (Scheduler, Viewer, and
+so on) play no part in the decision. There is no setting to turn this refusal off.
 
 The refused user sees the same `SSO_NO_MEMBER` ("not a member yet") message as any
 unknown account. That is intentional: a distinct error would tell anyone who can
@@ -329,8 +330,10 @@ set to the IdP's `sub` claim for that user (for GitHub, the numeric user id), an
 Later sign-ins then resolve by that identity. An authenticated "link my identity"
 flow that removes the manual step is tracked in #4634. Until it ships, a privileged
 account, such as the bootstrap superuser or a workspace Owner, can instead sign in
-with its password. An Owner or Admin who is not a staff user cannot open Django admin,
-so an operator adds the link on their behalf.
+with its password, if it has one. An Owner or Admin who is not a staff user cannot open
+Django admin, so an operator adds the link on their behalf. An Owner or Admin that SSO
+auto-created has no password, so for that account the operator-added link, or the
+`changepassword` / `create_admin` management commands, is the only route.
 
 ## Removing a provider
 
@@ -348,7 +351,10 @@ The Remove dialog tells you how many members are in that position before you
 confirm, and the API refuses the delete unless you acknowledge it explicitly. They
 can sign in again if you **add the provider back with the same issuer** (or
 configure another provider that allows their email domain) — they re-link by their
-verified email on the next sign-in. To avoid the gap entirely, invite affected
+verified email on the next sign-in. **Owner and Admin accounts are the exception:**
+they are never re-linked by email (see above), so an SSO-created Owner or Admin whose
+binding is removed stays locked out until an operator adds a **Social account** in
+Django admin or sets a password with `changepassword` / `create_admin`. To avoid the gap entirely, invite affected
 members and have them set a password before you remove the provider.
 :::
 
@@ -356,7 +362,9 @@ members and have them set a password before you remove the provider.
 Each OIDC sign-in is durably bound to the identity provider's **issuer**. If you
 need to move a provider to a *different* issuer, **remove and re-add** it rather
 than editing the issuer in place — users then re-link by their verified email on
-next sign-in. Editing the issuer of a provider that already has linked accounts is
+next sign-in. Workspace Owner and Admin accounts are the exception: they are never
+re-linked by email, so an operator must add their link in Django admin first (or they
+sign in with a password). Editing the issuer of a provider that already has linked accounts is
 refused (it would otherwise allow a subject-collision takeover across issuers, and
 every existing sign-in would silently stop working).
 :::
