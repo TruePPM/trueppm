@@ -1373,6 +1373,40 @@ def test_patch_cannot_reassign_a_membership_onto_another_account(
 
 
 @pytest.mark.django_db
+def test_rejected_user_patch_applies_nothing_and_broadcasts_nothing(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+    member_user: object,
+    colleague: object,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """A refused ``user`` PATCH is all-or-nothing: no role change, no event (#2586).
+
+    The pre-fix defect was a ``member_role_changed`` broadcast describing the wrong
+    user after the row's account was swapped. A body that carries ``user`` AND a
+    legal ``role`` must not half-apply, and must emit no membership event at all.
+    """
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as spy,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = owner_client.patch(
+            _url(project, member_membership.pk),
+            {"user": str(colleague.pk), "role": Role.SCHEDULER},  # type: ignore[attr-defined]
+            format="json",
+        )
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+    member_membership.refresh_from_db()
+    assert member_membership.user_id == member_user.pk  # type: ignore[attr-defined]
+    assert member_membership.role == Role.MEMBER
+    assert spy.call_args_list == []
+
+
+@pytest.mark.django_db
 def test_patch_still_changes_a_role(
     owner_client: APIClient,
     project: Project,
