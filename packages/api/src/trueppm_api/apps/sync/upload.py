@@ -502,6 +502,11 @@ def apply_task_changes(
     Raises:
         ValidationError: malformed envelope or an unsupported collection key.
         PermissionDenied: a row the caller may not write.
+        TaskWriteRefusal: a row ``TaskSerializer`` refuses with a structured body
+            (progress anchor, milestone rollup lock, zero-duration non-milestone,
+            BLOCK guardrail). An ``APIException`` (400), so the exception handler
+            renders the same body REST returns; like every refusal above it rolls
+            the whole batch back and is not recorded against the batch id.
     """
     tasks = _validate_and_extract_tasks(changes)
 

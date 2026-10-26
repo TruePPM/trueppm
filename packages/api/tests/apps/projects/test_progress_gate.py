@@ -501,3 +501,28 @@ def test_bulk_update_gate_blocks_unanchored_progress(
     assert rejected["code"] == "invalid"
     assert rejected["id"] == str(unanchored_task.pk)
     assert "planned start" in rejected["message"]
+
+
+@pytest.mark.django_db
+def test_rest_create_with_unanchored_progress_is_400_not_500(
+    member_client: APIClient, project: Project
+) -> None:
+    """The progress-anchor gate fires on a create too, and must answer 400 (#4649).
+
+    ``TaskViewSet.create`` used to map only the zero-duration refusal, so this one
+    escaped ``is_valid()`` as an unstructured 500 on the path an importer or MCP
+    client uses first.
+    """
+    r = member_client.post(
+        "/api/v1/tasks/",
+        {"project": str(project.pk), "name": "Ghost progress", "percent_complete": 50},
+        format="json",
+    )
+
+    assert r.status_code == 400, r.content
+    assert r.json() == {
+        "code": "progress_requires_anchor",
+        "detail": "Cannot record progress without a planned start date or sprint assignment.",
+        "suggested_action": "set_planned_start",
+    }
+    assert not Task.objects.filter(project=project, name="Ghost progress").exists()

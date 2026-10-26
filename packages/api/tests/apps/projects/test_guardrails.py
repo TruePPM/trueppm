@@ -567,3 +567,41 @@ def test_scope_change_payload_has_goal_impact_and_item_name(
     assert changes[0]["item_name"] == "Late add"
     assert changes[0]["subtask_name"] == "Late add"  # deprecated alias retained
     assert changes[0]["goal_impact"] is True
+
+
+def test_bulk_update_block_rejects_the_row_not_the_batch(
+    owner_client: APIClient, project: Project, sprint: Sprint, leaf_with_subtasks: Task
+) -> None:
+    """A BLOCK guardrail on a bulk ``sprint`` write rejects that row only (#4649).
+
+    The bulk row helper mapped three of the four structured refusals; a BLOCK
+    guardrail escaped it and refused the whole batch instead of one row.
+    """
+    ProjectGuardrailPolicy.objects.create(
+        project=project,
+        levels={"summary_in_sprint": GuardrailLevel.BLOCK},
+        source=GuardrailPolicySource.OWNER,
+    )
+    other = Task.objects.create(project=project, name="Other", wbs_path="3", duration=2)
+    resp = owner_client.post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/",
+        {
+            "operations": [
+                {
+                    "op": "update",
+                    "id": str(leaf_with_subtasks.id),
+                    "data": {"sprint": str(sprint.id)},
+                },
+                {"op": "update", "id": str(other.id), "data": {"duration": 4}},
+            ]
+        },
+        format="json",
+    )
+    assert resp.status_code == 207, resp.content
+    assert [row["id"] for row in resp.data["applied"]] == [str(other.id)]
+    rejected = resp.data["rejected"][0]
+    assert rejected["id"] == str(leaf_with_subtasks.id)
+    assert rejected["code"] == "invalid"
+    assert "double-counts in velocity" in rejected["message"]
+    leaf_with_subtasks.refresh_from_db()
+    assert leaf_with_subtasks.sprint_id is None

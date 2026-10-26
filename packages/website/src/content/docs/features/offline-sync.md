@@ -177,6 +177,17 @@ Uploads a WatermelonDB-shaped delta batch (ADR-0082). The request body is an env
 - **Writable surface** — only the `tasks` collection may be uploaded in v1; any other collection key is rejected with 400. All other mutations go via REST.
 - **Idempotent replay** — `client_batch_id` is a client-generated UUID. The first request to apply the batch records it and its response atomically; a retry carrying the same id (within the retention window, default 24 hours) replays the stored response without re-applying. Safe against flaky mobile networks.
 - **All-or-nothing** — the whole batch applies inside one transaction. A row that fails validation or RBAC rejects the entire batch.
+- **Refusals are `4xx`, never `5xx`** — a row the task rules refuse returns `400` with the same structured body `PATCH /tasks/{id}/` returns, so a client can tell a refusal (fix the row, do not retry as-is) from a server fault (retry). The four task-rule codes are `progress_requires_anchor`, `milestone_rollup_locked`, `zero_duration_not_milestone` and `guardrail_blocked`; each carries `code`, `detail` and `suggested_action`, and `guardrail_blocked` also names the `rule`. See [Errors and status codes](/api/errors/#400--refused-writes).
+
+  ```json
+  {
+    "code": "milestone_rollup_locked",
+    "detail": "This milestone's progress is rolled up from its linked sprint(s) and cannot be edited manually. Close or unlink the sprint to edit.",
+    "suggested_action": "unlink_or_close_sprint"
+  }
+  ```
+
+  A refusal is **not** recorded against the `client_batch_id`. Re-sending the same batch validates it again, so it refuses identically while the blocking state holds and applies once that state is fixed (here, once the sprint is unlinked from the milestone).
 - **Same rules as REST** — apply reuses the same serializer as `PATCH /tasks/{id}/`, so an upload can never do something the caller could not do over REST. Requires at least the Team Member role; archived projects are rejected. Creating a row additionally requires the plan-authoring rule REST `POST /tasks/` applies, so a Scheduler-role caller (who cannot create a task over `POST /tasks/` either, and likewise any Enterprise role in the 2xx band) gets a 403 and the whole batch is rolled back.
 - **Conflict resolution** — plain last-writer-wins; each row is applied unconditionally and `server_version` is bumped.
 - **Limits** — the POST path is rate-throttled, and a batch is capped at 500 rows by default (`TRUEPPM_SYNC_BATCH_MAX_ROWS`).
