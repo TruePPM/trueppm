@@ -404,6 +404,63 @@ def test_proposer_can_withdraw_open_proposal(project: Project, team: Team) -> No
     assert again.status_code == 202
 
 
+def _open_proposal_as(project: Project, sm: Any) -> Any:
+    resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    assert resp.status_code == 202
+    return resp.data["id"]
+
+
+def test_proposer_demoted_to_viewer_cannot_withdraw(project: Project, team: Team) -> None:
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+    proposal_id = _open_proposal_as(project, sm)
+    ProjectMembership.objects.filter(project=project, user=sm).update(role=Role.VIEWER)
+    TeamMembership.objects.filter(team=team, user=sm).update(is_scrum_master=False)
+
+    resp = _client(sm).post(_withdraw_url(project, proposal_id), format="json")
+
+    assert resp.status_code == 403
+    assert "Member or above" in resp.data["detail"]
+    assert SignalCeilingRaiseProposal.objects.get(pk=proposal_id).status == CeilingRaiseStatus.OPEN
+
+
+def test_member_proposer_without_facet_can_withdraw(project: Project, team: Team) -> None:
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+    proposal_id = _open_proposal_as(project, sm)
+    TeamMembership.objects.filter(team=team, user=sm).update(is_scrum_master=False)
+
+    resp = _client(sm).post(_withdraw_url(project, proposal_id), format="json")
+
+    assert resp.status_code == 200
+    assert resp.data["status"] == CeilingRaiseStatus.REJECTED
+
+
+def test_viewer_role_facilitator_can_withdraw(project: Project, team: Team) -> None:
+    sm = _team_member(project, team, "sm", sm=True)
+    facilitator = _team_member(project, team, "fac", sm=True)
+    proposal_id = _open_proposal_as(project, sm)
+    ProjectMembership.objects.filter(project=project, user=facilitator).update(role=Role.VIEWER)
+
+    resp = _client(facilitator).post(_withdraw_url(project, proposal_id), format="json")
+
+    assert resp.status_code == 200
+    assert resp.data["status"] == CeilingRaiseStatus.REJECTED
+
+
+def test_non_proposer_member_without_facet_cannot_withdraw(project: Project, team: Team) -> None:
+    sm = _team_member(project, team, "sm", sm=True)
+    dev = _team_member(project, team, "dev2")
+    proposal_id = _open_proposal_as(project, sm)
+
+    resp = _client(dev).post(_withdraw_url(project, proposal_id), format="json")
+
+    assert resp.status_code == 403
+    assert SignalCeilingRaiseProposal.objects.get(pk=proposal_id).status == CeilingRaiseStatus.OPEN
+
+
 def test_proposals_are_team_readable(project: Project, team: Team) -> None:
     sm = _team_member(project, team, "sm", sm=True)
     dev = _team_member(project, team, "dev2")

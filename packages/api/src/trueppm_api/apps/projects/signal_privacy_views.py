@@ -459,13 +459,22 @@ class SignalCeilingProposalWithdrawView(_SignalPrivacyBase):
             SignalCeilingRaiseProposal, pk=proposal_pk, project_id=project.pk
         )
         # Withdraw is the proposer's cancel; a facilitator/Admin may also clear it.
+        # The proposer branch carries a Member+ floor: withdrawing only de-escalates
+        # privacy, but a proposer since demoted to Viewer should not keep acting on
+        # governance state. The floor is in-body, not a permission class, because the
+        # facilitator facet is independent of project role (a Viewer-role facilitator
+        # must still be able to withdraw).
+        role = _membership_role(request, project.pk)
         is_proposer = (
             getattr(request.user, "is_authenticated", False)
             and proposal.proposed_by_id == request.user.pk
+            and role is not None
+            and role >= Role.MEMBER
         )
         if not (is_proposer or _is_facilitator_or_admin(request, project.pk)):
             raise PermissionDenied(
-                "Only the proposer or a facilitator/Admin can withdraw this proposal."
+                "Only the proposer (while a Member or above) or a facilitator/Admin "
+                "can withdraw this proposal."
             )
         try:
             proposal = withdraw_ceiling_proposal(proposal.pk, request.user)
