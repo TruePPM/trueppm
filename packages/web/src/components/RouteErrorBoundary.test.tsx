@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
@@ -111,6 +112,35 @@ describe('RouteErrorBoundary', () => {
       (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('[RouteErrorBoundary]'),
     );
     expect(loggedOurTag).toBe(true);
+  });
+
+  it('never writes an AxiosError Authorization header to the console (#3562)', () => {
+    const config = {
+      method: 'get',
+      url: '/api/v1/tasks/?token=qs-secret',
+      headers: new AxiosHeaders({ Authorization: 'Bearer secret-access-token-123' }),
+    } as InternalAxiosRequestConfig;
+    function Boom(): never {
+      throw new AxiosError('Request failed', 'ERR_BAD_RESPONSE', config, {}, {
+        status: 500,
+        statusText: '',
+        data: {},
+        headers: {},
+        config,
+      });
+    }
+    const router = createMemoryRouter([
+      { path: '/', element: <Boom />, errorElement: <RouteErrorBoundary /> },
+    ]);
+    render(<RouterProvider router={router} />);
+    const ours = errorSpy.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('[RouteErrorBoundary]'),
+    );
+    expect(ours.length).toBeGreaterThan(0);
+    const text = JSON.stringify(ours, (_k, v: unknown) => v);
+    expect(text).not.toContain('secret-access-token');
+    expect(text).not.toContain('qs-secret');
+    expect(text).toContain('/api/v1/tasks/');
   });
 });
 

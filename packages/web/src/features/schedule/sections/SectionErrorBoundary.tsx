@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { redactErrorForLog } from '@/lib/redactErrorForLog';
 import { reportError } from '@/lib/telemetry';
 
 interface Props {
@@ -32,7 +33,7 @@ export class SectionErrorBoundary extends Component<Props, State> {
     if (typeof window !== 'undefined' && 'console' in window) {
       console.error(
         `[SectionErrorBoundary] section "${this.props.sectionTitle}" failed:`,
-        error,
+        redactErrorForLog(error),
         info.componentStack,
       );
     }
