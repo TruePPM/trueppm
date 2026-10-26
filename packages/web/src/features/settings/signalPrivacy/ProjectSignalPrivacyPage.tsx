@@ -40,7 +40,7 @@ type View = 'ladder' | 'matrix';
 export function ProjectSignalPrivacyPage() {
   const projectId = useProjectId();
   const { user } = useCurrentUser();
-  const { role } = useCurrentUserRole(projectId || undefined);
+  const { role, isError: roleReadFailed } = useCurrentUserRole(projectId || undefined);
   const { data: policy, isLoading, isError } = useSignalPrivacy(projectId);
   const { setAudience, raiseCeiling, ratchetDown, voteOnProposal, withdrawProposal } =
     useSignalPrivacyMutations(projectId);
@@ -230,8 +230,9 @@ export function ProjectSignalPrivacyPage() {
                         // facilitator/Admin (can_set_audience) is independent of project role.
                         canWithdraw={
                           (isSameUser(proposal.proposed_by, user?.id) &&
-                            role != null &&
-                            role >= ROLE_MEMBER) ||
+                            // A failed role read is unsettled, not a denial (#2961); the
+                            // server stays the enforcement point.
+                            (roleReadFailed || (role != null && role >= ROLE_MEMBER))) ||
                           policy.can_set_audience
                         }
                         voting={

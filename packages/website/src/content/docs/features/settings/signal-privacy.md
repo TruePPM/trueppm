@@ -53,6 +53,10 @@ A signal set to **Shared to program rollup** opts that signal into a cross-team 
 
 The Scrum Master facet works regardless of project role, so a Scrum Master can withdraw any proposal even if their project role is Viewer. A proposer who has since been demoted to Viewer, and no longer holds the facet, can no longer withdraw their own proposal.
 
+:::note[Ships in 0.5]
+The Member-or-above requirement on the proposer's Withdraw ships in 0.5. In the current release, a proposer can withdraw their own proposal even after being demoted to Viewer.
+:::
+
 Everyone else sees the tab read-only. They can see the current audience and ceiling for each signal; they just cannot change them. The API enforces the same gate server-side regardless of what the UI shows, and a non-member can never read a team signal.
 
 ### Moving the audience

@@ -17,9 +17,13 @@ vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({ user: { id: 'user-alice' }, isLoading: false }),
 }));
 
-const roleHolder = { role: 100 as number | null };
+const roleHolder = { role: 100 as number | null, isError: false };
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: roleHolder.role, isLoading: false }),
+  useCurrentUserRole: () => ({
+    role: roleHolder.role,
+    isLoading: false,
+    isError: roleHolder.isError,
+  }),
 }));
 
 const policyHolder = { data: null as SignalPrivacyPolicy | null };
@@ -113,6 +117,7 @@ beforeEach(() => {
   withdrawMutate.mockClear();
   policyHolder.data = policy();
   roleHolder.role = 100;
+  roleHolder.isError = false;
 });
 
 describe('ProjectSignalPrivacyPage', () => {
@@ -263,6 +268,18 @@ describe('ProjectSignalPrivacyPage', () => {
       policyHolder.data = policy({
         can_set_audience: true,
         open_proposals: { velocity: proposal('velocity', { proposed_by: 'user-bob' }) },
+      });
+      renderWithRouter(<ProjectSignalPrivacyPage />);
+      const card = screen.getByLabelText('Pending ceiling raise for Velocity');
+      expect(within(card).getByRole('button', { name: 'Withdraw proposal' })).toBeInTheDocument();
+    });
+
+    it('still shows Withdraw to the proposer when the role read failed (#2961)', () => {
+      roleHolder.role = null;
+      roleHolder.isError = true;
+      policyHolder.data = policy({
+        can_set_audience: false,
+        open_proposals: { velocity: proposal('velocity') },
       });
       renderWithRouter(<ProjectSignalPrivacyPage />);
       const card = screen.getByLabelText('Pending ceiling raise for Velocity');
