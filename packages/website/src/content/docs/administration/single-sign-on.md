@@ -283,7 +283,10 @@ has nothing to match against yet. The accept page asks for a username and a
 password even for someone who intends to sign in only via SSO going forward,
 because `accept_invite` requires one when no matching account already exists.
 Have the invitee follow the emailed link and complete that one-time step first;
-only then will the same email's SSO sign-in succeed. (With **auto-create
+only then will the same email's SSO sign-in succeed. This does not apply to an
+invitee at the **Owner** or **Admin** role: their SSO sign-in is refused (see
+below), so they keep using the password they set at accept time until an operator
+adds their link. (With **auto-create
 members** enabled instead of an invite, this step is skipped entirely — the
 first successful SSO sign-in provisions the account itself.)
 
@@ -333,7 +336,7 @@ account, such as the bootstrap superuser or a workspace Owner, can instead sign 
 with its password, if it has one. An Owner or Admin who is not a staff user cannot open
 Django admin, so an operator adds the link on their behalf. An Owner or Admin that SSO
 auto-created has no password, so for that account the operator-added link, or the
-`changepassword` / `create_admin` management commands, is the only route.
+`changepassword <username>` management command, is the only route.
 
 ## Removing a provider
 
@@ -354,7 +357,7 @@ configure another provider that allows their email domain) — they re-link by t
 verified email on the next sign-in. **Owner and Admin accounts are the exception:**
 they are never re-linked by email (see above), so an SSO-created Owner or Admin whose
 binding is removed stays locked out until an operator adds a **Social account** in
-Django admin or sets a password with `changepassword` / `create_admin`. To avoid the gap entirely, invite affected
+Django admin or sets a password with `changepassword <username>`. To avoid the gap entirely, invite affected
 members and have them set a password before you remove the provider.
 :::
 
@@ -363,8 +366,9 @@ Each OIDC sign-in is durably bound to the identity provider's **issuer**. If you
 need to move a provider to a *different* issuer, **remove and re-add** it rather
 than editing the issuer in place — users then re-link by their verified email on
 next sign-in. Workspace Owner and Admin accounts are the exception: they are never
-re-linked by email, so an operator must add their link in Django admin first (or they
-sign in with a password). Editing the issuer of a provider that already has linked accounts is
+re-linked by email. Removing a provider deletes every link for it, so an operator must
+add each Owner or Admin's Social account in Django admin **after** you re-add the
+provider and **before** they sign in (or they sign in with a password). Editing the issuer of a provider that already has linked accounts is
 refused (it would otherwise allow a subject-collision takeover across issuers, and
 every existing sign-in would silently stop working).
 :::

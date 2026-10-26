@@ -186,7 +186,7 @@ rather than an in-place edit: an in-place issuer change would otherwise let an
 unrelated account at the new issuer, whose subject happens to collide with an
 old binding, take over that binding.
 
-### Silent account linking is notified, not blocked (2026-09-14, #3554)
+### Silent account linking is notified, not blocked (2026-09-14, #3554; Owner/Admin amended 2026-10-25, #4651)
 
 The one case above where an OIDC/OAuth identity binds to a TruePPM account the
 IdP did not create — the durable-identity resolution failing to find a match
@@ -220,7 +220,7 @@ the account owner sees.
 
 Blocking the link outright for Admin/Owner roles — requiring a one-time
 password re-auth on the completion page before the identity binds — was
-considered and deliberately deferred rather than rejected: it is a real
+considered and deliberately deferred rather than rejected (taken up on 2026-10-25, see the amendment below): it is a real
 additional control for the highest-privilege accounts, just not one the
 owner asked for in this pass. It remains open as a follow-up if the team
 decides the notification alone is not enough.
