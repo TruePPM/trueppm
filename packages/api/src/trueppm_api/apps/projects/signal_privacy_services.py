@@ -844,7 +844,8 @@ def withdraw_ceiling_proposal(proposal_id: Any, actor: Any) -> SignalCeilingRais
     """Withdraw an OPEN proposal (the proposer's cancel), recorded as REJECTED.
 
     Frees the signal for a fresh proposal without waiting out the TTL. The caller
-    enforces that ``actor`` is the proposer or a facilitator/Admin.
+    enforces that ``actor`` is the proposer (still a Member or above) or a
+    facilitator/Admin.
     """
     with transaction.atomic():
         try:
