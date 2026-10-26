@@ -436,7 +436,9 @@ A member who will sign in via [Single sign-on](/administration/single-sign-on/)
 still has to complete step 4 — accepting the invite is what provisions the
 `User` row SSO matches against **by email**, so it cannot be skipped even
 though the username/password it sets will typically never be used again once
-SSO takes over. The exception is **auto-create members**, which provisions the
+SSO takes over. This does not hold for an invitee at the **Owner** or **Admin** role:
+SSO refuses to link those accounts by email, so they keep the invite password until an
+operator adds their link. Another exception is **auto-create members**, which provisions the
 account directly on first SSO sign-in with no invite at all — see [How users
 sign in](/administration/single-sign-on/#how-users-sign-in).
 

@@ -126,7 +126,8 @@ function removeDialogBody(provider: SsoProvider): string {
   return (
     `${base} ${who}, so they will not be able to sign in at all — the ` +
     'password-reset email cannot help them either. They can sign in again if you add ' +
-    'this provider back with the same issuer.'
+    'this provider back with the same issuer, except workspace Owners and Admins, ' +
+    'who need an operator to re-link them.'
   );
 }
 

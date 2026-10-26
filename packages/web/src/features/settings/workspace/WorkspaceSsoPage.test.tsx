@@ -135,6 +135,9 @@ describe('WorkspaceSsoPage', () => {
     const dialog = screen.getByRole('alertdialog', { name: /Remove Acme SSO\?/i });
     expect(dialog).toHaveTextContent(/3 members sign in only through this provider/i);
     expect(dialog).toHaveTextContent(/not be able to sign in at all/i);
+    expect(dialog).toHaveTextContent(
+      /except workspace Owners and Admins, who need an operator to re-link them/i,
+    );
     expect(dialog).not.toHaveTextContent(/fall back to password sign-in/i);
 
     await user.click(within(dialog).getByRole('button', { name: 'Remove provider' }));
@@ -160,7 +163,9 @@ describe('WorkspaceSsoPage', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Edit' }));
 
-    expect(screen.queryByText(/Password and SSO sign-in are both allowed/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Password and SSO sign-in are both allowed/i),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: /Available in TruePPM Enterprise/i }),
     ).not.toBeInTheDocument();

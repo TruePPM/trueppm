@@ -186,7 +186,7 @@ rather than an in-place edit: an in-place issuer change would otherwise let an
 unrelated account at the new issuer, whose subject happens to collide with an
 old binding, take over that binding.
 
-### Silent account linking is notified, not blocked (2026-09-14, #3554)
+### Silent account linking is notified, not blocked (2026-09-14, #3554; Owner/Admin amended 2026-10-25, #4651)
 
 The one case above where an OIDC/OAuth identity binds to a TruePPM account the
 IdP did not create — the durable-identity resolution failing to find a match
@@ -220,10 +220,26 @@ the account owner sees.
 
 Blocking the link outright for Admin/Owner roles — requiring a one-time
 password re-auth on the completion page before the identity binds — was
-considered and deliberately deferred rather than rejected: it is a real
+considered and deliberately deferred rather than rejected (taken up on 2026-10-25, see the amendment below): it is a real
 additional control for the highest-privilege accounts, just not one the
 owner asked for in this pass. It remains open as a follow-up if the team
 decides the notification alone is not enough.
+
+**Amendment (2026-10-25, #4651): Owner and Admin are now blocked.** #4629 already
+refused the first-time email link onto superuser and staff accounts, on the
+reasoning that a verified IdP email is a claim about a *mailbox*, not proof the
+caller owns a privileged local account. TruePPM's own top tiers are the
+workspace **Owner** and **Admin** roles, and an account promoted to them in-app
+is neither superuser nor staff, so it still linked on the first assertion: whoever
+controlled the matching address at the IdP signed in as the Owner, and the
+notification above went to that same mailbox. The deferred block is therefore
+taken up. The first-time link is refused with the same `SSO_NO_MEMBER` outcome
+for any account whose workspace role is Admin or higher, before any binding is
+written. There is no operator setting to opt back in. Members, and every
+account that already has a linked identity, are unaffected, and the notification
+remains for the accounts that still link by email. An authenticated "link my
+identity" flow for the blocked accounts is tracked in #4634; until it ships they
+are linked by an operator or keep using their password.
 
 ## The WebSocket ticket
 

@@ -48,7 +48,8 @@ from jwt.exceptions import PyJWKError, PyJWKSetError
 from trueppm_api.apps.integrations import http as egress
 from trueppm_api.apps.sso.extensions import oidc_role_for
 from trueppm_api.apps.sso.models import SsoProviderPolicy
-from trueppm_api.apps.workspace.models import MemberStatus, WorkspaceMembership
+from trueppm_api.apps.workspace.models import MemberStatus, WorkspaceMembership, WorkspaceRole
+from trueppm_api.apps.workspace.permissions import workspace_role_for_user
 
 logger = logging.getLogger("trueppm.sso")
 
@@ -1089,8 +1090,8 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     2. **Verified email** — require ``email`` present and ``email_verified is True``
        and the domain in the allow-list; otherwise fail closed.
     3. **Link** — exactly one existing local user with that email → bind a new
-       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link; a superuser
-       or staff match is refused outright, #4629.) A best-effort
+       ``SocialAccount`` and sign in. (Ambiguous: 0 or >1 → not a link; a superuser,
+       staff, or workspace Owner/Admin match is refused outright, #4629, #4651.) A best-effort
        notice email is deferred to commit (#3554) so the local account learns a new
        sign-in method was just added — this is the one branch that hands a federated
        credential to an account whose owner may not have expected it.
@@ -1161,7 +1162,18 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
         # Fail closed with the same refusal as the ambiguous-email case, before any
         # binding is written; a privileged account links only via an explicit,
         # authenticated session (or an operator), never by email match.
-        if existing[0].is_superuser or existing[0].is_staff:
+        #
+        # The same reasoning covers the in-app top tiers (#4651): a workspace OWNER or
+        # ADMIN promoted in-app is neither superuser nor staff, yet whoever controls the
+        # matching mailbox at the IdP would otherwise sign in as that Owner. This takes
+        # up the block-for-admins option #3554 deferred. ``>= ADMIN`` also covers any
+        # Enterprise role registered above ADMIN.
+        role = workspace_role_for_user(existing[0])
+        if (
+            existing[0].is_superuser
+            or existing[0].is_staff
+            or (role is not None and role >= WorkspaceRole.ADMIN)
+        ):
             logger.warning(
                 "sso verified-email auto-link refused for privileged user %s", existing[0].pk
             )
@@ -1267,7 +1279,11 @@ def removal_impact(slugs: list[str]) -> dict[str, RemovalImpact]:
     Why this has to exist: the DELETE path purges the provider's ``SocialAccount``
     rows, and that purge is **load-bearing** — it is exactly what lets users
     re-link by verified email when an admin follows the documented remove-and-re-add
-    route to move a provider to a new issuer. Keeping the rows instead would leave
+    route to move a provider to a new issuer. That holds for ordinary members only:
+    workspace Owner/Admin, superuser, and staff accounts are refused by branch 3 (#4629,
+    #4651), so an SSO-created one needs an operator-added link or a password.
+
+    Keeping the rows instead would leave
     every binding stamped with the old ``iss``, and ``resolve_user`` would fail
     them closed forever.
 

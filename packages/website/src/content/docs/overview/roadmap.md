@@ -235,7 +235,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 
 **Why the date slipped.** Four more betas followed `beta.5`: `beta.6` (Sep 30), `beta.7` (Oct 9), `beta.8` (Oct 15, the original target day) and `beta.9` (Oct 18). The cycle moved from "can it run a real project" toward "is it safe to run one", and the work since mid-October was mostly hardening and security:
 
-- **Access control and data exposure** — invite role ceilings are enforced at accept, resend, and demotion; pending workspace invites are revoked on off-boarding; dependency-cycle errors no longer reveal tasks the caller cannot read; SSO verified-email auto-link is refused onto superuser and staff accounts.
+- **Access control and data exposure** — invite role ceilings are enforced at accept, resend, and demotion; pending workspace invites are revoked on off-boarding; dependency-cycle errors no longer reveal tasks the caller cannot read; SSO verified-email auto-link is refused onto superuser, staff, and workspace Owner and Admin accounts.
 - **Data integrity** — cross-project dependency edges fan their events and cascades out to the successor project, and a bulk edit that would create a cross-project cycle is refused instead of returning a 500; retro saves apply as a diff rather than delete-and-recreate.
 - **Scheduling correctness** — a milestone closed on a non-working day is shown at the end of that day.
 - **Supply chain** — `pip` 26.2.2 or later is required in the api and mcp images, asserted at build time, and a run of dependency bumps cleared the vulnerability scanner.
