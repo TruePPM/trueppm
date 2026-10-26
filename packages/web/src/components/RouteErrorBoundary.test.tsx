@@ -1,8 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import util from 'node:util';
+import { logRouterError, redactedRootErrorOptions } from '@/lib/redactErrorForLog';
 import { RouteErrorBoundary } from './RouteErrorBoundary';
 
 // The boundary asks the write queue directly (it can render outside the
@@ -111,6 +114,49 @@ describe('RouteErrorBoundary', () => {
       (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('[RouteErrorBoundary]'),
     );
     expect(loggedOurTag).toBe(true);
+  });
+
+  it('never writes an AxiosError token to ANY console call, through the real router wiring (#3562)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const config = {
+      method: 'get',
+      url: '/api/v1/tasks/?token=qs-secret',
+      headers: new AxiosHeaders({ Authorization: 'Bearer secret-access-token-123' }),
+    } as InternalAxiosRequestConfig;
+    function Boom(): never {
+      throw new AxiosError(
+        'Request failed',
+        'ERR_BAD_RESPONSE',
+        config,
+        {},
+        {
+          status: 500,
+          statusText: '',
+          data: {},
+          headers: {},
+          config,
+        },
+      );
+    }
+    const router = createMemoryRouter([
+      { path: '/', element: <Boom />, errorElement: <RouteErrorBoundary /> },
+    ]);
+    // Mirrors App.tsx (onError) and main.tsx (createRoot error options).
+    // The installed @types/react-dom predates the React 19 root error options RTL forwards.
+    render(<RouterProvider router={router} onError={logRouterError} />, {
+      onCaughtError: redactedRootErrorOptions.onCaughtError,
+    } as never);
+    const all = [...errorSpy.mock.calls, ...warnSpy.mock.calls];
+    expect(all.length).toBeGreaterThan(0);
+    const text = all
+      .flat()
+      .map((a: unknown) => (typeof a === 'string' ? a : util.inspect(a, { depth: 6 })))
+      .join('\n');
+    expect(text).not.toContain('secret-access-token');
+    expect(text).not.toContain('qs-secret');
+    expect(text).not.toContain('Authorization');
+    expect(text).toContain('/api/v1/tasks/');
+    warnSpy.mockRestore();
   });
 });
 

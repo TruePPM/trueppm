@@ -1,3 +1,5 @@
+import { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
+import util from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useState } from 'react';
@@ -63,5 +65,28 @@ describe('SectionErrorBoundary', () => {
     );
     expect(screen.getByText('just fine')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('never logs an AxiosError Authorization header (#3562)', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    function AxiosBomb(): never {
+      const config = {
+        method: 'get',
+        url: '/api/v1/x/',
+        headers: new AxiosHeaders({ Authorization: 'Bearer secret-access-token-123' }),
+      } as InternalAxiosRequestConfig;
+      throw new AxiosError('Request failed', 'ERR_BAD_RESPONSE', config);
+    }
+    render(
+      <SectionErrorBoundary sectionTitle="Subtasks">
+        <AxiosBomb />
+      </SectionErrorBoundary>,
+    );
+    const ours = spy.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('[SectionErrorBoundary]'),
+    );
+    expect(ours.length).toBeGreaterThan(0);
+    expect(util.inspect(ours, { depth: 6 })).not.toContain('secret-access-token');
+    spy.mockRestore();
   });
 });

@@ -4,6 +4,7 @@ import { WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { getPendingWriteCount } from '@/hooks/useSyncStatus';
+import { redactErrorForLog } from '@/lib/redactErrorForLog';
 import { reportError, scrubSensitivePath } from '@/lib/telemetry';
 
 /**
@@ -136,7 +137,7 @@ export function RouteErrorBoundary() {
   // Preserve the developer signal without ever showing it to a user. Guard the
   // console call so SSR/headless render paths without a console don't throw.
   if (typeof console !== 'undefined') {
-    console.error('[RouteErrorBoundary] a route failed to render:', error);
+    console.error('[RouteErrorBoundary] a route failed to render:', redactErrorForLog(error));
   }
 
   useEffect(() => {
