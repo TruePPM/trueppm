@@ -296,7 +296,7 @@ extra step.
 **The first time an existing account is linked to a provider, TruePPM will email
 that account to say so.** This is the case where a user's verified IdP email
 matches a local account that already existed before they ever signed in with
-SSO — including an account with the **Owner** role. Because that link happens
+SSO — including an account with the **Member** role (Owner and Admin accounts are refused instead; see below). Because that link happens
 automatically, with no re-authentication step, the account owner will get a
 message naming the provider and roughly when it happened, so they can tell
 whether it was them. If it was not, the message asks them to contact their
@@ -309,12 +309,13 @@ provisioned by **auto-create** (no pre-existing account) will not get this
 email — there is no existing owner to notify, and that path is covered by the
 workspace [audit log](/administration/audit-log/) instead.
 
-**Superuser and staff accounts are never linked by email.** If a verified IdP
-email matches an account that is a superuser or has staff access, TruePPM refuses
-the sign-in and writes no link. An email address proves a mailbox, not ownership
-of a privileged account. Accounts that already have a linked identity keep signing
-in as before. Workspace Owner and Admin roles are not affected; the refusal keys
-on the account's superuser and staff flags only.
+**Owner, Admin, superuser, and staff accounts are never linked by email.** If a
+verified IdP email matches an account that holds the workspace **Owner** or **Admin**
+role, is a superuser, or has staff access, TruePPM refuses the sign-in and writes no
+link. An email address proves a mailbox, not ownership of a privileged account.
+Accounts that already have a linked identity keep signing in as before, and
+accounts with the Member, Scheduler, or Viewer roles still link by email as
+described above. There is no setting to turn this refusal off.
 
 The refused user sees the same `SSO_NO_MEMBER` ("not a member yet") message as any
 unknown account. That is intentional: a distinct error would tell anyone who can
@@ -327,7 +328,9 @@ set to the IdP's `sub` claim for that user (for GitHub, the numeric user id), an
 **Extra data** set to `{"iss": "<issuer>"}` using the provider's exact issuer URL (`https://github.com` for GitHub).
 Later sign-ins then resolve by that identity. An authenticated "link my identity"
 flow that removes the manual step is tracked in #4634. Until it ships, a privileged
-account such as the bootstrap superuser can instead sign in with its password.
+account, such as the bootstrap superuser or a workspace Owner, can instead sign in
+with its password. An Owner or Admin who is not a staff user cannot open Django admin,
+so an operator adds the link on their behalf.
 
 ## Removing a provider
 

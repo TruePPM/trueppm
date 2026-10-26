@@ -48,7 +48,8 @@ from jwt.exceptions import PyJWKError, PyJWKSetError
 from trueppm_api.apps.integrations import http as egress
 from trueppm_api.apps.sso.extensions import oidc_role_for
 from trueppm_api.apps.sso.models import SsoProviderPolicy
-from trueppm_api.apps.workspace.models import MemberStatus, WorkspaceMembership
+from trueppm_api.apps.workspace.models import MemberStatus, WorkspaceMembership, WorkspaceRole
+from trueppm_api.apps.workspace.permissions import workspace_role_for_user
 
 logger = logging.getLogger("trueppm.sso")
 
@@ -1161,7 +1162,18 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
         # Fail closed with the same refusal as the ambiguous-email case, before any
         # binding is written; a privileged account links only via an explicit,
         # authenticated session (or an operator), never by email match.
-        if existing[0].is_superuser or existing[0].is_staff:
+        #
+        # The same reasoning covers the in-app top tiers (#4651): a workspace OWNER or
+        # ADMIN promoted in-app is neither superuser nor staff, yet whoever controls the
+        # matching mailbox at the IdP would otherwise sign in as that Owner. This takes
+        # up the block-for-admins option #3554 deferred. ``>= ADMIN`` also covers any
+        # Enterprise role registered above ADMIN.
+        role = workspace_role_for_user(existing[0])
+        if (
+            existing[0].is_superuser
+            or existing[0].is_staff
+            or (role is not None and role >= WorkspaceRole.ADMIN)
+        ):
             logger.warning(
                 "sso verified-email auto-link refused for privileged user %s", existing[0].pk
             )

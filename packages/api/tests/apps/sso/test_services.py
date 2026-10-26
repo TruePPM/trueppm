@@ -594,6 +594,56 @@ def test_resolve_refuses_autolink_onto_privileged_account(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("role", [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
+def test_resolve_refuses_autolink_onto_workspace_owner_or_admin(
+    provider_ctx: services.ProviderContext, role: int
+) -> None:
+    """#4651: an in-app Owner/Admin is neither superuser nor staff but is still refused."""
+    user = User.objects.create_user(username="wsadm", email="wsadm@example.com", password="pw")
+    WorkspaceMembership.objects.update_or_create(
+        workspace=provider_ctx.policy.workspace, user=user, defaults={"role": role}
+    )
+    with pytest.raises(services.OIDCNoMember):
+        services.resolve_user(
+            provider_ctx, {"sub": "sub-wsadm", "email": "wsadm@example.com", "email_verified": True}
+        )
+    assert not SocialAccount.objects.filter(user=user).exists()
+    assert not SocialAccount.objects.filter(provider="generic", uid="sub-wsadm").exists()
+
+
+@pytest.mark.django_db
+def test_resolve_refuses_autolink_onto_owner_who_is_also_superuser(
+    provider_ctx: services.ProviderContext,
+) -> None:
+    user = User.objects.create_user(
+        username="both", email="both@example.com", password="pw", is_superuser=True
+    )
+    WorkspaceMembership.objects.update_or_create(
+        workspace=provider_ctx.policy.workspace, user=user, defaults={"role": WorkspaceRole.OWNER}
+    )
+    with pytest.raises(services.OIDCNoMember):
+        services.resolve_user(
+            provider_ctx, {"sub": "sub-both", "email": "both@example.com", "email_verified": True}
+        )
+    assert not SocialAccount.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+def test_resolve_links_workspace_member(provider_ctx: services.ProviderContext) -> None:
+    """MEMBER (below ADMIN) still auto-links, unchanged."""
+    user = User.objects.create_user(username="mem", email="mem@example.com", password="pw")
+    WorkspaceMembership.objects.update_or_create(
+        workspace=provider_ctx.policy.workspace, user=user, defaults={"role": WorkspaceRole.MEMBER}
+    )
+    resolved, created = services.resolve_user(
+        provider_ctx, {"sub": "sub-mem", "email": "mem@example.com", "email_verified": True}
+    )
+    assert resolved == user
+    assert created is False
+    assert SocialAccount.objects.filter(user=user, uid="sub-mem").exists()
+
+
+@pytest.mark.django_db
 def test_resolve_privileged_account_with_existing_binding_still_signs_in(
     provider_ctx: services.ProviderContext,
 ) -> None:

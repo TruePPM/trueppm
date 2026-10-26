@@ -49,11 +49,14 @@ def _clear_outbox() -> Any:
 
 @override_settings(EMAIL_BACKEND=_LOCMEM)
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("account_fixture", ["owner", "admin", "member"])
+@pytest.mark.parametrize("account_fixture", ["member"])
 def test_link_notifies_the_local_account_at_every_role(
     account_fixture: str, provider_ctx: services.ProviderContext, request: Any
 ) -> None:
-    """OWNER, ADMIN, and MEMBER local accounts all receive the link notice."""
+    """A MEMBER local account receives the link notice.
+
+    OWNER and ADMIN are refused instead (#4651); see test_services.py.
+    """
     user = request.getfixturevalue(account_fixture)
     user.email = f"{account_fixture}@example.com"
     user.save(update_fields=["email"])
