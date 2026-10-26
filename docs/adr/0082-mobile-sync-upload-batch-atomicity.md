@@ -251,3 +251,21 @@ steady — generous for batched offline replay, bounded against a runaway client
    the same `client_batch_id`. The purge task is idempotent and contention-skips; its
    permanent failure only delays GC (bounded growth, alertable via Beat liveness,
    ADR-0081), never corrupts data.
+
+   **Amendment (2026-10-25, #4649): refusals are `4xx`, are rolled back, and are not
+   recorded.** A refused batch is distinct from a failed one. Every `4xx` refusal is
+   rolled back together with the `SyncBatch` row and is **not** recorded against the
+   `client_batch_id`: validation and RBAC errors, plus the four structured
+   `TaskSerializer` refusals (`progress_requires_anchor`, `milestone_rollup_locked`,
+   `zero_duration_not_milestone`, `guardrail_blocked`), which used to surface as a
+   500. Because nothing is stored, a replay validates the batch again against current
+   data. While the blocking state is unchanged it returns identical bytes. Once the
+   cause is fixed (for example, the sprint is unlinked from the milestone) the same
+   batch applies. A `4xx` is not retryable as-is, unlike a `5xx`: the client fixes
+   the row or the state first. Storing the refusal would replay a stale `400` for
+   the whole retention window after the cause was fixed, because the milestone lock
+   and the progress gate depend on current data. This is deliberately different from
+   REST, where `IdempotencyMixin` stores a returned refusal under the
+   `Idempotency-Key`. On sync the refusal is raised as an `APIException`, whose
+   `set_rollback()` discards the claim, the same way it does for every other refusal
+   on that path. §7's replay applies only to a batch that completed.
