@@ -68,10 +68,10 @@ export function logRouterError(error: unknown): void {
  * the redactor instead.
  */
 export const redactedRootErrorOptions = {
-  onCaughtError(error: unknown, info: { componentStack?: string | null }): void {
+  onCaughtError: (error: unknown, info: { componentStack?: string | null }): void => {
     console.error('[React] caught render error:', redactErrorForLog(error), info.componentStack);
   },
-  onUncaughtError(error: unknown, info: { componentStack?: string | null }): void {
+  onUncaughtError: (error: unknown, info: { componentStack?: string | null }): void => {
     console.error('[React] uncaught render error:', redactErrorForLog(error), info.componentStack);
   },
 };
