@@ -66,6 +66,10 @@ export function logRouterError(error: unknown): void {
  * `createRoot` error options. React 19 otherwise logs caught/uncaught render
  * errors itself (dev builds print the raw error with `%o`); route them through
  * the redactor instead.
+ *
+ * `onUncaughtError` replaces React's default uncaught-error handler, so the
+ * window `error` event is no longer fired for uncaught render errors (tracked
+ * in #4674).
  */
 export const redactedRootErrorOptions = {
   onCaughtError: (error: unknown, info: { componentStack?: string | null }): void => {
