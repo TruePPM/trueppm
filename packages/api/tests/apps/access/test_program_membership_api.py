@@ -1102,6 +1102,29 @@ def test_owner_cannot_reassign_user_via_patch(
 
 
 @pytest.mark.django_db
+def test_rejected_user_patch_applies_nothing_to_the_row(
+    program: Program, owner: object, member: object
+) -> None:
+    """A refused ``user`` PATCH is all-or-nothing, even with a legal role (#2586)."""
+    target = ProgramMembership.objects.create(program=program, user=member, role=Role.MEMBER)
+    other = _make_user("half-apply-target")
+
+    resp = _client(owner).patch(
+        f"{_members_url(program)}{target.pk}/",
+        {"user": str(other.pk), "role": Role.SCHEDULER, "role_title": "Lead"},
+        format="json",
+    )
+
+    assert resp.status_code == 400, resp.data
+    assert "user" in resp.data
+    target.refresh_from_db()
+    assert target.user_id == member.pk  # type: ignore[attr-defined]
+    assert target.role == Role.MEMBER
+    assert target.role_title == ""
+    assert target.role_changed_at is None
+
+
+@pytest.mark.django_db
 def test_patch_still_changes_a_role_and_role_title(
     program: Program, owner: object, member: object
 ) -> None:
