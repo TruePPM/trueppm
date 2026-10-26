@@ -16,6 +16,10 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.0rc2] - 2026-10-26
+
 ### Fixed
 
 - A `status_date` at or before `Project.start_date` no longer moves any task, and
@@ -859,7 +863,8 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0rc1...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0rc2...main
+[0.4.0rc2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0rc1...scheduler-v0.4.0rc2
 [0.4.0rc1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b9...scheduler-v0.4.0rc1
 [0.4.0b9]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b8...scheduler-v0.4.0b9
 [0.4.0b8]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b7...scheduler-v0.4.0b8
