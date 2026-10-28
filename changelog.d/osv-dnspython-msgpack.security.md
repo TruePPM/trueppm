@@ -1,0 +1,1 @@
+The API now requires dnspython 2.9.0, fixing GHSA-45c3-73f7-pv4m: a crafted DNS response could make name parsing use excessive CPU during SMTP SPF/DKIM/DMARC lookups. It also requires msgpack 1.2.3 or later, fixing GHSA-j586-36cw-2gc2: the C extension leaked memory on every `strict_map_key` validation failure in the channel-layer serializer.
