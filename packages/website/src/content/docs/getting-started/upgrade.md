@@ -26,11 +26,30 @@ This page walks through moving an existing TruePPM instance to a newer version, 
    preserves `CREATE EXTENSION` ordering, which the `ltree` / `pg_trgm` /
    `btree_gist` objects depend on; see
    [Backup & restore](/administration/backup-restore/#why-the-ltree--pg_trgm--btree_gist-extension-ordering-matters).
-3. **Note your current version** before starting.
+3. **Note your current version** before starting. Read it from what is
+   actually running, not from a `latest` tag, which says nothing about which
+   release a pinned deployment uses.
    ```bash
-   docker inspect registry.gitlab.com/trueppm/trueppm/api:latest --format '{{.Config.Labels}}'
-   # Or: helm list -n trueppm
+   # Docker Compose: the image (and so the tag) each service runs
+   docker compose -f docker-compose.prod.yml ps --format '{{.Service}}: {{.Image}}'
+   # Kubernetes: the image of the running API Deployment
+   kubectl get deploy -n trueppm -o jsonpath='{.items[*].spec.template.spec.containers[*].image}'
+   # Helm: the chart and app version of the release
+   helm list -n trueppm
    ```
+4. **Check your upgrade path** against [Supported upgrade paths](#supported-upgrade-paths).
+
+### Supported upgrade paths
+
+Upgrade one minor version at a time: 0.3 to 0.4, then 0.4 to 0.5, and so on.
+Skipping a minor version in one step (for example 0.3 to 0.5) is not a
+supported path, because each release's migrations and operator notes assume the
+previous minor's schema and configuration. TruePPM is pre-GA, so this is
+guidance you should follow rather than a tested guarantee. From 1.0 on, every
+sequential minor upgrade (1.2 to 1.3, and so on) is a release requirement.
+Within a minor, the same caution applies: the web-asset notes under
+[Upgrading to 0.4](#upgrading-to-04) cover an upgrade from the immediately
+previous published release, not one that skips a release.
 
 :::note[Where images come from]
 Release images publish to the **GitLab Container Registry**
@@ -95,11 +114,16 @@ reads and writes on the task table while it builds a constraint (see the
 transient-500 rollout windows described per-migration below on multi-replica
 installs.
 
-0.4 (tagged `v0.4.0-beta.1` on 2026-09-15) carries **five** migrations with a
-`RemoveField`, `DeleteModel`, or raw `DROP TABLE` — four of them are destructive
-in a way an operator needs to plan around, not just a schema-hygiene detail. If
-you are upgrading from 0.3, read all four before you run `migrate`, in
-particular the workshop-data warning:
+Going from 0.3 to 0.4 (the 0.4 line began at `v0.4.0-beta.1` on 2026-09-15 and
+now continues through its release candidates) runs **five** migrations that
+contain a `RemoveField`, `DeleteModel`, or raw `DROP TABLE`:
+`profiles.0008`, `webhooks.0009`, `projects.0123`, `projects.0149` and
+`sso.0002`. Four of them (all but `sso.0002`) can break requests that land on an
+old pod during a rolling deploy, and one of them (`projects.0149`) permanently
+deletes data. These are destructive in a way an operator needs to plan around,
+not just a schema-hygiene detail. If you are upgrading from 0.3, read all five
+entries below before you run `migrate`, in particular the workshop-data
+warning:
 
 :::danger[Upgrading from 0.3 destroys workshop data]
 `projects.0149_drop_workshops_tables` drops `workshops_participant` and
@@ -952,10 +976,14 @@ drop, recreate, or data step.
 ## Docker Compose (development)
 
 ```bash
-git pull origin main
+git fetch --tags && git checkout v<version>
 docker compose build
 docker compose up -d
 ```
+
+`<version>` is the release you are moving to; the current tag is on the
+[Releases page](https://gitlab.com/trueppm/trueppm/-/releases). Check out the
+release tag rather than pulling `main`, whose tip can be ahead of any release.
 
 `build`, not `pull` (#3189). The dev stack's `api` and `web` services are
 `build:`-based, and `celery` references `image: trueppm-api:local` with no
@@ -971,10 +999,11 @@ Migrations run automatically when the `api` container starts.
 
 ```bash
 cd /opt/trueppm
-git pull origin main
+git fetch --tags && git checkout v<version>
 
-# Update the target version in .env:
-# APP_VERSION=0.4.0-beta.4
+# Update the target version in .env (the bare version, no "v"; find the
+# current tag on the Releases page):
+# APP_VERSION=<version>
 
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
@@ -998,10 +1027,10 @@ helm upgrade trueppm oci://ghcr.io/trueppm/charts/trueppm \
   -f my-values.yaml
 ```
 
-`<version>` is the release version without a leading `v`, for example
-`0.4.0-beta.4`. Always pass it: Helm skips pre-release chart versions unless you
+`<version>` is the release version without a leading `v`; the current tag is
+on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases). Always pass it: Helm skips pre-release chart versions unless you
 name one, so while 0.4 is in beta a bare `helm upgrade` fails with `could not locate
-a version matching provided version string`. `--devel` selects the newest beta.
+a version matching provided version string`. `--devel` selects the newest pre-release.
 
 :::caution[Installed from chart `0.4.0`? Move to a later beta]
 The first beta cut published a chart as `0.4.0`. It defaults to an image tag
