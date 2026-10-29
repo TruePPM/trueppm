@@ -196,7 +196,7 @@ tag is that same version prefixed with `v`, pulled from the GitLab Container
 Registry (see [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry)).
 Always pass `--version`. Helm skips pre-release chart versions unless you name one,
 so until the stable 0.4.0 ships a bare `helm install` fails with `could not locate
-a version matching provided version string`. `--devel` selects the newest beta, but
+a version matching provided version string`. `--devel` selects the newest pre-release, but
 pin a version for anything you intend to keep.
 
 :::caution[Installed from chart `0.4.0`? Upgrade to a later beta]
@@ -476,7 +476,7 @@ CycloneDX SBOM-attested — so you can confirm an artifact was built by the True
 release pipeline before you run it. The one exception was chart `0.4.0` from the
 first beta cut, which was unsigned and has been removed; every chart published since
 verifies. On GHCR `<version>` is
-the bare version, for example `0.4.0-beta.4`. Verify against the GitLab CI OIDC issuer and the release-tag identity:
+the bare version (the current tag is on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases)). Verify against the GitLab CI OIDC issuer and the release-tag identity:
 
 ```bash
 # API and web images (repeat for web) — signature, verified on the tag
