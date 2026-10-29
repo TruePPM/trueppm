@@ -190,8 +190,8 @@ registry, so no clone is needed:
 helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>
 ```
 
-`<version>` is the release version without a leading `v`, for example
-`0.4.0-beta.4`. The chart version *is* the release version, and its default image
+`<version>` is the release version without a leading `v`; the current tag is on
+the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases). The chart version *is* the release version, and its default image
 tag is that same version prefixed with `v`, pulled from the GitLab Container
 Registry (see [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry)).
 Always pass `--version`. Helm skips pre-release chart versions unless you name one,
@@ -937,7 +937,9 @@ TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 # chart-managed allowlist to lean on. Leave it unset unless you have a reason.
 # TRUEPPM_DJANGO_ADMIN_ENABLED=true
 
-APP_VERSION=0.4.0-beta.4
+# The bare release version, no "v". Find the current tag on the Releases page:
+# https://gitlab.com/trueppm/trueppm/-/releases
+APP_VERSION=<version>
 ```
 
 :::caution[Three values the API refuses to start without]

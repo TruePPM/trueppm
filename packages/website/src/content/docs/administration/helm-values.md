@@ -99,17 +99,17 @@ no new structure, because none of them is keyed by tier.
 | `processes.api.workers` | `1` | Uvicorn worker processes per API pod (`--workers`). `1` is the shipped image's own single-process behavior, unchanged. Each additional worker is its own process (~160 MiB resident, measured) counted against `resources.api.limits.memory`, and holds its own persistent PostgreSQL connection (`CONN_MAX_AGE=600` under `ATOMIC_REQUESTS` in `trueppm_api.settings.prod`) — so `replicaCount x processes.api.workers` counts against PostgreSQL's `max_connections` ([#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275)). On Kubernetes, `replicaCount` buys the same throughput and redundancy besides, which a second worker in the same pod does not — prefer replicas; see [Raising the uvicorn worker count](/administration/sizing/#raising-the-uvicorn-worker-count). Must be `>= 1`; the render fails rather than passing `0` through to uvicorn. |
 | `image.repository` | `registry.gitlab.com/trueppm/trueppm/api` | API container image. |
 | `image.webRepository` | `registry.gitlab.com/trueppm/trueppm/web` | Web (nginx SPA) image; shares `tag`/`pullPolicy` with the API so a release deploys a matching pair. |
-| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks, resolving to `v<appVersion>` (for example `v0.4.0-beta.4`) — the tag form on the default GitLab registry, where the `v` is part of the tag, not decoration. GHCR uses the bare version instead; see [Image tags differ by registry](#image-tags-differ-by-registry). Override per-deploy with a concrete tag, which is used verbatim. **Floor: a web image published after #4359 lands.** A `web` image from `v0.4.0-beta.7` or earlier has no `asset-manifest.json` at its html root (the readiness probe's path added by #4359), so pinning one 404s the web pod's readiness forever — see [Upgrading across the #4359 readiness-probe change](/getting-started/upgrade/#upgrading-across-the-4359-readiness-probe-change). |
+| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks, resolving to `v<appVersion>` (for example `v<version>`) — the tag form on the default GitLab registry, where the `v` is part of the tag, not decoration. GHCR uses the bare version instead; see [Image tags differ by registry](#image-tags-differ-by-registry). Override per-deploy with a concrete tag, which is used verbatim. **Floor: a web image published after #4359 lands.** A `web` image from `v0.4.0-beta.7` or earlier has no `asset-manifest.json` at its html root (the readiness probe's path added by #4359), so pinning one 404s the web pod's readiness forever — see [Upgrading across the #4359 readiness-probe change](/getting-started/upgrade/#upgrading-across-the-4359-readiness-probe-change). |
 | `image.pullPolicy` | `IfNotPresent` | Standard Kubernetes pull policy. |
 
 ### Image tags differ by registry
 
 The same release is published to two registries under two tag forms:
 
-| Registry | Repository | Tag for release `0.4.0-beta.4` |
+| Registry | Repository | Tag for release `<version>` |
 |---|---|---|
-| GitLab Container Registry — the chart's default | `registry.gitlab.com/trueppm/trueppm/{api,web}` | `v0.4.0-beta.4` |
-| GHCR | `ghcr.io/trueppm/{api,web}` | `0.4.0-beta.4` |
+| GitLab Container Registry — the chart's default | `registry.gitlab.com/trueppm/trueppm/{api,web}` | `v<version>` |
+| GHCR | `ghcr.io/trueppm/{api,web}` | `<version>` |
 
 With `image.tag` empty the chart resolves `v<appVersion>`, which is right for the
 default repository and wrong for GHCR. If you point `image.repository` and

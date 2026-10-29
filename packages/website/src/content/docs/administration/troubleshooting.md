@@ -639,9 +639,9 @@ shows an Index Scan using the rebuilt index rather than a sequential scan.
 
 1. **The tag does not exist on that registry.** The two registries carry different
    tag forms: the GitLab Container Registry (the chart's default
-   `image.repository`) has only the **`v`-prefixed** `v0.4.0-beta.4`, and GHCR
+   `image.repository`) has only the **`v`-prefixed** `v<version>`, and GHCR
    (`ghcr.io/trueppm/{api,web}`, what `docker-compose.prod.yml` pulls) has only the
-   **bare** `0.4.0-beta.4`. The chart pins itself to `v<appVersion>` when
+   **bare** `<version>` (the current tag is on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases)). The chart pins itself to `v<appVersion>` when
    `image.tag` is empty, so pointing `image.repository` at GHCR without setting
    `image.tag` to the bare version fails with `manifest unknown` — and the reverse
    applies to a `v`-prefixed `APP_VERSION` in Compose. See
@@ -654,7 +654,7 @@ shows an Index Scan using the rebuilt index rather than a sequential scan.
 
    ```bash
    helm upgrade <release> oci://ghcr.io/trueppm/charts/trueppm \
-     --version 0.4.0-beta.4 -n <ns> -f <your-values>.yaml
+     --version <version> -n <ns> -f <your-values>.yaml
    ```
 
 3. **No pull credentials** for a private registry. The chart sets no
@@ -674,8 +674,8 @@ kubectl describe pod -n <ns> <pod> | sed -n '/Events/,$p'
 helm get values -n <ns> <release> --all | grep -A 4 '^image:'
 
 # Can you pull it by hand from a machine on the same network?
-docker pull registry.gitlab.com/trueppm/trueppm/api:v0.4.0-beta.4   # GitLab: v-prefixed
-docker pull ghcr.io/trueppm/api:0.4.0-beta.4                        # GHCR: bare version
+docker pull registry.gitlab.com/trueppm/trueppm/api:v<version>   # GitLab: v-prefixed
+docker pull ghcr.io/trueppm/api:<version>                        # GHCR: bare version
 ```
 
 **Confirm the fix.** `kubectl get pods` leaves `ImagePullBackOff` and the pod
