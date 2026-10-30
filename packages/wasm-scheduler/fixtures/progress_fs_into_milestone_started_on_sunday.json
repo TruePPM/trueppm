@@ -1,0 +1,28 @@
+{
+  "id": "p-progress-fs-into-milestone-started-on-sunday",
+  "name": "An FS link into a milestone started on a Sunday is not capped below that recorded start: the predecessor is not critical (#4677)",
+  "start_date": "2026-01-08",
+  "tasks": [
+    {"id": "X", "name": "Live work, FS+1d into M: one day of float, to Friday", "duration": 86400.0, "planned_start": "2026-01-08"},
+    {"id": "M", "name": "Milestone started Sunday, held there verbatim", "duration": 0.0, "percent_complete": 0.0, "actual_start": "2026-01-11"},
+    {"id": "W", "name": "Seven-day work FF after M, finishing at the end of that Sunday", "duration": 345600.0, "planned_start": "2026-01-08", "calendar_id": "seven-day"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "X", "successor_id": "M", "dep_type": "FS", "lag": 86400.0},
+    {"predecessor_id": "M", "successor_id": "W", "dep_type": "FF", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "seven-day": {
+      "working_days": 127,
+      "exceptions": [],
+      "hours_per_day": 8.0,
+      "timezone": "UTC"
+    }
+  }
+}

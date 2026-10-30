@@ -2769,18 +2769,28 @@ def _late_refs(
     start reference depends on how that link would show it (:func:`_link_start_ref`),
     and so does the finish reference an SF link inverts against
     (:func:`_link_finish_ref`, #4431).
+
+    Neither cap goes below a live milestone's recorded ``actual_start``. That
+    floor holds the milestone verbatim on its own day whatever reading a link
+    would give it, so a proposal at or before it moves nothing. Capping past it
+    (a Saturday ``actual_start``, ``X -SS+1d-> M``) understated ``X``'s float by
+    a working day.
     """
     late = late_instants.get(succ_id)
     if late is not None:
         succ_cal = cal_for(succ_id)
         start_ref = _milestone_refs(late)[0]
         dep, pred_is_milestone, project_finish = link
-        return (
+        capped = (
             _link_start_ref(
                 start_ref, dep.dep_type, dep.lag, pred_is_milestone, succ_cal, project_finish
             ),
             _link_finish_ref(late, dep.dep_type, succ_cal, project_finish),
         )
+        if succ.actual_start is None:
+            return capped
+        held = _milestone_refs(min(succ.actual_start, late))
+        return max(capped[0], held[0]), max(capped[1], held[1])
     assert succ.late_start is not None and succ.late_finish is not None
     return succ.late_start, succ.late_finish
 

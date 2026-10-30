@@ -174,6 +174,11 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // scope (forward pass only); excluded for the same actuals adapter gap.
   progress_saturday_actual_start_milestone_free_instant:
     'adapter: does not thread actuals/status date',
+  // #4677. A started milestone's link reference is not capped below its actual
+  // start: the fix is in the server engines, and this engine's adapter cannot
+  // feed the actual_start the fixtures depend on.
+  progress_fs_into_milestone_started_on_sunday: 'adapter: does not thread actuals/status date',
+  progress_ss_into_milestone_started_on_saturday: 'adapter: does not thread actuals/status date',
   // #4079. Covered on a Mon-Fri week by `milestone_instant_links` (in scope);
   // this one adds a holiday and an SNET milestone for the two server engines.
   milestone_instants_all_link_types: 'engine gap: CalendarException holidays not modeled',

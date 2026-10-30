@@ -215,17 +215,22 @@ fn late_refs(
                 let capped = start_read_cap(x, false, succ_cal, project_finish)?;
                 finish_ref = milestone_refs(capped)?.1;
             }
-            Ok((
-                link_start_ref(
-                    start_ref,
-                    (seen, dep.lag_days()),
-                    pred_is_milestone,
-                    succ_cal,
-                    project_finish,
-                )?,
-                finish_ref,
-                seen,
-            ))
+            let mut start_ref = link_start_ref(
+                start_ref,
+                (seen, dep.lag_days()),
+                pred_is_milestone,
+                succ_cal,
+                project_finish,
+            )?;
+            // Neither cap goes below a live milestone's recorded `actual_start`:
+            // that floor holds it verbatim on its own day whatever reading a link
+            // gives it, so a proposal at or before it moves nothing.
+            if let Some(actual) = succ.actual_start {
+                let (held_start, held_finish) = milestone_refs(actual.min(x))?;
+                start_ref = start_ref.max(held_start);
+                finish_ref = finish_ref.max(held_finish);
+            }
+            Ok((start_ref, finish_ref, seen))
         }
         None => Ok((
             succ.late_start.unwrap(),
