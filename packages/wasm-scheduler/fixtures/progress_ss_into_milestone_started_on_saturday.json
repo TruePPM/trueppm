@@ -1,0 +1,18 @@
+{
+  "id": "p-progress-ss-into-milestone-started-on-saturday",
+  "name": "A link into a milestone started on a non-working day is not capped below that recorded start: the predecessor keeps the float it can spend",
+  "start_date": "2026-01-07",
+  "tasks": [
+    {"id": "X", "name": "Live work, SS+1d into M: two days of float, to Friday", "duration": 86400.0},
+    {"id": "M", "name": "Milestone started Saturday, held there verbatim; decides the finish", "duration": 0.0, "percent_complete": 0.0, "actual_start": "2026-01-10"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "X", "successor_id": "M", "dep_type": "SS", "lag": 86400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

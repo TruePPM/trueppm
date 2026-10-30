@@ -1286,6 +1286,29 @@ CLOSED_AFTER_WORK_ON_A_NON_WORKING_DAY = RefProject(
     task_calendar={"T2": "five"},
 )
 
+#: Found by the nightly fuzz (2026-10-30): ``T0 -SS+1d-> T1``, ``T1`` a milestone
+#: started on Saturday 01-10 that decides the finish. Its recorded start holds it
+#: there whatever reading the link gives it, but the backward pass capped the SS
+#: reference at Friday, so ``T0`` reported 1 day of float where 2 moved nothing.
+SS_INTO_A_MILESTONE_STARTED_ON_A_SATURDAY = RefProject(
+    start=date(2026, 1, 7),
+    durations={"T0": 1, "T1": 0},
+    links=(RefLink("T0", "T1", "SS", 1),),
+    progress={"T1": RefProgress(percent_complete=0.0, actual_start=date(2026, 1, 10))},
+)
+#: The FS twin from the same night: ``T0 -FS+1d-> T1``, ``T1`` started on Sunday
+#: 01-11, ``T1 -FF-> T2`` on a seven-day week holding the finish at the end of
+#: that Sunday. ``T0`` reported zero float where a day moved nothing.
+FS_INTO_A_MILESTONE_STARTED_ON_A_SUNDAY = RefProject(
+    start=date(2026, 1, 8),
+    durations={"T0": 1, "T1": 0, "T2": 4},
+    links=(RefLink("T0", "T1", "FS", 1), RefLink("T1", "T2", "FF", 0)),
+    planned_start={"T0": date(2026, 1, 8), "T2": date(2026, 1, 8)},
+    progress={"T1": RefProgress(percent_complete=0.0, actual_start=date(2026, 1, 11))},
+    calendars={"seven": RefCalendar(working_mask=_SEVEN_DAY)},
+    task_calendar={"T2": "seven"},
+)
+
 #: The fixed shapes the slip oracle separates from their pre-fix engines.
 FIXED_PROGRESS_SHAPES = (
     COMPLETE_WITHOUT_ACTUALS_MID_CHAIN,
@@ -1294,6 +1317,8 @@ FIXED_PROGRESS_SHAPES = (
     SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
     SF_INTO_A_FOUR_DAY_MILESTONE,
     CLOSED_AFTER_WORK_ON_A_NON_WORKING_DAY,
+    SS_INTO_A_MILESTONE_STARTED_ON_A_SATURDAY,
+    FS_INTO_A_MILESTONE_STARTED_ON_A_SUNDAY,
 )
 
 #: The open #4436 shapes :func:`_ends_in_a_start_of_day_finish_gap` excludes.

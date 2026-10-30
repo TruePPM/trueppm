@@ -16,7 +16,14 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- A task linked into a live milestone whose recorded `actual_start` falls on a
+  non-working day no longer reports a working day less total float than it can
+  spend (and is no longer marked critical because of it). The backward pass
+  capped the milestone's reference at the last day the link's reading would
+  show by `project_finish`, below the recorded start that holds the milestone
+  in place ([#4677](https://gitlab.com/trueppm/trueppm/-/issues/4677)).
 
 ## [0.4.0rc2] - 2026-10-26
 
