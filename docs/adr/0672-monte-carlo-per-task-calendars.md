@@ -104,6 +104,9 @@ offset→date machinery then applies unchanged.
   column-wise conversion before the maximum — all only on the multi-calendar
   path. The `MAX_LAG_DELTA_CELLS` cap now also bounds cross-calendar fan-out,
   since the key space is multiplied by the calendar pairs an edge actually joins.
+  *Superseded 2026-10-31 (#4692): Monte Carlo now keeps one int64 ordinal array per
+  distinct calendar by content, not by object, and refuses over `max_index_cells`.
+  The "one index and one ordinal array" wording above no longer holds.*
 - **The engine is no longer the blocker; the API surface is.** Nothing calls
   `monte_carlo()` at program scope yet — `program_schedule.py` is a deterministic
   read surface with no probabilistic sibling, and there is no program-scoped
