@@ -34,6 +34,7 @@ _DOCUMENTED_CAPS = frozenset(
         "MAX_CALENDAR_EXCEPTIONS",
         "MAX_CALENDAR_SCAN_DAYS",
         "MAX_LAG_DELTA_CELLS",
+        "MAX_INDEX_CELLS",
         "MAX_VELOCITY_SPRINTS",
         "MC_SENSITIVITY_CAP",
     }

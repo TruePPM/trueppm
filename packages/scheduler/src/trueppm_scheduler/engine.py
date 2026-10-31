@@ -140,16 +140,17 @@ from __future__ import annotations
 import copy
 import math
 import weakref
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
-from typing import Any, NoReturn
+from typing import Any, NoReturn, overload
 
 import networkx as nx
 import numpy as np
 
 from trueppm_scheduler.models import (
     Calendar,
+    DateRange,
     DeliveryMode,
     Dependency,
     DependencyType,
@@ -286,6 +287,17 @@ MAX_CALENDAR_EXCEPTIONS = 100_000
 # sharing a pod with other requests) should pass a much smaller
 # ``max_lag_delta_cells`` to :func:`monte_carlo`.
 MAX_LAG_DELTA_CELLS = 50_000_000
+# Ceiling on Monte Carlo's per-calendar working-day indices, counted as (distinct
+# calendars by content) x (index length) cells, each an 8-byte int64 ordinal (#4692).
+# Every distinct calendar a task references gets one index as long as the project
+# span, and the span guards bound neither the calendar count nor that product: 32
+# one-day tasks on 32 distinct calendars at the maximum span once drove a 27 KB
+# project to ~1.9 GB. 25M cells is ~200 MB — about 65 calendars at the maximum span,
+# and effectively unlimited for any real project, which has a handful of calendars
+# over a span of thousands of days. This is the *library* default for a batch caller
+# that owns the machine; a request-scoped embedder should pass a smaller
+# ``max_index_cells`` to :func:`monte_carlo`.
+MAX_INDEX_CELLS = 25_000_000
 # Ceiling on the per-run sprint horizon of the velocity sampler (#1202). The
 # bootstrap draw matrix is ``runs x max_sprints`` floats, and ``max_sprints`` scales
 # with ``story_points / mean_velocity`` — unbounded by ``MAX_PROJECT_SPAN_DAYS``,
@@ -4839,17 +4851,82 @@ def _sample_velocity_durations(
     return sprints_needed.astype(np.float64) * float(sprint_length_days)
 
 
-def _build_working_day_index(start: date, calendar: Calendar, n_working_days: int) -> list[date]:
-    """Build a lookup list: working_day_index[k] = the k-th working day from start.
+class _WorkingDayIndex(Sequence[date]):
+    """A calendar's working days as a sorted int64 ordinal array (#4692).
+
+    Monte Carlo needs two lookups per calendar: offset -> date (``index[k]``) and
+    date -> offset (:meth:`get`). They used to be a ``list[date]`` and a
+    ``dict[date, int]`` beside an ordinal array, i.e. three structures as long as the
+    project span per calendar (~55 MB each at the maximum span). The sorted ordinal
+    array answers both — ``ords[k]`` and a binary search — in 8 bytes per cell, so
+    the list and the dict are never built. It stays a ``Sequence[date]`` with a
+    ``dict``-style ``get`` so every consumer written against the list and the dict
+    reads it unchanged.
+    """
+
+    __slots__ = ("ords",)
+
+    def __init__(self, ords: np.ndarray) -> None:
+        self.ords = ords
+
+    def __len__(self) -> int:
+        return int(self.ords.shape[0])
+
+    @overload
+    def __getitem__(self, i: int) -> date: ...
+    @overload
+    def __getitem__(self, i: slice) -> list[date]: ...
+    def __getitem__(self, i: int | slice) -> date | list[date]:
+        if isinstance(i, slice):
+            return [date.fromordinal(o) for o in self.ords[i].tolist()]
+        n = len(self)
+        if i < 0:
+            i += n
+        if not 0 <= i < n:
+            raise IndexError("working-day index out of range")
+        return date.fromordinal(int(self.ords[i]))
+
+    def __iter__(self) -> Iterator[date]:
+        return (date.fromordinal(o) for o in self.ords.tolist())
+
+    def __contains__(self, d: object) -> bool:
+        return isinstance(d, date) and self.get(d) is not None
+
+    def get(self, d: date, default: int | None = None) -> int | None:
+        """Offset of working day ``d``, or ``default`` when ``d`` is not on the index."""
+        o = d.toordinal()
+        pos = int(np.searchsorted(self.ords, o, side="left"))
+        if pos < self.ords.shape[0] and int(self.ords[pos]) == o:
+            return pos
+        return default
+
+
+# What the Monte Carlo helpers accept for the date -> offset lookup and the
+# offset -> date sequence: the ordinal-backed index in production, a plain dict /
+# list in the unit tests that drive a helper directly.
+_OffsetLookup = Mapping[date, int] | _WorkingDayIndex
+
+
+def _build_working_day_index(
+    start: date, calendar: Calendar, n_working_days: int
+) -> _WorkingDayIndex:
+    """Build a lookup: ``index[k]`` = the k-th working day from start.
 
     Used to convert integer working-day offsets (from MC simulation) back to dates.
 
-    Both the initial snap and each subsequent step are guarded against a
-    degenerate calendar (see :func:`_scan_for_working_day`), so a Monte Carlo run
-    on a project whose ``exceptions`` blanket the schedule raises a documented
-    :class:`InvalidScheduleInput` rather than spinning to an ``OverflowError``.
-    This is the Monte Carlo counterpart to the snap that guards :func:`schedule`'s
-    forward pass — without it the MC path had no calendar-reachability guard.
+    Both the initial snap and the walk off it are guarded against a degenerate
+    calendar, so a Monte Carlo run on a project whose ``exceptions`` blanket the
+    schedule raises a documented :class:`InvalidScheduleInput` rather than spinning
+    to an ``OverflowError``: the first day goes through :func:`_next_working_day`,
+    and a gap of more than :data:`MAX_CALENDAR_SCAN_DAYS` between consecutive working
+    days, or running out of representable dates, raises the same errors
+    :func:`_scan_for_working_day` does. This is the Monte Carlo counterpart to the
+    snap that guards :func:`schedule`'s forward pass.
+
+    The days are generated in vectorized chunks (weekday mask, then a binary search
+    over the calendar's merged exception runs) rather than by a Python day walk, so
+    building the index costs milliseconds, not the ~0.17 s per calendar the day loop
+    cost at the maximum span (#4692).
 
     ``n_working_days`` counts working days of *this* calendar, so the calendar-day
     span the index reaches depends on how sparse the calendar is. ``monte_carlo``
@@ -4858,15 +4935,50 @@ def _build_working_day_index(start: date, calendar: Calendar, n_working_days: in
     (#4429). A working-day count summed over task durations does not: on a denser
     calendar it ends before a sparse predecessor's work does.
     """
-    result: list[date] = []
     if n_working_days <= 0:
-        return result
-    current = _next_working_day(start, calendar)
-    result.append(current)
-    while len(result) < n_working_days:
-        current = _scan_for_working_day(current, calendar, forward=True)
-        result.append(current)
-    return result
+        return _WorkingDayIndex(np.empty(0, dtype=np.int64))
+    cur = _next_working_day(start, calendar).toordinal()
+    mask = calendar.working_days
+    weekday_ok = np.array([(mask >> w) & 1 for w in range(7)], dtype=bool)
+    density = max(1, bin(mask & 0x7F).count("1"))
+    exc_starts: np.ndarray | None = None
+    exc_ends: np.ndarray | None = None
+    if calendar.exceptions:
+        starts_l, ends_l, _ = calendar._exception_intervals()
+        exc_starts = np.asarray(starts_l, dtype=np.int64)
+        exc_ends = np.asarray(ends_l, dtype=np.int64)
+    chunks: list[np.ndarray] = []
+    have = 0
+    prev: int | None = None  # ordinal of the last working day found
+    while have < n_working_days:
+        remaining = n_working_days - have
+        hi = min(cur + min(remaining * 7 // density + 64, 2_000_000), _MAX_ORDINAL + 1)
+        if cur >= hi:
+            # Ran off the end of the representable dates: raise the overflow error.
+            _safe_offset(date.max, _ONE_DAY)
+        cand = np.arange(cur, hi, dtype=np.int64)
+        ok = weekday_ok[(cand - 1) % 7]
+        if exc_starts is not None and exc_ends is not None:
+            run = np.searchsorted(exc_starts, cand, side="right") - 1
+            in_exc = (run >= 0) & (cand <= exc_ends[np.maximum(run, 0)])
+            ok &= ~in_exc
+        found = cand[ok]
+        degenerate = (prev is None or hi - 1 - prev > MAX_CALENDAR_SCAN_DAYS) and not found.size
+        if found.size:
+            gaps = np.diff(found, prepend=found[0] if prev is None else prev)
+            degenerate = int(gaps.max()) > MAX_CALENDAR_SCAN_DAYS
+        if degenerate:
+            raise InvalidScheduleInput(
+                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
+                "of the requested date; check the working_days bitmask and exceptions."
+            )
+        take = found[:remaining]
+        chunks.append(take)
+        have += int(take.size)
+        if take.size:
+            prev = int(take[-1])
+        cur = hi
+    return _WorkingDayIndex(np.concatenate(chunks))
 
 
 def _average_ranks(a: np.ndarray) -> np.ndarray:
@@ -5412,14 +5524,14 @@ def _mc_horizon(
 
 
 def _count_working_days(start: date, end: date, calendar: Calendar) -> int:
-    """Working days of ``calendar`` in the closed range ``[start, end]``."""
-    count = 0
-    day = start
-    while day <= end:
-        if calendar.is_working_day(day):
-            count += 1
-        day = _safe_offset(day, _ONE_DAY)
-    return count
+    """Working days of ``calendar`` in the closed range ``[start, end]``.
+
+    Counted arithmetically (:func:`_working_days_between`) rather than by a day walk,
+    so sizing the index costs O(log E) per calendar, not O(span) (#4692).
+    """
+    if end < start:
+        return 0
+    return _working_days_between(start, _safe_offset(end, _ONE_DAY), calendar)
 
 
 def _mc_index_size(
@@ -5895,7 +6007,7 @@ def _completed_dates(
     return dates, {tid: instants[tid] for tid in completed_ids if tid in instants}
 
 
-def _index_offset(d: date, offset_of: dict[date, int], wd_index: list[date]) -> float:
+def _index_offset(d: date, offset_of: _OffsetLookup, wd_index: Sequence[date]) -> float:
     """Working-day offset of ``d``, clamped to the index start when it falls before it.
 
     A date past the index end raises (#4429): clamping it to the last entry reported
@@ -5913,8 +6025,8 @@ def _completed_offsets(
     es_date: date,
     ef_date: date,
     calendar: Calendar,
-    offset_of: dict[date, int],
-    wd_index: list[date],
+    offset_of: _OffsetLookup,
+    wd_index: Sequence[date],
 ) -> tuple[float, float]:
     """Constant (ES, exclusive-EF) offset pin for a completed task's own columns.
 
@@ -5944,8 +6056,8 @@ def _completed_edge_constraints(
     completed_instants: dict[str, _Instant],
     cal_of: dict[str, Calendar],
     cal_key_of: dict[str, int],
-    offset_of_by_cal: dict[int, dict[date, int]],
-    wd_index_by_cal: dict[int, list[date]],
+    offset_of_by_cal: Mapping[int, _OffsetLookup],
+    wd_index_by_cal: Mapping[int, Sequence[date]],
     task_map: dict[str, Task] | None = None,
 ) -> dict[tuple[str, str], _FixedEdge]:
     """The constant bound a completed predecessor, or a recorded start, imposes, per edge.
@@ -6032,8 +6144,8 @@ def _mc_es_floors(
     task_map: dict[str, Task],
     cal_of: dict[str, Calendar],
     cal_key_of: dict[str, int],
-    offset_of_by_cal: dict[int, dict[date, int]],
-    wd_index_by_cal: dict[int, list[date]],
+    offset_of_by_cal: Mapping[int, _OffsetLookup],
+    wd_index_by_cal: Mapping[int, Sequence[date]],
     sf_linked: frozenset[str] = frozenset(),
 ) -> dict[str, float]:
     """Merge each task's SNET pin, recorded actual start, and the data-date floor.
@@ -6253,8 +6365,8 @@ def _mc_verbatim_actuals(
     task_map: dict[str, Task],
     cal_of: dict[str, Calendar],
     cal_key_of: dict[str, int],
-    offset_of_by_cal: dict[int, dict[date, int]],
-    wd_index_by_cal: dict[int, list[date]],
+    offset_of_by_cal: Mapping[int, _OffsetLookup],
+    wd_index_by_cal: Mapping[int, Sequence[date]],
     sf_linked: frozenset[str] = frozenset(),
 ) -> dict[str, _VerbatimActual]:
     """The live tasks whose recorded ``actual_start`` falls on a non-working day (#4175).
@@ -6306,7 +6418,7 @@ def _mc_verbatim_actuals(
     return out
 
 
-def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: float) -> float:
+def _snapped_offset(d: date, cal: Calendar, offset_of: _OffsetLookup, last: float) -> float:
     """Offset of the next working day at or after ``d``.
 
     Clamped to the index start below it; past the index end it raises rather than
@@ -6320,9 +6432,13 @@ def _snapped_offset(d: date, cal: Calendar, offset_of: dict[date, int], last: fl
         return float(off)
     # Below the index only for a pre-start date on an SF-linked task (#4218), which
     # the pad was sized to hold; the index's first day is the safe side to clamp to.
-    if snapped > max(offset_of, default=snapped):
+    if isinstance(offset_of, _WorkingDayIndex):
+        lowest, highest = offset_of[0], offset_of[-1]
+    else:
+        lowest, highest = min(offset_of, default=snapped), max(offset_of, default=snapped)
+    if snapped > highest:
         _raise_mc_index_overrun()
-    return 0.0 if snapped < min(offset_of, default=snapped) else last
+    return 0.0 if snapped < lowest else last
 
 
 def _mc_progress_state(
@@ -6333,8 +6449,8 @@ def _mc_progress_state(
     task_calendars: dict[str, Calendar] | None,
     cal_of: dict[str, Calendar],
     cal_key_of: dict[str, int],
-    offset_of_by_cal: dict[int, dict[date, int]],
-    wd_index_by_cal: dict[int, list[date]],
+    offset_of_by_cal: Mapping[int, _OffsetLookup],
+    wd_index_by_cal: Mapping[int, Sequence[date]],
     sf_linked: frozenset[str] = frozenset(),
 ) -> tuple[
     dict[str, float],
@@ -6935,7 +7051,9 @@ def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.nda
     return np.where(k <= 0, ef, ref)
 
 
-def _build_reference_index(wd_ord_by_cal: dict[int, np.ndarray]) -> tuple[np.ndarray, list[date]]:
+def _build_reference_index(
+    wd_ord_by_cal: dict[int, np.ndarray],
+) -> tuple[np.ndarray, _WorkingDayIndex]:
     """Union every calendar's working days into one ruler for the project maximum.
 
     A day is a reference working day iff *some* task's calendar treats it as one,
@@ -6944,12 +7062,22 @@ def _build_reference_index(wd_ord_by_cal: dict[int, np.ndarray]) -> tuple[np.nda
     representability, not constraint: every date any task can finish on must have
     an offset, or converting into the space would move the date.
     """
-    ref_ord = np.unique(np.concatenate(list(wd_ord_by_cal.values())))
-    return ref_ord, [date.fromordinal(int(o)) for o in ref_ord]
+    # A presence mask over the calendar-day range instead of ``np.unique`` on the
+    # concatenation: that sorted a (calendars x index_size) copy, which peaked at
+    # ~70 MB for 8 calendars at the maximum span (#4692). The result is the same
+    # sorted unique ordinal array.
+    arrays = list(wd_ord_by_cal.values())
+    lo = min(int(a[0]) for a in arrays)
+    hi = max(int(a[-1]) for a in arrays)
+    present = np.zeros(hi - lo + 1, dtype=bool)
+    for a in arrays:
+        present[a - lo] = True
+    ref_ord = np.flatnonzero(present).astype(np.int64) + lo
+    return ref_ord, _WorkingDayIndex(ref_ord)
 
 
 def _offset_to_date(
-    offset: float, wd_index: list[date], completed_finish_floor: date | None
+    offset: float, wd_index: Sequence[date], completed_finish_floor: date | None
 ) -> date:
     """Map a working-day completion offset back to a calendar date.
 
@@ -6985,7 +7113,7 @@ def _offset_to_date(
 def _mc_percentiles(
     completion_offsets: np.ndarray,
     shown_offsets: np.ndarray,
-    wd_index: list[date],
+    wd_index: Sequence[date],
     finish_floor: date | None,
     floor_at_day_start: bool,
 ) -> list[tuple[date, bool]]:
@@ -7057,6 +7185,7 @@ def monte_carlo(
     max_tasks: int | None = None,
     sensitivity_cap: int = MC_SENSITIVITY_CAP,
     max_lag_delta_cells: int = MAX_LAG_DELTA_CELLS,
+    max_index_cells: int = MAX_INDEX_CELLS,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -7206,6 +7335,15 @@ def monte_carlo(
                    requests should pass a smaller value; a table above it raises
                    :class:`InvalidScheduleInput` before the offending array is
                    allocated. It does not change any computed value.
+        max_index_cells: Ceiling on the per-calendar working-day indices, counted as
+                   (distinct calendars, by ``working_days`` and ``exceptions``) x
+                   (index length) cells, each an 8-byte int64. Default
+                   ``MAX_INDEX_CELLS`` (25M cells, ~200 MB), sized for a batch caller
+                   that owns the machine. An embedder serving concurrent requests, or
+                   accepting a ``calendars`` registry from untrusted callers, should
+                   pass a smaller value; a project above it raises
+                   :class:`SimulationCapExceeded` before any index is allocated. It
+                   does not change any computed value.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates — each an order
@@ -7214,8 +7352,9 @@ def monte_carlo(
         finish days, and the duration-sensitivity tornado (``sensitivity``).
 
     Raises:
-        SimulationCapExceeded: If ``runs`` exceeds ``max_runs`` or the project
-            has more tasks than ``max_tasks``.
+        SimulationCapExceeded: If ``runs`` exceeds ``max_runs``, the project
+            has more tasks than ``max_tasks``, or its distinct calendars' working-day
+            indices would exceed ``max_index_cells``.
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If a calendar has no working day, a duration
             or lag is negative/out of range, the project has no tasks,
@@ -7261,19 +7400,35 @@ def monte_carlo(
     # conversion below. It is sized further down, once each task's calendar is known.
 
     # Per-task calendars (ADR-0120 D3, #1385): one working-day index per *distinct*
-    # calendar, keyed by object identity — Calendar holds a mutable exceptions list
-    # and is not hashable, and the resolved objects are stable for this call (the
-    # same convention _forward_pass uses for its per-calendar snap memo, #1824).
-    # A project with no registry resolves every task to the pass-level calendar, so
-    # exactly one index is built and every downstream lookup is what it was before.
+    # calendar. "Distinct" is by CONTENT (``working_days`` plus the exceptions tuple),
+    # not object identity (#4692): a registry of K calendars that are all Mon-Fri
+    # needs one index, not K, and an index is the one structure whose size scales with
+    # the project span. Calendar holds a mutable-looking exceptions field and is not
+    # hashable itself, so the content key is a tuple; its hash is memoized per object
+    # so a 100k-exception calendar shared by many tasks is hashed once. The key every
+    # downstream lookup uses is the id() of the first calendar object with that
+    # content. A project with no registry resolves every task to the pass-level
+    # calendar, so exactly one index is built and every lookup is what it was before.
     task_calendars = _resolve_task_calendars(project)
     cal_of: dict[str, Calendar] = {
         tid: (calendar if task_calendars is None else task_calendars.get(tid, calendar))
         for tid in topo_order
     }
-    cal_key_of = {tid: id(cal) for tid, cal in cal_of.items()}
-    distinct_cals: dict[int, Calendar] = {id(calendar): calendar}
-    distinct_cals.update({key: cal_of[tid] for tid, key in cal_key_of.items()})
+    canonical_of_obj: dict[int, int] = {}
+    canonical_of_content: dict[tuple[int, tuple[DateRange, ...]], int] = {}
+    distinct_cals: dict[int, Calendar] = {}
+
+    def canonical_key(cal: Calendar) -> int:
+        key = canonical_of_obj.get(id(cal))
+        if key is None:
+            content = (cal.working_days, tuple(cal.exceptions))
+            key = canonical_of_content.setdefault(content, id(cal))
+            canonical_of_obj[id(cal)] = key
+            distinct_cals.setdefault(key, cal)
+        return key
+
+    canonical_key(calendar)
+    cal_key_of = {tid: canonical_key(cal) for tid, cal in cal_of.items()}
     # An SF-linked task can be placed before the project start (#4218); the index then
     # opens early enough to hold it. ``pad_days`` is 0 for a project with no SF-linked
     # task, leaving every index — and so every offset — exactly as before.
@@ -7291,21 +7446,24 @@ def monte_carlo(
         distinct_cals.values(),
         n_tasks,
     )
+    # The index is the one structure that scales with (calendar count x span), and
+    # neither max_runs, max_tasks nor the span guard reads the calendar count (#4692).
+    # Refused here, from sizes alone, before any index is allocated.
+    if len(distinct_cals) * index_size > max_index_cells:
+        raise SimulationCapExceeded(
+            f"Monte Carlo working-day indices would exceed {max_index_cells:,} cells: "
+            f"{len(distinct_cals):,} distinct calendars x a {index_size:,}-day index. "
+            "Reduce the number of distinct calendars or the project span."
+        )
     wd_index_by_cal = {
         key: _build_working_day_index(index_origin, cal, index_size)
         for key, cal in distinct_cals.items()
     }
-    offset_of_by_cal = {
-        key: {d: i for i, d in enumerate(idx)} for key, idx in wd_index_by_cal.items()
-    }
-    # Working-day ordinals per calendar, so each delta array is built with a single
-    # vectorised searchsorted instead of an ``index_size``-long pure-Python loop of
-    # ``_next_working_day`` snaps (#1205).
-    wd_ord_by_cal = {
-        key: np.fromiter((d.toordinal() for d in idx), dtype=np.int64, count=len(idx))
-        for key, idx in wd_index_by_cal.items()
-    }
-    proj_cal_key = id(calendar)
+    # One ordinal array per calendar answers offset->date, date->offset and the
+    # vectorised delta-table searchsorted alike; the offset map is the same object.
+    offset_of_by_cal: dict[int, _OffsetLookup] = dict(wd_index_by_cal)
+    wd_ord_by_cal = {key: idx.ords for key, idx in wd_index_by_cal.items()}
+    proj_cal_key = canonical_key(calendar)
     wd_index = wd_index_by_cal[proj_cal_key]
 
     # The working day *before* a calendar's first indexed day — the SF anchor for a
