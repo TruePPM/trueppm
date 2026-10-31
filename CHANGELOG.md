@@ -15,6 +15,25 @@ followed by the detailed entries.
 
 _Nothing yet._
 
+## [0.4.0] — 2026-10-31
+
+TruePPM 0.4.0 is the first stable release of the 0.4 line, the self-hosting PM's release. It supersedes 0.4.0-rc.2 and rolls up everything since 0.4.0-beta.1, the first tag on the line (there was no 0.4 alpha and no earlier stable release).
+
+The headliner is `trueppm-mcp`, a read-only MCP (Model Context Protocol) server with 19 tools. Point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask real questions of the live schedule: critical path, a non-mutating Monte Carlo what-if, sprint and program health, your own work queue, and how a scheduled date was derived. Every answer is computed by the CPM engine, never guessed by a model, and never leaves your box. Basic single sign-on is part of the open-source core: point TruePPM at your own OIDC provider (Keycloak, Authentik, Zitadel, Okta, Auth0, Entra ID, Google, GitLab, GitHub, or any standards-compliant OIDC provider) and your team logs in through it. Public `api` and `web` images (linux/amd64 and linux/arm64) and the Helm chart are published to GHCR, Cosign-signed with SBOMs, and `trueppm-scheduler`, `trueppm-mcp` and `trueppm-api` are on PyPI.
+
+**Upgrading from 0.4.0-rc.1 or earlier? Read this first.** `trueppm-mcp` over HTTP/SSE now rejects any `Host` header it was not told about with a `421`. Clients that reach a `0.0.0.0` bind through a LAN IP, a Kubernetes Service name or a reverse-proxy hostname must name that host with `--allowed-host` (repeatable) or `TRUEPPM_MCP_ALLOWED_HOSTS`. Workspace Owner and Admin accounts, and superuser and staff accounts, can no longer be linked to an identity provider by verified-email auto-link; they sign in with a password or an operator-added link. The API now requires dnspython 2.9.0 or later and msgpack 1.2.3 or later.
+
+**Should you upgrade?** Yes, this release fixes security issues. The SSRF egress guard now closes its DNS-rebinding window; SSO auto-link, saved board view edits and ceiling-raise withdrawal are role-gated; and the development Compose stack no longer exposes a forgeable-token API on every interface. It also fixes scheduler correctness bugs: a task linked into a milestone started on a non-working day no longer reports float it cannot spend or shows as critical when it is not, and a data date at or before the project start no longer moves work.
+
+Full detail for every pre-release is in the `0.4.0-beta.1` through `0.4.0-rc.2` sections of CHANGELOG.md.
+
+### Fixed
+Scheduler: a task linked into a milestone started on a non-working day no longer reports a working day less float than it can spend, or shows as critical when it is not. The milestone's recorded start holds it on that day, and the backward pass now respects that (#4677).
+
+### Security
+Bumped `follow-redirects` to 1.16.2 in the web lockfile (GHSA-mrwp-f3q8-3g9p: cross-realm `sensitiveHeaders` arrays were discarded, letting custom credential headers follow redirects) to clear the scheduled `security:osv` failure. Also forced the dev-tooling `glob` 13 → 14 (GHSA-3g3m-2fjr-6pw4) and `minimatch` 10 → 11 (GHSA-g3hv-75wg-m249) via npm overrides in web and mobile. The `minimatch` 3.x and 5.x copies under eslint, Jest and redocly have no patched release, so they carry documented, expiring suppressions (#4680).
+The API now requires dnspython 2.9.0, fixing GHSA-45c3-73f7-pv4m: a crafted DNS response could make name parsing use excessive CPU during SMTP SPF/DKIM/DMARC lookups. It also requires msgpack 1.2.3 or later, fixing GHSA-j586-36cw-2gc2: the C extension leaked memory on every `strict_map_key` validation failure in the channel-layer serializer.
+
 ## [0.4.0-rc.2] — 2026-10-26
 
 TruePPM 0.4.0-rc.2 is the second release candidate for 0.4.0. It supersedes 0.4.0-rc.1.
