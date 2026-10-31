@@ -20,3 +20,15 @@ allow = [
     "Unicode-3.0",
     "Unicode-DFS-2016",
 ]
+
+[bans]
+# Duplicate crate versions bloat the WASM bundle but are not a security fault,
+# so they warn rather than fail. Wildcard/deny lists are deliberately unset.
+multiple-versions = "warn"
+
+[sources]
+# Every dependency must come from crates.io. A git URL or alternate registry
+# bypasses the advisory DB and license metadata, so it fails the gate until
+# someone adds it to an explicit allow list with a justification.
+unknown-registry = "deny"
+unknown-git = "deny"
