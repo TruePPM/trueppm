@@ -10,6 +10,7 @@ multi-million-iteration spin, an uncaught ``OverflowError``, or a
 from __future__ import annotations
 
 import contextlib
+import time
 from datetime import date, timedelta
 
 import pytest
@@ -32,6 +33,7 @@ from trueppm_scheduler.engine import (
     MAX_LAG_DAYS,
     MAX_PROJECT_SPAN_DAYS,
     _collect_leaves,
+    expand_summary_dependencies,
 )
 
 
@@ -305,8 +307,66 @@ class TestChildrenMapGuards:
     def test_diamond_children_map_is_not_a_cycle(self) -> None:
         """A leaf reachable via two parents is a diamond, not a cycle."""
         cmap = {"root": ["L", "R"], "L": ["leaf"], "R": ["leaf"]}
-        # leaf appears once per path; callers dedupe edges downstream.
-        assert _collect_leaves("root", cmap) == ["leaf", "leaf"]
+        # The distinct leaf set is returned (callers dedupe edges downstream).
+        assert _collect_leaves("root", cmap) == ["leaf"]
+        assert set(_collect_leaves("root", cmap)) == {"leaf"}
+
+    @staticmethod
+    def _diamond_lattice(k: int, chain: int) -> dict[str, list[str]]:
+        """k diamonds in series (2**k paths) converging on a single-child chain."""
+        cmap: dict[str, list[str]] = {}
+        for i in range(k):
+            cmap[f"j{i}"] = [f"a{i}", f"b{i}"]
+            cmap[f"a{i}"] = [f"j{i + 1}"]
+            cmap[f"b{i}"] = [f"j{i + 1}"]
+        cmap[f"j{k}"] = ["c0"]
+        for i in range(chain - 1):
+            cmap[f"c{i}"] = [f"c{i + 1}"]
+        cmap[f"c{chain - 1}"] = ["leaf"]
+        return cmap
+
+    @pytest.mark.parametrize(
+        "cmap, root",
+        [
+            ({"x": ["m", "q"], "m": ["leaf"], "q": ["x"]}, "x"),
+            ({"a": ["a"]}, "a"),
+            # cycle reached through a node already memoized via another parent
+            ({"r": ["m", "n"], "m": ["leaf"], "n": ["m", "p"], "p": ["n"]}, "r"),
+            ({"r": ["m", "p"], "m": ["leaf"], "p": ["m", "r"]}, "r"),
+        ],
+    )
+    def test_collect_leaves_cycle_variants(self, cmap: dict[str, list[str]], root: str) -> None:
+        with pytest.raises(
+            InvalidScheduleInput, match="children_map contains a cycle through task"
+        ):
+            _collect_leaves(root, cmap)
+
+    def test_leaf_order_is_declared_order_for_tree(self) -> None:
+        cmap = {"r": ["a", "b"], "a": ["c", "d"], "b": ["e"]}
+        assert _collect_leaves("r", cmap) == ["c", "d", "e"]
+
+    def test_leaf_order_is_declared_order_for_multi_leaf_diamond(self) -> None:
+        cmap = {"r": ["L", "R"], "L": ["x", "y"], "R": ["y", "z"]}
+        assert _collect_leaves("r", cmap) == ["x", "y", "z"]
+
+    def test_diamond_lattice_find_cycle_is_linear(self) -> None:
+        """2**16 paths x 1000-node chain must not cost 2**k x L visits (#4693)."""
+        cmap = self._diamond_lattice(16, 1000)
+        t0 = time.perf_counter()
+        assert find_cycle([("j0", "x")], children_map=cmap).cycle is None
+        assert time.perf_counter() - t0 < 0.5
+
+    def test_diamond_lattice_expand_summary_dependencies_is_linear(self) -> None:
+        cmap = self._diamond_lattice(16, 1000)
+        tasks = [
+            Task(id="leaf", name="leaf", duration=timedelta(days=1)),
+            Task(id="x", name="x", duration=timedelta(days=1)),
+        ]
+        deps = [Dependency(predecessor_id="j0", successor_id="x")]
+        t0 = time.perf_counter()
+        result = expand_summary_dependencies(tasks, deps, cmap)
+        assert time.perf_counter() - t0 < 0.5
+        assert [(d.predecessor_id, d.successor_id) for d in result.dependencies] == [("leaf", "x")]
 
 
 class TestNonFiniteJson:
