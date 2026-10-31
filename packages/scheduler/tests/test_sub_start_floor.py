@@ -304,6 +304,7 @@ def _with_free_milestone(draw: st.DrawFn) -> Project:
 _sub_start_offset = st.integers(min_value=0, max_value=60)
 
 
+@pytest.mark.fuzz
 @given(project=_with_free_milestone(), back=_sub_start_offset)
 def test_a_status_date_at_or_before_the_start_moves_nothing(project: Project, back: int) -> None:
     """Adding ``status_date <= start_date`` changes no ES/EF/LS/LF and not the finish."""
@@ -315,6 +316,7 @@ def test_a_status_date_at_or_before_the_start_moves_nothing(project: Project, ba
     assert _positions(schedule(floored)) == _positions(baseline)
 
 
+@pytest.mark.fuzz
 @given(project=_with_free_milestone(), back=_sub_start_offset, data=st.data())
 def test_an_snet_at_or_before_the_start_moves_nothing(
     project: Project, back: int, data: st.DataObject
@@ -343,6 +345,7 @@ def test_an_snet_at_or_before_the_start_moves_nothing(
     assert _positions(schedule(pinned)) == _positions(baseline)
 
 
+@pytest.mark.fuzz
 @given(project=_with_free_milestone())
 def test_null_status_date_matches_status_date_at_the_start(project: Project) -> None:
     """The API's interaction, in library terms: ``None`` and ``start_date`` agree.
