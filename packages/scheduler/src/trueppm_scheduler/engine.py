@@ -7141,12 +7141,29 @@ def _mc_percentiles(
     working-time position, so a delta measured in working time does not depend on
     the choice, and with no start-of-day finish it is exactly the day the pre-#4204
     shown-day ranking reported. With no run at ``k`` (interpolation between two
-    positions) it is the end of the working day before ``k``.
+    positions) it is the end of the working day before ``k`` — unless a run at an
+    earlier position is shown on a later day, in which case it is that run's day.
+
+    That exception exists for mixed calendars (#4691). The reference ruler is the
+    union of every calendar's working days, so it can hold a day no run can finish
+    on — a Friday when every task works Monday-Thursday — and interpolation can land
+    ``k`` on it. A run at a lower position can then be shown *after* ``k``: a
+    start-of-day milestone at the end of Thursday is shown at the start of Monday,
+    and reporting the end of the Friday in between put the percentile before P50,
+    before every date in ``distribution`` and before the CPM finish. Lifting the
+    gap reading to the latest day shown by any run below ``k`` keeps it at or after
+    every run it ranks above. With one calendar a run is shown at most one working
+    day past its position, so that day is never past ``k`` and the reading is
+    unchanged. Each percentile is then clamped to at least the one before it, so
+    ``p50 <= p80 <= p95`` holds as an invariant of this function rather than of its
+    inputs.
 
     Limit: on mixed calendars the reference ruler can hold days a milestone's own
     calendar skips, so a start-of-day run may be shown more than one reference day
     past its position; the reading is still start-of-day, and the API reads it
-    against the project calendar.
+    against the project calendar. A gap reading with no such run below it can still
+    be a ruler day no task works (the end of that Friday): it lies between the runs
+    either side of it, so it stays inside the distribution's range.
     """
     n = len(completion_offsets)
     shown_rounded = np.rint(shown_offsets)
@@ -7165,14 +7182,22 @@ def _mc_percentiles(
                 if int(np.count_nonzero(shown_rounded <= d)) * 100 >= q * n:
                     shown = float(d)
                     break
-            at_start = shown > k
         else:
-            shown, at_start = float(k), False
+            # No run at k. Every run below k ranks before the percentile, so it must
+            # not be shown on a later day than the percentile is (#4691).
+            below = shown_rounded[rounded_positions < k]
+            shown = max(float(k), float(below.max())) if below.size else float(k)
+        at_start = shown > k
         resolved = _offset_to_date(shown, wd_index, None)
-        if finish_floor is not None and finish_floor > resolved:
-            out.append((finish_floor, floor_at_day_start))
-        else:
-            out.append((resolved, at_start))
+        reading = (
+            (finish_floor, floor_at_day_start)
+            if finish_floor is not None and finish_floor > resolved
+            else (resolved, at_start)
+        )
+        # The start of a day precedes its end: order by (date, not at_day_start).
+        if out and (reading[0], not reading[1]) < (out[-1][0], not out[-1][1]):
+            reading = out[-1]
+        out.append(reading)
     return out
 
 
