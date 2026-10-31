@@ -243,6 +243,7 @@ Pushing the tag triggers the release pipeline. What happens next depends on the 
   - `scheduler-v<PEP440>` publishes `trueppm-scheduler` (`scheduler:publish`). Verify with `pip index versions trueppm-scheduler`.
   - `mcp-v<PEP440>` publishes `trueppm-mcp` (`mcp:publish`). Verify with `pip index versions trueppm-mcp`, and confirm `uvx trueppm-mcp --help` resolves — three docs pages and the MCP registry manifest tell users to install it that way.
   - Both use PyPI Trusted Publishing (GitLab OIDC), so no token is needed — but the Trusted Publisher must already exist on pypi.org for that project name. `trueppm-mcp`'s is bound to the **`pypi-mcp`** environment; a mismatch fails the job at the mint-token step with PyPI's own 422 explanation, before anything is uploaded.
+  - `mcp:registry-publish` then lists the version on the official MCP registry (#4682). It reads `MCP_REGISTRY_PRIVATE_KEY` (protected, masked, environment `mcp-registry`) and fails closed without it. Verify at `https://registry.modelcontextprotocol.io/v0/servers?search=com.trueppm`. It is tag-only, so name it in Step 1's inventory whenever it or `scripts/mcp-registry-publish.sh` changed since the last `mcp-v*` tag; `mcp:registry-validate` proves the manifest on the MR, but not the login or the publish.
 - Confirm the GitLab Release shows up at `gitlab.com/trueppm/trueppm/-/releases/vX.Y.Z` and the CHANGELOG section is populated.
 
 ### At-or-post-1.0 (`>= 1.0.0`)
