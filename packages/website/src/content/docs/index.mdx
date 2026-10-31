@@ -34,8 +34,8 @@ import { SHIPPED, SHIPPED_TAG, SHIPPED_DATE } from "../_release-status.mdx";
 {/* Banner derives its version from the release-status SSOT (#807). The
     admonition label is plain directive text and cannot interpolate, so it
     stays in sync with SHIPPED by hand; the body interpolates the constants. */}
-:::caution[0.4 shipped (beta) · pre-GA]
-TruePPM {SHIPPED} shipped {SHIPPED_DATE} (as the <code>{SHIPPED_TAG}</code> pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, the agile-team feature set, a read-only MCP server, basic single sign-on, and in-app time capture and baselines are all functional. {SHIPPED} is TruePPM's first beta: the release line leaves alpha here and hardens under further <code>beta.N</code> tags before an eventual <code>0.4.0</code> stable (<a href="/overview/roadmap/#how-the-04-line-is-numbered">how the {SHIPPED} line is numbered</a>). The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
+:::caution[0.4.0 shipped · pre-GA]
+TruePPM {SHIPPED} shipped {SHIPPED_DATE} (as <code>{SHIPPED_TAG}</code>) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, the agile-team feature set, a read-only MCP server, basic single sign-on, and in-app time capture and baselines are all functional. {SHIPPED} is TruePPM's first beta line: it left alpha at <code>v0.4.0-beta.1</code> on September 15, 2026 and reached the <code>{SHIPPED_TAG}</code> stable release after nine betas and two release candidates (<a href="/overview/roadmap/#how-the-04-line-is-numbered">how the {SHIPPED} line is numbered</a>). The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
 :::
 
 ## Start with the engine, not the platform
