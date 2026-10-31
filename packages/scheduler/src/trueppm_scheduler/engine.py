@@ -37,7 +37,10 @@ engine now follows the MS Project / Primavera P6 convention:
   from the instant below it (#4225). A negative ``l2`` can reach ``M``'s own
   project-finish bound, as it would for any node inserted into the link. The data
   date, an SNET and a recorded actual start do hold ``M`` and every lag measured
-  from it, so ``B`` can land later than the direct link puts it.
+  from it, so ``B`` can land later than the direct link puts it — except one that
+  falls on, or snaps to, the day the latest link already shows ``M`` at the start
+  of: that is the same point in working time, and the lags keep counting from the
+  link's own midnight (:func:`_equivalent_link`, #4690).
 * The backward pass and free float invert the same rule (:func:`_milestone_latest`,
   :func:`_milestone_refs`), and every late date is seeded from the instant the
   project ends (:func:`_finish_instant`), so a milestone on the critical path
@@ -128,22 +131,20 @@ open — when the caller's previous run showed it at the end of that day
 (``Task.live_day_end_on``, #4525); the start otherwise: nothing precedes it, a
 floor (data date, SNET) held it, or open work behind it was never recorded as
 placing it. Only those fixed facts decide it, so no
-change to open work moves a closed milestone, and a caller that hands its output
-back closes a milestone on its forecast day without moving its successors.
+change to open work moves a closed milestone. A caller that hands its output back
+keeps the edge; whether the successors stay put depends on the link instant below.
 
 At the start of its day, a closed milestone links from the midnight it linked from
 live, not from the recorded day's (#4690). A live milestone's link instant can be a
 midnight before the start of the day it is shown on — Sunday 00:00 shown on
 Monday (#4173), or a point below the project start (#4225) — and with calendar-day
 lag (#2534) a successor counts from it. The instant is re-read from the completed
-predecessors (:func:`_closed_milestone_link`). While a predecessor is still open,
-the milestone links from the close of the working day before its recorded day,
-unless its own SNET is that day. That is the live instant when work placed it in
-the gap before the day. It is not when work placed it at exactly the start of the
-day, and there a calendar-day lag out of it counts from up to a weekend earlier.
-Recording an ``actual_start`` or a ``planned_start`` on the day a live milestone
-is shown, or a data date falling on it, moves nothing either: a floor that only
-ties the latest link in working time leaves the link instant where the link put it
+predecessors (:func:`_closed_milestone_link`). While any predecessor is still
+open the milestone links from the start of its recorded day, as before, so closing
+it ahead of open work can still move a lagged successor (#4740). Recording an
+``actual_start`` or a ``planned_start`` on the day a live milestone is shown, or a
+data date falling on or snapping to it, moves nothing: a floor that only ties the
+latest link in working time leaves the link instant where the link put it
 (:func:`_equivalent_link`).
 ``monte_carlo``
 carries each run's milestone instant as a date (:func:`_mc_milestone_bounds`), and
@@ -1909,38 +1910,20 @@ def _closed_milestone_link(
     day, as it did live.
 
     Open work is not a fact (#4525): reading its forecast would let a slip of it
-    move a closed milestone's successors. While a predecessor is still open and no
-    completed one accounts for the day, the milestone links from the earliest
-    midnight equivalent to the start of the recorded day — the close of the
-    working day before it — unless the milestone's own SNET is that day, which no
-    earlier midnight satisfies. That is the instant a live milestone placed by work
-    reaching into the non-working days before it (or below the project start,
-    #4225) links from; one that work placed exactly at the start of the day
-    (``W(Friday) -FS+2d-> M``) links from that start, so closing it ahead of its
-    work measures its successors' calendar-day lags from up to a weekend earlier.
+    move a closed milestone's successors. So while any predecessor is still open
+    the milestone links from the start of its recorded day, as it did before #4690,
+    and a lag out of it can count from a different midnight than it did live — the
+    open residual (#4740). Linking from the close of the working day before
+    instead matched the live instant on some shapes and broke more than it fixed.
     ``start_floor`` is the project-start floor, ``None`` for an SF-linked milestone
     (#4218), as :func:`_place_milestone` takes it.
     """
+    if any(not _is_complete(task_map[p]) for p in g.predecessors(node_id)):
+        return recorded, True
     _, _, link = _place_milestone(
         node_id, task_map, g, cal, [recorded], links, cal_for, start_floor, completed_only=True
     )
-    if link[0] < recorded:
-        return link
-    open_work = any(not _is_complete(task_map[p]) for p in g.predecessors(node_id))
-    if not open_work or not cal.is_working_day(recorded):
-        return recorded, True
-    task = task_map[node_id]
-    if task.planned_start is not None:
-        # The SNET as _early_start_floors takes it: dropped at or before the project
-        # start (#4635), verbatim on an SF-linked milestone.
-        snet = (
-            _next_working_day(task.planned_start, cal)
-            if start_floor is None
-            else _floor_above_start(task.planned_start, cal, start_floor)
-        )
-        if snet is not None and snet >= recorded:
-            return recorded, True
-    return _safe_offset(_prev_working_day(_safe_offset(recorded, -_ONE_DAY), cal), _ONE_DAY), True
+    return link if link[0] < recorded else (recorded, True)
 
 
 def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:

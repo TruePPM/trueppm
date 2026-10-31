@@ -2382,28 +2382,13 @@ def test_issue_4690_repro_planned_start_on_the_shown_day() -> None:
     assert run(None) == run(date(2026, 1, 19)) == want
 
 
-@pytest.mark.parametrize(
-    "m",
-    [
-        Task(
-            id="M",
-            name="M",
-            duration=timedelta(0),
-            percent_complete=100.0,
-            actual_start=date(2026, 3, 2),
-            actual_finish=date(2026, 3, 2),
-        ),
-        Task(id="M", name="M", duration=timedelta(0), actual_start=date(2026, 3, 2)),
-    ],
-    ids=["closed", "started"],
-)
-def test_issue_4690_repro_below_the_start_with_work_still_open(m: Task) -> None:
+def test_issue_4690_repro_below_the_start_started_ahead_of_work() -> None:
     """``A(3d) -FS-5d-> M -FS+2d-> B``: ``M``'s instant is Saturday 02-28, below the
-    Monday 03-02 start it is shown at (#4225), so ``B`` is Monday 03-02. Closing or
-    starting ``M`` on 03-02 with ``A`` still open moved ``B`` to Wednesday 03-04.
+    Monday 03-02 start it is shown at (#4225), so ``B`` is Monday 03-02. Starting
+    ``M`` on 03-02 with ``A`` still open moved ``B`` to Wednesday 03-04.
 
-    The close reads no open forecast (#4525): it links from the close of the
-    working day before the recorded one, Saturday 00:00, which is this instant.
+    Closing it there with ``A`` open still does; that is the residual (#4740), pinned
+    by :func:`test_issue_4690_closed_with_open_work_behaves_as_main`.
     """
 
     def b_start(milestone: Task) -> date | None:
@@ -2416,40 +2401,103 @@ def test_issue_4690_repro_below_the_start_with_work_still_open(m: Task) -> None:
         )
         return {t.id: t for t in schedule(p).tasks}["B"].early_start
 
-    assert b_start(_task("M", 0)) == b_start(m) == date(2026, 3, 2)
+    started = Task(id="M", name="M", duration=timedelta(0), actual_start=date(2026, 3, 2))
+    assert b_start(_task("M", 0)) == b_start(started) == date(2026, 3, 2)
 
 
-def test_a_milestone_closed_ahead_of_work_on_its_own_snet_links_from_that_day() -> None:
-    """The open-work fallback stops at the milestone's own SNET (#4690).
+@pytest.mark.parametrize(
+    ("start", "a_days", "lag_in", "lag_out", "live_b", "closed_b"),
+    [
+        # The issue's FS+1 shape with A still open.
+        (date(2026, 8, 3), 5, 1, 1, date(2026, 8, 10), date(2026, 8, 11)),
+        (date(2026, 8, 3), 5, 1, 2, date(2026, 8, 11), date(2026, 8, 12)),
+        # The issue's pre-start variant, and a deeper lead below the start.
+        (date(2026, 3, 2), 3, -5, 2, date(2026, 3, 2), date(2026, 3, 4)),
+        (date(2026, 3, 2), 3, -6, 4, date(2026, 3, 3), date(2026, 3, 6)),
+    ],
+    ids=["fs+1-out", "fs+2-out", "pre-start", "deeper-lead"],
+)
+def test_issue_4690_closed_with_open_work_behaves_as_main(
+    start: date, a_days: int, lag_in: int, lag_out: int, live_b: date, closed_b: date
+) -> None:
+    """A milestone closed ahead of an OPEN predecessor keeps the pre-#4690 rule.
 
-    ``M`` pinned to Monday 03-09 with ``A`` far earlier: the SNET holds it, so live
-    it links from Monday 00:00 and ``M -FS+1d-> B`` puts ``B`` on Tuesday. Closed on
-    that Monday with ``A`` still open, no earlier midnight satisfies the SNET, so it
-    keeps the recorded day and ``B`` stays on Tuesday.
+    A closed milestone reads only facts (#4525), and an open predecessor's forecast
+    is not one, so it links from the start of its recorded day, as it did before
+    #4690. Where the live milestone linked from an earlier midnight (Sunday 00:00,
+    or a point below the project start), closing it still moves a lagged successor.
+    That is the open residual #4740; ``closed_b`` is what ``main`` computes, pinned
+    so the case cannot drift silently. When #4740 lands, ``closed_b`` becomes
+    ``live_b``.
     """
 
     def b_start(milestone: Task) -> date | None:
         p = Project(
             id="p",
             name="p",
-            start_date=date(2026, 3, 2),
-            tasks=[_task("A", 1), milestone, _task("B", 1)],
-            dependencies=[_dep("A", "M"), _dep("M", "B", lag=1)],
+            start_date=start,
+            tasks=[_task("A", a_days), milestone, _task("B", 1)],
+            dependencies=[_dep("A", "M", lag=lag_in), _dep("M", "B", lag=lag_out)],
         )
         return {t.id: t for t in schedule(p).tasks}["B"].early_start
 
-    mon = date(2026, 3, 9)
+    live = schedule(
+        Project(
+            id="p",
+            name="p",
+            start_date=start,
+            tasks=[_task("A", a_days), _task("M", 0), _task("B", 1)],
+            dependencies=[_dep("A", "M", lag=lag_in), _dep("M", "B", lag=lag_out)],
+        )
+    )
+    shown = {t.id: t for t in live.tasks}["M"].early_start
+    assert shown is not None
     closed = Task(
         id="M",
         name="M",
         duration=timedelta(0),
-        planned_start=mon,
         percent_complete=100.0,
-        actual_start=mon,
-        actual_finish=mon,
+        actual_start=shown,
+        actual_finish=shown,
     )
-    live = Task(id="M", name="M", duration=timedelta(0), planned_start=mon)
-    assert b_start(live) == b_start(closed) == date(2026, 3, 10)
+    assert b_start(_task("M", 0)) == live_b
+    assert b_start(closed) == closed_b
+
+
+@pytest.mark.parametrize("status_date", [date(2026, 8, 8), date(2026, 8, 9), date(2026, 8, 10)])
+def test_a_data_date_on_a_milestones_shown_day_moves_nothing(status_date: date) -> None:
+    """Live only: a data date on (or snapping to) a milestone's shown day (#4690).
+
+    ``A`` done Monday 08-03 to Friday 08-07, ``A -FS+1d-> M -FS+1d-> B``: ``M``
+    sits at Sunday 00:00, shown at the start of Monday 08-10, and ``B`` starts that
+    Monday. A Saturday, Sunday or Monday data date snaps to that Monday, the very
+    point in working time ``M`` already sits at, so it binds nothing. It used to
+    become ``M``'s link instant and push ``B`` to Tuesday. A behavior change for
+    live schedules, accepted with #4690.
+    """
+
+    def run(status: date | None) -> dict[str, tuple[object, ...]]:
+        a = Task(
+            id="A",
+            name="A",
+            duration=timedelta(days=5),
+            actual_start=date(2026, 8, 3),
+            actual_finish=date(2026, 8, 7),
+        )
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 8, 3),
+            tasks=[a, _task("M", 0), _task("B", 1)],
+            dependencies=[_dep("A", "M", lag=1), _dep("M", "B", lag=1)],
+            status_date=status,
+        )
+        result = schedule(p)
+        return _positions(result)
+
+    got = run(status_date)
+    assert got["B"][0] == date(2026, 8, 10)
+    assert got == run(None)
 
 
 @pytest.mark.parametrize("placement", list(_PLACEMENTS))

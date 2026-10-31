@@ -762,11 +762,10 @@ fn live_milestone_edge(
 /// Linking from the recorded day instead moved every calendar-day-lagged
 /// successor. The instant is re-read from the completed predecessors with the
 /// recorded day as a start-of-day floor ([`equivalent_link`]); a milestone a floor
-/// held, or with nothing before it, links from the recorded day. While a
-/// predecessor is still open (#4525: not a fact) and no completed one accounts for
-/// the day, it links from the earliest midnight equivalent to the day's start —
-/// the close of the working day before — unless its own SNET is that day. Mirrors
-/// the Python `_closed_milestone_link`.
+/// held, or with nothing before it, links from the recorded day. While any
+/// predecessor is still open (#4525: not a fact) it links from the start of the
+/// recorded day, as before #4690 — the open residual (#4740). Mirrors the Python
+/// `_closed_milestone_link`.
 #[allow(clippy::too_many_arguments)]
 fn closed_milestone_link(
     idx: NodeIndex,
@@ -778,6 +777,13 @@ fn closed_milestone_link(
     recorded: NaiveDate,
     start_floor: Option<NaiveDate>,
 ) -> Result<Instant, String> {
+    let open_work = pg
+        .graph
+        .edges_directed(idx, Direction::Incoming)
+        .any(|e| !tasks[e.source().index()].is_complete());
+    if open_work {
+        return Ok((recorded, true));
+    }
     let (_, _, link) = place_milestone(
         idx,
         tasks,
@@ -789,33 +795,11 @@ fn closed_milestone_link(
         links,
         true,
     )?;
-    if link.0 < recorded {
-        return Ok(link);
-    }
-    let cal = cals.for_node(idx.index());
-    let open_work = pg
-        .graph
-        .edges_directed(idx, Direction::Incoming)
-        .any(|e| !tasks[e.source().index()].is_complete());
-    if !open_work || !cal.is_working_day(recorded) {
-        return Ok((recorded, true));
-    }
-    if let Some(ps) = tasks[idx.index()].planned_start {
-        // The SNET as the live pass takes it: dropped at or before the project
-        // start (#4635), verbatim on an SF-linked milestone.
-        let snet = match start_floor {
-            None => Some(next_working_day(ps, cal)?),
-            Some(base) => floor_above_start(ps, cal, base)?,
-        };
-        if snet.is_some_and(|s| s >= recorded) {
-            return Ok((recorded, true));
-        }
-    }
-    let close = checked_offset_days(
-        prev_working_day(checked_offset_days(recorded, -1)?, cal)?,
-        1,
-    )?;
-    Ok((close, true))
+    Ok(if link.0 < recorded {
+        link
+    } else {
+        (recorded, true)
+    })
 }
 
 /// `(shown, link)` for a completed milestone pinned on `day` (#4343, #4433).
