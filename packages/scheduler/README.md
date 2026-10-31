@@ -30,7 +30,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 - Hybrid agile/waterfall forecasting — mark a task `delivery_mode=SCRUM` with a `story_points` estimate and Monte Carlo samples its duration from the team's own velocity history instead of a per-task PERT guess, so a project can mix sprint-delivered and traditionally-estimated work in one simulation
 - Explainable results — `derive_value()` answers "why is this date what it is?" for any early/late/float value, naming the exact predecessor, dependency type, and lag that won, plus every constraint it beat
 - JSON round-tripping for plans (`Project.from_json()` / `Project.to_json()`)
-- CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`
+- CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`. Human-readable output escapes control, bidi, and zero-width characters in project strings; `--json` output is JSON-escaped.
 
 ## Install
 

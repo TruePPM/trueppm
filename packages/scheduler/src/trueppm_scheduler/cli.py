@@ -11,16 +11,72 @@ from trueppm_scheduler.engine import monte_carlo, schedule
 from trueppm_scheduler.models import Project
 
 
+def _needs_escape(cp: int) -> bool:
+    return (
+        cp < 0x20
+        or 0x7F <= cp <= 0x9F  # DEL and C1 controls
+        or 0xD800 <= cp <= 0xDFFF  # lone surrogates: print() cannot encode them
+        or 0x200B <= cp <= 0x200F  # zero-width space/joiners, LRM, RLM
+        or 0x2028 <= cp <= 0x202E  # line/paragraph separators, bidi embeddings/overrides
+        or 0x2066 <= cp <= 0x2069  # bidi isolates
+        or cp == 0xFEFF  # BOM / zero-width no-break space
+        or 0x2060 <= cp <= 0x2064  # word joiner and invisible operators
+        or cp in (0x00AD, 0x061C, 0x180E)  # soft hyphen, Arabic letter mark, Mongolian vowel sep.
+        or 0xFFF9 <= cp <= 0xFFFB  # interlinear annotation anchors
+        or 0xE0000 <= cp <= 0xE007F  # tag characters (invisible ASCII smuggling)
+    )
+
+
+def _display(value: object) -> str:
+    """Make a document-derived string safe to print to a terminal.
+
+    A project file is untrusted input, and JSON permits control characters
+    inside strings. Printed raw, ESC sequences can retitle the window (OSC 0),
+    clear the screen (CSI 2J), hide text (CSI 8m) or write the clipboard
+    (OSC 52), and bidi or zero-width characters can reorder or hide a task
+    name, spoofing the schedule a user reads (CWE-150). Escaped, with a visible
+    ``\\xNN`` (code points below 0x100) or ``\\uNNNN`` form rather than U+FFFD so
+    the output stays diagnosable: C0 controls (0x00-0x1F), DEL and C1 controls
+    (0x7F-0x9F), lone surrogates (U+D800-U+DFFF, which would otherwise make
+    ``print`` raise UnicodeEncodeError), U+200B-U+200F, U+2028-U+202E,
+    U+2066-U+2069, U+FEFF, U+2060-U+2064, U+00AD, U+061C, U+180E,
+    U+FFF9-U+FFFB and the tag block U+E0000-U+E007F (code points above 0xFFFF
+    use ``\\UNNNNNNNN``). ZWJ and ZWNJ (U+200C/U+200D) are escaped on purpose:
+    they can hide text, and the cost is that emoji ZWJ sequences and
+    Persian/Indic ZWNJ text show as visible escapes in the human output. Only the human
+    output needs this; ``--json`` is already escaped by ``json.dumps``.
+
+    Args:
+        value: Any value; it is converted with ``str()`` first (so exceptions
+            and paths can be passed directly).
+
+    Returns:
+        The string with none of the characters above present.
+    """
+    return "".join(
+        (
+            f"\\x{ord(c):02x}"
+            if ord(c) < 0x100
+            else f"\\u{ord(c):04x}"
+            if ord(c) < 0x10000
+            else f"\\U{ord(c):08x}"
+        )
+        if _needs_escape(ord(c))
+        else c
+        for c in str(value)
+    )
+
+
 def _load_project(path: str) -> Project:
     try:
         text = Path(path).read_text()
     except OSError as e:
-        print(f"error: cannot read {path!r}: {e}", file=sys.stderr)
+        print(f"error: cannot read {_display(repr(path))}: {_display(e)}", file=sys.stderr)
         sys.exit(1)
     try:
         return Project.from_json(text)
     except (KeyError, ValueError) as e:
-        print(f"error: invalid project file: {e}", file=sys.stderr)
+        print(f"error: invalid project file: {_display(e)}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -29,14 +85,14 @@ def _cmd_schedule(args: argparse.Namespace) -> None:
     try:
         result = schedule(project)
     except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {_display(e)}", file=sys.stderr)
         sys.exit(1)
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
         return
 
-    print(f"\nProject: {project.name}")
+    print(f"\nProject: {_display(project.name)}")
     print(f"Start:   {result.project_start}  Finish: {result.project_finish}")
     # The finish is the deterministic earliest-feasible date, not a commitment
     # date. Saying so here is the only chance a CLI user gets to learn it before
@@ -49,12 +105,12 @@ def _cmd_schedule(args: argparse.Namespace) -> None:
         cp = " *" if task.is_critical else ""
         tf = task.total_float.days if task.total_float else 0
         print(
-            f"{task.id:<20} {task.name:<30} "
+            f"{_display(task.id):<20} {_display(task.name):<30} "
             f"{task.early_start!s:<12} {task.early_finish!s:<12} "
             f"{task.late_start!s:<12} {task.late_finish!s:<12} "
             f"{tf:>4}{cp}"
         )
-    print(f"\nCritical path: {' → '.join(result.critical_path)}")
+    print(f"\nCritical path: {' → '.join(_display(t) for t in result.critical_path)}")
 
 
 def _cmd_monte_carlo(args: argparse.Namespace) -> None:
@@ -64,7 +120,7 @@ def _cmd_monte_carlo(args: argparse.Namespace) -> None:
         # no cap, so we leave max_runs/max_tasks at their default of None.
         result = monte_carlo(project, runs=args.runs, seed=args.seed)
     except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {_display(e)}", file=sys.stderr)
         sys.exit(1)
 
     if args.json:
@@ -74,7 +130,7 @@ def _cmd_monte_carlo(args: argparse.Namespace) -> None:
         print(json.dumps(out, indent=2))
         return
 
-    print(f"\nMonte Carlo — {result.runs:,} runs  ({project.name})\n")
+    print(f"\nMonte Carlo — {result.runs:,} runs  ({_display(project.name)})\n")
     print(f"  P50 (median):  {result.p50}   midpoint — even odds, not a commitment")
     print(f"  P80:           {result.p80}   ← commit to this date")
     print(f"  P95:           {result.p95}   external or contractual deadlines")
