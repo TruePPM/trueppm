@@ -6298,7 +6298,8 @@ security:scorecard:
   #     Fuzzing, License, Packaging, Pinned-Dependencies, SAST, Security-Policy,
   #     Token-Permissions, Vulnerabilities. Dangerous-Workflow, Packaging and
   #     Token-Permissions came back -1 (n/a: no GitHub Actions workflows) and
-  #     SAST came back 0 (no tool detected from the file tree).
+  #     SAST came back 0 (no tool detected from the file tree). Fuzzing and SAST
+  #     are waived from the verdict; see Exit contract below.
   #   - `--repo=gitlab.com/trueppm/trueppm` additionally runs when the masked
   #     CI/CD variable SCORECARD_GITLAB_TOKEN (read_api + read_repository) is
   #     set. Scorecard's GitLab support is partial; remote mode is what can

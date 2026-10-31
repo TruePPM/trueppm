@@ -961,9 +961,9 @@ read-only, so:
   Token-Permissions were not evaluable (no GitHub Actions workflows exist),
   Fuzzing and SAST scored 0, and Pinned-Dependencies scored 5. SAST scored 0
   because Scorecard detected no tool from the file tree, even though semgrep and
-  bandit run in GitLab CI and CodeQL runs on the GitHub mirror. A local run on a developer checkout also counts
-  gitignored files such as `__pycache__`, so Binary-Artifacts can score lower
-  there than on a clean CI checkout.
+  bandit run in GitLab CI and CodeQL runs on the GitHub mirror. A local run on
+  a developer checkout also counts gitignored files such as `__pycache__`, so
+  Binary-Artifacts can score lower there than on a clean CI checkout.
 - `--repo=gitlab.com/trueppm/trueppm` runs in addition when the masked CI/CD
   variable `SCORECARD_GITLAB_TOKEN` (scopes `read_api`, `read_repository`) is
   set. Per the Scorecard v5.5.0 README (not run here), Branch-Protection,
