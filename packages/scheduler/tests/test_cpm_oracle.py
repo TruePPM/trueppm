@@ -1397,6 +1397,85 @@ def test_rust_closing_a_milestone_on_the_data_date_moves_nothing(
     _closed_moves_nothing(MILESTONE_CLOSED_ON_THE_DATA_DATE, rust_engine.run)
 
 
+def forecast_record_violations(
+    project: RefProject, run: Callable[[RefProject], EngineRun]
+) -> list[str]:
+    """Closing or starting a live milestone on the day it is shown moves nothing (#4690).
+
+    For each live milestone with no recorded start: record ``actual_start`` on its
+    shown day, and — when every predecessor is complete, since a closed milestone
+    reads only completed ones (#4525) — close it there (``actual_start`` =
+    ``actual_finish``). Each records what the forecast already said, so every
+    task's early dates, the milestone's own edge of its day, and the project
+    finish must stay put. A model-free metamorphic relation, like the slip oracle,
+    so it covers the shapes the reference refuses — a completed milestone with
+    recorded actuals among them.
+    """
+    base = run(project)
+    want = {tid: _record_position(t) for tid, t in base.tasks.items()}
+    problems: list[str] = []
+    for tid, duration in project.durations.items():
+        recorded = project.progress.get(tid)
+        if duration != 0 or (
+            recorded is not None and (recorded.complete or recorded.actual_start is not None)
+        ):
+            continue
+        shown = base.tasks[tid].early_start
+        pct = 0.0 if recorded is None else recorded.percent_complete
+        variants = {"started": RefProgress(percent_complete=pct, actual_start=shown)}
+        if all(_complete(project, link.pred) for link in project.links if link.succ == tid):
+            variants["closed"] = RefProgress(100.0, actual_start=shown, actual_finish=shown)
+        for name, progress in variants.items():
+            after = run(replace(project, progress={**project.progress, tid: progress}))
+            got = {t_id: _record_position(t) for t_id, t in after.tasks.items()}
+            if after.project_finish != base.project_finish or got != want:
+                moved = sorted(k for k in want if got[k] != want[k])
+                problems.append(f"{tid} {name} on {shown}: moved {moved}")
+    return problems
+
+
+def _record_position(task: EngineTask) -> tuple[date, date, bool]:
+    return task.early_start, task.early_finish, task.milestone_at_day_end
+
+
+#: #4690 — ``T0(5d, done Mon-Fri) -FS+1d-> T1 -FS+2d-> T2``: ``T1`` sits at Sunday
+#: 00:00, shown at the start of Monday. Closing or starting it on that Monday
+#: measured ``T2``'s lag from the Monday, a working day later.
+MILESTONE_AT_A_SUNDAY_INSTANT = RefProject(
+    start=date(2026, 8, 3),
+    durations={"T0": 5, "T1": 0, "T2": 1},
+    links=(RefLink("T0", "T1", "FS", 1), RefLink("T1", "T2", "FS", 2)),
+    progress={"T0": RefProgress(actual_start=date(2026, 8, 3), actual_finish=date(2026, 8, 7))},
+)
+
+
+def test_recording_a_milestone_on_its_forecast_moves_nothing() -> None:
+    """#4690, metamorphic, on the Python engine: the issue's own shape."""
+    assert forecast_record_violations(MILESTONE_AT_A_SUNDAY_INSTANT, python_run) == []
+
+
+@pytest.mark.fuzz
+@given(progress_projects())
+def test_python_close_or_start_at_forecast_moves_nothing(project: RefProject) -> None:
+    problems = forecast_record_violations(project, python_run)
+    assert not problems, "\n".join([repr(project), *problems])
+
+
+def test_rust_recording_a_milestone_on_its_forecast_moves_nothing(
+    rust_engine: RustRunner,
+) -> None:
+    assert forecast_record_violations(MILESTONE_AT_A_SUNDAY_INSTANT, rust_engine.run) == []
+
+
+@pytest.mark.fuzz
+@given(project=progress_projects())
+def test_rust_close_or_start_at_forecast_moves_nothing(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    problems = forecast_record_violations(project, rust_engine.run)
+    assert not problems, "\n".join([repr(project), *problems])
+
+
 @pytest.mark.fuzz
 @given(project=progress_projects())
 def test_rust_floats_survive_perturbation(rust_engine: RustRunner, project: RefProject) -> None:

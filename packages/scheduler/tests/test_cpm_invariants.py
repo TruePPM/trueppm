@@ -23,7 +23,7 @@ import dataclasses
 from datetime import date, timedelta
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from tests.test_contract_fuzz import _PLAUSIBLE_ANCHOR, _plausible_projects
@@ -998,3 +998,67 @@ def test_lengthening_a_live_task_never_moves_a_completed_task(
     )
     after = schedule(longer)
     assert _completed_positions(after) == _completed_positions(before)
+
+
+# ---------------------------------------------------------------------------
+# Invariant 6: pinning a live task to the day it is shown on moves nothing (#4690)
+# ---------------------------------------------------------------------------
+
+#: The #4690 repro: ``A(5d) -FS+1d-> M -FS+2d-> B`` puts ``M`` at Sunday 00:00, shown
+#: at the start of Monday 01-19. An SNET on that Monday moved ``B`` a working day.
+_SUNDAY_INSTANT_MILESTONE = Project(
+    id="p",
+    name="p",
+    start_date=date(2026, 1, 12),
+    tasks=[
+        Task(id="A", name="A", duration=timedelta(days=5)),
+        Task(id="M", name="M", duration=timedelta(0)),
+        Task(id="B", name="B", duration=timedelta(days=3)),
+    ],
+    dependencies=[
+        Dependency("A", "M", DependencyType.FS, timedelta(days=1)),
+        Dependency("M", "B", DependencyType.FS, timedelta(days=2)),
+    ],
+)
+
+
+def _early_positions(result: ScheduleResult) -> dict[str, tuple[object, ...]]:
+    return {t.id: (t.early_start, t.early_finish, t.milestone_at_day_end) for t in result.tasks}
+
+
+@example(project=_SUNDAY_INSTANT_MILESTONE)
+@given(project=_plausible_projects())
+def test_pinning_a_live_task_to_its_shown_start_moves_nothing(project: Project) -> None:
+    """For every live task, ``planned_start`` = its shown ``early_start`` changes nothing.
+
+    A task shown on a non-working day (a weekend ``actual_start``) is skipped: an
+    SNET snaps forward to a working day, so there it is not the shown day.
+
+    An SNET on the day a task already starts is a floor that does not bind, and a
+    floor that does not bind moves nothing. For work that was always true; for a
+    milestone it failed whenever its link instant is a midnight before the start
+    of the day it is shown on (Sunday 00:00 shown on Monday, #4173, or a point
+    below the project start, #4225): the SNET's Monday became the instant its
+    successors counted calendar-day lag from, and they moved (#4690).
+    """
+    try:
+        before = schedule(project)
+    except SchedulerError:
+        return
+    want = _early_positions(before)
+    for task in before.tasks:
+        if task.actual_finish is not None or (task.percent_complete or 0) >= 100:
+            continue  # completed work is pinned at its actuals, not by an SNET
+        assert task.early_start is not None
+        if not project.calendar.is_working_day(task.early_start):
+            # Shown verbatim on a non-working ``actual_start``: an SNET snaps to a
+            # working day by definition, so it names a different day.
+            continue
+        pinned = dataclasses.replace(
+            project,
+            tasks=[
+                dataclasses.replace(t, planned_start=task.early_start) if t.id == task.id else t
+                for t in project.tasks
+            ],
+        )
+        assert _early_positions(schedule(pinned)) == want, task.id

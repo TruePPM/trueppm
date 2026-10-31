@@ -37,7 +37,10 @@ engine now follows the MS Project / Primavera P6 convention:
   from the instant below it (#4225). A negative ``l2`` can reach ``M``'s own
   project-finish bound, as it would for any node inserted into the link. The data
   date, an SNET and a recorded actual start do hold ``M`` and every lag measured
-  from it, so ``B`` can land later than the direct link puts it.
+  from it, so ``B`` can land later than the direct link puts it — except one that
+  falls on, or snaps to, the day the latest link already shows ``M`` at the start
+  of: that is the same point in working time, and the lags keep counting from the
+  link's own midnight (:func:`_equivalent_link`, #4690).
 * The backward pass and free float invert the same rule (:func:`_milestone_latest`,
   :func:`_milestone_refs`), and every late date is seeded from the instant the
   project ends (:func:`_finish_instant`), so a milestone on the critical path
@@ -128,8 +131,21 @@ open — when the caller's previous run showed it at the end of that day
 (``Task.live_day_end_on``, #4525); the start otherwise: nothing precedes it, a
 floor (data date, SNET) held it, or open work behind it was never recorded as
 placing it. Only those fixed facts decide it, so no
-change to open work moves a closed milestone, and a caller that hands its output
-back closes a milestone on its forecast day without moving its successors.
+change to open work moves a closed milestone. A caller that hands its output back
+keeps the edge; whether the successors stay put depends on the link instant below.
+
+At the start of its day, a closed milestone links from the midnight it linked from
+live, not from the recorded day's (#4690). A live milestone's link instant can be a
+midnight before the start of the day it is shown on — Sunday 00:00 shown on
+Monday (#4173), or a point below the project start (#4225) — and with calendar-day
+lag (#2534) a successor counts from it. The instant is re-read from the completed
+predecessors (:func:`_closed_milestone_link`). While any predecessor is still
+open the milestone links from the start of its recorded day, as before, so closing
+it ahead of open work can still move a lagged successor (#4740). Recording an
+``actual_start`` or a ``planned_start`` on the day a live milestone is shown, or a
+data date falling on or snapping to it, moves nothing: a floor that only ties the
+latest link in working time leaves the link instant where the link put it
+(:func:`_equivalent_link`).
 ``monte_carlo``
 carries each run's milestone instant as a date (:func:`_mc_milestone_bounds`), and
 the Rust/WASM engine mirrors the rule (``packages/wasm-scheduler/src/forward.rs``).
@@ -1764,10 +1780,22 @@ def _place_milestone(
     snap (#4173). When nothing but the project-start floor proposes, the two are
     the same instant.
 
+    A floor that only ties a link in working time does not move ``link`` either
+    (#4690, :func:`_equivalent_link`): when the latest floor is the very day the
+    latest link proposal is shown on, at its start, ``link`` stays the proposal's
+    raw midnight and only ``shown`` takes the floor. Recording or pinning the day a
+    milestone is already shown on — an ``actual_start``, or a ``planned_start`` —
+    is such a floor, and linking from it moved every successor with a calendar-day
+    lag: ``A -FS+1d-> M`` puts ``M`` at Sunday 00:00, shown at the start of Monday,
+    and a Monday floor measured ``M -FS+1d-> B`` from Monday instead, a working day
+    later.
+
     ``completed_only`` limits the links to completed predecessors — the reading a
-    closed milestone's day edge is taken from (:func:`_live_milestone_edge`, #4525).
+    closed milestone's day edge is taken from (:func:`_live_milestone_edge`, #4525),
+    and the instant it links from (:func:`_closed_milestone_link`, #4690).
     """
     best: tuple[date, bool, date] | None = None
+    pred_best: tuple[date, bool, date] | None = None
 
     def offer(candidate: tuple[date, bool, date]) -> None:
         nonlocal best
@@ -1792,9 +1820,16 @@ def _place_milestone(
             cal_for(pred_id),
             cal,
         )
-        offer((raw, start_display, _instant_day(raw, start_display, cal)))
+        proposal = (raw, start_display, _instant_day(raw, start_display, cal))
+        offer(proposal)
+        if pred_best is None or proposal[:2] > pred_best[:2]:
+            pred_best = proposal
 
     link = best
+    if pred_best is not None and _equivalent_link(
+        pred_best, max(es_floors) if es_floors else None, start_floor
+    ):
+        link = pred_best
     if start_floor is not None:
         offer((start_floor, True, start_floor))
     # start_floor is given for every task except an SF-linked one (#4218), and that one
@@ -1813,6 +1848,82 @@ def _place_milestone(
     if link is None:
         return shown, resolved[2], shown  # NOSONAR
     return shown, resolved[2], (link[0], link[1])  # NOSONAR
+
+
+def _equivalent_link(
+    proposal: tuple[date, bool, date],
+    floor: date | None,
+    start_floor: date | None,
+) -> bool:
+    """Whether ``floor`` only ties the link ``proposal`` in working time (#4690).
+
+    ``proposal`` is ``(instant, start_display, day)`` from :func:`_place_milestone`.
+    True when, from an earlier midnight, the proposal is shown at the start of
+    ``floor`` itself: read as the start of a day and shown on it, or held below
+    the project-start floor ``start_floor`` when that is ``floor`` — the
+    project-start floor only bounds where a milestone is shown (#4225), at the
+    start of its day. Then the floor and the proposal are one working-time point:
+    Saturday 00:00, Sunday 00:00 and the start of Monday are where a milestone
+    after a weekend can sit, and they differ only in the calendar days a lag out of
+    it counts from (#2534). The floor then holds nothing the link does not, so the
+    link keeps the proposal's raw midnight and every successor sits where it would
+    with no floor at all.
+
+    A proposal shown at the *end* of a day at or after the project start is not
+    covered: the floor moves the milestone to another day there, and the
+    end-of-day edge has its own round-trip (:attr:`Task.live_day_end_on`, #4433).
+    Nor is a floor on a non-working day, such as a weekend ``actual_start``: that
+    is shown verbatim on its own day.
+    """
+    if floor is None or proposal[0] >= floor:
+        return False
+    if start_floor is not None and (start_floor, True) > proposal[:2]:
+        return start_floor == floor
+    return proposal[1] and proposal[2] == floor
+
+
+def _closed_milestone_link(
+    node_id: str,
+    task_map: dict[str, Task],
+    g: nx.DiGraph[str],
+    cal: Calendar,
+    links: dict[str, _Instant],
+    cal_for: Callable[[str], Calendar],
+    recorded: date,
+    start_floor: date | None,
+) -> _Instant:
+    """The instant a milestone closed at the start of ``recorded`` links from (#4690).
+
+    Closing records the *day* a milestone happened, but its live link instant is a
+    raw midnight that can fall before that day's start: ``A -FS+1d-> M`` with ``A``
+    finishing on Friday puts ``M`` at Sunday 00:00, shown at the start of Monday
+    (#4173). Linking from the recorded Monday instead measured every calendar-day
+    lag out of ``M`` from a day later, so marking ``M`` done on the day it was
+    shown moved its successors, and the project finish with them.
+
+    The instant is re-read from the facts, the same way the edge is
+    (:func:`_live_milestone_edge`): the completed predecessors placed with the
+    recorded day as a start-of-day floor. When one of them proposes an earlier
+    midnight shown on the recorded day (:func:`_equivalent_link`), that is the
+    instant the live milestone linked from, and the closed one keeps it. A
+    milestone held by a floor, or with nothing before it, links from the recorded
+    day, as it did live.
+
+    Open work is not a fact (#4525): reading its forecast would let a slip of it
+    move a closed milestone's successors. So while any predecessor is still open
+    the milestone links from the start of its recorded day, as it did before #4690,
+    and a lag out of it can count from a different midnight than it did live — the
+    open residual (#4740). Linking from the close of the working day before
+    instead matched the live instant on some shapes and broke more than it fixed.
+    ``start_floor`` is the project-start floor, ``None`` for an SF-linked milestone
+    (#4218), as :func:`_place_milestone` takes it.
+    """
+    if any(not _is_complete(task_map[p]) for p in g.predecessors(node_id)):
+        return recorded, True
+    _, _, link = _place_milestone(
+        node_id, task_map, g, cal, [recorded], links, cal_for, start_floor, completed_only=True
+    )
+    return link if link[0] < recorded else (recorded, True)
 
 
 def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:
@@ -2200,6 +2311,18 @@ def _forward_pass(
                 instants[node_id], links[node_id] = _pinned_milestone_instant(
                     task, cal, pinned[0], live_start
                 )
+                if recorded is not None and live_start:
+                    # The midnight it linked from live, not the recorded day's (#4690).
+                    links[node_id] = _closed_milestone_link(
+                        node_id,
+                        task_map,
+                        g,
+                        cal,
+                        links,
+                        cal_for,
+                        recorded,
+                        None if _sf_linked(node_id, g) else start_base,
+                    )
                 task.milestone_at_day_end = not instants[node_id][1]
             task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
@@ -2567,7 +2690,9 @@ def _live_milestone_edge(
     reading decides, so a correction to completed work or a deleted link is
     re-read rather than frozen. Neither path reads an open task's forecast, so
     no change to open work moves a closed milestone, and one closed on its
-    forecast day ahead of its work moves nothing.
+    forecast day ahead of its work keeps its edge. Its link instant is a separate
+    question (:func:`_closed_milestone_link`): closed ahead of open work, a lagged
+    successor can still move (#4740).
     """
     shown, _, _ = _place_milestone(
         node_id, task_map, g, cal, [recorded], links, cal_for, completed_only=True
@@ -2592,7 +2717,9 @@ def _pinned_milestone_instant(
 
     With actuals recorded — the API's normal path, since ``COMPLETE`` stamps
     ``actual_finish`` — the day is the recorded one (``actual_finish``, else
-    ``actual_start``), shown and linked from alike, and the edge of that day is
+    ``actual_start``), shown and — at the end of the day — linked from alike; at
+    the start of the day the caller replaces ``link`` with the live instant
+    (:func:`_closed_milestone_link`, #4690). The edge of that day is
     the one the milestone had live (``live_start``, :func:`_live_milestone_edge`).
     A milestone that nothing precedes, or that a floor held, stays at the start of
     its day: laying it out as ordinary work, ending at the end of the day, slipped
@@ -6809,12 +6936,14 @@ def _mc_milestone_bounds(
     """
     es_mat, ef_mat, instant_mat, start_display_mat = mats
     hard, start = floors
-    # The floor of every key: below any ordinal a proposal can produce. An SF-linked
-    # milestone with no hard floor always has an SF link that offers a candidate.
-    key = np.full(runs, -1 if hard is None else hard * 2 + 1, dtype=np.int64)
+    # The links alone first, from -1, below any key a proposal can produce: a floor
+    # that only ties the latest of them in working time leaves the link instant
+    # where they put it (engine._equivalent_link, #4690). An SF-linked milestone
+    # with no hard floor always has an SF link that offers a candidate.
+    pred_key = np.full(runs, -1, dtype=np.int64)
 
     def offer(ordinals: np.ndarray, start_display: np.ndarray | bool) -> None:
-        np.maximum(key, ordinals * 2 + np.asarray(start_display, dtype=np.int64), out=key)
+        np.maximum(pred_key, ordinals * 2 + np.asarray(start_display, dtype=np.int64), out=pred_key)
 
     for pred_id in g.predecessors(tid):
         # FF into a milestone is FS (engine._milestone_link, #4272).
@@ -6878,9 +7007,30 @@ def _mc_milestone_bounds(
         after_non_working = ~start_display & (index.next_wd_ordinal(col, day_before) != day_before)
         return instant, start_display | after_non_working
 
+    key = pred_key if hard is None else np.maximum(pred_key, hard * 2 + 1)
     shown_key = key if start is None else np.maximum(key, start * 2 + 1)
     # Nothing but the project start proposed: the link instant is the shown one.
-    return read(np.where(key < 0, shown_key, key)), read(shown_key)
+    link, link_display = read(np.where(key < 0, shown_key, key))
+    if hard is not None:
+        # engine._equivalent_link: the latest link, from an earlier midnight, is
+        # shown at the start of the hard floor's own day — held below the project
+        # start when that is the floor, or read as the start of the day it is
+        # shown on. The floor and the link are then one working-time point.
+        safe = np.where(pred_key < 0, hard * 2 + 1, pred_key)
+        p_instant, p_display = read(safe)
+        if start is None:
+            held = np.zeros(runs, dtype=bool)
+        else:
+            held = (p_instant < start) | ((p_instant == start) & ~p_display)
+        on_floor = np.where(
+            held,
+            start == hard,
+            p_display & (index.next_wd_ordinal(col, p_instant) == hard),
+        )
+        equivalent = (pred_key >= 0) & (p_instant < hard) & on_floor
+        link = np.where(equivalent, p_instant, link)
+        link_display = np.where(equivalent, p_display, link_display)
+    return (link, link_display), read(shown_key)
 
 
 def _mc_edge_constraints(

@@ -225,8 +225,16 @@ pub(crate) fn start_reading(
 /// `link` is the latest proposal without the project-start floor and `shown` the
 /// latest with it; with nothing but that floor proposing, they are the same.
 ///
+/// A floor that only ties a link in working time does not move `link` either
+/// (#4690, [`equivalent_link`]): when the latest floor is the very day the latest
+/// link proposal is shown on, at its start, `link` stays the proposal's raw
+/// midnight and only `shown` takes the floor. Recording or pinning the day a
+/// milestone is already shown on (an `actual_start`, a `planned_start`) is such a
+/// floor, and linking from it moved every successor with a calendar-day lag.
+///
 /// `completed_only` limits the links to completed predecessors — the reading a
-/// closed milestone's day edge is taken from (`live_milestone_edge`, #4525).
+/// closed milestone's day edge is taken from (`live_milestone_edge`, #4525), and
+/// the instant it links from (`closed_milestone_link`, #4690).
 #[allow(clippy::too_many_arguments)]
 fn place_milestone(
     idx: NodeIndex,
@@ -248,6 +256,7 @@ fn place_milestone(
         }
     }
     let mut best: Option<Proposal> = None;
+    let mut pred_best: Option<Proposal> = None;
     for &floor in floors {
         offer(&mut best, (floor, true, floor));
     }
@@ -267,12 +276,16 @@ fn place_milestone(
             cals.for_node(p),
             cal,
         )?;
-        offer(
-            &mut best,
-            (raw, start_display, instant_day(raw, start_display, cal)?),
-        );
+        let proposal = (raw, start_display, instant_day(raw, start_display, cal)?);
+        offer(&mut best, proposal);
+        offer(&mut pred_best, proposal);
     }
-    let link = best;
+    let mut link = best;
+    if let Some(p) = pred_best {
+        if equivalent_link(p, floors.iter().max().copied(), start_floor) {
+            link = Some(p);
+        }
+    }
     if let Some(floor) = start_floor {
         offer(&mut best, (floor, true, floor));
     }
@@ -281,6 +294,36 @@ fn place_milestone(
     let (x, start_display, day) = best.expect("a floor or an incoming link proposes an instant");
     let shown = (x, start_display);
     Ok((shown, day, link.map_or(shown, |l| (l.0, l.1))))
+}
+
+/// Whether `floor` only ties the link `proposal` in working time (#4690).
+///
+/// `proposal` is `(instant, start_display, day)` from [`place_milestone`]. True
+/// when, from an earlier midnight, the proposal is shown at the start of `floor`
+/// itself: read as the start of a day and shown on it, or held below the
+/// project-start floor `start_floor` when that is `floor` (#4225). Saturday 00:00,
+/// Sunday 00:00 and the start of Monday are one working-time point and differ only
+/// in the calendar days a lag out of it counts from (#2534), so the floor holds
+/// nothing the link does not. An end-of-day reading at or after the project start
+/// and a floor on a non-working day are not covered. Mirrors the Python
+/// `_equivalent_link`.
+fn equivalent_link(
+    proposal: (NaiveDate, bool, NaiveDate),
+    floor: Option<NaiveDate>,
+    start_floor: Option<NaiveDate>,
+) -> bool {
+    let Some(floor) = floor else {
+        return false;
+    };
+    if proposal.0 >= floor {
+        return false;
+    }
+    if let Some(sf) = start_floor {
+        if (sf, true) > (proposal.0, proposal.1) {
+            return sf == floor;
+        }
+    }
+    proposal.1 && proposal.2 == floor
 }
 
 /// The per-calendar start floors `(un-floored, floored, data date)`.
@@ -447,11 +490,29 @@ pub fn forward_pass(
                 }
                 _ => true,
             };
+            // The midnight it linked from live, not the recorded day's (#4690).
+            let closed_link = match recorded {
+                Some(day) if live_start && tasks[i].duration_days() == 0 => {
+                    let start_floor = (!sf_linked(idx, pg, deps)).then_some(start_base);
+                    Some(closed_milestone_link(
+                        idx,
+                        tasks,
+                        pg,
+                        deps,
+                        cals,
+                        &links,
+                        day,
+                        start_floor,
+                    )?)
+                }
+                _ => None,
+            };
             let t = &mut tasks[i];
             t.early_start = Some(es);
             t.early_finish = Some(ef);
             if t.duration_days() == 0 {
-                let (shown, link) = pinned_milestone_instant(t, node_cal, es, live_start)?;
+                let (shown, pinned_link) = pinned_milestone_instant(t, node_cal, es, live_start)?;
+                let link = closed_link.unwrap_or(pinned_link);
                 instants[i] = Some(shown);
                 links[i] = Some(link);
                 t.milestone_at_day_end = !shown.1;
@@ -693,6 +754,54 @@ fn live_milestone_edge(
     Ok(shown.1)
 }
 
+/// The instant a milestone closed at the start of `recorded` links from (#4690).
+///
+/// Closing records the *day* a milestone happened, but its live link instant is a
+/// raw midnight that can fall before that day's start (`A -FS+1d-> M` with `A`
+/// finishing on Friday puts `M` at Sunday 00:00, shown at the start of Monday).
+/// Linking from the recorded day instead moved every calendar-day-lagged
+/// successor. The instant is re-read from the completed predecessors with the
+/// recorded day as a start-of-day floor ([`equivalent_link`]); a milestone a floor
+/// held, or with nothing before it, links from the recorded day. While any
+/// predecessor is still open (#4525: not a fact) it links from the start of the
+/// recorded day, as before #4690 — the open residual (#4740). Mirrors the Python
+/// `_closed_milestone_link`.
+#[allow(clippy::too_many_arguments)]
+fn closed_milestone_link(
+    idx: NodeIndex,
+    tasks: &[Task],
+    pg: &ProjectGraph,
+    deps: &[Dependency],
+    cals: &PassCalendars,
+    links: &[Option<Instant>],
+    recorded: NaiveDate,
+    start_floor: Option<NaiveDate>,
+) -> Result<Instant, String> {
+    let open_work = pg
+        .graph
+        .edges_directed(idx, Direction::Incoming)
+        .any(|e| !tasks[e.source().index()].is_complete());
+    if open_work {
+        return Ok((recorded, true));
+    }
+    let (_, _, link) = place_milestone(
+        idx,
+        tasks,
+        pg,
+        deps,
+        cals,
+        &[recorded],
+        start_floor,
+        links,
+        true,
+    )?;
+    Ok(if link.0 < recorded {
+        link
+    } else {
+        (recorded, true)
+    })
+}
+
 /// `(shown, link)` for a completed milestone pinned on `day` (#4343, #4433).
 ///
 /// With no actuals it is an instant at the start of its pinned day, as a live
@@ -700,7 +809,9 @@ fn live_milestone_edge(
 /// predecessors — an SNET after the project start binds `link`, which is then the
 /// shown instant itself; the project start only bounds where it is shown (#4225),
 /// and an SNET at or before it is no floor (#4635). With actuals the day is the recorded one (`actual_finish`,
-/// else `actual_start`), shown and linked from alike, on the edge of that day the
+/// else `actual_start`), shown on and — at the end of the day — linked from alike
+/// (at the start of the day the caller replaces `link` with the live instant,
+/// `closed_milestone_link`, #4690), on the edge of that day the
 /// milestone had live (`live_start`, `live_milestone_edge`): the start when
 /// nothing precedes it, a floor held it, or open work behind it was never
 /// recorded as placing it; the end — the next midnight, read like an FS proposal

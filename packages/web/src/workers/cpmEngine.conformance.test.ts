@@ -179,6 +179,11 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // feed the actual_start the fixtures depend on.
   progress_fs_into_milestone_started_on_sunday: 'adapter: does not thread actuals/status date',
   progress_ss_into_milestone_started_on_saturday: 'adapter: does not thread actuals/status date',
+  // #4690. Recording a milestone on its shown day: the fix is in the server
+  // engines, and this engine's adapter cannot feed the actual_start/actual_finish
+  // the fixture depends on.
+  progress_milestone_recorded_on_forecast_moves_nothing:
+    'adapter: does not thread actuals/status date',
   // #4079. Covered on a Mon-Fri week by `milestone_instant_links` (in scope);
   // this one adds a holiday and an SNET milestone for the two server engines.
   milestone_instants_all_link_types: 'engine gap: CalendarException holidays not modeled',

@@ -1,0 +1,292 @@
+{
+  "project_id": "p-milestone-recorded-on-forecast-moves-nothing",
+  "project_start": "2026-08-03",
+  "project_finish": "2026-08-11",
+  "tasks": [
+    {
+      "id": "A1",
+      "early_start": "2026-08-03",
+      "early_finish": "2026-08-07",
+      "late_start": "2026-08-03",
+      "late_finish": "2026-08-07",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-03"
+    },
+    {
+      "id": "M1",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-10",
+      "late_finish": "2026-08-10",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "B1",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "C1",
+      "early_start": "2026-08-11",
+      "early_finish": "2026-08-11",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-08-11"
+    },
+    {
+      "id": "A2",
+      "early_start": "2026-08-03",
+      "early_finish": "2026-08-07",
+      "late_start": "2026-08-03",
+      "late_finish": "2026-08-07",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-03"
+    },
+    {
+      "id": "M2",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-10",
+      "late_finish": "2026-08-10",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "B2",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "C2",
+      "early_start": "2026-08-11",
+      "early_finish": "2026-08-11",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-08-11"
+    },
+    {
+      "id": "A3",
+      "early_start": "2026-08-03",
+      "early_finish": "2026-08-07",
+      "late_start": "2026-08-03",
+      "late_finish": "2026-08-07",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-03"
+    },
+    {
+      "id": "M3",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-10",
+      "late_finish": "2026-08-10",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "B3",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "C3",
+      "early_start": "2026-08-11",
+      "early_finish": "2026-08-11",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-08-11"
+    },
+    {
+      "id": "A4",
+      "early_start": "2026-08-03",
+      "early_finish": "2026-08-07",
+      "late_start": "2026-08-03",
+      "late_finish": "2026-08-07",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-03"
+    },
+    {
+      "id": "M4",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-10",
+      "late_finish": "2026-08-10",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "B4",
+      "early_start": "2026-08-10",
+      "early_finish": "2026-08-10",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-10"
+    },
+    {
+      "id": "C4",
+      "early_start": "2026-08-11",
+      "early_finish": "2026-08-11",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-08-11"
+    },
+    {
+      "id": "A5",
+      "early_start": "2026-08-03",
+      "early_finish": "2026-08-05",
+      "late_start": "2026-08-07",
+      "late_finish": "2026-08-11",
+      "total_float": 345600.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-03"
+    },
+    {
+      "id": "M5",
+      "early_start": "2026-08-03",
+      "early_finish": "2026-08-03",
+      "late_start": "2026-08-07",
+      "late_finish": "2026-08-07",
+      "total_float": 432000.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-03"
+    },
+    {
+      "id": "B5",
+      "early_start": "2026-08-03",
+      "early_finish": "2026-08-03",
+      "late_start": "2026-08-11",
+      "late_finish": "2026-08-11",
+      "total_float": 518400.0,
+      "free_float": 518400.0,
+      "is_critical": false,
+      "scheduled_start": "2026-08-03"
+    }
+  ],
+  "critical_path": [
+    "M1",
+    "M3",
+    "M4",
+    "C1",
+    "C2",
+    "C3",
+    "C4"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A1",
+      "successor_id": "M1",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "A3",
+      "successor_id": "M3",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "A4",
+      "successor_id": "M4",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "A5",
+      "successor_id": "M5",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M1",
+      "successor_id": "B1",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M1",
+      "successor_id": "C1",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M2",
+      "successor_id": "B2",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M2",
+      "successor_id": "C2",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M3",
+      "successor_id": "B3",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M3",
+      "successor_id": "C3",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M4",
+      "successor_id": "B4",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M4",
+      "successor_id": "C4",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M5",
+      "successor_id": "B5",
+      "dep_type": "FS"
+    }
+  ]
+}

@@ -212,6 +212,26 @@ Rules:
     defect in this rule: the guarantee that no change to open work moves a closed
     milestone still holds. Making the edge path-independent while keeping "closing
     on the forecast day moves nothing" is left to #4574.
+  - *Amended 2026-10-31 (#4690): the link instant, not only the edge.* A live
+    milestone shown at the start of a day can link from an earlier midnight
+    (Sunday 00:00 shown on Monday, #4173, or a point below the project start,
+    #4225), and successors count calendar-day lag from it (#2534). A milestone
+    closed at the start of its recorded day now re-reads that instant from its
+    **completed** predecessors (`_closed_milestone_link`), the same facts the edge
+    is read from, instead of linking from the recorded day's midnight. While any
+    predecessor is still open it keeps the earlier rule and links from the
+    recorded day, so closing it there can still move a lagged successor. That
+    residual is #4740; #4574 covers only the edge freeze. A fact-free stand-in
+    (link from the close of the working day before) was tried and dropped: it
+    broke more open-predecessor cases than it fixed.
+  - *Amended 2026-10-31 (#4690): floors that only tie a link.* For a live
+    milestone, a floor (`actual_start`, `planned_start`, or the data date) that
+    falls on, or snaps to, the day the latest link already shows the milestone at
+    the start of no longer becomes the link instant; the link keeps its own
+    midnight (`_equivalent_link`). This changes live schedules in one case: a data
+    date on that day (a weekend data date snaps to the Monday) used to push the
+    milestone's lagged successors later and now leaves them where the link put
+    them.
 - **Symmetry & float.** Applied identically in the backward pass: a completed task gets
   `late_finish = early_finish`, `late_start = early_start` → total float 0, and it
   **drives successors** from its resolved `early_start` (SS/SF) / `early_finish` (FS).
