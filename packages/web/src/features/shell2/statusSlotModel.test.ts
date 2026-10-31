@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveStatusSlot, type StatusSlotInput } from './statusSlot';
+import { resolveStatusSlot, type StatusSlotInput } from './statusSlotModel';
 
 const base: StatusSlotInput = {
   online: true,

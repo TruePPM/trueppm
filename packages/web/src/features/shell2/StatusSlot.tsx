@@ -6,7 +6,7 @@ import { useSystemHealth } from '@/hooks/useSystemHealth';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { CheckIcon, WarningIcon } from '@/components/Icons';
 import { Tooltip } from '@/components/Tooltip';
-import { resolveStatusSlot, type StatusSlotModel } from './statusSlot';
+import { resolveStatusSlot, type StatusSlotModel } from './statusSlotModel';
 
 /**
  * What the live region says for each state. Deliberately NOT the visible label:

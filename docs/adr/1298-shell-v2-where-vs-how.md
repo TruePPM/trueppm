@@ -89,7 +89,7 @@ fold under More.
   because an offline client cannot re-authenticate and the pending-write count is
   the fact the person can act on; demo outranks rate-limit because demo changes
   what every control does and rate-limit is an operator notice that changes
-  nothing for the person typing. (`features/shell2/statusSlot.ts`.)
+  nothing for the person typing. (`features/shell2/statusSlotModel.ts`.)
 
 ### 3. Breakpoints belong to the shell; everything else queries its container
 
