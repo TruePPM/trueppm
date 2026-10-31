@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
+from trueppm_api.apps.taskruns.tracker import ProjectGoneGuard
 from trueppm_api.core.idempotent import idempotent_task
 
 if TYPE_CHECKING:
@@ -102,7 +103,8 @@ def import_csv(
     there is no second write path for it, so the graph guard below still covers
     every row that reaches the database.
     """
-    with _get_tracker(self, project_id, initiated_by_id) as tracker:
+    gone = ProjectGoneGuard("import.csv", project_id)
+    with gone, _get_tracker(self, project_id, initiated_by_id) as tracker:
         file_content = base64.b64decode(file_content_b64)
         tracker.update(5, f"Parsing {filename}...")
         parsed = _parse_spreadsheet_or_mark_dead(
@@ -123,8 +125,11 @@ def import_csv(
         tracker.set_result(summary)
 
         _emit_import_side_effects(project_id, summary)
+        return summary
 
-    return summary
+    # Only reachable when ``gone`` suppressed TaskRunProjectGone: the project was
+    # deleted while the message was queued, so there is nothing to import (#4751).
+    return {"skipped": True, "reason": "project_deleted"}
 
 
 def _parse_spreadsheet_or_mark_dead(

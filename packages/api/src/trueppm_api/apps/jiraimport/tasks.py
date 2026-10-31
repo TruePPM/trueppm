@@ -12,6 +12,7 @@ from typing import Any
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
+from trueppm_api.apps.taskruns.tracker import ProjectGoneGuard
 from trueppm_api.core.idempotent import idempotent_task
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,8 @@ def import_jira(
     """
     from trueppm_api.apps.jiraimport.parser import JiraImportError, parse_jira_xml
 
-    with _get_tracker(self, project_id, initiated_by_id) as tracker:
+    gone = ProjectGoneGuard("import.jira", project_id)
+    with gone, _get_tracker(self, project_id, initiated_by_id) as tracker:
         file_content = base64.b64decode(file_content_b64)
         tracker.update(5, f"Parsing {filename}...")
 
@@ -179,6 +181,10 @@ def import_jira(
         # See the CSV importer's note: a start shift is not a task-tree change,
         # so tasks_restructured does not cover it.
         broadcast_import_project_record_change(project_id, summary)
+
+    if gone.triggered:
+        # Project deleted while the message was queued: nothing to import (#4751).
+        return {"skipped": True, "reason": "project_deleted"}
 
     return summary
 
