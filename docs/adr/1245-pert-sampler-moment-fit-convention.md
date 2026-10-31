@@ -104,3 +104,31 @@ message, so such a change cannot land as a quiet test update.
   and practitioners do not read a three-point estimate this way.
 - **A per-project convention setting.** Rejected for now. It doubles the oracle surface
   and puts a statistics choice in front of PMs who mostly do not know there is one.
+
+## Percentile notes
+
+**A percentile with no run at its position (#4691, 2026-10-31).** The P50/P80/P95
+reading over the sampled runs is `numpy.percentile`'s linear interpolation over each
+run's working-time finish position (`engine.py::_mc_percentiles`). Interpolation can
+land between two occupied positions. When it does, the percentile is shown at the end
+of the working day before that position, unless a run at a lower position is shown on
+a later day. In that case it is shown on that run's day and edge.
+
+The exception exists for per-task calendars. Mixed calendars are compared on a
+reference ruler that is the union of every calendar's working days, so the ruler can
+hold a day no task works, such as a Friday when every task is on a Monday-Thursday
+week. Runs jump over that day. A start-of-day milestone that finishes at the end of
+Thursday is shown at the start of Monday. Before #4691, a percentile that interpolated
+onto the Friday was reported as the end of Friday: before P50, before every run in
+`distribution`, and before the CPM finish. Each percentile is also clamped to at least
+the one before it, so `p50 <= p80 <= p95` is an invariant of the reading, not a
+consequence of its inputs.
+
+Alternatives considered: nearest-rank (`method="higher"`) on positions, or the shown
+day of the smallest run position at or above the percentile. Both fix the defect, but
+both also move seeded percentiles on single-calendar projects wherever run positions
+are sparse, such as velocity-sampled sprint jumps. The chosen rule is a no-op on a
+single calendar, because there a run is shown at most one working day past its
+position, so no run below the percentile is shown past it. This was checked against
+1,200 seeded single-calendar forecasts, with no change. The sampler convention this
+ADR records is unaffected.

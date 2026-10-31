@@ -335,6 +335,7 @@ def test_direct_object_api_conforms(project: Project, seed: object) -> None:
 
 
 _PLAUSIBLE_ANCHOR = date(2026, 3, 2)  # Monday
+_PLAUSIBLE_WEEK = Calendar(working_days=0b0011111)  # Mon-Fri, the project week
 # Dates within a working year either side of the anchor: far enough to straddle
 # the data date, the SNET pin, and every actual, but nowhere near the engine's
 # span caps — an input rejected by validation proves nothing about the two passes
@@ -416,8 +417,18 @@ def _plausible_tasks(draw: st.DrawFn, tid: str) -> Task:
     )
 
 
+#: Per-task calendars ``_plausible_projects(per_task_calendars=True)`` draws from
+#: (#4691): a four-day week, a one-day week and a seven-day week against the five-day
+#: project week, so the union reference ruler holds days some tasks never work.
+_PLAUSIBLE_TASK_CALENDARS = {
+    "fourday": Calendar(working_days=0b0001111),  # Mon-Thu
+    "mondays": Calendar(working_days=0b0000001),  # Monday only
+    "seven": Calendar(working_days=0b1111111),
+}
+
+
 @st.composite
-def _plausible_projects(draw: st.DrawFn) -> Project:
+def _plausible_projects(draw: st.DrawFn, per_task_calendars: bool = False) -> Project:
     """A schedulable project: real-world value ranges, with duration uncertainty.
 
     The adversarial ``_projects()`` strategy exists to prove the *exception*
@@ -428,10 +439,26 @@ def _plausible_projects(draw: st.DrawFn) -> Project:
     through the forward pass, so the property passed on an engine that was
     provably broken). This one trades that breadth for inputs that reach the
     forward pass, while keeping every field that can floor an early start in play.
+
+    ``per_task_calendars`` puts each task (and the #4173 join) on a drawn calendar
+    from :data:`_PLAUSIBLE_TASK_CALENDARS` or the project week (#4691). Variance on
+    mixed calendars is the input where a percentile could land on a reference day no
+    run occupies; the zero-variance per-task strategy cannot see it.
     """
     n = draw(st.integers(min_value=1, max_value=6))
     ids = [f"t{i}" for i in range(n)]
     tasks = [draw(_plausible_tasks(tid)) for tid in ids]
+    cal_ids = st.none() | st.sampled_from(sorted(_PLAUSIBLE_TASK_CALENDARS))
+    if per_task_calendars:
+        for task in tasks:
+            task.calendar_id = draw(cal_ids)
+            # TODO(#4430): drop this carve-out with the one in
+            # _per_task_calendar_projects — a completed task whose finish reads
+            # before the project start on its own calendar is a separate defect.
+            if task.actual_finish is not None:
+                own_cal = _PLAUSIBLE_TASK_CALENDARS.get(task.calendar_id or "", _PLAUSIBLE_WEEK)
+                if engine._prev_working_day(task.actual_finish, own_cal) < _PLAUSIBLE_ANCHOR:
+                    task.actual_finish = None
 
     # Only forward edges (i < j) and at most one per ordered pair: cycles and
     # duplicate dependencies are both rejected by validation, and neither is what
@@ -456,7 +483,14 @@ def _plausible_projects(draw: st.DrawFn) -> Project:
     # win the join and hide the two links' disagreement.
     if n >= 2 and draw(st.booleans()):
         ss_src, fs_src = draw(st.lists(st.sampled_from(ids), min_size=2, max_size=2, unique=True))
-        tasks.append(Task(id="join", name="t", duration=timedelta(0)))
+        tasks.append(
+            Task(
+                id="join",
+                name="t",
+                duration=timedelta(0),
+                calendar_id=draw(cal_ids) if per_task_calendars else None,
+            )
+        )
         deps += [
             Dependency(
                 predecessor_id=src,
@@ -481,6 +515,7 @@ def _plausible_projects(draw: st.DrawFn) -> Project:
                 DateRange(d, d) for d in draw(st.lists(_plausible_date, max_size=4, unique=True))
             ],
         ),
+        calendars=_PLAUSIBLE_TASK_CALENDARS if per_task_calendars else None,
         status_date=draw(_opt_plausible_date),
     )
 
@@ -514,8 +549,48 @@ _SS_FS_JOIN_4173 = Project(
 )
 
 
+def _fourday_gap_4691(pess_days: int, lag_days: int, dep_type: DependencyType) -> Project:
+    """The #4691 shape: a Mon-Thu team on a Mon-Fri project.
+
+    ``A`` (1d; PERT 1/1/``pess_days``) links into milestone ``M``, both on the
+    four-day calendar. The union reference ruler holds Friday, which no task works;
+    runs jump over it, and a percentile interpolated onto it was reported as the end
+    of that Friday — before P50 or before every run, and before the CPM finish. The
+    two pinned instances below fail the pre-fix engine at exactly the run counts and
+    seeds the two properties use (the issue's repro needs 1,000 runs, and is pinned
+    in ``test_monte_carlo_finish_reading``).
+    """
+    return Project(
+        id="p",
+        name="p",
+        start_date=_PLAUSIBLE_ANCHOR,
+        calendars={"fourday": Calendar(working_days=0b0001111)},
+        tasks=[
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=1),
+                optimistic_duration=timedelta(days=1),
+                most_likely_duration=timedelta(days=1),
+                pessimistic_duration=timedelta(days=pess_days),
+                calendar_id="fourday",
+            ),
+            Task(id="M", name="M", duration=timedelta(0), calendar_id="fourday"),
+        ],
+        dependencies=[Dependency("A", "M", dep_type=dep_type, lag=timedelta(days=lag_days))],
+    )
+
+
+#: Fails the pre-fix engine at runs=16, seed=11: P50 on the Friday gap, before the
+#: CPM finish and before every run.
+_FOURDAY_GAP_FS_4691 = _fourday_gap_4691(6, 6, DependencyType.FS)
+#: Fails the pre-fix engine at runs=32, seed=5: P95 on the Friday gap, before P50.
+_FOURDAY_GAP_SS_4691 = _fourday_gap_4691(9, 4, DependencyType.SS)
+
+
 @example(project=_SS_FS_JOIN_4173)
-@given(project=_plausible_projects())
+@example(project=_FOURDAY_GAP_FS_4691)
+@given(project=_plausible_projects() | _plausible_projects(per_task_calendars=True))
 def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
     """``monte_carlo()`` must never forecast a finish EARLIER than ``schedule()``.
 
@@ -535,8 +610,10 @@ def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
     and ignored ``Task.duration`` outright, so a triple sitting below the planned
     duration forecast a finish the deterministic pass had already ruled infeasible.
 
-    P50 is the tightest leg of the assertion (P80 and P95 are >= it by
-    construction), and the direction is one-way: a *later* percentile is the risk
+    P50 is the tightest leg of the assertion (P80 and P95 are >= it, which the
+    ordering leg below asserts rather than assumes: on mixed calendars #4691 put P95
+    before P50, so the generator now draws per-task calendars too), and the
+    direction is one-way: a *later* percentile is the risk
     premium the deterministic pass cannot express and is entirely legitimate.
 
     Both calls must reach the same verdict on validity — if one raises a
@@ -589,8 +666,12 @@ _ZERO_VAR_CAL_IDS = ["fourday", "mondays", "plant", "seven"]
 
 
 @st.composite
-def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
+def _per_task_calendar_projects(draw: st.DrawFn, estimates: bool = False) -> Project:
     """A project with no three-point estimate whose tasks sit on mixed calendars.
+
+    With ``estimates`` each task may also carry a three-point estimate bracketing
+    its duration, which gives the simulation variance (#4691) — and makes the
+    project no longer zero-variance, so only the percentile-range property uses it.
 
     Zero variance by construction: no ``optimistic/most_likely/pessimistic`` triple
     and no scrum velocity, so every Monte Carlo run samples ``Task.duration`` and
@@ -618,11 +699,22 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
     )
     n = draw(st.integers(min_value=1, max_value=6))
     ids = [f"t{i}" for i in range(n)]
+    # The #4691 shape, drawn for half the projects with estimates: every task on a
+    # sparse calendar, and no actuals or date pins. The ruler always holds the
+    # project week, so its Fridays (and, on Monday-only, Tuesday-Friday) become days
+    # no task works — the gap days. One task on a denser calendar fills them, and a
+    # pin or actual removes the variance that lets a percentile interpolate onto one.
+    gap_shape = estimates and draw(st.booleans())
+    cal_choice = (
+        st.sampled_from(["fourday", "mondays"])
+        if gap_shape
+        else st.none() | st.sampled_from(_ZERO_VAR_CAL_IDS)
+    )
     tasks = []
     for tid in ids:
-        calendar_id = draw(st.none() | st.sampled_from(_ZERO_VAR_CAL_IDS))
+        calendar_id = draw(cal_choice)
         own_cal = project_cal if calendar_id is None else calendars[calendar_id]
-        actual_start = draw(st.none() | actual_dates)
+        actual_start = None if gap_shape else draw(st.none() | actual_dates)
         actual_finish = None
         if actual_start is not None:
             actual_finish = draw(
@@ -638,15 +730,37 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
                 and engine._prev_working_day(actual_finish, own_cal) < start
             ):
                 actual_finish = None
+        # With estimates, most tasks are short or zero-duration milestones. Long
+        # durations and wide estimates make run positions dense, so interpolation
+        # almost never lands on a reference day no run occupies — the #4691 input.
+        # Short tasks on the sparse calendars spread runs across those gap days.
+        duration_days = draw(
+            st.one_of(st.just(0), st.integers(min_value=0, max_value=10))
+            | st.integers(min_value=0, max_value=300)
+            if estimates
+            else st.integers(min_value=0, max_value=300)
+        )
+        triple: dict[str, timedelta] = {}
+        if estimates and draw(st.booleans()):
+            opt = draw(st.integers(min_value=0, max_value=duration_days))
+            spread = 10 if duration_days <= 10 else 30
+            pess = draw(st.integers(min_value=duration_days, max_value=duration_days + spread))
+            ml = draw(st.integers(min_value=opt, max_value=pess))
+            triple = {
+                "optimistic_duration": timedelta(days=opt),
+                "most_likely_duration": timedelta(days=ml),
+                "pessimistic_duration": timedelta(days=pess),
+            }
         tasks.append(
             Task(
                 id=tid,
                 name="t",
-                duration=timedelta(days=draw(st.integers(min_value=0, max_value=300))),
+                duration=timedelta(days=duration_days),
                 calendar_id=calendar_id,
                 actual_start=actual_start,
                 actual_finish=actual_finish,
-                planned_start=draw(st.none() | _plausible_date),
+                planned_start=None if gap_shape else draw(st.none() | _plausible_date),
+                **triple,  # type: ignore[arg-type]
             )
         )
     pairs = [(ids[i], ids[j]) for i in range(n) for j in range(i + 1, n)]
@@ -660,6 +774,26 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
         )
         for u, v in chosen
     ]
+    if estimates and draw(st.booleans()):
+        # A finish milestone on a sparse calendar, fed by one task. Its start-of-day
+        # reading is shown past the gap days after its position, which is the run a
+        # gap-day percentile used to be reported before (#4691).
+        tasks.append(
+            Task(
+                id="ms",
+                name="t",
+                duration=timedelta(0),
+                calendar_id=draw(st.sampled_from(["fourday", "mondays"])),
+            )
+        )
+        deps.append(
+            Dependency(
+                predecessor_id=draw(st.sampled_from(ids)),
+                successor_id="ms",
+                dep_type=draw(st.sampled_from([DependencyType.FS, DependencyType.SS])),
+                lag=timedelta(days=draw(st.integers(min_value=-2, max_value=9))),
+            )
+        )
     return Project(
         id="p",
         name="p",
@@ -668,7 +802,7 @@ def _per_task_calendar_projects(draw: st.DrawFn) -> Project:
         dependencies=deps,
         calendar=project_cal,
         calendars=calendars,
-        status_date=draw(_opt_plausible_date),
+        status_date=None if gap_shape else draw(_opt_plausible_date),
     )
 
 
@@ -752,6 +886,86 @@ def test_monte_carlo_zero_variance_equals_cpm_under_per_task_calendars(project: 
     assert mc.p50 == mc.p80 == mc.p95 == cpm.project_finish, (
         f"zero-variance Monte Carlo P50/P80/P95 {mc.p50}/{mc.p80}/{mc.p95} != "
         f"schedule() finish {cpm.project_finish}"
+    )
+
+
+@st.composite
+def _gap_day_projects(draw: st.DrawFn) -> Project:
+    """The #4691 shape, drawn: an estimated task linked into a milestone on sparse calendars.
+
+    ``A`` carries a three-point estimate and links FS or SS into a zero-duration
+    milestone ``M``; each sits on a calendar sparser than the five-day project week
+    (Mon-Thu, Monday only, or Mon/Wed/Fri), so the reference ruler holds days no task
+    works. Most runs end at ``M``'s start-of-day reading, shown past those days, and a
+    few end at ``A``'s later finish: a percentile interpolated between them lands on a
+    gap day. The broad generators reach this about once in 500 draws; this one is
+    built to reach it, so the property catches the defect without its pinned examples.
+    """
+    sparse = st.sampled_from(["fourday", "mondays", "mwf"])
+    opt = draw(st.integers(min_value=1, max_value=4))
+    ml = draw(st.integers(min_value=opt, max_value=opt + 4))
+    pess = draw(st.integers(min_value=ml, max_value=ml + 8))
+    in_progress = draw(st.booleans())
+    return Project(
+        id="p",
+        name="p",
+        start_date=_PLAUSIBLE_ANCHOR,
+        calendars={
+            "fourday": Calendar(working_days=0b0001111),  # Mon-Thu
+            "mondays": Calendar(working_days=0b0000001),  # Monday only
+            "mwf": Calendar(working_days=0b0010101),  # Mon/Wed/Fri
+        },
+        tasks=[
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=opt),
+                optimistic_duration=timedelta(days=opt),
+                most_likely_duration=timedelta(days=ml),
+                pessimistic_duration=timedelta(days=pess),
+                calendar_id=draw(sparse),
+                actual_start=_PLAUSIBLE_ANCHOR if in_progress else None,
+                percent_complete=30.0 if in_progress else 0.0,
+            ),
+            Task(id="M", name="M", duration=timedelta(0), calendar_id=draw(sparse)),
+        ],
+        dependencies=[
+            Dependency(
+                "A",
+                "M",
+                dep_type=draw(st.sampled_from([DependencyType.FS, DependencyType.SS])),
+                lag=timedelta(days=draw(st.integers(min_value=-2, max_value=9))),
+            )
+        ],
+    )
+
+
+@example(project=_FOURDAY_GAP_SS_4691)
+@given(project=_per_task_calendar_projects(estimates=True) | _gap_day_projects())
+def test_monte_carlo_percentiles_lie_inside_the_distribution(project: Project) -> None:
+    """``min(distribution) <= p50 <= p80 <= p95 <= max(distribution)`` on mixed calendars.
+
+    A percentile is a quantile of the runs, so it cannot precede the earliest run or
+    follow the latest. #4691 broke both the ordering and the lower bound: the union
+    reference ruler holds days no task works, interpolation landed a percentile on
+    one, and it was shown before every run. The zero-variance property above cannot
+    see it — with no variance every run sits at one position and nothing
+    interpolates — so this draws estimates on the same per-task calendars.
+
+    Compared as dates: a percentile and the run it equals can sit on different edges
+    of one day, and ``distribution`` carries no edge.
+    """
+    try:
+        with _time_limit(HANG_SECONDS):
+            mc = monte_carlo(project, runs=32, seed=5, max_runs=None, max_tasks=None)
+    except SchedulerError:
+        return
+    except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
+        raise AssertionError(f"monte_carlo: HANG — {exc}") from exc
+    lo, hi = min(mc.distribution), max(mc.distribution)
+    assert lo <= mc.p50 <= mc.p80 <= mc.p95 <= hi, (
+        f"percentiles {mc.p50}/{mc.p80}/{mc.p95} outside or out of order against the "
+        f"run distribution [{lo}, {hi}]"
     )
 
 

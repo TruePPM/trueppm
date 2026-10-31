@@ -20,6 +20,7 @@ from hypothesis import example, given
 
 from tests.test_contract_fuzz import _plausible_projects
 from trueppm_scheduler import (
+    Calendar,
     Dependency,
     DependencyType,
     MonteCarloResult,
@@ -509,3 +510,83 @@ class TestUndersizedIndexRaisesEndToEnd:
             pytest.raises(engine.InvalidScheduleInput, match="engine bug"),
         ):
             monte_carlo(project, runs=4, seed=1)
+
+
+class TestPercentileOnAReferenceGapDay:
+    """A percentile on a reference day no run occupies (#4691).
+
+    A Mon-Thu team on a Mon-Fri project: the union reference ruler holds Friday,
+    which neither task works, so run positions jump over it. P95 interpolated onto
+    Friday and was reported as its end — 2026-03-06 — although every run, P50 and
+    the CPM finish are the start of Monday 2026-03-09.
+    """
+
+    START = date(2026, 3, 2)  # Monday
+
+    def _project(self) -> Project:
+        return Project(
+            id="p",
+            name="p",
+            start_date=self.START,
+            calendars={"fourday": Calendar(working_days=0b0001111)},
+            tasks=[
+                Task(
+                    id="A",
+                    name="A",
+                    duration=timedelta(days=2),
+                    optimistic_duration=timedelta(days=2),
+                    most_likely_duration=timedelta(days=3),
+                    pessimistic_duration=timedelta(days=6),
+                    calendar_id="fourday",
+                ),
+                Task(id="M", name="M", duration=timedelta(0), calendar_id="fourday"),
+            ],
+            dependencies=[Dependency("A", "M", dep_type=DependencyType.SS, lag=timedelta(days=5))],
+        )
+
+    def test_p95_is_not_before_p50_or_any_run(self) -> None:
+        project = self._project()
+        mc = monte_carlo(project, runs=1000, seed=3146)
+        finish = schedule(project).project_finish
+        assert finish == date(2026, 3, 9)
+        assert mc.p50 <= mc.p80 <= mc.p95
+        for p in (mc.p50, mc.p80, mc.p95):
+            assert min(mc.distribution) <= p <= max(mc.distribution)
+            assert p >= finish
+        assert (mc.p95, mc.p95_at_day_start) == (date(2026, 3, 9), True)
+
+    def test_gap_reading_follows_the_latest_run_shown_below_it(self) -> None:
+        """Unit view of the same shape: positions {4, 6}, the 4s shown at day 6.
+
+        Reference offsets 1..6 are Mon 03-02 .. Fri 03-06 then Mon 03-09; offset 5 is
+        the Friday gap. Ten runs at position 4 (a start-of-day milestone shown at the
+        start of Monday) and one at position 6 put P95 halfway between them, on 5.
+        """
+        wd_index = [self.START + timedelta(days=i) for i in (0, 1, 2, 3, 4, 7)]
+        completion = np.array([4.0] * 10 + [6.0])
+        shown = np.array([6.0] * 11)
+        out = engine._mc_percentiles(completion, shown, wd_index, None, False)
+        assert out == [(date(2026, 3, 9), True)] * 3
+
+    def test_gap_reading_unchanged_on_one_calendar(self) -> None:
+        """No run below the gap is shown past it: the end of the day before ``k``."""
+        wd_index = [self.START + timedelta(days=i) for i in range(10)]
+        completion = np.array([3.0] * 10 + [7.0])  # P95 interpolates to exactly 5.0
+        shown = completion.copy()
+        out = engine._mc_percentiles(completion, shown, wd_index, None, False)
+        # P95 interpolates to 5.0: the end of working day 5 (Friday 03-06).
+        assert out[2] == (date(2026, 3, 6), False)
+
+    def test_percentiles_are_clamped_non_decreasing(self) -> None:
+        """A later percentile never reads before an earlier one.
+
+        85 runs at position 4 are start-of-day milestones shown three reference days
+        on (offset 7); 15 runs at position 5 are shown on their own day. P80 sits at
+        position 4 and reads the start of day 7; P95 sits at 5, whose only shown day
+        is 5 — earlier. It carries P80's reading forward instead.
+        """
+        wd_index = [self.START + timedelta(days=i) for i in range(10)]
+        completion = np.array([4.0] * 85 + [5.0] * 15)
+        shown = np.array([7.0] * 85 + [5.0] * 15)
+        out = engine._mc_percentiles(completion, shown, wd_index, None, False)
+        assert out == [(date(2026, 3, 8), True)] * 3
