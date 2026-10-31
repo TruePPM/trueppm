@@ -37,14 +37,22 @@ export interface ContextTabsInput {
    * stays the one the workspace configured.
    */
   visibleViews: ReadonlyArray<string>;
+  /**
+   * Views the PERSON hid (`user.hidden_views`). Kept separate from `visibleViews`
+   * because the Schedule override below must win over the methodology filter
+   * but never over an explicit personal choice.
+   */
+  userHiddenViews: ReadonlyArray<string>;
   labelFor: (view: string) => string;
 }
 
 /**
  * Group order inside a tab is the order the toggles render in, and the first
- * VISIBLE entry is the tab's default destination. Methodology never moves a
- * view between tabs — it only changes which toggles exist, which is what makes
- * spatial memory survive a switch from a Waterfall project to an Agile one.
+ * VISIBLE entry is the tab's default destination — so methodology sets the
+ * default only by deciding which toggles exist (a Waterfall project has no
+ * Sprints, so Deliver lands on Board; every project has Schedule, so Plan lands
+ * there). It never moves a view between tabs, which is what makes spatial
+ * memory survive a switch from a Waterfall project to an Agile one.
  */
 const PROJECT_GROUPS: Record<ContextTabKey, string[]> = {
   overview: ['overview'],
@@ -85,8 +93,10 @@ export function resolveContextTabs(input: ContextTabsInput): ContextTabsModel {
   const groups = input.scope === 'project' ? PROJECT_GROUPS : PROGRAM_GROUPS;
   const moreKeys = input.scope === 'project' ? PROJECT_MORE : PROGRAM_MORE;
   const visible = new Set(input.visibleViews);
+  const userHidden = new Set(input.userHiddenViews);
   const isVisible = (view: string) =>
-    visible.has(view) || (input.scope === 'project' && ALWAYS_VISIBLE_PROJECT_VIEWS.has(view));
+    !userHidden.has(view) &&
+    (visible.has(view) || (input.scope === 'project' && ALWAYS_VISIBLE_PROJECT_VIEWS.has(view)));
   const toggle = (view: string): ContextToggle => ({
     view,
     label: input.labelFor(view),

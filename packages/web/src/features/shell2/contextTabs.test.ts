@@ -56,6 +56,7 @@ const AGILE_NO_SCHEDULE = [
 describe('resolveContextTabs — project', () => {
   it('renders the five tabs in fixed order with the layout toggles under Plan and Deliver', () => {
     const m = resolveContextTabs({
+      userHiddenViews: [],
       scope: 'project',
       basePath: '/projects/ATL',
       activeView: 'overview',
@@ -76,6 +77,7 @@ describe('resolveContextTabs — project', () => {
 
   it('a tab goes to its active toggle, else its first toggle', () => {
     const onGrid = resolveContextTabs({
+      userHiddenViews: [],
       scope: 'project',
       basePath: '/projects/ATL',
       activeView: 'grid',
@@ -86,6 +88,7 @@ describe('resolveContextTabs — project', () => {
     expect(plan.active).toBe(true);
     expect(plan.to).toBe('/projects/ATL/grid');
     const elsewhere = resolveContextTabs({
+      userHiddenViews: [],
       scope: 'project',
       basePath: '/projects/ATL',
       activeView: 'risk',
@@ -98,6 +101,7 @@ describe('resolveContextTabs — project', () => {
 
   it('every project has Plan with Schedule, even when the methodology filter removed it', () => {
     const m = resolveContextTabs({
+      userHiddenViews: [],
       scope: 'project',
       basePath: '/projects/AG',
       activeView: 'board',
@@ -118,6 +122,7 @@ describe('resolveContextTabs — project', () => {
 
   it('drops a tab whose every view is hidden, and keeps settings out of the tab row', () => {
     const m = resolveContextTabs({
+      userHiddenViews: [],
       scope: 'project',
       basePath: '/projects/ATL',
       activeView: 'overview',
@@ -130,6 +135,7 @@ describe('resolveContextTabs — project', () => {
 
   it('uses the caller labels so the iteration noun is the configured one', () => {
     const m = resolveContextTabs({
+      userHiddenViews: [],
       scope: 'project',
       basePath: '/projects/AG',
       activeView: 'sprints',
@@ -145,6 +151,7 @@ describe('resolveContextTabs — project', () => {
 describe('resolveContextTabs — program', () => {
   it('maps the program views onto the same four tabs (no Risks) and folds the rest under More', () => {
     const m = resolveContextTabs({
+      userHiddenViews: [],
       scope: 'program',
       basePath: '/programs/PM',
       activeView: 'agents',
@@ -174,5 +181,23 @@ describe('resolveContextTabs — program', () => {
     ]);
     expect(m.more.find((t) => t.view === 'agents')!.active).toBe(true);
     expect(m.tabs.some((t) => t.active)).toBe(false);
+  });
+});
+
+describe('resolveContextTabs — personal hidden views', () => {
+  it('a view the person hid stays hidden, even Schedule', () => {
+    const m = resolveContextTabs({
+      userHiddenViews: ['schedule', 'risk'],
+      scope: 'project',
+      basePath: '/projects/ATL',
+      activeView: 'overview',
+      visibleViews: WATERFALL.filter((v) => v !== 'schedule' && v !== 'risk'),
+      labelFor,
+    });
+    expect(m.tabs.find((t) => t.key === 'plan')!.toggles.map((t) => t.view)).toEqual([
+      'grid',
+      'calendar',
+    ]);
+    expect(m.tabs.some((t) => t.key === 'risks')).toBe(false);
   });
 });

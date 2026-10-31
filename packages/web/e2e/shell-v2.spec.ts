@@ -86,7 +86,7 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       await expect(links).toHaveText([/Home/, /Inbox/, /Work/, /People/, /Agents/]);
       await expect(destinations(page).getByRole('link', { name: 'Work' })).toHaveAttribute(
         'aria-current',
-        'page',
+        'true',
       );
       await expect(destinations(page).getByRole('link', { name: 'Agents' })).toHaveAttribute(
         'href',
@@ -100,7 +100,7 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       await expect(page.getByText('Atlas Migration')).toHaveCount(2); // breadcrumb link + context title
 
       // Context header: title, the SERVER's health band once, and the tab row.
-      await expect(page.getByRole('heading', { level: 1, name: 'Atlas Migration' })).toBeVisible();
+      await expect(page.getByTestId('shell2-context-title')).toHaveText('Atlas Migration');
       await expect(page.getByTestId('shell2-health')).toHaveCount(1);
       await expect(page.getByTestId('shell2-health')).toHaveText(/At risk/);
       const tabs = views(page);
@@ -142,14 +142,15 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       );
     });
 
-    test('More opens a menu of the remaining views and Escape returns focus to the trigger', async ({
+    test('More is a keyboard menu: Enter seats focus on the first item, arrows move, Escape returns focus', async ({
       page,
     }) => {
       await setup(page);
       await page.goto(`/projects/${PROJECT_ID}/overview`);
       const more = views(page).getByRole('button', { name: 'More' });
       await expect(more).toBeVisible({ timeout: 10_000 });
-      await more.click();
+      await more.focus();
+      await page.keyboard.press('Enter');
       const menu = page.getByRole('menu', { name: 'More views' });
       await expect(menu).toBeVisible();
       await expect(menu.getByRole('menuitem')).toHaveText([
@@ -159,9 +160,30 @@ test.describe('shell v2 (shell_v2 flag)', () => {
         'Assets',
         'Settings',
       ]);
+      await expect(menu.getByRole('menuitem', { name: 'Today' })).toBeFocused();
+      await page.keyboard.press('ArrowDown');
+      await expect(menu.getByRole('menuitem', { name: 'Reports' })).toBeFocused();
+      await page.keyboard.press('End');
+      await expect(menu.getByRole('menuitem', { name: 'Settings' })).toBeFocused();
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);
       await expect(more).toBeFocused();
+    });
+
+    test('a failed health read shows a retryable error in the header, never an empty chip', async ({
+      page,
+    }) => {
+      await setup(page);
+      await page.route(`**/api/v1/projects/${PROJECT_ID}/status-summary/`, (route) =>
+        route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' }),
+      );
+      await page.goto(`/projects/${PROJECT_ID}/overview`);
+      await expect(page.getByTestId('shell2-context-title')).toHaveText('Atlas Migration', {
+        timeout: 10_000,
+      });
+      await expect(page.getByText('Health unavailable')).toBeVisible();
+      await expect(page.getByTestId('shell2-health')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /retry/i }).first()).toBeVisible();
     });
 
     test('offline folds into the status slot instead of a banner', async ({ page, context }) => {
@@ -181,26 +203,46 @@ test.describe('shell v2 (shell_v2 flag)', () => {
   test.describe('laptop 1024', () => {
     test.use({ viewport: { width: 1024, height: 768 } });
 
-    test('the rail is the 64px icon rail and Work opens a flyout listing programs and projects', async ({
+    test('the rail is the 64px icon rail and Work opens a flyout by hover AND by keyboard', async ({
       page,
     }) => {
       await setup(page);
       await page.goto(`/projects/${PROJECT_ID}/overview`);
       await expect(rail(page)).toHaveAttribute('data-collapsed', 'true', { timeout: 10_000 });
+      // The width collapsed it, not the person, so there is no Expand control to mislead.
+      await expect(page.getByRole('button', { name: 'Expand navigation' })).toHaveCount(0);
       // Labels stay in the DOM for assistive tech even at icon width (rule 330(d)).
       const home = destinations(page).getByRole('link', { name: 'Home' });
       await expect(home).toBeVisible();
       await expect(home.getByText('Home')).toHaveClass(/sr-only/);
 
       const work = destinations(page).getByRole('link', { name: 'Work' });
-      await work.hover();
       const flyout = page.getByRole('dialog', { name: 'Programs and projects' });
+
+      // Keyboard: ArrowRight enters the panel, Escape closes it and hands focus back.
+      await work.focus();
+      await page.keyboard.press('ArrowRight');
       await expect(flyout).toBeVisible();
-      await expect(flyout.getByRole('link', { name: 'Atlas Migration' })).toBeVisible();
+      await expect(flyout.getByRole('searchbox')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(flyout).toHaveCount(0);
+      await expect(work).toBeFocused();
+      await page.keyboard.press('Tab'); // leaving the trigger must not reopen it
+      await expect(flyout).toHaveCount(0);
+
+      // Pointer: hover, cross the gap into the panel, pick a project.
+      await work.hover();
+      await expect(flyout).toBeVisible();
+      const target = flyout.getByRole('link', { name: 'Atlas Migration' });
+      await expect(target).toBeVisible();
       await expect(flyout.getByRole('link', { name: 'All work' })).toHaveAttribute(
         'href',
         '/programs',
       );
+      await target.hover();
+      await expect(flyout).toBeVisible();
+      await target.click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/overview$`));
     });
   });
 
@@ -216,10 +258,18 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       await expect(rail(page)).toHaveCount(0);
       const bar = page.getByRole('navigation', { name: 'Primary navigation' });
       await expect(bar).toBeVisible();
-      await expect(bar.getByRole('link')).toHaveText([/Home/, /Inbox/, /Work/]);
+      await expect(bar.getByRole('link')).toHaveCount(4); // Home · Inbox · Log time · Work
+      for (const name of ['Home', 'Inbox', 'Log time', 'Work']) {
+        await expect(bar.getByRole('link', { name: new RegExp(name) })).toBeVisible();
+      }
       await expect(bar.getByRole('link', { name: /Home/ })).toHaveAttribute('aria-current', 'page');
-      await expect(bar.getByRole('button', { name: 'Log time' })).toBeVisible();
+      await expect(bar.getByRole('link', { name: 'Log time' })).toHaveAttribute(
+        'href',
+        '/me/timesheet',
+      );
       await expect(bar.getByRole('button', { name: 'Search' })).toBeVisible();
+      // No rail on a phone, so the account menu rides in the top bar.
+      await expect(page.getByRole('button', { name: /Account/ })).toBeVisible();
     });
 
     test('inside a project the tab row is the lens switcher and scrolls rather than wrapping', async ({
@@ -231,8 +281,11 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       await expect(tabs).toBeVisible({ timeout: 10_000 });
       const box = await tabs.boundingBox();
       expect(box).not.toBeNull();
-      // One row: a wrapped tab row would be at least two tab heights tall.
-      expect(box!.height).toBeLessThan(48);
+      // One row: a wrapped row would be at least two tab heights tall …
+      expect(box!.height).toBeLessThan(60);
+      // … and each tab is itself the 44px target (rule 5) — no clipped pseudo-element.
+      const tab = await tabs.getByRole('link', { name: 'Plan' }).boundingBox();
+      expect(tab!.height).toBeGreaterThanOrEqual(44);
       const overflow = await tabs.evaluate((el) => getComputedStyle(el).overflowX);
       expect(overflow).toBe('auto');
     });

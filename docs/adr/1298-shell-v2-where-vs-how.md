@@ -58,11 +58,13 @@ The **context header** answers *how am I looking at it*: title, the server's
 health band shown **once** per context, the P80 stamp with its definition and
 "as of", and a tab row of at most five — Overview · Plan · Deliver · Risks ·
 People — plus More. Plan holds the layout toggles Schedule / Grid / Calendar;
-Deliver holds Board / Sprints / Backlog. Methodology picks the **default toggle**
-and the toggle set; it never moves a view between tabs. **Every project has
-Plan, and Plan always offers Schedule** — a person's own `hidden_views` choice is
-still honored, the methodology filter that removed `schedule` from Agile
-projects is not.
+Deliver holds Board / Sprints / Backlog. A tab's default is the first toggle
+that exists, in a fixed order — so methodology sets the default only by
+deciding which toggles exist (a Waterfall project has no Sprints, so Deliver
+lands on Board); it never moves a view between tabs. **Every project has Plan,
+and Plan always offers Schedule** — a person's own `hidden_views` choice is
+still honored (it is passed separately and always wins); the methodology
+filter that removed `schedule` from Agile projects is not.
 
 Programs use the same tabs (Overview · Plan = schedule · Deliver = intake backlog
 · People), without Risks; Projects, Labels, Agents, Members, Assets and Settings
@@ -75,8 +77,12 @@ fold under More.
   leaf, a single "/" separator); the leaf is plain text because the tab row owns
   view switching.
 - The avatar menu in the rail footer is the only identity.
-- A single **status slot** replaces the four stackable banners and the sync
-  badge. Priority is fixed: offline › session expired › demo read-only ›
+- A single **status slot** replaces the status-only banners (offline,
+  rate-limit) and the sync badge. The two bars that carry an **action** stay
+  mounted — the signed-out read-only bar, whose "Sign in again" is the only way
+  back once the modal is dismissed, and the demo-mode bar, which holds the demo
+  project switcher and reset line — and the slot states their condition too.
+  Priority is fixed: offline › session expired › demo read-only ›
   rate-limit off › failed writes › live updates paused › syncing › a quiet
   "Synced". Lower-priority active conditions fold behind "+N", reachable by
   hover, focus and touch, never stacked. Offline outranks an expired session
@@ -88,12 +94,17 @@ fold under More.
 ### 3. Breakpoints belong to the shell; everything else queries its container
 
 - `≥ 1280px`: the 248px rail (unless the person collapsed it).
-- `768–1279px`: the 64px icon rail, where hovering or focusing **Work opens a
-  flyout** with search, pins, and every program with its projects — there is
-  always a visible route to a project.
+- `768–1279px`: the 64px icon rail, where hovering **Work**, or pressing
+  ArrowRight / ArrowDown on it, opens a **flyout** with search, pins, and every
+  program with its projects — there is always a visible route to a project, by
+  pointer and by keyboard (the panel is portaled, so arrows enter it, Escape
+  closes it and returns focus to Work without re-opening). The width collapsed
+  the rail here, not the person, so no Expand control is offered at these
+  widths; ⌘B and the control return at 1280.
 - `< 768px`: no rail. A **global bottom bar** — Home · Inbox · [Log] · Work ·
-  Search — on every route, and the context header's tab row becomes a
-  horizontally scrolling lens switcher.
+  Search — on every route, the account menu rides in the top bar, and the
+  context header's tab row (with its layout toggles) becomes a horizontally
+  scrolling lens switcher.
 - Exactly one copy of the primary navigation renders per breakpoint, chosen by
   `useBreakpoint()` (rule 211), never two copies gated by `hidden md:flex`.
 - Content sits on a sheet inset 8px from the canvas (radius 10) with
@@ -150,7 +161,17 @@ the flag changes chrome only.
   tabular numerics only, as the Pass 1 type spec says. Pages inside the sheet
   keep their own families until they are redesigned.
 - **Rule 5 (44px targets).** Rail rows are 44px, not the design's 32px; tab
-  links are 36px with a sized `before:` 44px hit area (rule 330).
+  links are 44px outright because their row scrolls and an overflow container
+  clips a `before:` hit area (rule 330); the ⌘K trigger, the P80 definition
+  button and the "+N" status button get sized `before:` boxes in the top bar,
+  which does not clip.
+- **Rule 214.** The context tab row is the phone's lens switcher, so its tabs and
+  layout toggles use `focus:` rings, not `focus-visible:`.
+- **Headings.** The context header's title is not an `<h1>`: every page keeps its
+  own h1 naming the view.
+- **Rule 246.** A failed health or forecast read renders an inline
+  `QueryErrorState` with retry in the header; the Work flyout renders a skeleton
+  while loading and a retryable error on failure — never an empty list.
 - **Rule 231 (Enterprise affordances).** The rail carries no portfolio slot.
   When Enterprise registers one it goes where cross-program reach applies —
   the People destination — not in the rail.

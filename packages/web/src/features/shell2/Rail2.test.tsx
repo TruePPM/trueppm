@@ -59,13 +59,13 @@ describe('Rail2', () => {
   });
 
   it('renders the four global destinations off a program, with the unread count on Inbox', () => {
-    renderWithRouter(<Rail2 collapsed={false} />, { initialEntries: ['/me/work'] });
+    renderWithRouter(<Rail2 collapsed={false} canExpand />, { initialEntries: ['/me/work'] });
     const nav = screen.getByRole('navigation', { name: 'Destinations' });
     const names = within(nav)
       .getAllByRole('link')
       .map((a) => a.textContent?.replace(/unread: /, '').trim());
     expect(names).toEqual(['Home', 'Inbox4', 'Work', 'People']);
-    expect(within(nav).getByRole('link', { name: /Home/ })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('link', { name: /Home/ })).toHaveAttribute('aria-current', 'true');
     expect(within(nav).getByRole('link', { name: /Inbox/ })).not.toHaveAttribute('aria-current');
   });
 
@@ -74,18 +74,22 @@ describe('Rail2', () => {
     mockUseProject.mockReturnValue({
       data: { id: 'pr-1', name: 'Atlas', program_detail: { id: 'pm-1', name: 'PM' } },
     });
-    renderWithRouter(<Rail2 collapsed={false} />, { initialEntries: ['/projects/pr-1/schedule'] });
+    renderWithRouter(<Rail2 collapsed={false} canExpand />, {
+      initialEntries: ['/projects/pr-1/schedule'],
+    });
     const nav = screen.getByRole('navigation', { name: 'Destinations' });
     expect(within(nav).getByRole('link', { name: 'Agents' })).toHaveAttribute(
       'href',
       '/programs/pm-1/agents',
     );
-    expect(within(nav).getByRole('link', { name: 'Work' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('link', { name: 'Work' })).toHaveAttribute('aria-current', 'true');
   });
 
   it('lists pins under the destinations and lights the one in context', () => {
     mockUseProjectId.mockReturnValue('pr-1');
-    renderWithRouter(<Rail2 collapsed={false} />, { initialEntries: ['/projects/pr-1/overview'] });
+    renderWithRouter(<Rail2 collapsed={false} canExpand />, {
+      initialEntries: ['/projects/pr-1/overview'],
+    });
     const pinned = screen.getByRole('navigation', { name: 'Pinned' });
     expect(within(pinned).getByRole('link', { name: 'Platform Modernization' })).toHaveAttribute(
       'href',
@@ -93,12 +97,12 @@ describe('Rail2', () => {
     );
     expect(within(pinned).getByRole('link', { name: 'Atlas Migration' })).toHaveAttribute(
       'aria-current',
-      'page',
+      'true',
     );
   });
 
   it('collapsed: keeps every label in the DOM as sr-only, hides pins, and turns Work into the flyout trigger', () => {
-    renderWithRouter(<Rail2 collapsed />, { initialEntries: ['/me/work'] });
+    renderWithRouter(<Rail2 collapsed canExpand />, { initialEntries: ['/me/work'] });
     expect(screen.getByRole('complementary', { name: 'Primary navigation' })).toHaveAttribute(
       'data-collapsed',
       'true',
@@ -115,8 +119,13 @@ describe('Rail2', () => {
   });
 
   it('carries no health dots and no settings gear — the two things the rail no longer does', () => {
-    renderWithRouter(<Rail2 collapsed={false} />, { initialEntries: ['/me/work'] });
+    renderWithRouter(<Rail2 collapsed={false} canExpand />, { initialEntries: ['/me/work'] });
     expect(screen.queryByRole('link', { name: /settings/i })).toBeNull();
     expect(screen.queryByText(/on track|at risk|critical/i)).toBeNull();
+  });
+
+  it('hides the Expand control when the width, not the person, collapsed the rail', () => {
+    renderWithRouter(<Rail2 collapsed canExpand={false} />, { initialEntries: ['/me/work'] });
+    expect(screen.queryByRole('button', { name: 'Expand navigation' })).toBeNull();
   });
 });

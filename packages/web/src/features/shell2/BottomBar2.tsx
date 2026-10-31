@@ -1,8 +1,9 @@
-import { Link, useLocation, useNavigate } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { ClockIcon, SearchIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
 import { resolveRailItems } from './railItems';
 
 const TAB =
@@ -20,7 +21,6 @@ const TAB =
  */
 export function BottomBar2() {
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const { user } = useCurrentUser();
   const { count: inboxCount } = useUnreadNotificationCount();
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
@@ -65,19 +65,22 @@ export function BottomBar2() {
       className="grid shrink-0 grid-cols-5 items-start border-t border-p1-hairline bg-p1-surface-1 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-1.5"
     >
       {left.map(tab)}
-      <button
-        type="button"
-        aria-label="Log time"
-        onClick={() => void navigate('/me/timesheet')}
-        className="flex h-12 items-center justify-center focus:outline-none focus:ring-2 focus:ring-p1-focus focus:ring-inset rounded-md"
-      >
-        <span
-          className="-mt-1.5 flex h-12 w-12 items-center justify-center rounded-full bg-p1-brand text-p1-on-brand"
-          aria-hidden="true"
+      {/* A link, not a button that navigates: it has an href, and it is "current" on the timesheet. */}
+      <Tooltip content="Log time" describe={false}>
+        <Link
+          to="/me/timesheet"
+          aria-label="Log time"
+          aria-current={pathname.startsWith('/me/timesheet') ? 'page' : undefined}
+          className="flex h-12 items-center justify-center rounded-md focus:outline-none focus:ring-2 focus:ring-p1-focus focus:ring-inset"
         >
-          <ClockIcon className="h-[22px] w-[22px]" />
-        </span>
-      </button>
+          <span
+            className="-mt-1.5 flex h-12 w-12 items-center justify-center rounded-full bg-p1-brand text-p1-on-brand"
+            aria-hidden="true"
+          >
+            <ClockIcon className="h-[22px] w-[22px]" />
+          </span>
+        </Link>
+      </Tooltip>
       {right.map(tab)}
       <button type="button" onClick={() => openPalette(true)} className={TAB}>
         <SearchIcon className="h-[22px] w-[22px]" aria-hidden="true" />

@@ -10,7 +10,11 @@ import { useHelpShortcut } from '@/hooks/useHelpShortcut';
 import { useBlockerOffline } from '@/features/blocker/offline/useBlockerOffline';
 import { ToastHost } from '@/components/Toast';
 import { EmptyStateAnnouncer } from '@/components/EmptyStateAnnouncer';
-import { SessionExpiredBanner } from '@/features/shell/SessionExpiredBanner';
+import {
+  SessionExpiredBanner,
+  SessionExpiredReadOnlyBar,
+} from '@/features/shell/SessionExpiredBanner';
+import { DemoModeBar } from '@/features/shell/DemoModeBar';
 import { PendingWritesGuard } from '@/features/shell/PendingWritesGuard';
 import { StartExploringCallout } from '@/features/shell/StartExploringCallout';
 import { CommandPalette } from '@/features/shell/commandPalette/CommandPalette';
@@ -88,7 +92,7 @@ export function AppShell2() {
         </a>
 
         {/* One copy of the primary navigation per breakpoint (rule 211). */}
-        {!phone && <Rail2 collapsed={collapsed} />}
+        {!phone && <Rail2 collapsed={collapsed} canExpand={wide} />}
 
         <div className="flex min-h-0 flex-1 flex-col">
           {/* The sheet: inset 8px from the canvas, radius 10, container-queried. */}
@@ -99,6 +103,12 @@ export function AppShell2() {
             ].join(' ')}
           >
             <TopBar2 />
+            {/* The two bars that carry an ACTION stay: the signed-out bar is the only
+                way back to sign-in once the modal is dismissed, and the demo bar holds
+                the demo project switcher and reset line. The status-only banners
+                (offline, rate-limit) and the sync badge are folded into the status slot. */}
+            <SessionExpiredReadOnlyBar />
+            <DemoModeBar />
             <ContextHeader2 />
             <main
               id="main-content"

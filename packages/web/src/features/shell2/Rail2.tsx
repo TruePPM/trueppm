@@ -9,6 +9,7 @@ import { useProject } from '@/hooks/useProject';
 import { programPath, projectPath } from '@/lib/refPath';
 import { ArrowLeftIcon, ArrowRightIcon, LogoMark } from '@/components/Icons';
 import { UserMenu } from '@/features/shell/UserMenu';
+import { Tooltip } from '@/components/Tooltip';
 import { resolveRailItems, type RailItem } from './railItems';
 import { WorkFlyout } from './WorkFlyout';
 
@@ -23,20 +24,25 @@ const MAX_PINS = 7;
 const ROW =
   'group relative flex h-11 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium text-p1-text-2 no-underline ' +
   'hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus ' +
-  'focus-visible:ring-offset-2 focus-visible:ring-offset-p1-surface-0 aria-[current=page]:bg-p1-brand-tint aria-[current=page]:text-p1-text-1';
+  'focus-visible:ring-offset-2 focus-visible:ring-offset-p1-surface-0 aria-[current=true]:bg-p1-brand-tint aria-[current=true]:text-p1-text-1';
 
 /**
  * A plain `Link`, not `NavLink`: NavLink overrides `aria-current` with its own
- * URL-prefix match, which would light Home on every `/me/work/…` sub-route and
- * Work on every project route. Active state is resolved once in
- * `resolveRailItems` so the rail, the phone bar and the tests agree.
+ * URL match, and that match is wrong for this rail — Work points at `/programs`
+ * but is "current" on every project route, and Home points at the server's
+ * landing path (often a project) but must NOT be current inside the work tree.
+ * Active state is resolved once in `resolveRailItems` so the rail, the phone bar
+ * and the tests agree. `aria-current="true"` (a current location), not `"page"`:
+ * the rail says which tree you are in, the tab row says which page.
+ *
+ * Icon-only at 64px, so the label rides in a Tooltip as well as `sr-only` (rule 287).
  */
 function RailRow({ item, collapsed }: { item: RailItem; collapsed: boolean }) {
   const { Icon } = item;
-  return (
+  const link = (
     <Link
       to={item.to}
-      aria-current={item.active ? 'page' : undefined}
+      aria-current={item.active ? 'true' : undefined}
       className={`${ROW} ${collapsed ? 'justify-center px-0' : ''}`}
     >
       <Icon
@@ -59,11 +65,24 @@ function RailRow({ item, collapsed }: { item: RailItem; collapsed: boolean }) {
       )}
     </Link>
   );
+  return collapsed ? (
+    <Tooltip content={item.label} describe={false}>
+      {link}
+    </Tooltip>
+  ) : (
+    link
+  );
 }
 
 export interface Rail2Props {
   /** Collapsed to the 64px icon rail — the caller folds viewport width and the user's choice. */
   collapsed: boolean;
+  /**
+   * Whether expanding is possible at this width. Between 768 and 1279px the rail
+   * is collapsed by the shell, not by the person, so an Expand control there
+   * would flip the saved preference without changing anything on screen.
+   */
+  canExpand: boolean;
 }
 
 /**
@@ -73,7 +92,7 @@ export interface Rail2Props {
  * dots, no view list, no gear — those were the four jobs that grew the v1
  * sidebar to 2,000 lines.
  */
-export function Rail2({ collapsed }: Rail2Props) {
+export function Rail2({ collapsed, canExpand }: Rail2Props) {
   const { pathname } = useLocation();
   const { user } = useCurrentUser();
   const { count: inboxCount } = useUnreadNotificationCount();
@@ -108,14 +127,16 @@ export function Rail2({ collapsed }: Rail2Props) {
         <LogoMark className="h-7 w-7 shrink-0" aria-hidden="true" />
         <span className={collapsed ? 'sr-only' : 'truncate font-semibold'}>TruePPM</span>
         {!collapsed && (
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            aria-label="Collapse navigation"
-            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-p1-text-3 hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus focus-visible:ring-offset-2 focus-visible:ring-offset-p1-surface-0"
-          >
-            <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <Tooltip content="Collapse navigation" describe={false}>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label="Collapse navigation"
+              className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-p1-text-3 hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus focus-visible:ring-offset-2 focus-visible:ring-offset-p1-surface-0"
+            >
+              <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </Tooltip>
         )}
       </div>
 
@@ -142,7 +163,7 @@ export function Rail2({ collapsed }: Rail2Props) {
               <Link
                 key={`${pin.kind}:${pin.id}`}
                 to={to}
-                aria-current={active ? 'page' : undefined}
+                aria-current={active ? 'true' : undefined}
                 className={`${ROW} font-normal`}
               >
                 <span
@@ -160,15 +181,17 @@ export function Rail2({ collapsed }: Rail2Props) {
         </nav>
       )}
 
-      {collapsed && (
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          aria-label="Expand navigation"
-          className="mt-3 flex h-11 w-11 items-center justify-center self-center rounded-md text-p1-text-3 hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus focus-visible:ring-offset-2 focus-visible:ring-offset-p1-surface-0"
-        >
-          <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
-        </button>
+      {collapsed && canExpand && (
+        <Tooltip content="Expand navigation" describe={false}>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label="Expand navigation"
+            className="mt-3 flex h-11 w-11 items-center justify-center self-center rounded-md text-p1-text-3 hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus focus-visible:ring-offset-2 focus-visible:ring-offset-p1-surface-0"
+          >
+            <ArrowRightIcon className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </Tooltip>
       )}
 
       <div
