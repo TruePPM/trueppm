@@ -433,6 +433,74 @@ def test_already_revoked_tokens_are_not_swept_again(alice: Any) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("scope", [("--user", "alice"), ("--all-personal",), ("--all",)])
+def test_token_revoked_between_dry_run_read_and_commit_keeps_its_date(
+    alice: Any, scope: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A concurrent revocation must not be re-dated or double-audited (#4580)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from trueppm_api.apps.access.management.commands.revoke_api_tokens import Command
+
+    raced = _mint(owner=alice, created_by=alice, name="raced")
+    other = _mint(owner=alice, created_by=alice, name="other")
+    original = timezone.now() - timedelta(hours=3)
+
+    def _concurrent_revoke(self: Any, options: Any, total: int) -> None:
+        ApiToken.objects.filter(pk=raced.pk).update(revoked_at=original)
+        ApiTokenAuditEntry.objects.create(
+            owner=alice,
+            token=raced,
+            token_prefix=raced.token_prefix,
+            action=ApiTokenAuditAction.REVOKED.value,
+            detail={"reason": "self_service"},
+        )
+
+    monkeypatch.setattr(Command, "_confirm", _concurrent_revoke)
+    output = _run(*scope, "--commit")
+
+    raced.refresh_from_db()
+    other.refresh_from_db()
+    assert raced.revoked_at == original
+    assert other.revoked_at is not None
+    assert "Revoked 1 token(s)." in output
+    assert ApiTokenAuditEntry.objects.filter(token=raced).count() == 1
+    assert ApiTokenAuditEntry.objects.get(token=raced).detail["reason"] == "self_service"
+    assert ApiTokenAuditEntry.objects.filter(token=other).count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("scope", [("--user", "alice"), ("--all-personal",), ("--all",)])
+def test_expired_tokens_are_neither_reported_nor_audited_as_revoked(
+    alice: Any, scope: tuple[str, ...]
+) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    expired = _mint(
+        owner=alice,
+        created_by=alice,
+        name="old",
+        expires_at=timezone.now() - timedelta(days=1),
+    )
+    live = _mint(owner=alice, created_by=alice, name="live")
+
+    dry = _run(*scope)
+    assert "Active tokens matched: 1" in dry
+
+    _run(*scope, "--commit", "--yes")
+    expired.refresh_from_db()
+    live.refresh_from_db()
+    assert expired.revoked_at is None
+    assert live.revoked_at is not None
+    assert not ApiTokenAuditEntry.objects.filter(token=expired).exists()
+    assert ApiTokenAuditEntry.objects.filter(token=live).count() == 1
+
+
+@pytest.mark.django_db
 def test_a_scope_must_be_chosen(alice: Any) -> None:
     """No default scope: "revoke everything" must never be what happens by accident."""
     with pytest.raises(CommandError):

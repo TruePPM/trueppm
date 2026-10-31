@@ -133,7 +133,15 @@ class Command(BaseCommand):
     def _resolve_scope(self, options: dict[str, Any], target_user: Any | None) -> tuple[Any, str]:
         from trueppm_api.apps.projects.models import ApiToken
 
-        active = ApiToken.objects.filter(is_deleted=False, revoked_at__isnull=True)
+        # Expired tokens are excluded: they already fail authentication, so revoking
+        # them contains nothing, and reporting/auditing them would overstate how many
+        # live credentials this sweep contained (#4580). Same definition of "active"
+        # as ``revoke_all_personal_access_tokens`` and ``ApiToken.active_personal_tokens_for``.
+        active = ApiToken.objects.filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+            is_deleted=False,
+            revoked_at__isnull=True,
+        )
         if target_user is not None:
             label = f"personal tokens owned by {target_user.username}"
             return active.filter(owner=target_user), label
@@ -330,27 +338,50 @@ class Command(BaseCommand):
 
         now = timezone.now()
         with transaction.atomic():
-            revoked = ApiToken.objects.filter(pk__in=[token.pk for token in doomed]).update(
-                revoked_at=now
-            )
-            # One audit row per token, in the same transaction as the revocation, so the
-            # sweep and its record commit together. The scope XOR on ApiTokenAuditEntry
-            # requires exactly one of owner/project/program, mirroring the token's own.
-            ApiTokenAuditEntry.objects.bulk_create(
-                [
-                    ApiTokenAuditEntry(
-                        owner_id=token.owner_id,
-                        project_id=token.project_id,
-                        program_id=token.program_id,
-                        token=token,
-                        token_prefix=token.token_prefix,
-                        actor=None,
-                        action=ApiTokenAuditAction.REVOKED.value,
-                        detail={"name": token.name, "reason": REASON},
+            if options["user"] and affected_users:
+                # --user: the service already owns the lock + re-filter + audit
+                # contract; reimplementing it here is how this command drifted (#4580).
+                from trueppm_api.apps.access.services import revoke_all_personal_access_tokens
+
+                revoked = revoke_all_personal_access_tokens(affected_users[0], reason=REASON)
+            else:
+                # `doomed` was read outside this transaction, possibly minutes ago
+                # (the operator sat at the confirmation prompt). Re-select under a
+                # row lock, re-applying the active filter, and revoke/audit only what
+                # is still live: a token revoked in the meantime keeps its original
+                # `revoked_at` and gets no second, contradicting REVOKED row, and one
+                # that expired meanwhile is not claimed as contained (#4580).
+                to_revoke = list(
+                    ApiToken.objects.select_for_update()
+                    .filter(
+                        Q(expires_at__isnull=True) | Q(expires_at__gt=now),
+                        pk__in=[token.pk for token in doomed],
+                        is_deleted=False,
+                        revoked_at__isnull=True,
                     )
-                    for token in doomed
-                ]
-            )
+                    .only("pk", "token_prefix", "name", "owner", "project", "program")
+                )
+                revoked = ApiToken.objects.filter(
+                    pk__in=[token.pk for token in to_revoke], revoked_at__isnull=True
+                ).update(revoked_at=now)
+                # One audit row per token, in the same transaction as the revocation.
+                # The scope XOR on ApiTokenAuditEntry requires exactly one of
+                # owner/project/program, mirroring the token's own.
+                ApiTokenAuditEntry.objects.bulk_create(
+                    [
+                        ApiTokenAuditEntry(
+                            owner_id=token.owner_id,
+                            project_id=token.project_id,
+                            program_id=token.program_id,
+                            token=token,
+                            token_prefix=token.token_prefix,
+                            actor=None,
+                            action=ApiTokenAuditAction.REVOKED.value,
+                            detail={"name": token.name, "reason": REASON},
+                        )
+                        for token in to_revoke
+                    ]
+                )
             links_revoked = secrets_cleared = webhooks_deactivated = 0
             refresh_revoked = sockets_evicted = 0
             if options["all"]:
