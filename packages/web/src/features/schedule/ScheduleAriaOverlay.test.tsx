@@ -374,6 +374,28 @@ describe('ScheduleAriaOverlay listbox structure (#2727 — role="listbox"/"optio
     expect(cellFor('Test')).not.toHaveAttribute('aria-describedby');
   });
 
+  it('names a predecessor inside a collapsed phase from allTasks, not "Unknown task" (#4507)', () => {
+    const phase = makeTask('p', 'Assess', { isSummary: true });
+    const hidden = makeTask('h', 'Gather data', { parentId: 'p' });
+    const target = makeTask('t', 'Dry-run migration');
+    const host = makeScrollHost(300);
+    const containerRef: RefObject<HTMLDivElement | null> = { current: host };
+    render(
+      <ScheduleAriaOverlay
+        engine={null}
+        tasks={[phase, target]}
+        allTasks={[phase, hidden, target]}
+        expandedIds={new Set()}
+        links={[makeLink('h', 't')]}
+        containerRef={containerRef}
+      />,
+    );
+    const id = cellFor('Dry-run migration').getAttribute('aria-describedby');
+    expect(document.getElementById(id ?? '')).toHaveTextContent(
+      'Depends on: Gather data (in collapsed phase Assess) (FS).',
+    );
+  });
+
   it('omits every dep description when there are no links', () => {
     mount();
     expect(cellFor('Design')).not.toHaveAttribute('aria-describedby');

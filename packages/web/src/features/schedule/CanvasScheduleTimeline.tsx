@@ -33,6 +33,8 @@ interface CanvasScheduleTimelineProps {
   tasks: Task[];
   /** Full task set (incl. rows in collapsed phases) for screen-reader dependency names (#4507). */
   allTasks?: Task[];
+  /** Expanded summary ids, so the dependency summary only says "collapsed phase" for a folded one. */
+  expandedIds?: ReadonlySet<string>;
   links: TaskLink[];
   /**
    * Sprint windows to band behind the bars (#2738), row-indexed against `tasks`.
@@ -98,6 +100,7 @@ const NO_ROW_MODES: ReadonlyMap<string, RowMode> = new Map();
 export function CanvasScheduleTimeline({
   tasks,
   allTasks,
+  expandedIds,
   links,
   sprintBands = NO_SPRINT_BANDS,
   cadenceSegments = NO_CADENCE_SEGMENTS,
@@ -239,6 +242,7 @@ export function CanvasScheduleTimeline({
         engine={engine}
         tasks={tasks}
         allTasks={allTasks}
+        expandedIds={expandedIds}
         links={links}
         sprintBands={sprintBands}
         emptySprints={emptySprints}

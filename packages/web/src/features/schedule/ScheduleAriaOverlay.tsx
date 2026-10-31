@@ -172,13 +172,16 @@ export function emptySprintCadenceSentence(windows: readonly EmptySprintWindow[]
  * `tasks` are the rows on screen; `allTasks` is the full set. Peer names resolve
  * from `allTasks` so a predecessor folded away inside a collapsed phase is still
  * named. It then carries "(in collapsed phase X)", X being the nearest on-screen
- * ancestor, which is the summary row hiding it. "Unknown task" is left for a link
+ * ancestor, which is the summary row hiding it, but only when `expandedIds`
+ * is given and X is not in it: a row dropped by a render filter under an
+ * expanded phase is not in a collapsed phase, and saying so would be false. "Unknown task" is left for a link
  * whose peer is in neither set, a genuinely dangling link (#4507).
  */
 export function buildDepDescription(
   tasks: Task[],
   links: TaskLink[],
   allTasks: Task[] = tasks,
+  expandedIds?: ReadonlySet<string>,
 ): Map<string, string> {
   if (links.length === 0) return new Map();
 
@@ -193,7 +196,10 @@ export function buildDepDescription(
       seen.add(cursor);
       const ancestor = fullById.get(cursor);
       if (!ancestor) return null;
-      if (visibleIds.has(cursor)) return ancestor.isSummary ? ancestor.name : null;
+      if (visibleIds.has(cursor)) {
+        const folded = ancestor.isSummary && !!expandedIds && !expandedIds.has(cursor);
+        return folded ? ancestor.name : null;
+      }
       cursor = ancestor.parentId;
     }
     return null;
@@ -252,9 +258,13 @@ interface ScheduleAriaOverlayProps {
   tasks: Task[];
   /**
    * Every task, including rows folded into a collapsed phase. Dependency
-   * summaries name peers from this set; defaults to `tasks` (#4507).
+   * summaries name peers from this set; defaults to `tasks` (#4507). Omit it
+   * (with `expandedIds`) only where nothing collapses, e.g. the program
+   * schedule, which has no phase folding.
    */
   allTasks?: Task[];
+  /** Expanded summary ids; a hidden peer is called "in collapsed phase" only under a summary not in this set. */
+  expandedIds?: ReadonlySet<string>;
   /** Dependency edges — drives per-bar aria-describedby dep announcements (#1371). */
   links: TaskLink[];
   /** Sprint-window bands (#2738) — the non-visual carrier for the canvas band. */
@@ -381,6 +391,7 @@ export function ScheduleAriaOverlay({
   engine,
   tasks,
   allTasks,
+  expandedIds,
   links,
   sprintBands,
   emptySprints,
@@ -456,8 +467,8 @@ export function ScheduleAriaOverlay({
 
   // Per-task dep description strings for aria-describedby (#1371).
   const depDescriptions = useMemo(
-    () => buildDepDescription(tasks, links, allTasks ?? tasks),
-    [tasks, links, allTasks],
+    () => buildDepDescription(tasks, links, allTasks ?? tasks, expandedIds),
+    [tasks, links, allTasks, expandedIds],
   );
 
   // Band per row (#2738) — the band's text equivalent for screen readers, and
