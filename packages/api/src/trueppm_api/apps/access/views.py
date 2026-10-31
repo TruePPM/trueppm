@@ -35,9 +35,11 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
     IsProgramOwner,
+    IsProjectAdmin,
     IsProjectMember,
     IsProjectNotArchived,
     IsProjectOwner,
+    IsProjectScheduler,
     McpReadableViewMixin,
     McpScope,
     _membership_role,
@@ -832,6 +834,27 @@ class UserDefinedMentionGroupViewSet(
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
+    def get_permissions(self) -> list[BasePermission]:
+        """Declare the role floors at the permission layer (#4579).
+
+        The action bodies enforce the same floors via ``_require_actor_role`` and stay
+        authoritative (defense in depth). Declaring them here makes the floor visible
+        to DRF-level audits and OpenAPI security generation, and leaves a backstop if
+        a refactor drops an in-body check. Mirrors the program-scoped twin.
+        Lifecycle needs Admin+, roster curation Scheduler+; list/retrieve/mute/unmute
+        keep the any-member base classes.
+        """
+        perms: list[BasePermission] = [
+            IsAuthenticated(),
+            IsProjectMember(),
+            IsProjectNotArchived(),
+        ]
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            perms.append(IsProjectAdmin())
+        elif self.action in ("add_member", "remove_member"):
+            perms.append(IsProjectScheduler())
+        return perms
+
     def get_serializer_class(self) -> type[BaseSerializer[UserDefinedMentionGroup]]:
         if self.action in ("create", "partial_update", "update"):
             return UserDefinedMentionGroupWriteSerializer
@@ -1094,8 +1117,8 @@ class ProgramUserDefinedMentionGroupViewSet(
         but that in-body check is invisible to DRF-level audits and OpenAPI security
         generation. Adding ``IsProgramOwner`` for the lifecycle actions is
         defense-in-depth over the authoritative in-body checks — mirroring the
-        sibling membership viewsets. Membership (add/remove) and mute are Admin+ /
-        any-member, so they keep the base classes only.
+        sibling membership viewsets. Membership (add/remove) declares ``IsProgramAdmin``
+        (Program Manager+, matching the in-body floor); mute is any-member.
         """
         perms: list[BasePermission] = [
             IsAuthenticated(),
@@ -1104,6 +1127,8 @@ class ProgramUserDefinedMentionGroupViewSet(
         ]
         if self.action in ("create", "partial_update", "destroy"):
             perms.append(IsProgramOwner())
+        elif self.action in ("add_member", "remove_member"):
+            perms.append(IsProgramAdmin())
         return perms
 
     def get_serializer_class(

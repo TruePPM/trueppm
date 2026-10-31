@@ -458,3 +458,68 @@ def test_a_non_admin_is_refused_before_the_body_is_inspected(
             format="json",
         )
         assert resp.status_code == 403, (body, resp.content)
+
+
+# ---------------------------------------------------------------------------
+# Permission-layer declaration (#4579)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("action_name", "expected"),
+    [
+        ("create", "IsProjectAdmin"),
+        ("update", "IsProjectAdmin"),
+        ("partial_update", "IsProjectAdmin"),
+        ("destroy", "IsProjectAdmin"),
+        ("add_member", "IsProjectScheduler"),
+        ("remove_member", "IsProjectScheduler"),
+    ],
+)
+def test_role_floor_is_declared_at_the_permission_layer(action_name: str, expected: str) -> None:
+    from trueppm_api.apps.access.views import UserDefinedMentionGroupViewSet
+
+    view = UserDefinedMentionGroupViewSet()
+    view.action = action_name
+    names = [type(p).__name__ for p in view.get_permissions()]
+    assert expected in names
+
+
+@pytest.mark.parametrize("action_name", ["list", "retrieve", "mute", "unmute"])
+def test_read_and_mute_actions_declare_no_role_floor(action_name: str) -> None:
+    from trueppm_api.apps.access.views import UserDefinedMentionGroupViewSet
+
+    view = UserDefinedMentionGroupViewSet()
+    view.action = action_name
+    names = [type(p).__name__ for p in view.get_permissions()]
+    assert "IsProjectAdmin" not in names
+    assert "IsProjectScheduler" not in names
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role_fixture", ["member_user", "viewer_user"])
+def test_below_scheduler_refused_by_permission_class_on_roster_actions(
+    project: Project,
+    admin_user: object,
+    request: pytest.FixtureRequest,
+    role_fixture: str,
+) -> None:
+    group = UserDefinedMentionGroup.objects.create(
+        project=project, name="subs", created_by=admin_user
+    )
+    user = request.getfixturevalue(role_fixture)
+    resp = _client(user).post(
+        f"{_url(project)}{group.id}/add-member/", {"user": user.pk}, format="json"
+    )
+    assert resp.status_code == 403
+    # The permission class's message, not the in-body detail, proves the layer fired.
+    assert "Resource Manager" in str(resp.data["detail"])
+
+
+@pytest.mark.django_db
+def test_scheduler_refused_by_permission_class_on_lifecycle(
+    project: Project, scheduler_user: object
+) -> None:
+    resp = _client(scheduler_user).post(_url(project), {"name": "subs"}, format="json")
+    assert resp.status_code == 403
+    assert "Project Manager" in str(resp.data["detail"])

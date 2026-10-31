@@ -577,3 +577,13 @@ def test_email_suppressed_for_cross_project_program_group_recipient(
     # the comment_mention/email matrix default). The sibling's email is suppressed.
     assert source_n.email_pending is True
     assert sibling_n.email_pending is False
+
+
+@pytest.mark.parametrize("action_name", ["add_member", "remove_member"])
+def test_program_roster_actions_declare_program_admin(action_name: str) -> None:
+    """The in-body Program Manager+ floor is also declared at the permission layer (#4579)."""
+    from trueppm_api.apps.access.views import ProgramUserDefinedMentionGroupViewSet
+
+    view = ProgramUserDefinedMentionGroupViewSet()
+    view.action = action_name
+    assert "IsProgramAdmin" in [type(p).__name__ for p in view.get_permissions()]
