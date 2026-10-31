@@ -47,7 +47,7 @@ settings.register_profile(
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "gate"))
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Fail collection for a Hypothesis property that lacks ``@pytest.mark.fuzz``.
 
     ``scheduler:fuzz-deep`` selects with ``-m fuzz``, so an unmarked ``@given``
