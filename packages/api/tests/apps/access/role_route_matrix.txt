@@ -79,7 +79,7 @@
 ---++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/links/<pk>/::destroy
 ---++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/notes/<pk>/::destroy
 --+++++  DELETE api/v1/projects/<uuid:project_pk>/members/<uuid:pk>/::destroy
---+++++  DELETE api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/::destroy
+-----++  DELETE api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/::destroy
 -++++++  DELETE api/v1/retro-items/<pk>/::destroy
 -++++++  DELETE api/v1/sprints/<pk>/::destroy
 -------  DELETE api/v1/workspace/::delete
@@ -398,7 +398,7 @@
 ---++++  PATCH api/v1/projects/<project_pk>/tasks/<task_pk>/notes/<pk>/::partial_update
 --+++++  PATCH api/v1/projects/<uuid:pk>/notification-preferences/::patch
 ------+  PATCH api/v1/projects/<uuid:project_pk>/members/<uuid:pk>/::partial_update
---+++++  PATCH api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/::partial_update
+-----++  PATCH api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/::partial_update
 -++++++  PATCH api/v1/retro-items/<pk>/::partial_update
 -++++++  PATCH api/v1/sprints/<pk>/::partial_update
 -++++++  PATCH api/v1/sprints/<pk>/retro/::retro
@@ -500,9 +500,9 @@
 -----++  POST api/v1/programs/<uuid:program_pk>/external-stakeholders/::create
 ------+  POST api/v1/programs/<uuid:program_pk>/members/::create
 ------+  POST api/v1/programs/<uuid:program_pk>/mention-groups/::create
---+++++  POST api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/add-member/::add_member
+-----++  POST api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/add-member/::add_member
 --+++++  POST api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/mute/::mute
---+++++  POST api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/remove-member/::remove_member
+-----++  POST api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/remove-member/::remove_member
 --+++++  POST api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/unmute/::unmute
 -------  POST api/v1/projects/<pk>/acceptance-results/::post
 ---++++  POST api/v1/projects/<pk>/board-views/::post
@@ -553,10 +553,10 @@
 -++++++  POST api/v1/projects/<str:pk>/schedule/::post
 -++++++  POST api/v1/projects/<uuid:pk>/sync/::post
 ------+  POST api/v1/projects/<uuid:project_pk>/members/::create
---+++++  POST api/v1/projects/<uuid:project_pk>/mention-groups/::create
---+++++  POST api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/add-member/::add_member
+-----++  POST api/v1/projects/<uuid:project_pk>/mention-groups/::create
+----+++  POST api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/add-member/::add_member
 --+++++  POST api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/mute/::mute
---+++++  POST api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/remove-member/::remove_member
+----+++  POST api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/remove-member/::remove_member
 --+++++  POST api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/unmute/::unmute
 -++++++  POST api/v1/projects/import/msproject/::post
 -++++++  POST api/v1/retro-items/<pk>/convert-to-action/::convert_to_action
