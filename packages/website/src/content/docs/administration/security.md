@@ -934,7 +934,19 @@ be set once a baseline exists.
 first, an aggregate score, and a banner naming every check below 5/10. A low
 score makes the job exit 2, which GitLab shows as an orange warning rather than
 green, so a passing-looking job is not read as a good posture. A check marked
-`n/a` could not be evaluated on that target and is not counted as low. The full
+`n/a` could not be evaluated on that target and is not counted as low.
+
+Two checks are **waived** from that warning verdict because Scorecard cannot
+see the tooling on a GitLab-hosted repository: **Fuzzing** (the scheduler's
+Hypothesis property-based fuzz suites are not counted by Scorecard's local-mode
+detector) and **SAST** (semgrep and bandit run in GitLab CI, and CodeQL runs on
+the GitHub mirror, but Scorecard only detects SAST from GitHub workflow files
+and check runs). A waived check still appears in the list, marked
+`[waived: ...]`, and a line below the list names it, but it does not turn the
+job orange, so an orange job means a real regression. A waived check that
+scores 5 or higher prints normally. The waiver list is `WAIVERS` in
+`scripts/scorecard-report.sh`; revisit it whenever the pinned Scorecard version
+changes, since an improved detector makes a waiver obsolete. The full
 JSON is kept for 30 days as the `scorecard-local.json` (and, when enabled,
 `scorecard-remote.json`) job artifact.
 
@@ -948,8 +960,8 @@ read-only, so:
   Vulnerabilities. In that run Dangerous-Workflow, Packaging and
   Token-Permissions were not evaluable (no GitHub Actions workflows exist),
   Fuzzing and SAST scored 0, and Pinned-Dependencies scored 5. SAST scored 0
-  because Scorecard detected no tool from the file tree, even though CodeQL
-  and Sonar run elsewhere. A local run on a developer checkout also counts
+  because Scorecard detected no tool from the file tree, even though semgrep and
+  bandit run in GitLab CI and CodeQL runs on the GitHub mirror. A local run on a developer checkout also counts
   gitignored files such as `__pycache__`, so Binary-Artifacts can score lower
   there than on a clean CI checkout.
 - `--repo=gitlab.com/trueppm/trueppm` runs in addition when the masked CI/CD

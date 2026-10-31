@@ -6312,10 +6312,17 @@ security:scorecard:
   # committed here, which is stronger than the tag-only pin on the osv job.
   # Bump version and checksum together (compute with sha256sum on the linux_amd64 tarball).
   #
-  # Exit contract (scripts/scorecard-report.sh): 0 all checks >= 5, 2 some check
-  # below 5, 1 scan did not complete. allow_failure: true makes all of them
-  # non-blocking; a low score exits 2 so the job renders ORANGE rather than a
-  # green that would read as a pass.
+  # Exit contract (scripts/scorecard-report.sh): 0 all non-waived checks >= 5,
+  # 2 some non-waived check below 5, 1 scan did not complete. allow_failure: true
+  # makes all of them non-blocking; a low score exits 2 so the job renders ORANGE
+  # rather than a green that would read as a pass.
+  #
+  # Known-blind waivers (#4681): Fuzzing and SAST score 0 because Scorecard cannot
+  # see our tooling on a GitLab-hosted repo (Hypothesis fuzz suites; semgrep and
+  # bandit in GitLab CI, CodeQL on the mirror), not because it is absent. They
+  # still print, marked waived, but do not count toward exit 2, so orange means a
+  # real regression. The list is WAIVERS in scripts/scorecard-report.sh; revisit
+  # it whenever SCORECARD_VERSION is bumped.
   stage: security
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   needs: []
