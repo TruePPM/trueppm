@@ -5,7 +5,7 @@ import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
 import { lensDefaultView } from '@/features/shell/lensOrder';
-import { AppShell } from '@/features/shell/AppShell';
+import { ShellGate } from '@/features/shell2/ShellGate';
 import { ProjectShell } from '@/features/project/ProjectShell';
 import { ProgramRefBoundary, ProjectRefBoundary } from '@/router/RefBoundary';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -558,7 +558,7 @@ export const routes: RouteObject[] = [
         children: [
           {
             path: '/',
-            element: <AppShell />,
+            element: <ShellGate />,
             // Every child below is wrapped by `shellRoutes` so a render throw or a
             // failed lazy chunk is caught *inside* AppShell's Outlet — the sidebar,
             // TopBar and (critically) PendingWritesGuard stay mounted (#2834).
