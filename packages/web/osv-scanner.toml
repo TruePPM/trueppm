@@ -59,8 +59,11 @@ reason = "GHSA-vfj7-8cjw-p6xm: no patched release exists in any line — npm `la
 
 # GHSA-g3hv-75wg-m249 — minimatch globparts-amplification DoS (MODERATE, CVSS
 # 6.9). Fixed only in >= 11.0.1. The top-level 10.x resolution is lifted to 11
-# by the `minimatch@^10` override in package.json (and glob 13 -> 14 by the
-# `glob` override, for GHSA-3g3m-2fjr-6pw4), so those stay scanned. The two
+# by per-parent `minimatch` overrides in package.json (and glob 13 -> 14 by the
+# `glob` override, for GHSA-3g3m-2fjr-6pw4), so those stay scanned. The
+# overrides are keyed by parent, not by a `minimatch@^10` range selector:
+# npm 10 (node:22-alpine in CI) rejects a lockfile built from the range form
+# with `npm ci` "Missing: minimatch@10.2.6", while npm 11 accepts it. The two
 # resolutions below cannot move: 3.1.5 and 5.1.9 are already the newest
 # release in their lines, and minimatch's v3 CJS default-function export
 # differs from v9+, so forcing 11 onto eslint 9 and its plugins breaks them.
@@ -71,7 +74,7 @@ reason = "GHSA-vfj7-8cjw-p6xm: no patched release exists in any line — npm `la
 #
 # Lint and docs tooling only; never bundled. The patterns are our own lint
 # config and OpenAPI refs, not user input. Clears on eslint 9 -> 10 (which takes
-# minimatch ^10.2.6, which the override then lifts) and on a redocly release off
+# minimatch ^10.2.6 — add `eslint` to the per-parent overrides then) and on a redocly release off
 # 5.x. Tracked in #4680.
 
 [[PackageOverrides]]
