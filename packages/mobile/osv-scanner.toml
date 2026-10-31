@@ -168,3 +168,25 @@ ecosystem = "npm"
 ignore = true
 effectiveUntil = 2026-12-31
 reason = "GHSA-vfj7-8cjw-p6xm: no patched release exists in any line — npm `latest` is 3.0.3, the flagged version itself, confirmed against both the npm registry and the GHSA API. Build-time/test-time only, via chokidar/micromatch under tailwindcss, and via micromatch under the Jest/Metro toolchain (@jest/transform, jest-haste-map, metro-file-map). Not bundled into the app; brace patterns reaching parse/compile/expand come from our own tailwind content globs and Jest/Metro's internal globs, not from user input. Clears when tailwindcss v3->v4 migration (#4261) removes that chain, when Jest/Metro move off micromatch@3, or when braces ships a fix."
+
+# GHSA-g3hv-75wg-m249 — minimatch globparts-amplification DoS (MODERATE, CVSS
+# 6.9). Fixed only in >= 11.0.1. The top-level 10.x resolution is lifted to 11
+# by the `minimatch@^10` override in package.json. 3.1.5 cannot move: it is the
+# newest 3.x release, and minimatch's v3 CJS default-function export differs
+# from v9+, so forcing 11 breaks its callers.
+#
+#   3.1.5 <- eslint, @eslint/config-array, @eslint/eslintrc,
+#            eslint-plugin-react                           (devDependencies)
+#   3.1.5 <- glob@7 <- react-native / @react-native/codegen / rimraf
+#   3.1.5 <- test-exclude <- babel-plugin-istanbul (Jest)
+#
+# Lint, build and test tooling only; not part of the app bundle. The patterns
+# are the toolchain's own globs, not user input. Tracked in #4680.
+
+[[PackageOverrides]]
+name = "minimatch"
+version = "3.1.5"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-g3hv-75wg-m249: fixed only in >= 11.0.1; 3.1.5 is the newest 3.x release and the v3 CJS API is incompatible with 11, so it cannot be forced. Build/test/lint tooling only (eslint 9, glob@7 under react-native, test-exclude under Jest); the patterns are the toolchain's own globs. Tracked in #4680."
