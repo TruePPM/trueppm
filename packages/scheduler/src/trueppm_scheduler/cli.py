@@ -11,26 +11,45 @@ from trueppm_scheduler.engine import monte_carlo, schedule
 from trueppm_scheduler.models import Project
 
 
+def _needs_escape(cp: int) -> bool:
+    return (
+        cp < 0x20
+        or 0x7F <= cp <= 0x9F  # DEL and C1 controls
+        or 0xD800 <= cp <= 0xDFFF  # lone surrogates: print() cannot encode them
+        or 0x200B <= cp <= 0x200F  # zero-width space/joiners, LRM, RLM
+        or 0x2028 <= cp <= 0x202E  # line/paragraph separators, bidi embeddings/overrides
+        or 0x2066 <= cp <= 0x2069  # bidi isolates
+        or cp == 0xFEFF  # BOM / zero-width no-break space
+    )
+
+
 def _display(value: object) -> str:
     """Make a document-derived string safe to print to a terminal.
 
-    A project file is untrusted input, and JSON permits C0/C1 control characters
+    A project file is untrusted input, and JSON permits control characters
     inside strings. Printed raw, ESC sequences can retitle the window (OSC 0),
     clear the screen (CSI 2J), hide text (CSI 8m) or write the clipboard
-    (OSC 52), spoofing the schedule a user reads (CWE-150). Every C0 control,
-    DEL and C1 control is replaced with a visible ``\\xNN`` escape rather than
-    U+FFFD, so the output stays diagnosable. Only the human output needs this;
-    ``--json`` is already escaped by ``json.dumps``.
+    (OSC 52), and bidi or zero-width characters can reorder or hide a task
+    name, spoofing the schedule a user reads (CWE-150). Escaped, with a visible
+    ``\\xNN`` (code points below 0x100) or ``\\uNNNN`` form rather than U+FFFD so
+    the output stays diagnosable: C0 controls (0x00-0x1F), DEL and C1 controls
+    (0x7F-0x9F), lone surrogates (U+D800-U+DFFF, which would otherwise make
+    ``print`` raise UnicodeEncodeError), U+200B-U+200F, U+2028-U+202E,
+    U+2066-U+2069 and U+FEFF. Only the human output needs this; ``--json`` is
+    already escaped by ``json.dumps``.
 
     Args:
         value: Any value; it is converted with ``str()`` first (so exceptions
             and paths can be passed directly).
 
     Returns:
-        The string with no character in 0x00-0x1F, 0x7F or 0x80-0x9F.
+        The string with none of the characters above present.
     """
     return "".join(
-        f"\\x{ord(c):02x}" if ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F else c for c in str(value)
+        (f"\\x{ord(c):02x}" if ord(c) < 0x100 else f"\\u{ord(c):04x}")
+        if _needs_escape(ord(c))
+        else c
+        for c in str(value)
     )
 
 

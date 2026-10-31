@@ -515,3 +515,39 @@ def test_invalid_file_error_escapes_control_characters(
     with pytest.raises(SystemExit):
         main()
     _assert_terminal_safe(capsys.readouterr().err)
+
+
+_SPOOF_CODEPOINTS = (0x202A, 0x202E, 0x2066, 0x2069, 0x200B, 0x200F, 0x2028, 0x2029, 0xFEFF)
+
+
+def test_display_escapes_bidi_and_zero_width_characters() -> None:
+    from trueppm_scheduler.cli import _display
+
+    raw = "a" + "b".join(chr(c) for c in _SPOOF_CODEPOINTS) + "c"
+    out = _display(raw)
+    assert not any(chr(c) in out for c in _SPOOF_CODEPOINTS)
+    for c in _SPOOF_CODEPOINTS:
+        assert f"\\u{c:04x}" in out
+
+
+def test_display_escapes_lone_surrogates() -> None:
+    from trueppm_scheduler.cli import _display
+
+    out = _display("a\ud800b\udfffc")
+    assert out == "a\\ud800b\\udfffc"
+    out.encode("utf-8")  # must be encodable
+
+
+def test_schedule_survives_lone_surrogate_and_bidi_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "s.json"
+    path.write_text(
+        '{"id":"p","name":"a\\ud800b\\u202e","start_date":"2026-03-02",'
+        '"tasks":[{"id":"T","name":"x\\u2066y","duration":86400}]}'
+    )
+    monkeypatch.setattr(sys, "argv", ["trueppm-scheduler", "schedule", str(path)])
+    main()
+    out = capsys.readouterr().out
+    out.encode("utf-8")
+    assert "‮" not in out and "⁦" not in out
