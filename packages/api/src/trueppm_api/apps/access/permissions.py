@@ -56,7 +56,7 @@ def _get_project_id_from_obj(obj: Any) -> Any | None:
     # the relation itself, so the branch above returns first and the hop never ran.
     # The only models it did reach (RiskTask, PokerSession, TimeEntry, ActiveTimer,
     # TaskActivityEvent, …) are served by views that never route them through an
-    # object-level project check, and resolving them would have flipped eleven
+    # object-level project check, and resolving them would have flipped twelve
     # fail-closed classes from "deny" to "role-based grant" on those rows — a widening,
     # in the middle of a tightening. If a task-scoped model ever does need this, give it
     # a `project_id` property like its siblings rather than widening the resolver.
@@ -819,8 +819,13 @@ class IsProjectMember(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
         if project_id is None:
-            # Org-level object (Calendar) — authentication is sufficient.
-            return bool(request.user and request.user.is_authenticated)
+            # Fail closed, like every sibling class (#4581). An object with no
+            # project path has no membership to check; granting "authenticated is
+            # enough" here would let any future viewset that lists this class on a
+            # project-less model open its detail routes to every signed-in user.
+            # Calendar was the original org-level case; since #3600 it declares its
+            # own IsAuthenticated / IsWorkspaceAdminStrict and no longer needs this.
+            return False
         return _membership_role(request, project_id) is not None
 
 
@@ -1646,9 +1651,10 @@ class IsProjectNotArchived(BasePermission):
 
         project_id = _get_project_id_from_obj(obj)
         if project_id is None:
-            # Fail CLOSED (#3587), matching the other eleven callers of
-            # _get_project_id_from_obj. This class used to `return True` here — the
-            # one fail-open shape #2745/#3414/#3570 kept recurring in, because
+            # Fail CLOSED (#3587), matching the other callers of
+            # _get_project_id_from_obj (all twelve now fail closed). This class used
+            # to `return True` here — the one fail-open shape #2745/#3414/#3570 kept
+            # recurring in, because
             # "declare the permission class" reads as a fix in review while this
             # branch quietly waves every unresolvable object through. The route-table
             # invariant (`test_residual_object_hop_resolves_or_never_fires` in

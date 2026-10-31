@@ -1137,6 +1137,7 @@ class TestObjectChecksFailClosedWithoutProject:
     @pytest.mark.parametrize(
         "perm_class",
         [
+            IsProjectMember,
             IsProjectMemberWrite,
             IsProjectMemberWriteOrOwn,
             IsProjectScheduler,
@@ -1149,10 +1150,14 @@ class TestObjectChecksFailClosedWithoutProject:
         req = _make_request(user, method="PATCH")
         assert perm_class().has_object_permission(req, _make_view(), SimpleNamespace()) is False
 
-    def test_member_read_allows_org_level_object(self, user: object, calendar: Calendar) -> None:
-        """IsProjectMember is the exception — an org-level Calendar only needs auth."""
+    def test_member_read_denies_org_level_object(self, user: object, calendar: Calendar) -> None:
+        """IsProjectMember no longer exempts an org-level Calendar (#4581).
+
+        Calendar's own viewset gates itself (#3600), so nothing needs the old
+        "authenticated is enough" branch.
+        """
         req = _make_request(user)
-        assert IsProjectMember().has_object_permission(req, _make_view(), calendar) is True
+        assert IsProjectMember().has_object_permission(req, _make_view(), calendar) is False
 
 
 # ---------------------------------------------------------------------------

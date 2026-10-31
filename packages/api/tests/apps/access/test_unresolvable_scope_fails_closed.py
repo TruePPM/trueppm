@@ -319,3 +319,29 @@ def test_anonymous_callers_are_denied_before_scope_is_considered(
 
     view = _view(_NewWriteEndpoint, url_kwargs={})
     assert permission_class().has_permission(_request("POST", AnonymousUser()), view) is False
+
+
+# ---------------------------------------------------------------------------
+# IsProjectMember.has_object_permission on an unresolvable object (#4581)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ["GET", "PATCH", "DELETE"])
+def test_is_project_member_object_check_denies_an_object_with_no_project_path(
+    method: str, member: Any
+) -> None:
+    """An authenticated user is not enough when the object names no project.
+
+    Pre-#4581 this returned True ("org-level object") — the last class in the family
+    that failed open. A synthetic object with no ``project``/``project_id`` and no
+    ``predecessor_id`` resolves to None, so there is no membership to consult.
+    """
+
+    class _NoProjectPath:
+        pass
+
+    view = _view(_NewWriteViewSet, url_kwargs={})
+    assert (
+        IsProjectMember().has_object_permission(_request(method, member), view, _NoProjectPath())
+        is False
+    )

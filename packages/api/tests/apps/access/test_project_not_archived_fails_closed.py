@@ -1,11 +1,10 @@
 """``IsProjectNotArchived.has_object_permission`` fails CLOSED on unresolvable scope (#3587).
 
 Split out of #3570, which fixed one instance (``TaskSkillRequirement``) and
-deliberately did not touch the class itself. Eleven of the thirteen callers of
-``_get_project_id_from_obj`` already fail closed (``return False``) when it cannot
-resolve a project; ``IsProjectMember`` is the one documented exception (an org-level
-``Calendar`` object, where authentication alone is sufficient — see its own
-docstring). ``IsProjectNotArchived`` used to be the *undocumented* second exception:
+deliberately did not touch the class itself. All twelve callers of
+``_get_project_id_from_obj`` now fail closed (``return False``) when it cannot resolve
+a project; ``IsProjectMember`` was the last exception (#4581) and no longer is.
+``IsProjectNotArchived`` used to be the *undocumented* second exception:
 ``return True`` on an unresolvable object, which is the shape #2745/#3414/#3570 kept
 recurring in, because declaring the permission class reads as a fix in review while
 this branch quietly waved every unresolvable object through.
