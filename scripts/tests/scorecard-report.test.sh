@@ -48,13 +48,34 @@ run_report "$TMP/ok.json"
 check "all checks >= 5 -> exit 0" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
 check "all ok -> no WARNING banner" "$([[ "$OUT" != *WARNING* ]] && echo 0 || echo 1)"
 
-mk "$TMP/low.json" License:9 SAST:0 Fuzzing:4
+mk "$TMP/low.json" License:9 Pinned-Dependencies:3 Binary-Artifacts:0
 run_report "$TMP/low.json"
-check "a check < 5 -> exit 2" "$([[ $RC -eq 2 ]] && echo 0 || echo 1)"
+check "a non-waived check < 5 -> exit 2" "$([[ $RC -eq 2 ]] && echo 0 || echo 1)"
 check "low -> banner printed" "$([[ "$OUT" == *"WARNING: OpenSSF Scorecard checks scored below 5/10"* ]] && echo 0 || echo 1)"
-check "low -> names SAST" "$([[ "$OUT" == *"0/10  SAST"* ]] && echo 0 || echo 1)"
-check "low -> names Fuzzing" "$([[ "$OUT" == *"4/10  Fuzzing"* ]] && echo 0 || echo 1)"
+check "low -> names Binary-Artifacts" "$([[ "$OUT" == *"0/10  Binary-Artifacts"* ]] && echo 0 || echo 1)"
+check "low -> names Pinned-Dependencies" "$([[ "$OUT" == *"3/10  Pinned-Dependencies"* ]] && echo 0 || echo 1)"
 check "low -> does not name a passing check in the banner" "$([[ "$OUT" != *"9/10  License"* ]] && echo 0 || echo 1)"
+
+# The 2026-10-31 security:scorecard result shape (#4681): only the two
+# known-blind checks are low -> must be green (exit 0) with both listed as waived.
+mk "$TMP/real.json" Fuzzing:0 SAST:0 Pinned-Dependencies:5 License:9 Binary-Artifacts:10 Security-Policy:10 Vulnerabilities:10 Dependency-Update-Tool:10 Dangerous-Workflow:-1 Packaging:-1 Token-Permissions:-1
+run_report "$TMP/real.json"
+check "2026-10-31 shape -> exit 0" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
+check "2026-10-31 shape -> no WARNING banner" "$([[ "$OUT" != *WARNING* ]] && echo 0 || echo 1)"
+check "2026-10-31 shape -> Fuzzing listed as waived" "$([[ "$OUT" == *"Fuzzing - r-Fuzzing [waived: "* ]] && echo 0 || echo 1)"
+check "2026-10-31 shape -> SAST listed as waived" "$([[ "$OUT" == *"SAST - r-SAST [waived: "* ]] && echo 0 || echo 1)"
+check "2026-10-31 shape -> waived summary line" "$([[ "$OUT" == *"Waived (known Scorecard blind spot on GitLab, not counted): Fuzzing, SAST"* ]] && echo 0 || echo 1)"
+
+mk "$TMP/mixed.json" Fuzzing:0 SAST:0 Pinned-Dependencies:3
+run_report "$TMP/mixed.json"
+check "waived + non-waived low -> exit 2" "$([[ $RC -eq 2 ]] && echo 0 || echo 1)"
+check "mixed -> banner names the non-waived check" "$([[ "$OUT" == *"3/10  Pinned-Dependencies"* ]] && echo 0 || echo 1)"
+check "mixed -> banner does not name waived SAST" "$([[ "$OUT" != *"0/10  SAST"* && "$OUT" != *"0/10  Fuzzing"* ]] && echo 0 || echo 1)"
+
+mk "$TMP/waived-ok.json" Fuzzing:7 SAST:10
+run_report "$TMP/waived-ok.json"
+check "waived check >= threshold -> exit 0" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
+check "waived check >= threshold -> no waived marker" "$([[ "$OUT" != *"[waived"* && "$OUT" != *"Waived ("* ]] && echo 0 || echo 1)"
 
 mk "$TMP/na.json" License:9 Packaging:-1 Token-Permissions:-1
 run_report "$TMP/na.json"
@@ -63,7 +84,7 @@ check "-1 listed as n/a" "$([[ "$OUT" == *"n/a  Packaging"* ]] && echo 0 || echo
 check "n/a names are summarized" "$([[ "$OUT" == *"Not evaluable on this target: Packaging, Token-Permissions"* ]] && echo 0 || echo 1)"
 
 run_report "$TMP/low.json" 3
-check "threshold arg respected (3 -> only the 0 is low)" "$([[ $RC -eq 2 && "$OUT" == *"0/10  SAST"* && "$OUT" != *"4/10  Fuzzing - r-Fuzzing"* ]] && echo 0 || echo 1)"
+check "threshold arg respected (3 -> only the 0 is low)" "$([[ $RC -eq 2 && "$OUT" == *"0/10  Binary-Artifacts"* && "$OUT" != *"3/10  Pinned-Dependencies - r-Pinned-Dependencies"* ]] && echo 0 || echo 1)"
 run_report "$TMP/low.json" 0
 check "threshold 0 -> nothing is low -> exit 0" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
 
