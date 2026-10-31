@@ -5,11 +5,11 @@ description: What's shipped, what's underway, and what's planned through 1.0.
 
 TruePPM is pre-GA and is built part-time. Through 1.0 we aim for a point release roughly **every 10–12 weeks** — we would rather publish a cadence we can hold than one that slips every cycle.
 
-**This roadmap stops carrying dates after 0.5, deliberately.** 0.4 is the first release we have asked anyone to run a real project on. What those people report should set the order of everything after it — which is why the [0.4 beta period](#now-the-04-beta-period) sits between the first beta and the start of 0.5, and until we have heard from them, a dated plan past 0.5 is a forecast built from our own assumptions and published at a precision we have not earned. We would rather say so than fill the gap with numbers.
+**This roadmap stops carrying dates after 0.5, deliberately.** 0.4 is the first release we have asked anyone to run a real project on. What those people report should set the order of everything after it — which is why the [0.4 beta period](#the-04-beta-period) sat between the first beta and the start of 0.5, and until we have heard from them, a dated plan past 0.5 is a forecast built from our own assumptions and published at a precision we have not earned. We would rather say so than fill the gap with numbers.
 
 **Two things shape every decision past 0.6**, added 2026-09-23: we increasingly plan TruePPM's own development inside TruePPM itself — a real, adversarial workload for the scheduling engine and the MCP surface, not a demo — and we build for two kinds of worker on the same plan, not one replacing the other. AI augments a delivery team; it does not remove the PM, the Scrum Master, or the person the plan is actually for. So the roadmap holds two things to the same bar: the plan a human runs day to day, and the grounded, citable, refusable facts an agent acts on beside them. Work that serves neither waits in Unsequenced until real usage — ours or a self-hoster's — asks for it specifically.
 
-- **The 0.4 beta period** carries a target close date. **0.5** carries a two-week delivery window whose target is the midpoint. The window says when in that fortnight the tag gets cut — it is not a claim that we are confident to ±7 days.
+- **0.5** carries a two-week delivery window whose target is the midpoint. The window says when in that fortnight the tag gets cut — it is not a claim that we are confident to ±7 days.
 - **0.6** is named and scoped, but carries no date.
 - **Everything beyond 0.6** sits under **Direction** below: committed in intent, uncommitted in position, unassigned in time. The full backlog lives in [GitLab](https://gitlab.com/trueppm/trueppm/-/issues).
 
@@ -77,15 +77,11 @@ Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `truepp
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
 - **The v2 interface refresh** — the navy/sage design system, a single unified app-shell bar (ADR-0134) with a ⌘K command palette, grouped methodology-adaptive view tabs, a context bar with presence and live health drill-through, role-based landing, and a context-aware "+ New" shipped alongside the agile-team features rather than as a separate release. The tracking epic (#1163) stays open past 0.3, though — it also carries the Risks-view redesign (filters/matrix/rollup), Gantt dependency hover-to-trace, task-detail drawer-to-full-page expansion, warm empty/first-run states, and the entitlement-aware Portfolio rollup gate, which are sequenced as conformance work through 0.7
 
-### 0.4 — the self-hosting PM's beta (beta: Sep 15, 2026)
-
-:::note[*** UPDATE — Oct 25, 2026 ***]
-The 0.4 beta period slipped past its Oct 15 target. `v0.4.0-rc.1` was tagged Oct 20, at least one more release candidate will follow, and the final candidate soaks a few days before `0.4.0` is cut — **expected around Halloween (Oct 31, 2026)**. See [the 0.4 beta period](#now-the-04-beta-period) for what changed since Oct 15.
-:::
+### 0.4 — the self-hosting PM's beta (beta: Sep 15, 2026; stable: Oct 31, 2026)
 
 **For the project manager whose schedule lives on their own infrastructure — and TruePPM's first beta release.** The headliner is a read-only MCP (Model Context Protocol) server: point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask real questions of the live schedule — critical path, a non-mutating Monte Carlo what-if, sprint status — all computed by the CPM engine, never guessed by a model, never leaving your box. That is the principle we call [**computed, not guessed**](/architecture/overview/#computed-not-guessed), and it is the spine of the MCP launch and of everything AI-facing that follows it. Because a beta is judged in its first five minutes, 0.4 is also where TruePPM becomes trivially evaluable: a hosted read-only demo, a one-command trial path, and read-only share links that let a schedule travel beyond its own instance — the evaluation story that stands in for a mobile app until the installable PWA lands in 0.5. And it lands the production foundations the self-hosting community expects at beta: SSO login federation, OpenTelemetry observability, a published rate-limiting and API-stability contract, and a coexistence-first inbound Jira pull so a team can adopt without abandoning the tools they already use. Time capture and in-app baselines move up from 0.5 into this release, because a PM cannot pilot a schedule they can't baseline or log time against. And the largest single body of work in the cycle is none of the above: it is the polish, accessibility, and refactoring pass described at the end of this section — the difference between a demo and a beta.
 
-Shipped as the **0.4.0-beta.1** pre-release (tagged Sep 15, 2026), with `trueppm-scheduler` published to PyPI at **0.4.0b1**. Everything below is in `main` and tagged. 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable (see [how the 0.4 line is numbered](#how-the-04-line-is-numbered)).
+Shipped as the **0.4.0-beta.1** pre-release (tagged Sep 15, 2026), with `trueppm-scheduler` published to PyPI at **0.4.0b1**. Everything below is in `main` and tagged. 0.4 is the first beta — the release line leaves alpha here and hardened under further `beta.N` tags and two release candidates before the **0.4.0** stable release (tagged Oct 31, 2026), with `trueppm-scheduler`, `trueppm-mcp` and `trueppm-api` published to PyPI at **0.4.0** (see [how the 0.4 line is numbered](#how-the-04-line-is-numbered)).
 
 #### How the 0.4 line is numbered
 
@@ -94,9 +90,9 @@ the beta. There is no `0.4.0-alpha.N` step:
 
 | Tag | What it means |
 |---|---|
-| `v0.4.0-beta.1` … `beta.N` | **The first beta.** Feature-complete for 0.4, in production-shaped hardening. |
-| `v0.4.0-rc.N` | Optional, if a release candidate is cut. |
-| `v0.4.0` | — |
+| `v0.4.0-beta.1` … `beta.9` | **The first beta.** Feature-complete for 0.4, in production-shaped hardening (Sep 15 – Oct 18). |
+| `v0.4.0-rc.1`, `rc.2` | Release candidates (Oct 20, Oct 26). |
+| `v0.4.0` | **Stable** (Oct 31, 2026). |
 
 `trueppm-scheduler` publishes a companion tag per artifact in PEP 440 normalized
 form — `scheduler-v0.4.0b1` — following the `scheduler-v0.3.0a1`…`a3` history.
@@ -106,13 +102,35 @@ Leaving beta is a **quality judgment, not a date**, so the number of beta tags i
 deliberately open-ended, and "0.4, the first beta" throughout these docs names the
 milestone rather than any single tag. The judgment has written criteria, a target
 window, and a scope rule for what a `beta.N` tag may carry — see
-[the 0.4 beta period](#now-the-04-beta-period).
+[the 0.4 beta period](#the-04-beta-period).
 
 One spelling to avoid on the way to a candidate: `0.4.0-beta-rc.1` — a
 plausible-looking "candidate for the beta" — is **invalid under PEP 440**, so it
 would fail the PyPI publish outright; and under SemVer 2.0.0 it sorts *after*
 `0.4.0-beta.1`, inverting the intended meaning, because the `rc` rung of the
 alpha → beta → rc ladder sits after beta by construction. Go `beta.N` → `rc.N`.
+
+#### The 0.4 beta period
+
+**Closed Oct 31, 2026, with the `v0.4.0` tag.** 0.4 is the first TruePPM release we advertised, and the first we asked anyone to run a real project on. So before 0.5 development started, the line ran a **beta period**: a stretch of time given over to what beta users actually hit, rather than to the next release's features. It was a phase of the 0.4 line, not a version of its own. Its target close was Oct 15, two weeks from the beta being advertised with `v0.4.0-beta.5` (Sep 29). It did not hold: the beta period closes on a state, not a date, and on Oct 15 the state was not met.
+
+**Why the date slipped.** Four more betas followed `beta.5`: `beta.6` (Sep 30), `beta.7` (Oct 9), `beta.8` (Oct 15, the original target day) and `beta.9` (Oct 18). The cycle moved from "can it run a real project" toward "is it safe to run one", and the work since mid-October was mostly hardening and security:
+
+- **Access control and data exposure** — invite role ceilings are enforced at accept, resend, and demotion; pending workspace invites are revoked on off-boarding; dependency-cycle errors no longer reveal tasks the caller cannot read; SSO verified-email auto-link is refused onto superuser, staff, and workspace Owner and Admin accounts.
+- **Data integrity** — cross-project dependency edges fan their events and cascades out to the successor project, and a bulk edit that would create a cross-project cycle is refused instead of returning a 500; retro saves apply as a diff rather than delete-and-recreate.
+- **Scheduling correctness** — a milestone closed on a non-working day is shown at the end of that day.
+- **Supply chain** — `pip` 26.2.2 or later is required in the api and mcp images, asserted at build time, and a run of dependency bumps cleared the vulnerability scanner.
+- **API contract** — enums are published open by default, and project roles are published as a banded integer.
+
+None of this adds a feature. Each item is the kind of defect the beta exists to flush out, and shipping `0.4.0` with them open would have defeated the point, so the date moved rather than the bar.
+
+**How it closed.** Two release candidates followed the last beta: `v0.4.0-rc.1` (Oct 20) and `v0.4.0-rc.2` (Oct 26). The final candidate soaked for five days and was promoted to `v0.4.0` on Oct 31. A `beta.N` or `rc.N` tag carried fixes, hardening, documentation, and the launch items already described under 0.4, and nothing from 0.5. The period was set to close when all of these held:
+
+- no open issue reported by a beta user blocked installing, upgrading, or running a real project, and none had been opened in the last week; and
+- the upgrade path from the advertised beta tag (`v0.4.0-beta.5`) to the closing tag had been exercised end to end, following the published [upgrade notes](/getting-started/upgrade/); and
+- the final release candidate had soaked for a few days with no new blocking reports.
+
+A beta that ends on a date instead of a state is not a beta.
 
 :::tip[SSO is not an enterprise feature]
 Basic single sign-on has been part of the **OSS core** since 0.4. The carve-out line is one sentence:
@@ -227,41 +245,13 @@ memory (#3831), and a first measurement of the browser at scale (#3832).
 
 ## Underway
 
-From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. Only the 0.4 beta period and 0.5 carry dates; the persona ordering past 0.6 is a sequence we intend, not a schedule we have committed to.
+From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. Only 0.5 carries a date; the persona ordering past 0.6 is a sequence we intend, not a schedule we have committed to.
 
-### Now: the 0.4 beta period
-
-**Target close: Oct 15, 2026 — slipped. `0.4.0` is now expected around Halloween (Oct 31, 2026).** The original target counted two weeks from the beta being advertised with `v0.4.0-beta.5` (Sep 29). It did not hold: the beta period closes on a state, not a date, and on Oct 15 the state was not met. 0.4 is the first TruePPM release we have advertised, and the first we have asked anyone to run a real project on. So before 0.5 development starts, there is a **beta period**: a stretch of time given over to what beta users actually hit, rather than to the next release's features. It is a phase of the 0.4 line, not a version of its own.
-
-**Why the date slipped.** Four more betas followed `beta.5`: `beta.6` (Sep 30), `beta.7` (Oct 9), `beta.8` (Oct 15, the original target day) and `beta.9` (Oct 18). The cycle moved from "can it run a real project" toward "is it safe to run one", and the work since mid-October was mostly hardening and security:
-
-- **Access control and data exposure** — invite role ceilings are enforced at accept, resend, and demotion; pending workspace invites are revoked on off-boarding; dependency-cycle errors no longer reveal tasks the caller cannot read; SSO verified-email auto-link is refused onto superuser, staff, and workspace Owner and Admin accounts.
-- **Data integrity** — cross-project dependency edges fan their events and cascades out to the successor project, and a bulk edit that would create a cross-project cycle is refused instead of returning a 500; retro saves apply as a diff rather than delete-and-recreate.
-- **Scheduling correctness** — a milestone closed on a non-working day is shown at the end of that day.
-- **Supply chain** — `pip` 26.2.2 or later is required in the api and mcp images, asserted at build time, and a run of dependency bumps cleared the vulnerability scanner.
-- **API contract** — enums are published open by default, and project roles are published as a banded integer.
-
-None of this adds a feature. Each item is the kind of defect the beta exists to flush out, and shipping `0.4.0` with them open would have defeated the point, so the date moved rather than the bar.
-
-**Where we are now.** `v0.4.0-rc.1` was tagged on Oct 20, the first release candidate on the line. At least one more candidate will be cut before the stable tag, and the final candidate then soaks for a few days with no new blocking reports before it is promoted to `0.4.0`.
-
-**What ships during it.** Further `v0.4.0-beta.N` tags, roughly every one to two weeks while reports are coming in. A `beta.N` tag carries **fixes, hardening, documentation, and the launch items already described under 0.4** — nothing from 0.5. If a report turns out to need a new feature, it is filed against 0.5 or later and says so, rather than growing the beta.
-
-**How to be heard.** Use **Report a bug** in the user menu or ⌘K (the in-product feedback link that ships with 0.4). It opens the [tracker](https://gitlab.com/trueppm/trueppm/-/issues) with your version, build, and route already filled in. What you report during this period decides what gets fixed before `0.4.0` and what 0.5 is ordered around.
-
-**How it ends.** The beta period closes when **all** of these hold:
-
-- no open issue reported by a beta user blocks installing, upgrading, or running a real project, and none has been opened in the last week; and
-- the upgrade path from the advertised beta tag (`v0.4.0-beta.5`) to the closing tag has been exercised end to end, following the published [upgrade notes](/getting-started/upgrade/); and
-- the final release candidate has soaked for a few days with no new blocking reports.
-
-Then the final candidate is promoted to `v0.4.0` and 0.5 planning begins. The window above is a target, not a promise. If the criteria are not met by then, the period runs on and the 0.5 date moves with it. A beta that ends on a date instead of a state is not a beta.
-
-### 0.5 — plan & people (target: Jan 4 – 18, 2027)
+### 0.5 — plan & people (target: Jan 18 – Feb 1, 2027)
 
 **For the resource manager — and anyone who has to staff a plan, whether the workers are people, or people and AI agents.** The tool warns you'd put someone at 130% *before* you save the assignment, not six weeks later from a burned-out engineer — and the same allocation model takes its first step toward treating an AI agent as a schedulable resource, because for software teams "who does the work" now spans both. Resource allocation and the hybrid human/AI first cut share one engine seam (a worker profile on the resource), so they land together as one story rather than two features. The installable PWA below is TruePPM's mobile story — through 1.0, not only for this release (see [the note under 0.6](#06--open--portable-no-date--next-after-05)) — so the milestone concentrates on the staffing charter instead of opening a greenfield native platform alongside it.
 
-0.5 was re-triaged against this charter (#2558). The one-time Jira migration, two-factor authentication, the AI query layer, the agile-team refinement backlog, and the deeper half of the hybrid engine work moved to 0.6; part of the release is deliberately left unallocated, for 0.4 reports that arrive after the beta period closes. 0.5 was re-dated on 2026-09-26. Its original Nov 11 – 25 window counted from the first beta tag, as if 0.5 development started the day 0.4 went to beta. In practice the weeks after an advertised first beta go to the people running it. The window now counts from the [close of the 0.4 beta period](#now-the-04-beta-period): about ten to twelve weeks of work, plus the year-end holidays. Because that count starts when the beta period closes, the late close of the 0.4 beta period (see above) may shift this window; it is left unchanged here until the closing tag is cut. What remains in scope is the staffing charter, the PWA, and MCP plan mode — and, added 2026-09-05 as a third headliner, the **project status update** (#3425): the report every PM writes on Monday, assembled from numbers the engine already computes. A PM asked to pilot a schedule in the 0.4 beta cannot report on it today, and no other item in the milestone closes that gap.
+0.5 was re-triaged against this charter (#2558). The one-time Jira migration, two-factor authentication, the AI query layer, the agile-team refinement backlog, and the deeper half of the hybrid engine work moved to 0.6; part of the release is deliberately left unallocated, for 0.4 reports that arrive after the beta period closes. 0.5 was re-dated on 2026-09-26. Its original Nov 11 – 25 window counted from the first beta tag, as if 0.5 development started the day 0.4 went to beta. In practice the weeks after an advertised first beta go to the people running it. The window now counts from the [close of the 0.4 beta period](#the-04-beta-period): about ten to twelve weeks of work, plus the year-end holidays. The beta period closed on Oct 31, 2026, 16 days after its Oct 15 target, so on 2026-10-31 the window moved by two weeks, from Jan 4 – 18 to Jan 18 – Feb 1, 2027. What remains in scope is the staffing charter, the PWA, and MCP plan mode — and, added 2026-09-05 as a third headliner, the **project status update** (#3425): the report every PM writes on Monday, assembled from numbers the engine already computes. A PM asked to pilot a schedule in the 0.4 beta cannot report on it today, and no other item in the milestone closes that gap.
 
 A second pass on 2026-09-26 read the same scope through the questions the platform exists to answer — *what work is to be done, what has been completed, and what is my schedule and financial risk* — because those three are what any team built on top of TruePPM asks of it, whatever its vocabulary for the work. The staffing charter, the status update, plan mode, and the PWA already serve them. The pass changed four items at the margin and added one: the worker profile is now a **non-human resource profile** with agents as its first instance; the i18n decision takes **record-type vocabulary** into scope; onboarding starts from **project templates**; and the **cost model** (#754) moves up from 0.8, because the release answered schedule risk in full and financial risk not at all — nothing between the actuals feed and 0.8's EV-lite put a rate on a resource or a budget on a project. The builder-facing pieces that would follow from that lens — attached record types, a per-workspace manifest, tenancy — are deliberately *not* in this release; they are earned by a real team's use, not designed ahead of it.
 

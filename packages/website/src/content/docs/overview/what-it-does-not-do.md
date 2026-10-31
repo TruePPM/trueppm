@@ -395,7 +395,7 @@ a cadence we believe we can hold, a tested scale envelope, and this page. Those 
 the evidence available to a young project. Whether they are enough is a reasonable
 thing to decide against us.
 
-**If you're running real teams, wait for the release line to reach `rc` or stable** —
+**If you're running real teams, run a stable tag (`0.4.0` or later), not a pre-release** —
 we're still learning what needs to change from early feedback. That is our own
 recommendation, and it is in the README too.
 

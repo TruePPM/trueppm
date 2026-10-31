@@ -646,11 +646,12 @@ shows an Index Scan using the rebuilt index rather than a sequential scan.
    `image.tag` to the bare version fails with `manifest unknown` — and the reverse
    applies to a `v`-prefixed `APP_VERSION` in Compose. See
    [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry).
-2. **You installed chart `0.4.0`.** The chart published as `0.4.0` came from the
-   first beta cut and defaults to image tag `v0.4.0`, which was never published.
-   It has since been removed from the registry, but a release installed from it
-   keeps running that chart — `helm list` shows it as `trueppm-0.4.0`. Upgrade to a
-   later beta, keeping your values:
+2. **You installed chart `0.4.0` before October 31, 2026.** The chart published as
+   `0.4.0` by the first beta cut defaulted to image tag `v0.4.0`, which did not exist
+   until the stable release. It was removed from the registry, but a release
+   installed from it keeps running that chart — `helm list` shows it as
+   `trueppm-0.4.0`, the same name as the signed stable chart, so check its UPDATED
+   date. Upgrade to `0.4.0` or later, keeping your values:
 
    ```bash
    helm upgrade <release> oci://ghcr.io/trueppm/charts/trueppm \

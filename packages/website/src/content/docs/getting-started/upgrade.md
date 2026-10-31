@@ -1028,17 +1028,18 @@ helm upgrade trueppm oci://ghcr.io/trueppm/charts/trueppm \
 ```
 
 `<version>` is the release version without a leading `v`; the current tag is
-on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases). Always pass it: Helm skips pre-release chart versions unless you
-name one, so while 0.4 is in beta a bare `helm upgrade` fails with `could not locate
-a version matching provided version string`. `--devel` selects the newest pre-release.
+on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases). Always pass it: without it Helm resolves the newest
+stable chart and skips pre-release versions (`--devel` includes them), so an upgrade
+can move further than you meant.
 
-:::caution[Installed from chart `0.4.0`? Move to a later beta]
-The first beta cut published a chart as `0.4.0`. It defaults to an image tag
-(`v0.4.0`) that was never published, so a release installed from it cannot pull its
-images, and it was unsigned. That chart has been removed from the registry, but a
-release installed from it keeps running it (`helm list` shows `trueppm-0.4.0`). Run
-the command above with `--version
-0.4.0-beta.2` or later, keeping your existing `-f` values. If you set `image.tag`
+:::caution[Installed chart `0.4.0` before October 31, 2026? Upgrade it]
+The first beta cut published a chart as `0.4.0`. It defaulted to an image tag
+(`v0.4.0`) that did not exist until the stable release, so a release installed from
+it could not pull its images, and it was unsigned. That chart was removed from the
+registry, but a release installed from it keeps running it. `helm list` shows it as
+`trueppm-0.4.0`, the same name as the signed stable chart, so check its UPDATED date.
+Run the command above with `--version 0.4.0` or later, keeping your existing `-f`
+values. If you set `image.tag`
 explicitly you were not affected by the tag problem, but the chart is still unsigned.
 :::
 

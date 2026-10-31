@@ -5,7 +5,7 @@ documentedFor: "0.4"
 ---
 
 :::caution[Pre-GA]
-TruePPM 0.4 has shipped (as the `v0.4.0-beta.N` pre-release line; `v0.4.0-beta.1` was the first tag, and the newest is on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases)) and is suitable for evaluation and early-adopter deployments; 0.4 is the first beta — the release line leaves alpha here and hardens under further `beta.N` tags before an eventual `0.4.0` stable ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
+TruePPM 0.4 has shipped (the line began at `v0.4.0-beta.1` on September 15, 2026 and reached the `v0.4.0` stable release on October 31, 2026; the newest tag is on the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases)) and is suitable for evaluation and early-adopter deployments; 0.4 is the first beta line ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
 :::tip[Before a production install, read Networking]
@@ -194,19 +194,18 @@ helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>
 the [Releases page](https://gitlab.com/trueppm/trueppm/-/releases). The chart version *is* the release version, and its default image
 tag is that same version prefixed with `v`, pulled from the GitLab Container
 Registry (see [Image tags differ by registry](/administration/helm-values/#image-tags-differ-by-registry)).
-Always pass `--version`. Helm skips pre-release chart versions unless you name one,
-so until the stable 0.4.0 ships a bare `helm install` fails with `could not locate
-a version matching provided version string`. `--devel` selects the newest pre-release, but
-pin a version for anything you intend to keep.
+Pass `--version` for anything you intend to keep. Without it Helm installs the newest
+stable chart and skips pre-release versions; `--devel` includes them.
 
-:::caution[Installed from chart `0.4.0`? Upgrade to a later beta]
-The first beta cut published a chart as `0.4.0`, before the release tooling bumped
-`Chart.yaml`. Its default image tag is `v0.4.0`, which was never published, so a
-release installed from it stays in `ImagePullBackOff` on the `migrate` init
-container; it was also unsigned. That chart has been removed from the registry, but a
-release installed from it keeps running the chart it was installed with — `helm list`
-shows it as `trueppm-0.4.0`. If you have one, upgrade to `0.4.0-beta.2` or later; see
-[Image pull failure](/administration/troubleshooting/#image-pull-failure).
+:::caution[Installed chart `0.4.0` before October 31, 2026? Upgrade it]
+The first beta cut (September 15, 2026) published a chart as `0.4.0`, before the
+release tooling bumped `Chart.yaml`. It was unsigned, and its default image tag
+`v0.4.0` did not exist until the stable release, so a release installed from it
+stayed in `ImagePullBackOff` on the `migrate` init container. That chart was removed
+from the registry, and the signed stable `0.4.0` chart published on October 31, 2026
+replaces it. Both show as `trueppm-0.4.0` in `helm list`; if yours was last updated
+before October 31, 2026, run `helm upgrade` with `--version 0.4.0` or later, keeping
+your values. See [Image pull failure](/administration/troubleshooting/#image-pull-failure).
 :::
 
 To install from the chart source instead, clone the repository:
