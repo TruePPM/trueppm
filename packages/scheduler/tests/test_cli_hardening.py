@@ -550,4 +550,13 @@ def test_schedule_survives_lone_surrogate_and_bidi_names(
     main()
     out = capsys.readouterr().out
     out.encode("utf-8")
-    assert "‮" not in out and "⁦" not in out
+    assert "\u202e" not in out and "\u2066" not in out
+
+
+def test_display_escapes_tag_characters_and_word_joiner() -> None:
+    from trueppm_scheduler.cli import _display
+
+    raw = "a" + chr(0xE0041) + chr(0x2060) + chr(0xAD) + chr(0x61C) + chr(0xFFF9) + "b"
+    out = _display(raw)
+    assert out == "a\\U000e0041\\u2060\\xad\\u061c\\ufff9b"
+    out.encode("utf-8")

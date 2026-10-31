@@ -20,6 +20,10 @@ def _needs_escape(cp: int) -> bool:
         or 0x2028 <= cp <= 0x202E  # line/paragraph separators, bidi embeddings/overrides
         or 0x2066 <= cp <= 0x2069  # bidi isolates
         or cp == 0xFEFF  # BOM / zero-width no-break space
+        or 0x2060 <= cp <= 0x2064  # word joiner and invisible operators
+        or cp in (0x00AD, 0x061C, 0x180E)  # soft hyphen, Arabic letter mark, Mongolian vowel sep.
+        or 0xFFF9 <= cp <= 0xFFFB  # interlinear annotation anchors
+        or 0xE0000 <= cp <= 0xE007F  # tag characters (invisible ASCII smuggling)
     )
 
 
@@ -35,8 +39,12 @@ def _display(value: object) -> str:
     the output stays diagnosable: C0 controls (0x00-0x1F), DEL and C1 controls
     (0x7F-0x9F), lone surrogates (U+D800-U+DFFF, which would otherwise make
     ``print`` raise UnicodeEncodeError), U+200B-U+200F, U+2028-U+202E,
-    U+2066-U+2069 and U+FEFF. Only the human output needs this; ``--json`` is
-    already escaped by ``json.dumps``.
+    U+2066-U+2069, U+FEFF, U+2060-U+2064, U+00AD, U+061C, U+180E,
+    U+FFF9-U+FFFB and the tag block U+E0000-U+E007F (code points above 0xFFFF
+    use ``\\UNNNNNNNN``). ZWJ and ZWNJ (U+200C/U+200D) are escaped on purpose:
+    they can hide text, and the cost is that emoji ZWJ sequences and
+    Persian/Indic ZWNJ text show as visible escapes in the human output. Only the human
+    output needs this; ``--json`` is already escaped by ``json.dumps``.
 
     Args:
         value: Any value; it is converted with ``str()`` first (so exceptions
@@ -46,7 +54,13 @@ def _display(value: object) -> str:
         The string with none of the characters above present.
     """
     return "".join(
-        (f"\\x{ord(c):02x}" if ord(c) < 0x100 else f"\\u{ord(c):04x}")
+        (
+            f"\\x{ord(c):02x}"
+            if ord(c) < 0x100
+            else f"\\u{ord(c):04x}"
+            if ord(c) < 0x10000
+            else f"\\U{ord(c):08x}"
+        )
         if _needs_escape(ord(c))
         else c
         for c in str(value)
