@@ -18,7 +18,7 @@ This skill is the **begin-gate bookend** to `/pre-release`:
 - `/pre-release` is the **end-gate** — "what becomes a public commitment we can't take back?" Run before tagging.
 - `dotplanning` is the **begin-gate** — "what are we actually building, what's missing, what must we decide first, and what are we promising?" Run at kickoff.
 - `architect` operates one altitude **below** this — it designs a single feature/subsystem and emits an ADR. `dotplanning` operates at **milestone altitude**: it decides *which* features need an `architect` pass at all, and in what order. Do not duplicate `architect`'s per-feature design work here; instead, flag which features still need it.
-- `/batch` operates **after** this — it pulls waves of issues by `release::` label. The labels it pulls on are the ones this skill's grooming pass establishes.
+- `/wave` operates **after** this — it pulls waves of issues by `release::` label. The labels it pulls on are the ones this skill's grooming pass establishes.
 
 **One-time gate, not a loop.** Like `/pre-release full`, run this **once** at the
 start of a dot release. Re-running mid-cycle re-discovers adjacent gaps and turns into
