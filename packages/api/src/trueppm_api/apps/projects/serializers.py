@@ -23,7 +23,12 @@ if TYPE_CHECKING:
 
     from trueppm_api.apps.workspace.models import Workspace
 
-from trueppm_api.apps.access.models import ProjectMembership, Role, program_role_label
+from trueppm_api.apps.access.models import (
+    ProjectMembership,
+    Role,
+    program_role_label,
+    project_role_label,
+)
 from trueppm_api.apps.projects.actual_date_rules import (
     ActualDateViolation,
     check_actual_date_bound,
@@ -1411,7 +1416,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
     def get_default_member_role_label(self, obj: Project) -> str:
         """Human label for the project's default new-member role (ADR-0363)."""
-        return Role(obj.default_member_role).label
+        return project_role_label(obj.default_member_role)
 
     def validate_default_member_role(self, value: int) -> int:
         """Constrain the default to a real role strictly below OWNER (ADR-0363 §4).
