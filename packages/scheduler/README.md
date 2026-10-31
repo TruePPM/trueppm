@@ -390,6 +390,7 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
 | `MAX_CALENDAR_SCAN_DAYS` | `36600` | Longest run of consecutive non-working days before a calendar is declared degenerate |
 | `MAX_LAG_DELTA_CELLS` | `50000000` | Monte Carlo's `(distinct dep-type/lag combos) x (index span)` precompute |
+| `MAX_INDEX_CELLS` | `25000000` | Monte Carlo's `(distinct calendars by content) x (index span)` working-day indices, 8 bytes per cell; over it `monte_carlo()` raises `SimulationCapExceeded`. Override per call with `max_index_cells` |
 | `MAX_VELOCITY_SPRINTS` | `10000` | Per-run sprint horizon the velocity sampler will bootstrap |
 | `MC_SENSITIVITY_CAP` | `20` | Tasks returned by the sensitivity ("tornado") ranking |
 
@@ -405,7 +406,7 @@ notebook that owns the whole machine, and wrong for a synchronous web request:
 plus a numpy-vectorized sampling pass), so a request handler that calls either
 directly on untrusted or unbounded input ties up a worker thread or process for
 as long as the input demands. Pass `max_runs` and `max_tasks` whenever the
-caller is untrusted, and run the call off the request thread with a wall-clock
+caller is untrusted (and a smaller `max_index_cells` if it supplies a `calendars` registry; the default 25M cells is 200 MB of index arrays alone at 8 bytes per cell, and the whole process runs larger: the issue's 32-calendar maximum-span repro peaks near 220 MB RSS, and about 63 calendars would be 400+ MB. For a request-scoped caller handling untrusted registries, `max_index_cells=5_000_000` is a sensible start: 40 MB of index arrays, about 12 calendars at the maximum span of ~366k days, roughly 100 MB for the process), and run the call off the request thread with a wall-clock
 timeout — a worker/queue, not inline in the view — the same pattern the
 TruePPM API itself uses
 ([#4010](https://gitlab.com/trueppm/trueppm/-/issues/4010)).
