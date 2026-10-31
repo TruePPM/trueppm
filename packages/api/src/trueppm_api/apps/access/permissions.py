@@ -819,8 +819,13 @@ class IsProjectMember(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
         if project_id is None:
-            # Org-level object (Calendar) — authentication is sufficient.
-            return bool(request.user and request.user.is_authenticated)
+            # Fail closed, like every sibling class (#4581). An object with no
+            # project path has no membership to check; granting "authenticated is
+            # enough" here would let any future viewset that lists this class on a
+            # project-less model open its detail routes to every signed-in user.
+            # Calendar was the original org-level case; since #3600 it declares its
+            # own IsAuthenticated / IsWorkspaceAdminStrict and no longer needs this.
+            return False
         return _membership_role(request, project_id) is not None
 
 
