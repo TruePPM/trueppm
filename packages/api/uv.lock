@@ -2964,7 +2964,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1.0" },
     { name = "schemathesis", marker = "extra == 'fuzz'", specifier = ">=4.0,<5.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.7,<5.0" },
-    { name = "trueppm-scheduler", specifier = ">=0.4.0rc2,<0.5" },
+    { name = "trueppm-scheduler", specifier = ">=0.4.0,<0.5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29,<1.0" },
     { name = "whitenoise", specifier = ">=6.0,<7.0" },
 ]
@@ -2972,15 +2972,15 @@ provides-extras = ["c", "binary", "dev", "fuzz"]
 
 [[package]]
 name = "trueppm-scheduler"
-version = "0.4.0rc2"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "networkx" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/02/a9/6f7d1fe3cef10feb06592bd7ad0e4660f3082877a9fc1155ad36545e5fb3/trueppm_scheduler-0.4.0rc2.tar.gz", hash = "sha256:7a9ecb25358ad6e07bd02b1d9d135f0c31f54d2781b0ffb75909c9129d0e4fbc", size = 509793, upload-time = "2026-10-26T13:55:39.164Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/af/9b/0e6ada4746b8880b3d7393652b2c4a96a44becffb6d377de7c660d501ed6/trueppm_scheduler-0.4.0.tar.gz", hash = "sha256:f252703599d4b2234f7749d2f7061f1f4b8753c48d2c054726d97ac3a470f056", size = 510359, upload-time = "2026-10-31T14:37:37.458Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/08/028ab6f54ca39905e3da34de3beeeaee4891e1358fceb8c0937f0e68397a/trueppm_scheduler-0.4.0rc2-py3-none-any.whl", hash = "sha256:9b5a50bf960b411c420b7694d377f7805a354afa378724d49736693bd3e6360d", size = 198640, upload-time = "2026-10-26T13:55:37.682Z" },
+    { url = "https://files.pythonhosted.org/packages/67/ad/9b8ebda62fd8ba033d669ca5ac52d391d3f6deb0479e1233df6f68c08f25/trueppm_scheduler-0.4.0-py3-none-any.whl", hash = "sha256:8be45bce622b2e8fdff3ef391475025ebe5657bebef982b9645ae2774f57ca6e", size = 198877, upload-time = "2026-10-31T14:37:35.932Z" },
 ]
 
 [[package]]
