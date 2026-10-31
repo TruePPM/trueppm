@@ -31,6 +31,8 @@ import { PreviewOverlay } from './PreviewOverlay';
 
 interface CanvasScheduleTimelineProps {
   tasks: Task[];
+  /** Full task set (incl. rows in collapsed phases) for screen-reader dependency names (#4507). */
+  allTasks?: Task[];
   links: TaskLink[];
   /**
    * Sprint windows to band behind the bars (#2738), row-indexed against `tasks`.
@@ -95,6 +97,7 @@ const NO_ROW_MODES: ReadonlyMap<string, RowMode> = new Map();
 
 export function CanvasScheduleTimeline({
   tasks,
+  allTasks,
   links,
   sprintBands = NO_SPRINT_BANDS,
   cadenceSegments = NO_CADENCE_SEGMENTS,
@@ -235,6 +238,7 @@ export function CanvasScheduleTimeline({
       <ScheduleAriaOverlay
         engine={engine}
         tasks={tasks}
+        allTasks={allTasks}
         links={links}
         sprintBands={sprintBands}
         emptySprints={emptySprints}

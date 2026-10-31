@@ -107,3 +107,38 @@ describe('buildDepDescription (#1371 schedule dep edge a11y)', () => {
     expect(desc).toContain('Unknown task');
   });
 });
+
+describe('buildDepDescription with rows hidden by a collapsed phase (#4507)', () => {
+  const phase = { ...makeTask('P', 'Assess'), isSummary: true } as Task;
+  const hiddenPred = { ...makeTask('H', 'Gather data'), parentId: 'P' } as Task;
+  const nestedPhase = { ...makeTask('N', 'Inner'), isSummary: true, parentId: 'P' } as Task;
+  const deepPred = { ...makeTask('D', 'Deep work'), parentId: 'N' } as Task;
+  const target = makeTask('T', 'Dry-run migration');
+  const all = [phase, hiddenPred, nestedPhase, deepPred, target];
+  const visible = [phase, target];
+
+  it('names a predecessor inside a collapsed phase and says which phase', () => {
+    const result = buildDepDescription(visible, [makeLink('l1', 'H', 'T')], all);
+    expect(result.get('T')).toBe('Depends on: Gather data (in collapsed phase Assess) (FS).');
+  });
+
+  it('uses the outermost collapsed ancestor for a deeply nested predecessor', () => {
+    const result = buildDepDescription(visible, [makeLink('l1', 'D', 'T')], all);
+    expect(result.get('T')).toBe('Depends on: Deep work (in collapsed phase Assess) (FS).');
+  });
+
+  it('names a hidden successor too', () => {
+    const result = buildDepDescription(visible, [makeLink('l1', 'T', 'H')], all);
+    expect(result.get('T')).toBe('Leads to: Gather data (in collapsed phase Assess) (FS).');
+  });
+
+  it('names a filter-hidden peer without claiming a collapsed phase', () => {
+    const result = buildDepDescription([target], [makeLink('l1', 'H', 'T')], [hiddenPred, target]);
+    expect(result.get('T')).toBe('Depends on: Gather data (FS).');
+  });
+
+  it('reserves "Unknown task" for a genuinely dangling link', () => {
+    const result = buildDepDescription(visible, [makeLink('l1', 'GONE', 'T')], all);
+    expect(result.get('T')).toBe('Depends on: Unknown task (FS).');
+  });
+});

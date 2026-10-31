@@ -168,12 +168,36 @@ export function emptySprintCadenceSentence(windows: readonly EmptySprintWindow[]
  *   "Depends on: Design (FS, +2d); Planning (SS). Leads to: Build (FS)."
  *
  * Tasks with no links are omitted from the map. Exported for unit testing.
+ *
+ * `tasks` are the rows on screen; `allTasks` is the full set. Peer names resolve
+ * from `allTasks` so a predecessor folded away inside a collapsed phase is still
+ * named. It then carries "(in collapsed phase X)", X being the nearest on-screen
+ * ancestor, which is the summary row hiding it. "Unknown task" is left for a link
+ * whose peer is in neither set, a genuinely dangling link (#4507).
  */
-export function buildDepDescription(tasks: Task[], links: TaskLink[]): Map<string, string> {
+export function buildDepDescription(
+  tasks: Task[],
+  links: TaskLink[],
+  allTasks: Task[] = tasks,
+): Map<string, string> {
   if (links.length === 0) return new Map();
 
-  const nameById = new Map<string, string>();
-  for (const t of tasks) nameById.set(t.id, t.name);
+  const fullById = new Map<string, Task>();
+  for (const t of allTasks) fullById.set(t.id, t);
+  const visibleIds = new Set(tasks.map((t) => t.id));
+
+  const hidingPhaseName = (peerId: string): string | null => {
+    const seen = new Set<string>([peerId]);
+    let cursor = fullById.get(peerId)?.parentId ?? null;
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor);
+      const ancestor = fullById.get(cursor);
+      if (!ancestor) return null;
+      if (visibleIds.has(cursor)) return ancestor.isSummary ? ancestor.name : null;
+      cursor = ancestor.parentId;
+    }
+    return null;
+  };
 
   // Group links by target (predecessors) and by source (successors).
   const byTarget = new Map<string, TaskLink[]>();
@@ -189,7 +213,13 @@ export function buildDepDescription(tasks: Task[], links: TaskLink[]): Map<strin
   }
 
   const formatLink = (link: TaskLink, peerId: string): string => {
-    const name = nameById.get(peerId) ?? 'Unknown task';
+    const peer = fullById.get(peerId);
+    const phase = peer && !visibleIds.has(peerId) ? hidingPhaseName(peerId) : null;
+    const name = peer
+      ? phase
+        ? `${peer.name} (in collapsed phase ${phase})`
+        : peer.name
+      : 'Unknown task';
     const lag = link.lag !== 0 ? `, ${link.lag > 0 ? '+' : ''}${link.lag}d` : '';
     return `${name} (${link.type}${lag})`;
   };
@@ -220,6 +250,11 @@ export function buildDepDescription(tasks: Task[], links: TaskLink[]): Map<strin
 interface ScheduleAriaOverlayProps {
   engine: GanttEngine | null;
   tasks: Task[];
+  /**
+   * Every task, including rows folded into a collapsed phase. Dependency
+   * summaries name peers from this set; defaults to `tasks` (#4507).
+   */
+  allTasks?: Task[];
   /** Dependency edges — drives per-bar aria-describedby dep announcements (#1371). */
   links: TaskLink[];
   /** Sprint-window bands (#2738) — the non-visual carrier for the canvas band. */
@@ -345,6 +380,7 @@ function handleEnterKey(
 export function ScheduleAriaOverlay({
   engine,
   tasks,
+  allTasks,
   links,
   sprintBands,
   emptySprints,
@@ -419,7 +455,10 @@ export function ScheduleAriaOverlay({
   }, [containerRef]);
 
   // Per-task dep description strings for aria-describedby (#1371).
-  const depDescriptions = useMemo(() => buildDepDescription(tasks, links), [tasks, links]);
+  const depDescriptions = useMemo(
+    () => buildDepDescription(tasks, links, allTasks ?? tasks),
+    [tasks, links, allTasks],
+  );
 
   // Band per row (#2738) — the band's text equivalent for screen readers, and
   // the hover recovery path for a name the canvas had to truncate (rule 255):

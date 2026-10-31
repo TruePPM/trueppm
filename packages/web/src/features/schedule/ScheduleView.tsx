@@ -7140,6 +7140,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               >
                 <CanvasScheduleTimeline
                   tasks={visibleTasks}
+                  allTasks={allTasks}
                   links={links ?? []}
                   sprintBands={sprintBands}
                   cadenceSegments={cadenceSegments}
