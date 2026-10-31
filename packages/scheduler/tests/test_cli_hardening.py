@@ -427,3 +427,91 @@ def test_schedule_earliest_feasible_line_sits_directly_above_the_header(
         + _SCHEDULE_HEADER
         + "\n"
     ) in out
+
+
+# --- #4718: terminal-escape injection from untrusted document strings ---------
+
+_EVIL = "A\x1b]0;PWNED\x07\x1b[2J\x9b8m\x7fZ"
+
+
+def _assert_terminal_safe(text: str) -> None:
+    bad = [c for c in text if (ord(c) < 0x20 and c != "\n") or 0x7F <= ord(c) <= 0x9F]
+    assert not bad, f"raw control characters leaked: {bad!r}"
+
+
+def _evil_file(tmp_path: Path) -> str:
+    project = Project(
+        id="p",
+        name=_EVIL,
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="T1" + _EVIL, name=_EVIL, duration=timedelta(days=2)),
+            Task(id="T2", name="ok", duration=timedelta(days=1)),
+        ],
+        dependencies=[Dependency("T1" + _EVIL, "T2")],
+        calendar=Calendar(),
+    )
+    path = tmp_path / "evil.json"
+    path.write_text(project.to_json())
+    return str(path)
+
+
+def test_schedule_human_output_escapes_control_characters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["trueppm-scheduler", "schedule", _evil_file(tmp_path)])
+    main()
+    out = capsys.readouterr().out
+    _assert_terminal_safe(out)
+    assert "\\x1b]0;PWNED\\x07\\x1b[2J\\x9b8m\\x7f" in out
+
+
+def test_monte_carlo_human_output_escapes_control_characters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys, "argv", ["trueppm-scheduler", "monte-carlo", _evil_file(tmp_path), "--runs", "10"]
+    )
+    main()
+    _assert_terminal_safe(capsys.readouterr().out)
+
+
+def test_schedule_json_output_is_unchanged_by_escaping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys, "argv", ["trueppm-scheduler", "schedule", _evil_file(tmp_path), "--json"]
+    )
+    main()
+    assert json.loads(capsys.readouterr().out)["tasks"][0]["name"] == _EVIL
+
+
+def test_schedule_error_path_escapes_control_characters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(_project: object) -> object:
+        raise RuntimeError("bad \x1b[2J task \x9b")
+
+    monkeypatch.setattr("trueppm_scheduler.cli.schedule", boom)
+    monkeypatch.setattr(sys, "argv", ["trueppm-scheduler", "schedule", _fs_chain_file(tmp_path)])
+    with pytest.raises(SystemExit):
+        main()
+    err = capsys.readouterr().err
+    _assert_terminal_safe(err)
+    assert "bad \\x1b[2J task \\x9b" in err
+
+
+def test_invalid_file_error_escapes_control_characters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "bad.json"
+    path.write_text("{}")
+
+    def boom(_text: str) -> object:
+        raise ValueError("oops \x1b]0;X\x07")
+
+    monkeypatch.setattr(Project, "from_json", staticmethod(boom))
+    monkeypatch.setattr(sys, "argv", ["trueppm-scheduler", "schedule", str(path)])
+    with pytest.raises(SystemExit):
+        main()
+    _assert_terminal_safe(capsys.readouterr().err)

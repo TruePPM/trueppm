@@ -11,16 +11,39 @@ from trueppm_scheduler.engine import monte_carlo, schedule
 from trueppm_scheduler.models import Project
 
 
+def _display(value: object) -> str:
+    """Make a document-derived string safe to print to a terminal.
+
+    A project file is untrusted input, and JSON permits C0/C1 control characters
+    inside strings. Printed raw, ESC sequences can retitle the window (OSC 0),
+    clear the screen (CSI 2J), hide text (CSI 8m) or write the clipboard
+    (OSC 52), spoofing the schedule a user reads (CWE-150). Every C0 control,
+    DEL and C1 control is replaced with a visible ``\\xNN`` escape rather than
+    U+FFFD, so the output stays diagnosable. Only the human output needs this;
+    ``--json`` is already escaped by ``json.dumps``.
+
+    Args:
+        value: Any value; it is converted with ``str()`` first (so exceptions
+            and paths can be passed directly).
+
+    Returns:
+        The string with no character in 0x00-0x1F, 0x7F or 0x80-0x9F.
+    """
+    return "".join(
+        f"\\x{ord(c):02x}" if ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F else c for c in str(value)
+    )
+
+
 def _load_project(path: str) -> Project:
     try:
         text = Path(path).read_text()
     except OSError as e:
-        print(f"error: cannot read {path!r}: {e}", file=sys.stderr)
+        print(f"error: cannot read {_display(repr(path))}: {_display(e)}", file=sys.stderr)
         sys.exit(1)
     try:
         return Project.from_json(text)
     except (KeyError, ValueError) as e:
-        print(f"error: invalid project file: {e}", file=sys.stderr)
+        print(f"error: invalid project file: {_display(e)}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -29,14 +52,14 @@ def _cmd_schedule(args: argparse.Namespace) -> None:
     try:
         result = schedule(project)
     except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {_display(e)}", file=sys.stderr)
         sys.exit(1)
 
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
         return
 
-    print(f"\nProject: {project.name}")
+    print(f"\nProject: {_display(project.name)}")
     print(f"Start:   {result.project_start}  Finish: {result.project_finish}")
     # The finish is the deterministic earliest-feasible date, not a commitment
     # date. Saying so here is the only chance a CLI user gets to learn it before
@@ -49,12 +72,12 @@ def _cmd_schedule(args: argparse.Namespace) -> None:
         cp = " *" if task.is_critical else ""
         tf = task.total_float.days if task.total_float else 0
         print(
-            f"{task.id:<20} {task.name:<30} "
+            f"{_display(task.id):<20} {_display(task.name):<30} "
             f"{task.early_start!s:<12} {task.early_finish!s:<12} "
             f"{task.late_start!s:<12} {task.late_finish!s:<12} "
             f"{tf:>4}{cp}"
         )
-    print(f"\nCritical path: {' → '.join(result.critical_path)}")
+    print(f"\nCritical path: {' → '.join(_display(t) for t in result.critical_path)}")
 
 
 def _cmd_monte_carlo(args: argparse.Namespace) -> None:
@@ -64,7 +87,7 @@ def _cmd_monte_carlo(args: argparse.Namespace) -> None:
         # no cap, so we leave max_runs/max_tasks at their default of None.
         result = monte_carlo(project, runs=args.runs, seed=args.seed)
     except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+        print(f"error: {_display(e)}", file=sys.stderr)
         sys.exit(1)
 
     if args.json:
@@ -74,7 +97,7 @@ def _cmd_monte_carlo(args: argparse.Namespace) -> None:
         print(json.dumps(out, indent=2))
         return
 
-    print(f"\nMonte Carlo — {result.runs:,} runs  ({project.name})\n")
+    print(f"\nMonte Carlo — {result.runs:,} runs  ({_display(project.name)})\n")
     print(f"  P50 (median):  {result.p50}   midpoint — even odds, not a commitment")
     print(f"  P80:           {result.p80}   ← commit to this date")
     print(f"  P95:           {result.p95}   external or contractual deadlines")
