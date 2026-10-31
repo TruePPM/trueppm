@@ -809,7 +809,9 @@ fn closed_milestone_link(
 /// predecessors — an SNET after the project start binds `link`, which is then the
 /// shown instant itself; the project start only bounds where it is shown (#4225),
 /// and an SNET at or before it is no floor (#4635). With actuals the day is the recorded one (`actual_finish`,
-/// else `actual_start`), shown and linked from alike, on the edge of that day the
+/// else `actual_start`), shown on and — at the end of the day — linked from alike
+/// (at the start of the day the caller replaces `link` with the live instant,
+/// `closed_milestone_link`, #4690), on the edge of that day the
 /// milestone had live (`live_start`, `live_milestone_edge`): the start when
 /// nothing precedes it, a floor held it, or open work behind it was never
 /// recorded as placing it; the end — the next midnight, read like an FS proposal

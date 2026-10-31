@@ -1,6 +1,6 @@
 {
   "id": "p-milestone-recorded-on-forecast-moves-nothing",
-  "name": "A milestone closed after its work, started or pinned on its shown day links from its live instant (#4690)",
+  "name": "A milestone closed after its work, started or pinned on its shown day (including below the project start) links from its live instant (#4690)",
   "start_date": "2026-08-03",
   "tasks": [
     {"id": "A1", "name": "Done Mon-Fri (live gate)", "duration": 432000.0, "percent_complete": 100.0, "actual_start": "2026-08-03", "actual_finish": "2026-08-07"},
@@ -18,7 +18,10 @@
     {"id": "A4", "name": "Done Mon-Fri (pinned gate)", "duration": 432000.0, "percent_complete": 100.0, "actual_start": "2026-08-03", "actual_finish": "2026-08-07"},
     {"id": "M4", "name": "Gate pinned to its shown Monday", "duration": 0.0, "planned_start": "2026-08-10"},
     {"id": "B4", "name": "FS+1 out of the pinned gate", "duration": 86400.0},
-    {"id": "C4", "name": "FS+2 out of the pinned gate", "duration": 86400.0}
+    {"id": "C4", "name": "FS+2 out of the pinned gate", "duration": 86400.0},
+    {"id": "A5", "name": "Open work behind a pre-start gate", "duration": 259200.0},
+    {"id": "M5", "name": "Pre-start gate started at the project start", "duration": 0.0, "actual_start": "2026-08-03"},
+    {"id": "B5", "name": "FS+2 out of the started pre-start gate", "duration": 86400.0}
   ],
   "dependencies": [
     {"predecessor_id": "A1", "successor_id": "M1", "dep_type": "FS", "lag": 86400.0},
@@ -32,7 +35,9 @@
     {"predecessor_id": "M3", "successor_id": "C3", "dep_type": "FS", "lag": 172800.0},
     {"predecessor_id": "A4", "successor_id": "M4", "dep_type": "FS", "lag": 86400.0},
     {"predecessor_id": "M4", "successor_id": "B4", "dep_type": "FS", "lag": 86400.0},
-    {"predecessor_id": "M4", "successor_id": "C4", "dep_type": "FS", "lag": 172800.0}
+    {"predecessor_id": "M4", "successor_id": "C4", "dep_type": "FS", "lag": 172800.0},
+    {"predecessor_id": "A5", "successor_id": "M5", "dep_type": "FS", "lag": -432000.0},
+    {"predecessor_id": "M5", "successor_id": "B5", "dep_type": "FS", "lag": 172800.0}
   ],
   "calendar": {
     "working_days": 31,

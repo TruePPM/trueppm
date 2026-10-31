@@ -2690,7 +2690,9 @@ def _live_milestone_edge(
     reading decides, so a correction to completed work or a deleted link is
     re-read rather than frozen. Neither path reads an open task's forecast, so
     no change to open work moves a closed milestone, and one closed on its
-    forecast day ahead of its work moves nothing.
+    forecast day ahead of its work keeps its edge. Its link instant is a separate
+    question (:func:`_closed_milestone_link`): closed ahead of open work, a lagged
+    successor can still move (#4740).
     """
     shown, _, _ = _place_milestone(
         node_id, task_map, g, cal, [recorded], links, cal_for, completed_only=True
@@ -2715,7 +2717,9 @@ def _pinned_milestone_instant(
 
     With actuals recorded — the API's normal path, since ``COMPLETE`` stamps
     ``actual_finish`` — the day is the recorded one (``actual_finish``, else
-    ``actual_start``), shown and linked from alike, and the edge of that day is
+    ``actual_start``), shown and — at the end of the day — linked from alike; at
+    the start of the day the caller replaces ``link`` with the live instant
+    (:func:`_closed_milestone_link`, #4690). The edge of that day is
     the one the milestone had live (``live_start``, :func:`_live_milestone_edge`).
     A milestone that nothing precedes, or that a floor held, stays at the start of
     its day: laying it out as ordinary work, ending at the end of the day, slipped
