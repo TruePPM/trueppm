@@ -750,7 +750,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh}
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -803,7 +803,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh}
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -820,6 +820,7 @@ scripts:test:
     - bash scripts/tests/wt-testdb.test.sh
     - bash scripts/tests/osv-severity-gate.test.sh
     - bash scripts/tests/scorecard-report.test.sh
+    - bash scripts/tests/mcp-registry-publish.test.sh
     - bash scripts/tests/backup-s3.test.sh
     - bash scripts/tests/backup-media.test.sh
     - bash scripts/tests/check-enterprise-imports.test.sh
@@ -3437,6 +3438,28 @@ mcp:lint:
     - cd packages/mcp
     - ruff check src/ tests/
     - ruff format --check src/ tests/
+
+mcp:registry-validate:
+  extends: .fast-job
+  # Validates packages/mcp/server.json against the live MCP registry (#4682), so
+  # a manifest the registry rejects fails on the MR instead of in the tag-only
+  # mcp:registry-publish job. The 0.4.0 manifest shipped with a 350-character
+  # description against the registry's 100-character limit, and nothing noticed
+  # because nothing had ever submitted it. Scoped to the manifest and the script
+  # rather than `.gitlab-ci.yml`, so unrelated CI edits do not depend on an
+  # external service being up.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/mcp/server.json
+        - scripts/mcp-registry-publish.sh
+  before_script:
+    - apk add --no-cache bash curl jq tar
+  script:
+    - bash scripts/mcp-registry-publish.sh validate
 
 # ---------------------------------------------------------------------------
 # ANALYZE — type-check, static analysis, migration/schema validation.
@@ -9037,3 +9060,34 @@ mcp:release:
         - name: 'CycloneDX SBOM (sbom.cdx.json)'
           url: '$MCP_SBOM_URL'
           link_type: package
+
+mcp:registry-publish:
+  # Lists the new trueppm-mcp version on the official MCP registry
+  # (registry.modelcontextprotocol.io, name com.trueppm/mcp-server) once
+  # mcp:publish has put it on PyPI (#4682). This was a manual step printed by
+  # release.sh and never performed: the registry held no com.trueppm entry at
+  # the 0.4.0 tag. All decisions live in scripts/mcp-registry-publish.sh
+  # (unit-tested by scripts/tests/mcp-registry-publish.test.sh): skip a version
+  # already listed so a retry is idempotent, wait for PyPI to serve the README's
+  # `mcp-name:` marker the registry verifies ownership against, then log in by
+  # DNS proof for trueppm.com and publish.
+  #
+  # MCP_REGISTRY_PRIVATE_KEY is the hex Ed25519 key whose public half sits in the
+  # trueppm.com TXT record (#1485). Store it protected + masked and scoped to the
+  # `mcp-registry` environment below, so only this job on a protected mcp-v* tag
+  # can read it. Without it the job fails closed naming the variable.
+  #
+  # Tag-only: this job's first real run is the first mcp-v* tag after it merged.
+  stage: deploy
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  needs:
+    - job: mcp:publish
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
+  environment:
+    name: mcp-registry
+    url: https://registry.modelcontextprotocol.io/v0/servers?search=com.trueppm
+  before_script:
+    - apk add --no-cache bash curl jq tar
+  script:
+    - bash scripts/mcp-registry-publish.sh publish

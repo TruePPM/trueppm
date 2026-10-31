@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.trueppm/mcp-server",
   "title": "TruePPM (read-only)",
-  "description": "Read-only Model Context Protocol server for self-hosted TruePPM. Query the live schedule, board, risks, Monte Carlo forecast, sprints, and My Work from any MCP client. Every answer is computed server-side by TruePPM's own CPM/Monte Carlo engine under your existing role-based permissions — never guessed by a model, never leaving your instance.",
+  "description": "Read-only MCP server for self-hosted TruePPM: live schedule answers computed by the CPM engine.",
   "version": "0.4.0",
   "websiteUrl": "https://docs.trueppm.com/features/mcp-connect",
   "repository": {
