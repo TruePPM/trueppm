@@ -6847,8 +6847,9 @@ license:check:mcp:
 
 wasm:license-check:
   # Verify no copyleft-licensed Rust dependency has been introduced, and that no
-  # crate carries an unignored RustSec advisory or has been yanked.
-  # Uses cargo-deny to check crate licenses + advisories against deny.toml.
+  # crate carries an unignored RustSec advisory or has been yanked, and that every
+  # crate comes from crates.io (no git or alternate-registry sources).
+  # Uses cargo-deny to run all checks (licenses, advisories, bans, sources) against deny.toml.
   extends: .wasm
   stage: security
   # git + the pinned cargo-deny 0.19.9 are baked into the ci-wasm image (0.19.x
@@ -6861,7 +6862,7 @@ wasm:license-check:
       optional: true
   <<: *rules-wasm
   script:
-    - cargo deny check licenses advisories
+    - cargo deny check
 
 # ---------------------------------------------------------------------------
 # PUBLISH — tag-triggered release jobs.
