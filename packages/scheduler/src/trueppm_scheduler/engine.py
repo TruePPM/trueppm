@@ -4759,6 +4759,11 @@ def _sample_pert(
     return opt + samples * range_
 
 
+# Cells (runs x sprints) drawn per chunk in _sample_velocity_durations; ~17 bytes per
+# cell transient (draw + cumsum + mask), so ~1M cells keeps the peak near 20 MB.
+_VELOCITY_CHUNK_CELLS = 1 << 20
+
+
 def _sample_velocity_durations(
     story_points: float,
     velocity_samples: list[float],
@@ -4784,7 +4789,9 @@ def _sample_velocity_durations(
     observation (#4535) — see :func:`_velocity_observations`. With a single sample the
     result is a constant (degenerate distribution) — honest: one data point cannot
     express variance. A run that draws zeros long enough to reach the horizon clamps
-    to it, so the loop-free draw matrix stays bounded whatever the zero share.
+    to it, so the draw stays bounded whatever the zero share. The draw is chunked by run, so
+    peak memory is about 20 MB regardless of ``n`` and the sprint horizon, and the
+    seeded stream is consumed in the same order as one full matrix.
     """
     observations = np.asarray(_velocity_observations(velocity_samples), dtype=float)
     if story_points <= 0 or observations.size == 0 or sprint_length_days <= 0:
@@ -4796,20 +4803,29 @@ def _sample_velocity_durations(
     # Bound the per-run sprint horizon so a pathologically slow bootstrap path can't
     # spin: 4x the mean-pace sprint count plus a floor. Runs that still haven't burned
     # down by then clamp to the cap (a deep-tail outlier), keeping the sim finite.
-    # The absolute MAX_VELOCITY_SPRINTS ceiling bounds the draw matrix (``n x
-    # max_sprints`` floats) independently of ``sprint_length_days`` (#1202): without
+    # The absolute MAX_VELOCITY_SPRINTS ceiling bounds the per-run draw (``max_sprints``
+    # floats) independently of ``sprint_length_days`` (#1202): without
     # it, ``sprint_length_days=1`` lets the span guard pass a ~360k horizon and a
     # single scrum task allocates multi-GB. _velocity_worst_case_days applies the
     # identical clamp so the MC index stays correctly sized (#1067).
     max_sprints = min(int(np.ceil(story_points / mean)) * 4 + 10, MAX_VELOCITY_SPRINTS)
-    draws = rng.choice(observations, size=(n, max_sprints), replace=True)
-    cumulative = np.cumsum(draws, axis=1)
-    reached = cumulative >= story_points
-    sprints_needed = np.where(
-        reached.any(axis=1),
-        reached.argmax(axis=1) + 1,  # first sprint index that meets the target (+1 = count)
-        max_sprints,
-    )
+    # ``rng.choice(..., size=(n, max_sprints))`` fills row-major from one sequential
+    # integer stream, so run i owns the contiguous slice [i*max_sprints, (i+1)*max_sprints).
+    # Drawing whole-row chunks therefore consumes the stream in the identical order: the
+    # seeded result and the generator's final state are bit-identical to the one-shot
+    # (n, max_sprints) matrix, while peak memory is O(chunk * max_sprints) instead of
+    # O(n * max_sprints).
+    sprints_needed = np.empty(n, dtype=np.int64)
+    chunk_rows = max(1, _VELOCITY_CHUNK_CELLS // max_sprints)
+    for lo in range(0, n, chunk_rows):
+        rows = min(chunk_rows, n - lo)
+        draws = rng.choice(observations, size=(rows, max_sprints), replace=True)
+        reached = np.cumsum(draws, axis=1) >= story_points
+        sprints_needed[lo : lo + rows] = np.where(
+            reached.any(axis=1),
+            reached.argmax(axis=1) + 1,  # first sprint index that meets the target (+1 = count)
+            max_sprints,
+        )
     return sprints_needed.astype(np.float64) * float(sprint_length_days)
 
 
@@ -7145,7 +7161,8 @@ def monte_carlo(
     four link types with lag) and more on a shared CI runner or an older server
     — ``tests/test_bench.py`` holds it under a 2 s regression tripwire, not the
     laptop figure (#3859). So the library imposes **no** run or task cap by
-    default — ``monte_carlo(project, runs=10_000)`` simulates as written. The
+    default — ``monte_carlo(project, runs=10_000)`` simulates as written (the velocity
+    sampler draws in bounded chunks, so memory does not grow with ``runs``). The
     ``max_runs`` / ``max_tasks`` knobs exist for an *embedding* layer that needs
     to bound work on a synchronous request path (the TruePPM API passes its own caps and returns
     ``SimulationCapExceeded`` as a 402); a standalone caller leaves them ``None``.

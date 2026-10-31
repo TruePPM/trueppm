@@ -459,3 +459,61 @@ def test_velocity_sprint_horizon_capped_bounds_draw_matrix() -> None:
         if expected.weekday() < 5:
             n += 1
     assert r.p50 == r.p80 == r.p95 == expected
+
+
+# ---------------------------------------------------------------------------
+# Bounded-memory chunked sampling (#4694)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("story_points", "samples", "sprint_len", "n", "seed", "pcts", "total", "next_draw"),
+    [
+        (20, [5.0, 15.0], 10, 2000, 42, (20.0, 30.0, 40.0), 47460.0, 630503340636779030),
+        (100, [1.0, 1.0, 198.0], 10, 500, 43, (20.0, 50.0, 80.0), 15230.0, 3462737309350997138),
+        # 10,000-sprint horizon: the 300 runs span three chunks of 104 rows.
+        (2500, [0.5, 1.5], 1, 300, 44, (2500.5, 2524.0, 2541.05), 750041.0, 1479058324187256676),
+    ],
+)
+def test_velocity_sampler_chunking_is_bit_identical_to_full_matrix(
+    story_points: float,
+    samples: list[float],
+    sprint_len: int,
+    n: int,
+    seed: int,
+    pcts: tuple[float, float, float],
+    total: float,
+    next_draw: int,
+) -> None:
+    """Values captured from the pre-chunking one-shot ``(n, max_sprints)`` sampler.
+
+    ``next_draw`` is the generator's next output afterward, so it also proves the
+    stream was consumed identically: downstream draws in ``monte_carlo`` are unmoved.
+    """
+    rng = np.random.default_rng(seed)
+    out = _sample_velocity_durations(story_points, samples, sprint_len, n, rng)
+    assert out is not None
+    assert [float(np.percentile(out, q)) for q in (50, 80, 95)] == list(pcts)
+    assert float(out.sum()) == total
+    assert int(rng.integers(0, 2**62)) == next_draw
+
+
+def test_velocity_sampler_memory_is_bounded_at_10k_runs() -> None:
+    """One scrum task at the 10,000-sprint horizon must not allocate runs x sprints (#4694).
+
+    The unchunked sampler peaked at ~1.75 GB here (draw + cumsum + mask matrices).
+    """
+    import tracemalloc
+
+    proj = _project(
+        [_scrum_task("S", story_points=2500, duration_days=1)],
+        velocity_samples=[0.5, 1.5],
+        sprint_length_days=1,
+    )
+    tracemalloc.start()
+    try:
+        monte_carlo(proj, runs=10_000, seed=1)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 100 * 1024 * 1024, f"peak {peak / 1e6:.0f} MB"
