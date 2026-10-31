@@ -2223,3 +2223,249 @@ class TestMilestoneFreeInstantSnapsAWorkSuccessor:
         }
         assert floats["sat"] == floats["mon"]
         assert sat.driving_edges == mon.driving_edges
+
+
+# ---------------------------------------------------------------------------
+# Recording or pinning a milestone on its shown day moves nothing (#4690)
+# ---------------------------------------------------------------------------
+
+#: How ``A`` (3 working days from Monday 03-02, so Monday to Wednesday) places
+#: ``M``: the raw midnight each link proposes and where it is shown. Every one but
+#: the control and the end-of-day reading puts ``M`` at a midnight *before* the
+#: start of the day it is shown on, which is the instant its successors count
+#: calendar-day lag from (#2534) and which a recorded day cannot name.
+_PLACEMENTS = {
+    "fs+3-to-sunday": (DependencyType.FS, 3),  # Thu + 3 = Sun 03-08, shown Mon 03-09
+    "ss+5-to-saturday": (DependencyType.SS, 5),  # Mon + 5 = Sat 03-07, shown Mon 03-09
+    "ff+3-to-sunday": (DependencyType.FF, 3),  # FF into a milestone is FS (#4272)
+    "sf+5-to-saturday-end-of-day": (DependencyType.SF, 5),  # the end of Fri 03-06
+    "fs+4-to-monday-control": (DependencyType.FS, 4),  # Mon 03-09 00:00 exactly
+    "fs-5-below-the-start": (DependencyType.FS, -5),  # Sat 02-28, shown Mon 03-02
+}
+_RECORD_START = date(2026, 3, 2)
+_A_DONE = Task(
+    id="A",
+    name="A",
+    duration=timedelta(days=3),
+    percent_complete=100.0,
+    actual_start=date(2026, 3, 2),
+    actual_finish=date(2026, 3, 4),
+)
+
+
+def _recorded_network(
+    placement: str, out_type: DependencyType, out_lag: int, m: Task, a_done: bool
+) -> Project:
+    in_type, in_lag = _PLACEMENTS[placement]
+    return Project(
+        id="p",
+        name="p",
+        start_date=_RECORD_START,
+        tasks=[_A_DONE if a_done else _task("A", 3), m, _task("B", 2), _task("C", 1)],
+        dependencies=[
+            _dep("A", "M", in_type, in_lag),
+            _dep("M", "B", out_type, out_lag),
+            _dep("B", "C"),
+        ],
+    )
+
+
+def _recorded(variant: str, shown: date) -> Task:
+    if variant == "closed":
+        return Task(
+            id="M",
+            name="M",
+            duration=timedelta(0),
+            percent_complete=100.0,
+            actual_start=shown,
+            actual_finish=shown,
+        )
+    if variant == "started":
+        return Task(id="M", name="M", duration=timedelta(0), actual_start=shown)
+    return Task(id="M", name="M", duration=timedelta(0), planned_start=shown)
+
+
+def _positions(result: ScheduleResult) -> dict[str, tuple[object, ...]]:
+    return {t.id: (t.early_start, t.early_finish, t.milestone_at_day_end) for t in result.tasks} | {
+        "<finish>": (result.project_finish,)
+    }
+
+
+@pytest.mark.parametrize("out_lag", [-2, -1, 0, 1, 2])
+@pytest.mark.parametrize("out_type", list(DependencyType), ids=lambda d: d.value)
+@pytest.mark.parametrize("placement", list(_PLACEMENTS))
+@pytest.mark.parametrize(
+    ("variant", "a_done"),
+    [("closed", True), ("started", True), ("started", False), ("pinned", False)],
+    ids=["closed", "started-after-done-work", "started-ahead-of-work", "pinned"],
+)
+def test_recording_a_milestone_on_its_shown_day_moves_nothing(
+    variant: str, a_done: bool, placement: str, out_type: DependencyType, out_lag: int
+) -> None:
+    """Metamorphic, live versus recorded (#4690), over placement x outgoing link x lag.
+
+    Mark ``M`` done (``actual_start`` = ``actual_finish`` = its shown day), started
+    (``actual_start`` only) or pinned (``planned_start``) on exactly the day
+    ``schedule()`` shows it, and nothing may move — not ``M``, not its successors,
+    not the project finish. Each records a fact the forecast already held. Before
+    the fix every placement whose instant falls before the shown day's start
+    linked from the recorded day instead, so a calendar-day lag out of ``M``
+    counted from up to two days later. ``A`` is complete for the close: a closed
+    milestone reads only completed predecessors (#4525).
+    """
+    live_m = _task("M", 0)
+    live = schedule(_recorded_network(placement, out_type, out_lag, live_m, a_done))
+    shown = {t.id: t for t in live.tasks}["M"]
+    assert shown.early_start is not None
+    recorded = _recorded_network(
+        placement, out_type, out_lag, _recorded(variant, shown.early_start), a_done
+    )
+    assert _positions(schedule(recorded)) == _positions(live)
+
+
+def test_issue_4690_repro_closed_on_the_shown_monday() -> None:
+    """The issue's repro: ``A(5d, done) -FS+1d-> M -FS+1d-> B``, ``M`` at Sunday 00:00.
+
+    Live, ``B`` starts Monday 08-10, the day ``M`` is shown. Closing ``M`` on that
+    Monday moved ``B`` to Tuesday; with ``-FS+2d->`` out, both sides land Tuesday.
+    """
+    a = Task(
+        id="A",
+        name="A",
+        duration=timedelta(days=5),
+        actual_start=date(2026, 8, 3),
+        actual_finish=date(2026, 8, 7),
+    )
+
+    def b_start(m: Task, lag_out: int) -> date | None:
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 8, 3),
+            tasks=[a, m, _task("B", 1)],
+            dependencies=[_dep("A", "M", lag=1), _dep("M", "B", lag=lag_out)],
+        )
+        return {t.id: t for t in schedule(p).tasks}["B"].early_start
+
+    mon = date(2026, 8, 10)
+    closed = Task(
+        id="M",
+        name="M",
+        duration=timedelta(0),
+        percent_complete=100.0,
+        actual_start=mon,
+        actual_finish=mon,
+    )
+    assert b_start(_task("M", 0), 1) == b_start(closed, 1) == mon
+    assert b_start(_task("M", 0), 2) == b_start(closed, 2) == date(2026, 8, 11)
+
+
+def test_issue_4690_repro_planned_start_on_the_shown_day() -> None:
+    """``A(5d) -FS+1d-> M -FS+2d-> B(3d)`` from Monday 01-12: ``M`` is shown Monday
+    01-19 and ``B`` runs Tuesday to Thursday. Pinning ``M`` to 01-19 moved ``B`` to
+    Wednesday to Friday and the finish with it."""
+
+    def run(planned: date | None) -> tuple[object, ...]:
+        m = Task(id="M", name="M", duration=timedelta(0), planned_start=planned)
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 1, 12),
+            tasks=[_task("A", 5), m, _task("B", 3)],
+            dependencies=[_dep("A", "M", lag=1), _dep("M", "B", lag=2)],
+        )
+        result = schedule(p)
+        b = {t.id: t for t in result.tasks}["B"]
+        return b.early_start, b.early_finish, result.project_finish
+
+    want = (date(2026, 1, 20), date(2026, 1, 22), date(2026, 1, 22))
+    assert run(None) == run(date(2026, 1, 19)) == want
+
+
+@pytest.mark.parametrize(
+    "m",
+    [
+        Task(
+            id="M",
+            name="M",
+            duration=timedelta(0),
+            percent_complete=100.0,
+            actual_start=date(2026, 3, 2),
+            actual_finish=date(2026, 3, 2),
+        ),
+        Task(id="M", name="M", duration=timedelta(0), actual_start=date(2026, 3, 2)),
+    ],
+    ids=["closed", "started"],
+)
+def test_issue_4690_repro_below_the_start_with_work_still_open(m: Task) -> None:
+    """``A(3d) -FS-5d-> M -FS+2d-> B``: ``M``'s instant is Saturday 02-28, below the
+    Monday 03-02 start it is shown at (#4225), so ``B`` is Monday 03-02. Closing or
+    starting ``M`` on 03-02 with ``A`` still open moved ``B`` to Wednesday 03-04.
+
+    The close reads no open forecast (#4525): it links from the close of the
+    working day before the recorded one, Saturday 00:00, which is this instant.
+    """
+
+    def b_start(milestone: Task) -> date | None:
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 3, 2),
+            tasks=[_task("A", 3), milestone, _task("B", 1)],
+            dependencies=[_dep("A", "M", lag=-5), _dep("M", "B", lag=2)],
+        )
+        return {t.id: t for t in schedule(p).tasks}["B"].early_start
+
+    assert b_start(_task("M", 0)) == b_start(m) == date(2026, 3, 2)
+
+
+def test_a_milestone_closed_ahead_of_work_on_its_own_snet_links_from_that_day() -> None:
+    """The open-work fallback stops at the milestone's own SNET (#4690).
+
+    ``M`` pinned to Monday 03-09 with ``A`` far earlier: the SNET holds it, so live
+    it links from Monday 00:00 and ``M -FS+1d-> B`` puts ``B`` on Tuesday. Closed on
+    that Monday with ``A`` still open, no earlier midnight satisfies the SNET, so it
+    keeps the recorded day and ``B`` stays on Tuesday.
+    """
+
+    def b_start(milestone: Task) -> date | None:
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 3, 2),
+            tasks=[_task("A", 1), milestone, _task("B", 1)],
+            dependencies=[_dep("A", "M"), _dep("M", "B", lag=1)],
+        )
+        return {t.id: t for t in schedule(p).tasks}["B"].early_start
+
+    mon = date(2026, 3, 9)
+    closed = Task(
+        id="M",
+        name="M",
+        duration=timedelta(0),
+        planned_start=mon,
+        percent_complete=100.0,
+        actual_start=mon,
+        actual_finish=mon,
+    )
+    live = Task(id="M", name="M", duration=timedelta(0), planned_start=mon)
+    assert b_start(live) == b_start(closed) == date(2026, 3, 10)
+
+
+@pytest.mark.parametrize("placement", list(_PLACEMENTS))
+def test_monte_carlo_agrees_with_a_milestone_pinned_on_its_shown_day(placement: str) -> None:
+    """Zero variance: every percentile is the deterministic finish (#4690).
+
+    Monte Carlo replays the live placement vectorised (``_mc_milestone_bounds``);
+    it must take the same link instant when a floor only ties a link.
+    """
+    live = schedule(_recorded_network(placement, DependencyType.FS, 2, _task("M", 0), False))
+    shown = {t.id: t for t in live.tasks}["M"].early_start
+    assert shown is not None
+    for variant in ("started", "pinned"):
+        project = _recorded_network(
+            placement, DependencyType.FS, 2, _recorded(variant, shown), False
+        )
+        finish = schedule(project).project_finish
+        mc = monte_carlo(project, runs=16, seed=1)
+        assert (mc.p50, mc.p80, mc.p95) == (finish, finish, finish), variant
