@@ -1,7 +1,7 @@
 ---
 title: Interface & command palette
 description: The v2 interface refresh — a unified app-shell bar, the ⌘K command palette, a methodology-adaptive context bar, and grouped view tabs that adapt to how your team works.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 :::note[Added in 0.3]
@@ -295,3 +295,57 @@ anything while read-only, TruePPM blocks the attempt before it reaches the
 server and brings the sign-in prompt back rather than failing silently. Sign in
 again from either the original prompt or the persistent banner to resume normal
 work.
+
+## Shell v2 preview (behind a flag)
+
+:::note[Ships in 0.5]
+The redesigned shell described in this section is a **preview behind a client
+flag** and is not on by default in any release yet. Everything above this
+section describes the shell you get today. Turn the preview on per browser with
+`?ff=shell_v2` on any TruePPM URL (it sticks in that browser's local storage);
+turn it off again from the browser console with
+`localStorage.setItem('trueppm.featureFlags', '{"shell_v2": false}')`, which
+also overrides an install-wide default. An operator can turn it on for a whole
+install by setting `VITE_FEATURE_FLAGS='{"shell_v2": true}'` at web build time.
+:::
+
+Shell v2 separates two questions the current chrome answers in one place:
+
+- **Where am I** is the **global rail** on the left: Home, Inbox, Work, People,
+  and — when a program is in context — Agents, followed by your pins and your
+  account menu. The rail carries no view list, no health dots and no gear.
+- **How am I looking at it** is the **context header** above a project or
+  program: its name, its health band (shown once, here and nowhere else), the
+  P80 finish with when it was computed, and a row of at most five tabs —
+  Overview, Plan, Deliver, Risks, People — plus More. Plan holds the layout
+  toggles Schedule / Grid / Calendar; Deliver holds Board / Sprints / Backlog.
+  A tab opens on the first layout it has, so your methodology shapes the
+  default by deciding which layouts exist; it never moves a view between tabs,
+  and Board is under Deliver on every project. **Every project has Plan, and
+  Plan always offers Schedule**, including Agile projects. A view you hid in
+  your own settings stays hidden.
+
+Other changes you will notice with the flag on:
+
+- **One breadcrumb.** Program / project / view, with a single separator, is the
+  only place the app states where you are.
+- **One status pill** in the top bar replaces the stacked status banners: it
+  shows the highest-priority condition (offline, signed out, demo read-only,
+  rate limiting off, failed writes, paused live updates, syncing) and folds the
+  rest behind a "+N" you can hover or focus. When nothing is wrong it reads
+  "Synced". The signed-out bar with its **Sign in again** button and the demo
+  bar's project switcher still appear when they apply — they carry actions,
+  not just status.
+- **A visible route to every project at laptop width.** Between 768px and
+  1279px the rail is a 64px icon rail; hovering **Work**, or pressing the right
+  arrow key on it, opens a flyout with a search box, your pins, and every
+  program with its projects. Escape closes it and puts you back on Work.
+- **A bottom bar on every phone route.** Home, Inbox, a Log time button, Work
+  and Search are always present — including on My Work, which previously had no
+  navigation on a phone — and your account menu moves to the top bar. Inside a
+  project the tab row and its layout toggles scroll sideways as the lens
+  switcher.
+
+Shell v2 changes chrome only: every page, URL, keyboard shortcut and dialog is
+the same under both shells.
+

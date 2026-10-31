@@ -6,7 +6,7 @@ import { QueryClientProvider, useMutation } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { routes } from './router';
-import { AppShell } from '@/features/shell/AppShell';
+import { ShellGate } from '@/features/shell2/ShellGate';
 import { PendingWritesGuard } from '@/features/shell/PendingWritesGuard';
 import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { useAuthStore } from '@/stores/authStore';
@@ -89,14 +89,14 @@ function isElementOf(node: unknown, component: unknown): boolean {
   return isValidElement(node) && node.type === component;
 }
 
-/** The `path: '/'` route whose element is AppShell — the shell level (#2834). */
+/** The `path: '/'` route whose element is the shell gate (AppShell or AppShell2 by flag) — the shell level (#2834). */
 function findShellRoute(tree: readonly RouteObject[]): RouteObject {
   for (const route of tree) {
-    if (isElementOf(route.element, AppShell)) return route;
+    if (isElementOf(route.element, ShellGate)) return route;
     const found = route.children && findShellRoute(route.children);
     if (found) return found;
   }
-  throw new Error('AppShell route not found in the route tree');
+  throw new Error('shell route (ShellGate) not found in the route tree');
 }
 
 interface CrashOptions {
@@ -105,7 +105,7 @@ interface CrashOptions {
 }
 
 /**
- * Returns a copy of the real route tree with AppShell swapped for {@link ShellProbe}
+ * Returns a copy of the real route tree with the shell gate swapped for {@link ShellProbe}
  * and `targetPath`'s element swapped for a thrower. Purely functional — the
  * imported `routes` array is module-level and shared, so it is never mutated.
  */
@@ -115,7 +115,7 @@ function withCrashingRoute(
   options: CrashOptions = {},
 ): RouteObject[] {
   return tree.map((route) => {
-    if (isElementOf(route.element, AppShell)) {
+    if (isElementOf(route.element, ShellGate)) {
       return {
         ...route,
         element: <ShellProbe />,

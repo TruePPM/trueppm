@@ -126,6 +126,44 @@ const config: Config = {
           fill:   'rgb(var(--ghost-fill) / 0.14)',
           border: 'rgb(var(--ghost-border) / 0.85)',
         },
+        // Shell v2 semantic tokens (Pass 1 redesign). OKLCH `L C H` triplets in
+        // globals.css so the `/N` alpha modifier works; hairlines and load steps
+        // are DERIVED from text-1 at fixed alphas so they track the theme's ink
+        // automatically. `*-tint` values carry their own alpha in dark mode and
+        // therefore take no modifier (same contract as `--sem-*-bg`). Consumed by
+        // `features/shell2/` only until the Pass 1 homes land.
+        p1: {
+          'surface-0':      'oklch(var(--p1-surface-0) / <alpha-value>)',
+          'surface-1':      'oklch(var(--p1-surface-1) / <alpha-value>)',
+          'surface-2':      'oklch(var(--p1-surface-2) / <alpha-value>)',
+          'surface-3':      'oklch(var(--p1-surface-3) / <alpha-value>)',
+          'text-1':         'oklch(var(--p1-text-1) / <alpha-value>)',
+          'text-2':         'oklch(var(--p1-text-2) / <alpha-value>)',
+          'text-3':         'oklch(var(--p1-text-3) / <alpha-value>)',
+          hairline:         'oklch(var(--p1-text-1) / 0.10)',
+          'hairline-strong':'oklch(var(--p1-text-1) / 0.20)',
+          brand:            'oklch(var(--p1-brand) / <alpha-value>)',
+          'brand-hover':    'oklch(var(--p1-brand-hover) / <alpha-value>)',
+          'brand-tint':     'var(--p1-brand-tint)',
+          'on-brand':       'oklch(var(--p1-on-brand) / <alpha-value>)',
+          critical:         'oklch(var(--p1-critical) / <alpha-value>)',
+          'critical-tint':  'var(--p1-critical-tint)',
+          risk:             'oklch(var(--p1-risk) / <alpha-value>)',
+          'risk-text':      'oklch(var(--p1-risk-text) / <alpha-value>)',
+          'risk-tint':      'var(--p1-risk-tint)',
+          ok:               'oklch(var(--p1-ok) / <alpha-value>)',
+          'ok-tint':        'var(--p1-ok-tint)',
+          info:             'oklch(var(--p1-info) / <alpha-value>)',
+          'info-tint':      'var(--p1-info-tint)',
+          'load-1':         'oklch(var(--p1-text-1) / 0.05)',
+          'load-2':         'oklch(var(--p1-text-1) / 0.12)',
+          'load-3':         'oklch(var(--p1-text-1) / 0.22)',
+          'load-4':         'oklch(var(--p1-text-1) / 0.34)',
+          'over-1':         'oklch(var(--p1-over-1) / <alpha-value>)',
+          'over-2':         'oklch(var(--p1-over-2) / <alpha-value>)',
+          'on-over':        'oklch(var(--p1-on-over) / <alpha-value>)',
+          focus:            'oklch(var(--p1-focus) / <alpha-value>)',
+        },
         // Risk matrix zone tokens (rule 88). Values driven by CSS custom properties in
         // globals.css so .dark on <html> swaps to higher-opacity dark-mode variants.
         risk: {
