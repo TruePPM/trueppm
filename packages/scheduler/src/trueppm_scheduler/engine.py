@@ -3414,17 +3414,25 @@ def _collect_leaves(
     task_id: str,
     children_map: dict[str, list[str]],
 ) -> list[str]:
-    """Collect leaf task IDs under a summary task.
+    """Collect the distinct leaf task IDs under a summary task, in first-visit order.
 
     A leaf is a task that has no children in children_map. Traversal is
     iterative with an explicit stack and an active-path set, so a malformed
     ``children_map`` (a parent-child cycle, or nesting deeper than Python's
     recursion limit) raises a clean :class:`InvalidScheduleInput` instead of a
     ``RecursionError``. A node legitimately reachable via multiple parents (a
-    diamond) is *not* a cycle and still yields its leaf once per path — callers
-    deduplicate edges downstream, matching the previous recursive behaviour.
+    diamond) is *not* a cycle; it is expanded once and its leaves are returned
+    once. Callers deduplicate edges downstream, so the distinct set is
+    equivalent to the former once-per-path list.
+
+    Each node is expanded at most once (memoized), so the walk is O(V + E)
+    regardless of how many root-to-leaf paths the DAG has (#4693). The #1822 cap
+    still bounds the root-to-leaf *path* count, tracked as a per-node integer
+    rather than by materializing one list entry per path.
     """
     leaves: list[str] = []
+    # Number of root-to-leaf paths below each fully expanded node.
+    path_count: dict[str, int] = {}
     # Stack entries are (node, is_exit_marker). The exit marker pops the node
     # back off the active path once its whole subtree has been visited.
     stack: list[tuple[str, bool]] = [(task_id, False)]
@@ -3433,29 +3441,31 @@ def _collect_leaves(
         node, is_exit = stack.pop()
         if is_exit:
             path.discard(node)
-            continue
-        children = children_map.get(node)
-        if not children:
-            leaves.append(node)
-            # Bound the leaf-*path* count during traversal (#1822). A leaf is yielded
-            # once per root-to-leaf path, so a "doubling" children_map (each summary
-            # points at the next twice) has 2^depth paths to a single leaf — the
-            # exponential list that made ``len(_collect_leaves(...))`` blow up *before*
-            # the callers' MAX_EXPANDED_EDGES guard (which reads that length) ever ran.
-            # Capping here keeps the walk O(MAX_EXPANDED_EDGES · depth). This never
-            # rejects an input the callers would accept: they cap the leaf *product*
-            # across an edge at MAX_EXPANDED_EDGES, so a single endpoint exceeding it
-            # already forces every incident edge's product over the cap.
-            if len(leaves) > MAX_EXPANDED_EDGES:
+            # Bound the leaf-*path* count (#1822). A "doubling" children_map (each
+            # summary points at the next twice) has 2^depth paths to a single leaf;
+            # callers cap the leaf *product* across an edge at MAX_EXPANDED_EDGES, so a
+            # single endpoint exceeding it already forces every incident edge over the
+            # cap. Counting (not listing) paths keeps this check O(1) per node.
+            total = sum(path_count[child_id] for child_id in children_map[node])
+            if total > MAX_EXPANDED_EDGES:
                 raise InvalidScheduleInput(
                     f"Expanding summary dependencies would exceed {MAX_EXPANDED_EDGES:,} "
                     "leaf-level edges: a summary task fans out to that many root-to-leaf "
                     "paths (typically a summary→summary dependency crossing a deep or "
                     "wide WBS). Depend on specific leaf tasks, or split the summary edge."
                 )
+            path_count[node] = total
+            continue
+        children = children_map.get(node)
+        if not children:
+            if node not in path_count:
+                path_count[node] = 1
+                leaves.append(node)
             continue
         if node in path:
             raise InvalidScheduleInput(f"children_map contains a cycle through task {node!r}.")
+        if node in path_count:
+            continue  # already expanded via another parent (diamond)
         path.add(node)
         stack.append((node, True))
         # Push children in reverse so they pop in declared order (stable output).
