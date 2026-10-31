@@ -19,8 +19,8 @@ the missing half of that procedure.
     reach, not tokens alone. Named by account, regardless of whether that account
     currently owns any live personal token.
   * ``--all-personal`` — every personal token on the instance, plus (#4576) the
-    same refresh-token / durable-grant / live-socket sweep for each account that
-    owns one of the matched tokens. The "our secret store leaked" case. Leaves
+    same refresh-token / durable-grant / live-socket sweep for each account owning an
+    unrevoked personal token, expired or not. The "our secret store leaked" case. Leaves
     project- and program-scoped integration tokens alone, so team CI keeps
     working, and leaves alone any account that owns durable grants but no live
     personal token — ``--user`` is the lever for containing that account by name.
@@ -74,9 +74,9 @@ class Command(BaseCommand):
             action="store_true",
             help="Revoke every personal access token on the instance, plus the refresh "
             "tokens, share links, git-automation secrets, outgoing webhooks, and "
-            "live project sockets of each account that owns one. Leaves project- "
-            "and program-scoped integration tokens, and accounts with no personal "
-            "token, alone.",
+            "live project sockets of each account owning an unrevoked personal token, "
+            "expired or not. Leaves project- and program-scoped integration tokens, "
+            "and accounts with no unrevoked personal token, alone.",
         )
         scope.add_argument(
             "--all",
@@ -249,7 +249,8 @@ class Command(BaseCommand):
         ``--all-personal`` has no independent "every user" population to draw on;
         its own scope is "every personal access token on the instance" (see the
         module docstring), so the accounts it sweeps for the other grant classes
-        are exactly the owners of the personal tokens it is about to revoke. An
+        are each account owning an unrevoked personal token, expired or not (expiry
+        narrows which tokens are revoked, never which accounts are contained). An
         account that owns durable grants but no live personal token sits outside
         ``--all-personal``'s stated scope — ``--user`` is the lever for containing
         it by name, ``--all`` the lever for the whole instance regardless of token
@@ -357,18 +358,16 @@ class Command(BaseCommand):
             else:
                 # `doomed` was read outside this transaction, possibly minutes ago
                 # (the operator sat at the confirmation prompt). Re-select under a
-                # row lock, re-applying the active filter, and revoke/audit only what
-                # is still live: a token revoked in the meantime keeps its original
+                # row lock by re-applying the scope queryset itself — not the old
+                # pks — so a token minted while the prompt was open is contained
+                # like the live-requeried refresh-token/share-link sweeps below —
+                # and revoke/audit only what is still live: a token revoked in the
+                # meantime keeps its original
                 # `revoked_at` and gets no second, contradicting REVOKED row, and one
                 # that expired meanwhile is not claimed as contained (#4580).
                 to_revoke = list(
-                    ApiToken.objects.select_for_update()
-                    .filter(
-                        Q(expires_at__isnull=True) | Q(expires_at__gt=now),
-                        pk__in=[token.pk for token in doomed],
-                        is_deleted=False,
-                        revoked_at__isnull=True,
-                    )
+                    self._resolve_scope(options, None)[0]
+                    .select_for_update()
                     .only("pk", "token_prefix", "name", "owner", "project", "program")
                 )
                 revoked = ApiToken.objects.filter(

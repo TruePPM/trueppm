@@ -480,6 +480,29 @@ def test_token_revoked_between_dry_run_read_and_commit_keeps_its_date(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("scope", [("--all-personal",), ("--all",)])
+def test_token_minted_during_the_confirmation_prompt_is_also_revoked(
+    alice: Any, scope: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The commit re-applies the scope, not the dry-run pks (#4580)."""
+    from trueppm_api.apps.access.management.commands.revoke_api_tokens import Command
+
+    _mint(owner=alice, created_by=alice, name="before")
+    minted: list[ApiToken] = []
+
+    def _mint_during_prompt(self: Any, options: Any, total: int) -> None:
+        minted.append(_mint(owner=alice, created_by=alice, name="during-prompt"))
+
+    monkeypatch.setattr(Command, "_confirm", _mint_during_prompt)
+    output = _run(*scope, "--commit")
+
+    minted[0].refresh_from_db()
+    assert minted[0].revoked_at is not None
+    assert ApiTokenAuditEntry.objects.filter(token=minted[0]).count() == 1
+    assert "Revoked 2 token(s)." in output
+
+
+@pytest.mark.django_db
 def test_expired_only_account_is_still_swept_under_all_personal(
     alice: Any, project: Project
 ) -> None:
