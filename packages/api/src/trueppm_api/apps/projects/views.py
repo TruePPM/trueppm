@@ -19781,8 +19781,16 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         token = self.get_object()
         if token.revoked_at is None:
             with transaction.atomic():
-                token.revoked_at = timezone.now()
-                token.save(update_fields=["revoked_at"])
+                # Conditional update, not save(): a concurrent revocation between
+                # get_object() and here must keep its original revoked_at and must
+                # not get a second REVOKED audit row (#4580). rowcount==1 means
+                # this request is the one that revoked it.
+                if (
+                    not type(token)
+                    .objects.filter(pk=token.pk, revoked_at__isnull=True)
+                    .update(revoked_at=timezone.now())
+                ):
+                    return Response(status=status.HTTP_204_NO_CONTENT)
                 ApiTokenAuditEntry.objects.create(
                     **{self._scope_field: getattr(token, self._scope_field)},
                     token=token,
@@ -20054,8 +20062,14 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         token = self.get_object()  # get_queryset already scopes to owner=request.user
         if token.revoked_at is None:
             with transaction.atomic():
-                token.revoked_at = timezone.now()
-                token.save(update_fields=["revoked_at"])
+                # See ProjectApiTokenViewSet.destroy: only the request that actually
+                # flips revoked_at writes the audit row (#4580).
+                if (
+                    not type(token)
+                    .objects.filter(pk=token.pk, revoked_at__isnull=True)
+                    .update(revoked_at=timezone.now())
+                ):
+                    return Response(status=status.HTTP_204_NO_CONTENT)
                 ApiTokenAuditEntry.objects.create(
                     owner=caller,
                     token=token,

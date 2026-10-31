@@ -426,11 +426,17 @@ These exist for specific operational situations and are not part of routine use:
   confirmation prompt). Revocation is one-way — nothing un-revokes a token or
   re-enables a webhook — so review the dry run first. Every revoked token gets an
   audit row tagged `operator_bulk_revoke`, so an incident timeline can tell a
-  containment sweep apart from a user's routine rotation. Expired tokens are not
-  counted or audited as revoked (they already fail authentication), and a token
-  revoked by someone else between the dry run and the commit keeps its original
-  revocation time and is not audited a second time. See
+  containment sweep apart from a user's routine rotation. See
   [Security → forcing a global sign-out](/administration/security/#separating-the-jwt-signing-key-and-forcing-a-global-sign-out).
+:::note[Ships in 0.5]
+`revoke_api_tokens --commit` re-checks each token under a row lock before revoking it:
+a token revoked by someone else between the dry run and the commit keeps its original
+revocation time and is not audited a second time, and an already-expired token is
+neither counted nor audited as revoked (it already fails authentication). Accounts
+that own only an expired token are still swept for their other credentials. On 0.4
+the commit re-dates concurrently revoked tokens and audits expired ones.
+:::
+
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI
   job. It is intended for CI and local test runs, not production.
 - **`seed_sso_keycloak`** — provisions a `keycloak` OIDC provider (an allauth

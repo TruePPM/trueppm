@@ -446,10 +446,15 @@ def test_token_revoked_between_dry_run_read_and_commit_keeps_its_date(
 
     raced = _mint(owner=alice, created_by=alice, name="raced")
     other = _mint(owner=alice, created_by=alice, name="other")
+    lapsing = _mint(owner=alice, created_by=alice, name="lapsing")
     original = timezone.now() - timedelta(hours=3)
 
     def _concurrent_revoke(self: Any, options: Any, total: int) -> None:
         ApiToken.objects.filter(pk=raced.pk).update(revoked_at=original)
+        # Expires after the initial read: the commit-time re-check must drop it.
+        ApiToken.objects.filter(pk=lapsing.pk).update(
+            expires_at=timezone.now() - timedelta(minutes=1)
+        )
         ApiTokenAuditEntry.objects.create(
             owner=alice,
             token=raced,
@@ -469,6 +474,44 @@ def test_token_revoked_between_dry_run_read_and_commit_keeps_its_date(
     assert ApiTokenAuditEntry.objects.filter(token=raced).count() == 1
     assert ApiTokenAuditEntry.objects.get(token=raced).detail["reason"] == "self_service"
     assert ApiTokenAuditEntry.objects.filter(token=other).count() == 1
+    lapsing.refresh_from_db()
+    assert lapsing.revoked_at is None
+    assert not ApiTokenAuditEntry.objects.filter(token=lapsing).exists()
+
+
+@pytest.mark.django_db
+def test_expired_only_account_is_still_swept_under_all_personal(
+    alice: Any, project: Project
+) -> None:
+    """Expiry narrows which tokens are revoked, never which accounts are contained."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    expired = _mint(
+        owner=alice,
+        created_by=alice,
+        name="old",
+        expires_at=timezone.now() - timedelta(days=1),
+    )
+    link = ShareLink.objects.create(
+        project=project,
+        token_prefix="tok-prefix9",
+        token_hash=sha256_hex("expired-only-link"),
+        created_by=alice,
+    )
+
+    dry = _run("--all-personal")
+    assert "Active tokens matched: 0" in dry
+    assert "Active share links matched: 1" in dry
+    assert "Nothing to revoke" not in dry
+
+    _run("--all-personal", "--commit", "--yes")
+    link.refresh_from_db()
+    expired.refresh_from_db()
+    assert link.revoked_at is not None
+    assert expired.revoked_at is None
+    assert not ApiTokenAuditEntry.objects.filter(token=expired).exists()
 
 
 @pytest.mark.django_db

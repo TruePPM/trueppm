@@ -262,7 +262,17 @@ class Command(BaseCommand):
         if target_user is not None:
             return [target_user]
         if options["all_personal"]:
-            owner_ids = {token.owner_id for token in doomed if token.owner_id is not None}
+            # Owners are drawn from every unrevoked personal token, expired or not
+            # (#4580): the expiry exclusion narrows which *tokens* are revoked and
+            # audited, never which accounts are contained. An account whose only
+            # token has lapsed still holds refresh tokens, share links, webhooks.
+            from trueppm_api.apps.projects.models import ApiToken
+
+            owner_ids = set(
+                ApiToken.objects.filter(
+                    is_deleted=False, revoked_at__isnull=True, owner__isnull=False
+                ).values_list("owner_id", flat=True)
+            )
             if not owner_ids:
                 return []
             User = get_user_model()
