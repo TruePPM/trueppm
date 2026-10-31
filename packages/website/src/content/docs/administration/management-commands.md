@@ -432,7 +432,7 @@ These exist for specific operational situations and are not part of routine use:
 `revoke_api_tokens --commit` re-checks each token under a row lock before revoking it:
 a token revoked by someone else between the dry run and the commit keeps its original
 revocation time and is not audited a second time, and an already-expired token is
-neither counted nor audited as revoked (it already fails authentication). Accounts
+neither counted nor audited as revoked (it already fails authentication). Tokens minted while the confirmation prompt is open are also revoked. Accounts
 that own only an expired token are still swept for their other credentials. On 0.4
 the commit re-dates concurrently revoked tokens and audits expired ones.
 :::
