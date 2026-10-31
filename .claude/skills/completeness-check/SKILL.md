@@ -62,7 +62,7 @@ Spawn **one agent that did not write the branch** (a fresh `general-purpose` age
 the implementing agent, never via `SendMessage` to it). The frontmatter model does not
 reach a spawned agent, so pass `model` explicitly:
 
-- **`opus`** when the branch meets one of `batch`'s escalation criteria — it spans three
+- **`opus`** when the branch meets one of `wave`'s escalation criteria — it spans three
   or more packages or changes an API↔web contract, changes scheduling semantics or the
   sync protocol, or touches an authorization boundary. Every finding in the table above
   came from an Opus audit, including the ones no test could see (a phantom drag move, a
@@ -142,7 +142,7 @@ which checklist step found it:
 | `merged-tree` | a collision with `origin/main` as fetched now |
 
 The tags exist to answer one question with data: would asking for requirement
-clarification *before* implementation (in `/batch` Step 2) prevent a real share of these
+clarification *before* implementation (in `/wave` Step 2) prevent a real share of these
 findings? Only `requirement-unclear` would. Tag honestly — a `requirement-missed` filed as
 `requirement-unclear` makes the upstream fix look cheaper than it is.
 

@@ -243,7 +243,7 @@ Two `completeness-check` readings go beyond yield (see that skill's § Recording
   round 2 adds little.
 - **The `causes:` tally** answers whether upstream requirement clarification would pay.
   Sum the tags across both rounds. If `requirement-unclear` is a real share of findings,
-  propose an acceptance-criteria check in `/batch` Step 2; if it stays near zero, the
+  propose an acceptance-criteria check in `/wave` Step 2; if it stays near zero, the
   findings are discovered by reading the code, and no up-front question would have
   prevented them.
 

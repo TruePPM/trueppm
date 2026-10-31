@@ -1,5 +1,5 @@
 ---
-name: batch
+name: wave
 model: opus
 disable-model-invocation: true
 description: >
@@ -12,12 +12,17 @@ description: >
   a model's own initiative.
 ---
 
-# Batch
+# Wave
 
 Land several milestone issues in one wave. Each issue gets its own worktree, its
 own delegated agent, and its own MR. You are the orchestrator: you choose the
 issues, brief the agents, verify what they actually produced, and report. You do
 **not** implement the issues yourself.
+
+> **Renamed from `batch` (#4683).** A project skill named `batch` hides Claude Code's
+> bundled `/batch`: a project skill replaces a bundled skill of the same name, so the
+> built-in was unreachable in this repo. The Blueprint renamed its copy to `wave`
+> for the same reason (macrodream/blueprint#101); this keeps the two in step.
 
 ## Why this skill is shaped the way it is
 
@@ -58,7 +63,7 @@ Also ask **wave size** if the user has not said one, defaulting to **5**. See th
 cap rule below for why the number is small.
 
 If the user names milestone and labels in their invocation
-(`/batch 0.4 release::committed`), take them and skip the ask.
+(`/wave 0.4 release::committed`), take them and skip the ask.
 
 ## Step 2 — Select the issues
 
