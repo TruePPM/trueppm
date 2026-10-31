@@ -277,7 +277,8 @@ class TaskRunTracker:
     def _project_exists(self) -> bool:
         from trueppm_api.apps.projects.models import Project
 
-        assert self._project_id is not None  # callers guard on None
+        if self._project_id is None:
+            return True  # global task: no project to be gone
         return Project.objects.filter(pk=self._project_id).exists()
 
     def _get_redis(self) -> Any:

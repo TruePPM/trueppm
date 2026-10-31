@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import uuid
 from datetime import date
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -130,3 +131,21 @@ def test_import_tasks_deleted_project_skip_cleanly(
     ).get()
     assert result == {"skipped": True, "reason": "project_deleted"}
     assert TaskRun.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_existing_project_failure_still_marks_failed_and_reraises(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A real failure for an existing project keeps the FAILED/broadcast/re-raise path."""
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event") as bc,
+        django_capture_on_commit_callbacks(execute=True),
+        pytest.raises(RuntimeError, match="boom"),
+        TaskRunTracker(_celery_task(), project_id=str(project.pk), task_name="t"),
+    ):
+        raise RuntimeError("boom")
+    run = TaskRun.objects.get()
+    assert run.status == TaskRunStatus.FAILED
+    assert run.error_detail == "boom"
+    assert "task_run_failed" in [c.kwargs["event_type"] for c in bc.call_args_list]
