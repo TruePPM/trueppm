@@ -97,6 +97,8 @@
     "dompurify": "^3.4.13",
     "undici": "^7.29.1",
     "fflate": "^0.8.3",
-    "@humanfs/node": "^0.16.8"
+    "@humanfs/node": "^0.16.8",
+    "glob": "^14.0.2",
+    "minimatch@^10": "^11.0.1"
   }
 }
