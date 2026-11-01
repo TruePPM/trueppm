@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import InvalidPage
 from django.core.paginator import Paginator as DjangoPaginator
@@ -107,6 +108,17 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
 from trueppm_api.apps.profiles.services import annotate_is_pinned
+from trueppm_api.apps.projects.metric_provenance import (
+    BURN_COMBINED_DEFINED,
+    BURN_DEFINED,
+    METRIC_DEFINITIONS,
+    OVERVIEW_DEFINED,
+    STATUS_SUMMARY_DEFINED,
+    UTILIZATION_DEFINED,
+    definitions_field,
+    definitions_for,
+    task_slip_definitions,
+)
 from trueppm_api.apps.projects.models import (
     _HISTORY_EXCLUDED_TASK,
     SCOPE_LEGACY_FULL,
@@ -3289,7 +3301,14 @@ class ProjectViewSet(
             )
 
         result = compute_utilization(project, window_start, window_end)
-        return Response(result)
+        # Provenance (ADR-1314): this endpoint owns person load on a project.
+        return Response(
+            {
+                **result,
+                "as_of": timezone.now(),
+                "definitions": definitions_for(UTILIZATION_DEFINED),
+            }
+        )
 
     @extend_schema(
         parameters=[
@@ -3816,12 +3835,21 @@ class ProjectViewSet(
                             "wbs": serializers.CharField(),
                         },
                     ),
+                    "blocked_count": serializers.IntegerField(
+                        help_text=METRIC_DEFINITIONS["blocked_count"]
+                        + " This is the owner of the blocked count (ADR-1314); the "
+                        "`count` on GET /projects/{id}/blocked/ is that list's row "
+                        "count and stops at its cap."
+                    ),
                     "monte_carlo_p80": serializers.DateField(
                         allow_null=True,
                         help_text=(
-                            "P80 finish from the project's most recent Monte Carlo run. "
-                            "Null means no run has been recorded, or the run produced no "
-                            "distribution to anchor on — not 'not computed yet'."
+                            "An echo of `p80` on GET /projects/{id}/monte-carlo/latest/, "
+                            "which owns the figure (ADR-1314): the same latest result "
+                            "(the cached run, else the most recent persisted run), so the "
+                            "two cannot disagree. Read its definition and `last_run_at` "
+                            "there. Null means no run has been recorded, or the run "
+                            "produced no distribution to anchor on — not 'not computed yet'."
                         ),
                     ),
                     "last_saved": serializers.DateTimeField(
@@ -3837,8 +3865,20 @@ class ProjectViewSet(
                         allow_null=True,
                         help_text=(
                             "When the last CPM pass completed. Null until the first "
-                            "schedule pass runs."
+                            "schedule pass runs. The float and critical-path inputs "
+                            "behind the counts were written by that pass."
                         ),
+                    ),
+                    "as_of": serializers.DateTimeField(
+                        help_text=(
+                            "When the server computed this payload (ADR-1314). Every "
+                            "figure here is read live at that moment; a client caching "
+                            "the payload shows its age from this, never from its own "
+                            "fetch time."
+                        ),
+                    ),
+                    "definitions": definitions_field(
+                        "ProjectStatusSummaryDefinitions", STATUS_SUMMARY_DEFINED
                     ),
                 },
             )
@@ -3913,6 +3953,11 @@ class ProjectViewSet(
                 "id",
                 filter=~Q(status=TaskStatus.COMPLETE) & Q(is_critical=True) & Q(_is_phase=False),
             ),
+            # The blocked list's own rule (`blocker_services._blocked_queryset`: a
+            # non-empty blocked_reason on a live row), counted in full in the same
+            # aggregate. `/blocked/`'s `count` is the length of a capped list, so it
+            # cannot be the metric (ADR-1314).
+            blocked_count=Count("id", filter=~Q(blocked_reason="")),
         )
         task_count = counts["task_count"]
         at_risk_count = counts["at_risk_count"]
@@ -3963,12 +4008,23 @@ class ProjectViewSet(
         # somebody last changed the plan, not when the server last wrote a row.
         from trueppm_api.apps.scheduling.models import MonteCarloRun
 
-        latest_p80 = (
-            MonteCarloRun.objects.filter(project=project)
-            .order_by("-taken_at")
-            .values_list("p80", flat=True)
-            .first()
-        )
+        # The same "latest result" GET /monte-carlo/latest/ serves — the cache entry
+        # first, the persisted run after its TTL — so this echo cannot disagree with
+        # the figure's owner (ADR-1314). Reading only the persisted row made the two
+        # differ for a whole day after a Member-triggered run, which refreshes the
+        # cache but persists no attributed row (#1502).
+        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+        cached_mc = cache.get(mc_latest_cache_key(project.pk))
+        if cached_mc is not None:
+            latest_p80 = cached_mc.get("p80")
+        else:
+            latest_p80 = (
+                MonteCarloRun.objects.filter(project=project)
+                .order_by("-taken_at")
+                .values_list("p80", flat=True)
+                .first()
+            )
 
         # The band is a SERVER fact, not something the shell can work out from the
         # two counts below it (#3501). Only the server sees the manual
@@ -4000,8 +4056,11 @@ class ProjectViewSet(
                 "critical_count": critical_count,
                 "at_risk_tasks": at_risk_tasks,
                 "critical_tasks": critical_tasks,
+                "blocked_count": counts["blocked_count"],
                 "last_saved": counts["last_saved"],
                 "recalculated_at": project.recalculated_at,
+                "as_of": timezone.now(),
+                "definitions": definitions_for(STATUS_SUMMARY_DEFINED),
             },
             status=status.HTTP_200_OK,
         )
@@ -12977,10 +13036,28 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         )
         from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 
-        # Composed only when the P80 or CPM finish is a start-of-day reading.
-        risk_premium = build_risk_premium(
-            latest_run, today=today, calendar_for=lambda: compose_project_calendar(project)
+        # The same "latest result" GET /monte-carlo/latest/ serves (ADR-1314): the
+        # cache entry first, the persisted run after its TTL. A Member-triggered run
+        # refreshes the cache and persists no row (#1502), so reading the row alone
+        # left this card — and MCP `get_project`, which reads it — a day behind the
+        # forecast endpoint for the same project.
+        from trueppm_api.apps.scheduling.forecast_staleness import (
+            forecast_staleness_for_payload,
         )
+        from trueppm_api.apps.scheduling.risk_premium import risk_premium_for_forecast_payload
+        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+        cached_mc = cache.get(mc_latest_cache_key(project.pk))
+
+        # Composed only when the P80 or CPM finish is a start-of-day reading.
+        if cached_mc is not None:
+            risk_premium = risk_premium_for_forecast_payload(
+                cached_mc, today=today, calendar_for=lambda: compose_project_calendar(project)
+            )
+        else:
+            risk_premium = build_risk_premium(
+                latest_run, today=today, calendar_for=lambda: compose_project_calendar(project)
+            )
         # Promoted here for the same reason the premium is (#3140): this endpoint is
         # what cards, MCP health reads and rollups consult instead of running a
         # simulation, so if the discriminant lived only on `/monte-carlo/latest/`,
@@ -12988,11 +13065,20 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         # `get_monte_carlo_forecast` reported the same run as stale. Two tools, one run,
         # opposite answers is worse than either answer alone. Same row, same already
         # loaded project — no extra query.
-        staleness = forecast_staleness_from_run(
-            latest_run,
-            plan_version_current=project.last_sync_version,
-            recalculated_at=project.recalculated_at,
-            today=today,
+        staleness = (
+            forecast_staleness_for_payload(
+                cached_mc,
+                plan_version_current=project.last_sync_version,
+                recalculated_at=project.recalculated_at,
+                today=today,
+            )
+            if cached_mc is not None
+            else forecast_staleness_from_run(
+                latest_run,
+                plan_version_current=project.last_sync_version,
+                recalculated_at=project.recalculated_at,
+                today=today,
+            )
         )
 
         return Response(
@@ -13014,6 +13100,11 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                 "open_risk_count": open_risk_count,
                 "high_risk_count": high_risk_count,
                 "start_date": project.start_date.isoformat(),
+                # Provenance (ADR-1314): this endpoint owns open risks, team
+                # utilization and the SPI schedule band — the last one is NOT the
+                # project health band, and its definition says so.
+                "as_of": timezone.now(),
+                "definitions": definitions_for(OVERVIEW_DEFINED),
             },
             status=status.HTTP_200_OK,
         )
@@ -14633,6 +14724,23 @@ class TaskHistoryView(APIView):
                             required=False, allow_null=True
                         ),
                         "duration_delta": serializers.IntegerField(required=False),
+                        # Provenance (ADR-1314), on every branch: this is the owning
+                        # response for one task's slip.
+                        "as_of": serializers.DateTimeField(
+                            help_text=(
+                                "When the server computed this comparison. The current "
+                                "dates were written by the CPM pass at the project's "
+                                "recalculated_at."
+                            ),
+                        ),
+                        "definitions": inline_serializer(
+                            name="TaskBaselineComparisonDefinitions",
+                            fields={
+                                "finish_delta_days": serializers.CharField(
+                                    help_text=METRIC_DEFINITIONS["baseline_finish_variance_days"]
+                                )
+                            },
+                        ),
                     },
                 ),
                 description=(
@@ -14669,10 +14777,14 @@ class TaskBaselineDetailView(APIView):
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
+        # Provenance on every branch (ADR-1314): "no active baseline" is the
+        # not-computable case, and it still says what the slip would mean.
+        provenance = {"as_of": timezone.now(), "definitions": task_slip_definitions()}
+
         try:
             baseline = Baseline.objects.get(project_id=project_pk, is_active=True, is_deleted=False)
         except Baseline.DoesNotExist:
-            return Response({"has_baseline": False})
+            return Response({"has_baseline": False, **provenance})
 
         from trueppm_api.apps.projects.services import _project_sched_calendar
         from trueppm_api.apps.scheduling.finish_reading import (
@@ -14689,6 +14801,7 @@ class TaskBaselineDetailView(APIView):
                     "in_baseline": False,
                     "baseline_name": baseline.name,
                     "baseline_taken_at": baseline.created_at.isoformat(),
+                    **provenance,
                 }
             )
 
@@ -14763,6 +14876,7 @@ class TaskBaselineDetailView(APIView):
                 "start_delta_days": start_delta,
                 "finish_delta_days": _finish_delta(task.early_finish, bt.finish),
                 "duration_delta": task.duration - bt.duration,
+                **provenance,
             }
         )
 
@@ -19170,7 +19284,14 @@ class ProjectBurnView(APIView):
             except ValueError as exc:
                 # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-            return Response(payload, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    **payload,
+                    "as_of": timezone.now(),
+                    "definitions": definitions_for(BURN_COMBINED_DEFINED),
+                },
+                status=status.HTTP_200_OK,
+            )
 
         try:
             payload = burn_series(
@@ -19183,7 +19304,13 @@ class ProjectBurnView(APIView):
         except ValueError as exc:
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(payload, status=status.HTTP_200_OK)
+        # Provenance (ADR-1314): this endpoint owns the burn series and the S-curve
+        # (burnup with the active-baseline overlay) — one series, not a second
+        # endpoint computing the same cumulative curve.
+        return Response(
+            {**payload, "as_of": timezone.now(), "definitions": definitions_for(BURN_DEFINED)},
+            status=status.HTTP_200_OK,
+        )
 
     @staticmethod
     def _parse_date(raw: str) -> datetime.date | None:

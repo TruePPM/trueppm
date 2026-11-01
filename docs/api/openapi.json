@@ -54707,6 +54707,16 @@
                     "task_count"
                 ]
             },
+            "CommitmentSourceEnum": {
+                "enum": [
+                    "baseline",
+                    "program_target",
+                    "none"
+                ],
+                "type": "string",
+                "description": "* `baseline` - baseline\n* `program_target` - program_target\n* `none` - none",
+                "x-trueppm-enum": "open"
+            },
             "ContentKindEnum": {
                 "enum": [
                     "board",
@@ -59118,12 +59128,52 @@
                     },
                     "last_run_at": {
                         "type": "string",
-                        "format": "date-time"
+                        "format": "date-time",
+                        "description": "When this simulation ran. This is the as_of for every figure on the payload (ADR-1314): the percentiles describe the plan as it stood then."
                     },
                     "status_date": {
                         "type": "string",
                         "format": "date",
                         "nullable": true
+                    },
+                    "commitment_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "The date the forecast is measured against (ADR-1314): the active baseline's finish, else the parent program's target date, else null. commitment_source says which rule applied. Derived per response, so a baseline activated after the run is reflected without a rerun."
+                    },
+                    "commitment_source": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CommitmentSourceEnum"
+                            }
+                        ],
+                        "description": "Which commitment rule supplied commitment_date; `none` when none did.\n\n* `baseline` - baseline\n* `program_target` - program_target\n* `none` - none"
+                    },
+                    "p80_delta_vs_commitment_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "The P80 finish minus the commitment date, in calendar days measured in working time; positive means the forecast is later than the commitment. Null exactly when p80_delta_vs_commitment_reason is set."
+                    },
+                    "p80_delta_vs_commitment_reason": {
+                        "nullable": true,
+                        "description": "Why the delta is null (rule 119): `no_commitment` — no rule supplied a commitment date; `no_forecast` — the run has no P80. Null when the delta is set.\n\n* `no_commitment` - no_commitment\n* `no_forecast` - no_forecast",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/P80DeltaVsCommitmentReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MonteCarloForecastDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     },
                     "from_history": {
                         "type": "boolean",
@@ -59131,9 +59181,12 @@
                     }
                 },
                 "required": [
+                    "commitment_date",
+                    "commitment_source",
                     "confidence_curve",
                     "cpm_finish",
                     "cpm_finish_at_day_start",
+                    "definitions",
                     "delta_vs_cpm",
                     "forecast_diagnostic",
                     "forecast_staleness",
@@ -59143,6 +59196,8 @@
                     "p50_at_day_start",
                     "p80",
                     "p80_at_day_start",
+                    "p80_delta_vs_commitment_days",
+                    "p80_delta_vs_commitment_reason",
                     "p95",
                     "p95_at_day_start",
                     "plan_version",
@@ -59159,6 +59214,38 @@
                     "runs",
                     "sensitivity",
                     "status_date"
+                ]
+            },
+            "MonteCarloForecastDefinitions": {
+                "type": "object",
+                "properties": {
+                    "p50": {
+                        "type": "string",
+                        "description": "The finish date half of the simulated schedules finish on or before."
+                    },
+                    "p80": {
+                        "type": "string",
+                        "description": "The finish date 80% of the simulated schedules finish on or before."
+                    },
+                    "p95": {
+                        "type": "string",
+                        "description": "The finish date 95% of the simulated schedules finish on or before."
+                    },
+                    "p80_delta_vs_commitment_days": {
+                        "type": "string",
+                        "description": "The P80 finish minus the commitment date, in calendar days measured in working time; positive means the forecast is later than the commitment."
+                    },
+                    "commitment_date": {
+                        "type": "string",
+                        "description": "Which commitment rule applied: the active baseline's finish, the parent program's target date, or none."
+                    }
+                },
+                "required": [
+                    "commitment_date",
+                    "p50",
+                    "p80",
+                    "p80_delta_vs_commitment_days",
+                    "p95"
                 ]
             },
             "MonteCarloForecastDiagnostic": {
@@ -59985,6 +60072,15 @@
                 ],
                 "type": "string",
                 "description": "* `success` - success\n* `reachable` - reachable\n* `failure` - failure",
+                "x-trueppm-enum": "open"
+            },
+            "P80DeltaVsCommitmentReasonEnum": {
+                "enum": [
+                    "no_commitment",
+                    "no_forecast"
+                ],
+                "type": "string",
+                "description": "* `no_commitment` - no_commitment\n* `no_forecast` - no_forecast",
                 "x-trueppm-enum": "open"
             },
             "PaginatedAcceptanceCriterionList": {
@@ -67241,7 +67337,8 @@
                     },
                     "count": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "The number of rows in this list, which stops at the list's row cap (see `truncated`). It is not the blocked-task metric: the full count is `blocked_count` on GET /projects/{id}/status-summary/ (ADR-1314)."
                     },
                     "blocked": {
                         "type": "array",
@@ -67317,10 +67414,26 @@
                             "$ref": "#/components/schemas/ProjectBurnCombinedPoint"
                         },
                         "readOnly": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "When the server computed this payload (ADR-1314). Every figure here is read live at that moment."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectBurnCombinedDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
                     "chart_type",
+                    "definitions",
                     "metric",
                     "series",
                     "since",
@@ -67334,6 +67447,18 @@
                 "type": "string",
                 "description": "* `combined` - combined",
                 "x-trueppm-enum": "exhaustive"
+            },
+            "ProjectBurnCombinedDefinitions": {
+                "type": "object",
+                "properties": {
+                    "burn_series": {
+                        "type": "string",
+                        "description": "Per day, the remaining (burndown) or completed (burnup) task count or story points, replayed from task history."
+                    }
+                },
+                "required": [
+                    "burn_series"
+                ]
             },
             "ProjectBurnCombinedPoint": {
                 "type": "object",
@@ -67431,11 +67556,27 @@
                             "$ref": "#/components/schemas/ProjectBurnBaselinePoint"
                         },
                         "readOnly": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "When the server computed this payload (ADR-1314). Every figure here is read live at that moment."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectBurnSeriesDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
                     "baseline_series",
                     "chart_type",
+                    "definitions",
                     "metric",
                     "series",
                     "since",
@@ -67450,6 +67591,23 @@
                 "type": "string",
                 "description": "* `burndown` - burndown\n* `burnup` - burnup",
                 "x-trueppm-enum": "exhaustive"
+            },
+            "ProjectBurnSeriesDefinitions": {
+                "type": "object",
+                "properties": {
+                    "burn_series": {
+                        "type": "string",
+                        "description": "Per day, the remaining (burndown) or completed (burnup) task count or story points, replayed from task history."
+                    },
+                    "burn_baseline_series": {
+                        "type": "string",
+                        "description": "Per day, the same quantity as planned by the active baseline; absent when the project has no active baseline with dates."
+                    }
+                },
+                "required": [
+                    "burn_baseline_series",
+                    "burn_series"
+                ]
             },
             "ProjectBurnSeriesPoint": {
                 "type": "object",
@@ -69282,11 +69440,27 @@
                         "type": "string",
                         "format": "date",
                         "readOnly": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "When the server computed this payload (ADR-1314). Every figure here is read live at that moment."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectOverviewDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
                     "complete_tasks",
                     "critical_task_count",
+                    "definitions",
                     "forecast_staleness",
                     "high_risk_count",
                     "next_milestone",
@@ -69309,6 +69483,28 @@
                     "team_utilization_pct",
                     "team_utilization_reason",
                     "total_tasks"
+                ]
+            },
+            "ProjectOverviewDefinitions": {
+                "type": "object",
+                "properties": {
+                    "schedule_health": {
+                        "type": "string",
+                        "description": "The schedule performance band from the SPI proxy (completed planned work divided by work planned by today); unknown when nothing is planned yet. Not the project health band."
+                    },
+                    "open_risk_count": {
+                        "type": "string",
+                        "description": "Risks in the register whose status is open or mitigating."
+                    },
+                    "team_utilization_pct": {
+                        "type": "string",
+                        "description": "Booked hours across the project roster this week divided by the roster's working-time capacity this week, as a percentage."
+                    }
+                },
+                "required": [
+                    "open_risk_count",
+                    "schedule_health",
+                    "team_utilization_pct"
                 ]
             },
             "ProjectOverviewNextMilestone": {
@@ -70111,11 +70307,15 @@
                             "$ref": "#/components/schemas/ProjectStatusSummaryCriticalTask"
                         }
                     },
+                    "blocked_count": {
+                        "type": "integer",
+                        "description": "Live tasks flagged blocked (a blocked reason is recorded): the rule the blocked list uses, counted in full rather than capped at the list's row limit. This is the owner of the blocked count (ADR-1314); the `count` on GET /projects/{id}/blocked/ is that list's row count and stops at its cap."
+                    },
                     "monte_carlo_p80": {
                         "type": "string",
                         "format": "date",
                         "nullable": true,
-                        "description": "P80 finish from the project's most recent Monte Carlo run. Null means no run has been recorded, or the run produced no distribution to anchor on — not 'not computed yet'."
+                        "description": "An echo of `p80` on GET /projects/{id}/monte-carlo/latest/, which owns the figure (ADR-1314): the same latest result (the cached run, else the most recent persisted run), so the two cannot disagree. Read its definition and `last_run_at` there. Null means no run has been recorded, or the run produced no distribution to anchor on — not 'not computed yet'."
                     },
                     "last_saved": {
                         "type": "string",
@@ -70127,14 +70327,30 @@
                         "type": "string",
                         "format": "date-time",
                         "nullable": true,
-                        "description": "When the last CPM pass completed. Null until the first schedule pass runs."
+                        "description": "When the last CPM pass completed. Null until the first schedule pass runs. The float and critical-path inputs behind the counts were written by that pass."
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the server computed this payload (ADR-1314). Every figure here is read live at that moment; a client caching the payload shows its age from this, never from its own fetch time."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectStatusSummaryDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
                     "at_risk_count",
                     "at_risk_tasks",
+                    "blocked_count",
                     "critical_count",
                     "critical_tasks",
+                    "definitions",
                     "health_band",
                     "health_band_source",
                     "last_saved",
@@ -70161,6 +70377,33 @@
                     "id",
                     "name",
                     "wbs"
+                ]
+            },
+            "ProjectStatusSummaryDefinitions": {
+                "type": "object",
+                "properties": {
+                    "health_band": {
+                        "type": "string",
+                        "description": "The project's health: the project manager's own report when one is filed, otherwise critical when any incomplete leaf task is on the critical path, at risk when any incomplete leaf task has 5 or fewer working days of total float, and on track when neither holds."
+                    },
+                    "at_risk_count": {
+                        "type": "string",
+                        "description": "Incomplete leaf tasks with 5 or fewer working days of total float, including tasks already late (negative float)."
+                    },
+                    "critical_count": {
+                        "type": "string",
+                        "description": "Incomplete leaf tasks on the critical path."
+                    },
+                    "blocked_count": {
+                        "type": "string",
+                        "description": "Live tasks flagged blocked (a blocked reason is recorded): the rule the blocked list uses, counted in full rather than capped at the list's row limit."
+                    }
+                },
+                "required": [
+                    "at_risk_count",
+                    "blocked_count",
+                    "critical_count",
+                    "health_band"
                 ]
             },
             "ProjectStatusSummaryTask": {
@@ -70381,9 +70624,25 @@
                     "unassigned_task_count": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "When the server computed this payload (ADR-1314). Every figure here is read live at that moment."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectUtilizationDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
+                    "definitions",
                     "project_id",
                     "resources",
                     "unassigned_task_count",
@@ -70430,6 +70689,18 @@
                     "load_pct",
                     "overallocated",
                     "tasks"
+                ]
+            },
+            "ProjectUtilizationDefinitions": {
+                "type": "object",
+                "properties": {
+                    "load_pct": {
+                        "type": "string",
+                        "description": "A person's booked hours on a working day divided by their capacity that day (hours per day times their units on this project), as a percentage; non-working days and calendar time off carry no capacity and are omitted."
+                    }
+                },
+                "required": [
+                    "load_pct"
                 ]
             },
             "ProjectUtilizationResource": {
@@ -76077,7 +76348,7 @@
                     "baseline_finish_variance_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
+                        "description": "A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late. Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
                         "readOnly": true
                     },
                     "spi": {
@@ -76813,10 +77084,32 @@
                     },
                     "duration_delta": {
                         "type": "integer"
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the server computed this comparison. The current dates were written by the CPM pass at the project's recalculated_at."
+                    },
+                    "definitions": {
+                        "$ref": "#/components/schemas/TaskBaselineComparisonDefinitions"
                     }
                 },
                 "required": [
+                    "as_of",
+                    "definitions",
                     "has_baseline"
+                ]
+            },
+            "TaskBaselineComparisonDefinitions": {
+                "type": "object",
+                "properties": {
+                    "finish_delta_days": {
+                        "type": "string",
+                        "description": "A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late."
+                    }
+                },
+                "required": [
+                    "finish_delta_days"
                 ]
             },
             "TaskBulkAppliedEntry": {
@@ -79590,7 +79883,7 @@
                     "baseline_finish_variance_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
+                        "description": "A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late. Current forecast finish (early_finish) against the active baseline finish, measured in working time and reported in calendar days. Positive = the forecast is later than the baseline. A start-of-day milestone whose shown finish hops a weekend without moving in working time reads 0. Null when the task has no forecast finish or no baseline finish.",
                         "readOnly": true
                     },
                     "spi": {

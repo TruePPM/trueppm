@@ -1,7 +1,7 @@
 ---
 title: "Tasks and dependencies API"
 description: "Tasks, attachments, dependencies, cross-project slip conflicts, Monte Carlo, task relations, acceptance criteria and recurrence rules."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 ## Tasks
@@ -204,6 +204,19 @@ Acknowledgment is an audit act — "seen, handling it" — not a schedule change
 | POST | `/api/v1/projects/{id}/monte-carlo/` | Run a probabilistic schedule simulation synchronously and return P50/P80/P95 (no state written) |
 | GET | `/api/v1/projects/{id}/monte-carlo/latest/` | Retrieve the most recently recorded simulation run for the project |
 | GET | `/api/v1/projects/{id}/monte-carlo/history/` | List recorded simulation runs for the project |
+
+:::note[Ships in 0.5]
+The run and `latest/` responses gain `commitment_date`, `commitment_source`,
+`p80_delta_vs_commitment_days`, `p80_delta_vs_commitment_reason` and
+`definitions` (ADR-1314). `last_run_at` is the as-of time for every figure. When
+the commitment is the parent program's target date, every project member who
+can read the forecast sees that date, including members who are not in the
+program. The single-task baseline comparison,
+`GET /api/v1/projects/{id}/tasks/{task_id}/baseline/`, gains `as_of` and
+`definitions` on every branch; its `finish_delta_days` is the same figure as a
+task row's `baseline_finish_variance_days`. See
+[Metric vocabulary](/features/metric-vocabulary/).
+:::
 
 The run endpoint accepts an optional `n_simulations` in the body; it must not
 exceed the OSS simulation cap or the request returns `402`. See

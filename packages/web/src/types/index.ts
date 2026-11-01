@@ -1000,6 +1000,20 @@ export interface ForecastDiagnostic {
  */
 export type ForecastStaleness = 'current' | 'projectChanged' | 'aged' | 'unknown';
 
+/**
+ * The server's one-sentence definitions for the figures on a payload (ADR-1314),
+ * keyed by the wire field name. Rendered verbatim — a surface never writes its own
+ * definition of a server metric, so a tooltip cannot describe a number differently
+ * from the server that computed it.
+ */
+export type MetricDefinitions = Partial<Record<string, string>>;
+
+/** Which rule supplied the forecast's commitment date (ADR-1314). */
+export type CommitmentSource = 'baseline' | 'program_target' | 'none';
+
+/** Why the P80-vs-commitment delta is null (rule 119). */
+export type CommitmentDeltaReason = 'no_commitment' | 'no_forecast';
+
 export interface MonteCarloResult {
   projectId: string;
   runs: number;
@@ -1011,8 +1025,21 @@ export interface MonteCarloResult {
   p95: string;
   /** Weekly bucket histogram of the full distribution */
   buckets: McBucket[];
-  /** ISO timestamp of when the simulation was run, captured at cache-write time. */
+  /** ISO timestamp of when the simulation was run, captured at cache-write time. This is the forecast's `as_of` (ADR-1314). */
   lastRunAt?: string;
+  /**
+   * The commitment the forecast is measured against, server-derived per response
+   * (ADR-1314): the active baseline's finish, else the program target date, else
+   * null. Optional only for payloads from before the field shipped.
+   */
+  commitmentDate?: string | null;
+  commitmentSource?: CommitmentSource;
+  /** P80 minus the commitment, server-measured in working time. Never recomputed here. */
+  p80DeltaVsCommitmentDays?: number | null;
+  /** Set exactly when the delta is null (rule 119). */
+  p80DeltaVsCommitmentReason?: CommitmentDeltaReason | null;
+  /** Server definitions for p50/p80/p95/the delta/the commitment. */
+  definitions?: MetricDefinitions;
   /**
    * Deterministic CPM project finish (max early-finish), ISO string or null.
    * Server-owned single source of truth — preferred over the client's
@@ -1253,6 +1280,12 @@ export interface ShellStats {
   atRiskTasks: ShellStatTask[];
   /** Tasks on critical path that are incomplete (up to 5 shown in badge popover) */
   criticalTasks: ShellStatTask[];
+  /** Live blocked tasks, counted in full by the server (ADR-1314). Optional for older mocks. */
+  blockedCount?: number;
+  /** When the server computed these figures (ADR-1314). */
+  asOf?: string;
+  /** Server definitions for the band and the counts. */
+  definitions?: MetricDefinitions;
   onlineUsers: number;
 }
 

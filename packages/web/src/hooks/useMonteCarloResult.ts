@@ -4,7 +4,10 @@ import { apiClient } from '@/api/client';
 import { fallbackPollInterval, useWsConnectionStore } from '@/stores/wsConnectionStore';
 import type {
   AddedTimeFacts,
+  CommitmentDeltaReason,
+  CommitmentSource,
   ForecastReason,
+  MetricDefinitions,
   ForecastStaleness,
   MonteCarloResult,
 } from '@/types';
@@ -74,6 +77,13 @@ interface MonteCarloLatestResponse {
   forecast_staleness?: 'current' | 'project_changed' | 'aged' | 'unknown';
   plan_version?: number | null;
   plan_version_current?: number | null;
+  // Commitment + delta + definitions (ADR-1314, #4760). Derived per response on the
+  // server; optional only for payloads from before they shipped.
+  commitment_date?: string | null;
+  commitment_source?: CommitmentSource;
+  p80_delta_vs_commitment_days?: number | null;
+  p80_delta_vs_commitment_reason?: CommitmentDeltaReason | null;
+  definitions?: MetricDefinitions;
 }
 
 /**
@@ -169,6 +179,11 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     forecastStaleness: mapStaleness(api.forecast_staleness),
     planVersion: api.plan_version ?? null,
     planVersionCurrent: api.plan_version_current ?? null,
+    commitmentDate: api.commitment_date ?? null,
+    commitmentSource: api.commitment_source,
+    p80DeltaVsCommitmentDays: api.p80_delta_vs_commitment_days ?? null,
+    p80DeltaVsCommitmentReason: api.p80_delta_vs_commitment_reason ?? null,
+    definitions: api.definitions,
   };
 }
 

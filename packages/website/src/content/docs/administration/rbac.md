@@ -1,7 +1,7 @@
 ---
 title: Roles and Permissions
 description: TruePPM's 5-role RBAC model — setup, enforcement, and permission matrix.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 TruePPM uses a 5-role per-project permission model stored in `ProjectMembership` and enforced on every API endpoint and WebSocket connection.
@@ -58,6 +58,24 @@ project, whether or not the minter is still a member, and require Member or abov
 A token whose minter's account has been **deleted** is a separate case, and it does not
 change in this release: those two write endpoints already refuse it, because a deleted
 minter leaves the token with no user to act as.
+
+### The one program fact a project role reaches
+
+The reverse direction holds too: a project role is not a read grant on its program.
+There is one exception. When a project in a program has no active baseline with
+dates, its forecast is measured against the program's target date, and the
+forecast (`GET /projects/{id}/monte-carlo/latest/` and the run that produces it)
+returns that date as `commitment_date`, with `commitment_source: "program_target"`.
+Any project member who can read the forecast sees it, Viewer and up, including
+members who hold no program role. Only the date is shown. The program's name, its
+other projects, and its roster stay behind program membership. A soft-deleted
+program's date is never used. See [Metric vocabulary](/features/metric-vocabulary/)
+and ADR-1314.
+
+:::note[Ships in 0.5]
+The forecast's commitment fields ship in 0.5. In 0.4 a project role reaches no
+program field.
+:::
 
 ### Why the ordinals jump by 100
 

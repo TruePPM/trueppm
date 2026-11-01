@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useProjectId } from '@/hooks/useProjectId';
-import type { HealthBandSource, ShellStats } from '@/types';
+import type { HealthBandSource, MetricDefinitions, ShellStats } from '@/types';
 import type { HealthBand } from '@/lib/healthBand';
 
 export interface UseShellStatsResult {
@@ -54,6 +54,11 @@ interface StatusSummaryResponse {
   critical_tasks: { id: string; name: string; wbs: string }[];
   last_saved: string | null;
   recalculated_at: string | null;
+  /** Live blocked tasks, counted in full (ADR-1314). Optional for payloads from before it shipped. */
+  blocked_count?: number;
+  /** When the server computed this payload (ADR-1314). */
+  as_of?: string;
+  definitions?: MetricDefinitions;
 }
 
 function toShellStats(r: StatusSummaryResponse): ShellStats {
@@ -70,6 +75,9 @@ function toShellStats(r: StatusSummaryResponse): ShellStats {
     criticalCount: r.critical_count,
     atRiskTasks: r.at_risk_tasks,
     criticalTasks: r.critical_tasks,
+    blockedCount: r.blocked_count,
+    asOf: r.as_of,
+    definitions: r.definitions,
     onlineUsers: 0,
   };
 }

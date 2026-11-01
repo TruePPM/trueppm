@@ -39,6 +39,14 @@ from trueppm_api.apps.projects.attachment_policy import (
     SYSTEM_ATTACHMENT_DENYLIST,
     SYSTEM_DEFAULT_ATTACHMENT_TYPES,
 )
+from trueppm_api.apps.projects.metric_provenance import (
+    BURN_COMBINED_DEFINED,
+    BURN_DEFINED,
+    METRIC_DEFINITIONS,
+    OVERVIEW_DEFINED,
+    UTILIZATION_DEFINED,
+    definitions_field,
+)
 from trueppm_api.apps.projects.models import (
     _VALID_DUE_WINDOWS,
     _VALID_EVM_MODES,
@@ -5862,6 +5870,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         serializers.IntegerField(
             allow_null=True,
             help_text=(
+                METRIC_DEFINITIONS["baseline_finish_variance_days"] + " "
                 "Current forecast finish (early_finish) against the active baseline "
                 "finish, measured in working time and reported in calendar days. "
                 "Positive = the forecast is later than the baseline. A start-of-day "
@@ -12569,6 +12578,14 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     open_risk_count = serializers.IntegerField(read_only=True)
     high_risk_count = serializers.IntegerField(read_only=True)
     start_date = serializers.DateField(read_only=True)
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When the server computed this payload (ADR-1314). Every figure here is "
+            "read live at that moment."
+        ),
+    )
+    definitions = definitions_field("ProjectOverviewDefinitions", OVERVIEW_DEFINED)
 
 
 class ProjectAttentionItemSerializer(serializers.Serializer[dict[str, Any]]):
@@ -12675,6 +12692,14 @@ class ProjectBurnSeriesSerializer(serializers.Serializer[dict[str, Any]]):
     until = serializers.DateField(read_only=True)
     series = ProjectBurnSeriesPointSerializer(many=True, read_only=True)
     baseline_series = ProjectBurnBaselinePointSerializer(many=True, read_only=True, required=False)
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When the server computed this payload (ADR-1314). Every figure here is "
+            "read live at that moment."
+        ),
+    )
+    definitions = definitions_field("ProjectBurnSeriesDefinitions", BURN_DEFINED)
 
 
 class ProjectBurnCombinedSerializer(serializers.Serializer[dict[str, Any]]):
@@ -12689,6 +12714,14 @@ class ProjectBurnCombinedSerializer(serializers.Serializer[dict[str, Any]]):
     since = serializers.DateField(read_only=True)
     until = serializers.DateField(read_only=True)
     series = ProjectBurnCombinedPointSerializer(many=True, read_only=True)
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When the server computed this payload (ADR-1314). Every figure here is "
+            "read live at that moment."
+        ),
+    )
+    definitions = definitions_field("ProjectBurnCombinedDefinitions", BURN_COMBINED_DEFINED)
 
 
 class ProjectBlockedRollupSerializer(serializers.Serializer[dict[str, Any]]):
@@ -12700,7 +12733,14 @@ class ProjectBlockedRollupSerializer(serializers.Serializer[dict[str, Any]]):
     """
 
     project_id = serializers.UUIDField(read_only=True)
-    count = serializers.IntegerField(read_only=True)
+    count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "The number of rows in this list, which stops at the list's row cap (see "
+            "`truncated`). It is not the blocked-task metric: the full count is "
+            "`blocked_count` on GET /projects/{id}/status-summary/ (ADR-1314)."
+        ),
+    )
     blocked = BlockedTaskRowSerializer(many=True, read_only=True)
     truncated = serializers.BooleanField(read_only=True)
 
@@ -12745,6 +12785,14 @@ class ProjectUtilizationSerializer(serializers.Serializer[dict[str, Any]]):
     window = ProjectUtilizationWindowSerializer(read_only=True)
     resources = ProjectUtilizationResourceSerializer(many=True, read_only=True)
     unassigned_task_count = serializers.IntegerField(read_only=True)
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When the server computed this payload (ADR-1314). Every figure here is "
+            "read live at that moment."
+        ),
+    )
+    definitions = definitions_field("ProjectUtilizationDefinitions", UTILIZATION_DEFINED)
 
 
 class ProjectResourceAllocationTaskSerializer(serializers.Serializer[dict[str, Any]]):

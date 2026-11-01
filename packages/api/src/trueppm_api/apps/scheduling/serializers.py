@@ -8,6 +8,13 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from trueppm_scheduler.derive import Quantity as CpmDerivationQuantity
 
+from trueppm_api.apps.projects.metric_provenance import (
+    COMMITMENT_REASON_CHOICES,
+    COMMITMENT_SOURCE_CHOICES,
+    FORECAST_DEFINED,
+    METRIC_DEFINITIONS,
+    definitions_field,
+)
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     MonteCarloRun,
@@ -353,8 +360,41 @@ class MonteCarloForecastSerializer(
     )
     delta_vs_cpm = MonteCarloDeltaSerializer()
     forecast_diagnostic = MonteCarloForecastDiagnosticSerializer(allow_null=True)
-    last_run_at = serializers.DateTimeField()
+    last_run_at = serializers.DateTimeField(
+        help_text=(
+            "When this simulation ran. This is the as_of for every figure on the "
+            "payload (ADR-1314): the percentiles describe the plan as it stood then."
+        ),
+    )
     status_date = serializers.DateField(allow_null=True)
+    commitment_date = serializers.DateField(
+        allow_null=True,
+        help_text=(
+            "The date the forecast is measured against (ADR-1314): the active "
+            "baseline's finish, else the parent program's target date, else null. "
+            "commitment_source says which rule applied. Derived per response, so a "
+            "baseline activated after the run is reflected without a rerun."
+        ),
+    )
+    commitment_source = serializers.ChoiceField(
+        choices=COMMITMENT_SOURCE_CHOICES,
+        help_text="Which commitment rule supplied commitment_date; `none` when none did.",
+    )
+    p80_delta_vs_commitment_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=METRIC_DEFINITIONS["p80_delta_vs_commitment_days"]
+        + " Null exactly when p80_delta_vs_commitment_reason is set.",
+    )
+    p80_delta_vs_commitment_reason = serializers.ChoiceField(
+        choices=COMMITMENT_REASON_CHOICES,
+        allow_null=True,
+        help_text=(
+            "Why the delta is null (rule 119): `no_commitment` — no rule supplied a "
+            "commitment date; `no_forecast` — the run has no P80. Null when the delta "
+            "is set."
+        ),
+    )
+    definitions = definitions_field("MonteCarloForecastDefinitions", FORECAST_DEFINED)
     from_history = serializers.BooleanField(
         required=False,
         help_text=(

@@ -52,6 +52,7 @@ from trueppm_api.apps.access.permissions import (
     declare_scope_in_body,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.projects.metric_provenance import forecast_commitment_facts
 from trueppm_api.apps.projects.models import (
     Dependency,
     EstimationMode,
@@ -1064,6 +1065,15 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
                 recalculated_at=current_recalculated_at,
                 today=timezone.localdate(),
             ),
+            # Commitment + delta + definitions (ADR-1314). Per response, not cached:
+            # the commitment can move (a baseline activated, a program date edited)
+            # without the forecast changing.
+            **forecast_commitment_facts(
+                project,
+                p80=mc_result.p80,
+                p80_at_day_start=mc_result.p80_at_day_start,
+                calendar_for=lambda: sched_calendar,
+            ),
         }
     )
 
@@ -1179,6 +1189,13 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                         recalculated_at=project.recalculated_at,
                         today=timezone.localdate(),
                     ),
+                    # Same read-time discipline (ADR-1314): the commitment is today's.
+                    **forecast_commitment_facts(
+                        project,
+                        p80=cached.get("p80"),
+                        p80_at_day_start=cached.get("p80_at_day_start"),
+                        calendar_for=lambda: compose_project_calendar(project),
+                    ),
                 }
             )
 
@@ -1249,6 +1266,12 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                     plan_version_current=project.last_sync_version,
                     recalculated_at=project.recalculated_at,
                     today=timezone.localdate(),
+                ),
+                **forecast_commitment_facts(
+                    project,
+                    p80=latest.p80,
+                    p80_at_day_start=latest.p80_at_day_start,
+                    calendar_for=calendar_for,
                 ),
             }
         )

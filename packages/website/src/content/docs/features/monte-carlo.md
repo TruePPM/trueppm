@@ -1,7 +1,7 @@
 ---
 title: Monte Carlo
 description: Convert three-point task estimates into a probability distribution over the project finish date — P50, P80, and P95 with the full distribution curve.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 TruePPM's Monte Carlo simulation converts three-point task estimates into a
@@ -143,6 +143,14 @@ operators can raise or remove it.
 | `delta_vs_cpm` | Signed calendar days each percentile sits past `cpm_finish` (`p50`/`p80`/`p95`), measured in working time from the two readings. A percentile at the start of a Monday against a CPM finish at the end of the Friday before it is `0`, not `3`. A run recorded before TruePPM kept these readings has none: two equal days count as `0`, and otherwise each date is read as the end of its day. |
 | `status_date` | *(added in 0.4)* The data date this run was actually computed against — the project's explicit status date (set at **Project settings → General → Status date**, not API-only), or today when unset (see [Progress-aware forecasting](#progress-aware-forecasting) below). Recorded on every run so a past forecast states which "today" produced it. |
 | `distribution` | Full sorted list of all simulated finish dates. Use this to render a histogram or answer "what is the probability of finishing by date X?" |
+| `commitment_date` / `commitment_source` | The date the forecast is measured against: the active baseline's finish (`baseline`), else the parent program's target date (`program_target`), else none (`none`). Worked out on every response, so activating a baseline updates it without a rerun. |
+| `p80_delta_vs_commitment_days` / `p80_delta_vs_commitment_reason` | P80 minus the commitment, in calendar days measured in working time; positive means later than the commitment. When it cannot be computed it is `null` and the reason is `no_commitment` or `no_forecast`. |
+| `definitions` | One sentence per figure (`p50`, `p80`, `p95`, the delta, and the commitment rule that applied). See [Metric vocabulary](/features/metric-vocabulary/). `last_run_at` is when the run was made and is the as-of time for every figure. |
+
+:::note[Ships in 0.5]
+The commitment fields and `definitions` ship in 0.5 (ADR-1314). In 0.4 the
+forecast has no commitment comparison.
+:::
 
 The most recent result is also available without re-running the simulation:
 

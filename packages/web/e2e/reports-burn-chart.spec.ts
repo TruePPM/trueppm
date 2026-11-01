@@ -48,6 +48,14 @@ const BURN_RESPONSE = {
   // "missing-required" (not independently enforced) still makes this branch
   // fail to match and the guard reports the wrapper as matching no variant.
   baseline_series: [],
+  // Provenance (ADR-1314): the server sends both on every burn response, so they
+  // are in the variant's `required` list and, by the same oneOf rule as
+  // `baseline_series` above, the mock must carry them to match its branch.
+  as_of: '2026-04-14T12:00:00Z',
+  definitions: {
+    burn_series: 'Per day, the remaining or completed quantity, replayed from task history.',
+    burn_baseline_series: 'Per day, the same quantity as planned by the active baseline.',
+  },
 };
 
 // ---------------------------------------------------------------------------

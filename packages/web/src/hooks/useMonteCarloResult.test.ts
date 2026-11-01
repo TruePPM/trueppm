@@ -91,6 +91,9 @@ describe('useMonteCarloResult', () => {
       forecastStaleness: 'unknown',
       planVersion: null,
       planVersionCurrent: null,
+      commitmentDate: null,
+      p80DeltaVsCommitmentDays: null,
+      p80DeltaVsCommitmentReason: null,
     });
     expect(result.current.error).toBeNull();
   });
@@ -337,6 +340,9 @@ describe('useMonteCarloResult', () => {
       forecastStaleness: 'unknown',
       planVersion: null,
       planVersionCurrent: null,
+      commitmentDate: null,
+      p80DeltaVsCommitmentDays: null,
+      p80DeltaVsCommitmentReason: null,
     });
     expect(result.current.error).toBeNull();
   });
@@ -364,10 +370,10 @@ describe('useMonteCarloResult', () => {
         },
       });
 
-    const { result, rerender } = renderHook(
-      ({ id }: { id: string }) => useMonteCarloResult(id),
-      { wrapper: makeWrapper(qc), initialProps: { id: 'proj-A' } },
-    );
+    const { result, rerender } = renderHook(({ id }: { id: string }) => useMonteCarloResult(id), {
+      wrapper: makeWrapper(qc),
+      initialProps: { id: 'proj-A' },
+    });
 
     await waitFor(() => expect(result.current.data?.projectId).toBe('proj-A'));
     expect(getMock).toHaveBeenLastCalledWith('/projects/proj-A/monte-carlo/latest/');
@@ -497,6 +503,49 @@ describe('useMonteCarloResult risk premium', () => {
     expect(result.current.data?.forecastStaleness).toBe(mapped);
     expect(result.current.data?.planVersion).toBe(412);
     expect(result.current.data?.planVersionCurrent).toBe(419);
+  });
+
+  it('carries the server commitment, delta and definitions through unchanged (ADR-1314)', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        ...WIRE,
+        commitment_date: '2026-05-29',
+        commitment_source: 'baseline',
+        p80_delta_vs_commitment_days: 7,
+        p80_delta_vs_commitment_reason: null,
+        definitions: { p80: 'Server sentence.' },
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.commitmentDate).toBe('2026-05-29');
+    expect(result.current.data?.commitmentSource).toBe('baseline');
+    expect(result.current.data?.p80DeltaVsCommitmentDays).toBe(7);
+    expect(result.current.data?.definitions?.p80).toBe('Server sentence.');
+  });
+
+  it('keeps a not-computable delta null with its reason (rule 119)', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        ...WIRE,
+        commitment_date: null,
+        commitment_source: 'none',
+        p80_delta_vs_commitment_days: null,
+        p80_delta_vs_commitment_reason: 'no_commitment',
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data?.p80DeltaVsCommitmentDays).toBeNull();
+    expect(result.current.data?.p80DeltaVsCommitmentReason).toBe('no_commitment');
   });
 
   it('maps an ABSENT forecast_staleness to `unknown`, never `current`', async () => {
