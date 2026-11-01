@@ -4410,14 +4410,22 @@ scheduler:mutation:
     # allow_failure: this is informational, not a merge blocker — an ordinary
     # scheduler change still does not wait on a survivor to be re-triaged
     # before it can merge. It runs the identical script as every other rule
-    # here: the full mutmut suite, ~2100 mutants, ~14 min locally — there is
-    # no cheaper "just the changed lines" mode.
+    # here: the full mutmut suite, ~3,010 mutants, ~46 min on CI (job
+    # 17646281893, 2026-11-01) — there is no cheaper "just the changed lines"
+    # mode.
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/scheduler/src/trueppm_scheduler/models.py
         - packages/scheduler/src/trueppm_scheduler/derive.py
         - packages/scheduler/src/trueppm_scheduler/cli.py
       allow_failure: true
+  # Measured 46 min (2,762 s, ~3,010 mutants at 1.18/s) against GitLab's 1 h
+  # default, and the mutant count keeps growing (~2,100 -> ~3,010), so a slow
+  # runner would time out and measure nothing. #2468's engine.py expansion
+  # will add more. If this passes ~75 min, or when #2468 lands, shard it
+  # (per-file parallel:matrix plus a stats-merge job) rather than raising this
+  # again (#4793).
+  timeout: 1h 30m
   variables:
     MUTATION_MIN: "0.92"
   script:
