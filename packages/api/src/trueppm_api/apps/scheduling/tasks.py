@@ -73,7 +73,7 @@ def recalculate_schedule(
     Args:
         project_id: UUID string of the project to reschedule.
     """
-    from trueppm_api.apps.taskruns.tracker import TaskRunTracker
+    from trueppm_api.apps.taskruns.tracker import TaskRunProjectGone, TaskRunTracker
 
     try:
         with TaskRunTracker(
@@ -91,6 +91,12 @@ def recalculate_schedule(
         from trueppm_api.apps.projects.models import Project
 
         Project.objects.filter(pk=project_id).update(recalculated_at=timezone.now())
+    except TaskRunProjectGone:
+        # The project was deleted while this message was queued (or held in the
+        # lock-retry loop). Return normally: raising would dead-letter a task
+        # that can never succeed, and it is not in autoretry_for (#4751).
+        logger.info("recalculate_schedule: project %s no longer exists; skipping", project_id)
+        return
     except SoftTimeLimitExceeded:
         logger.error(
             "recalculate_schedule: soft time limit exceeded for project %s",

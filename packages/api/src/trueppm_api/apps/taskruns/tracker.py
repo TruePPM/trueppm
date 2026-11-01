@@ -24,7 +24,7 @@ import logging
 import time
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 # Module-level import so tests can patch trueppm_api.apps.taskruns.tracker.broadcast_board_event.
@@ -41,6 +41,57 @@ _CANCEL_TTL = 300  # seconds
 
 class TaskCancelled(Exception):
     """Raised inside a task when a cancellation signal is detected."""
+
+
+class TaskRunProjectGone(Exception):
+    """Raised by ``TaskRunTracker.__enter__`` when the task's project no longer exists.
+
+    A queued message can outlive its project (deleted while the task waited in the
+    broker or the lock-retry loop, or a database reset under a persistent queue).
+    There is nothing to track or do, so callers exit cleanly via
+    ``ProjectGoneGuard`` rather than retrying or recording a failure.
+    """
+
+
+class ProjectGoneGuard:
+    """Context manager that turns ``TaskRunProjectGone`` into a clean early exit.
+
+    Put it *before* the tracker in the same ``with`` statement so the exception
+    raised by the tracker's ``__enter__`` is suppressed and the body is skipped::
+
+        guard = ProjectGoneGuard("import.csv", project_id)
+        with guard, TaskRunTracker(...) as tracker:
+            ...
+        if guard.triggered:
+            return {"skipped": True}
+
+    Only an exception from ``__enter__`` can be ``TaskRunProjectGone``, so a real
+    failure in the body is never swallowed.
+    """
+
+    def __init__(self, task_name: str, project_id: Any) -> None:
+        self._task_name = task_name
+        self._project_id = project_id
+        self.triggered = False
+
+    def __enter__(self) -> ProjectGoneGuard:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> bool:
+        if exc_type is not None and issubclass(exc_type, TaskRunProjectGone):
+            self.triggered = True
+            logger.info(
+                "%s: project %s no longer exists; skipping stale task",
+                self._task_name,
+                self._project_id,
+            )
+            return True
+        return False
 
 
 class TaskRunTracker:
@@ -76,14 +127,29 @@ class TaskRunTracker:
     def __enter__(self) -> TaskRunTracker:
         from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 
-        task_run = TaskRun.objects.create(
-            task_name=self._task_name,
-            celery_task_id=self._celery_task.request.id or "",
-            project_id=self._project_id,
-            initiated_by_id=self._initiated_by_id,
-            status=TaskRunStatus.RUNNING,
-            started_at=timezone.now(),
-        )
+        # A queued message can outlive its project; inserting a TaskRun for it would
+        # raise a raw FK IntegrityError and kill the task with a traceback (#4751).
+        # Check first for the common case, then translate the FK failure for the
+        # race where the project is deleted between the check and the insert. The
+        # insert runs in a savepoint so the failure cannot poison a surrounding
+        # transaction.
+        if self._project_id is not None and not self._project_exists():
+            raise TaskRunProjectGone(self._project_id)
+
+        try:
+            with transaction.atomic():
+                task_run = TaskRun.objects.create(
+                    task_name=self._task_name,
+                    celery_task_id=self._celery_task.request.id or "",
+                    project_id=self._project_id,
+                    initiated_by_id=self._initiated_by_id,
+                    status=TaskRunStatus.RUNNING,
+                    started_at=timezone.now(),
+                )
+        except IntegrityError:
+            if self._project_id is not None and not self._project_exists():
+                raise TaskRunProjectGone(self._project_id) from None
+            raise
         self._task_run_id = str(task_run.pk)
 
         self._redis = self._get_redis()
@@ -207,6 +273,13 @@ class TaskRunTracker:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _project_exists(self) -> bool:
+        from trueppm_api.apps.projects.models import Project
+
+        if self._project_id is None:
+            return True  # global task: no project to be gone
+        return Project.objects.filter(pk=self._project_id).exists()
 
     def _get_redis(self) -> Any:
         try:
