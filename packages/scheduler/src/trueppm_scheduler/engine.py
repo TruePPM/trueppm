@@ -4971,6 +4971,8 @@ def _sample_pert(
 # Cells (runs x sprints) drawn per chunk in _sample_velocity_durations; ~17 bytes per
 # cell transient (draw + cumsum + mask), so ~1M cells keeps the peak near 20 MB.
 _VELOCITY_CHUNK_CELLS = 1 << 20
+# Float-accumulation slack for "cumulative velocity reached the backlog" (#4699).
+_VELOCITY_REACH_RTOL = 1.0 - 1e-12
 
 
 def _sample_velocity_durations(
@@ -5029,7 +5031,10 @@ def _sample_velocity_durations(
     for lo in range(0, n, chunk_rows):
         rows = min(chunk_rows, n - lo)
         draws = rng.choice(observations, size=(rows, max_sprints), replace=True)
-        reached = np.cumsum(draws, axis=1) >= story_points
+        # Relative tolerance: summing k float draws can land an ulp short of a
+        # target that is exactly k*v on paper (0.1 ten times is 0.9999999999999999),
+        # which would count a whole extra sprint (#4699).
+        reached = np.cumsum(draws, axis=1) >= story_points * _VELOCITY_REACH_RTOL
         sprints_needed[lo : lo + rows] = np.where(
             reached.any(axis=1),
             reached.argmax(axis=1) + 1,  # first sprint index that meets the target (+1 = count)
