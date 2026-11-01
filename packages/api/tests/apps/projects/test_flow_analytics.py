@@ -387,6 +387,33 @@ def test_throughput_forecast_ready(project: Project) -> None:
 
 
 @pytest.mark.django_db
+def test_throughput_forecast_interior_zero_weeks_slow_the_forecast(project: Project) -> None:
+    # Weeks 1,3,5,7 active, 2,4,6 genuinely empty: the zero weeks are real observations,
+    # so the forecast must be slower than for the same four weeks completed back to back.
+    for week in (1, 3, 5, 7):
+        _completed_in_week(project, f"gappy-{week}", week)
+    for i in range(8):
+        _make_task(project, f"rem-{i}", status=TaskStatus.NOT_STARTED)
+    gappy = throughput_forecast(project.pk)
+    assert gappy is not None
+    assert gappy["status"] == "ready"
+    assert gappy["sample_count"] == 4
+
+    # Separate project: deleting the gappy tasks would leave their history rows behind.
+    dense_project = Project.objects.create(
+        name="DenseProj", start_date=date(2026, 1, 1), calendar=project.calendar
+    )
+    for week in (1, 2, 3, 4):
+        _completed_in_week(dense_project, f"dense-{week}", week)
+    for i in range(8):
+        _make_task(dense_project, f"rem-{i}", status=TaskStatus.NOT_STARTED)
+    dense = throughput_forecast(dense_project.pk)
+    assert dense is not None
+    assert dense["sample_count"] == 4
+    assert gappy["p50_date"] > dense["p50_date"]
+
+
+@pytest.mark.django_db
 def test_throughput_forecast_deterministic(project: Project) -> None:
     for week in range(1, 6):
         _completed_in_week(project, f"done-{week}", week)
