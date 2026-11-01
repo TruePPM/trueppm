@@ -1373,7 +1373,8 @@ def test_the_unresolvable_scope_scan_is_not_vacuous() -> None:
 # substring match passes on a docstring, on a sibling method, or on a subclass of a
 # viewset whose base already mentions the call (the very scenario this issue is about).
 # A route passes only if DRF itself runs the object check (ViewSet detail route) or it is
-# pinned by key below with the place its check is called.
+# pinned by key below with the place its check is called. `resolves_scope_in_body` does
+# not excuse a route here — it is inheritable and action-blanket.
 
 #: Classes that define `has_object_permission` and DECIDE something in `has_permission`
 #: (so they are neither scope-family nor auth-only). Adding a class here is a claim that
@@ -1401,7 +1402,7 @@ AUTH_ONLY_PERMISSION_CLASSES: frozenset[str] = frozenset(
 #: call lives, mirroring SCOPE_IN_BODY_ENTRIES: a new pair or a stale one both fail.
 _P = "api/v1/projects/<project_pk>/tasks/<task_pk>"
 AUTH_ONLY_BODY_CHECK_ENTRIES: dict[str, str] = {
-    "api/v1/^task-relations/$::create": "TaskRelationViewSet.perform_create: predecessor",
+    "api/v1/^task-relations/$::create": "TaskRelationViewSet.perform_create: source",
     f"{_P}/labels/::post": "TaskLabelView: resolved task",
     f"{_P}/labels/::delete": "TaskLabelView: resolved task",
     f"{_P}/labels/<label_id>/::post": "TaskLabelView: resolved task",
@@ -1448,13 +1449,12 @@ def _auth_only_permission_classes() -> set[str]:
 def _auth_only_unguarded(view: Any) -> bool:
     """True when an unsafe write under an auth-only class has no DRF-run object check.
 
-    Only DRF running the check (ViewSet detail route) or an explicit pinned
-    ``resolves_scope_in_body`` reason counts; the pinned body-check table is applied by
-    the caller by key.
+    Only DRF running the check (ViewSet detail route) counts; the pinned body-check table
+    is applied by the caller by key. ``resolves_scope_in_body`` is deliberately NOT an
+    arm: it is read with ``getattr`` (so inherited from a parent), a plain string covers
+    every action including new ones, and it has no minimum length here.
     """
-    if permissions_module._object_permission_will_run(view):
-        return False
-    return permissions_module._scope_in_body_reason(view) is None
+    return not permissions_module._object_permission_will_run(view)
 
 
 def _auth_only_write_entries() -> list[tuple[str, Any]]:
@@ -1528,6 +1528,10 @@ def test_auth_only_scan_flags_a_detail_false_action_on_a_task_viewset_subclass()
     view.kwargs = {}
     view.request = Request(APIRequestFactory().generic("POST", "/"))
     assert "check_object_permissions(" in inspect.getsource(TaskViewSet)
+    assert _auth_only_unguarded(view)
+    # An inherited blanket `resolves_scope_in_body` must not excuse the new action.
+    ForgetfulTaskViewSet.resolves_scope_in_body = "ok"
+    assert permissions_module._scope_in_body_reason(view) is not None
     assert _auth_only_unguarded(view)
     # ...while the same viewset's real detail route is covered by get_object().
     view.action = "restore"
