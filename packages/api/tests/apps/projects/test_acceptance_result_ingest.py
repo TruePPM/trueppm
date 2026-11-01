@@ -31,7 +31,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     AcceptanceCriterion,
@@ -96,6 +96,10 @@ def _mint_program_token(program: Program, creator: Any) -> tuple[ApiToken, str]:
     import secrets
 
     raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    # #4584: the minter must hold a live Member+ ProgramMembership.
+    ProgramMembership.objects.get_or_create(
+        program=program, user=creator, defaults={"role": Role.ADMIN}
+    )
     token = ApiToken.objects.create(
         program=program,
         name="ci-program-token",

@@ -34,7 +34,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     ApiTokenAuditAction,
@@ -1585,6 +1585,10 @@ def _mint_program_token(program: Any, creator: Any) -> tuple[Any, str]:
     from trueppm_api.apps.projects.models import ApiToken
 
     raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    # #4584: the minter must hold a live Member+ ProgramMembership.
+    ProgramMembership.objects.get_or_create(
+        program=program, user=creator, defaults={"role": Role.ADMIN}
+    )
     token = ApiToken.objects.create(
         program=program,
         name="ci-program-token",
@@ -1797,3 +1801,39 @@ def test_program_token_demoted_to_viewer_checked_at_request_time(
     )
     assert resp.status_code == 401
     assert not Task.objects.filter(project=program_project, name="Should not land either").exists()
+
+
+def test_program_token_refused_after_minter_removed_from_program(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """#4584: minter keeps Member+ on the project but is removed from the program."""
+    ProjectMembership.objects.create(project=program_project, user=admin_user, role=Role.ADMIN)
+    _token, raw = _mint_program_token(program, admin_user)
+    url = f"/api/v1/projects/{program_project.pk}/task-sync/"
+    resp = _bearer(APIClient(), raw).post(
+        url, {"source": "jira", "external_id": "P-1", "name": "ok"}, format="json"
+    )
+    assert resp.status_code == 201, resp.data
+
+    ProgramMembership.objects.filter(program=program, user=admin_user).update(is_deleted=True)
+    resp = _bearer(APIClient(), raw).post(
+        url, {"source": "jira", "external_id": "P-2", "name": "removed-minter"}, format="json"
+    )
+    assert resp.status_code == 401
+    assert not Task.objects.filter(project=program_project, name="removed-minter").exists()
+
+
+def test_program_token_refused_after_minter_demoted_to_program_viewer(
+    program: Any, program_project: Project, admin_user: Any
+) -> None:
+    """#4584: minter keeps Member+ on the project but is demoted to Viewer in the program."""
+    ProjectMembership.objects.create(project=program_project, user=admin_user, role=Role.ADMIN)
+    _token, raw = _mint_program_token(program, admin_user)
+    ProgramMembership.objects.filter(program=program, user=admin_user).update(role=Role.VIEWER)
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{program_project.pk}/task-sync/",
+        {"source": "jira", "external_id": "P-3", "name": "demoted-minter"},
+        format="json",
+    )
+    assert resp.status_code == 401
+    assert not Task.objects.filter(project=program_project, name="demoted-minter").exists()

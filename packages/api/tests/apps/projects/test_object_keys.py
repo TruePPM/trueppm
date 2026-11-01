@@ -613,6 +613,31 @@ class TestResolve:
         assert in_scope.data["id"] == str(bound.pk)
         assert _resolve(_client(owner), "MINE").data["id"] == str(mine.pk)
 
+    def test_program_token_resolves_nothing_once_minter_leaves_the_program(
+        self, owner: Any
+    ) -> None:
+        """#4584: a program token's read reach ends with its minter's ProgramMembership."""
+        import secrets
+
+        program = Program.objects.create(name="Atlas")
+        ProgramMembership.objects.create(program=program, user=owner, role=Role.ADMIN)
+        inside = _project(owner, "Inside", code="INSIDE")
+        inside.program = program
+        inside.save(update_fields=["program"])
+        raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        ApiToken.objects.create(
+            program=program,
+            name="t",
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=owner,
+        )
+        token_client = _bearer_client(raw)
+        assert _resolve(token_client, "INSIDE").status_code == 200
+
+        ProgramMembership.objects.filter(program=program, user=owner).update(is_deleted=True)
+        assert _resolve(token_client, "INSIDE").status_code == 404
+
     def test_a_trashed_project_does_not_resolve(self, owner: Any) -> None:
         p = _project(owner, "Platform")
         p.soft_delete()

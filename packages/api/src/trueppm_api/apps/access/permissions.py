@@ -2050,7 +2050,10 @@ class IsTokenForProject(BasePermission):
          (``projects.filter(pk=...).exists()``),
       2. the token's minter (``token.created_by``) holds a live
          ``ProjectMembership`` on that same project (#4324), and
-      3. that live membership's role is Member (``Role.MEMBER``) or above (#4331).
+      3. that live membership's role is Member (``Role.MEMBER``) or above (#4331), and
+      4. the minter still holds a live ``ProgramMembership`` on the token's program
+         at Member or above (#4584) — removal from, or demotion within, the
+         program revokes the token on the next request.
 
     Before #4324, (1) alone was sufficient: a program-scoped token admitted any
     project in its program regardless of whether the human who minted it could
@@ -2180,7 +2183,7 @@ class IsTokenForProject(BasePermission):
         # authorizes writes into a project that has been removed from the
         # program after the token was minted.
         if token.program_id is not None:
-            from trueppm_api.apps.access.models import ProjectMembership
+            from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
             from trueppm_api.apps.projects.models import Project
 
             if not Project.objects.filter(
@@ -2227,6 +2230,29 @@ class IsTokenForProject(BasePermission):
                 .first()
             )
             if minter_role is None or minter_role < Role.MEMBER:
+                raise AuthenticationFailed(TOKEN_PROJECT_AUTHORITY_ERROR)
+
+            # #4584: the project-level floor above says nothing about the
+            # authority the token was minted under. A program token exists
+            # because its minter held program-level authority; if that
+            # ProgramMembership is removed, or demoted below Member, the token
+            # must stop working even where the minter still independently holds
+            # Member+ on the project (e.g. a Program Admin dropped from the
+            # program but left on a project). Unlike the project-scoped
+            # org-asset carve-out (#4334), a program token has no
+            # survives-off-boarding contract, so this reads LIVE rows only:
+            # removal is a refusal. Member+ (not mere existence) mirrors the
+            # project floor so a Viewer-demoted minter is refused too.
+            # ``Role`` is shared by ProgramMembership and ProjectMembership.
+            program_role = (
+                None
+                if minter_id is None
+                else ProgramMembership.live()
+                .filter(program_id=token.program_id, user_id=minter_id)
+                .values_list("role", flat=True)
+                .first()
+            )
+            if program_role is None or program_role < Role.MEMBER:
                 raise AuthenticationFailed(TOKEN_PROJECT_AUTHORITY_ERROR)
             return True
 
