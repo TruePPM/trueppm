@@ -6167,6 +6167,11 @@ def _sample_throughput_counts(
     unbounded) or ``remaining_count`` is non-positive; a single positive week yields a
     degenerate (constant) distribution, which is honest — one observation cannot
     express variance.
+
+    Trailing zero weeks are kept as genuine stalls. That includes the in-progress
+    current week: :func:`_weekly_throughput` zero-fills up to today, so early in a
+    week the last bucket is a partial, near-zero week and can bias the forecast
+    slightly slow until the week fills in.
     """
     import numpy as np
 
@@ -6212,7 +6217,9 @@ def throughput_forecast(
     Returns:
         The unified delivery-forecast dict (``basis:"monte_carlo"``,
         ``forecast_basis:"throughput"``, ``remaining_count``, ``p50/p80/p95_date``,
-        ``sample_count`` = non-zero throughput weeks). ``status`` is ``"ready"`` with
+        ``sample_count`` = the number of non-zero throughput weeks, not the size of the
+        bootstrap population, which also includes interior zero weeks). ``status`` is
+        ``"ready"`` with
         ≥ :data:`MIN_THROUGHPUT_WEEKS` non-zero weeks and a remaining backlog, else the
         honest ``"insufficient_flow_history"`` (the flow-path parallel to the velocity
         ``"warming_up"`` — no false precision). Returns ``None`` only when there is no
