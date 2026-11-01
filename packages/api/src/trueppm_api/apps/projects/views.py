@@ -7283,7 +7283,12 @@ class TaskViewSet(
 
         name = request.data.get("name") if isinstance(request.data, dict) else None
         child = split_story(parent, request.user, name=name)
-        serializer = self.get_serializer(child)
+        # Serialize the child through the annotated queryset (#1546) so the
+        # annotation-backed fields do not cost per-field queries.
+        annotated = annotate_tasks_queryset(
+            Task.objects.filter(pk=child.pk), request, str(child.project_id)
+        ).get()
+        serializer = self.get_serializer(annotated)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
