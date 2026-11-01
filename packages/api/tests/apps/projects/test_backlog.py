@@ -42,6 +42,10 @@ from trueppm_api.apps.projects.models import (
 
 User = get_user_model()
 
+# Measured pull cost (30); the old bare-Task serialize measured 31. No headroom on
+# purpose: a new per-field query on the pull response should fail here.
+_PULL_QUERY_BOUND = 30
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1033,3 +1037,90 @@ def test_pull_service_refuses_an_archived_project_without_a_view(
     assert Task.objects.filter(project=project).count() == 0
     item.refresh_from_db()
     assert item.status == BacklogItemStatus.PROPOSED
+
+
+# ---------------------------------------------------------------------------
+# #1546 — pull response serializes through the annotated queryset + request ctx
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_pull_response_carries_permission_flags_for_the_puller(
+    program: Program, project: Project
+) -> None:
+    """The just-pulled task must not render read-only (#1546).
+
+    A bare ``TaskSerializer(task)`` has no request in context, so ``can_edit`` /
+    ``can_delete`` / ``can_log_time`` all fail closed to False.
+    """
+    admin = User.objects.create_user(username="padmin", password="pw")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+    item = _item(program)
+    resp = _client(admin).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    task = resp.data["task"]
+    assert task["can_edit"] is True
+    assert task["can_delete"] is True
+    assert task["can_log_time"] is True
+
+
+@pytest.mark.django_db
+def test_pull_response_denies_edit_to_unassigned_member(
+    member: object, program: Program, project: Project
+) -> None:
+    """A plain Member who is not an assignee genuinely cannot edit or delete the
+    new task; the flags report that rather than over-exposing True (#1546)."""
+    item = _item(program)
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.data["task"]["can_edit"] is False
+    assert resp.data["task"]["can_delete"] is False
+
+
+@pytest.mark.django_db
+def test_pull_response_flags_match_the_task_detail_read(
+    member: object, program: Program, project: Project
+) -> None:
+    """The pull envelope's flags agree with a follow-up GET, so the response
+    neither under- nor over-exposes versus the authoritative read path."""
+    item = _item(program)
+    client = _client(member)
+    resp = client.post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    pulled = resp.data["task"]
+    detail = client.get(f"/api/v1/tasks/{pulled['id']}/")
+    assert detail.status_code == 200
+    for flag in ("can_edit", "can_delete", "can_log_time", "can_edit_estimates"):
+        assert pulled[flag] == detail.data[flag], flag
+
+
+@pytest.mark.django_db
+def test_pull_query_count_is_bounded(
+    member: object,
+    program: Program,
+    project: Project,
+    django_assert_max_num_queries: Callable[..., Any],
+) -> None:
+    """The pull fires no stray per-field queries for blocker/AC fields (#1546)."""
+    item = _item(program)
+    client = _client(member)
+    with django_assert_max_num_queries(_PULL_QUERY_BOUND):
+        resp = client.post(
+            f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+            {"project_id": str(project.pk)},
+            format="json",
+        )
+    assert resp.status_code == 201
