@@ -42,8 +42,10 @@ from trueppm_api.apps.projects.models import (
 
 User = get_user_model()
 
-# Measured pull cost (30); the old bare-Task serialize measured 31. No headroom on
-# purpose: a new per-field query on the pull response should fail here.
+# Deliberate tripwire, not a scaling proof: a pull creates a fresh task, so it has no
+# blocker/AC rows whose count could be varied through the API. 30 is the measured cost
+# after #1546 (the old bare-Task serialize measured 31), with zero headroom so a new
+# per-field query on the pull response fails here and forces a conscious bump.
 _PULL_QUERY_BOUND = 30
 
 
@@ -1087,13 +1089,16 @@ def test_pull_response_denies_edit_to_unassigned_member(
 
 
 @pytest.mark.django_db
-def test_pull_response_flags_match_the_task_detail_read(
-    member: object, program: Program, project: Project
-) -> None:
+def test_pull_response_flags_match_the_task_detail_read(program: Program, project: Project) -> None:
     """The pull envelope's flags agree with a follow-up GET, so the response
     neither under- nor over-exposes versus the authoritative read path."""
+    # A project ADMIN, for whom every flag is True: an unassigned Member reads False on
+    # can_edit/can_delete under both old and new code, which would make this vacuous.
+    admin = User.objects.create_user(username="padmin2", password="pw")
+    ProgramMembership.objects.create(program=program, user=admin, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
     item = _item(program)
-    client = _client(member)
+    client = _client(admin)
     resp = client.post(
         f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
         {"project_id": str(project.pk)},
@@ -1103,6 +1108,8 @@ def test_pull_response_flags_match_the_task_detail_read(
     pulled = resp.data["task"]
     detail = client.get(f"/api/v1/tasks/{pulled['id']}/")
     assert detail.status_code == 200
+    assert detail.data["can_edit"] is True
+    assert detail.data["can_log_time"] is True
     for flag in ("can_edit", "can_delete", "can_log_time", "can_edit_estimates"):
         assert pulled[flag] == detail.data[flag], flag
 

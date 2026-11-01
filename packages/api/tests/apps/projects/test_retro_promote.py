@@ -661,3 +661,60 @@ def test_me_work_includes_pending_suggestions(
     assert len(suggested) == 1
     assert suggested[0]["text"] == "Add staging health probe"
     assert suggested[0]["suggested_by_username"] == "member"
+
+
+# ---------------------------------------------------------------------------
+# #1546 — response task carries the caller's permission flags
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_promote_response_carries_permission_flags_matching_detail_read(
+    project: Project,
+) -> None:
+    admin = User.objects.create_user(username="padmin", password="pw")
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+    sprint, _, item = _retro_with_item(project)
+    client = _client(admin)
+    resp = client.post(
+        f"/api/v1/sprints/{sprint.pk}/retrospective/action-items/{item.pk}/promote/",
+        {},
+        format="json",
+    )
+    assert resp.status_code == 201
+    promoted = resp.data["task"]
+    assert promoted["can_edit"] is True
+    assert promoted["can_delete"] is True
+    detail = client.get(f"/api/v1/tasks/{promoted['id']}/")
+    assert detail.status_code == 200
+    for flag in ("can_edit", "can_delete", "can_log_time", "can_edit_estimates"):
+        assert promoted[flag] == detail.data[flag], flag
+
+
+@pytest.mark.django_db
+def test_pull_to_sprint_response_carries_permission_flags_matching_detail_read(
+    project: Project,
+) -> None:
+    admin = User.objects.create_user(username="padmin3", password="pw")
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+    sprint, _, item = _retro_with_item(project)
+    planned = Sprint.objects.create(
+        project=project,
+        name="Next",
+        start_date=date(2026, 4, 15),
+        finish_date=date(2026, 4, 28),
+        state=SprintState.PLANNED,
+    )
+    client = _client(admin)
+    resp = client.post(
+        f"/api/v1/sprints/{sprint.pk}/retrospective/action-items/{item.pk}/pull-to-sprint/",
+        {"target_sprint_id": str(planned.pk)},
+        format="json",
+    )
+    assert resp.status_code == 200
+    pulled = resp.data["task"]
+    assert pulled["can_edit"] is True
+    detail = client.get(f"/api/v1/tasks/{pulled['id']}/")
+    assert detail.status_code == 200
+    for flag in ("can_edit", "can_delete", "can_log_time", "can_edit_estimates"):
+        assert pulled[flag] == detail.data[flag], flag

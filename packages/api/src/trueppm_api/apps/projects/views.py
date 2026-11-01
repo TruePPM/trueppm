@@ -17175,9 +17175,16 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 {"detail": "Already promoted.", "task_id": exc.existing_task_id},
                 status=status.HTTP_409_CONFLICT,
             )
-        # Reload with select_related so the TaskSerializer doesn't emit follow-up queries.
-        task = Task.objects.select_related("project", "assignee", "sprint").get(pk=task.pk)
-        return Response({"task": TaskSerializer(task).data}, status=status.HTTP_201_CREATED)
+        # Re-fetch through the shared annotated queryset and serialize with the request
+        # in context (#1546): a bare serialize skips the annotation-backed fields and
+        # fails can_edit/can_delete/can_log_time closed to False.
+        annotated = annotate_tasks_queryset(
+            Task.objects.filter(pk=task.pk), request, str(task.project_id)
+        ).get()
+        return Response(
+            {"task": TaskSerializer(annotated, context={"request": request}).data},
+            status=status.HTTP_201_CREATED,
+        )
 
     @extend_schema(
         summary="Pull a retro action item into a planned sprint",
@@ -17258,8 +17265,13 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 {"detail": "; ".join(exc.messages)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        task = Task.objects.select_related("project", "assignee", "sprint").get(pk=task.pk)
-        return Response({"task": TaskSerializer(task).data}, status=status.HTTP_200_OK)
+        annotated = annotate_tasks_queryset(
+            Task.objects.filter(pk=task.pk), request, str(task.project_id)
+        ).get()
+        return Response(
+            {"task": TaskSerializer(annotated, context={"request": request}).data},
+            status=status.HTTP_200_OK,
+        )
 
 
 class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
