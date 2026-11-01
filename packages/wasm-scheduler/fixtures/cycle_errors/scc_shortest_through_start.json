@@ -1,0 +1,76 @@
+{
+  "id": "p-scc_shortest_through_start",
+  "name": "SCC with two cycles through A; BFS picks the shortest",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {
+      "id": "A",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "B",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "C",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "D",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "E",
+      "name": "T",
+      "duration": 172800.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "B",
+      "successor_id": "C",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "C",
+      "successor_id": "D",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "D",
+      "successor_id": "A",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "E",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "E",
+      "successor_id": "D",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

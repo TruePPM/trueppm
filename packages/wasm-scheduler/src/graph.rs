@@ -6,14 +6,107 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use chrono::NaiveDate;
-use petgraph::algo::toposort;
+use petgraph::algo::{tarjan_scc, toposort};
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
 use crate::models::{Project, Task};
 
+/// Most ids a cycle message lists before collapsing the rest to `… (+M more)`.
+/// Mirrors Python's `_CYCLE_MSG_MAX_IDS`.
+const CYCLE_MSG_MAX_IDS: usize = 10;
+/// Longest `repr()`-style rendering of one id, in characters. Mirrors Python's
+/// `_CYCLE_MSG_ID_CHARS`.
+const CYCLE_MSG_ID_CHARS: usize = 80;
+
+/// Whether Python's `str.isprintable()` would call `c` printable.
+///
+/// ASCII is exact. Beyond ASCII, Rust's std carries no Unicode general-category
+/// table, so this approximates Python's rule (non-printable = categories Cc, Cf,
+/// Cs, Co, Cn, Zl, Zp, Zs other than the ASCII space) with: Cc via
+/// `is_control`, Zs/Zl/Zp via `is_whitespace`, the Cf code points listed below,
+/// and the private-use planes. Residual divergence: unassigned (Cn) code points,
+/// which Python escapes and this function prints verbatim, and any Cf added by a
+/// Unicode release newer than the table below. Real task ids are ASCII or
+/// ordinary letters, so the exotic tail is not exercised by the conformance
+/// fixtures.
+fn is_printable(c: char) -> bool {
+    if c.is_ascii() {
+        return (' '..='~').contains(&c);
+    }
+    let u = c as u32;
+    if c.is_control() || c.is_whitespace() {
+        return false;
+    }
+    let format_chars = matches!(u,
+        0x00AD | 0x0600..=0x0605 | 0x061C | 0x06DD | 0x070F | 0x0890..=0x0891
+        | 0x08E2 | 0x180E | 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064
+        | 0x2066..=0x206F | 0xFEFF | 0xFFF9..=0xFFFB | 0x110BD | 0x110CD
+        | 0x13430..=0x1343F | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A
+        | 0xE0001 | 0xE0020..=0xE007F);
+    let private_use = matches!(u, 0xE000..=0xF8FF | 0xF_0000..=0xF_FFFD | 0x10_0000..=0x10_FFFD);
+    !(format_chars || private_use)
+}
+
+/// Render `s` the way Python's `repr(str)` does: quoted with `'` unless the
+/// text holds a `'` and no `"`, in which case `"`; `\`, the chosen quote,
+/// `\t \n \r` and non-printable characters escaped (`\xNN`, `\uNNNN`,
+/// `\UNNNNNNNN`). See [`is_printable`] for the one known divergence.
+fn py_repr(s: &str) -> String {
+    let quote = if s.contains('\'') && !s.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push(quote);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if is_printable(c) => out.push(c),
+            c => {
+                let u = c as u32;
+                if u < 0x100 {
+                    out.push_str(&format!("\\x{u:02x}"));
+                } else if u < 0x10000 {
+                    out.push_str(&format!("\\u{u:04x}"));
+                } else {
+                    out.push_str(&format!("\\U{u:08x}"));
+                }
+            }
+        }
+    }
+    out.push(quote);
+    out
+}
+
+/// `py_repr` cut to `CYCLE_MSG_ID_CHARS` characters, ending in `…` when cut.
+fn short_repr(id: &str) -> String {
+    let text = py_repr(id);
+    if text.chars().count() > CYCLE_MSG_ID_CHARS {
+        let mut cut: String = text.chars().take(CYCLE_MSG_ID_CHARS - 1).collect();
+        cut.push('…');
+        cut
+    } else {
+        text
+    }
+}
+
 /// An error indicating a cycle was detected in the dependency graph.
+///
+/// `cycle` is the canonical path (first id repeated at the end). `Display` is a
+/// bounded, escaped rendering of it, byte-identical to Python's
+/// `CyclicDependencyError` message (#4729, #4781): each id `repr()`-escaped so a
+/// control character cannot forge a log line, at most 10 ids listed, then
+/// ` … (+M more)`.
 #[derive(Debug, Clone)]
 pub struct CyclicDependencyError {
     pub cycle: Vec<String>,
@@ -21,7 +114,17 @@ pub struct CyclicDependencyError {
 
 impl std::fmt::Display for CyclicDependencyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Cyclic dependency detected: {}", self.cycle.join(" → "))
+        let shown: Vec<String> = self
+            .cycle
+            .iter()
+            .take(CYCLE_MSG_MAX_IDS)
+            .map(|id| short_repr(id))
+            .collect();
+        write!(f, "Cyclic dependency detected: {}", shown.join(" → "))?;
+        if self.cycle.len() > CYCLE_MSG_MAX_IDS {
+            write!(f, " … (+{} more)", self.cycle.len() - CYCLE_MSG_MAX_IDS)?;
+        }
+        Ok(())
     }
 }
 
@@ -76,60 +179,67 @@ pub struct ProjectGraph {
     pub topo_order: Vec<NodeIndex>,
 }
 
-/// Reconstruct a full cycle path as task ids, entry node repeated at the end.
+/// Return one cycle of `graph`, independent of node/edge insertion order.
 ///
-/// Given a `start` node known to participate in a cycle (petgraph's `toposort`
-/// returns exactly such a node), walk the graph to recover the concrete cycle so
-/// the error reads `A → B → A` — matching Python's `networkx.find_cycle` output —
-/// rather than the doubled single node petgraph alone can offer (#1862).
+/// Mirrors Python's `_canonical_cycle` exactly so both engines report the same
+/// payload for the same graph (#4781): pick the non-trivial strongly connected
+/// component (size > 1, or a self-loop) holding the smallest id, then the
+/// shortest cycle through that id found by BFS over successors sorted by id,
+/// starting at that id and closing by repeating it. Ids compare as `String`s,
+/// i.e. by UTF-8 bytes, which orders identically to Python's code-point order.
 ///
-/// This runs only on the cyclic error path, never on the happy path, so an
-/// explicit iterative DFS (no recursion — a 5,000-task graph would blow the stack)
-/// is fine. The `done` set makes it linear: once a node is fully explored without
-/// closing a cycle, it is never revisited. If a cycle is somehow not re-found
-/// (it always is, since `start` is on one), fall back to the doubled node so the
-/// message is still well-formed.
-fn reconstruct_cycle_path(graph: &DiGraph<String, usize>, start: NodeIndex) -> Vec<String> {
-    let out = |n: NodeIndex| -> Vec<NodeIndex> {
-        graph.neighbors_directed(n, Direction::Outgoing).collect()
-    };
-    let mut path: Vec<NodeIndex> = vec![start];
-    let mut frontier: Vec<Vec<NodeIndex>> = vec![out(start)];
-    let mut cursor: Vec<usize> = vec![0];
-    let mut on_path: HashSet<NodeIndex> = HashSet::from([start]);
-    let mut done: HashSet<NodeIndex> = HashSet::new();
+/// Runs only on the cyclic error path. Iterative (no recursion), so a
+/// 5,000-task graph cannot blow the stack.
+fn canonical_cycle(graph: &DiGraph<String, usize>) -> Vec<String> {
+    let sccs: Vec<Vec<NodeIndex>> = tarjan_scc(graph)
+        .into_iter()
+        .filter(|c| c.len() > 1 || c.iter().any(|&n| graph.contains_edge(n, n)))
+        .collect();
+    let start = sccs
+        .iter()
+        .flat_map(|c| c.iter().copied())
+        .min_by(|&a, &b| graph[a].cmp(&graph[b]))
+        .expect("canonical_cycle called on an acyclic graph");
+    let scc: HashSet<NodeIndex> = sccs
+        .iter()
+        .find(|c| c.contains(&start))
+        .expect("start is in an scc")
+        .iter()
+        .copied()
+        .collect();
 
-    while let Some(depth) = path.len().checked_sub(1) {
-        if cursor[depth] < frontier[depth].len() {
-            let next = frontier[depth][cursor[depth]];
-            cursor[depth] += 1;
-            if on_path.contains(&next) {
-                // Back-edge into the current DFS path closes the cycle: emit from
-                // the re-entry node to the end, then the re-entry node again.
-                let pos = path.iter().position(|&n| n == next).expect("node on path");
-                let mut cycle: Vec<String> =
-                    path[pos..].iter().map(|&n| graph[n].clone()).collect();
-                cycle.push(graph[next].clone());
-                return cycle;
+    let mut parent: HashMap<NodeIndex, Option<NodeIndex>> = HashMap::from([(start, None)]);
+    let mut queue: Vec<NodeIndex> = vec![start];
+    let mut closer: Option<NodeIndex> = None;
+    let mut head = 0;
+    'bfs: while head < queue.len() {
+        let node = queue[head];
+        head += 1;
+        let mut succ: Vec<NodeIndex> = graph
+            .neighbors_directed(node, Direction::Outgoing)
+            .collect();
+        succ.sort_by(|&a, &b| graph[a].cmp(&graph[b]));
+        for nxt in succ {
+            if nxt == start {
+                closer = Some(node);
+                break 'bfs;
             }
-            if done.contains(&next) {
-                continue;
+            if scc.contains(&nxt) && !parent.contains_key(&nxt) {
+                parent.insert(nxt, Some(node));
+                queue.push(nxt);
             }
-            path.push(next);
-            frontier.push(out(next));
-            cursor.push(0);
-            on_path.insert(next);
-        } else {
-            let finished = path.pop().expect("non-empty path");
-            on_path.remove(&finished);
-            done.insert(finished);
-            frontier.pop();
-            cursor.pop();
         }
     }
 
-    let id = graph[start].clone();
-    vec![id.clone(), id]
+    let mut path: Vec<String> = Vec::new();
+    let mut cur = closer;
+    while let Some(n) = cur {
+        path.push(graph[n].clone());
+        cur = parent[&n];
+    }
+    path.reverse();
+    path.push(graph[start].clone());
+    path
 }
 
 /// Build a directed graph from the project's tasks and dependencies.
@@ -164,16 +274,13 @@ pub fn build_graph(project: &Project) -> Result<ProjectGraph, GraphBuildError> {
     }
 
     // Check for cycles via topological sort
-    let topo_indices = toposort(&graph, None).map_err(|cycle_node| {
-        // petgraph's `toposort` only hands back *one* node that participates in a
-        // cycle, so the message used to be a doubled single node ("B → B") while
-        // Python's networkx-backed engine reports the full cycle path
-        // ("A → B → A"). That was a cross-engine legibility mismatch (#1862): both
-        // engines correctly reject, but a user comparing the two saw different
-        // cycles. Reconstruct the full path here so the Rust message matches the
-        // informative Python form.
-        let cycle = reconstruct_cycle_path(&graph, cycle_node.node_id());
-        GraphBuildError::Cyclic(CyclicDependencyError { cycle })
+    let topo_indices = toposort(&graph, None).map_err(|_| {
+        // petgraph's `toposort` names only one arbitrary node on a cycle, so the
+        // reported cycle is rebuilt canonically (see `canonical_cycle`) to match
+        // Python's choice rather than depend on petgraph's traversal order.
+        GraphBuildError::Cyclic(CyclicDependencyError {
+            cycle: canonical_cycle(&graph),
+        })
     })?;
 
     // Dense node indices — the passes carry a parallel `Vec<Task>` and index it
@@ -444,5 +551,131 @@ mod tests {
             build_graph(&project),
             Err(GraphBuildError::UnknownDependencyTask { .. })
         ));
+    }
+
+    fn err_for(ids: &[&str], edges: &[(&str, &str)]) -> CyclicDependencyError {
+        let project = Project {
+            id: "p".to_string(),
+            name: "t".to_string(),
+            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: ids.iter().map(|i| make_task(i, 1)).collect(),
+            dependencies: edges
+                .iter()
+                .map(|(a, b)| Dependency {
+                    predecessor_id: a.to_string(),
+                    successor_id: b.to_string(),
+                    dep_type: DependencyType::FS,
+                    lag: 0.0,
+                })
+                .collect(),
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        match build_graph(&project) {
+            Err(GraphBuildError::Cyclic(e)) => e,
+            _ => panic!("expected a cycle"),
+        }
+    }
+
+    #[test]
+    fn canonical_cycle_ignores_insertion_order_and_picks_smallest_scc() {
+        // Two disjoint cycles; Z<->Y is listed first but B<->C holds the smaller id.
+        let e = err_for(
+            &["Z", "Y", "C", "B"],
+            &[("Z", "Y"), ("Y", "Z"), ("C", "B"), ("B", "C")],
+        );
+        assert_eq!(e.cycle, vec!["B", "C", "B"]);
+        // Same graph, reversed declaration order: identical payload.
+        let r = err_for(
+            &["B", "C", "Y", "Z"],
+            &[("B", "C"), ("C", "B"), ("Y", "Z"), ("Z", "Y")],
+        );
+        assert_eq!(r.cycle, e.cycle);
+    }
+
+    #[test]
+    fn canonical_cycle_is_shortest_through_the_start_id() {
+        let e = err_for(
+            &["A", "B", "C", "D", "E"],
+            &[
+                ("A", "B"),
+                ("B", "C"),
+                ("C", "D"),
+                ("D", "A"),
+                ("A", "E"),
+                ("E", "D"),
+            ],
+        );
+        assert_eq!(e.cycle, vec!["A", "E", "D", "A"]);
+    }
+
+    #[test]
+    fn message_escapes_truncates_and_counts_like_python() {
+        assert_eq!(py_repr("it's"), "\"it's\"");
+        assert_eq!(py_repr("q'\"both"), "'q\\'\"both'");
+        assert_eq!(py_repr("a\tb\nc\\d"), "'a\\tb\\nc\\\\d'");
+        assert_eq!(py_repr("\u{7f}\u{1}"), "'\\x7f\\x01'");
+        assert_eq!(
+            py_repr("é\u{a0}\u{200b}\u{1F600}"),
+            "'é\\xa0\\u200b\u{1F600}'"
+        );
+        assert_eq!(short_repr(&"L".repeat(100)).chars().count(), 80);
+        assert!(short_repr(&"L".repeat(100)).ends_with('…'));
+
+        let ids: Vec<String> = (0..12).map(|i| format!("t{i:02}")).collect();
+        let e = CyclicDependencyError { cycle: ids };
+        let msg = e.to_string();
+        assert!(msg.ends_with("'t09' … (+2 more)"), "{msg}");
+        assert!(!msg.contains("t10"));
+        // Exactly 10 ids: no suffix.
+        let e = CyclicDependencyError {
+            cycle: (0..10).map(|i| format!("t{i}")).collect(),
+        };
+        assert!(!e.to_string().contains("more"));
+    }
+
+    /// Cross-engine oracle (#4781): `fixtures/cycle_errors/expected/*.json` is
+    /// generated from Python and asserted by `test_wasm_conformance.py` too, so
+    /// both engines must report the same cycle payload and message.
+    #[test]
+    fn cycle_error_fixtures_match_python_oracle() {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("cycle_errors");
+        let mut n = 0;
+        for entry in std::fs::read_dir(&dir).expect("cycle_errors dir") {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|x| x.to_str()) != Some("json") {
+                continue;
+            }
+            let stem = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let project: Project =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let expected: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(dir.join("expected").join(format!("{stem}.json")))
+                    .unwrap(),
+            )
+            .unwrap();
+            let Err(GraphBuildError::Cyclic(e)) = build_graph(&project) else {
+                panic!("{stem}: expected a cycle");
+            };
+            let want: Vec<String> = expected["cycle"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect();
+            assert_eq!(e.cycle, want, "{stem}: cycle payload");
+            assert_eq!(
+                e.to_string(),
+                expected["message"].as_str().unwrap(),
+                "{stem}: message"
+            );
+            n += 1;
+        }
+        assert!(n >= 3, "cycle_errors fixtures missing (found {n})");
     }
 }
