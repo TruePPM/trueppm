@@ -175,3 +175,40 @@ test.describe('Calendar week view (#3167)', () => {
     await expect(page.getByText('No tasks in the week of Jun 8 – 14, 2026.')).toBeVisible();
   });
 });
+
+test.describe('Calendar malformed URL params (#3240)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projectId: PROJECT_ID,
+      projects: [{ id: PROJECT_ID, name: 'Week View Project', start_date: '2026-03-01' }],
+      tasks: [OUT_OF_WEEK],
+    });
+  });
+
+  test('week mode with a truncated calAnchor degrades instead of crashing', async ({ page }) => {
+    await page.goto(`/projects/${PROJECT_ID}/calendar?calView=week&calAnchor=2026-03`);
+    await expect(page.getByRole('button', { name: 'Previous week' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('region', { name: 'Calendar' })).toBeVisible();
+  });
+
+  test('an unknown calView renders month and never names the bogus mode', async ({ page }) => {
+    await page.goto(`/projects/${PROJECT_ID}/calendar?calView=bogus&calAnchor=2026-03-11`);
+    await expect(page.getByRole('heading', { level: 2, name: 'March 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('button', { name: 'Previous month' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /bogus/i })).toHaveCount(0);
+  });
+
+  test('month mode with an unparseable calAnchor still renders the grid', async ({ page }) => {
+    await page.goto(`/projects/${PROJECT_ID}/calendar?calView=month&calAnchor=nonsense`);
+    await expect(page.getByRole('button', { name: 'Previous month' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('region', { name: 'Calendar' })).toBeVisible();
+  });
+});

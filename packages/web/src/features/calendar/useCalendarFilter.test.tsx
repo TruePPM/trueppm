@@ -117,3 +117,33 @@ describe('useCalendarFilter navigation — week mode', () => {
     expect(result.current.anchorIso).toBe('2026-04-05');
   });
 });
+
+describe('useCalendarFilter malformed URL params (#3240)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-15T08:30:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each(['nonsense', '2026-03', '', '2026-3-11x', '2026-02-31', '2026-13-01'])(
+    'falls back to today for calAnchor=%j',
+    (bad) => {
+      const { result } = setup(`/calendar?calView=week&calAnchor=${bad}`);
+      expect(result.current.anchorIso).toBe('2026-03-15');
+    },
+  );
+
+  it('falls back to month for an unknown calView', () => {
+    const { result } = setup('/calendar?calView=bogus');
+    expect(result.current.calView).toBe('month');
+  });
+
+  it('navigation from a malformed anchor starts at today, not NaN', () => {
+    const { result } = setup('/calendar?calView=week&calAnchor=nonsense');
+    act(() => result.current.goNext());
+    expect(result.current.anchorIso).toBe('2026-03-22');
+  });
+});

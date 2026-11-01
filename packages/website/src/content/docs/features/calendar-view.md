@@ -93,7 +93,7 @@ Both pieces of state live in the URL, so a calendar you are looking at is a link
 | `calView` | `month` or `week` | `month` |
 | `calAnchor` | A date, `YYYY-MM-DD` | Today |
 
-`…/calendar?calView=week&calAnchor=2026-08-26` opens the week of August 24th for whoever you send it to. Both parameters are bookmarkable and survive navigating away and back.
+`…/calendar?calView=week&calAnchor=2026-08-26` opens the week of August 24th for whoever you send it to. Both parameters are bookmarkable and survive navigating away and back. A link with a value the calendar can't read (a truncated or mistyped date, or an unknown mode) still opens: an unparseable `calAnchor` opens on today, and an unknown `calView` opens the month view.
 
 Switching mode or stepping the window replaces the grid without moving focus, so both are announced to screen readers — *"Week view, Aug 24 – 30, 2026"* — and the grid itself is a labeled region naming the mode and window.
 

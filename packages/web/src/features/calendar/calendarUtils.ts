@@ -9,6 +9,25 @@ import type { Task } from '@/types';
 
 export type CalViewMode = 'week' | 'month';
 
+const CAL_VIEW_MODES: readonly CalViewMode[] = ['week', 'month'];
+
+/** Narrow an untrusted URL value to a known mode; anything else is `fallback`. */
+export function parseCalViewMode(raw: string | null, fallback: CalViewMode = 'month'): CalViewMode {
+  return CAL_VIEW_MODES.find((m) => m === raw) ?? fallback;
+}
+
+/**
+ * True only for a strict `YYYY-MM-DD` that names a real calendar date. The
+ * round-trip rejects overflow dates (`2026-02-31`) that `Date.UTC` would
+ * silently roll into March.
+ */
+export function isValidISODate(raw: string | null): raw is string {
+  if (raw === null || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [y, m, d] = raw.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return !Number.isNaN(dt.getTime()) && dt.toISOString().slice(0, 10) === raw;
+}
+
 // ---------------------------------------------------------------------------
 // Date primitives (UTC-safe — no local timezone offset)
 // ---------------------------------------------------------------------------

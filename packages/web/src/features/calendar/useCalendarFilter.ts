@@ -9,7 +9,15 @@
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 import type { CalViewMode } from './calendarUtils';
-import { parseUTCDate, nextMonth, prevMonth, nextWeek, prevWeek } from './calendarUtils';
+import {
+  isValidISODate,
+  parseCalViewMode,
+  parseUTCDate,
+  nextMonth,
+  prevMonth,
+  nextWeek,
+  prevWeek,
+} from './calendarUtils';
 
 const DEFAULT_MODE: CalViewMode = 'month';
 
@@ -29,8 +37,12 @@ interface UseCalendarFilterReturn {
 export function useCalendarFilter(): UseCalendarFilterReturn {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const calView = (searchParams.get('calView') ?? DEFAULT_MODE) as CalViewMode;
-  const anchorIso = searchParams.get('calAnchor') ?? todayUTCIso();
+  // The URL is shareable and so arrives truncated or hand-typed: validate both
+  // params and degrade to the defaults rather than feeding an Invalid Date (a
+  // render-time RangeError in week mode) or an unknown mode into the view.
+  const calView = parseCalViewMode(searchParams.get('calView'), DEFAULT_MODE);
+  const rawAnchor = searchParams.get('calAnchor');
+  const anchorIso = isValidISODate(rawAnchor) ? rawAnchor : todayUTCIso();
 
   const updateParams = useCallback(
     (patch: Record<string, string>) => {
@@ -51,10 +63,7 @@ export function useCalendarFilter(): UseCalendarFilterReturn {
     [updateParams],
   );
 
-  const goToToday = useCallback(
-    () => updateParams({ calAnchor: todayUTCIso() }),
-    [updateParams],
-  );
+  const goToToday = useCallback(() => updateParams({ calAnchor: todayUTCIso() }), [updateParams]);
 
   const goNext = useCallback(() => {
     const anchor = parseUTCDate(anchorIso);
