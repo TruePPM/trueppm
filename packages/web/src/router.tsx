@@ -142,6 +142,11 @@ const ProgramBacklogPage = lazy(() =>
     default: m.ProgramBacklogPage,
   })),
 );
+const ProgramDecisionsPage = lazy(() =>
+  import('@/features/programs/decisions/ProgramDecisionsPage').then((m) => ({
+    default: m.ProgramDecisionsPage,
+  })),
+);
 const ProgramLabelsPage = lazy(() =>
   import('@/features/programs/ProgramLabelsPage').then((m) => ({
     default: m.ProgramLabelsPage,
@@ -1025,6 +1030,15 @@ export const routes: RouteObject[] = [
                       </Suspense>
                     ),
                     handle: { title: 'Program Backlog' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'decisions',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramDecisionsPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Decisions' } satisfies RouteHandle,
                   },
                   {
                     path: 'labels',

@@ -168,6 +168,8 @@ api/v1/programs/<program_pk>/backlog-items/<pk>/
 api/v1/programs/<program_pk>/backlog-items/<pk>/pull/
 api/v1/programs/<program_pk>/ceremonies/
 api/v1/programs/<program_pk>/ceremonies/<pk>/
+api/v1/programs/<program_pk>/decisions/
+api/v1/programs/<program_pk>/decisions/<pk>/
 api/v1/programs/<program_pk>/phase-gate-config/
 api/v1/programs/<uuid:program_pk>/external-stakeholders/
 api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/

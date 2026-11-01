@@ -32,6 +32,7 @@ const PROGRAM_VIEW_LABEL: Record<string, string> = {
   settings: 'Settings',
   labels: 'Labels',
   agents: 'Agents',
+  decisions: 'Decisions',
 };
 const PROGRAM_VIEWS = Object.keys(PROGRAM_VIEW_LABEL);
 

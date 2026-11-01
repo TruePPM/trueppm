@@ -130,7 +130,7 @@ function MobileGroomingBody({
         <div
           role="group"
           aria-label="Filter by readiness"
-          className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5"
+          className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 py-1"
         >
           {DOR_FILTER_ORDER.map((dor) => (
             <DorFilterChip

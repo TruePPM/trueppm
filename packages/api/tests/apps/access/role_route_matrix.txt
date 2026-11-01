@@ -59,6 +59,7 @@
 -----++  DELETE api/v1/programs/<program_pk>/api-tokens/<pk>/::destroy
 ---++++  DELETE api/v1/programs/<program_pk>/backlog-items/<pk>/::destroy
 -----++  DELETE api/v1/programs/<program_pk>/ceremonies/<pk>/::destroy
+-----++  DELETE api/v1/programs/<program_pk>/decisions/<pk>/::destroy
 -----++  DELETE api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/::destroy
 --+++++  DELETE api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/::destroy
 ------+  DELETE api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/::destroy
@@ -233,6 +234,8 @@
 --+++++  GET api/v1/programs/<program_pk>/backlog-items/<pk>/::retrieve
 --+++++  GET api/v1/programs/<program_pk>/ceremonies/::list
 --+++++  GET api/v1/programs/<program_pk>/ceremonies/<pk>/::retrieve
+--+++++  GET api/v1/programs/<program_pk>/decisions/::list
+--+++++  GET api/v1/programs/<program_pk>/decisions/<pk>/::retrieve
 --+++++  GET api/v1/programs/<program_pk>/label-catalog/::get
 --+++++  GET api/v1/programs/<program_pk>/label-tasks/::list
 --+++++  GET api/v1/programs/<program_pk>/phase-gate-config/::get
@@ -379,6 +382,7 @@
 -++++++  PATCH api/v1/me/time-entries/<uuid:pk>/::patch
 ---++++  PATCH api/v1/programs/<program_pk>/backlog-items/<pk>/::partial_update
 -----++  PATCH api/v1/programs/<program_pk>/ceremonies/<pk>/::partial_update
+---++++  PATCH api/v1/programs/<program_pk>/decisions/<pk>/::partial_update
 -----++  PATCH api/v1/programs/<program_pk>/phase-gate-config/::patch
 -----++  PATCH api/v1/programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/::partial_update
 -----++  PATCH api/v1/programs/<uuid:program_pk>/members/<uuid:pk>/::partial_update
@@ -497,6 +501,7 @@
 ---++++  POST api/v1/programs/<program_pk>/backlog-items/::create
 ---++++  POST api/v1/programs/<program_pk>/backlog-items/<pk>/pull/::pull
 -----++  POST api/v1/programs/<program_pk>/ceremonies/::create
+---++++  POST api/v1/programs/<program_pk>/decisions/::create
 -----++  POST api/v1/programs/<uuid:program_pk>/external-stakeholders/::create
 ------+  POST api/v1/programs/<uuid:program_pk>/members/::create
 ------+  POST api/v1/programs/<uuid:program_pk>/mention-groups/::create

@@ -32,6 +32,7 @@ from trueppm_api.apps.projects.poker_views import (
     PokerVoteView,
     SprintPokerView,
 )
+from trueppm_api.apps.projects.program_decision_views import ProgramDecisionViewSet
 from trueppm_api.apps.projects.program_label_views import (
     ProgramLabelCatalogView,
     ProgramLabelTaskViewSet,
@@ -975,6 +976,19 @@ urlpatterns = [
         "programs/<program_pk>/phase-gate-config/",
         PhaseGateConfigView.as_view(),
         name="program-phase-gate-config",
+    ),
+    # Program decision log (ADR-1310, #4772)
+    path(
+        "programs/<program_pk>/decisions/",
+        ProgramDecisionViewSet.as_view({"get": "list", "post": "create"}),
+        name="program-decisions-list",
+    ),
+    path(
+        "programs/<program_pk>/decisions/<pk>/",
+        ProgramDecisionViewSet.as_view(
+            {"get": "retrieve", "patch": "partial_update", "delete": "destroy"}
+        ),
+        name="program-decisions-detail",
     ),
     # Program backlog (ADR-0069, #737 / #739)
     path(

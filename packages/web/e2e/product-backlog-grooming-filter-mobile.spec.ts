@@ -13,6 +13,7 @@
  */
 import { expect, test, type Page } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
+import { scrollerRingOverflow } from './fixtures/ring-fit';
 
 const FIXTURE_PROJECT_ID = 'e2e-groom-00000000-0000-0000-0000-000000001044';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -234,6 +235,16 @@ test.describe('Mobile grooming (issue 1044, 375px)', () => {
     // Epic section header + the "No epic" section.
     await expect(page.getByRole('heading', { name: 'Telemetry' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'No epic' })).toBeVisible();
+  });
+
+  test('the readiness chip scroller leaves room for the focus ring (#4775)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+    const chip = page
+      .getByRole('group', { name: 'Filter by readiness' })
+      .getByRole('button', { name: 'Ready' });
+    await expect(chip).toBeVisible({ timeout: 10_000 });
+    expect(await scrollerRingOverflow(chip)).toBeLessThanOrEqual(0);
   });
 
   test('the quick-add sheet opens and commits a title-only story', async ({ page }) => {

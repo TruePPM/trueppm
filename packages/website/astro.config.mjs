@@ -356,6 +356,7 @@ export default defineConfig({
                 { slug: "features/view-focus" },
                 { slug: "features/timezone-and-date-format" },
                 { slug: "features/programs" },
+                { slug: "features/program-decisions" },
                 { slug: "features/calendars" },
                 { slug: "features/resources" },
               ],

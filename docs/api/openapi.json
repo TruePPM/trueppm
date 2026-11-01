@@ -13648,6 +13648,440 @@
                 "summary": "Delete ceremony"
             }
         },
+        "/api/v1/programs/{program_pk}/decisions/": {
+            "get": {
+                "operationId": "v1_programs_decisions_list",
+                "description": "CRUD for a program's decision log. See the module docstring for the matrix.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "awaiting",
+                                "made",
+                                "withdrawn"
+                            ],
+                            "x-trueppm-enum": "open"
+                        },
+                        "description": "Only decisions in this status. `awaiting` sorts soonest-due first (undated last); `made` sorts most recently decided first. Omitted: every status."
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProgramDecisionList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List decisions"
+            },
+            "post": {
+                "operationId": "v1_programs_decisions_create",
+                "description": "CRUD for a program's decision log. See the module docstring for the matrix.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramDecisionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramDecisionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramDecisionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramDecision"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create decision"
+            }
+        },
+        "/api/v1/programs/{program_pk}/decisions/{id}/": {
+            "get": {
+                "operationId": "v1_programs_decisions_retrieve",
+                "description": "CRUD for a program's decision log. See the module docstring for the matrix.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramDecision"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve decision"
+            },
+            "patch": {
+                "operationId": "v1_programs_decisions_partial_update",
+                "description": "CRUD for a program's decision log. See the module docstring for the matrix.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramDecisionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramDecisionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramDecisionRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramDecision"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update decision"
+            },
+            "delete": {
+                "operationId": "v1_programs_decisions_destroy",
+                "description": "CRUD for a program's decision log. See the module docstring for the matrix.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete decision"
+            }
+        },
         "/api/v1/programs/{program_pk}/external-stakeholders/": {
             "get": {
                 "operationId": "v1_programs_external_stakeholders_list",
@@ -60269,6 +60703,37 @@
                     }
                 }
             },
+            "PaginatedProgramDecisionList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramDecision"
+                        }
+                    }
+                }
+            },
             "PaginatedProgramExportJobList": {
                 "type": "object",
                 "required": [
@@ -61832,6 +62297,42 @@
                         "nullable": true,
                         "description": "Phase accent color as #RRGGBB hex (root tasks only).",
                         "maxLength": 7
+                    }
+                }
+            },
+            "PatchedProgramDecisionRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a program decision.\n\n``program`` is bound by the URL and read-only, so a payload cannot retarget a\ndecision to another program. ``decided_at`` is server-stamped on the move to\n``made``. ``impact_note`` is the owner's free-text estimate — it is stored and\nechoed verbatim and nothing on the server computes or validates it as a number.",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "owner": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ProgramDecisionStatusEnum"
+                    },
+                    "linked_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "linked_risk": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "impact_note": {
+                        "type": "string"
                     }
                 }
             },
@@ -64562,6 +65063,235 @@
                     "server_version",
                     "updated_at"
                 ]
+            },
+            "ProgramDecision": {
+                "type": "object",
+                "description": "Read/write serializer for a program decision.\n\n``program`` is bound by the URL and read-only, so a payload cannot retarget a\ndecision to another program. ``decided_at`` is server-stamped on the move to\n``made``. ``impact_note`` is the owner's free-text estimate — it is stored and\nechoed verbatim and nothing on the server computes or validates it as a number.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "owner": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "owner_detail": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramDecisionOwner"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ProgramDecisionStatusEnum"
+                    },
+                    "decided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "linked_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "linked_risk": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "link": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramDecisionLink"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "impact_note": {
+                        "type": "string"
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "decided_at",
+                    "id",
+                    "link",
+                    "owner_detail",
+                    "program",
+                    "server_version",
+                    "title",
+                    "updated_at"
+                ]
+            },
+            "ProgramDecisionLink": {
+                "type": "object",
+                "description": "A linked task or risk, as the reader is allowed to see it.\n\n``title`` and ``short_id`` are ``None`` when the reader is a program member but not a member of\nthe project the linked item lives in. Program membership admits the reader to\nthe program's log; project membership governs what of a project's plan is\nrevealed (ADR-0120 D5) — so the link is disclosed, its name is not.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/ProgramDecisionLinkKindEnum"
+                    },
+                    "short_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Display form, e.g. T-10 or R-003."
+                    },
+                    "title": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "id",
+                    "kind",
+                    "project_id",
+                    "short_id",
+                    "title"
+                ]
+            },
+            "ProgramDecisionLinkKindEnum": {
+                "enum": [
+                    "task",
+                    "risk"
+                ],
+                "type": "string",
+                "description": "* `task` - task\n* `risk` - risk",
+                "x-trueppm-enum": "open"
+            },
+            "ProgramDecisionOwner": {
+                "type": "object",
+                "description": "Just enough of the owner to render a name.",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "id",
+                    "username"
+                ]
+            },
+            "ProgramDecisionOwnerRequest": {
+                "type": "object",
+                "description": "Just enough of the owner to render a name.",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "username": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "id",
+                    "username"
+                ]
+            },
+            "ProgramDecisionRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a program decision.\n\n``program`` is bound by the URL and read-only, so a payload cannot retarget a\ndecision to another program. ``decided_at`` is server-stamped on the move to\n``made``. ``impact_note`` is the owner's free-text estimate — it is stored and\nechoed verbatim and nothing on the server computes or validates it as a number.",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "owner": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ProgramDecisionStatusEnum"
+                    },
+                    "linked_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "linked_risk": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "impact_note": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "title"
+                ]
+            },
+            "ProgramDecisionStatusEnum": {
+                "enum": [
+                    "awaiting",
+                    "made",
+                    "withdrawn"
+                ],
+                "type": "string",
+                "description": "* `awaiting` - Awaiting\n* `made` - Made\n* `withdrawn` - Withdrawn",
+                "x-trueppm-enum": "open"
             },
             "ProgramExportJob": {
                 "type": "object",
