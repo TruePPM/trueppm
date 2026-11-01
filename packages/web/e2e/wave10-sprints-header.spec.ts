@@ -13,6 +13,7 @@
  */
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
+import { scrollerRingOverflow } from './fixtures/ring-fit';
 
 const PROJECT_ID = 'e2e-sprints-00000000-0000-0000-0000-000000000010';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;
@@ -316,6 +317,11 @@ test.describe('Wave 10 — Sprints view header', () => {
     await expect(cadence.getByRole('article', { name: /SP-A1B2/ })).toBeVisible();
     await expect(cadence.getByRole('article', { name: /SP-C0FF/ })).toBeVisible();
     await expect(cadence.getByRole('article', { name: /SP-D33D/ })).toBeVisible();
+    // The strip scrolls horizontally, which clips on both axes — it must leave
+    // room for the cards' focus ring (#4775).
+    expect(
+      await scrollerRingOverflow(cadence.getByRole('article', { name: /SP-A1B2/ })),
+    ).toBeLessThanOrEqual(0);
 
     // Plan next disabled because a planned sprint exists
     await expect(

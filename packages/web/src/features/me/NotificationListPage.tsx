@@ -61,32 +61,38 @@ export function NotificationListPage() {
         {announce}
       </span>
 
-      <div
-        role="tablist"
-        aria-label="Filter notifications"
-        className="flex gap-1 border-b border-neutral-border pb-2 overflow-x-auto"
-      >
-        {READ_STATE_FILTERS.map((f) => {
-          const active = filter === f.value;
-          return (
-            <button
-              key={f.value}
-              role="tab"
-              type="button"
-              aria-selected={active}
-              onClick={() => setFilter(f.value)}
-              className={`text-xs px-3 h-7 font-medium border-b-2 whitespace-nowrap transition-colors
-                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
-                ${
-                  active
-                    ? 'border-brand-primary text-brand-primary'
-                    : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary'
-                }`}
-            >
-              {f.label}
-            </button>
-          );
-        })}
+      {/* overflow-x-auto clips on BOTH axes, and the ring paints 3px outside
+          each button — so both scrollers carry padding on every side to hold
+          it (-mx-1 cancels the horizontal inset). The divider lives on this
+          wrapper so it stays flush with the header instead of the padded box. */}
+      <div className="border-b border-neutral-border">
+        <div
+          role="tablist"
+          aria-label="Filter notifications"
+          className="flex gap-1 -mx-1 px-1 pt-1 pb-2 overflow-x-auto"
+        >
+          {READ_STATE_FILTERS.map((f) => {
+            const active = filter === f.value;
+            return (
+              <button
+                key={f.value}
+                role="tab"
+                type="button"
+                aria-selected={active}
+                onClick={() => setFilter(f.value)}
+                className={`text-xs px-3 h-7 font-medium border-b-2 whitespace-nowrap transition-colors
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                  ${
+                    active
+                      ? 'border-brand-primary text-brand-primary'
+                      : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary'
+                  }`}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Category selector — orthogonal to read-state (ADR-0216 §3). Radiogroup,
@@ -94,7 +100,7 @@ export function NotificationListPage() {
       <div
         role="radiogroup"
         aria-label="Filter by category"
-        className="flex gap-1 overflow-x-auto"
+        className="flex gap-1 -mx-1 p-1 overflow-x-auto"
       >
         {CATEGORY_FILTERS.map((c) => {
           const active = category === c.value;
@@ -106,7 +112,7 @@ export function NotificationListPage() {
               aria-checked={active}
               onClick={() => setCategory(c.value)}
               className={`text-xs px-3 h-7 rounded-control font-medium whitespace-nowrap transition-colors
-                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 ${
                   active
                     ? 'bg-brand-primary/10 text-brand-primary'

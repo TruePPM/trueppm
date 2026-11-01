@@ -71,7 +71,7 @@ export function SprintTimelineStrip({
         </h2>
       </div>
 
-      <div className="flex items-stretch gap-3 overflow-x-auto pb-1">
+      <div className="-mx-1 flex items-stretch gap-3 overflow-x-auto px-1 pt-1 pb-1">
         {closed.map((s) => (
           <SprintCard
             key={s.id}
