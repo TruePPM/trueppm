@@ -30,7 +30,7 @@ from django.db import models
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.models import Role, project_role_label, role_in_band_check
 from trueppm_api.apps.projects.models import (
     DurationChangePercentPolicy,
     EstimationScale,
@@ -667,10 +667,11 @@ class GroupProject(models.Model):
             models.UniqueConstraint(
                 fields=["group", "project"], name="uniq_group_project_group_project"
             ),
+            role_in_band_check("role", "group_project_role_in_band"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.group} → {self.project_id} ({Role(self.role).label})"
+        return f"{self.group} → {self.project_id} ({project_role_label(self.role)})"
 
 
 class ExportJobStatus(models.TextChoices):

@@ -1295,6 +1295,11 @@ def _member_role_choices() -> list[tuple[int, str]]:
 # Literal ordinal for the stored default; ``== Role.MEMBER`` (100). Kept as a literal
 # (not ``Role.MEMBER``) to avoid the circular import described on _member_role_choices.
 _DEFAULT_MEMBER_ROLE = 100
+# Literal bounds of ``Role`` (VIEWER=1, OWNER=400) for the CHECK on
+# ``default_member_role``; literal for the same circular-import reason. Pinned to
+# the enum by ``test_project_role_bounds_match_enum``.
+_ROLE_BAND_MIN = 1
+_ROLE_BAND_MAX = 400
 
 
 class ProjectLifecycle(models.TextChoices):
@@ -1746,6 +1751,13 @@ class Project(VersionedModel):
             models.Index(fields=["is_deleted", "deleted_at"], name="proj_isdel_deletedat_idx"),
         ]
         constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    default_member_role__gte=_ROLE_BAND_MIN,
+                    default_member_role__lte=_ROLE_BAND_MAX,
+                ),
+                name="project_default_member_role_in_band",
+            ),
             # ROLLING-UPGRADE WINDOW — same reason as ``Program.Meta`` (migration
             # rule 8, ADR-1237 §4). 0.5 drops the blank exclusion. Same residual
             # gap too: an old pod saving two identical NON-blank codes during the

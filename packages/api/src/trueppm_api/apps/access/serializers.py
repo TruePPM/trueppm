@@ -19,6 +19,7 @@ from trueppm_api.apps.access.models import (
     Role,
     UserDefinedMentionGroup,
     program_role_label,
+    project_role_label,
 )
 from trueppm_api.apps.access.permissions import is_workspace_operator as _is_workspace_operator
 from trueppm_api.apps.profiles.models import DateFormat, RoleContext
@@ -261,7 +262,7 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
         ``ProgramMembershipReadSerializer.get_role_label``. One ordinal, two
         containers, two names.
         """
-        return Role(obj.role).label
+        return project_role_label(obj.role)
 
     def get_other_active_project_count(self, obj: ProjectMembership) -> int:
         # list/retrieve annotate this on the queryset (one Subquery, no N+1). create/

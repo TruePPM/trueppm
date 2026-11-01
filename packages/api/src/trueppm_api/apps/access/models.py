@@ -121,6 +121,35 @@ def program_role_label(role: int | None) -> str | None:
     return PROGRAM_ROLE_LABELS.get(Role(role))
 
 
+def project_role_label(role: int) -> str:
+    """Project-context display label for a role ordinal; never raises.
+
+    The project-side twin of :func:`program_role_label`. ADR-0072 reserves the
+    2-99, 101-199, 201-299 and 301-399 bands for Enterprise custom roles, so a
+    stored ordinal such as 250 is legitimate and a bare ``Role(250)`` raises
+    ``ValueError``, which DRF does not convert (it 500s the whole response).
+    Unlike the program helper this returns a ``str``, because every caller
+    (audit metadata, notification copy, ``__str__``) interpolates it; an
+    ordinal the OSS enum cannot name is rendered as ``"Custom role (250)"``.
+    """
+    if role in Role.values:
+        return Role(role).label
+    return f"Custom role ({role})"
+
+
+def role_in_band_check(field: str, name: str) -> models.CheckConstraint:
+    """CHECK keeping ``field`` inside the ADR-0072 band ``[VIEWER, OWNER]``.
+
+    A range, not ``IN (enum values)``: Enterprise custom roles live *between* the
+    OSS ordinals, so pinning the exact values would reject them. The range does
+    reject 0, negatives and 401+ (the reserved "no role above Owner" space).
+    """
+    return models.CheckConstraint(
+        condition=models.Q(**{f"{field}__gte": Role.VIEWER, f"{field}__lte": Role.OWNER}),
+        name=name,
+    )
+
+
 class ProjectMembership(VersionedModel):
     """Through table linking a user to a project with a specific role.
 
@@ -187,6 +216,7 @@ class ProjectMembership(VersionedModel):
             models.UniqueConstraint(
                 fields=["project", "user"], name="uniq_project_membership_project_user"
             ),
+            role_in_band_check("role", "project_membership_role_in_band"),
         ]
         indexes = [
             # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
@@ -241,7 +271,7 @@ class ProjectMembership(VersionedModel):
         return cls.objects.filter(is_deleted=False)
 
     def __str__(self) -> str:
-        return f"{self.user} — {self.project} ({Role(self.role).label})"
+        return f"{self.user} — {self.project} ({project_role_label(self.role)})"
 
 
 class ProgramMembership(VersionedModel):
@@ -305,6 +335,7 @@ class ProgramMembership(VersionedModel):
             models.UniqueConstraint(
                 fields=["program", "user"], name="uniq_program_membership_program_user"
             ),
+            role_in_band_check("role", "program_membership_role_in_band"),
         ]
         indexes = [
             # Sync delta pull: WHERE program_id = X AND server_version > since

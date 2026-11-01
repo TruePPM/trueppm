@@ -35,7 +35,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.models import project_role_label
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
@@ -192,7 +192,12 @@ def _group_dict(
 
 def _project_link(project_id: Any, name: str, role: int) -> dict[str, Any]:
     """One group→project access grant, with the conferred role and its label (#2253)."""
-    return {"id": str(project_id), "name": name, "role": role, "role_label": Role(role).label}
+    return {
+        "id": str(project_id),
+        "name": name,
+        "role": role,
+        "role_label": project_role_label(role),
+    }
 
 
 def _build_group_dict(group: Group) -> dict[str, Any]:

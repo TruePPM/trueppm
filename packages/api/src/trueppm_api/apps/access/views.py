@@ -29,6 +29,7 @@ from trueppm_api.apps.access.models import (
     ProjectMembership,
     Role,
     UserDefinedMentionGroup,
+    project_role_label,
 )
 from trueppm_api.apps.access.permissions import (
     IsProgramAdmin,
@@ -539,10 +540,14 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             target_type="member",
             target_id=instance.pk,
             target_label=_actor_label(user),
-            metadata={"project_id": project_id, "role": Role(new_role).label, "source": "grant"},
+            metadata={
+                "project_id": project_id,
+                "role": project_role_label(new_role),
+                "source": "grant",
+            },
         )
         actor_label = _actor_label(request.user)
-        role_label = Role(new_role).label
+        role_label = project_role_label(new_role)
         subject = f"You were added to {project.name}"
         body = f"{actor_label} added you to {project.name} as {role_label}."
         # Snapshot to a plain value before the closure, not `user.pk` inline — the
@@ -595,13 +600,13 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             target_label=_actor_label(instance.user),
             metadata={
                 "project_id": project_id,
-                "old_role": Role(old_role).label,
-                "new_role": Role(new_role).label,
+                "old_role": project_role_label(old_role),
+                "new_role": project_role_label(new_role),
             },
         )
         actor_label = _actor_label(request.user)
-        old_role_label = Role(old_role).label
-        new_role_label = Role(new_role).label
+        old_role_label = project_role_label(old_role)
+        new_role_label = project_role_label(new_role)
         target_user_id = instance.user_id
         subject = f"Your role changed on {project.name}"
         body = (
@@ -796,7 +801,7 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             target_label=_actor_label(instance.user),
             metadata={
                 "project_id": str(project.pk),
-                "role": Role(instance.role).label,
+                "role": project_role_label(instance.role),
                 "self_removal": is_self,
             },
         )
@@ -1775,12 +1780,12 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             target_label=_actor_label(user),
             metadata={
                 "program_id": str(program.pk),
-                "role": Role(new_role).label,
+                "role": project_role_label(new_role),
                 "source": "grant",
             },
         )
         actor_label = _actor_label(request.user)
-        role_label = Role(new_role).label
+        role_label = project_role_label(new_role)
         program_name = program.name
         subject = f"You were added to {program_name}"
         body = f"{actor_label} added you to {program_name} as {role_label}."
@@ -1821,13 +1826,13 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             target_label=_actor_label(instance.user),
             metadata={
                 "program_id": str(program.pk),
-                "old_role": Role(old_role).label,
-                "new_role": Role(new_role).label,
+                "old_role": project_role_label(old_role),
+                "new_role": project_role_label(new_role),
             },
         )
         actor_label = _actor_label(request.user)
-        old_role_label = Role(old_role).label
-        new_role_label = Role(new_role).label
+        old_role_label = project_role_label(old_role)
+        new_role_label = project_role_label(new_role)
         program_name = program.name
         target_user_id = instance.user_id
         subject = f"Your role changed on {program_name}"
@@ -1982,7 +1987,7 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
             target_label=_actor_label(instance.user),
             metadata={
                 "program_id": str(program.pk),
-                "role": Role(instance.role).label,
+                "role": project_role_label(instance.role),
                 "self_removal": is_self,
             },
         )
