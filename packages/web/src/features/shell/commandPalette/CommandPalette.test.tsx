@@ -63,6 +63,11 @@ vi.mock('@/hooks/usePins', () => ({
   useTogglePin: () => ({ mutate: togglePin, isPending: false }),
 }));
 
+// The inline log-time form (#1211) mutates through the shared hook; stub it.
+vi.mock('@/hooks/useCreateTimeEntry', () => ({
+  useCreateTimeEntry: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+}));
+
 function open() {
   useCommandPaletteStore.getState().setOpen(true);
 }
@@ -415,5 +420,28 @@ describe('CommandPalette — the pin accelerator (#2390)', () => {
     expect(screen.getByRole('dialog').textContent).not.toContain('P pin');
     highlightOnly('Apollo');
     expect(screen.getByRole('dialog').textContent).toContain('P pin');
+  });
+  it('swaps the body for the inline log-time form, and Back restores search focus (#1211)', () => {
+    open();
+    render(<CommandPalette />);
+    act(() => {
+      useCommandPaletteStore
+        .getState()
+        .setLogTimeTarget({ taskId: 't1', taskLabel: 'T-8 · Wire OAuth' });
+    });
+    expect(screen.getByTestId('cmdk-log-time')).toHaveTextContent('Log time on T-8 · Wire OAuth');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.queryByTestId('cmdk-log-time')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveFocus();
+  });
+
+  it('drops the inline form when the palette closes (#1211)', () => {
+    open();
+    act(() => {
+      useCommandPaletteStore.getState().setLogTimeTarget({ taskId: 't1', taskLabel: 'x' });
+    });
+    act(() => useCommandPaletteStore.getState().setOpen(false));
+    expect(useCommandPaletteStore.getState().logTimeTarget).toBeNull();
   });
 });

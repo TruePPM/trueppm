@@ -18,6 +18,7 @@ import { DemoModeBar } from '@/features/shell/DemoModeBar';
 import { PendingWritesGuard } from '@/features/shell/PendingWritesGuard';
 import { StartExploringCallout } from '@/features/shell/StartExploringCallout';
 import { CommandPalette } from '@/features/shell/commandPalette/CommandPalette';
+import { LastTaskRecorder } from '@/features/shell/commandPalette/LastTaskRecorder';
 import { useCommandPaletteHotkey } from '@/features/shell/commandPalette/useCommandPaletteHotkey';
 import { useSidebarCollapseHotkey } from '@/features/shell/useSidebarCollapseHotkey';
 import { SettingsHotkey } from '@/features/shell/useSettingsHotkey';
@@ -126,6 +127,7 @@ export function AppShell2() {
       <PendingWritesGuard />
       <SessionExpiredBanner />
       <CommandPalette />
+      <LastTaskRecorder />
       <CreateDispatcher />
       <GlobalTaskDrawer />
       {shortcutsModalOpen && <KeyboardShortcutsModal onClose={closeShortcutsModal} />}

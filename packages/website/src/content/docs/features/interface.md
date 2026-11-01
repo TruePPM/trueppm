@@ -101,6 +101,19 @@ is the fastest path to:
   **Personal** so same-named sections stay clear. Pick one to land right on it.
 - **Run actions** in context.
 
+:::note[Ships in 0.5]
+**Log time on your last task** is not in the current release. It lands in 0.5: the palette
+will offer a **Log time on *\<task name\>*** action whenever you have opened a task
+and you are a Member or above on its project (Viewers never see it). Pick it and the
+palette swaps to a one-field form: type minutes (`45`), hours (`1.5`) or `h:mm`
+(`1:30`) and press Enter. The time is logged against today and the palette closes
+with the usual **Undo** toast. If the server refuses the entry (for example, a
+backdate window), the reason appears in the form and the palette stays open so you
+can correct it. "Last task" is remembered in your browser, per signed-in user, so
+it does not follow you to another browser or device. Until then, log time from **My
+Work** or the **Log time** button in the top bar.
+:::
+
 Type to filter; arrow keys move; Enter activates; Escape closes. The palette is a
 pop surface with a focus trap, so keyboard and screen-reader users get the same
 reach as a pointer.

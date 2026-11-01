@@ -15,6 +15,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { filterCommandItems, type CommandItem } from './commandItems';
 import { useCommandItems } from './useCommandItems';
+import { LogTimeForm } from './LogTimeForm';
 
 const GROUP_LABEL: Record<CommandItem['group'], string> = {
   sprint: 'Current sprint',
@@ -345,6 +346,8 @@ function PaletteResultsBody({
 export function CommandPalette() {
   const open = useCommandPaletteStore((s) => s.open);
   const setOpen = useCommandPaletteStore((s) => s.setOpen);
+  const logTimeTarget = useCommandPaletteStore((s) => s.logTimeTarget);
+  const setLogTimeTarget = useCommandPaletteStore((s) => s.setLogTimeTarget);
 
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -421,6 +424,13 @@ export function CommandPalette() {
     return undefined;
   }, [open]);
 
+  // Returning from the inline log-time form remounts the search field; put the
+  // caret back in it so keyboard users are not left on <body> (#1211).
+  const inLogTime = logTimeTarget !== null;
+  useEffect(() => {
+    if (open && !inLogTime) inputRef.current?.focus();
+  }, [open, inLogTime]);
+
   // Keep the active row in view as the selection moves.
   useEffect(() => {
     if (!open) return;
@@ -482,84 +492,94 @@ export function CommandPalette() {
         tabIndex={-1}
         className="relative w-full max-w-[560px] overflow-hidden rounded-card border border-neutral-border bg-neutral-surface shadow-pop focus:outline-none motion-safe:animate-cmdk-in"
       >
-        {/* Search field — owns all keyboard interaction (focus lives here). */}
-        <div className="flex items-center gap-2 border-b border-neutral-border px-3">
-          <SearchIcon className="h-4 w-4 shrink-0 text-neutral-text-secondary" />
-          <input
-            ref={inputRef}
-            type="text"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls="cmdk-listbox"
-            aria-activedescendant={activeItem ? `cmdk-opt-${activeItem.id}` : undefined}
-            aria-autocomplete="list"
-            placeholder="Search or jump to…"
-            value={query}
-            onKeyDown={onKeyDown}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setActiveIndex(0);
-            }}
-            className="w-full bg-transparent py-3 text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
+        {logTimeTarget ? (
+          <LogTimeForm
+            target={logTimeTarget}
+            onBack={() => setLogTimeTarget(null)}
+            onDone={() => setOpen(false)}
           />
-          <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs text-neutral-text-secondary">
-            Esc
-          </kbd>
-        </div>
+        ) : (
+          <>
+            {/* Search field — owns all keyboard interaction (focus lives here). */}
+            <div className="flex items-center gap-2 border-b border-neutral-border px-3">
+              <SearchIcon className="h-4 w-4 shrink-0 text-neutral-text-secondary" />
+              <input
+                ref={inputRef}
+                type="text"
+                role="combobox"
+                aria-expanded="true"
+                aria-controls="cmdk-listbox"
+                aria-activedescendant={activeItem ? `cmdk-opt-${activeItem.id}` : undefined}
+                aria-autocomplete="list"
+                placeholder="Search or jump to…"
+                value={query}
+                onKeyDown={onKeyDown}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setActiveIndex(0);
+                }}
+                className="w-full bg-transparent py-3 text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
+              />
+              <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs text-neutral-text-secondary">
+                Esc
+              </kbd>
+            </div>
 
-        {/* Off-project hint — teaches the current-project capability without nagging.
+            {/* Off-project hint — teaches the current-project capability without nagging.
             Only shown cold (no query) when there is no project in context. */}
-        {!currentProjectId && !query.trim() && (
-          <p className="border-b border-neutral-border px-4 py-1.5 text-xs text-neutral-text-secondary">
-            Open a project to search its tasks and sprint.
-          </p>
-        )}
+            {!currentProjectId && !query.trim() && (
+              <p className="border-b border-neutral-border px-4 py-1.5 text-xs text-neutral-text-secondary">
+                Open a project to search its tasks and sprint.
+              </p>
+            )}
 
-        {/* Debounced result-count announcer (#2203) — persistent polite region. */}
-        <div role="status" aria-live="polite" className="sr-only">
-          {resultsAnnouncement}
-        </div>
+            {/* Debounced result-count announcer (#2203) — persistent polite region. */}
+            <div role="status" aria-live="polite" className="sr-only">
+              {resultsAnnouncement}
+            </div>
 
-        {/* Results */}
-        <div
-          ref={listRef}
-          id="cmdk-listbox"
-          role="listbox"
-          aria-label="Results"
-          className="max-h-[50vh] overflow-y-auto py-1"
-        >
-          <PaletteResultsBody
-            items={items}
-            query={query}
-            activeItem={activeItem}
-            onHover={(item) => setActiveIndex(items.indexOf(item))}
-            truncatedGroups={truncatedGroups}
-            sprintTaskTotal={sprintTaskTotal}
-          />
-        </div>
+            {/* Results */}
+            <div
+              ref={listRef}
+              id="cmdk-listbox"
+              role="listbox"
+              aria-label="Results"
+              className="max-h-[50vh] overflow-y-auto py-1"
+            >
+              <PaletteResultsBody
+                items={items}
+                query={query}
+                activeItem={activeItem}
+                onHover={(item) => setActiveIndex(items.indexOf(item))}
+                truncatedGroups={truncatedGroups}
+                sprintTaskTotal={sprintTaskTotal}
+              />
+            </div>
 
-        {/* Footer hint — the action verb adapts so a task open is announced as
+            {/* Footer hint — the action verb adapts so a task open is announced as
             "open in drawer" (it does not navigate away) before the user commits. */}
-        <div className="flex items-center gap-3 border-t border-neutral-border px-3 py-2 text-xs text-neutral-text-secondary">
-          <span>
-            <kbd className="tppm-mono">↑↓</kbd> navigate
-          </span>
-          <span>
-            <kbd className="tppm-mono">↵</kbd>{' '}
-            {activeItem?.group === 'task' || activeItem?.group === 'sprintTask'
-              ? 'open in drawer'
-              : 'open'}
-          </span>
-          {/* Only advertised while the highlighted row can actually be pinned —
+            <div className="flex items-center gap-3 border-t border-neutral-border px-3 py-2 text-xs text-neutral-text-secondary">
+              <span>
+                <kbd className="tppm-mono">↑↓</kbd> navigate
+              </span>
+              <span>
+                <kbd className="tppm-mono">↵</kbd>{' '}
+                {activeItem?.group === 'task' || activeItem?.group === 'sprintTask'
+                  ? 'open in drawer'
+                  : 'open'}
+              </span>
+              {/* Only advertised while the highlighted row can actually be pinned —
               a hint for a key that does nothing here is worse than no hint. */}
-          {activeItem?.pinTarget && (
-            <span>
-              <kbd className="tppm-mono">{altKeyLabel()}P</kbd>{' '}
-              {activeItem.pinTarget.pinned ? 'unpin' : 'pin'}
-            </span>
-          )}
-          <span className="ml-auto tppm-mono">{modifierKeyLabel()}K</span>
-        </div>
+              {activeItem?.pinTarget && (
+                <span>
+                  <kbd className="tppm-mono">{altKeyLabel()}P</kbd>{' '}
+                  {activeItem.pinTarget.pinned ? 'unpin' : 'pin'}
+                </span>
+              )}
+              <span className="ml-auto tppm-mono">{modifierKeyLabel()}K</span>
+            </div>
+          </>
+        )}
       </div>
     </div>,
     document.body,

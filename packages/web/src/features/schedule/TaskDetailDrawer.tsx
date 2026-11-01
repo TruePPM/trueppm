@@ -28,6 +28,7 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useLastTaskStore } from '@/stores/lastTaskStore';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { canEditTask } from '@/lib/roles';
@@ -278,6 +279,22 @@ export function TaskDetailDrawer({
   // of surfacing affordances that 403 on submit. `role` is null while it loads.
   const { role: userRole } = useCurrentUserRole(projectId);
   const navigate = useNavigate();
+
+  // Remember the opened task for the ⌘K "Log time on <last task>" action (#1211);
+  // `<LastTaskRecorder>` persists it per user.
+  const setLastOpened = useLastTaskStore((s) => s.setOpened);
+  const openedTaskId = task?.id;
+  const openedTaskName = task?.name;
+  const openedTaskRef = task ? (task.qualifiedId ?? (task.wbs || null)) : null;
+  useEffect(() => {
+    if (!openedTaskId || !openedTaskName) return;
+    setLastOpened({
+      taskId: openedTaskId,
+      projectId,
+      name: openedTaskName,
+      ref: openedTaskRef,
+    });
+  }, [setLastOpened, openedTaskId, openedTaskName, openedTaskRef, projectId]);
 
   const [activeTab, setActiveTab] = useState<DrawerSectionTab>('details');
 
