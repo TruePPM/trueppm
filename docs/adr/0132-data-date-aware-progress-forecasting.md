@@ -41,6 +41,12 @@ Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (v
 >   bar where it was dropped. Dropping the floor would turn every such drop into a preview
 >   that snaps back on commit (the #2819 class). Pinned by
 >   `packages/scheduler/tests/test_started_link_anchor.py` (`test_snet_*`, #4527).
+>   The web Gantt draws such a bar from the SNET, not from `scheduled_start`:
+>   `packages/web/src/hooks/useScheduleTasks.ts::deriveBarGeometry` paints from
+>   `max(planned_start, scheduled_start)` (and `cpmEngine.ts` documents the same), so a started
+>   task with a later SNET is drawn from its SNET while the API and the task drawer report
+>   `scheduled_start` on `actual_start`. That is deliberate existing client behavior — the bar
+>   lands where it was dropped — and this note records it rather than changing it.
 
 ## Context
 

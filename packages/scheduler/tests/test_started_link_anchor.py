@@ -661,7 +661,7 @@ def test_snet_at_or_before_data_date_moves_no_started_work() -> None:
 
 
 def test_snet_floors_percent_only_progress_the_same_way() -> None:
-    """Progress with no recorded start takes the same floor (#4527, item 3).
+    """Progress with no recorded start takes the same floor.
 
     Its span start is derived — the full 10 days backed off the forecast finish
     (ADR-0752) — so it moves with the remaining work: Thu 03-12, not 03-02.
