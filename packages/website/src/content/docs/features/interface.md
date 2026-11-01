@@ -339,7 +339,8 @@ Other changes you will notice with the flag on:
 - **A visible route to every project at laptop width.** Between 768px and
   1279px the rail is a 64px icon rail; hovering **Work**, or pressing the right
   arrow key on it, opens a flyout with a search box, your pins, and every
-  program with its projects (clicking **Work** opens the full-page list). Escape closes it and puts you back on Work.
+  program with its projects (clicking **Work** opens the full-page list).
+  Escape closes it and puts you back on Work.
 - **A full-page Work list.** On the expanded rail and in the phone bottom bar,
   **Work** opens `/work`: your pins, a search box, and every program with its
   projects as a keyboard-operable tree. Use the up and down arrows to move,
