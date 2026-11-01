@@ -30,5 +30,5 @@ lto = true
 strip = "debuginfo"
 # Release (and therefore the wasm-pack --release artifact) wraps integer overflow
 # silently by default. A future regression in the validate caps should panic, not
-# wrap in the browser. Cost is negligible next to the calendar walks (#4731).
+# wrap in the browser (#4731).
 overflow-checks = true
