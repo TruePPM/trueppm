@@ -21,8 +21,8 @@ wrong, incomplete, or slower than they should be, see
 [Known Issues](/overview/known-issues/).
 
 :::caution[Read the version status first]
-TruePPM is pre-GA. The current shipped release is the first beta, 0.4 (currently
-`v0.4.0-beta.4`). Anything below marked for 0.5 or later is planned, not built. The
+TruePPM is pre-1.0. The current shipped release is 0.4 (`v0.4.0`, the stable release
+of the 0.4 line). Anything below marked for 0.5 or later is planned, not built. The
 [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway / Planned
 record.
 :::
