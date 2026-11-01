@@ -169,6 +169,12 @@ async function setupRoutes(
         until: '2026-06-01',
         series: [],
         baseline_series: [],
+        // Required on every burn response since ADR-1314 — same oneOf rule.
+        as_of: '2026-06-01T12:00:00Z',
+        definitions: {
+          burn_series: 'Per day, the remaining or completed quantity.',
+          burn_baseline_series: 'Per day, the same quantity as planned by the baseline.',
+        },
       }),
     ),
   );
