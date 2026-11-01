@@ -13669,6 +13669,20 @@
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "awaiting",
+                                "made",
+                                "withdrawn"
+                            ],
+                            "x-trueppm-enum": "open"
+                        },
+                        "description": "Only decisions in this status. `awaiting` sorts soonest-due first (undated last); `made` sorts most recently decided first. Omitted: every status."
                     }
                 ],
                 "tags": [
@@ -65067,7 +65081,8 @@
                     },
                     "short_id": {
                         "type": "string",
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Display form, e.g. T-10 or R-003."
                     },
                     "title": {
                         "type": "string",

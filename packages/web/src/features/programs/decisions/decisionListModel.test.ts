@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   decidedLabel,
+  decisionWriteAccess,
   dueLabel,
   impactProvenance,
   linkLabel,
@@ -89,19 +90,33 @@ describe('linkLabel', () => {
   });
   it('names a readable task or risk', () => {
     expect(
-      linkLabel(
-        decision({ link: { ...link, kind: 'task', short_id: 'ATL-12', title: 'Cutover' } }),
-      ),
-    ).toBe('Task ATL-12 · Cutover');
+      linkLabel(decision({ link: { ...link, kind: 'task', short_id: 'T-12', title: 'Cutover' } })),
+    ).toBe('Task T-12 · Cutover');
     expect(
       linkLabel(
-        decision({ link: { ...link, kind: 'risk', short_id: null, title: 'Vendor slip' } }),
+        decision({ link: { ...link, kind: 'risk', short_id: 'R-003', title: 'Vendor slip' } }),
       ),
-    ).toBe('Risk · Vendor slip');
+    ).toBe('Risk R-003 · Vendor slip');
   });
   it('discloses an unreadable link by kind only', () => {
     expect(
       linkLabel(decision({ link: { ...link, kind: 'task', short_id: null, title: null } })),
     ).toBe("Task in a project you're not a member of");
+  });
+});
+
+describe('decisionWriteAccess', () => {
+  it('lets Team Member and up write on an open program', () => {
+    expect(decisionWriteAccess({ my_role: 100, is_closed: false })).toBe('write');
+    expect(decisionWriteAccess({ my_role: 400, is_closed: false })).toBe('write');
+  });
+  it('is closed for a writer on a closed program, not write', () => {
+    expect(decisionWriteAccess({ my_role: 400, is_closed: true })).toBe('closed');
+  });
+  it('gives a Viewer, a non-member or an unloaded program no rights', () => {
+    expect(decisionWriteAccess({ my_role: 1, is_closed: false })).toBe('none');
+    expect(decisionWriteAccess({ my_role: 1, is_closed: true })).toBe('none');
+    expect(decisionWriteAccess({ my_role: null, is_closed: false })).toBe('none');
+    expect(decisionWriteAccess(undefined)).toBe('none');
   });
 });

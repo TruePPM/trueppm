@@ -16,10 +16,11 @@ import { useProgram } from '@/hooks/useProgram';
 import { useProgramId } from '@/hooks/useProgramId';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { localTodayIso } from '@/lib/localDate';
-import { ROLE_MEMBER } from '@/lib/roles';
+import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
 import { useProgramMembers } from '../hooks/useProgramMembers';
 import {
   decidedLabel,
+  decisionWriteAccess,
   dueLabel,
   impactProvenance,
   linkLabel,
@@ -42,6 +43,8 @@ function NewDecisionForm({ programId, onDone }: { programId: string; onDone: () 
   const [owner, setOwner] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [impactNote, setImpactNote] = useState('');
+
+  const refusal = describeWriteRefusal(save.error, "Couldn't save the decision.");
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -140,20 +143,33 @@ function NewDecisionForm({ programId, onDone }: { programId: string; onDone: () 
           Shown as the owner&apos;s estimate, dated — TruePPM does not compute it.
         </p>
       </div>
-      {save.isError && (
-        <p role="alert" className="text-sm text-semantic-critical">
-          Couldn&apos;t save the decision. Check the fields and try again.
-        </p>
-      )}
+      <RefusalLine refusal={refusal} testId="decision-form-error" />
       <div className="flex gap-2">
         <button type="submit" disabled={save.isPending || !title.trim()} className={PRIMARY_BUTTON}>
-          {save.isPending ? 'Saving…' : 'Save decision'}
+          {/* Rule 372(a): the verb stays on a 4xx (the same bytes are refused the
+              same way); only a failure a replay could fix becomes "Retry". */}
+          {save.isPending ? 'Saving…' : refusal?.retryable ? 'Retry' : 'Save decision'}
         </button>
         <button type="button" onClick={onDone} className={SECONDARY_BUTTON}>
           Cancel
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * A refused write, as the server explained it (rule 372): a closed program's 403,
+ * an illegal status move's 400 and a dropped connection each read as themselves,
+ * not as one hardcoded sentence. A sibling `role="alert"`, never inside a status.
+ */
+function RefusalLine({ refusal, testId }: { refusal: WriteRefusal | null; testId: string }) {
+  if (!refusal) return null;
+  return (
+    <div role="alert" data-testid={testId} className="mt-1 text-sm text-semantic-critical">
+      <p>{refusal.message}</p>
+      {refusal.detail && <p>{refusal.detail}</p>}
+    </div>
   );
 }
 
@@ -201,11 +217,10 @@ function DecisionRow({
             <p className="text-xs text-neutral-text-secondary">{provenance}</p>
           </div>
         )}
-        {save.isError && (
-          <p role="alert" className="mt-1 text-xs text-semantic-critical">
-            Couldn&apos;t update this decision.
-          </p>
-        )}
+        <RefusalLine
+          refusal={describeWriteRefusal(save.error, "Couldn't update this decision.")}
+          testId="decision-row-error"
+        />
       </div>
       {canWrite && (
         <div className="flex shrink-0 gap-2">
@@ -294,9 +309,9 @@ export function ProgramDecisionsPage() {
   const awaiting = useProgramDecisions(programId, 'awaiting');
   const made = useProgramDecisions(programId, 'made');
   const [creating, setCreating] = useState(false);
-  // Team Member+ writes (the server enforces it; this only decides what to offer).
-  // A Viewer has no rights here, so the controls are absent rather than disabled.
-  const canWrite = (program?.my_role ?? 0) >= ROLE_MEMBER;
+  // What to offer; the server enforces both halves. See `decisionWriteAccess`.
+  const access = decisionWriteAccess(program);
+  const canWrite = access === 'write';
 
   const isLoading = awaiting.isLoading || made.isLoading;
   const error = awaiting.error ?? made.error;
@@ -370,7 +385,16 @@ export function ProgramDecisionsPage() {
           </button>
         )}
       </header>
-      {creating && programId && (
+      {access === 'closed' && (
+        <p
+          className="mb-4 rounded-card border border-neutral-border bg-neutral-surface p-3 text-sm text-neutral-text-secondary"
+          data-testid="decisions-closed-note"
+        >
+          This program is closed, so its decision log is read-only. Reopen the program to log or
+          update decisions.
+        </p>
+      )}
+      {creating && canWrite && programId && (
         <NewDecisionForm programId={programId} onDone={() => setCreating(false)} />
       )}
       {body}

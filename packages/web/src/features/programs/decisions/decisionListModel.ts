@@ -8,12 +8,17 @@
  * asserting the engine said so. A computed impact is a separate, future fact.
  */
 
+import { ROLE_MEMBER } from '@/lib/roles';
+
 export type ProgramDecisionStatus = 'awaiting' | 'made' | 'withdrawn';
 
 interface ProgramDecisionLink {
   id: string;
   kind: 'task' | 'risk';
-  /** `null` when the reader is not a member of the linked item's project. */
+  /**
+   * The server's display reference (`T-10`, `R-003`), never the stored hex or
+   * decimal; `null` when the reader is not a member of the linked item's project.
+   */
   short_id: string | null;
   /** `null` when the reader is not a member of the linked item's project. */
   title: string | null;
@@ -43,6 +48,22 @@ export interface ProgramDecision {
 }
 
 type FormatDate = (iso: string) => string;
+
+/**
+ * Whether the viewer may write to this program's log, and if not, why.
+ *
+ * Two different "no"s (web rule 302): a Viewer has no rights here (`none`, the
+ * controls are simply absent), while a closed program is read-only for everyone
+ * until it is reopened (`closed`, which the page says out loud). Checking the
+ * role alone offered Log / Mark made on a closed program, and every click came
+ * back as a 403.
+ */
+export function decisionWriteAccess(
+  program: { my_role: number | null; is_closed: boolean } | undefined,
+): 'write' | 'closed' | 'none' {
+  if (!program || (program.my_role ?? 0) < ROLE_MEMBER) return 'none';
+  return program.is_closed ? 'closed' : 'write';
+}
 
 /** The owner's name, or an explicit "No owner" — never a blank slot. */
 export function ownerName(decision: ProgramDecision): string {

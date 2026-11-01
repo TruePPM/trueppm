@@ -520,6 +520,22 @@ def format_short_id_display(raw: str, prefix: str) -> str:
         return f"{prefix}-{raw}"
 
 
+def format_risk_short_id_display(raw: str) -> str:
+    """Render a risk's decimal ``short_id`` as ``R-007`` (#929).
+
+    Risks do not share the hex task/sprint counter: their raw ``short_id`` is a
+    decimal sequence, padded to three digits and overflowing naturally past 999
+    (``R-1000``). The single routine for every surface that names a risk, the
+    risk counterpart of :func:`format_short_id_display`. Falls back to the raw
+    value for a non-numeric id rather than blanking the reference.
+    """
+    if not raw:
+        return ""
+    if raw.isdigit():
+        return f"R-{int(raw):03d}"
+    return f"R-{raw}"
+
+
 # ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------

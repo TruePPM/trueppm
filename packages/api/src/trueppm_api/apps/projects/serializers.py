@@ -109,6 +109,7 @@ from trueppm_api.apps.projects.models import (
     TaskRelation,
     TaskSource,
     TaskStatus,
+    format_risk_short_id_display,
     format_short_id_display,
     three_point_estimates_ordered,
     validate_project_span,
@@ -8830,12 +8831,7 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
         naturally past 999 (``R-1000``). Defensive fallbacks cover the empty and
         (post-migration impossible) non-numeric cases.
         """
-        raw = obj.short_id
-        if not raw:
-            return ""
-        if raw.isdigit():
-            return f"R-{int(raw):03d}"
-        return f"R-{raw}"
+        return format_risk_short_id_display(obj.short_id)
 
     def get_qualified_id(self, obj: Risk) -> str:
         """Fully-qualified risk identifier for exports / cross-project surfaces.

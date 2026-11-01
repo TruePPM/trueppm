@@ -228,7 +228,9 @@ is refused with `400`. `decided_at` is read-only, stamped when `status` becomes 
 returns `400` "does not exist"), at most one of `linked_task` / `linked_risk` may be
 set, and the writer must be a member of the linked item's project. The read-only
 `link` object carries `title` and `short_id` only when the reader is a member of
-that project; otherwise both are `null`.
+that project; otherwise both are `null`. `short_id` is the display reference
+(`T-10` for a task, `R-003` for a risk), the same string the item's own endpoint
+returns as `short_id_display`.
 
 ## Program backlog
 

@@ -31,7 +31,12 @@ from django.contrib.auth import get_user_model
 from django.db.models import F, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.serializers import BaseSerializer
@@ -51,9 +56,26 @@ from trueppm_api.apps.projects.models import (
     ProgramDecisionStatus,
     Risk,
     Task,
+    format_risk_short_id_display,
+    format_short_id_display,
 )
 
 User = get_user_model()
+
+
+def _display_short_id(target: Task | Risk) -> str | None:
+    """The reference a person reads (``T-10``, ``R-003``), never the stored value.
+
+    Tasks store an 8-character hex sequence and risks a bare decimal, so the raw
+    ``short_id`` reads as ``0000000A`` / ``3``. Both go through the one formatter
+    their own serializers use, so a link names the item exactly as its page does.
+    """
+    raw = target.short_id
+    if not raw:
+        return None
+    if isinstance(target, Task):
+        return format_short_id_display(raw, "T")
+    return format_risk_short_id_display(raw)
 
 
 class ProgramDecisionOwnerSerializer(serializers.Serializer[Any]):
@@ -78,7 +100,7 @@ class ProgramDecisionLinkSerializer(serializers.Serializer[Any]):
 
     id = serializers.UUIDField()
     kind = serializers.ChoiceField(choices=["task", "risk"])
-    short_id = serializers.CharField(allow_null=True)
+    short_id = serializers.CharField(allow_null=True, help_text="Display form, e.g. T-10 or R-003.")
     title = serializers.CharField(allow_null=True)
     project_id = serializers.UUIDField()
 
@@ -180,7 +202,7 @@ class ProgramDecisionSerializer(serializers.ModelSerializer[ProgramDecision]):
         return {
             "id": target.pk,
             "kind": kind,
-            "short_id": (target.short_id or None) if readable else None,
+            "short_id": _display_short_id(target) if readable else None,
             "title": title,
             "project_id": target.project_id,
         }
@@ -257,6 +279,23 @@ class ProgramDecisionSerializer(serializers.ModelSerializer[ProgramDecision]):
         return super().update(instance, validated_data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "status",
+                str,
+                enum=list(ProgramDecisionStatus.values),
+                required=False,
+                description=(
+                    "Only decisions in this status. `awaiting` sorts soonest-due first "
+                    "(undated last); `made` sorts most recently decided first. "
+                    "Omitted: every status."
+                ),
+            )
+        ]
+    )
+)
 class ProgramDecisionViewSet(
     IdempotencyMixin,
     mixins.ListModelMixin,

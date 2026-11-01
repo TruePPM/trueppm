@@ -244,18 +244,32 @@ def test_unknown_status_filter_is_refused(program: Program, users: dict[str, Any
 def test_list_query_count_is_flat(
     program: Program, users: dict[str, Any], project: Project
 ) -> None:
-    """Owner, link and the link-disclosure set must not cost a query per row."""
-    for i in range(6):
+    """Owner, link and the link-disclosure set must not cost a query per row.
+
+    The rows added between the two reads are LINKED (one task, one risk), each with a
+    distinct owner: an unlinked extra row could not reveal a per-link lookup.
+    """
+    for i in range(3):
         task = Task.objects.create(project=project, name=f"t{i}", wbs_path=f"1.{i + 1}")
         ProgramDecision.objects.create(
             program=program, title=f"d{i}", owner=users["member"], linked_task=task
         )
+    risk = Risk.objects.create(project=project, title="r0", probability=3, impact=3)
+    ProgramDecision.objects.create(program=program, title="r", linked_risk=risk)
     client = _client(users["member"])
     with CaptureQueriesContext(connection) as few:
         client.get(_url(program))
-    ProgramDecision.objects.create(program=program, title="extra", owner=users["admin"])
+    extra_task = Task.objects.create(project=project, name="extra", wbs_path="2.1")
+    extra_risk = Risk.objects.create(project=project, title="r1", probability=3, impact=3)
+    ProgramDecision.objects.create(
+        program=program, title="extra-t", owner=users["admin"], linked_task=extra_task
+    )
+    ProgramDecision.objects.create(
+        program=program, title="extra-r", owner=users["owner"], linked_risk=extra_risk
+    )
     with CaptureQueriesContext(connection) as more:
-        client.get(_url(program))
+        response = client.get(_url(program))
+    assert response.json()["count"] == 6
     assert len(more.captured_queries) == len(few.captured_queries)
 
 
@@ -403,6 +417,25 @@ def test_link_in_own_program_is_accepted_and_titled(
     assert link["kind"] == "risk"
     assert link["title"] == "Vendor slip"
     assert link["project_id"] == str(project.id)
+    # The display reference the risk's own page shows, not the stored decimal.
+    assert risk.short_id.isdigit()
+    assert link["short_id"] == f"R-{int(risk.short_id):03d}"
+
+
+@pytest.mark.django_db
+def test_task_link_short_id_is_the_display_form(
+    program: Program, users: dict[str, Any], project: Project
+) -> None:
+    """A task's stored short_id is 8-char hex; the link must read ``T-<n>``."""
+    tasks = [
+        Task.objects.create(project=project, name=f"t{i}", wbs_path=f"1.{i + 1}") for i in range(10)
+    ]
+    tenth = tasks[-1]
+    assert len(tenth.short_id) == 8  # e.g. 0000000A: the raw form must never surface
+    decision = ProgramDecision.objects.create(program=program, title="x", linked_task=tenth)
+    link = _client(users["member"]).get(_url(program, decision.id)).json()["link"]
+    assert link["short_id"] == f"T-{int(tenth.short_id, 16)}"
+    assert link["short_id"] != tenth.short_id
 
 
 @pytest.mark.django_db
@@ -445,6 +478,64 @@ def test_editing_title_does_not_recheck_an_existing_link(
         _url(program, decision.id), {"title": "renamed"}, format="json"
     )
     assert response.status_code == 200, response.json()
+
+
+@pytest.mark.django_db
+def test_soft_deleted_task_cannot_be_linked(
+    program: Program, users: dict[str, Any], project: Project
+) -> None:
+    task = Task.objects.create(project=project, name="Gone", wbs_path="1.1")
+    task.soft_delete()
+    response = _client(users["member"]).post(
+        _url(program), {"title": "x", "linked_task": str(task.id)}, format="json"
+    )
+    assert response.status_code == 400
+    assert "linked_task" in response.json()
+
+
+@pytest.mark.django_db
+def test_task_in_a_soft_deleted_project_cannot_be_linked(
+    program: Program, users: dict[str, Any], project: Project
+) -> None:
+    task = Task.objects.create(project=project, name="T", wbs_path="1.1")
+    risk = Risk.objects.create(project=project, title="R", probability=3, impact=3)
+    Project.objects.filter(pk=project.pk).update(is_deleted=True)
+    client = _client(users["member"])
+    by_task = client.post(_url(program), {"title": "x", "linked_task": str(task.id)}, format="json")
+    assert by_task.status_code == 400
+    assert "linked_task" in by_task.json()
+    by_risk = client.post(_url(program), {"title": "x", "linked_risk": str(risk.id)}, format="json")
+    assert by_risk.status_code == 400
+    assert "linked_risk" in by_risk.json()
+
+
+@pytest.mark.django_db
+def test_workspace_archive_includes_the_decision_log(
+    program: Program, users: dict[str, Any], decision: ProgramDecision
+) -> None:
+    """The admin backup must not silently drop the program decision log."""
+    import io
+    import json
+    import tarfile
+
+    from django.core.files.storage import default_storage
+
+    from trueppm_api.apps.workspace.export import build_and_store_archive
+
+    path, _size = build_and_store_archive("program-decisions-test")
+    try:
+        with default_storage.open(path, "rb") as fh:
+            raw = fh.read()
+    finally:
+        default_storage.delete(path)
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
+        member = tar.extractfile("programs/decisions.json")
+        assert member is not None
+        rows = json.loads(member.read())
+    (row,) = [r for r in rows if r["id"] == str(decision.id)]
+    assert row["title"] == "Pick a vendor"
+    assert row["program_id"] == str(program.id)
+    assert row["status"] == "awaiting"
 
 
 @pytest.mark.django_db

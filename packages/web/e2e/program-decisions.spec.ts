@@ -59,8 +59,18 @@ const MEMBERS = [
 type Decision = Record<string, unknown> & { id: string; status: string };
 type Page = import('@playwright/test').Page;
 
-async function setup(page: Page, opts: { failList?: boolean } = {}) {
-  const decisions: Decision[] = [];
+interface SetupOpts {
+  failList?: boolean;
+  closed?: boolean;
+  /** Abort every POST, as a dropped connection would. */
+  dropCreate?: boolean;
+  /** Answer every PATCH with this refusal instead of applying it. */
+  refusePatch?: { status: number; body: unknown };
+  seed?: Decision[];
+}
+
+async function setup(page: Page, opts: SetupOpts = {}) {
+  const decisions: Decision[] = [...(opts.seed ?? [])];
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -82,7 +92,11 @@ async function setup(page: Page, opts: { failList?: boolean } = {}) {
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
   );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ ...FIXTURE_PROGRAM, is_closed: opts.closed ?? false }),
+    }),
   );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(MEMBERS) }),
@@ -106,6 +120,10 @@ async function setup(page: Page, opts: { failList?: boolean } = {}) {
       return;
     }
     if (req.method() === 'POST') {
+      if (opts.dropCreate) {
+        await route.abort('connectionreset');
+        return;
+      }
       const body = req.postDataJSON() as Record<string, unknown>;
       const now = '2026-10-31T12:00:00Z';
       const row: Decision = {
@@ -131,6 +149,14 @@ async function setup(page: Page, opts: { failList?: boolean } = {}) {
       return;
     }
     if (req.method() === 'PATCH' && detail) {
+      if (opts.refusePatch) {
+        await route.fulfill({
+          status: opts.refusePatch.status,
+          contentType: 'application/json',
+          body: pj(opts.refusePatch.body),
+        });
+        return;
+      }
       const row = decisions.find((d) => d.id === detail[1]);
       if (!row) {
         await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
@@ -199,4 +225,71 @@ test.describe('program decision log', () => {
     await expect(page.getByText("Couldn't load decisions.")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('No decisions logged')).toHaveCount(0);
   });
+
+  test('a closed program shows its log read-only, with no write controls', async ({ page }) => {
+    await setup(page, { closed: true, seed: [awaitingRow()] });
+    await page.goto(`/programs/${PROGRAM_ID}/decisions`);
+    await expect(page.getByText('Choose a supplier')).toBeVisible();
+    await expect(page.getByTestId('decisions-closed-note')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Log a decision' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Mark made' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Withdraw' })).toHaveCount(0);
+  });
+
+  test("a refused status change shows the server's reason and keeps the verb", async ({ page }) => {
+    const reason = 'This program is closed and cannot be modified. Reopen it first.';
+    await setup(page, {
+      seed: [awaitingRow()],
+      refusePatch: { status: 403, body: { detail: reason } },
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/decisions`);
+    await page.getByRole('button', { name: 'Mark made' }).click();
+    await expect(page.getByTestId('decision-row-error')).toHaveText(reason);
+    await expect(page.getByRole('button', { name: 'Mark made' })).toBeVisible();
+  });
+
+  test('an illegal transition reads as itself, not as a generic failure', async ({ page }) => {
+    const reason = 'A made decision cannot move to withdrawn. Reopen it to awaiting first.';
+    await setup(page, {
+      seed: [awaitingRow()],
+      refusePatch: { status: 400, body: { status: [reason] } },
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/decisions`);
+    await page.getByRole('button', { name: 'Withdraw' }).click();
+    await expect(page.getByTestId('decision-row-error')).toContainText(
+      'Reopen it to awaiting first.',
+    );
+  });
+
+  test('a dropped connection on save offers Retry', async ({ page }) => {
+    await setup(page, { dropCreate: true });
+    await page.goto(`/programs/${PROGRAM_ID}/decisions`);
+    await page.getByRole('button', { name: 'Log a decision' }).click();
+    const form = page.getByRole('form', { name: 'Log a decision' });
+    await form.getByLabel('Decision').fill('Pick a region');
+    await form.getByRole('button', { name: 'Save decision' }).click();
+    await expect(form.getByTestId('decision-form-error')).toHaveText("Couldn't save the decision.");
+    await expect(form.getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
 });
+
+function awaitingRow(): Decision {
+  return {
+    id: 'dec-seed',
+    server_version: 1,
+    program: PROGRAM_ID,
+    title: 'Choose a supplier',
+    owner: null,
+    owner_detail: null,
+    due_date: null,
+    status: 'awaiting',
+    decided_at: null,
+    linked_task: null,
+    linked_risk: null,
+    link: null,
+    impact_note: '',
+    created_by: ME_ID,
+    created_at: '2026-10-30T12:00:00Z',
+    updated_at: '2026-10-30T12:00:00Z',
+  };
+}
