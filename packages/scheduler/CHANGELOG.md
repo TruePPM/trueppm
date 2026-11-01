@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While the package is in the `0.x` series (`Development Status :: 4 - Beta` from
 0.4.0b1), the public API — the `__all__` surface of `trueppm_scheduler` — may
 change between releases. Pin an exact version (e.g.
-`trueppm-scheduler==0.4.0b1`).
+`trueppm-scheduler==0.4.0`).
 
 ## [Unreleased]
 

@@ -16,9 +16,9 @@ covers capabilities that were never built. The split is worth keeping straight:
 Every entry names the issue tracking it and the release it is fixed in. When an
 issue closes, its entry comes off this page.
 
-:::caution[0.4 is a beta]
-0.4 is the first release we ask anyone to run a real project on. It is a beta, not a
-GA. The [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway /
+:::caution[0.4 is pre-1.0]
+0.4 is the first release we ask anyone to run a real project on. It is a stable 0.x
+release, not a 1.0 GA, so the public API may still change. The [roadmap](/overview/roadmap/) is the authoritative Shipped / Underway /
 Planned record; where this page and the roadmap disagree, the roadmap wins.
 :::
 

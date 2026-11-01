@@ -554,6 +554,26 @@ class TestReleaseMetadataConsistency:
                 f"classifier says '{stage}'."
             )
 
+    def test_the_readme_does_not_claim_pypi_holds_only_pre_releases_once_final(self) -> None:
+        """A final ``version`` makes "PyPI holds only pre-releases" a false claim (#4721).
+
+        The README is the PyPI long description, and its pip-resolution paragraph
+        described the pre-release-only state long after 0.4.0 final shipped, so it
+        explained the opposite of what pip does. The wording must not depend on the
+        release state; this fails if the state-dependent phrasing returns while the
+        declared version has no pre-release segment.
+        """
+        version = self._pyproject()["project"]["version"]
+        if re.search(r"(a|b|rc|\.dev|\.post)\d*", version):
+            pytest.skip(f"{version} is itself a pre-release; the claim may be true.")
+        readme = " ".join((self._pkg_root() / "README.md").read_text().split())
+        for phrase in ("only pre-releases", "no version has reached final"):
+            assert phrase not in readme, (
+                f"README.md says '{phrase}' but pyproject declares final version "
+                f"{version}. Describe pip's rule (--pre, or no final satisfies the "
+                f"requirement) without tying it to the current release state."
+            )
+
     def test_the_readmes_pinned_version_example_is_the_declared_version(self) -> None:
         """``trueppm-scheduler==X`` in the README must be installable and current."""
         version = self._pyproject()["project"]["version"]
