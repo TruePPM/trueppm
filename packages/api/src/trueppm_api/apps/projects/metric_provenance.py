@@ -28,8 +28,9 @@ from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
 
 # One sentence per metric. The key is the payload field the sentence defines. Edit a
-# sentence here and in docs/features/metric-vocabulary.md together — the sync test
-# fails until both say the same thing.
+# sentence here and in
+# packages/website/src/content/docs/features/metric-vocabulary.md together — the sync
+# test fails until both say the same thing.
 METRIC_DEFINITIONS: dict[str, str] = {
     # ── status-summary ────────────────────────────────────────────────────
     "health_band": (
