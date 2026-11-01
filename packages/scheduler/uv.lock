@@ -1059,7 +1059,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
     { name = "networkx", specifier = ">=3.0,<4" },
     { name = "numpy", specifier = ">=1.26,<3" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0,<10.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0,<9.2" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0,<8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1.0" },
     { name = "types-networkx", marker = "extra == 'dev'", specifier = ">=3.0,<4" },
