@@ -1266,6 +1266,28 @@ class TestCrossProjectDependency:
         assert r.status_code == 400, r.data
         assert r.data["code"] == "cyclic_dependency"
         self._assert_only_endpoints_labeled(r, a1, b1, [b2, b3])
+        # #4788: the closed path starts and ends at the proposed edge's predecessor,
+        # whatever order the DB returned the edges in (it used to start at an
+        # arbitrary node, so a hidden interior node could be blanked twice).
+        assert r.data["cycle"][0]["id"] == r.data["cycle"][-1]["id"] == str(a1.pk)
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_cycle_path_is_anchored_at_proposed_edge_regardless_of_edge_order(
+        self, client: APIClient, user: object, calendar: Calendar, reverse: bool
+    ) -> None:
+        """#4788: same-project ring A1 → A2 → A3, proposing A3 → A1 reports
+        [A3, A1, A2, A3] however the existing edges were created."""
+        project = Project.objects.create(
+            name="Ring", start_date=date(2026, 3, 2), calendar=calendar
+        )
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        t = [Task.objects.create(project=project, name=f"R{i}", duration=1) for i in (1, 2, 3)]
+        pairs = list(itertools.pairwise(t))
+        for pred, succ in reversed(pairs) if reverse else pairs:
+            assert self._post_edge(client, pred, succ).status_code == 201
+        r = self._post_edge(client, t[2], t[0])
+        assert r.status_code == 400, r.data
+        assert [n["id"] for n in r.data["cycle"]] == [str(x.pk) for x in (t[2], t[0], t[1], t[2])]
 
     # -- D5: minimal visibility card ----------------------------------------
 

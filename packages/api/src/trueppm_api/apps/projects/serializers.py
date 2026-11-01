@@ -8152,7 +8152,10 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         if self.instance is not None:
             existing_qs = existing_qs.exclude(pk=self.instance.pk)
 
-        edges: list[tuple[str, str]] = [(str(p), str(s)) for p, s in existing_qs]
+        # Sorted so the graph's node insertion order — which decides where
+        # networkx starts its search, and therefore which cycle is reported and
+        # where the path begins — does not depend on the unordered DB row order.
+        edges: list[tuple[str, str]] = sorted((str(p), str(s)) for p, s in existing_qs)
         edges.append((str(predecessor.id), str(successor.id)))
 
         try:
@@ -8169,6 +8172,17 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             raise serializers.ValidationError(str(exc)) from exc
         if cycle_ids is None:
             return
+
+        # The engine returns a closed path ``[n0, ..., nk, n0]`` that may start at
+        # any node on the cycle. Rotate it to begin (and end) at the proposed
+        # edge's predecessor so the path is stable across requests — and so the
+        # repeated closing node is always a task the caller just named, never an
+        # interior node that redaction would blank twice.
+        if len(cycle_ids) > 2 and str(predecessor.id) in cycle_ids[:-1]:
+            ring = cycle_ids[:-1]
+            start = ring.index(str(predecessor.id))
+            ring = ring[start:] + ring[:start]
+            cycle_ids = [*ring, ring[0]]
 
         # Resolve to rich objects so the toast can render task names without
         # racing the frontend's task cache (a freshly created task may not be
