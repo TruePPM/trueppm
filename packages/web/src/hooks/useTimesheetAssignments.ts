@@ -13,11 +13,20 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toApiRelativePath } from '@/api/pagination';
 import type { MyWorkPage, MyWorkTask } from '@/hooks/useMyWork';
+import { TIMESHEET_ASSIGNMENTS_KEY } from '@/hooks/myWorkQueryKeys';
 
 /** Rows per page — the server's `MeWorkPagination.max_limit`. */
 export const PAGE_LIMIT = 200;
-/** Page cap: 1,000 assignments, far above a contributor's working set. */
-export const MAX_PAGES = 5;
+/**
+ * Page cap: 2,000 rows. Not a comfortable margin — `/me/work/` returns COMPLETE tasks from
+ * all time and sorts by `_sort_date` ascending, so a long-tenured contributor's finished
+ * history fills the early pages before their upcoming open work. Hitting the cap therefore
+ * drops the rows that matter most, which is why it flags the read `partial` (the page
+ * shows a notice) rather than truncating silently.
+ * TODO(#4783): once the server offers an open-only filter and a schedule span, request
+ * open work only and lower this cap.
+ */
+export const MAX_PAGES = 10;
 
 export interface TimesheetAssignments {
   tasks: MyWorkTask[];
@@ -59,7 +68,7 @@ export async function fetchTimesheetAssignments(): Promise<TimesheetAssignments>
 /** The caller's assigned tasks for the timesheet (bounded, no window-focus refetch). */
 export function useTimesheetAssignments() {
   return useQuery({
-    queryKey: ['timesheet', 'assignments'],
+    queryKey: TIMESHEET_ASSIGNMENTS_KEY,
     queryFn: fetchTimesheetAssignments,
     refetchOnWindowFocus: false,
     staleTime: 30_000,

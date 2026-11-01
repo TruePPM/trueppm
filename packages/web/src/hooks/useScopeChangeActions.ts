@@ -28,6 +28,7 @@ import { toast } from '@/components/Toast/toast';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import type { ScopeChangeStatus } from '@/types';
+import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
 
 /** One scope-change row as returned by the single accept/reject action. */
 export interface ScopeChangeRow {
@@ -72,7 +73,7 @@ export function useScopeChangeActions(
     void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
     void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'burndown'] });
     void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
+    invalidateMyWork(queryClient);
   }
 
   const acceptOne = useMutation({

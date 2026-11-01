@@ -95,6 +95,7 @@ import { SeqGate } from '@/hooks/wsSeqGate';
 import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
 import type { CpmError } from '@/stores/schedulerStore';
+import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
 
 interface WsEnvelope {
   event_type: string;
@@ -734,7 +735,7 @@ function registerCollaborationHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // psych-safety contract: this is a silent state reconciliation, not a callout.
   on(['suggestion_created', 'suggestion_declined', 'suggestion_revoked'], () => {
     scheduleInvalidate('tasks');
-    void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
+    invalidateMyWork(queryClient);
   });
 }
 

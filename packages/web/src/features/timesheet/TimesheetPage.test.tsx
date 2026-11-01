@@ -292,6 +292,22 @@ describe('TimesheetPage', () => {
     expect(screen.getByRole('grid', { name: 'Weekly timesheet' })).toBeInTheDocument();
   });
 
+  it('never shows "nothing assigned" when no rows came back from a partial list (#4766)', () => {
+    const refetchAssignments = vi.fn();
+    mockUseAssignments.mockReturnValue({
+      data: { tasks: [], partial: true },
+      isLoading: false,
+      isError: false,
+      refetch: refetchAssignments,
+    });
+    setWeek({ data: weekData(false, []) });
+    render(<TimesheetPage />);
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+    expect(screen.getByText(/couldn.t load your timesheet/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(refetchAssignments).toHaveBeenCalled();
+  });
+
   it('shows no partial notice when the assignment list is complete', () => {
     render(<TimesheetPage />);
     expect(screen.queryByTestId('timesheet-partial-assignments')).not.toBeInTheDocument();

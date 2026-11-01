@@ -225,7 +225,10 @@ export function TimesheetPage() {
           className="h-64 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
           aria-label="Loading timesheet"
         />
-      ) : isError || (rows.length === 0 && assignments.isError) ? (
+      ) : isError ||
+        // No rows + an incomplete assignment list is NOT "nothing assigned": the tasks may
+        // be in the part that failed to load, so show the error, never the empty state.
+        (rows.length === 0 && (assignments.isError || assignments.data?.partial === true)) ? (
         <div className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg p-4 text-sm">
           <p className="mb-2 text-neutral-text-primary">Couldn&rsquo;t load your timesheet.</p>
           <Button
@@ -233,7 +236,7 @@ export function TimesheetPage() {
             size="sm"
             onClick={() => {
               void refetch();
-              if (assignments.isError) void assignments.refetch();
+              if (assignments.isError || assignments.data?.partial) void assignments.refetch();
             }}
           >
             Retry

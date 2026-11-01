@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { ApiSprint, SprintState } from '@/types';
+import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
 
 interface PaginatedSprintResponse {
   count: number;
@@ -1681,7 +1682,7 @@ function useSuggestionAction(action: 'accept' | 'decline' | 'revoke') {
       return res.data;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
+      invalidateMyWork(queryClient);
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });

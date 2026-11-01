@@ -150,6 +150,17 @@ describe('useMyWorkStatusUpdate', () => {
     );
   });
 
+  it('refreshes the timesheet assignment cache when a status settles (#4766)', async () => {
+    patchMock.mockResolvedValueOnce({ data: { id: 'task-1', status: 'COMPLETE' } });
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useMyWorkStatusUpdate(), { wrapper: makeWrapper(qc) });
+    await act(async () => {
+      await result.current.mutateAsync({ taskId: 'task-1', next: 'COMPLETE', previous: 'IN_PROGRESS' });
+    });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['timesheet', 'assignments'] });
+  });
+
   it('optimistically updates the cached My Work pages', async () => {
     // Seed cache with a known page.
     const seeded = { pages: [firstPage], pageParams: [null] };
