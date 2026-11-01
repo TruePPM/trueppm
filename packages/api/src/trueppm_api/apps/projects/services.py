@@ -6172,6 +6172,8 @@ def _sample_throughput_counts(
     max_weeks = min(int(np.ceil(remaining_count / mean)) * 4 + 10, 2000)
     draws = rng.choice(positive, size=(n, max_weeks), replace=True)
     cumulative = np.cumsum(draws, axis=1)
+    # No float tolerance here (cf. _sample_backlog_sprint_counts, #4699): weekly throughput is
+    # integer completion counts, so the cumsum is exact.
     reached = cumulative >= remaining_count
     counts = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1, max_weeks)
     return counts.astype(np.float64)
