@@ -106,23 +106,19 @@ test-web: ## Run packages/web tests (vitest)
 # These targets mirror the CI jobs that gate every MR. Run `make pre-push`
 # before `git push` to catch failures locally instead of in CI.
 
-migrations-check: ## Verify no missing Django migrations (uses the api container if up, else a local venv fallback)
-	@# Prefer the running api container. In a per-issue worktree the shared stack
-	@# often has db/celery up but NOT api (scripts/wt), so the container exec aborts
-	@# with "service api is not running" and the push gets bypassed with --no-verify
-	@# (#703). Fall back to the symlinked venv, forcing PYTHONPATH=src so the *worktree*
-	@# source is checked — not main's editable install. makemigrations --check is a
-	@# model-vs-files diff and makes no DB connection; DATABASE_URL only has to parse.
-	@if [ -n "$$(docker compose ps -q api 2>/dev/null)" ]; then \
-	  docker compose exec -T api python manage.py makemigrations --check --dry-run; \
-	else \
-	  echo "→ migrations-check: api container not running — using local venv (PYTHONPATH=src)"; \
-	  cd packages/api && \
-	    PYTHONPATH=src \
-	    TRUEPPM_ALLOW_DEV_SETTINGS=1 \
-	    DATABASE_URL="$${DATABASE_URL:-postgres://trueppm:trueppm@localhost:5432/trueppm}" \
-	    .venv/bin/python manage.py makemigrations --check --dry-run; \
-	fi
+migrations-check: ## Verify no missing Django migrations (local venv, PYTHONPATH=src; never the api container)
+	@# Always the symlinked venv, never `docker compose exec api`: (1) an exec'd process
+	@# does not inherit the JWT_SIGNING_KEY the dev api generates in its start command,
+	@# so settings raise ImproperlyConfigured whenever the stack is up (#4754, #4648);
+	@# (2) the container bind-mounts the MAIN checkout, so from a worktree it would check
+	@# main's models, not the branch's. PYTHONPATH=src forces the *worktree* source
+	@# rather than main's editable install. makemigrations --check is a model-vs-files
+	@# diff and makes no DB connection; DATABASE_URL only has to parse.
+	@cd packages/api && \
+	  PYTHONPATH=src \
+	  TRUEPPM_ALLOW_DEV_SETTINGS=1 \
+	  DATABASE_URL="$${DATABASE_URL:-postgres://trueppm:trueppm@localhost:5432/trueppm}" \
+	  .venv/bin/python manage.py makemigrations --check --dry-run
 
 migrations-numbering: ## Detect cross-branch migration-numbering collisions vs origin/main (no DB)
 	@# Closes the gap makemigrations --check misses: it only sees this tree, so two
