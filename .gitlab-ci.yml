@@ -4148,6 +4148,76 @@ scheduler:test:
     expire_in: 7 days
     when: always
 
+# Version-compatibility legs (#4542). pyproject.toml's classifiers promise
+# Python 3.11-3.13, but every other scheduler:* job runs on the 3.11 floor image
+# only, so a 3.12/3.13 break (numpy/numba/scipy wheel gaps, stdlib removals)
+# would ship to PyPI unseen. scheduler:test above stays the 3.11 floor leg and
+# KEEPS ITS NAME on purpose: scheduler:diff-coverage, scheduler:bench,
+# scheduler:notebooks and sonar:scan reference it by name (and consume its
+# coverage.xml), and a `parallel: matrix` rename to `scheduler:test: [3.11]`
+# would break all four. mypy/ruff stay on the floor version.
+#
+# Stock python:3.x-slim images (digest-pinned like the rest of the tree, #904):
+# the ci-scheduler image is 3.11-only, so these legs install scheduler[dev]
+# themselves. No coverage gate here - coverage is measured once, on the floor.
+scheduler:test:compat:
+  stage: test
+  needs:
+    - scheduler:lint
+    - scheduler:type-check
+  <<: *rules-scheduler
+  parallel:
+    matrix:
+      - PY_VERSION: "3.12"
+        PY_IMAGE: "python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159"
+      - PY_VERSION: "3.13"
+        PY_IMAGE: "python:3.13-slim@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb"
+  image: $PY_IMAGE
+  cache:
+    key:
+      files:
+        - packages/scheduler/pyproject.toml
+      prefix: scheduler-pip-$PY_VERSION
+    paths:
+      - .cache/pip/
+  variables:
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  before_script:
+    # git: the ci-scheduler image bakes it in; the stock slim image does not,
+    # and tests/test_public_surface.py shells out to it.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - bash scripts/ci/pip-floor.sh
+    - pip install -e "packages/scheduler[dev]" --quiet
+  script:
+    - python --version
+    - cd packages/scheduler
+    - pytest
+
+# Forward-looking 3.14 leg (#4542). Nightly only, so it never gates an MR, and
+# allow_failure because 3.14 is deliberately NOT in the classifiers: a red here
+# is a finding to triage, not a regression. Drop allow_failure and add the
+# `Programming Language :: Python :: 3.14` classifier together once a release
+# of every dependency is green on it.
+scheduler:test:py314:
+  stage: test
+  image: python:3.14-slim@sha256:cd89c30eda26ee911a4611b18680086e0ea42e6f5f8cbe653d07fa7958c9cec8
+  needs: []
+  allow_failure: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  variables:
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  before_script:
+    # git: the ci-scheduler image bakes it in; the stock slim image does not,
+    # and tests/test_public_surface.py shells out to it.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - bash scripts/ci/pip-floor.sh
+    - pip install -e "packages/scheduler[dev]" --quiet
+  script:
+    - python --version
+    - cd packages/scheduler
+    - pytest
+
 mcp:test:
   # pytest over packages/mcp. The auth + transport surface is exercised against
   # httpx.MockTransport, so no running API or network is needed. 80% floor
