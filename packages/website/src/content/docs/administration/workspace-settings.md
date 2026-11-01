@@ -314,11 +314,11 @@ so this applies only when the membership itself is removed or demoted.
 
 A project-scoped token's reach is different: it is bound to exactly one
 project by its own FK, so there is no cross-project membership to bound.
-**Also not yet released:** it will get its own request-time check on the
+It has its own request-time check on the
 minter's *last recorded role* on that project — Member or above, whether or
-not the minter is still a member. A minter demoted to Viewer will lose write
+not the minter is still a member. A minter demoted to Viewer loses write
 authority on the token's very next request, the same way the program-scoped
-case does. Deactivating the minter's account on its own will not trigger
+case does. Deactivating the minter's account on its own does not trigger
 this: deactivation does not remove their project membership, so a
 sufficiently-roled minter's token is unaffected by their own off-boarding,
 matching the guarantee above. A minter *removed* from the project while still

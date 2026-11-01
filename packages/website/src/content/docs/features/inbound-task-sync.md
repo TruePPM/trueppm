@@ -45,10 +45,9 @@ the person who minted it is still a member of that project — minting the
 token at program scope is not by itself enough to reach every project in the
 program. This is checked at request time: revoking the minter's membership
 stops an already-minted token from writing into that project on the very next
-request. **Not yet released:** that membership will also have to be Member or
-above — a minter who is a live member but Viewer-only will not be enough,
-and demoting a minter below Member will stop an already-minted token the same
-way a membership removal does.
+request. That membership must also be Member or above: a minter who is a live
+member but Viewer-only is not enough, and demoting a minter below Member stops
+an already-minted token the same way a membership removal does.
 
 :::note[Ships in 0.5]
 The minter must also still be a Member or above of the **program** itself.
@@ -57,14 +56,14 @@ program-scoped token on the next request even if they remain a project member.
 On 0.4 only the minter's project membership is checked.
 :::
 
-**Not yet released:** a project-scoped token will also be checked against its
-minter on every request, in a different way. TruePPM will look at the minter's
-*last recorded role* on the token's project, whether or not they are still a
-member, and require Member or above. A minter demoted to Viewer will stop the
-token on its next request. A minter removed from the project while still
-Member or above will **not** stop it — project tokens are team assets that
-outlive one person's off-boarding. A minter demoted below Member and then
-removed, including one who removes themselves, will still stop it. Separately,
+A project-scoped token is also checked against its minter on every request, in
+a different way. TruePPM looks at the minter's *last recorded role* on the
+token's project, whether or not they are still a member, and requires Member or
+above. A minter demoted to Viewer stops the token on its next request. A minter
+removed from the project while still Member or above does **not** stop it —
+project tokens are team assets that outlive one person's off-boarding. A minter
+demoted below Member and then removed, including one who removes themselves,
+still stops it. Separately,
 and already true today: if the minter's account is deleted outright, the token
 stops working on both endpoints, so deactivate rather than delete a member
 whose integration tokens should keep running.
