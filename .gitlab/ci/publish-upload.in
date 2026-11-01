@@ -1,0 +1,5 @@
+# Direct requirements for the UPLOAD half of the PyPI publish jobs (#4717).
+# This is the only tool set allowed to run while PYPI_ID_TOKEN /
+# SIGSTORE_ID_TOKEN are in the environment. Compiled to publish-upload.txt.
+twine==7.0.0
+pypi-attestations==0.0.28

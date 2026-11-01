@@ -107,7 +107,7 @@ The `git push origin main v0.2.0` command triggers the CI **publish stage**:
 
 Starting with the 0.4 beta, **GHCR will become the public release target**, not an optional mirror. The image/chart publish jobs will push to GHCR in addition to the internal GitLab container registry, and a missing `GHCR_USER`/`GHCR_TOKEN` will **fail the job** rather than skipping — so a release tag can never appear to succeed without the public artifacts landing. Cosign signing is keyless (Sigstore via the GitLab `SIGSTORE_ID_TOKEN` OIDC audience) and needs no key material. Configure `GHCR_USER` + `GHCR_TOKEN` (Masked + Protected) before pushing the first `v0.4.0-beta*` tag.
 
-Additionally, pushing the `scheduler-v*` tag triggers `scheduler:publish`, which publishes `trueppm-scheduler` to PyPI.
+Additionally, pushing the `scheduler-v*` tag triggers `scheduler:build` then `scheduler:publish`, which publishes `trueppm-scheduler` to PyPI.
 
 ## Scheduler releases
 
@@ -122,6 +122,17 @@ git push origin main v0.2.0 scheduler-v0.2.0
 The `scheduler:publish` CI job fires on `scheduler-v*` tags and publishes to PyPI.
 
 ## PyPI Trusted Publishing (one-time setup)
+
+### Build and upload are separate jobs
+
+Each PyPI package releases as a pair of jobs: `scheduler:build` / `scheduler:publish`, `mcp:build` / `mcp:publish`, and `api:build:pypi` / `api:publish:pypi`. The `*:build` job installs the build tooling, builds the sdist and wheel (and, for scheduler and mcp, the CycloneDX SBOM), and holds **no** OIDC tokens. The publish job is the only one that declares `id_tokens:`; it receives `dist/` through `needs:` and runs nothing but `pypi-attestations` signing, the PyPI `mint-token` exchange, and `twine upload`. The release-notes jobs (`scheduler:release`, `mcp:release`) read their dotenv report from the `*:build` job.
+
+The point is that code from a compromised build dependency never runs next to a minted PyPI or Sigstore identity. Two pins back that up:
+
+- `[build-system].requires` in each `packages/*/pyproject.toml` pins `hatchling` exactly (`hatchling==1.33.0`), and the build runs with `--no-isolation` so hatchling's own dependencies come from the hash-verified install rather than a fresh resolve.
+- The tooling is installed with `pip install --require-hashes` from `.gitlab/ci/publish-build.txt` (build, hatchling, cyclonedx-bom, uv) and `.gitlab/ci/publish-upload.txt` (twine, pypi-attestations). Regenerate them from the matching `.in` files with `uv pip compile --generate-hashes --universal --python-version 3.11 -o <name>.txt <name>.in`, and bump the hatchling pin in all three `pyproject.toml` files and `publish-build.in` together.
+
+`scripts/check-build-system-pins.sh` (`make build-system-pins-check`, CI job `ci:build-system-pins`) fails on an unpinned `[build-system].requires`, a hatchling pin that drifts from `publish-build.in`, a requirement without a hash, or an unhashed `pip install` of the toolchain in `.gitlab-ci.yml`. The manual `ci:pypi-mint-probe` job still builds and holds tokens in one job, but it installs the same hash-verified files.
 
 `scheduler:publish`, `mcp:publish`, and `api:publish:pypi` all authenticate to PyPI via **Trusted Publishing** (GitLab OIDC) — none carries a static `PYPI_TOKEN` on its publish path (`api:publish:pypi` was migrated off one in #3943). Each job presents a short-lived GitLab ID token that PyPI exchanges for a single-use, project-scoped upload token. For that exchange to succeed, a **Trusted Publisher must be registered on the corresponding PyPI project** whose claims match the pipeline exactly. This is a **one-time PyPI-side configuration per package** — do it **before the first tag** that publishes via OIDC, or the `mint-token` step fails `HTTP 422` before anything is uploaded.
 

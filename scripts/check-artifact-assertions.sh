@@ -24,7 +24,7 @@
 # Usage: check-artifact-assertions.sh [CI_FILE] | --self-test
 set -euo pipefail
 
-ENFORCED_JOBS=" web:publish web:publish:arm64 api:publish:pypi "
+ENFORCED_JOBS=" web:publish web:publish:arm64 api:build:pypi scheduler:build mcp:build "
 
 scan() {
   ENFORCED_JOBS="$ENFORCED_JOBS" python3 - "$1" <<'PY'
