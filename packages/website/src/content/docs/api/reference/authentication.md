@@ -158,12 +158,12 @@ to a minted token. A token whose project does not match the URL returns `401`
 The token's minter is also checked on every request, and a failure there returns
 the same `401` — `{"detail": "Token does not authorize this project."}`. A
 program-scoped token's minter must hold a live membership on the target project.
-**Not yet released:** that membership will also have to be Member or above, and
-a project-scoped token will be checked too — its minter's last recorded role on
+That membership must also be Member or above, and
+a project-scoped token is checked too — its minter's last recorded role on
 the project, live or removed, must be Member or above. A minter demoted to
 Viewer, or demoted and then removed, gets a `401`; a minter removed in good
 standing does not. A token whose minter's account has been deleted is refused
-with a `403` today, because it authenticates as no user; that does not change.
+with a `403`, because it authenticates as no user.
 
 :::note[Ships in 0.5]
 A program-scoped token's minter must also still hold a live Member-or-above

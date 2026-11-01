@@ -791,29 +791,24 @@ changed:
   on every request, not just at mint time. Revoking the minter's membership stops the
   token from writing into that project on the very next request, with no re-mint needed. A
   token whose minter was deleted (and so carries no `created_by`) can no longer write into
-  any project through this path. **Not yet released:** a further role floor on top of this
-  membership check — the minter will also need to hold Member or above, not merely live
-  membership, so a Viewer-minted program token will be refused on both write endpoints.
-  Until that lands, a minter who is a live member but Viewer-only can still use a
-  program-scoped token to write into the project (#4331).
+  any project through this path. A further role floor sits on top of this
+  membership check: the minter must also hold Member or above, not merely live
+  membership, so a Viewer-minted program token is refused on both write endpoints (#4331).
 
   :::note[Ships in 0.5]
   After upgrading to 0.5, a program-scoped token whose minter has already left the
   program, or sits below Member there, starts returning `401` on both write endpoints
   even if the minter still has Member or above on the project. Have a Program Admin (or above) re-mint the token.
   :::
-- **Project-scoped API tokens (task-sync and acceptance-results).** Today these two
-  write endpoints do not re-check a project-scoped token's minter — the token keeps full
-  write authority after its minter is demoted or removed from the project, because
-  project-scoped tokens are documented org assets that survive their minter's
-  off-boarding. (A token whose minter's account was *deleted* is a different case: both
-  endpoints already refuse it, because it is left with no user to act as. That does not
-  change.) **Not yet released:** a request-time floor on the minter's *last recorded
-  role* on the token's project, live or removed. Once it ships, a minter demoted to
-  Viewer will lose write authority on the token's very next request. A minter removed
-  from the project while still Member or above keeps a working token, so the org-asset
-  guarantee holds for a removal in good standing. A minter demoted below Member and then
-  removed, including one who removes themselves, stays refused (#4334).
+- **Project-scoped API tokens (task-sync and acceptance-results).** These two
+  write endpoints apply a request-time floor to a project-scoped token's minter, based on
+  the minter's *last recorded role* on the token's project, live or removed. A minter
+  demoted to Viewer loses write authority on the token's very next request. A minter
+  removed from the project while still Member or above keeps a working token, because
+  project-scoped tokens are org assets that survive their minter's off-boarding. A minter
+  demoted below Member and then removed, including one who removes themselves, stays
+  refused (#4334). (A token whose minter's account was *deleted* is a separate case: both
+  endpoints refuse it, because it is left with no user to act as.)
 - **Project-scoped webhooks.** A project webhook receives that project's events only while
   its creator holds **Project Manager or above** there, checked on the same schedule as
   program webhooks above. Removing the creator's membership, demoting it below Project
