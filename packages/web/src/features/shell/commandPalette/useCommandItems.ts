@@ -13,13 +13,16 @@ import { formatRelative } from '@/lib/formatRelative';
 import { useCurrentSprintTargets } from '@/hooks/useCurrentSprintTargets';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { canEditTask } from '@/lib/roles';
+import { readLastTask, type LastTask } from '@/lib/lastTask';
 import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useLabels } from '@/hooks/useLabels';
 import { usePinned, useTogglePin } from '@/hooks/usePins';
 import { useShellStore } from '@/stores/shellStore';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
-import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
+import { useCommandPaletteStore, type LogTimeTarget } from '@/stores/commandPaletteStore';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
@@ -462,6 +465,33 @@ function buildBacklogAndBoard(
   return { backlog, board };
 }
 
+// ---- "Log time on <last task>" (#1211) --------------------------------------
+/**
+ * The one-row quick action for the task the user last opened. Omitted unless a
+ * last task is known AND the user can log time on its project (Member+, the same
+ * `canEditTask` gate the server's `CanLogTime` mirrors). Running it does not close
+ * the palette: it swaps the body for the inline minutes form via the store.
+ */
+function buildLogTimeAction(
+  lastTask: LastTask | null,
+  canLog: boolean,
+  startLogTime: (target: LogTimeTarget) => void,
+): CommandItem[] {
+  if (!lastTask || !canLog) return [];
+  const taskLabel = lastTask.ref ? `${lastTask.ref} · ${lastTask.name}` : lastTask.name;
+  return [
+    {
+      id: 'action:log-time-last-task',
+      label: `Log time on ${lastTask.name}`,
+      group: 'action',
+      tag: 'Action',
+      detail: lastTask.ref ?? undefined,
+      keywords: 'log time hours minutes timesheet track last task',
+      run: () => startLogTime({ taskId: lastTask.taskId, taskLabel }),
+    },
+  ];
+}
+
 // ---- Global actions --------------------------------------------------------
 function buildActions(
   theme: Theme,
@@ -543,6 +573,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   openFeedbackRef.current = openFeedback;
   const setOpen = useCommandPaletteStore((s) => s.setOpen);
   const openTask = useTaskDrawerStore((s) => s.openTask);
+  const startLogTime = useCommandPaletteStore((s) => s.setLogTimeTarget);
 
   // Current project context (Tier 2). Undefined off a project route — every
   // Tier-2 hook below is no-op'd in that case, and while the palette is closed.
@@ -556,6 +587,12 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const canManageBacklog = useCanManageBacklog(tier2Id);
   const { user } = useCurrentUser();
   const iteration = useIterationLabel(tier2Id ?? null);
+  // Last-opened task (#1211): read each time the palette opens (the drawer writes
+  // it between opens), and gated on the role in THAT task's project, which need
+  // not be the current route's. `role` is null while loading or on a failed read,
+  // so the action stays hidden until the gate is settled.
+  const lastTask = useMemo(() => (enabled ? readLastTask(user?.id) : null), [enabled, user?.id]);
+  const { role: lastTaskRole } = useCurrentUserRole(lastTask?.projectId);
   // Label catalog (#2334). Gated on `tier2Id` like every other Tier-2 read, so a
   // closed palette or a non-project route never fetches it. Usually already warm
   // from the Board, which reads the same `['labels', projectId]` cache key.
@@ -660,6 +697,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     const { backlog, board } = buildBacklogAndBoard(projects, go);
     const actions = [
       ...buildActions(theme, setTheme, toggleSidebar, act, openFeedbackRef.current),
+      ...buildLogTimeAction(lastTask, canEditTask(lastTaskRole), startLogTime),
       ...buildPinActions(trimmedQuery.length > 0, projects, programs, togglePin, act),
     ];
 
@@ -702,6 +740,9 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     toggleSidebar,
     setOpen,
     openTask,
+    startLogTime,
+    lastTask,
+    lastTaskRole,
     tier2Id,
     labels,
     trimmedQuery,

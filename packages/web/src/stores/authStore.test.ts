@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { useAuthStore } from './authStore';
+import { useLastTaskStore } from './lastTaskStore';
 
 describe('useAuthStore', () => {
   beforeEach(() => {
@@ -102,6 +103,19 @@ describe('useAuthStore', () => {
       useAuthStore.getState().enterReadOnlyMode();
       useAuthStore.getState().setAccessToken('new-token');
       expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+    });
+  });
+
+  describe('last-opened task hand-off (#1211)', () => {
+    const TASK = { taskId: 't1', projectId: 'p1', name: 'Wire OAuth', ref: null };
+
+    it.each([
+      ['clearTokens', () => useAuthStore.getState().clearTokens()],
+      ['markSessionExpired', () => useAuthStore.getState().markSessionExpired()],
+    ])("%s drops the previous user's last task", (_name, signOut) => {
+      useLastTaskStore.getState().setOpened(TASK);
+      signOut();
+      expect(useLastTaskStore.getState().opened).toBeNull();
     });
   });
 });

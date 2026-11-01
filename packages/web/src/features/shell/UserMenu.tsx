@@ -6,6 +6,7 @@ import { useFeedbackStore } from '@/stores/feedbackStore';
 import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
+import { useLastTaskStore } from '@/stores/lastTaskStore';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -388,6 +389,8 @@ export function UserMenu() {
     });
     clearTokens();
     queryClient.clear();
+    // The last-opened task is the previous user's; drop it before the next sign-in (#1211).
+    useLastTaskStore.setState({ opened: null });
     void navigate('/login');
   }
 

@@ -11,6 +11,7 @@ import { TaskDetailDrawer, SectionList } from './TaskDetailDrawer';
 import { useReportComposerDirty } from './ComposerDirtyContext';
 import { useTaskDraft } from './TaskDraftContext';
 import { axiosRefusal } from '@/test/axiosError';
+import { useLastTaskStore } from '@/stores/lastTaskStore';
 
 // `delay: null` dispatches keystrokes with no inter-event setTimeout so the
 // whole `user.type()` resolves within one flush. With the default delay, the
@@ -1895,5 +1896,19 @@ describe('TaskDetailDrawer — retiring a stale refusal (#3332, web-rule 376)', 
       'You cannot edit this task.',
     );
     expect(screen.queryByTestId('dialog-footer-error')).toBeNull();
+  });
+});
+
+describe('TaskDetailDrawer last-opened task hand-off (#1211)', () => {
+  it('records the opened task for the ⌘K "Log time on <last task>" action', () => {
+    const task = makeTask({ qualifiedId: 'PRJ-T-1' });
+    TASKS = [task];
+    renderDrawer(task);
+    expect(useLastTaskStore.getState().opened).toEqual({
+      taskId: task.id,
+      projectId: 'p1',
+      name: task.name,
+      ref: 'PRJ-T-1',
+    });
   });
 });
