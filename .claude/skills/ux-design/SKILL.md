@@ -41,7 +41,7 @@ information-dense where needed (Gantt views, dashboards), and simple where possi
    - Gray: inactive, deferred, archived
 
 6. **A navigation surface has a budget** (web rule 436): rail 5 destinations + pins <= 7;
-   context tabs <= 5 + More; phone bar 5. A sixth item folds behind one control; it never
+   context tabs <= 5 + More; phone bar 5 with no overflow. A sixth tab folds behind More; it never
    becomes another row.
 
 ## Design Process
@@ -66,7 +66,10 @@ When asked to design a feature:
    panelled by `/voice-of-customer`; do not invent new ones). Design the persona's *first
    screen* and *most frequent act* before anything else.
 
-   | Persona | First screen | Most frequent act |
+   *The "first screen" column is a design default inferred by this skill, not a field in
+   `.claude/personas.md`; the persona file defines the names, roles and time budgets.*
+
+   | Persona | First screen (design default) | Most frequent act |
    |---|---|---|
    | **Sarah**, Delivery / Program Manager | Her project's Schedule (Plan) | Working the plan: edit tasks, dates, dependencies (30-60 min daily) |
    | **Marcus**, PMO Director (Enterprise) | Portfolio / program roll-up | Daily 5-10 min scan of health and forecast confidence across projects |

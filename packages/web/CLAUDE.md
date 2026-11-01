@@ -200,7 +200,7 @@ These rules are enforced at review time. Violations block merge.
 393. **A row that hides its own label at phone width is a `shrink-0` budget problem, not a `min-w-0` problem — and the two have different fixes. Measure before you add either.** → [rule](../../docs/design/invariants/393-a-row-that-hides-its-own-label-at-phone-width-is-a-shrink-0.md)
 412. **`input[type="date"]` exposes NO `textbox` role — locate it with `getByLabel`, never `getByRole('textbox')`, and pass `{ exact: true }` in Playwright.** → [rule](../../docs/design/invariants/412-input-type-date-exposes-no-textbox-role-locate-it-with.md)
 433. **The `hidden` attribute is authoritative over display utilities, and a collapsed state is proven in a real browser — never by a jsdom `not.toBeVisible()`.** → [rule](../../docs/design/invariants/433-the-hidden-attribute-is-authoritative.md)
-436. **A navigation surface holds a fixed number of items at rest — rail 5 + pins <= 7, context tabs <= 5 + More, phone bar 5 — and a surface that needs more folds behind ONE control instead of growing another row.** → [rule](../../docs/design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md)
+436. **A navigation surface holds a fixed number of items at rest — rail 5 + pins <= 7, context tabs <= 5 + More, phone bar 5 with no overflow — and a tab surface that needs more folds behind ONE More control instead of growing another row.** → [rule](../../docs/design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md)
 
 ## Dialogs, focus and keyboard
 
