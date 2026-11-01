@@ -19,8 +19,9 @@ the missing half of that procedure.
     reach, not tokens alone. Named by account, regardless of whether that account
     currently owns any live personal token.
   * ``--all-personal`` — every personal token on the instance, plus (#4576) the
-    same refresh-token / durable-grant / live-socket sweep for each account that
-    owns one of the matched tokens. The "our secret store leaked" case. Leaves
+    same refresh-token / durable-grant / live-socket sweep for each account owning an
+    unrevoked personal token as of the dry run, expired or not. The "our secret
+    store leaked" case. Leaves
     project- and program-scoped integration tokens alone, so team CI keeps
     working, and leaves alone any account that owns durable grants but no live
     personal token — ``--user`` is the lever for containing that account by name.
@@ -74,9 +75,10 @@ class Command(BaseCommand):
             action="store_true",
             help="Revoke every personal access token on the instance, plus the refresh "
             "tokens, share links, git-automation secrets, outgoing webhooks, and "
-            "live project sockets of each account that owns one. Leaves project- "
-            "and program-scoped integration tokens, and accounts with no personal "
-            "token, alone.",
+            "live project sockets of each account owning an unrevoked personal token as "
+            "of the dry run, expired or not. Leaves project- and program-scoped "
+            "integration tokens, "
+            "and accounts with no unrevoked personal token, alone.",
         )
         scope.add_argument(
             "--all",
@@ -133,7 +135,15 @@ class Command(BaseCommand):
     def _resolve_scope(self, options: dict[str, Any], target_user: Any | None) -> tuple[Any, str]:
         from trueppm_api.apps.projects.models import ApiToken
 
-        active = ApiToken.objects.filter(is_deleted=False, revoked_at__isnull=True)
+        # Expired tokens are excluded: they already fail authentication, so revoking
+        # them contains nothing, and reporting/auditing them would overstate how many
+        # live credentials this sweep contained (#4580). Same definition of "active"
+        # as ``revoke_all_personal_access_tokens`` and ``ApiToken.active_personal_tokens_for``.
+        active = ApiToken.objects.filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+            is_deleted=False,
+            revoked_at__isnull=True,
+        )
         if target_user is not None:
             label = f"personal tokens owned by {target_user.username}"
             return active.filter(owner=target_user), label
@@ -241,7 +251,9 @@ class Command(BaseCommand):
         ``--all-personal`` has no independent "every user" population to draw on;
         its own scope is "every personal access token on the instance" (see the
         module docstring), so the accounts it sweeps for the other grant classes
-        are exactly the owners of the personal tokens it is about to revoke. An
+        are each account owning an unrevoked personal token as of the dry run,
+        expired or not (expiry narrows which tokens are revoked, never which
+        accounts are contained). An
         account that owns durable grants but no live personal token sits outside
         ``--all-personal``'s stated scope — ``--user`` is the lever for containing
         it by name, ``--all`` the lever for the whole instance regardless of token
@@ -254,7 +266,17 @@ class Command(BaseCommand):
         if target_user is not None:
             return [target_user]
         if options["all_personal"]:
-            owner_ids = {token.owner_id for token in doomed if token.owner_id is not None}
+            # Owners are drawn from every unrevoked personal token, expired or not
+            # (#4580): the expiry exclusion narrows which *tokens* are revoked and
+            # audited, never which accounts are contained. An account whose only
+            # token has lapsed still holds refresh tokens, share links, webhooks.
+            from trueppm_api.apps.projects.models import ApiToken
+
+            owner_ids = set(
+                ApiToken.objects.filter(
+                    is_deleted=False, revoked_at__isnull=True, owner__isnull=False
+                ).values_list("owner_id", flat=True)
+            )
             if not owner_ids:
                 return []
             User = get_user_model()
@@ -298,7 +320,11 @@ class Command(BaseCommand):
     def _commit_revocation(
         self, doomed: list[Any], affected_users: list[Any], options: dict[str, Any]
     ) -> tuple[int, int, int, int, int, int]:
-        """Revoke `doomed`, audit each one, and sweep the other durable grant classes.
+        """Revoke the live in-scope tokens, audit each one, and sweep other durable grants.
+
+        ``doomed`` is no longer read here: the commit re-applies the scope queryset
+        under a row lock (see the comment above ``to_revoke``). The parameter stays
+        only to keep the signature stable.
 
         Under ``--all`` this sweeps every grant instance-wide
         (``revoke_personal_durable_grants(user=None)``) — unchanged from before
@@ -330,27 +356,47 @@ class Command(BaseCommand):
 
         now = timezone.now()
         with transaction.atomic():
-            revoked = ApiToken.objects.filter(pk__in=[token.pk for token in doomed]).update(
-                revoked_at=now
-            )
-            # One audit row per token, in the same transaction as the revocation, so the
-            # sweep and its record commit together. The scope XOR on ApiTokenAuditEntry
-            # requires exactly one of owner/project/program, mirroring the token's own.
-            ApiTokenAuditEntry.objects.bulk_create(
-                [
-                    ApiTokenAuditEntry(
-                        owner_id=token.owner_id,
-                        project_id=token.project_id,
-                        program_id=token.program_id,
-                        token=token,
-                        token_prefix=token.token_prefix,
-                        actor=None,
-                        action=ApiTokenAuditAction.REVOKED.value,
-                        detail={"name": token.name, "reason": REASON},
-                    )
-                    for token in doomed
-                ]
-            )
+            if options["user"] and affected_users:
+                # --user: the service already owns the lock + re-filter + audit
+                # contract; reimplementing it here is how this command drifted (#4580).
+                from trueppm_api.apps.access.services import revoke_all_personal_access_tokens
+
+                revoked = revoke_all_personal_access_tokens(affected_users[0], reason=REASON)
+            else:
+                # The dry-run read happened outside this transaction, possibly minutes
+                # ago (the operator sat at the confirmation prompt). Re-apply the scope
+                # queryset itself under a row lock, not the old pks, so a token minted
+                # while the prompt was open is contained like the live-requeried
+                # refresh-token and share-link sweeps below. Revoke and audit only what
+                # is still live: a token revoked in the meantime keeps its original
+                # `revoked_at` and gets no second, contradicting REVOKED row, and one
+                # that expired meanwhile is not claimed as contained (#4580).
+                to_revoke = list(
+                    self._resolve_scope(options, None)[0]
+                    .select_for_update()
+                    .only("pk", "token_prefix", "name", "owner", "project", "program")
+                )
+                revoked = ApiToken.objects.filter(
+                    pk__in=[token.pk for token in to_revoke], revoked_at__isnull=True
+                ).update(revoked_at=now)
+                # One audit row per token, in the same transaction as the revocation.
+                # The scope XOR on ApiTokenAuditEntry requires exactly one of
+                # owner/project/program, mirroring the token's own.
+                ApiTokenAuditEntry.objects.bulk_create(
+                    [
+                        ApiTokenAuditEntry(
+                            owner_id=token.owner_id,
+                            project_id=token.project_id,
+                            program_id=token.program_id,
+                            token=token,
+                            token_prefix=token.token_prefix,
+                            actor=None,
+                            action=ApiTokenAuditAction.REVOKED.value,
+                            detail={"name": token.name, "reason": REASON},
+                        )
+                        for token in to_revoke
+                    ]
+                )
             links_revoked = secrets_cleared = webhooks_deactivated = 0
             refresh_revoked = sockets_evicted = 0
             if options["all"]:
@@ -400,6 +446,8 @@ class Command(BaseCommand):
         # three non-token durable grants, and live project sockets for every
         # account the token revocation above targets — not PATs alone. See
         # _resolve_affected_users for exactly which accounts that is per scope.
+        # TODO(#4753): resolved before the prompt, so an account whose first personal
+        # token appears while the prompt is open is not swept for its other credentials.
         affected_users = self._resolve_affected_users(options, target_user, doomed)
         (
             refresh_matched,
