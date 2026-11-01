@@ -45,6 +45,15 @@ fn py_date_max() -> NaiveDate {
     NaiveDate::from_ymd_opt(9999, 12, 31).expect("9999-12-31 is a valid date")
 }
 
+/// The Python `datetime.date.min` (0001-01-01). chrono reaches year -262143, so
+/// without this floor a backward walk (an SF link or lead from a year-0001 start)
+/// schedules into year 0 or below, dates Python refuses and neither
+/// `date.fromisoformat` nor `Date.parse` can read back (#4707). Mirrors the
+/// `_MIN_ORDINAL` floor in `trueppm_scheduler.engine`.
+pub fn py_date_min() -> NaiveDate {
+    NaiveDate::from_ymd_opt(1, 1, 1).expect("0001-01-01 is a valid date")
+}
+
 /// Whether a Python-`timedelta` seconds value is a whole number of days.
 ///
 /// The engines consume durations/lags differently on a sub-day value — Python
@@ -69,6 +78,7 @@ fn is_whole_days(seconds: f64) -> bool {
 /// is one guard group, applied in the original sequence.
 pub fn validate_project(project: &Project) -> Result<(), String> {
     reject_duplicate_task_ids(project)?;
+    reject_dates_below_min(project)?;
     validate_calendar(&project.calendar)?;
     validate_task_calendars(project)?;
     validate_tasks(project)?;
@@ -127,6 +137,35 @@ fn validate_task_calendars(project: &Project) -> Result<(), String> {
         // Reachability probe: a calendar whose exceptions blanket the window after
         // the project start would otherwise spin in the first snap of the pass.
         next_working_day(project.start_date, cal)?;
+    }
+    Ok(())
+}
+
+/// No input date may precede `date.min` (#4707). The deserializer already refuses
+/// year 0 and below from JSON; this covers a `Project` built in code.
+fn reject_dates_below_min(project: &Project) -> Result<(), String> {
+    let min = py_date_min();
+    let task_dates = project.tasks.iter().flat_map(|t| {
+        [t.planned_start, t.actual_start, t.actual_finish]
+            .into_iter()
+            .flatten()
+    });
+    let dates = std::iter::once(project.start_date)
+        .chain(project.status_date)
+        .chain(task_dates)
+        .chain(
+            project
+                .calendar
+                .exceptions
+                .iter()
+                .flat_map(|e| [e.start, e.end]),
+        );
+    for d in dates {
+        if d < min {
+            return Err(format!(
+                "Date {d} is before the earliest representable date {min}."
+            ));
+        }
     }
     Ok(())
 }
@@ -1067,7 +1106,10 @@ mod tests {
         );
         p.calendars = Some(registry);
         let err = validate_project(&p).unwrap_err();
-        assert!(err.contains("dead"), "message must name the calendar: {err}");
+        assert!(
+            err.contains("dead"),
+            "message must name the calendar: {err}"
+        );
     }
 
     #[test]

@@ -1,0 +1,10 @@
+{
+  "id": "pr-date_trailing_space_start_date",
+  "name": "Trailing-space start_date — chrono serde accepted, Python strict YYYY-MM-DD refuses (#4707)",
+  "start_date": "2026-03-02 ",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

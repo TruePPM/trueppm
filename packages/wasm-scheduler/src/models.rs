@@ -9,6 +9,54 @@ use std::cell::OnceCell;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
+/// Strict `YYYY-MM-DD` date deserialization (#4707).
+///
+/// chrono's `NaiveDate` serde `FromStr` is lenient: it accepts `2026-3-2`, padded
+/// whitespace, `+2026-03-02` and negative years, none of which Python's strict
+/// pre-check (`Project.from_dict`) accepts, and it has no lower bound where Python's
+/// `date.min` is 0001-01-01. A document the server refuses with a 400 must not be
+/// schedulable offline, so every date field goes through this shape: exactly ten
+/// ASCII characters, `\d{4}-\d{2}-\d{2}`, and a year of at least 1.
+pub mod date_serde {
+    use chrono::{Datelike, NaiveDate};
+    use serde::{de::Error, Deserialize, Deserializer};
+
+    /// Parse a canonical `YYYY-MM-DD` string, or describe why it is refused.
+    pub fn parse_strict(s: &str) -> Result<NaiveDate, String> {
+        let b = s.as_bytes();
+        let shaped = b.len() == 10
+            && b.iter().enumerate().all(|(i, c)| match i {
+                4 | 7 => *c == b'-',
+                _ => c.is_ascii_digit(),
+            });
+        if !shaped {
+            return Err(format!("date {s:?} is not in canonical YYYY-MM-DD form"));
+        }
+        let d = NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map_err(|e| format!("invalid date {s:?}: {e}"))?;
+        if d.year() < 1 {
+            return Err(format!(
+                "date {s:?} is before 0001-01-01, the earliest representable date"
+            ));
+        }
+        Ok(d)
+    }
+
+    /// `deserialize_with` for a required date field.
+    pub fn req<'de, D: Deserializer<'de>>(de: D) -> Result<NaiveDate, D::Error> {
+        let s = String::deserialize(de)?;
+        parse_strict(&s).map_err(D::Error::custom)
+    }
+
+    /// `deserialize_with` for an optional date field (`null` and absent stay `None`).
+    pub fn opt<'de, D: Deserializer<'de>>(de: D) -> Result<Option<NaiveDate>, D::Error> {
+        match Option::<String>::deserialize(de)? {
+            None => Ok(None),
+            Some(s) => parse_strict(&s).map(Some).map_err(D::Error::custom),
+        }
+    }
+}
+
 /// Relationship type between two tasks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DependencyType {
@@ -37,7 +85,9 @@ impl DependencyType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DateRange {
+    #[serde(deserialize_with = "date_serde::req")]
     pub start: NaiveDate,
+    #[serde(deserialize_with = "date_serde::req")]
     pub end: NaiveDate,
 }
 
@@ -66,19 +116,43 @@ pub struct Task {
     /// Divide by 86400 to get working days.
     pub duration: f64,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub planned_start: Option<NaiveDate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub planned_finish: Option<NaiveDate>,
 
     // CPM-computed dates (populated by the engine)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub early_start: Option<NaiveDate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub early_finish: Option<NaiveDate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub late_start: Option<NaiveDate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub late_finish: Option<NaiveDate>,
 
     /// Span start (ADR-0752), populated by the engine. `early_start` means the
@@ -87,7 +161,11 @@ pub struct Task {
     /// `forward::compute_scheduled_start` for the per-state derivation table.
     /// No `scheduled_finish` field exists — it is always identical to
     /// `early_finish`, so callers read that under its existing name.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub scheduled_start: Option<NaiveDate>,
 
     /// Where a zero-duration milestone sits within the day it is shown on (#4079),
@@ -105,7 +183,11 @@ pub struct Task {
     /// predecessor is still open and it names the recorded day, the closed
     /// milestone keeps that end-of-day edge. Mirrors the Python
     /// `Task.live_day_end_on`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub live_day_end_on: Option<NaiveDate>,
 
     /// Total float in seconds (divide by 86400 for working days).
@@ -124,9 +206,17 @@ pub struct Task {
     // task complete: it is pinned to its recorded span at full duration and taken
     // out of network logic. `actual_start` records when work began. Both mirror
     // the Python `Task` dataclass fields of the same name.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub actual_start: Option<NaiveDate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub actual_finish: Option<NaiveDate>,
 
     // Three-point PERT estimates (seconds)
@@ -347,6 +437,7 @@ impl Default for Calendar {
 pub struct Project {
     pub id: String,
     pub name: String,
+    #[serde(deserialize_with = "date_serde::req")]
     pub start_date: NaiveDate,
     #[serde(default)]
     pub tasks: Vec<Task>,
@@ -357,7 +448,11 @@ pub struct Project {
     /// The data date (ADR-0132): remaining and not-started work is floored here,
     /// so future work is never scheduled in the past. `None` → a pure planning
     /// pass identical to the pre-progress behaviour.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "date_serde::opt"
+    )]
     pub status_date: Option<NaiveDate>,
 
     // Declared so the canonical `Project.to_json()` output parses instead of being
@@ -379,7 +474,9 @@ pub struct Project {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleResult {
     pub project_id: String,
+    #[serde(deserialize_with = "date_serde::req")]
     pub project_start: NaiveDate,
+    #[serde(deserialize_with = "date_serde::req")]
     pub project_finish: NaiveDate,
     pub tasks: Vec<TaskResult>,
     pub critical_path: Vec<String>,
@@ -404,14 +501,19 @@ pub struct DrivingEdge {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskResult {
     pub id: String,
+    #[serde(deserialize_with = "date_serde::req")]
     pub early_start: NaiveDate,
+    #[serde(deserialize_with = "date_serde::req")]
     pub early_finish: NaiveDate,
+    #[serde(deserialize_with = "date_serde::req")]
     pub late_start: NaiveDate,
+    #[serde(deserialize_with = "date_serde::req")]
     pub late_finish: NaiveDate,
     pub total_float: f64,
     pub free_float: f64,
     pub is_critical: bool,
     /// The task's span start (ADR-0752) — see `Task::scheduled_start`.
+    #[serde(deserialize_with = "date_serde::req")]
     pub scheduled_start: NaiveDate,
     /// A milestone shown at the end of its day (#4079) — see
     /// `Task::milestone_at_day_end`. Omitted when false, matching the shared
@@ -479,5 +581,42 @@ mod tests {
         assert_eq!(task(10.0, 45.0).effective_duration_days(), 6);
         // Over-100 is capped, never negative.
         assert_eq!(task(10.0, 150.0).effective_duration_days(), 0);
+    }
+}
+
+#[cfg(test)]
+mod date_serde_tests {
+    use super::date_serde::parse_strict;
+
+    #[test]
+    fn accepts_canonical_and_bounds() {
+        assert!(parse_strict("2026-03-02").is_ok());
+        assert!(parse_strict("0001-01-01").is_ok());
+        assert!(parse_strict("9999-12-31").is_ok());
+    }
+
+    #[test]
+    fn refuses_non_canonical_forms_and_years_below_one() {
+        for bad in [
+            "2026-3-2",
+            " 2026-03-02",
+            "2026-03-02 ",
+            "+2026-03-02",
+            "-0001-01-01",
+            "0000-12-28",
+            "20260302",
+            "2026-02-30",
+            "２０２６-03-02",
+            "",
+        ] {
+            assert!(parse_strict(bad).is_err(), "{bad:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn project_json_rejects_lenient_optional_date() {
+        let doc = r#"{"id":"p","name":"p","start_date":"2026-03-02","status_date":"2026-3-2",
+            "tasks":[],"dependencies":[],"calendar":{"working_days":31,"exceptions":[]}}"#;
+        assert!(serde_json::from_str::<super::Project>(doc).is_err());
     }
 }
