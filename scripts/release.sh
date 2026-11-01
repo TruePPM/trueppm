@@ -818,7 +818,7 @@ command -v uv >/dev/null 2>&1 || die \
 # The api lock resolves trueppm-scheduler from PyPI, so it stays on the published
 # floor set above; the post-publish raise moves it (#4080, release skill Step 4).
 ( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
-# packages/mcp joined the re-lock list with mcp:publish (#2809): its SBOM step
+# packages/mcp joined the re-lock list with mcp:build (#2809): its SBOM step
 # runs `uv sync --frozen`, which hard-fails on a lock whose self-entry still
 # claims the previous version, and mcp:uv-lock-check would go red on main.
 ( cd packages/mcp && uv lock ) || die "Failed to regenerate packages/mcp/uv.lock"

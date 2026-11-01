@@ -3988,10 +3988,10 @@ scheduler:sdist-check:
 mcp:uv-lock-check:
   extends: .fast-job
   # Verify packages/mcp/uv.lock stays in sync with packages/mcp/pyproject.toml.
-  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:publish
+  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:build
   # landed (#2809): that job materializes its CycloneDX SBOM with
   # `uv sync --frozen`, which HARD-FAILS on a stale lock. Without this gate the
-  # first symptom of a forgotten `uv lock` would be a red publish job on an
+  # first symptom of a forgotten `uv lock` would be a red mcp:build job on an
   # already-pushed `mcp-v*` tag — the expensive, mid-release failure mode.
   # Refresh with `cd packages/mcp && uv lock`. uv is pinned so the committed
   # lock's revision stays stable across CI runs and Renovate's
@@ -7336,8 +7336,8 @@ mcp:build:
 
 mcp:publish:
   # Publishes trueppm-mcp to PyPI (#2809). Modeled directly on scheduler:publish
-  # above — same Trusted Publishing exchange, same PEP 740 attestations, same
-  # locked-SBOM-before-upload ordering — with its own `mcp-vX.Y.Z` tag scheme so
+  # above — same Trusted Publishing exchange, same PEP 740 attestations (the SBOM
+  # and build live in mcp:build, which this job needs) — with its own `mcp-vX.Y.Z` tag scheme so
   # the MCP server can be released independently of the scheduler library.
   #
   # Why this job exists: packages/mcp had NO publish path at all. Three docs

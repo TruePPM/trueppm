@@ -31,9 +31,20 @@
 #      (the issue's core invariant: nothing but the hashed upload tools runs
 #      while the OIDC tokens exist). ci:pypi-mint-probe is exempt by name: it is
 #      the manual PYPI_PROBE mirror that builds and holds tokens in one job, with
-#      every tool hash-pinned. Text-based, not a resolved-YAML audit: it does not
-#      follow `extends:`/`default:`, and a `pip install` hidden in a referenced
-#      script would escape it.
+#      every tool hash-pinned. The install must be exactly one `pip install`
+#      whose only `-r` is that file (a longer name such as `.../publish-upload.txt.x`
+#      fails) plus --require-hashes/--no-deps/--quiet; `pip3.11 install`, a second
+#      `pip install` or extra `-r` on the line, and `python3 -m build` / `uv build` /
+#      `pyproject-build` are all recognized. Comment lines are dropped before
+#      backslash continuations are joined.
+#
+# STILL NOT HANDLED (text-based, not a resolved-YAML audit): `extends:` and
+# `default:` are not followed, so a token-holding job inheriting a script from a
+# template escapes it; `!reference` bodies other than the pip-floor are not
+# expanded; an install or build hidden in a script file the job calls
+# (`bash foo.sh`), a `python -m pip install` spelling, `pipx`, `uv pip install`,
+# or an install assembled from variables is not seen; and top-level job
+# detection assumes a job key at column 0 ending in `:`.
 #
 # WHAT IT CANNOT CHECK
 #   That the .txt files are the faithful compile of the .in files (regenerate
@@ -112,12 +123,18 @@ for name in ("publish-build.txt", "publish-upload.txt"):
     if n == 0:
         bad.append(f".gitlab/ci/{name}: contains no requirements")
 
-# 4 + 6: toolchain installs in the CI file (continuations joined first)
+# 4 + 6: toolchain installs in the CI file (comments dropped, then continuations joined)
 ci = os.path.join(root, ".gitlab-ci.yml")
 if os.path.isfile(ci):
     tool = re.compile(r"""(?<![\w./-])(build|twine|hatchling|pypi-attestations)(?![\w./-])""")
+    PIP = re.compile(r"\bpip[0-9.]*\s+install\b")
+    BUILD = re.compile(r"\bpython[0-9.]*\s+-m\s+build\b|\buv\s+build\b|\bpyproject-build\b")
+    UPLOAD = ".gitlab/ci/publish-upload.txt"
+    OKFLAGS = {"--require-hashes", "--no-deps", "--quiet", "-q"}
     logical, buf, start = [], "", 0
     for i, raw in enumerate(open(ci, encoding="utf-8").read().splitlines(), 1):
+        if not buf and raw.lstrip().startswith("#"):
+            continue  # a comment ending in a backslash must not swallow the next line
         if not buf:
             start = i
         if raw.rstrip().endswith("\\"):
@@ -125,29 +142,31 @@ if os.path.isfile(ci):
             continue
         logical.append((start, buf + raw))
         buf = ""
-    job, holds = None, {}
+    job, holds, per_job = None, set(), {}
     for n, line in logical:
-        if line and not line[0].isspace() and line.rstrip().endswith(":") and not line.startswith("#"):
+        if line and not line[0].isspace() and line.rstrip().endswith(":"):
             job = line.rstrip()[:-1]
         s = line.strip()
-        if s.startswith("#"):
-            continue
         if job and s.startswith("PYPI_ID_TOKEN:"):
-            holds[job] = True
-        if "pip install" in s and tool.search(s.split("pip install", 1)[1]) and "--require-hashes" not in s:
+            holds.add(job)
+        if PIP.search(s) and tool.search(PIP.split(s, 1)[1]) and "--require-hashes" not in s:
             bad.append(f".gitlab-ci.yml:{n}: unhashed install of the build/upload toolchain: {s}")
-        if job and job not in EXEMPT and (("pip install" in s) or re.search(r"python3? -m build\b", s)):
-            LOGS.setdefault(job, []).append((n, s))
-    for j in holds:
-        if j in EXEMPT:
-            continue
-        for n, s in LOGS.get(j, []):
-            if re.search(r"python3? -m build\b", s):
+        if job and (PIP.search(s) or BUILD.search(s)):
+            per_job.setdefault(job, []).append((n, s))
+    for j in sorted(holds - EXEMPT):
+        for n, s in per_job.get(j, []):
+            if BUILD.search(s):
                 bad.append(f".gitlab-ci.yml:{n}: job {j} holds PYPI_ID_TOKEN but runs a build: {s}")
-            elif "pip install" in s and not (
-                "--require-hashes" in s and "-r .gitlab/ci/publish-upload.txt" in s
-                and "publish-build.txt" not in s
-            ):
+                continue
+            ok = len(PIP.findall(s)) == 1
+            if ok:
+                toks = PIP.split(s, 1)[1].split()
+                ok = False
+                if "-r" in toks and toks.count("-r") == 1 and "--require-hashes" in toks:
+                    k = toks.index("-r")
+                    rest = toks[:k] + toks[k + 2:]
+                    ok = k + 1 < len(toks) and toks[k + 1] == UPLOAD and all(x in OKFLAGS for x in rest)
+            if not ok:
                 bad.append(f".gitlab-ci.yml:{n}: job {j} holds PYPI_ID_TOKEN but installs more than the hashed upload tools: {s}")
 for b in bad:
     print(b)
@@ -204,6 +223,21 @@ self_test() {
   expect "job holding PYPI_ID_TOKEN runs python -m build" fail "$tmp/tokbuild"
   mk "$tmp/tokpip"; printf 'j:\n  id_tokens:\n    PYPI_ID_TOKEN:\n      aud: pypi\n  before_script:\n    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-build.txt\n' >"$tmp/tokpip/.gitlab-ci.yml"
   expect "job holding PYPI_ID_TOKEN installs the build file" fail "$tmp/tokpip"
+  tok() { printf 'j:\n  id_tokens:\n    PYPI_ID_TOKEN:\n      aud: pypi\n  script:\n%s\n' "$2" >"$1/.gitlab-ci.yml"; }
+  mk "$tmp/pipv"; tok "$tmp/pipv" '    - pip3.11 install --require-hashes -r .gitlab/ci/publish-build.txt'
+  expect "pip3.11 install of the build file under a token" fail "$tmp/pipv"
+  mk "$tmp/uvb"; tok "$tmp/uvb" '    - uv build'
+  expect "uv build under a token" fail "$tmp/uvb"
+  mk "$tmp/pyb"; tok "$tmp/pyb" '    - python3.11 -m build --wheel'
+  expect "python3.11 -m build under a token" fail "$tmp/pyb"
+  mk "$tmp/evil"; tok "$tmp/evil" '    - pip install --require-hashes -r .gitlab/ci/publish-upload.txt.evil'
+  expect "upload path with a suffix" fail "$tmp/evil"
+  mk "$tmp/two"; tok "$tmp/two" '    - pip install --require-hashes -r .gitlab/ci/publish-upload.txt && pip install --require-hashes -r x.txt'
+  expect "two pip installs on one line" fail "$tmp/two"
+  mk "$tmp/extr"; tok "$tmp/extr" '    - pip install --require-hashes -r .gitlab/ci/publish-upload.txt -r other.txt'
+  expect "extra -r" fail "$tmp/extr"
+  mk "$tmp/cmt"; printf 'j:\n  id_tokens:\n    PYPI_ID_TOKEN:\n      aud: pypi\n  script:\n    # note \\\n    - pip install requests\n' >"$tmp/cmt/.gitlab-ci.yml"
+  expect "comment ending in a backslash must not hide the next line" fail "$tmp/cmt"
   [ "$rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   return "$rc"
 }
