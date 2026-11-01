@@ -260,7 +260,67 @@ def test_each_percentile_is_a_quantile_of_the_distribution(project: Project) -> 
         assert before < q + 1 / n, f"{name}={day} but {before:.1%} of runs are strictly before it"
 
 
+def _outranked_start_of_day_project() -> Project:
+    """A start-of-day milestone shares its shown day with later-ending work (#4786).
+
+    ``join`` is shown at the start of the day ``t3``'s fractional sampled finish
+    lands on, so ``t3`` decides the run's finish (the end of that day) but the
+    milestone's exclusive shown offset — a whole day — lifts the run's shown offset
+    above its working-time position without changing its shown day.
+    """
+    t0 = Task(
+        id="t0",
+        name="t",
+        duration=timedelta(days=5),
+        percent_complete=20.0,
+        optimistic_duration=timedelta(days=1),
+        most_likely_duration=timedelta(days=10),
+        pessimistic_duration=timedelta(days=23),
+    )
+
+    def link(p: str, s: str, kind: DependencyType = DependencyType.FS, lag: int = 0) -> Dependency:
+        return Dependency(p, s, dep_type=kind, lag=timedelta(days=lag))
+
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            t0,
+            Task(id="t1", name="t", duration=timedelta(0)),
+            Task(id="t2", name="t", duration=timedelta(days=1)),
+            Task(id="t3", name="t", duration=timedelta(days=1)),
+            Task(id="join", name="t", duration=timedelta(0)),
+        ],
+        dependencies=[
+            link("t0", "t3"),
+            link("t2", "t3", lag=1),
+            link("t1", "t2"),
+            link("t0", "t2", lag=1),
+            link("t0", "join", DependencyType.SS),
+            link("t2", "join", lag=1),
+        ],
+    )
+
+
+def test_an_outranked_start_of_day_milestone_does_not_move_the_percentile() -> None:
+    """Known answer for the #4786 counterexample: P95 is ranked in working time.
+
+    Run 61 of 64 finishes with ``t3`` partway into Monday 03-30 and ``join`` at the
+    start of that Monday. Its working-time position is ``t3``'s, so interpolating at
+    rank 59.85 lands before the middle of that day and P95 is the end of Friday
+    03-27. The pre-#4204 rule interpolated over the milestone's whole-day shown
+    offset instead and reported 03-30 — a day picked by a milestone that does not
+    finish the run.
+    """
+    mc = _simulate(_outranked_start_of_day_project())
+    assert mc is not None
+    assert [mc.p50, mc.p80, mc.p95] == [date(2026, 3, 18), date(2026, 3, 25), date(2026, 3, 27)]
+    assert not (mc.p50_at_day_start or mc.p80_at_day_start or mc.p95_at_day_start)
+
+
 @pytest.mark.fuzz
+@example(project=_outranked_start_of_day_project())
 @given(project=_plausible_projects())
 def test_no_start_of_day_finish_reports_the_pre_4204_dates(project: Project) -> None:
     """Without a start-of-day finish, ranking by working time is ranking by shown day.
@@ -269,6 +329,13 @@ def test_no_start_of_day_finish_reports_the_pre_4204_dates(project: Project) -> 
     pre-#4204 rule on them — ``numpy.percentile`` over the SHOWN offsets, mapped
     through the same index — so the comparison is against the old algorithm itself,
     not a re-derivation of it.
+
+    The precondition is that no run's shown offset exceeds its working-time
+    position, compared exactly. Only a start-of-day milestone makes them differ, and
+    it can do so without changing the run's shown day: outranked by work ending
+    later on the same day, it still lifts the shown offset to the whole day. The two
+    rules then interpolate between different numbers and can round to adjacent days
+    (#4786, the ``@example``); comparing the offsets rounded to days missed that.
     """
     captured: list[tuple[np.ndarray, np.ndarray, list[date], date | None]] = []
     real = engine._mc_percentiles
@@ -288,7 +355,7 @@ def test_no_start_of_day_finish_reports_the_pre_4204_dates(project: Project) -> 
     if mc is None:
         return
     completion, shown, wd_index, floor = captured[0]
-    if (np.rint(shown) > np.rint(completion)).any() or (
+    if (shown > completion).any() or (
         mc.p50_at_day_start or mc.p80_at_day_start or mc.p95_at_day_start
     ):
         return
