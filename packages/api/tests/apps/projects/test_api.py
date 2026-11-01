@@ -1325,6 +1325,40 @@ class TestCrossProjectDependency:
         ids = [n["id"] for n in r.data["cycle"]]
         assert ids == [str(leaf.pk), str(other.pk), str(leaf.pk)]
 
+    def test_cycle_path_avoids_redacted_anchor_when_predecessor_summary_is_unreadable(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4788: summary predecessor in a project reached only by program role.
+
+        Its leaf is the only predecessor-side node on the path and is redacted, so
+        anchoring there would blank it twice; the path anchors on the successor
+        endpoint instead, and nothing about the leaf is named.
+        """
+        program = Program.objects.create(name="GA Launch")
+        p_x, p_y = (
+            Project.objects.create(
+                name=name, start_date=date(2026, 3, 2), calendar=calendar, program=program
+            )
+            for name in ("Xray", "Yankee")
+        )
+        ProjectMembership.objects.create(project=p_y, user=user, role=Role.SCHEDULER)
+        ProgramMembership.objects.create(program=program, user=user, role=Role.VIEWER)
+        phase = Task.objects.create(project=p_x, name="X phase", wbs_path="1", duration=1)
+        leaf = Task.objects.create(project=p_x, name="X leaf secret", wbs_path="1.1", duration=1)
+        o = Task.objects.create(project=p_y, name="Y task", duration=1)
+        other = get_user_model().objects.create_user(username="xy-scheduler", password="pw")
+        for p in (p_x, p_y):
+            ProjectMembership.objects.create(project=p, user=other, role=Role.SCHEDULER)
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        assert self._post_edge(other_client, o, leaf).status_code == 201
+
+        r = self._post_edge(client, phase, o)
+        assert r.status_code == 400, r.data
+        cycle = r.data["cycle"]
+        assert [n["id"] for n in cycle] == [str(o.pk), "", str(o.pk)]
+        assert "X leaf secret" not in str(r.data) and str(leaf.pk) not in str(r.data)
+
     # -- D5: minimal visibility card ----------------------------------------
 
     def test_cross_project_edge_exposes_minimal_card(
