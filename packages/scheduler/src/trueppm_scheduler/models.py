@@ -615,8 +615,9 @@ def _mask_days_between(lo: int, hi: int, mask: int) -> int:
         return 0
     full_weeks, rem = divmod(n, 7)
     count = full_weeks * (mask & 0b1111111).bit_count()
-    first = lo + full_weeks * 7
-    for o in range(first, first + rem):
+    # The weekday of an ordinal repeats every 7, so the leftover days are read from
+    # ``lo`` itself rather than from ``lo + full_weeks * 7``.
+    for o in range(lo, lo + rem):
         count += (mask >> ((o - 1) % 7)) & 1
     return count
 
@@ -832,14 +833,16 @@ class Calendar:
         if a == b:
             s = max(starts[a], lo)
             e = min(ends[a] + 1, hi)
-            return _mask_days_between(s, e, mask) if s < e else 0
+            return _mask_days_between(s, e, mask)
         s0 = max(starts[a], lo)
         e0 = ends[a] + 1
-        first = _mask_days_between(s0, e0, mask) if s0 < e0 else 0
+        # ``_mask_days_between`` returns 0 for an empty or inverted span, which is
+        # what a run clipped entirely out of [lo, hi) needs — no guard required.
+        first = _mask_days_between(s0, e0, mask)
         middle = prefix[b] - prefix[a + 1]
         s_last = starts[b]
         e_last = min(ends[b] + 1, hi)
-        last = _mask_days_between(s_last, e_last, mask) if s_last < e_last else 0
+        last = _mask_days_between(s_last, e_last, mask)
         return first + middle + last
 
     def to_dict(self) -> dict[str, Any]:

@@ -171,7 +171,10 @@ def test_missing_subcommand_is_a_usage_error(
     # required=True on the subparsers: no command must exit 2, not run anything.
     code = _run_expect_exit([], monkeypatch)
     assert code == 2
-    assert "usage: trueppm-scheduler" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "usage: trueppm-scheduler" in err
+    # dest="command" names the missing argument; without it argparse says "{schedule,...}".
+    assert "the following arguments are required: command" in err
 
 
 def test_schedule_subcommand_help_text(capsys: pytest.CaptureFixture[str], monkeypatch) -> None:
@@ -187,6 +190,7 @@ def test_monte_carlo_subcommand_help_text(capsys: pytest.CaptureFixture[str], mo
     code = _run_expect_exit(["monte-carlo", "--help"], monkeypatch)
     out = capsys.readouterr().out
     assert code == 0
+    assert "Path to project JSON file" in out
     assert "Number of simulations (default: 10000)" in out
     assert "RNG seed for reproducibility" in out
     assert "Include full distribution in JSON output" in out
@@ -560,3 +564,144 @@ def test_display_escapes_tag_characters_and_word_joiner() -> None:
     out = _display(raw)
     assert out == "a\\U000e0041\\u2060\\xad\\u061c\\ufff9b"
     out.encode("utf-8")
+
+
+# --- #4794: boundary-exact kill tests for _needs_escape / _display / _make_stdout_safe ---
+
+# Independent of the implementation: (lo, hi) inclusive ranges that must be escaped.
+_ESCAPED_RANGES = (
+    (0x00, 0x1F),
+    (0x7F, 0x9F),
+    (0xD800, 0xDFFF),
+    (0x200B, 0x200F),
+    (0x2028, 0x202E),
+    (0x2060, 0x2064),
+    (0x2066, 0x2069),
+    (0xFFF9, 0xFFFB),
+    (0xE0000, 0xE007F),
+)
+_ESCAPED_SINGLES = (0x00AD, 0x061C, 0x180E, 0xFEFF)
+
+
+def _expected_escape(cp: int) -> bool:
+    return cp in _ESCAPED_SINGLES or any(lo <= cp <= hi for lo, hi in _ESCAPED_RANGES)
+
+
+def _boundary_codepoints() -> list[int]:
+    pts: set[int] = set()
+    for lo, hi in _ESCAPED_RANGES:
+        pts.update((lo - 1, lo, lo + 1, hi - 1, hi, hi + 1))
+    for cp in _ESCAPED_SINGLES:
+        pts.update((cp - 1, cp, cp + 1))
+    return sorted(p for p in pts if p >= 0)
+
+
+@pytest.mark.parametrize("cp", _boundary_codepoints(), ids=lambda cp: f"U+{cp:04X}")
+def test_needs_escape_boundaries_are_exact(cp: int) -> None:
+    from trueppm_scheduler.cli import _needs_escape
+
+    assert _needs_escape(cp) is _expected_escape(cp)
+
+
+def test_needs_escape_leaves_ordinary_text_alone() -> None:
+    from trueppm_scheduler.cli import _needs_escape
+
+    for ch in "aZ 09~é€😀\u2010\u2027\u202f\u2065\u206a":
+        assert _needs_escape(ord(ch)) is False
+
+
+@pytest.mark.parametrize(
+    ("cp", "expected"),
+    [
+        (0x00, "\\x00"),
+        (0x1F, "\\x1f"),
+        (0x7F, "\\x7f"),
+        (0x9F, "\\x9f"),
+        (0xAD, "\\xad"),
+        (0x61C, "\\u061c"),
+        (0xD800, "\\ud800"),
+        (0xFEFF, "\\ufeff"),
+        (0xFFFB, "\\ufffb"),
+        (0xE0000, "\\U000e0000"),
+        (0xE007F, "\\U000e007f"),
+    ],
+)
+def test_display_escape_width_and_case(cp: int, expected: str) -> None:
+    from trueppm_scheduler.cli import _display
+
+    assert _display(chr(cp)) == expected
+
+
+def test_display_converts_with_str_and_keeps_printable_text() -> None:
+    from trueppm_scheduler.cli import _display
+
+    assert _display(ValueError("bad\x1b[2Jx")) == "bad\\x1b[2Jx"
+    assert _display(12) == "12"
+    assert _display("é€😀 ok") == "é€😀 ok"
+
+
+def test_make_stdout_safe_reconfigures_both_streams_with_replace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trueppm_scheduler.cli import _make_stdout_safe
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class _Stream:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def reconfigure(self, **kwargs: object) -> None:
+            calls.append((self.name, kwargs))
+
+    monkeypatch.setattr(sys, "stdout", _Stream("out"))
+    monkeypatch.setattr(sys, "stderr", _Stream("err"))
+    _make_stdout_safe()
+    assert calls == [("out", {"errors": "replace"}), ("err", {"errors": "replace"})]
+
+
+def test_make_stdout_safe_skips_streams_without_reconfigure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trueppm_scheduler.cli import _make_stdout_safe
+
+    class _NoReconfigure:
+        pass
+
+    seen: list[dict[str, object]] = []
+
+    class _Has:
+        def reconfigure(self, **kwargs: object) -> None:
+            seen.append(kwargs)
+
+    monkeypatch.setattr(sys, "stdout", _NoReconfigure())
+    monkeypatch.setattr(sys, "stderr", _Has())
+    _make_stdout_safe()  # must not raise on the stream with no reconfigure
+    assert seen == [{"errors": "replace"}]
+
+
+def test_load_project_error_lines_are_exact(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from trueppm_scheduler.cli import _load_project
+
+    missing = str(tmp_path / "nope.json")
+    with pytest.raises(SystemExit) as exc:
+        _load_project(missing)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert err == (
+        f"error: cannot read {missing!r}: [Errno 2] No such file or directory: {missing!r}\n"
+    )
+    assert capsys.readouterr().out == ""
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("[]")
+    with pytest.raises(SystemExit) as exc:
+        _load_project(str(bad))
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    with pytest.raises((KeyError, ValueError)) as inner:
+        Project.from_json("[]")
+    assert captured.err == f"error: invalid project file: {inner.value}\n"
