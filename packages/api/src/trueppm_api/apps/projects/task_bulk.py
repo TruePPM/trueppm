@@ -1117,12 +1117,14 @@ def _guard_edge_graph(
         return survivors
 
     task_ids, children_map = _load_project_tasks_and_children_map(ctx.project.pk)
-    persisted: list[tuple[str, str]] = [
+    # Sorted: the guard reports the first cycle it finds, which must not depend on
+    # unordered DB row order (and decides which batch edges get rejected).
+    persisted: list[tuple[str, str]] = sorted(
         (str(p), str(s))
         for p, s in Dependency.objects.filter(
             is_deleted=False, predecessor_id__in=[uuid.UUID(t) for t in task_ids]
         ).values_list("predecessor_id", "successor_id")
-    ]
+    )
 
     remaining = list(survivors)
     while remaining:

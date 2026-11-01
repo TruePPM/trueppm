@@ -8175,14 +8175,23 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
 
         # The engine returns a closed path ``[n0, ..., nk, n0]`` that may start at
         # any node on the cycle. Rotate it to begin (and end) at the proposed
-        # edge's predecessor so the path is stable across requests — and so the
-        # repeated closing node is always a task the caller just named, never an
-        # interior node that redaction would blank twice.
-        if len(cycle_ids) > 2 and str(predecessor.id) in cycle_ids[:-1]:
+        # edge's predecessor so the path is stable across requests. A summary
+        # predecessor never appears itself (the engine expands it to leaves), so
+        # anchor on its first leaf descendant on the path instead; if neither is on
+        # the path the engine's start is kept (still deterministic via sorted edges).
+        if len(cycle_ids) > 2:
+            anchors = {str(predecessor.id)}
+            stack = [str(predecessor.id)]
+            while stack:
+                for child in children_map.get(stack.pop(), []):
+                    if child not in anchors:
+                        anchors.add(child)
+                        stack.append(child)
             ring = cycle_ids[:-1]
-            start = ring.index(str(predecessor.id))
-            ring = ring[start:] + ring[:start]
-            cycle_ids = [*ring, ring[0]]
+            start = next((i for i, n in enumerate(ring) if n in anchors), None)
+            if start is not None:
+                ring = ring[start:] + ring[:start]
+                cycle_ids = [*ring, ring[0]]
 
         # Resolve to rich objects so the toast can render task names without
         # racing the frontend's task cache (a freshly created task may not be

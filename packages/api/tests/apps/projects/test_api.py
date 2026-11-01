@@ -1289,6 +1289,42 @@ class TestCrossProjectDependency:
         assert r.status_code == 400, r.data
         assert [n["id"] for n in r.data["cycle"]] == [str(x.pk) for x in (t[2], t[0], t[1], t[2])]
 
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_cycle_choice_is_stable_when_several_cycles_pass_through_the_edge(
+        self, client: APIClient, user: object, calendar: Calendar, reverse: bool
+    ) -> None:
+        """#4788: proposed P → Q closes two cycles (via R and via S); the reported
+        one must not depend on edge creation / DB row order. Edges are sorted, so
+        the middle node is the lower-id of R and S."""
+        project = Project.objects.create(name="Two", start_date=date(2026, 3, 2), calendar=calendar)
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        p, q, r_, s_ = (
+            Task.objects.create(project=project, name=n, duration=1) for n in ("P", "Q", "R", "S")
+        )
+        edges = [(q, r_), (r_, p), (q, s_), (s_, p)]
+        for pred, succ in reversed(edges) if reverse else edges:
+            assert self._post_edge(client, pred, succ).status_code == 201
+        r = self._post_edge(client, p, q)
+        assert r.status_code == 400, r.data
+        mid = min(r_, s_, key=lambda t: str(t.pk))
+        assert [n["id"] for n in r.data["cycle"]] == [str(x.pk) for x in (p, q, mid, p)]
+
+    def test_cycle_path_anchors_on_leaf_when_predecessor_is_a_summary(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4788: a summary predecessor is expanded to leaves and never appears in
+        the path, so the path is anchored on its leaf descendant instead."""
+        project = Project.objects.create(name="Sum", start_date=date(2026, 3, 2), calendar=calendar)
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        phase = Task.objects.create(project=project, name="Phase", wbs_path="1", duration=1)
+        leaf = Task.objects.create(project=project, name="Leaf", wbs_path="1.1", duration=1)
+        other = Task.objects.create(project=project, name="Other", wbs_path="2", duration=1)
+        assert self._post_edge(client, other, leaf).status_code == 201
+        r = self._post_edge(client, phase, other)
+        assert r.status_code == 400, r.data
+        ids = [n["id"] for n in r.data["cycle"]]
+        assert ids == [str(leaf.pk), str(other.pk), str(leaf.pk)]
+
     # -- D5: minimal visibility card ----------------------------------------
 
     def test_cross_project_edge_exposes_minimal_card(
