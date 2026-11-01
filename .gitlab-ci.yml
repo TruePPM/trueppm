@@ -4252,10 +4252,12 @@ scheduler:fuzz-deep:
       # contract-semantic's properties were fuzzed under the contract key
       # until #4511; Hypothesis keys its database per test, so seeding one
       # shard from another's corpus is harmless.
-      # `invariants` was part of `other` until #4786, so it seeds from that one.
+      # GitLab restores the first fallback key that exists, and `-contract`
+      # always does, so `invariants` (split out of `other` in #4786) seeds from
+      # it, not from `other`: its first run starts its own properties cold. The
+      # #4786 counterexample is pinned by @example and does not depend on it.
       fallback_keys:
         - scheduler-fuzz-corpus-contract
-        - scheduler-fuzz-corpus-other
         - scheduler-fuzz-corpus
       paths:
         - packages/scheduler/.hypothesis/
