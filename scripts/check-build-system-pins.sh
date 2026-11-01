@@ -22,8 +22,18 @@
 #      isolated and --no-isolation builds use the same backend;
 #   3. every requirement in .gitlab/ci/publish-{build,upload}.txt carries a
 #      --hash (pip would refuse otherwise; this fails earlier, in pre-push);
-#   4. no `pip install` line in .gitlab-ci.yml names build, twine, hatchling or
-#      pypi-attestations without --require-hashes.
+#   4. no `pip install` line (backslash continuations joined) in .gitlab-ci.yml
+#      names build, twine, hatchling or pypi-attestations without
+#      --require-hashes;
+#   5. publish-build.txt pins the same hatchling== as publish-build.in;
+#   6. a job that declares PYPI_ID_TOKEN runs no `python -m build` and no
+#      `pip install` other than `--require-hashes -r .gitlab/ci/publish-upload.txt`
+#      (the issue's core invariant: nothing but the hashed upload tools runs
+#      while the OIDC tokens exist). ci:pypi-mint-probe is exempt by name: it is
+#      the manual PYPI_PROBE mirror that builds and holds tokens in one job, with
+#      every tool hash-pinned. Text-based, not a resolved-YAML audit: it does not
+#      follow `extends:`/`default:`, and a `pip install` hidden in a referenced
+#      script would escape it.
 #
 # WHAT IT CANNOT CHECK
 #   That the .txt files are the faithful compile of the .in files (regenerate
@@ -43,6 +53,8 @@ import glob, os, re, sys, tomllib
 
 root = sys.argv[1]
 bad = []
+EXEMPT = {"ci:pypi-mint-probe"}
+LOGS = {}
 
 # 1 + 2: [build-system].requires
 hatch_in = None
@@ -69,6 +81,13 @@ for path in sorted(glob.glob(os.path.join(root, "packages/*/pyproject.toml"))):
         elif m.group(1).lower() == "hatchling" and hatch_in and m.group(3) != hatch_in:
             bad.append(f"{rel}: hatchling=={m.group(3)} differs from .gitlab/ci/publish-build.in (=={hatch_in})")
 
+# 5: the compiled build file pins the same hatchling as the .in
+txt = os.path.join(root, ".gitlab/ci/publish-build.txt")
+if os.path.isfile(txt) and hatch_in:
+    pinned = [m.group(1) for m in (re.match(r"^hatchling==(\S+)", l.strip()) for l in open(txt, encoding="utf-8")) if m]
+    if pinned != [hatch_in]:
+        bad.append(f".gitlab/ci/publish-build.txt: hatchling pin {pinned or 'missing'} != publish-build.in (=={hatch_in})")
+
 # 3: hashes in the compiled files
 for name in ("publish-build.txt", "publish-upload.txt"):
     path = os.path.join(root, ".gitlab/ci", name)
@@ -93,16 +112,43 @@ for name in ("publish-build.txt", "publish-upload.txt"):
     if n == 0:
         bad.append(f".gitlab/ci/{name}: contains no requirements")
 
-# 4: unhashed installs of the toolchain in the CI file
+# 4 + 6: toolchain installs in the CI file (continuations joined first)
 ci = os.path.join(root, ".gitlab-ci.yml")
 if os.path.isfile(ci):
     tool = re.compile(r"""(?<![\w./-])(build|twine|hatchling|pypi-attestations)(?![\w./-])""")
-    for i, line in enumerate(open(ci, encoding="utf-8"), 1):
-        s = line.strip()
-        if s.startswith("#") or "pip install" not in s:
+    logical, buf, start = [], "", 0
+    for i, raw in enumerate(open(ci, encoding="utf-8").read().splitlines(), 1):
+        if not buf:
+            start = i
+        if raw.rstrip().endswith("\\"):
+            buf += raw.rstrip()[:-1] + " "
             continue
-        if tool.search(s.split("pip install", 1)[1]) and "--require-hashes" not in s:
-            bad.append(f".gitlab-ci.yml:{i}: unhashed install of the build/upload toolchain: {s}")
+        logical.append((start, buf + raw))
+        buf = ""
+    job, holds = None, {}
+    for n, line in logical:
+        if line and not line[0].isspace() and line.rstrip().endswith(":") and not line.startswith("#"):
+            job = line.rstrip()[:-1]
+        s = line.strip()
+        if s.startswith("#"):
+            continue
+        if job and s.startswith("PYPI_ID_TOKEN:"):
+            holds[job] = True
+        if "pip install" in s and tool.search(s.split("pip install", 1)[1]) and "--require-hashes" not in s:
+            bad.append(f".gitlab-ci.yml:{n}: unhashed install of the build/upload toolchain: {s}")
+        if job and job not in EXEMPT and (("pip install" in s) or re.search(r"python3? -m build\b", s)):
+            LOGS.setdefault(job, []).append((n, s))
+    for j in holds:
+        if j in EXEMPT:
+            continue
+        for n, s in LOGS.get(j, []):
+            if re.search(r"python3? -m build\b", s):
+                bad.append(f".gitlab-ci.yml:{n}: job {j} holds PYPI_ID_TOKEN but runs a build: {s}")
+            elif "pip install" in s and not (
+                "--require-hashes" in s and "-r .gitlab/ci/publish-upload.txt" in s
+                and "publish-build.txt" not in s
+            ):
+                bad.append(f".gitlab-ci.yml:{n}: job {j} holds PYPI_ID_TOKEN but installs more than the hashed upload tools: {s}")
 for b in bad:
     print(b)
 PY
@@ -130,7 +176,7 @@ self_test() {
     printf 'build==1.0.0\nhatchling==1.2.3\n' >"$1/.gitlab/ci/publish-build.in"
     printf 'build==1.0.0 \\\n    --hash=sha256:aa\nhatchling==1.2.3 \\\n    --hash=sha256:bb\n' >"$1/.gitlab/ci/publish-build.txt"
     printf 'twine==7.0.0 \\\n    --hash=sha256:cc\n' >"$1/.gitlab/ci/publish-upload.txt"
-    printf 'j:\n  before_script:\n    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-upload.txt\n    - pip install uv==0.9.5\n' >"$1/.gitlab-ci.yml"
+    printf 'j:\n  id_tokens:\n    PYPI_ID_TOKEN:\n      aud: pypi\n  before_script:\n    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-upload.txt\n  script:\n    - twine upload dist/*\nk:\n  script:\n    - pip install uv==0.9.5\n    - python -m build --no-isolation\n' >"$1/.gitlab-ci.yml"
   }
   expect() { # <name> <pass|fail> <dir>
     if run "$3" >/dev/null 2>&1; then
@@ -150,6 +196,14 @@ self_test() {
   expect "requirement without --hash" fail "$tmp/nohash"
   mk "$tmp/ci"; printf 'j:\n  before_script:\n    - pip install build "twine>=6.1" --quiet\n' >"$tmp/ci/.gitlab-ci.yml"
   expect "unhashed pip install build/twine in CI" fail "$tmp/ci"
+  mk "$tmp/txtdrift"; printf 'build==1.0.0 \\\n    --hash=sha256:aa\nhatchling==1.9.9 \\\n    --hash=sha256:bb\n' >"$tmp/txtdrift/.gitlab/ci/publish-build.txt"
+  expect "publish-build.txt hatchling differs from .in" fail "$tmp/txtdrift"
+  mk "$tmp/fold"; printf 'k:\n  script:\n    - pip install uv==0.9.5 \\\n        twine --quiet\n' >"$tmp/fold/.gitlab-ci.yml"
+  expect "pip install folded across lines" fail "$tmp/fold"
+  mk "$tmp/tokbuild"; printf 'j:\n  id_tokens:\n    PYPI_ID_TOKEN:\n      aud: pypi\n  script:\n    - python -m build\n' >"$tmp/tokbuild/.gitlab-ci.yml"
+  expect "job holding PYPI_ID_TOKEN runs python -m build" fail "$tmp/tokbuild"
+  mk "$tmp/tokpip"; printf 'j:\n  id_tokens:\n    PYPI_ID_TOKEN:\n      aud: pypi\n  before_script:\n    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-build.txt\n' >"$tmp/tokpip/.gitlab-ci.yml"
+  expect "job holding PYPI_ID_TOKEN installs the build file" fail "$tmp/tokpip"
   [ "$rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   return "$rc"
 }

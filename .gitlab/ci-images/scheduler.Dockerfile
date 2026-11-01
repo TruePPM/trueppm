@@ -60,7 +60,7 @@ RUN mkdir -p scheduler/src/trueppm_scheduler \
  && pip uninstall --yes trueppm-scheduler \
  && rm -rf /opt/ci-deps
 
-# CycloneDX SBOM generator for scheduler:sbom: / scheduler:publish: (#936).
+# CycloneDX SBOM generator for scheduler:sbom: / scheduler:build: (#936).
 # Pinned + resident so the SBOM jobs never do a live install. Installed
 # SEPARATELY from scheduler[dev] so its own deps (lxml, jsonschema, …) stay out
 # of the audited dependency set in security:pip-audit:scheduler: (#935).

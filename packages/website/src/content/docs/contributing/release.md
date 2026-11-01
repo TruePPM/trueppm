@@ -102,7 +102,7 @@ The `git push origin main v0.2.0` command triggers the CI **publish stage**:
 - `api:publish` — builds the API Docker image, Trivy-scans it, generates a CycloneDX SBOM (Syft), pushes it to the internal GitLab container registry **and** to the public GHCR (`ghcr.io/<user>/api:<version>` + `latest`), then Cosign-signs the GHCR digest keyless and attaches the SBOM as a CycloneDX attestation
 - `web:publish` — same as above for the web image (`ghcr.io/<user>/web`)
 - `helm:publish` — packages and pushes the Helm chart to `oci://ghcr.io/<user>/charts`, then Cosign-signs the pushed chart digest
-- `api:publish:pypi` — publishes `trueppm-api` to PyPI via Trusted Publishing (see [PyPI Trusted Publishing](#pypi-trusted-publishing-one-time-setup))
+- `api:build:pypi` then `api:publish:pypi` — builds, then publishes `trueppm-api` to PyPI via Trusted Publishing (see [PyPI Trusted Publishing](#pypi-trusted-publishing-one-time-setup))
 - `release:create` — creates the GitLab release entry
 
 Starting with the 0.4 beta, **GHCR will become the public release target**, not an optional mirror. The image/chart publish jobs will push to GHCR in addition to the internal GitLab container registry, and a missing `GHCR_USER`/`GHCR_TOKEN` will **fail the job** rather than skipping — so a release tag can never appear to succeed without the public artifacts landing. Cosign signing is keyless (Sigstore via the GitLab `SIGSTORE_ID_TOKEN` OIDC audience) and needs no key material. Configure `GHCR_USER` + `GHCR_TOKEN` (Masked + Protected) before pushing the first `v0.4.0-beta*` tag.
@@ -119,7 +119,7 @@ The scheduler package (`packages/scheduler`) is released **in lockstep** with th
 git push origin main v0.2.0 scheduler-v0.2.0
 ```
 
-The `scheduler:publish` CI job fires on `scheduler-v*` tags and publishes to PyPI.
+The `scheduler:build` and `scheduler:publish` CI jobs fire on `scheduler-v*` tags; the second publishes to PyPI.
 
 ## PyPI Trusted Publishing (one-time setup)
 
@@ -129,7 +129,7 @@ Each PyPI package releases as a pair of jobs: `scheduler:build` / `scheduler:pub
 
 The point is that code from a compromised build dependency never runs next to a minted PyPI or Sigstore identity. Two pins back that up:
 
-- `[build-system].requires` in each `packages/*/pyproject.toml` pins `hatchling` exactly (`hatchling==1.33.0`), and the build runs with `--no-isolation` so hatchling's own dependencies come from the hash-verified install rather than a fresh resolve.
+- `[build-system].requires` in each `packages/*/pyproject.toml` pins `hatchling` exactly (`hatchling==1.33.0`), and `python -m build` runs with `--no-isolation` so hatchling's own dependencies come from the hash-verified install rather than a fresh resolve. The `uv sync --frozen --no-editable` step that feeds the SBOM in `scheduler:build` and `mcp:build` still resolves its own build environment unhashed; those jobs hold no tokens. This change does not make the SBOM describe the build backend.
 - The tooling is installed with `pip install --require-hashes` from `.gitlab/ci/publish-build.txt` (build, hatchling, cyclonedx-bom, uv) and `.gitlab/ci/publish-upload.txt` (twine, pypi-attestations). Regenerate them from the matching `.in` files with `uv pip compile --generate-hashes --universal --python-version 3.11 -o <name>.txt <name>.in`, and bump the hatchling pin in all three `pyproject.toml` files and `publish-build.in` together.
 
 `scripts/check-build-system-pins.sh` (`make build-system-pins-check`, CI job `ci:build-system-pins`) fails on an unpinned `[build-system].requires`, a hatchling pin that drifts from `publish-build.in`, a requirement without a hash, or an unhashed `pip install` of the toolchain in `.gitlab-ci.yml`. The manual `ci:pypi-mint-probe` job still builds and holds tokens in one job, but it installs the same hash-verified files.
