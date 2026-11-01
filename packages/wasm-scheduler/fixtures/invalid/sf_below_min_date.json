@@ -1,0 +1,13 @@
+{
+  "id": "inv-sf-below-min-date",
+  "name": "SF link from a 0001-01-01 start walks the successor before date.min — Python rejects, Rust returned 0000-12-28 (#4707)",
+  "start_date": "0001-01-01",
+  "tasks": [
+    {"id": "a", "name": "a", "duration": 0.0},
+    {"id": "b", "name": "b", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "a", "successor_id": "b", "dep_type": "SF", "lag": 0.0}
+  ],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

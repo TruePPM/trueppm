@@ -7,7 +7,7 @@
 use chrono::{Datelike, Duration, NaiveDate};
 
 use crate::models::{Calendar, DateRange, ExceptionIndex, Project, Task};
-use crate::validate::{MAX_CALENDAR_SCAN_DAYS, MAX_PROJECT_SPAN_DAYS};
+use crate::validate::{py_date_min, MAX_CALENDAR_SCAN_DAYS, MAX_PROJECT_SPAN_DAYS};
 
 /// Map each task to the calendar its own date arithmetic should use (ADR-0120 D3).
 ///
@@ -177,12 +177,14 @@ fn calendar_scan_error(anchor: NaiveDate, direction: &str) -> String {
 /// boundary instead, matching the bounded-scan guard the calendar walks already
 /// use.
 pub fn checked_offset_days(d: NaiveDate, days: i64) -> Result<NaiveDate, String> {
-    d.checked_add_signed(Duration::days(days)).ok_or_else(|| {
-        format!(
-            "Date arithmetic overflowed: {d} offset by {days} day(s) falls outside the \
+    d.checked_add_signed(Duration::days(days))
+        .filter(|r| *r >= py_date_min())
+        .ok_or_else(|| {
+            format!(
+                "Date arithmetic overflowed: {d} offset by {days} day(s) falls outside the \
              representable calendar range — check the task's start date and dependency lag."
-        )
-    })
+            )
+        })
 }
 
 impl Calendar {
@@ -520,11 +522,19 @@ fn exception_mask_days(cal: &Calendar, lo: i32, hi: i32) -> i32 {
     if a == b {
         let s = ranges[a].0.max(lo);
         let e = (ranges[a].1 + 1).min(hi);
-        return if s < e { mask_days_between(s, e, mask) } else { 0 };
+        return if s < e {
+            mask_days_between(s, e, mask)
+        } else {
+            0
+        };
     }
     let s0 = ranges[a].0.max(lo);
     let e0 = ranges[a].1 + 1;
-    let first = if s0 < e0 { mask_days_between(s0, e0, mask) } else { 0 };
+    let first = if s0 < e0 {
+        mask_days_between(s0, e0, mask)
+    } else {
+        0
+    };
     let middle = prefix[b] - prefix[a + 1];
     let s_last = ranges[b].0;
     let e_last = (ranges[b].1 + 1).min(hi);
@@ -562,6 +572,7 @@ pub fn advance_calendar_days(
 ) -> Result<NaiveDate, String> {
     let shifted = d
         .checked_add_signed(Duration::days(lag_days))
+        .filter(|r| *r >= py_date_min())
         .ok_or_else(|| calendar_scan_error(d, "after"))?;
     next_working_day(shifted, cal)
 }
@@ -759,7 +770,9 @@ mod tests {
         if (cal.working_days >> weekday_bit) & 1 == 0 {
             return false;
         }
-        !cal.exceptions.iter().any(|e| day >= e.start && day <= e.end)
+        !cal.exceptions
+            .iter()
+            .any(|e| day >= e.start && day <= e.end)
     }
 
     #[test]
@@ -769,11 +782,26 @@ mod tests {
         // two-month window (#1534).
         let cal = Calendar {
             exceptions: vec![
-                DateRange { start: d(2026, 4, 10), end: d(2026, 4, 20) }, // base
-                DateRange { start: d(2026, 4, 15), end: d(2026, 4, 25) }, // overlaps
-                DateRange { start: d(2026, 4, 26), end: d(2026, 4, 26) }, // day-adjacent
-                DateRange { start: d(2026, 4, 1), end: d(2026, 4, 3) },   // earlier, unsorted
-                DateRange { start: d(2026, 5, 5), end: d(2026, 5, 4) },   // inverted → no-op
+                DateRange {
+                    start: d(2026, 4, 10),
+                    end: d(2026, 4, 20),
+                }, // base
+                DateRange {
+                    start: d(2026, 4, 15),
+                    end: d(2026, 4, 25),
+                }, // overlaps
+                DateRange {
+                    start: d(2026, 4, 26),
+                    end: d(2026, 4, 26),
+                }, // day-adjacent
+                DateRange {
+                    start: d(2026, 4, 1),
+                    end: d(2026, 4, 3),
+                }, // earlier, unsorted
+                DateRange {
+                    start: d(2026, 5, 5),
+                    end: d(2026, 5, 4),
+                }, // inverted → no-op
             ],
             ..Calendar::default()
         };
@@ -821,7 +849,10 @@ mod tests {
     #[test]
     fn test_working_day_counter_matches_scalar_in_range() {
         let cal = Calendar {
-            exceptions: vec![DateRange { start: d(2026, 4, 10), end: d(2026, 4, 17) }],
+            exceptions: vec![DateRange {
+                start: d(2026, 4, 10),
+                end: d(2026, 4, 17),
+            }],
             ..Calendar::default()
         };
         // Range spanned by the tasks: [2026-04-01, 2026-05-01].
@@ -959,7 +990,9 @@ mod tests {
         // Tiny deterministic LCG — no rand dependency in this crate.
         let mut seed: u64 = 4161;
         let mut next = |n: i64| -> i64 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((seed >> 33) % n as u64) as i64
         };
         let base = d(2026, 3, 1);
@@ -967,7 +1000,10 @@ mod tests {
             let mut exceptions = Vec::new();
             for _ in 0..next(9) {
                 let s = base + Duration::days(next(121) - 60);
-                exceptions.push(DateRange { start: s, end: s + Duration::days(next(21)) });
+                exceptions.push(DateRange {
+                    start: s,
+                    end: s + Duration::days(next(21)),
+                });
             }
             let cal = Calendar {
                 working_days: (next(127) + 1) as u8,
@@ -1009,7 +1045,9 @@ mod tests {
         // the wrong answer instead of catching it.
         let mut seed: u64 = 4176;
         let mut next = |n: i64| -> i64 {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((seed >> 33) % n as u64) as i64
         };
         let base = d(2026, 3, 1);
@@ -1019,7 +1057,10 @@ mod tests {
             for _ in 0..(20 + next(41)) {
                 cursor += Duration::days(next(7));
                 let length = next(7);
-                exceptions.push(DateRange { start: cursor, end: cursor + Duration::days(length) });
+                exceptions.push(DateRange {
+                    start: cursor,
+                    end: cursor + Duration::days(length),
+                });
                 cursor += Duration::days(length);
             }
             let cal = Calendar {
@@ -1054,7 +1095,10 @@ mod tests {
             let gap = MAX_CALENDAR_SCAN_DAYS + extra;
             let cal = Calendar {
                 working_days: 127,
-                exceptions: vec![DateRange { start, end: start + Duration::days(gap - 1) }],
+                exceptions: vec![DateRange {
+                    start,
+                    end: start + Duration::days(gap - 1),
+                }],
                 ..Calendar::default()
             };
             assert_eq!(
@@ -1088,10 +1132,17 @@ mod tests {
         };
         assert!(prev_working_day(NaiveDate::MIN + Duration::days(10), &near_min).is_err());
         // The tie: the budget and the date range run out on the same day.
-        for back in [MAX_CALENDAR_SCAN_DAYS - 1, MAX_CALENDAR_SCAN_DAYS, MAX_CALENDAR_SCAN_DAYS + 1] {
+        for back in [
+            MAX_CALENDAR_SCAN_DAYS - 1,
+            MAX_CALENDAR_SCAN_DAYS,
+            MAX_CALENDAR_SCAN_DAYS + 1,
+        ] {
             let hi = NaiveDate::MAX - Duration::days(back);
             let tie_hi = Calendar {
-                exceptions: vec![DateRange { start: hi, end: NaiveDate::MAX }],
+                exceptions: vec![DateRange {
+                    start: hi,
+                    end: NaiveDate::MAX,
+                }],
                 ..Calendar::default()
             };
             assert_eq!(
@@ -1100,7 +1151,10 @@ mod tests {
             );
             let lo = NaiveDate::MIN + Duration::days(back);
             let tie_lo = Calendar {
-                exceptions: vec![DateRange { start: NaiveDate::MIN, end: lo }],
+                exceptions: vec![DateRange {
+                    start: NaiveDate::MIN,
+                    end: lo,
+                }],
                 ..Calendar::default()
             };
             assert_eq!(
@@ -1108,5 +1162,18 @@ mod tests {
                 snap_by_day(lo, &tie_lo, -1, MAX_CALENDAR_SCAN_DAYS)
             );
         }
+    }
+
+    #[test]
+    fn offsets_and_retreats_floor_at_date_min() {
+        let cal = weekday_cal();
+        let floor = py_date_min();
+        assert_eq!(checked_offset_days(floor + Duration::days(3), -3), Ok(floor));
+        assert!(checked_offset_days(floor, -1).is_err());
+        // A lead (negative lag) retreat that lands one day below 0001-01-01.
+        assert!(retreat_calendar_days(floor, 1, &cal).is_err());
+        assert!(advance_calendar_days(floor, -1, &cal).is_err());
+        // Landing exactly on the floor is allowed (0001-01-01 is a Monday).
+        assert_eq!(retreat_calendar_days(floor + Duration::days(1), 1, &cal), Ok(floor));
     }
 }
