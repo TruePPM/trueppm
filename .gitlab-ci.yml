@@ -4384,6 +4384,15 @@ scheduler:mutation:
   # that one reading — a single run is not the multi-night record the paragraph
   # above requires. Restate it from the 3.8.0 nightly artifacts once they exist.
   #
+  # The 2026-11-01 nightly read 92.4% (2780 killed + 1 timeout of 3010, 229
+  # survivors), 0.4 points above the floor (#4794). Kill tests asserting exact
+  # error messages, exact range boundaries and the argparse wiring took a local
+  # mutmut 3.8.0 run from 2763/3010 = 91.8% to 2932/2990 = 98.1% on 2026-11-01
+  # (survivors 246 -> 58; the rest are equivalent mutants or the derive.py ones
+  # test_derive_mutation_hardening.py already catalogs). Three redundant
+  # `if s < e else 0` guards, a dead `first` offset, a no-op conditional and a
+  # no-op `default=None` were deleted rather than excluded. The floor stays at 0.92.
+  #
   # Scope is the beachhead in [tool.mutmut]: models.py, derive.py, cli.py. The
   # engine.py expansion is tracked as phase 2.
   extends: .scheduler

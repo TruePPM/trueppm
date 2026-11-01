@@ -443,3 +443,578 @@ def test_require_str_owner_and_field_labels_are_not_interchangeable() -> None:
     assert msg(lambda: _require_str({"name": 1}, "name", "project")) == (
         "project name must be a string (got int: 1)."
     )
+
+
+# --- #4794: exact-message kill tests for the serializable-field validators ---
+#
+# Each case asserts the FULL message. A substring or ``raises`` check lets the
+# label / operator / constant mutants survive, because the right exception is
+# routinely raised with the wrong words.
+
+import math  # noqa: E402
+import sys  # noqa: E402
+from datetime import datetime  # noqa: E402
+
+from trueppm_scheduler.models import (  # noqa: E402
+    DeliveryMode,
+    _check_sprint_length,
+    _check_velocity_samples,
+    _require_number,
+    _validate_calendar_fields,
+    _validate_dependency_fields,
+    _validate_project_fields,
+    _validate_project_scalar_fields,
+    _validate_task_fields,
+)
+
+
+def _msg(fn: object, *args: object) -> str:
+    with pytest.raises(InvalidScheduleInput) as exc:
+        fn(*args)  # type: ignore[operator]
+    return str(exc.value)
+
+
+def _ok_task(**kw: object) -> Task:
+    return Task(id="T", name="n", duration=timedelta(days=1), **kw)  # type: ignore[arg-type]
+
+
+def _ok_project(**kw: object) -> Project:
+    base: dict[str, object] = {
+        "id": "p",
+        "name": "P",
+        "start_date": date(2026, 3, 2),
+        "tasks": [_ok_task()],
+    }
+    base.update(kw)
+    return Project(**base)  # type: ignore[arg-type]
+
+
+def test_valid_objects_pass_every_validator() -> None:
+    p = _ok_project(
+        calendars={"c": Calendar()},
+        velocity_samples=[1, None, 2.5],
+        sprint_length_days=14,
+        status_date=date(2026, 3, 3),
+    )
+    _validate_project_fields(p)
+    _validate_task_fields(_ok_task(percent_complete=0, story_points=0))
+    _validate_task_fields(_ok_task(percent_complete=100))
+    _validate_task_fields(_ok_task(delivery_mode=DeliveryMode.SCRUM, calendar_id="c"))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        (
+            "working_days",
+            -1,
+            "Calendar working_days must be an integer bitmask in [0, 127] (got -1).",
+        ),
+        (
+            "working_days",
+            128,
+            "Calendar working_days must be an integer bitmask in [0, 127] (got 128).",
+        ),
+        (
+            "working_days",
+            True,
+            "Calendar working_days must be an integer bitmask in [0, 127] (got True).",
+        ),
+        (
+            "working_days",
+            1.0,
+            "Calendar working_days must be an integer bitmask in [0, 127] (got 1.0).",
+        ),
+        ("hours_per_day", "x", "Calendar hours_per_day must be a finite number (got 'x')."),
+        (
+            "hours_per_day",
+            float("inf"),
+            "Calendar hours_per_day must be a finite number (got inf).",
+        ),
+        ("timezone", 5, "Calendar timezone must be a string (got int: 5)."),
+    ],
+)
+def test_validate_calendar_fields_messages(field: str, value: object, expected: str) -> None:
+    cal = Calendar()
+    setattr(cal, field, value)
+    assert _msg(_validate_calendar_fields, cal, "Calendar") == expected
+
+
+def test_validate_calendar_fields_accepts_bitmask_bounds() -> None:
+    _validate_calendar_fields(Calendar(working_days=0), "Calendar")
+    _validate_calendar_fields(Calendar(working_days=127), "Calendar")
+
+
+def test_validate_calendar_fields_exceptions_messages() -> None:
+    cal = Calendar()
+    cal.exceptions = ["x"]  # type: ignore[list-item]
+    assert (
+        _msg(_validate_calendar_fields, cal, "L")
+        == "L exceptions must contain only DateRange instances (got str: 'x')."
+    )
+    bad = DateRange(date(2026, 1, 2), date(2026, 1, 3))
+    object.__setattr__(bad, "start", "s")
+    cal.exceptions = [bad]
+    assert (
+        _msg(_validate_calendar_fields, cal, "L")
+        == "L exception start must be a date (got str: 's')."
+    )
+    bad2 = DateRange(date(2026, 1, 2), date(2026, 1, 3))
+    object.__setattr__(bad2, "end", datetime(2026, 1, 3))
+    cal.exceptions = [bad2]
+    assert _msg(_validate_calendar_fields, cal, "L") == (
+        "L exception end must be a date (got datetime: datetime.datetime(2026, 1, 3, 0, 0))."
+    )
+    inv = DateRange(date(2026, 1, 2), date(2026, 1, 3))
+    object.__setattr__(inv, "end", date(2026, 1, 1))
+    cal.exceptions = [inv]
+    assert (
+        _msg(_validate_calendar_fields, cal, "L")
+        == "L exception end (2026-01-01) must be >= start (2026-01-02)."
+    )
+    one_day = DateRange(date(2026, 1, 2), date(2026, 1, 2))
+    cal.exceptions = [one_day]
+    _validate_calendar_fields(cal, "L")  # end == start is legal
+
+
+def test_validate_task_fields_messages() -> None:
+    t = _ok_task()
+    t.id = 5  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == "Task id must be a string (got int: 5)."
+    t = _ok_task()
+    t.name = None  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == "Task 'T' name must be a string (got NoneType: None)."
+    t = _ok_task()
+    t.duration = 3  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == "Task 'T' duration must be a timedelta (got int: 3)."
+    for name in ("total_float", "free_float"):
+        t = _ok_task()
+        setattr(t, name, None)
+        assert _msg(_validate_task_fields, t) == (
+            f"Task 'T' {name} must be a timedelta (got NoneType: None)."
+        )
+    for name in ("optimistic_duration", "most_likely_duration", "pessimistic_duration"):
+        t = _ok_task()
+        setattr(t, name, 1)
+        assert _msg(_validate_task_fields, t) == (
+            f"Task 'T' {name} must be a timedelta (got int: 1)."
+        )
+        setattr(t, name, None)
+        _validate_task_fields(t)  # optional
+    for name in (
+        "planned_start",
+        "planned_finish",
+        "early_start",
+        "early_finish",
+        "late_start",
+        "late_finish",
+        "actual_start",
+        "actual_finish",
+        "scheduled_start",
+        "live_day_end_on",
+    ):
+        t = _ok_task()
+        setattr(t, name, "2026-01-01")
+        assert _msg(_validate_task_fields, t) == (
+            f"Task 'T' {name} must be a date or None (got str: '2026-01-01')."
+        )
+    for name in ("is_critical", "milestone_at_day_end"):
+        t = _ok_task()
+        setattr(t, name, 1)
+        assert _msg(_validate_task_fields, t) == f"Task 'T' {name} must be a bool (got 1)."
+
+
+@pytest.mark.parametrize("pct", [-0.5, 100.5, "x", True, float("nan"), float("inf")])
+def test_validate_task_percent_complete_message(pct: object) -> None:
+    t = _ok_task()
+    t.percent_complete = pct  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == (
+        f"Task 'T' percent_complete must be a number in [0, 100] (got {pct!r})."
+    )
+
+
+def test_validate_task_story_points_delivery_mode_calendar_id() -> None:
+    t = _ok_task()
+    t.story_points = float("nan")
+    assert _msg(_validate_task_fields, t) == (
+        "Task 'T' story_points must be a finite number (got nan)."
+    )
+    t = _ok_task()
+    t.story_points = "3"  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == (
+        "Task 'T' story_points must be a finite number (got '3')."
+    )
+    t = _ok_task()
+    t.delivery_mode = "scrum"  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == (
+        "Task 'T' delivery_mode must be a DeliveryMode or None (got 'scrum')."
+    )
+    t = _ok_task()
+    t.calendar_id = 3  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == ("Task 'T' calendar_id must be a string (got int: 3).")
+
+
+def test_validate_dependency_fields_messages() -> None:
+    d = Dependency("a", "b")
+    _validate_dependency_fields(d)
+    d = Dependency(1, "b")  # type: ignore[arg-type]
+    assert _msg(_validate_dependency_fields, d) == (
+        "Dependency predecessor_id must be a string (got int: 1)."
+    )
+    d = Dependency("a", None)  # type: ignore[arg-type]
+    assert _msg(_validate_dependency_fields, d) == (
+        "Dependency successor_id must be a string (got NoneType: None)."
+    )
+    d = Dependency("a", "b", dep_type="FS")  # type: ignore[arg-type]
+    allowed = ", ".join(t.value for t in DependencyType)
+    assert _msg(_validate_dependency_fields, d) == (
+        f"Invalid dependency type 'FS'; must be one of: {allowed}."
+    )
+    d = Dependency("a", "b", lag=1)  # type: ignore[arg-type]
+    assert _msg(_validate_dependency_fields, d) == (
+        "Dependency 'a' → 'b' lag must be a timedelta (got int: 1)."
+    )
+
+
+def test_check_timedelta_field_messages() -> None:
+    t = _ok_task()
+    t.duration = timedelta(microseconds=1) * 10**3 + timedelta(0)
+    _validate_task_fields(t)
+    t.duration = timedelta.max  # total_seconds() round-trip loses precision
+    msg = _msg(_validate_task_fields, t)
+    assert msg == f"Task 'T' duration {timedelta.max!r} cannot be represented exactly in seconds."
+
+
+def test_validate_project_scalar_fields_messages() -> None:
+    p = _ok_project()
+    p.id = 1  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == "Project id must be a string (got int: 1)."
+    p = _ok_project()
+    p.name = None  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project name must be a string (got NoneType: None)."
+    )
+    p = _ok_project()
+    p.start_date = None  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project start_date must be a date (got NoneType: None)."
+    )
+    p = _ok_project()
+    p.start_date = datetime(2026, 3, 2)
+    assert "Project start_date must be a date (got datetime:" in _msg(
+        _validate_project_scalar_fields, p
+    )
+    p = _ok_project()
+    p.status_date = "x"  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project status_date must be a date or None (got str: 'x')."
+    )
+    p = _ok_project()
+    p.tasks = ()  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project tasks must be a list of Task (got tuple)."
+    )
+    p = _ok_project()
+    p.tasks = [_ok_task(), "x"]  # type: ignore[list-item]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project tasks must be a list of Task (got list)."
+    )
+    p = _ok_project()
+    p.dependencies = ()  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project dependencies must be a list of Dependency (got tuple)."
+    )
+    p = _ok_project()
+    p.dependencies = [Dependency("a", "b"), 1]  # type: ignore[list-item]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project dependencies must be a list of Dependency (got list)."
+    )
+    p = _ok_project()
+    p.calendar = None  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project calendar must be a Calendar (got NoneType)."
+    )
+
+
+def test_validate_project_calendars_dict_rules() -> None:
+    cal = Calendar()
+    for bad in ([("a", cal)], {1: cal}, {"a": "x"}, {"ok": cal, "bad": 3}):
+        p = _ok_project()
+        p.calendars = bad  # type: ignore[assignment]
+        assert _msg(_validate_project_scalar_fields, p) == (
+            f"Project calendars must be a dict of str calendar id to Calendar (got {bad!r})."
+        )
+    p = _ok_project(calendars={"a": cal})
+    _validate_project_scalar_fields(p)
+    p = _ok_project(calendars={})
+    _validate_project_scalar_fields(p)
+
+
+def test_validate_project_velocity_and_sprint_messages() -> None:
+    p = _ok_project()
+    p.velocity_samples = "ab"  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "velocity_samples must be a list of numbers (got 'ab')."
+    )
+    for bad in (float("inf"), "x", True):
+        p = _ok_project()
+        p.velocity_samples = [1, bad]  # type: ignore[list-item]
+        assert _msg(_validate_project_scalar_fields, p) == (
+            f"velocity_samples must contain only finite numbers (got {bad!r})."
+        )
+    p = _ok_project(velocity_samples=(1, None))  # tuple + None entries are legal
+    _validate_project_scalar_fields(p)
+    for bad in (True, 2.5, "7"):
+        p = _ok_project()
+        p.sprint_length_days = bad  # type: ignore[assignment]
+        assert _msg(_validate_project_scalar_fields, p) == (
+            f"sprint_length_days must be an integer (got {bad!r})."
+        )
+
+
+def test_validate_project_fields_labels_each_calendar_and_recurses() -> None:
+    bad = Calendar()
+    bad.hours_per_day = "x"  # type: ignore[assignment]
+    p = _ok_project(calendars={"night": bad})
+    assert _msg(_validate_project_fields, p) == (
+        "Calendar 'night' hours_per_day must be a finite number (got 'x')."
+    )
+    p = _ok_project()
+    p.calendar.hours_per_day = "x"  # type: ignore[assignment]
+    assert _msg(_validate_project_fields, p) == (
+        "Calendar hours_per_day must be a finite number (got 'x')."
+    )
+    t = _ok_task()
+    t.name = 1  # type: ignore[assignment]
+    p = _ok_project(tasks=[t])
+    assert _msg(_validate_project_fields, p) == "Task 'T' name must be a string (got int: 1)."
+    p = _ok_project(dependencies=[Dependency("a", "b", lag=3)])  # type: ignore[arg-type]
+    assert "lag must be a timedelta" in _msg(_validate_project_fields, p)
+
+
+def test_require_number_messages_and_range_boundary() -> None:
+    with pytest.raises(ValueError) as exc:
+        _require_number("1", "Duration")
+    assert str(exc.value) == "Duration must be a number, got str: '1'."
+    with pytest.raises(ValueError) as exc:
+        _require_number(True, "F")
+    assert str(exc.value) == "F must be a number, got bool: True."
+    biggest = int(sys.float_info.max)
+    _require_number(biggest, "F")
+    _require_number(-biggest, "F")
+    _require_number(2**63, "F")
+    for over in (biggest + 1, -biggest - 1):
+        with pytest.raises(ValueError) as exc:
+            _require_number(over, "F")
+        assert str(exc.value) == "F is out of range for a finite number."
+
+
+def test_check_velocity_samples_messages() -> None:
+    _check_velocity_samples(None)
+    _check_velocity_samples([])
+    _check_velocity_samples([1, None, 2.5])
+    with pytest.raises(ValueError) as exc:
+        _check_velocity_samples("ab")
+    assert str(exc.value) == "velocity_samples must be a list (got str: 'ab')."
+    with pytest.raises(ValueError) as exc:
+        _check_velocity_samples(())
+    assert str(exc.value) == "velocity_samples must be a list (got tuple: ())."
+    with pytest.raises(ValueError) as exc:
+        _check_velocity_samples([1, "x"])
+    assert str(exc.value) == "velocity_samples must be a number, got str: 'x'."
+    with pytest.raises(ValueError) as exc:
+        _check_velocity_samples([1, math.inf])
+    assert str(exc.value) == "velocity_samples must be finite numbers (got inf)."
+    with pytest.raises(ValueError) as exc:
+        _check_velocity_samples([math.nan])
+    assert str(exc.value) == "velocity_samples must be finite numbers (got nan)."
+
+
+def test_check_sprint_length_messages() -> None:
+    _check_sprint_length(None)
+    _check_sprint_length(0)
+    _check_sprint_length(14)
+    for bad in (True, 2.5, "7"):
+        with pytest.raises(ValueError) as exc:
+            _check_sprint_length(bad)
+        assert str(exc.value) == f"sprint_length_days must be an integer (got {bad!r})."
+
+
+def test_parse_timedelta_error_messages_and_passthrough() -> None:
+    td = timedelta(days=2)
+    assert _parse_timedelta(td) is td
+    assert _parse_timedelta(86400) == timedelta(days=1)
+    assert _parse_timedelta(0.5) == timedelta(seconds=0.5)
+    with pytest.raises(ValueError) as exc:
+        _parse_timedelta(float("inf"))
+    assert str(exc.value) == "Duration must be a finite number of seconds, got inf."
+    with pytest.raises(ValueError) as exc:
+        _parse_timedelta(float("nan"))
+    assert str(exc.value) == "Duration must be a finite number of seconds, got nan."
+    with pytest.raises(ValueError) as exc:
+        _parse_timedelta(1e300)
+    assert str(exc.value) == "Duration is out of range, got 1e+300."
+    with pytest.raises(ValueError) as exc:
+        _parse_timedelta("5")
+    assert str(exc.value) == "Duration must be a number, got str: '5'."
+    with pytest.raises(ValueError) as exc:
+        _parse_timedelta(86400.0000001)
+    assert str(exc.value).startswith("Duration 86400.0000001s carries sub-microsecond")
+
+
+# --- #4794: from_dict / compose / Calendar messages and the exception-run helpers ---
+
+
+def test_daterange_non_date_bound_messages() -> None:
+    assert _msg(DateRange, "x", date(2026, 1, 1)) == "DateRange start must be a date (got str)."
+    assert _msg(DateRange, date(2026, 1, 1), 5) == "DateRange end must be a date (got int)."
+
+
+def test_task_from_dict_calendar_id_and_delivery_mode_messages() -> None:
+    base = {"id": "a", "name": "n", "duration": 86400}
+    assert _msg(Task.from_dict, {**base, "calendar_id": 5}) == (
+        "Invalid task document: calendar_id must be a string or null (got 5)."
+    )
+    assert _msg(Task.from_dict, {**base, "delivery_mode": "x"}) == (
+        f"Invalid delivery_mode 'x'; must be one of: {', '.join(m.value for m in DeliveryMode)}."
+    )
+    assert len(list(DeliveryMode)) == 2  # the join separator is only visible with >= 2 members
+
+
+def test_dependency_from_dict_messages() -> None:
+    assert _msg(Dependency.from_dict, {"predecessor_id": 1, "successor_id": "b"}) == (
+        "dependency predecessor_id must be a string (got int: 1)."
+    )
+    assert _msg(Dependency.from_dict, {"predecessor_id": "a", "successor_id": 2}) == (
+        "dependency successor_id must be a string (got int: 2)."
+    )
+    assert _msg(Dependency.from_dict, {"predecessor_id": "a", "successor_id": "b", "lag": "x"}) == (
+        "Invalid dependency lag: Duration must be a number, got str: 'x'."
+    )
+    assert _msg(Dependency.from_dict, {"predecessor_id": "a"}) == (
+        "Invalid dependency document: 'successor_id'"
+    )
+
+
+def test_calendar_from_dict_and_compose_messages() -> None:
+    assert _msg(Calendar.from_dict, {"hours_per_day": float("inf")}) == (
+        "hours_per_day must be a finite number (got inf)."
+    )
+    assert _msg(Calendar.from_dict, {"exceptions": {}}) == (
+        "exceptions must be a list (got dict: {})."
+    )
+    assert _msg(Calendar.compose, 5) == "calendars must be an iterable of Calendar (got int)."
+    assert _msg(Calendar.compose, [Calendar(), 3]) == (
+        "calendars must contain only Calendar instances (got int)."
+    )
+    cal = Calendar()
+    cal.hours_per_day = "x"  # type: ignore[assignment]
+    assert _msg(cal.to_dict) == "Calendar hours_per_day must be a finite number (got 'x')."
+
+
+def test_project_from_dict_rejects_non_string_calendar_key() -> None:
+    doc = {"id": "p", "name": "n", "start_date": "2026-01-01", "calendars": {1: {}}}
+    assert _msg(Project.from_dict, doc) == (
+        "Invalid project document: calendars keys must be string calendar ids."
+    )
+
+
+def test_field_helpers_exact_messages() -> None:
+    from trueppm_scheduler.models import (
+        _check_finite,
+        _check_percent_range,
+        _list_field,
+        _require_bool,
+    )
+
+    for fn, args, expected in (
+        (_check_finite, ({"x": "a"}, "x"), "x must be a number, got str: 'a'."),
+        (_list_field, ({"x": 5}, "x"), "x must be a list (got int: 5)."),
+        (_require_bool, ({"x": 5}, "x"), "x must be a boolean, got int: 5."),
+        (
+            _check_percent_range,
+            ({"percent_complete": 101},),
+            "percent_complete must be between 0 and 100.",
+        ),
+        (
+            _check_percent_range,
+            ({"percent_complete": -1},),
+            "percent_complete must be between 0 and 100.",
+        ),
+    ):
+        with pytest.raises(ValueError) as exc:
+            fn(*args)
+        assert str(exc.value) == expected
+    _check_percent_range({"percent_complete": 0})
+    _check_percent_range({"percent_complete": 100})
+    _check_percent_range({})
+
+
+def test_validate_rejects_none_for_required_timedeltas() -> None:
+    t = _ok_task()
+    t.duration = None  # type: ignore[assignment]
+    assert _msg(_validate_task_fields, t) == (
+        "Task 'T' duration must be a timedelta (got NoneType: None)."
+    )
+    d = Dependency("a", "b")
+    d.lag = None  # type: ignore[assignment]
+    assert _msg(_validate_dependency_fields, d) == (
+        "Dependency 'a' → 'b' lag must be a timedelta (got NoneType: None)."
+    )
+
+
+def test_validate_project_calendar_type_name_in_message() -> None:
+    p = _ok_project()
+    p.calendar = "weekdays"  # type: ignore[assignment]
+    assert _msg(_validate_project_scalar_fields, p) == (
+        "Project calendar must be a Calendar (got str)."
+    )
+
+
+def test_exception_run_is_none_before_the_first_run() -> None:
+    cal = Calendar(
+        exceptions=[
+            DateRange(date(2026, 3, 10), date(2026, 3, 11)),
+            DateRange(date(2026, 3, 20), date(2026, 3, 21)),
+        ]
+    )
+    assert cal._exception_run(date(2026, 3, 1).toordinal()) is None
+    assert cal._exception_run(date(2026, 3, 15).toordinal()) is None
+    assert cal._exception_run(date(2026, 3, 22).toordinal()) is None
+    assert cal._exception_run(date(2026, 3, 10).toordinal()) == (
+        date(2026, 3, 10).toordinal(),
+        date(2026, 3, 11).toordinal(),
+    )
+
+
+def test_exception_mask_days_empty_and_clipped_spans() -> None:
+    empty = Calendar()
+    assert empty._exception_mask_days(1, 100) == 0
+    # Mon 2026-03-09..Fri 03-13 and Mon 03-16..Fri 03-20 (weekend between is mask-off,
+    # so the two runs coalesce into one 10-day closure with 10 working days).
+    cal = Calendar(
+        exceptions=[
+            DateRange(date(2026, 3, 9), date(2026, 3, 13)),
+            DateRange(date(2026, 3, 23), date(2026, 3, 27)),
+        ]
+    )
+    o = date.toordinal
+    assert cal._exception_mask_days(o(date(2026, 3, 1)), o(date(2026, 4, 1))) == 10
+    # Clipped on the left and on the right.
+    assert cal._exception_mask_days(o(date(2026, 3, 11)), o(date(2026, 3, 24))) == 3 + 1
+    assert cal._exception_mask_days(o(date(2026, 3, 1)), o(date(2026, 3, 10))) == 1
+    # A span past the last run overlaps nothing.
+    assert cal._exception_mask_days(o(date(2026, 3, 28)), o(date(2026, 4, 30))) == 0
+    # Inverted / empty spans contribute nothing.
+    assert cal._exception_mask_days(o(date(2026, 3, 11)), o(date(2026, 3, 11))) == 0
+    # Spanning three runs exercises the prefix-sum middle term.
+    three = Calendar(
+        exceptions=[
+            DateRange(date(2026, 3, 2), date(2026, 3, 2)),
+            DateRange(date(2026, 3, 9), date(2026, 3, 10)),
+            DateRange(date(2026, 3, 16), date(2026, 3, 16)),
+        ]
+    )
+    assert three._exception_mask_days(o(date(2026, 3, 1)), o(date(2026, 3, 31))) == 4
+    assert three._exception_mask_days(o(date(2026, 3, 2)), o(date(2026, 3, 17))) == 4
+    assert three._exception_mask_days(o(date(2026, 3, 3)), o(date(2026, 3, 16))) == 2

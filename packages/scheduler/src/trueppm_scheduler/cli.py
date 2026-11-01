@@ -105,7 +105,7 @@ def _cmd_schedule(args: argparse.Namespace) -> None:
     print("-" * len(header))
     for task in result.tasks:
         cp = " *" if task.is_critical else ""
-        tf = task.total_float.days if task.total_float else 0
+        tf = task.total_float.days
         print(
             f"{_display(task.id):<20} {_display(task.name):<30} "
             f"{task.early_start!s:<12} {task.early_finish!s:<12} "
@@ -175,7 +175,7 @@ def main() -> None:
     p_mc.add_argument(
         "--runs", type=int, default=10_000, help="Number of simulations (default: 10000)"
     )
-    p_mc.add_argument("--seed", type=int, default=None, help="RNG seed for reproducibility")
+    p_mc.add_argument("--seed", type=int, help="RNG seed for reproducibility")
     p_mc.add_argument("--json", action="store_true", help="Output as JSON")
     p_mc.add_argument(
         "--distribution", action="store_true", help="Include full distribution in JSON output"
