@@ -64,7 +64,7 @@ removed from the project while still Member or above does **not** stop it —
 project tokens are team assets that outlive one person's off-boarding. A minter
 demoted below Member and then removed, including one who removes themselves,
 still stops it. Separately,
-and already true today: if the minter's account is deleted outright, the token
+if the minter's account is deleted outright, the token
 stops working on both endpoints, so deactivate rather than delete a member
 whose integration tokens should keep running.
 

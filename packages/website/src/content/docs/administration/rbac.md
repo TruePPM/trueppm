@@ -61,8 +61,8 @@ still a member, and requires Member or above:
 - A minter demoted below Member and *then* removed stays refused, including a minter
   who removes themselves. Leaving the project does not undo a demotion.
 
-A token whose minter's account has been **deleted** is a separate case, and it does not
-change in this release: those two write endpoints already refuse it, because a deleted
+A token whose minter's account has been **deleted** is a separate case, and it is
+unchanged: those two write endpoints refuse it, because a deleted
 minter leaves the token with no user to act as.
 
 ### The one program fact a project role reaches

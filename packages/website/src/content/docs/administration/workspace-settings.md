@@ -297,12 +297,11 @@ its two write endpoints (task-sync and acceptance-results) accept writes only
 while the minter holds a live membership on that project. Deactivating the
 minter's account does not revoke that membership, so a program token's write
 access is unaffected by off-boarding on its own — it changes only if the
-minter's membership on that project is separately removed. **Not yet
-released:** that bound will also require the minter's role on the project to
-be Member or above, not merely live — a minter who is a live member but
-Viewer-only will stop being able to write through either endpoint once this
-ships, and demoting a minter already below Member will have the same effect
-on the next request as removing them.
+minter's membership on that project is separately removed. That bound also
+requires the minter's role on the project to be Member or above, not merely
+live — a minter who is a live member but Viewer-only cannot write through
+either endpoint, and demoting a minter below Member has the same effect on
+the next request as removing them.
 
 :::note[Ships in 0.5]
 A program-scoped token's reach is also bounded by its minter's membership in the
