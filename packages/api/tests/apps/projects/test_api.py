@@ -1266,6 +1266,98 @@ class TestCrossProjectDependency:
         assert r.status_code == 400, r.data
         assert r.data["code"] == "cyclic_dependency"
         self._assert_only_endpoints_labeled(r, a1, b1, [b2, b3])
+        # #4788: the closed path starts and ends at the proposed edge's predecessor,
+        # whatever order the DB returned the edges in (it used to start at an
+        # arbitrary node, so a hidden interior node could be blanked twice).
+        assert r.data["cycle"][0]["id"] == r.data["cycle"][-1]["id"] == str(a1.pk)
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_cycle_path_is_anchored_at_proposed_edge_regardless_of_edge_order(
+        self, client: APIClient, user: object, calendar: Calendar, reverse: bool
+    ) -> None:
+        """#4788: same-project ring A1 → A2 → A3, proposing A3 → A1 reports
+        [A3, A1, A2, A3] however the existing edges were created."""
+        project = Project.objects.create(
+            name="Ring", start_date=date(2026, 3, 2), calendar=calendar
+        )
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        t = [Task.objects.create(project=project, name=f"R{i}", duration=1) for i in (1, 2, 3)]
+        pairs = list(itertools.pairwise(t))
+        for pred, succ in reversed(pairs) if reverse else pairs:
+            assert self._post_edge(client, pred, succ).status_code == 201
+        r = self._post_edge(client, t[2], t[0])
+        assert r.status_code == 400, r.data
+        assert [n["id"] for n in r.data["cycle"]] == [str(x.pk) for x in (t[2], t[0], t[1], t[2])]
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_cycle_choice_is_stable_when_several_cycles_pass_through_the_edge(
+        self, client: APIClient, user: object, calendar: Calendar, reverse: bool
+    ) -> None:
+        """#4788: proposed P → Q closes two cycles (via R and via S); the reported
+        one must not depend on edge creation / DB row order. Edges are sorted, so
+        the middle node is the lower-id of R and S."""
+        project = Project.objects.create(name="Two", start_date=date(2026, 3, 2), calendar=calendar)
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        p, q, r_, s_ = (
+            Task.objects.create(project=project, name=n, duration=1) for n in ("P", "Q", "R", "S")
+        )
+        edges = [(q, r_), (r_, p), (q, s_), (s_, p)]
+        for pred, succ in reversed(edges) if reverse else edges:
+            assert self._post_edge(client, pred, succ).status_code == 201
+        r = self._post_edge(client, p, q)
+        assert r.status_code == 400, r.data
+        mid = min(r_, s_, key=lambda t: str(t.pk))
+        assert [n["id"] for n in r.data["cycle"]] == [str(x.pk) for x in (p, q, mid, p)]
+
+    def test_cycle_path_anchors_on_leaf_when_predecessor_is_a_summary(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4788: a summary predecessor is expanded to leaves and never appears in
+        the path, so the path is anchored on its leaf descendant instead."""
+        project = Project.objects.create(name="Sum", start_date=date(2026, 3, 2), calendar=calendar)
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        phase = Task.objects.create(project=project, name="Phase", wbs_path="1", duration=1)
+        leaf = Task.objects.create(project=project, name="Leaf", wbs_path="1.1", duration=1)
+        other = Task.objects.create(project=project, name="Other", wbs_path="2", duration=1)
+        assert self._post_edge(client, other, leaf).status_code == 201
+        r = self._post_edge(client, phase, other)
+        assert r.status_code == 400, r.data
+        ids = [n["id"] for n in r.data["cycle"]]
+        assert ids == [str(leaf.pk), str(other.pk), str(leaf.pk)]
+
+    def test_cycle_path_avoids_redacted_anchor_when_predecessor_summary_is_unreadable(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        """#4788: summary predecessor in a project reached only by program role.
+
+        Its leaf is the only predecessor-side node on the path and is redacted, so
+        anchoring there would blank it twice; the path anchors on the successor
+        endpoint instead, and nothing about the leaf is named.
+        """
+        program = Program.objects.create(name="GA Launch")
+        p_x, p_y = (
+            Project.objects.create(
+                name=name, start_date=date(2026, 3, 2), calendar=calendar, program=program
+            )
+            for name in ("Xray", "Yankee")
+        )
+        ProjectMembership.objects.create(project=p_y, user=user, role=Role.SCHEDULER)
+        ProgramMembership.objects.create(program=program, user=user, role=Role.VIEWER)
+        phase = Task.objects.create(project=p_x, name="X phase", wbs_path="1", duration=1)
+        leaf = Task.objects.create(project=p_x, name="X leaf secret", wbs_path="1.1", duration=1)
+        o = Task.objects.create(project=p_y, name="Y task", duration=1)
+        other = get_user_model().objects.create_user(username="xy-scheduler", password="pw")
+        for p in (p_x, p_y):
+            ProjectMembership.objects.create(project=p, user=other, role=Role.SCHEDULER)
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        assert self._post_edge(other_client, o, leaf).status_code == 201
+
+        r = self._post_edge(client, phase, o)
+        assert r.status_code == 400, r.data
+        cycle = r.data["cycle"]
+        assert [n["id"] for n in cycle] == [str(o.pk), "", str(o.pk)]
+        assert "X leaf secret" not in str(r.data) and str(leaf.pk) not in str(r.data)
 
     # -- D5: minimal visibility card ----------------------------------------
 

@@ -208,12 +208,13 @@ def assert_graph_feasible(project_id: Any) -> None:
     )
 
     task_ids, children_map = _load_project_tasks_and_children_map(project_id)
-    edges = [
+    # Sorted so the reported cycle is stable across identical requests.
+    edges = sorted(
         (str(p), str(s))
         for p, s in Dependency.objects.filter(
             is_deleted=False, predecessor_id__in=[uuid.UUID(t) for t in task_ids]
         ).values_list("predecessor_id", "successor_id")
-    ]
+    )
     try:
         validate_task_graph(edges, children_map=children_map)
     except InfeasibleGraphError as exc:
