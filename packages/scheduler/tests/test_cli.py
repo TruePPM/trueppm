@@ -172,15 +172,35 @@ def test_load_project_latin1_file_is_rejected_not_mojibake(
     assert "error:" in capsys.readouterr().err
 
 
-def test_load_project_decodes_utf8_regardless_of_locale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import locale
-
-    monkeypatch.setattr(locale, "getpreferredencoding", lambda *a, **k: "ascii")
+def test_cli_decodes_utf8_under_ascii_locale(tmp_path: Path) -> None:
+    """Mirrors the #4719 repro: a UTF-8 file must load when the locale codec is ASCII."""
     path = Path(_project_file(tmp_path))
     path.write_bytes(path.read_bytes().replace(b"Design", "Café".encode()))
-    assert any(t.name == "Café" for t in _load_project(str(path)).tasks)
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONUTF8": "0",
+        "LC_ALL": "C",
+        "PYTHONPATH": src,
+    }
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-X",
+            "utf8=0",
+            "-m",
+            "trueppm_scheduler.cli",
+            "schedule",
+            str(path),
+            "--json",
+        ],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    names = [t["name"] for t in json.loads(proc.stdout)["tasks"]]
+    assert "Café" in names
 
 
 def test_load_project_accepts_utf8_bom(tmp_path: Path) -> None:
@@ -200,3 +220,19 @@ def test_human_output_survives_ascii_stdout(tmp_path: Path, command: str) -> Non
     )
     assert proc.returncode == 0, proc.stderr.decode()
     assert b"Traceback" not in proc.stderr
+    # errors="replace" turns the unencodable em dash into "?" rather than crashing.
+    assert b"earliest feasible ? run" in proc.stdout or command == "monte-carlo"
+    assert b"Monte Carlo ? " in proc.stdout or command == "schedule"
+
+
+def test_stderr_survives_ascii_codec(tmp_path: Path) -> None:
+    env = {**os.environ, "PYTHONIOENCODING": "ascii", "PYTHONUTF8": "0"}
+    proc = subprocess.run(
+        [sys.executable, "-m", "trueppm_scheduler.cli", "schedule", str(tmp_path / "é.json")],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 1
+    assert b"Traceback" not in proc.stderr
+    assert b"error: cannot read" in proc.stderr
