@@ -96,6 +96,13 @@ import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
 import type { CpmError } from '@/stores/schedulerStore';
 import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
+import {
+  addHandler,
+  dispatchHandlers,
+  type Unsubscribe,
+  type WsHandler,
+  type WsHandlerTable,
+} from './wsHandlerRegistry';
 
 interface WsEnvelope {
   event_type: string;
@@ -176,8 +183,7 @@ const OVERVIEW_KEYS = [
 
 // A single dispatched-event handler. `on(...)` registers these against one or
 // more event_type keys; `handleMessage` looks the handler up by event_type.
-type WsHandler = (payload: Record<string, unknown>, event_type: string) => void;
-type OnFn = (types: string | readonly string[], handler: WsHandler) => void;
+type OnFn = (types: string | readonly string[], handler: WsHandler) => Unsubscribe;
 
 // Store slices whose setters the handlers dispatch into. Deriving the setter
 // types from the live store state keeps them exact without hand-typing (and
@@ -601,10 +607,9 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // `dependency_*` events, so a collaborator's Gantt kept drawing links that no longer
   // existed — or omitted links that had come back — until an unrelated refetch.
   //
-  // Both invalidations live in ONE handler because `on()` is last-write-wins
-  // (`eventHandlers[t] = handler`), not additive: registering a second handler for an
-  // event silently replaces the first, which drops the invalidation the original
-  // registration existed for.
+  // `on()` is additive (#3050): a second registration for an event runs alongside the
+  // first. These stay in one handler because they are one concern and share one
+  // debounce, not because a split would drop one.
   on('tasks_restructured', () => {
     scheduleInvalidate('tasks');
     scheduleInvalidate('dependencies');
@@ -820,9 +825,8 @@ function registerSprintHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // bypassed by the broadcast. The payload carries no error text for that
   // reason.
   //
-  // Registered as its own event type — not folded into the sprint_* group
-  // above — because `on()` is last-write-wins and a second registration for a
-  // key already in that list would silently replace the group's handler.
+  // Registered as its own event type, not folded into the sprint_* group above,
+  // because its handler does different work (it refetches the close-request read).
   on('sprint_close_failed', (payload) => {
     // The sprint is still ACTIVE, so the list the user is looking at is wrong.
     void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
@@ -1070,10 +1074,8 @@ function registerMembershipAndBoardHandlers(on: OnFn, deps: WsHandlerDeps): void
       // report a `project_updated` carries (#3501). Without this, a PM filing a
       // status flips the Overview chip and leaves the top bar on the old word
       // for every viewer — the same screen-vs-screen contradiction #3501 was
-      // filed to remove, back through the write path. Added to THIS handler
-      // rather than a second `on()`: registration is last-write-wins, so a
-      // second `on('project_updated', …)` would silently drop the two
-      // invalidations above (rule 331).
+      // filed to remove, back through the write path. (Historical: this sat in one
+      // handler because `on()` was last-write-wins until #3050; it is additive now.)
       void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
     },
   );
@@ -1201,7 +1203,7 @@ interface ProjectSocketConfig {
   // a projectId change (the effect re-arms it true and sets it false on cleanup).
   mountedRef: MutableRefObject<boolean>;
   lastSeqRef: MutableRefObject<number>;
-  eventHandlers: Record<string, WsHandler>;
+  eventHandlers: WsHandlerTable;
   /**
    * Called once when the server refuses this caller (4003). The hook uses it to
    * re-read the project's `can_subscribe_live`, so a member demoted or removed
@@ -1269,10 +1271,7 @@ class ProjectSocketController {
   // event_type is off the wire frame).
   private dispatch(envelope: WsEnvelope): void {
     const { event_type, payload } = envelope;
-    const handler = Object.hasOwn(this.cfg.eventHandlers, event_type)
-      ? this.cfg.eventHandlers[event_type]
-      : undefined;
-    handler?.(payload, event_type);
+    dispatchHandlers(this.cfg.eventHandlers, event_type, payload);
   }
 
   private scheduleReconnect(): void {
@@ -1527,10 +1526,10 @@ export function useProjectWebSocket(
     // store setters through the `deps` bag; grouped event types register one
     // shared handler under every member key. The controller's handleMessage is
     // a flat O(1) lookup into this table (#2081).
-    const eventHandlers: Record<string, WsHandler> = {};
-    const on: OnFn = (types, handler) => {
-      for (const t of typeof types === 'string' ? [types] : types) eventHandlers[t] = handler;
-    };
+    // Rebuilt from empty on every effect run, so a re-render that re-runs the effect
+    // cannot accumulate duplicates in an additive table (#3050).
+    const eventHandlers: WsHandlerTable = {};
+    const on: OnFn = (types, handler) => addHandler(eventHandlers, types, handler);
 
     registerEventHandlers(on, {
       queryClient,

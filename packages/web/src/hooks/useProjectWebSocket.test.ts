@@ -321,11 +321,25 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     dispatchEvent('project_updated');
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['shellStats', 'proj-1'] });
-    // …and the two that were already there. Registration is last-write-wins, so
-    // a second `on('project_updated', …)` would have silently dropped these
-    // (rule 331) — asserting all three is what catches that mistake.
+    // …and the two that were already there (registration is additive since #3050).
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+
+  it('a re-render does not duplicate handler invocations (#3050)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { rerender } = renderHook(() => useProjectWebSocket('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    rerender();
+    rerender();
+
+    dispatchEvent('project_updated');
+
+    const projectsCalls = invalidateSpy.mock.calls.filter(
+      ([f]) => JSON.stringify(f?.queryKey) === JSON.stringify(['projects']),
+    );
+    expect(projectsCalls).toHaveLength(1);
   });
 
   it('invalidates project and projects list on project_transferred', () => {
