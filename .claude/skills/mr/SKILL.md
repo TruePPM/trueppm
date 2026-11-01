@@ -165,7 +165,7 @@ Rules:
   `0 findings` is meaningless for a step whose only outcome is that the artifact exists.
   `accessibility` and `brand` are **reference** skills — rule sets a reviewer reads, with
   no verdict format of their own; on a UI diff their findings are already recorded under
-  `ux-review`, which checks WCAG 2.1 AA by definition, and giving them a second name
+  `ux-review`, which checks WCAG 2.2 AA by definition, and giving them a second name
   would split one diff's findings across two counters and corrupt both yields. Absence
   from this list means "not a findings gate", not "forgotten" (#2616).
 - **`0 findings` is a real and expected outcome — record it.** The temptation is to omit

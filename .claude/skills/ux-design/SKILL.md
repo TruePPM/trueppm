@@ -6,7 +6,8 @@ description: >
   interactions, or workflows for the web or mobile apps. Produces wireframes (ASCII
   or described), interaction specifications, responsive breakpoints, and component
   hierarchy. Considers mobile-first design, offline states, accessibility, and the
-  five user personas (PM, PMO Director, Team Member, Resource Manager, Executive Sponsor).
+  eight core personas (Delivery/Program Manager, PMO Director, Team Member, Resource
+  Manager, Executive Sponsor, Delivery Lead, Product Owner, AI-Native Technical Operator).
 ---
 
 # UX Design Skill
@@ -39,6 +40,10 @@ information-dense where needed (Gantt views, dashboards), and simple where possi
    - Blue: informational, selected, in focus
    - Gray: inactive, deferred, archived
 
+6. **A navigation surface has a budget** (web rule 436): rail 5 destinations + pins <= 7;
+   context tabs <= 5 + More; phone bar 5 with no overflow. A sixth tab folds behind More; it never
+   becomes another row.
+
 ## Design Process
 
 When asked to design a feature:
@@ -57,7 +62,23 @@ When asked to design a feature:
      surfaces show what one team can do; Enterprise affordances appear only at a
      cross-program/org-governing seam (empty extension-point slot absent the edition,
      discovery at the seam — never an ambient padlock in the OSS daily path).
-2. **Identify the persona** (PM, PMO Director, Team Member — see /voice-of-customer)
+2. **Identify the persona** — pick from the eight below (defined in `.claude/personas.md`,
+   panelled by `/voice-of-customer`; do not invent new ones). Design the persona's *first
+   screen* and *most frequent act* before anything else.
+
+   *The "first screen" column is a design default inferred by this skill, not a field in
+   `.claude/personas.md`; the persona file defines the names, roles and time budgets.*
+
+   | Persona | First screen (design default) | Most frequent act |
+   |---|---|---|
+   | **Sarah**, Delivery / Program Manager | Her project's Schedule (Plan) | Working the plan: edit tasks, dates, dependencies (30-60 min daily) |
+   | **Marcus**, PMO Director (Enterprise) | Portfolio / program roll-up | Daily 5-10 min scan of health and forecast confidence across projects |
+   | **Priya**, Team Member | My Work | Update a task's status or log time in under a minute; ideally never opens the app (Jira syncs in) |
+   | **David**, Resource Manager | People / allocation view | The 15-minute daily check of who is available or over-allocated |
+   | **Janet**, Executive Sponsor (conditional) | A pushed digest / shared read-only view, not the app | Read RAG status and forecast; omit her for navigation or interaction-pattern work |
+   | **Alex**, Delivery Lead | The active sprint board | Daily check-in on the board and impediments; Sprint Planning and Retro twice weekly |
+   | **Jordan**, Product Owner | The product backlog | Groom and prioritize backlog items; read the velocity-based release forecast |
+   | **Theo**, AI-Native Technical Operator | An MCP client or the API, not the web UI | Many seconds-long agent/API reads and gated writes embedded in his workflow |
 3. **Define the job-to-be-done**: what is the user trying to accomplish?
 4. **Sketch the layout** (ASCII wireframe or structured description):
    - Mobile layout first (320px–428px)
@@ -100,7 +121,7 @@ TruePPM uses Tailwind CSS on web and NativeWind on mobile. Prefer these patterns
 |--------|-------|---------|---------------|-----------------------|
 | <Task> | <project> | <OSS> | <belongs-to Sprint, depends-on Task> | <Priya: checklist · Sarah: CP node> |
 
-### Persona: <PM / PMO Director / Team Member>
+### Persona: <one of the eight above>
 ### Job-to-be-done: <What they're trying to accomplish>
 
 ### Mobile Layout (320–428px)
