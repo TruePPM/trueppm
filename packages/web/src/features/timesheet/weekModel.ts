@@ -194,6 +194,33 @@ export function buildRows(entries: WeeklyEntry[]): TimesheetRow[] {
   return Array.from(rows.values());
 }
 
+/** A task's row labels without its cells — what an assignment contributes to the grid. */
+export type RowTaskMeta = Omit<TimesheetRow, 'cells'>;
+
+/**
+ * The full row set for the week: one row per task the contributor **logged against** this
+ * week (from `entries`, in entry order) followed by one zero row per task they are
+ * **assigned** (`assigned`, in My Work order) that has no entry yet.
+ *
+ * Why assignments are rows, not just add-row candidates (#4766): the grid is where a
+ * contributor logs their first hours of the week. Deriving rows from entries alone meant a
+ * user with assigned work and no entries yet saw an empty grid — "nothing here" — on the
+ * exact visit the surface exists for. A task with no entries is a row of zeros, not an
+ * absence; an empty grid then means "no assignments and nothing logged", which the page
+ * states explicitly. `assigned` comes from the same `GET /me/work/` source My Work renders,
+ * so the two surfaces cannot disagree about what the contributor is working on.
+ */
+export function buildWeekRows(entries: WeeklyEntry[], assigned: RowTaskMeta[]): TimesheetRow[] {
+  const rows = buildRows(entries);
+  const present = new Set(rows.map((r) => r.taskId));
+  for (const meta of assigned) {
+    if (present.has(meta.taskId)) continue;
+    present.add(meta.taskId);
+    rows.push({ ...meta, cells: {} });
+  }
+  return rows;
+}
+
 /** Read a cell's state for `(row, date)`, defaulting to an empty editable cell. */
 export function cellAt(row: TimesheetRow, date: string): CellState {
   return row.cells[date] ?? { minutes: 0, entries: [], entryId: null, editable: true };

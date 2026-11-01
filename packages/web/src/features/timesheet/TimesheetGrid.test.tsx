@@ -10,7 +10,20 @@ import {
 } from './weekModel';
 
 vi.mock('@/hooks/useMyWork', () => ({
-  useMyWork: vi.fn(() => ({ data: { pages: [{ results: [] }] }, isLoading: false })),
+  // One candidate not already a row, so the add-task picker has something to offer (it
+  // renders nothing when every candidate is already a row — #4766).
+  useMyWork: vi.fn(() => ({
+    data: {
+      pages: [
+        {
+          results: [
+            { id: 'cand-1', short_id: 'ENG-9', name: 'Unlogged task', project_id: 'p1', project_name: 'Web' },
+          ],
+        },
+      ],
+    },
+    isLoading: false,
+  })),
 }));
 
 const MONDAY = '2026-06-15';

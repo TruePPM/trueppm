@@ -3,7 +3,8 @@
  *
  * Route: `/me/timesheet`. The "review + submit my week" companion to the per-task inline
  * quick-log and running timer: a keyboard-fast grid of every project/task the contributor
- * logged against this week, with row/day/week totals, an over-8h amber flag, weekend
+ * logged against this week — plus a zero row for every task assigned to them (#4766) — with
+ * row/day/week totals, an over-8h amber flag, weekend
  * shading, a week stepper, an add-task row, and a single `Submit week` action (a
  * per-user-per-week marker — entries stay editable; approval is #100/0.5).
  *
@@ -11,8 +12,11 @@
  * endpoints (create / PATCH / DELETE); the multi-entry cell is read-only (ADR-0224). No
  * portfolio/governance surface — a contributor reviews and submits *their own* time (OSS).
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
+import { ClockIcon } from '@/components/Icons';
+import { useMyWork } from '@/hooks/useMyWork';
 import {
   useSubmitWeek,
   useTimesheetCell,
@@ -22,9 +26,10 @@ import {
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import { TimesheetGrid } from './TimesheetGrid';
+import { assignedTaskMetas } from './assignedTasks';
 import {
   addDaysIso,
-  buildRows,
+  buildWeekRows,
   cellAt,
   dailyTotals,
   formatWeekRange,
@@ -64,14 +69,24 @@ export function TimesheetPage() {
   const cellMutation = useTimesheetCell(monday);
   const submitMutation = useSubmitWeek(monday);
 
+  // Rows come from the same assignment source My Work renders (`GET /me/work/`), so a
+  // contributor with assigned tasks and no entries yet gets rows of zeros to log into, not
+  // an empty grid (#4766). My Work is paginated; load every page so no assignment is
+  // silently dropped from the grid.
+  const myWork = useMyWork();
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = myWork;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
   const days = useMemo(() => weekDays(monday, today), [monday, today]);
 
   const rows = useMemo(() => {
-    const entryRows = buildRows(data?.results ?? []);
-    const present = new Set(entryRows.map((r) => r.taskId));
+    const base = buildWeekRows(data?.results ?? [], assignedTaskMetas(myWork.data?.pages));
+    const present = new Set(base.map((r) => r.taskId));
     const extras = extraTasks.filter((t) => !present.has(t.taskId)).map(emptyRow);
-    return [...entryRows, ...extras];
-  }, [data, extraTasks]);
+    return [...base, ...extras];
+  }, [data, myWork.data, extraTasks]);
 
   const existingTaskIds = useMemo(() => new Set(rows.map((r) => r.taskId)), [rows]);
   const dayTotals = useMemo(() => dailyTotals(rows, days), [rows, days]);
@@ -203,18 +218,34 @@ export function TimesheetPage() {
       )}
 
       {/* Body */}
-      {isLoading ? (
+      {isLoading || myWork.isLoading ? (
         <div
           className="h-64 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
           aria-label="Loading timesheet"
         />
-      ) : isError ? (
+      ) : isError || (rows.length === 0 && myWork.isError) ? (
         <div className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg p-4 text-sm">
           <p className="mb-2 text-neutral-text-primary">Couldn&rsquo;t load your timesheet.</p>
-          <Button variant="secondary" size="sm" onClick={() => void refetch()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void refetch();
+              if (myWork.isError) void myWork.refetch();
+            }}
+          >
             Retry
           </Button>
         </div>
+      ) : rows.length === 0 ? (
+        // Reserved for the one case it is true (#4766): nothing assigned and nothing logged
+        // this week. Assigned tasks with no entries are rows of zeros above, never this.
+        <EmptyState
+          icon={ClockIcon}
+          title="Nothing assigned to you this week"
+          description="Tasks assigned to you appear here as rows, ready for your hours. When a task is assigned to you, or you log time from a task, it shows up in this grid."
+          className="rounded-card border border-neutral-border bg-neutral-surface"
+        />
       ) : (
         <TimesheetGrid
           rows={rows}

@@ -42,10 +42,10 @@ describe('AddTaskRow', () => {
     );
   });
 
-  it('excludes every task once they are all present as rows', () => {
+  it('renders nothing once every assigned task is already a row (#4766)', () => {
     const onAdd = vi.fn();
-    render(<AddTaskRow existingTaskIds={new Set(['t1', 't2'])} onAdd={onAdd} />);
-    fireEvent.click(screen.getByRole('button', { name: /add project or task/i }));
-    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    const { container } = render(<AddTaskRow existingTaskIds={new Set(['t1', 't2'])} onAdd={onAdd} />);
+    expect(screen.queryByRole('button', { name: /add project or task/i })).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
   });
 });

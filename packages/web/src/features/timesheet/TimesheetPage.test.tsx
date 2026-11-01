@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AxiosError, type AxiosResponse } from 'axios';
 import { TimesheetPage } from './TimesheetPage';
@@ -201,22 +201,69 @@ describe('TimesheetPage', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('adds a task row from the add-task picker', () => {
+  it('renders an assigned task with no entries as a row of zeros (#4766)', () => {
     mockUseMyWork.mockReturnValue({
       data: {
         pages: [
           {
             results: [
               { id: 't2', short_id: 'ENG-2', name: 'Wire the hook', project_id: 'p1', project_name: 'Web' },
+              { id: 't3', short_id: 'ENG-3', name: 'A phase', project_id: 'p1', project_name: 'Web', is_phase: true },
             ],
           },
         ],
       },
       isLoading: false,
     });
+    setWeek({ data: weekData(false, []) });
     render(<TimesheetPage />);
-    fireEvent.click(screen.getByRole('button', { name: /add project or task/i }));
-    fireEvent.click(screen.getByRole('option', { name: /wire the hook/i }));
-    expect(screen.getByText('Wire the hook')).toBeInTheDocument();
+
+    const grid = screen.getByRole('grid', { name: 'Weekly timesheet' });
+    expect(within(grid).getByText('Wire the hook')).toBeInTheDocument();
+    // A phase is never a loggable assignment — same filter My Work applies.
+    expect(within(grid).queryByText('A phase')).not.toBeInTheDocument();
+    // Its cells are editable inputs ready for the first hours of the week.
+    expect(within(grid).getAllByLabelText(/ENG-2 Wire the hook, Mon/).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+    // Every assignment is already a row, so the add-task picker has nothing to offer and
+    // renders nothing rather than an empty dropdown.
+    expect(screen.queryByRole('button', { name: /add project or task/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state only when nothing is assigned and nothing is logged (#4766)', () => {
+    setWeek({ data: weekData(false, []) });
+    render(<TimesheetPage />);
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Nothing assigned to you this week' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument();
+  });
+
+  it('waits for My Work before deciding the week is empty (#4766)', () => {
+    mockUseMyWork.mockReturnValue({ data: undefined, isLoading: true });
+    setWeek({ data: weekData(false, []) });
+    render(<TimesheetPage />);
+    expect(screen.getByLabelText('Loading timesheet')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+  });
+
+  it('does not claim "nothing assigned" when My Work failed to load (#4766)', () => {
+    mockUseMyWork.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() });
+    setWeek({ data: weekData(false, []) });
+    render(<TimesheetPage />);
+    expect(screen.getByText(/couldn.t load your timesheet/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+  });
+
+  it('loads every My Work page so no assignment is dropped from the grid', () => {
+    const fetchNextPage = vi.fn();
+    mockUseMyWork.mockReturnValue({
+      data: { pages: [{ results: [] }] },
+      isLoading: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage,
+    });
+    render(<TimesheetPage />);
+    expect(fetchNextPage).toHaveBeenCalled();
   });
 });

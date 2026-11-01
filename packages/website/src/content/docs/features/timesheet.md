@@ -69,12 +69,13 @@ whichever entry point you used.
 
 Open the grid from **Timesheet** in the sidebar's Personal group, or go straight to
 `/me/timesheet`. Where the timer and quick-log capture single entries fast, the grid is where you
-fill gaps and submit at the end of the week — every project and task you logged against, laid out
-Monday to Sunday.
+fill gaps and submit at the end of the week — every task assigned to you, plus anything else you
+logged against, laid out Monday to Sunday.
 
 ![The weekly Timesheet grid with a day column per weekday and a week total](../../../assets/screenshots/timesheet.webp)
 
 - **Rows are your tasks, across every project.** Each row shows the task and its project; the grid spans all the projects you're a member of, so a cross-project week is one screen, not a tab per project.
+- **Your assigned tasks are already there.** Every task in your [My Work](/features/my-work/) list is a row, even before you've logged anything against it — a task with no time yet is a row of empty cells ready for your first hours, not something you have to go find. Tasks you logged time on this week appear too, even if they're no longer assigned to you. If nothing is assigned to you and nothing is logged for the week, the grid says so instead of showing an empty table.
 - **Columns are the seven days** of the selected week (Mon … Sun). Each cell is the hours you logged on that task that day; an empty cell reads as a muted `·`.
 - **Type hours however is fastest** — `2`, `2.5`, or `2:30` all mean two-and-a-half hours. `Tab` moves between cells, `Enter` saves the cell, `Esc` discards the edit. Clearing a cell removes that day's entry.
 - **Totals update as you type** — a row total per task, a daily total under each day, and the week total in the header. A daily total over eight hours is flagged amber so an over-long day is obvious.
@@ -82,7 +83,7 @@ Monday to Sunday.
 
 ![The weekly grid header and daily-total row, zoomed: Saturday and Sunday shaded, Sunday's date tinted as today, and the Total column on the right](../../../assets/screenshots/timesheet-grid.webp)
 
-Step between weeks with the `‹ … ›` stepper, and start logging against a task that isn't in the grid yet with **Add project or task**.
+Step between weeks with the `‹ … ›` stepper. Logging time against a task from anywhere else — the timer, the quick-log popover, or the task itself — adds its row to that week's grid.
 
 ### Days with more than one entry
 

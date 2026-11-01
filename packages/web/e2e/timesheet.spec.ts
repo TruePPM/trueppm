@@ -58,7 +58,15 @@ interface MockEntry {
   entry_date: string;
 }
 
-function seedFor(monday: string): MockEntry[] {
+interface TimesheetOpts {
+  /** Seed the week's entries (default true). False = a week with nothing logged yet. */
+  seedEntries?: boolean;
+  /** Tasks `/me/work/` reports as assigned (default all three). */
+  assigned?: typeof TASKS;
+}
+
+function seedFor(monday: string, seedEntries: boolean): MockEntry[] {
+  if (!seedEntries) return [];
   return SEED.map((s) => ({
     id: s.id,
     task: s.task.id,
@@ -72,7 +80,8 @@ function seedFor(monday: string): MockEntry[] {
   }));
 }
 
-async function setupTimesheet(page: Page): Promise<void> {
+async function setupTimesheet(page: Page, opts: TimesheetOpts = {}): Promise<void> {
+  const { seedEntries = true, assigned = TASKS } = opts;
   // Pin the wall-clock before any navigation so "today" (and therefore which day-columns are
   // future/inert, #1926) is reproducible on any machine, any calendar day.
   await page.clock.setFixedTime(CLOCK);
@@ -87,17 +96,18 @@ async function setupTimesheet(page: Page): Promise<void> {
   function ensureWeek(from: string) {
     if (state.from !== from) {
       state.from = from;
-      state.entries = seedFor(from);
+      state.entries = seedFor(from, seedEntries);
     }
   }
 
-  // /me/work/ — candidate tasks for the add-row (stubbed so it doesn't 404).
+  // /me/work/ — the contributor's assignments. Since #4766 every one is a timesheet row
+  // (zeros until logged), the same source My Work renders.
   await page.route('**/api/v1/me/work/**', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        results: TASKS.map((t) => ({
+        results: assigned.map((t) => ({
           ...t,
           status: 'IN_PROGRESS',
           group: 'today',
@@ -343,5 +353,46 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
     // No cell anywhere in the submitted week gives the multi-entry "edit on My Work"
     // guidance (there are no multi-entry cells in this seed).
     await expect(grid.getByRole('gridcell', { name: /edit on My Work/ })).toHaveCount(0);
+  });
+
+  test('assigned tasks with no entries yet are rows of zeros, ready for the first hours (#4766)', async ({
+    page,
+  }) => {
+    await setupTimesheet(page, { seedEntries: false });
+    await page.goto('/me/timesheet');
+
+    const grid = page.getByRole('grid', { name: 'Weekly timesheet' });
+    await expect(grid).toBeVisible();
+    await expect(page.getByTestId('empty-state')).toHaveCount(0);
+
+    // Every My Work assignment is a row — nothing logged, nothing hidden.
+    for (const name of ['Foundation pour', 'Framing', 'Roofing']) {
+      await expect(grid.getByRole('row').filter({ hasText: name })).toBeVisible();
+    }
+    await expect(page.getByLabel('Week total 0:00')).toBeVisible();
+
+    // Log the first hours of the week into a zero row: the POST lands and totals move.
+    const row = grid.getByRole('row').filter({ hasText: 'Roofing' });
+    const input = row.getByRole('gridcell').nth(0).locator('input');
+    await input.click();
+    await input.fill('2');
+    await input.press('Enter');
+    await expect(page.getByLabel('Week total 2:00')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Submit week' })).toBeEnabled();
+  });
+
+  test('the empty state is reserved for a week with no assignments and nothing logged (#4766)', async ({
+    page,
+  }) => {
+    await setupTimesheet(page, { seedEntries: false, assigned: [] });
+    await page.goto('/me/timesheet');
+
+    const empty = page.getByTestId('empty-state');
+    await expect(empty).toBeVisible();
+    await expect(
+      empty.getByRole('heading', { name: 'Nothing assigned to you this week' }),
+    ).toBeVisible();
+    await expect(page.getByRole('grid', { name: 'Weekly timesheet' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Submit week' })).toBeDisabled();
   });
 });
