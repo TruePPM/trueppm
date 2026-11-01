@@ -8386,6 +8386,122 @@ class BacklogItem(VersionedModel):
         return f"BacklogItem({self.program_id}, {self.title!r}, {self.status})"
 
 
+class ProgramDecisionStatus(models.TextChoices):
+    """Lifecycle of a program decision (ADR-1310).
+
+    ``AWAITING`` is the open question; ``MADE`` records that it was decided;
+    ``WITHDRAWN`` takes it off the log without pretending it was decided. The
+    legal moves between them live in ``PROGRAM_DECISION_TRANSITIONS``.
+    """
+
+    AWAITING = "awaiting", "Awaiting"
+    MADE = "made", "Made"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+#: Allowed status moves (ADR-1310 §3). ``made`` and ``withdrawn`` are terminal
+#: except for a reopen to ``awaiting``: flipping a made decision straight to
+#: withdrawn would rewrite history without the reopen that explains it.
+PROGRAM_DECISION_TRANSITIONS: dict[str, frozenset[str]] = {
+    ProgramDecisionStatus.AWAITING: frozenset(
+        {ProgramDecisionStatus.MADE, ProgramDecisionStatus.WITHDRAWN}
+    ),
+    ProgramDecisionStatus.MADE: frozenset({ProgramDecisionStatus.AWAITING}),
+    ProgramDecisionStatus.WITHDRAWN: frozenset({ProgramDecisionStatus.AWAITING}),
+}
+
+
+class ProgramDecision(VersionedModel):
+    """A decision a program is waiting on, or has made (ADR-1310, #4772).
+
+    Deliberately **not** the decision-flagged ``TaskNote`` (ADR-0167). That log is
+    retrospective and project-scoped — a note saying "we decided X" on a task,
+    with no owner, no due date and no open state. This is the forward-looking
+    register: a named question, the person who owns the call, when it is due, and
+    whether it is still open. The two answer different questions and share only a
+    word.
+
+    ``impact_note`` is the **owner's own estimate**, free text, and stays that way:
+    the UI renders it as "Owner's estimate · as of <updated_at>" and never as a
+    forecast figure, because nothing on the server computed it. A computed impact
+    (delta from the live P80 for the linked task or risk) is a separate fact and a
+    separate follow-up.
+
+    ``linked_task`` / ``linked_risk`` must belong to a project in this program —
+    the serializer enforces it, since a cross-program link would make a program's
+    log a window into another program's plan. At most one of the two is set.
+
+    Program-scoped like ``BacklogItem``, so it is outside the project sync union
+    (``sync_seq`` stays 0) and no WebSocket group carries it: there is no program
+    channel group to fan out on (``routing.py``).
+    """
+
+    program = models.ForeignKey(
+        Program,
+        on_delete=models.CASCADE,
+        related_name="decisions",
+    )
+    title = models.CharField(max_length=512)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(
+        max_length=16,
+        choices=ProgramDecisionStatus.choices,
+        default=ProgramDecisionStatus.AWAITING,
+    )
+    # Server-stamped when status moves to MADE, cleared on reopen. Not writable:
+    # a client-supplied "decided at" would be a claim, not a record.
+    decided_at = models.DateTimeField(null=True, blank=True)
+    linked_task = models.ForeignKey(
+        "Task",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    linked_risk = models.ForeignKey(
+        Risk,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    impact_note = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_program_decision"
+        ordering = ["due_date", "-created_at"]
+        indexes = [
+            # The list is always program-scoped and almost always status-filtered
+            # (the Decisions tab reads `awaiting` and `made` separately).
+            models.Index(fields=["program", "status"], name="progdecision_prog_status"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(linked_task__isnull=True) | Q(linked_risk__isnull=True),
+                name="progdecision_one_link",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProgramDecision({self.program_id}, {self.title!r}, {self.status})"
+
+
 # ---------------------------------------------------------------------------
 # Forecast snapshot — the agile/waterfall bridge reforecast-on-close (ADR-0106 §5)
 # ---------------------------------------------------------------------------

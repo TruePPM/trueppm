@@ -205,6 +205,31 @@ implementation is not yet available.
 |--------|------|-------------|
 | GET | `/api/v1/sync/user/programs/` | Pull-only delta sync for `Program` and `ProgramMembership` rows — every program the caller belongs to, plus every co-member's membership row. No path parameter (scope is derived entirely from the caller's own live memberships, so there is no per-user IDOR surface). Complements `projects/{id}/sync/`, which cannot reach the user-scoped program layer |
 
+## Program decision log
+
+:::note[Ships in 0.5]
+These endpoints ship in 0.5. The current release has no program decision log.
+:::
+
+The decisions a program is waiting on, and the ones it has made (see
+[Program Decision Log](/features/program-decisions/)). Viewer and up read; Team
+Member and up create and edit; Program Manager and up delete. A closed program
+refuses every write.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/api/v1/programs/{program_pk}/decisions/` | List / create. `?status=awaiting`, `made` or `withdrawn` filters; awaiting sorts soonest-due first, made sorts most recently decided first |
+| GET / PATCH / DELETE | `/api/v1/programs/{program_pk}/decisions/{id}/` | Retrieve, edit or change status, or soft-delete one decision |
+
+`status` moves `awaiting → made | withdrawn` and back to `awaiting`; `made → withdrawn`
+is refused with `400`. `decided_at` is read-only, stamped when `status` becomes `made`.
+`impact_note` is the owner's free text and is returned verbatim. `owner`,
+`linked_task` and `linked_risk` must resolve inside the program (an id outside it
+returns `400` "does not exist"), at most one of `linked_task` / `linked_risk` may be
+set, and the writer must be a member of the linked item's project. The read-only
+`link` object carries `title` and `short_id` only when the reader is a member of
+that project; otherwise both are `null`.
+
 ## Program backlog
 
 The program backlog is the intake pool for a program: ideas and requests live

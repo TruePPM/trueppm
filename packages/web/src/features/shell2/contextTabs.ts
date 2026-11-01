@@ -70,7 +70,7 @@ const PROGRAM_GROUPS: Record<ContextTabKey, string[]> = {
   risks: [],
   people: ['resources'],
 };
-const PROGRAM_MORE = ['projects', 'labels', 'agents', 'members', 'assets', 'settings'];
+const PROGRAM_MORE = ['projects', 'decisions', 'labels', 'agents', 'members', 'assets', 'settings'];
 
 const TAB_LABEL: Record<ContextTabKey, string> = {
   overview: 'Overview',
