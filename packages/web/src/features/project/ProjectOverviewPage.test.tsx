@@ -1398,6 +1398,16 @@ describe('Schedule health metric', () => {
     ).toHaveAttribute('href', '/projects/proj-1/schedule');
   });
 
+  it('names the header chip "Schedule health", never "Project health" (#4780)', async () => {
+    mockOverviewEndpoints({
+      overview: () =>
+        Promise.resolve({ data: { ...OVERVIEW_RESPONSE, schedule_health: 'unknown' } }),
+    });
+    renderPage();
+    expect(await screen.findByLabelText('Schedule health: Unknown')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Project health: /)).toBeNull();
+  });
+
   it('omits the SPI explainer title when the payload has no SPI', async () => {
     const { container } = (() => {
       mockOverviewEndpoints({

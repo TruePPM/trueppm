@@ -329,7 +329,7 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
       <div className="flex items-center gap-3 flex-wrap">
         <span
           className={`bg-transparent border rounded-chip px-2 py-0.5 text-xs font-medium ${healthBadgeClass}`}
-          aria-label={`Project health: ${healthLabel}`}
+          aria-label={`Schedule health: ${healthLabel}`}
         >
           {healthLabel}
         </span>
