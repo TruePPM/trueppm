@@ -131,6 +131,9 @@ const ConnectedAccountsPage = lazy(() =>
 const ProgramListPage = lazy(() =>
   import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage })),
 );
+const WorkPage = lazy(() =>
+  import('@/features/shell2/WorkPage').then((m) => ({ default: m.WorkPage })),
+);
 const ProgramShell = lazy(() =>
   import('@/features/programs/ProgramShell').then((m) => ({ default: m.ProgramShell })),
 );
@@ -972,6 +975,16 @@ export const routes: RouteObject[] = [
               // Programs (ADR-0070) — OSS coordination unit for a PM with several
               // related projects. Lives between project (lower) and Enterprise
               // portfolio (higher); see ADR-0030 navigation amendment.
+              // Shell v2's full-page Work list (#4756); redirects to /programs when the flag is off.
+              {
+                path: 'work',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Work' } satisfies RouteHandle,
+              },
               {
                 path: 'programs',
                 element: (

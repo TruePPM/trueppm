@@ -39,6 +39,7 @@ const SHELL_HOSTED_ROUTES: ReadonlyArray<{ path: string; url: string }> = [
   { path: 'me/settings/general', url: '/me/settings/general' },
   { path: 'resources', url: '/resources' },
   { path: 'programs', url: '/programs' },
+  { path: 'work', url: '/work' },
   // The rest of the `me/settings/*` family, covered by the same gap.
   { path: 'me/settings/notifications', url: '/me/settings/notifications' },
   { path: 'me/settings/connected-accounts', url: '/me/settings/connected-accounts' },

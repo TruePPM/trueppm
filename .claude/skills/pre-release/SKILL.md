@@ -51,7 +51,7 @@ Which pre-release audit would you like to run?
   security       security-review + rbac-check
   performance    perf-check + performance
   frontend       ux-review + broadcast-check
-  accessibility  accessibility (WCAG 2.1 AA)
+  accessibility  accessibility (WCAG 2.2 AA)
   docs           docs-writer + api-design (full surface review)
   contracts      architect (full codebase) + migration-check
   deps           dependency
@@ -119,7 +119,7 @@ When launching each agent (via the `Agent` tool with `subagent_type: <name>` and
 | `migration-check` | **Sonnet** | Pattern audit: scan migration files for destructive ops, NOT NULL without default, missing reverse migrations. Mechanical. |
 | `ux-review` | **Sonnet** | Design system compliance is a checklist against the `brand` skill tokens. Sonnet is well-calibrated for this. |
 | `broadcast-check` | **Sonnet** | Pattern audit: every write path × `broadcast_board_event()` + `transaction.on_commit()`. Mechanical pairing check. |
-| `accessibility` | **Sonnet** | WCAG 2.1 AA is a well-defined rule set (contrast ratios, ARIA, keyboard, focus). Sonnet handles this reliably. |
+| `accessibility` | **Sonnet** | WCAG 2.2 AA is a well-defined rule set (contrast ratios, ARIA, keyboard, focus). Sonnet handles this reliably. |
 | `docs-writer` (audit) | **Sonnet** | Enumerate features in `docs/` vs features in code; flag gaps. Enumeration, not reasoning. |
 | `api-design` (audit) | **Sonnet** | Enumerate endpoints/schemas/events in code vs `docs/api/`; flag gaps. Enumeration. |
 | `dependency` | **Sonnet** | License + CVE scan against pip and npm manifests. Tabular and well-defined. |
@@ -273,7 +273,7 @@ Run in parallel:
 2. **broadcast-check** *(Sonnet)* — Full audit of all write operations (create, update, delete, move, schedule recalculation) on board-scoped and project-scoped resources. Verify `broadcast_board_event()` is correctly wired, deferred with `transaction.on_commit()`, and that the frontend socket handler exists for every event type.
 
 ### `accessibility`
-1. **accessibility** *(Sonnet)* — Full WCAG 2.1 AA audit across web and mobile interfaces. Cover keyboard navigation, screen reader compatibility, focus management, color contrast (against the design system tokens), touch target sizes on mobile, and ARIA attributes on the schedule canvas / Gantt interactions. Accessibility regressions in a tagged release are a public commitment — fixing them post-tag means a patch release. Owns WCAG success-criterion findings (ARIA/tab semantics, contrast, focus, motion); `ux-review` defers those to it.
+1. **accessibility** *(Sonnet)* — Full WCAG 2.2 AA audit across web and mobile interfaces. Cover keyboard navigation, screen reader compatibility, focus management, color contrast (against the design system tokens), touch target sizes on mobile, and ARIA attributes on the schedule canvas / Gantt interactions. Accessibility regressions in a tagged release are a public commitment — fixing them post-tag means a patch release. Owns WCAG success-criterion findings (ARIA/tab semantics, contrast, focus, motion); `ux-review` defers those to it.
 
 ### `docs`
 

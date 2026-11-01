@@ -146,6 +146,8 @@ the flag changes chrome only.
   appears only when a program is in context and links to that program's agents
   page; it is omitted, not stubbed, elsewhere.
 - A full-page **Work** list. The rail's Work item lands on `/programs` for now.
+  *Superseded 2026-10-31 by #4756: the Work item now lands on the full-page
+  `/work` list, which shares its data model with the flyout.*
 - Retiring the v1 shell, `v2-golden-standard.md`, or rewriting the `brand`
   skill. Those happen when the default flips; until then the `brand` skill is
   known-stale for anything under `features/shell2/`.
@@ -182,3 +184,11 @@ the flag changes chrome only.
   Accepted for the flagged period.
 - ADR-0942's bands and the sidebar's six visibility filters remain the v1
   contract and keep their tests; nothing in v1 changed.
+
+## Amendment (2026-10-31, #4764): navigation budget
+
+The item caps in section 1 (rail 5 destinations + pins max 7; context tabs at most 5 plus
+More; the phone bar of 5) are now an enforceable design invariant, web rule 436
+([`docs/design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md`](../design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md)).
+Raising any of those numbers is an amendment to this ADR (or its successor), not a
+review-time judgement call.

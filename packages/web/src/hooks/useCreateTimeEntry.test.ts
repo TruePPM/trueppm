@@ -143,4 +143,24 @@ describe('useCreateTimeEntry', () => {
 
     expect(toastError).toHaveBeenCalledWith('Could not log time. Please try again.');
   });
+
+  describe('toastErrors', () => {
+    it('toasts a refusal by default', async () => {
+      postMock.mockRejectedValue(withStatus(403));
+      const { result } = renderHook(() => useCreateTimeEntry(), { wrapper: wrapper(qc) });
+      act(() => result.current.mutate(VARS));
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toastError).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([400, 403])('stays silent on a %s with toastErrors:false', async (status) => {
+      postMock.mockRejectedValue(withStatus(status, { entry_date: ['nope'] }));
+      const { result } = renderHook(() => useCreateTimeEntry({ toastErrors: false }), {
+        wrapper: wrapper(qc),
+      });
+      act(() => result.current.mutate(VARS));
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toastError).not.toHaveBeenCalled();
+    });
+  });
 });
