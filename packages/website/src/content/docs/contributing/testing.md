@@ -130,7 +130,8 @@ assertion-strength gap).
 
 In CI this runs as **`scheduler:mutation`**. The nightly run is **gating**:
 `MUTATION_MIN` is `0.92`, set from the observed nightly baseline of 93.0–93.1%
-under mutmut 3.7 (the suite scores 96.8% under the pinned mutmut 3.8.0), and a
+under mutmut 3.7 (the measured readings under the pinned mutmut 3.8.0 are
+recorded in the `scheduler:mutation` job comment in `.gitlab-ci.yml`), and a
 nightly that scores below it goes red and stays red until the survivor is
 killed. Unlike the fuzz jobs it does *not* carry job-level `allow_failure`,
 because a mutation score crossing a fixed floor is one deterministic number
