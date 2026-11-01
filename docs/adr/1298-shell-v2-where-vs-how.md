@@ -182,3 +182,11 @@ the flag changes chrome only.
   Accepted for the flagged period.
 - ADR-0942's bands and the sidebar's six visibility filters remain the v1
   contract and keep their tests; nothing in v1 changed.
+
+## Amendment (2026-10-31, #4764): navigation budget
+
+The item caps in section 1 (rail 5 destinations + pins max 7; context tabs at most 5 plus
+More; the phone bar of 5) are now an enforceable design invariant, web rule 436
+([`docs/design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md`](../design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md)).
+Raising any of those numbers is an amendment to this ADR (or its successor), not a
+review-time judgement call.

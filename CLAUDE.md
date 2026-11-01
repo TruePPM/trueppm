@@ -524,7 +524,7 @@ it, or the gate becomes the habitual ceremony the fast-path table exists to stri
 Record both in the MR's `## Gates` section under their exact skill names — the ledger
 parser matches on them (`.claude/skills/mr/SKILL.md`). `accessibility` is deliberately
 **not** a ledger gate: it is a reference rule set, and WCAG findings against a UI diff
-are recorded under `ux-review`, which checks WCAG 2.1 AA by definition.
+are recorded under `ux-review`, which checks WCAG 2.2 AA by definition.
 
 ## Available Skills
 
