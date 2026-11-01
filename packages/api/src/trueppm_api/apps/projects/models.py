@@ -8440,8 +8440,8 @@ class ProgramDecision(VersionedModel):
     ``impact_note`` is the **owner's own estimate**, free text, and stays that way:
     the UI renders it as "Owner's estimate · as of <updated_at>" and never as a
     forecast figure, because nothing on the server computed it. A computed impact
-    (delta from the live P80 for the linked task or risk) is a separate fact and a
-    separate follow-up.
+    (delta from the live P80 for the linked task or risk) is a separate fact,
+    tracked in #4773.
 
     ``linked_task`` / ``linked_risk`` must belong to a project in this program —
     the serializer enforces it, since a cross-program link would make a program's

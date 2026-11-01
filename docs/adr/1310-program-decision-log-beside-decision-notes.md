@@ -40,7 +40,7 @@ decision to hang off a task, which is not how a program states an open question.
    The server stores it verbatim. Every surface renders it with its provenance,
    "Owner's estimate · as of `updated_at`", in body type, never in the figure styling
    used for P50/P80. A computed impact (linked item against the live P80) is a
-   separate, future server fact with its own provenance. It is not a parse of this
+   separate server fact with its own provenance (#4773). It is not a parse of this
    field.
 3. **Status is a small state machine:** `awaiting → made | withdrawn`, and
    `made | withdrawn → awaiting` (reopen). `made → withdrawn` is refused: rewriting a
@@ -66,7 +66,11 @@ decision to hang off a task, which is not how a program states an open question.
   by URL.
 - MCP read exposure is deliberately not part of this change. Adding the viewset to
   `McpReadableViewMixin` needs an `McpScope` choice for a program-scoped row that
-  carries project links. That is a follow-up.
+  carries project links. Tracked in #4774.
+- The workspace backup archive includes the decision log (`programs/decisions.json`).
+  The program seed export does not yet: the seed v2 schema rejects unknown keys, so
+  adding decisions needs a schema minor (2.2) with validation and import. Tracked in
+  #4776.
 - Writes are reachable by a `legacy:full` personal access token, the same as
   `backlog-items/` (recorded in `token_write_surface.txt`). An `mcp:read` agent token
   gets a 401 here: the view is not MCP-wrapped, so `OwnerScopedApiTokenAuthentication`

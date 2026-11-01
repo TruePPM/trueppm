@@ -5,7 +5,7 @@
  * free text the server stores and never computes. It is always rendered with its
  * provenance ("Owner's estimate · as of <date>") and never as a forecast figure —
  * a decision row that read "recovers 2 days" in the type the P80 uses would be
- * asserting the engine said so. A computed impact is a separate, future fact.
+ * asserting the engine said so. A computed impact is a separate fact (#4773).
  */
 
 import { ROLE_MEMBER } from '@/lib/roles';

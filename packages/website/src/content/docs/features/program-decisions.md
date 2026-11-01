@@ -60,7 +60,7 @@ TruePPM does not compute the impact estimate. It is text the owner typed, and it
 always shown under the label **Owner's estimate · as of** the date the decision was
 last changed. It is never styled like a forecast figure. Editing any field of the
 decision moves that date. Impact computed from a linked task or risk against the live
-P80 is planned as a separate feature.
+P80 is planned separately ([#4773](https://gitlab.com/trueppm/trueppm/-/issues/4773)).
 
 ## Who can do what
 
@@ -81,6 +81,13 @@ Through the API, a decision can link to **one** task or **one** risk. The linked
 must belong to a project in the same program, and you must be a member of that
 project to set the link. A program member who is not in the linked project still
 sees that a task or risk is linked, but not its name.
+
+## Backups and exports
+
+The workspace backup archive includes the decision log. The program seed export
+does not include decisions yet
+([#4776](https://gitlab.com/trueppm/trueppm/-/issues/4776)), so a program exported
+and re-imported that way arrives without its decision log.
 
 ## API
 
