@@ -13036,10 +13036,28 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         )
         from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 
-        # Composed only when the P80 or CPM finish is a start-of-day reading.
-        risk_premium = build_risk_premium(
-            latest_run, today=today, calendar_for=lambda: compose_project_calendar(project)
+        # The same "latest result" GET /monte-carlo/latest/ serves (ADR-1314): the
+        # cache entry first, the persisted run after its TTL. A Member-triggered run
+        # refreshes the cache and persists no row (#1502), so reading the row alone
+        # left this card — and MCP `get_project`, which reads it — a day behind the
+        # forecast endpoint for the same project.
+        from trueppm_api.apps.scheduling.forecast_staleness import (
+            forecast_staleness_for_payload,
         )
+        from trueppm_api.apps.scheduling.risk_premium import risk_premium_for_forecast_payload
+        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+        cached_mc = cache.get(mc_latest_cache_key(project.pk))
+
+        # Composed only when the P80 or CPM finish is a start-of-day reading.
+        if cached_mc is not None:
+            risk_premium = risk_premium_for_forecast_payload(
+                cached_mc, today=today, calendar_for=lambda: compose_project_calendar(project)
+            )
+        else:
+            risk_premium = build_risk_premium(
+                latest_run, today=today, calendar_for=lambda: compose_project_calendar(project)
+            )
         # Promoted here for the same reason the premium is (#3140): this endpoint is
         # what cards, MCP health reads and rollups consult instead of running a
         # simulation, so if the discriminant lived only on `/monte-carlo/latest/`,
@@ -13047,11 +13065,20 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         # `get_monte_carlo_forecast` reported the same run as stale. Two tools, one run,
         # opposite answers is worse than either answer alone. Same row, same already
         # loaded project — no extra query.
-        staleness = forecast_staleness_from_run(
-            latest_run,
-            plan_version_current=project.last_sync_version,
-            recalculated_at=project.recalculated_at,
-            today=today,
+        staleness = (
+            forecast_staleness_for_payload(
+                cached_mc,
+                plan_version_current=project.last_sync_version,
+                recalculated_at=project.recalculated_at,
+                today=today,
+            )
+            if cached_mc is not None
+            else forecast_staleness_from_run(
+                latest_run,
+                plan_version_current=project.last_sync_version,
+                recalculated_at=project.recalculated_at,
+                today=today,
+            )
         )
 
         return Response(

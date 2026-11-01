@@ -279,6 +279,132 @@ class TestForecastCommitment:
         assert resp.status_code in (403, 404)
 
 
+# ── commitment precedence, working-time delta, baseline reading ─────────────
+
+
+def _baseline_with_readings(
+    project: Project, user: object, rows: list[tuple[datetime.date, bool | None]]
+) -> Baseline:
+    baseline = Baseline.objects.create(
+        project=project, name="BR", created_by=user, is_active=True, has_cpm_dates=True
+    )
+    for i, (finish, at_start) in enumerate(rows):
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=_task(project, f"R{i}").pk,
+            task_name=f"R{i}",
+            finish=finish,
+            duration=5,
+            finish_at_day_start=at_start,
+        )
+    return baseline
+
+
+class TestCommitmentRules:
+    URL = "/api/v1/projects/{}/monte-carlo/latest/"
+
+    def test_active_baseline_outranks_the_program_target(
+        self, client: APIClient, project: Project, user: object
+    ) -> None:
+        program = Program.objects.create(name="Prog", target_date=datetime.date(2026, 6, 12))
+        project.program = program
+        project.save(update_fields=["program"])
+        _baseline(project, user, [datetime.date(2026, 5, 29)])
+        MonteCarloRun.objects.create(
+            project=project,
+            p80=datetime.date(2026, 6, 5),
+            n_simulations=500,
+            p80_at_day_start=False,
+        )
+
+        body = client.get(self.URL.format(project.pk)).json()
+
+        assert body["commitment_source"] == "baseline"
+        assert body["commitment_date"] == "2026-05-29"
+
+    def test_start_of_monday_commitment_vs_end_of_friday_p80_is_zero(
+        self, client: APIClient, project: Project, user: object
+    ) -> None:
+        # 2026-06-01 is a Monday. The start of Monday and the end of the Friday
+        # before it are the same point in the working week (#4197), so the delta
+        # is 0, not -3 — only the calendar path through lazy_finish_shift_days
+        # gets this right.
+        _baseline_with_readings(project, user, [(datetime.date(2026, 6, 1), True)])
+        MonteCarloRun.objects.create(
+            project=project,
+            p80=datetime.date(2026, 5, 29),
+            n_simulations=500,
+            p80_at_day_start=False,
+        )
+
+        body = client.get(self.URL.format(project.pk)).json()
+
+        assert body["commitment_date"] == "2026-06-01"
+        assert body["p80_delta_vs_commitment_days"] == 0
+
+    @pytest.mark.parametrize(
+        ("readings", "expected"),
+        [
+            ([True, True], True),
+            ([True, False], False),
+            ([True, None], None),
+        ],
+    )
+    def test_baseline_reading_on_the_finish_day(
+        self,
+        project: Project,
+        user: object,
+        readings: list[bool | None],
+        expected: bool | None,
+    ) -> None:
+        from trueppm_api.apps.projects.metric_provenance import _active_baseline_commitment
+
+        day = datetime.date(2026, 6, 1)
+        _baseline_with_readings(
+            project,
+            user,
+            [(datetime.date(2026, 5, 1), False)] + [(day, r) for r in readings],
+        )
+
+        result = _active_baseline_commitment(project.pk)
+
+        # Only rows on the latest day decide the reading: all start-of-day gives
+        # start-of-day, any end-of-day gives end-of-day, any unknown gives unknown.
+        assert result == (day, expected)
+
+
+class TestOverviewEchoesTheForecastOwner:
+    def test_overview_reads_the_cached_run_like_monte_carlo_latest(
+        self, client: APIClient, project: Project
+    ) -> None:
+        # A Member-triggered run refreshes the cache and persists no row (#1502).
+        MonteCarloRun.objects.create(
+            project=project,
+            p80=datetime.date(2026, 6, 1),
+            cpm_finish=datetime.date(2026, 5, 1),
+            n_simulations=500,
+        )
+        cache.set(
+            mc_latest_cache_key(project.pk),
+            {
+                "project_id": str(project.pk),
+                "p80": "2026-07-15",
+                "cpm_finish": "2026-07-01",
+                "p80_at_day_start": False,
+                "cpm_finish_at_day_start": False,
+                "last_run_at": "2026-06-20T00:00:00+00:00",
+                "plan_version": project.last_sync_version,
+            },
+            timeout=60,
+        )
+
+        overview = client.get(f"/api/v1/projects/{project.pk}/overview/").json()
+        latest = client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+
+        assert overview["risk_premium_p80"] == latest["risk_premium_p80"] == "2026-07-15"
+        assert overview["forecast_staleness"] == latest["forecast_staleness"]
+
+
 # ── program target date: who sees it (accepted exposure, ADR-1314) ──────────
 
 

@@ -71,6 +71,12 @@ compatibility. It now reads the same latest result (the cache entry, else the
 persisted run), so it cannot disagree with the owner. Its schema text names the
 owner.
 
+The overview's forecast-derived fields (`risk_premium_*` and `forecast_staleness`)
+are echoes of the same owner, and they read the same latest result in the same
+order. They used to read only the persisted run, so after a Member-triggered run
+the overview (and MCP `get_project`, which reads it) lagged `monte-carlo/latest/`
+for up to a day.
+
 The `count` on `/blocked/` stays the list's row count. The blocked metric is
 `status-summary.blocked_count`, which uses the same rule (a non-empty
 `blocked_reason` on a live row) without the cap. It is computed in the existing

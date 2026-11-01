@@ -31,7 +31,7 @@ Each owning endpoint returns two extra things beside its figures:
 
 | Metric | Field | Owner | As of | Definition |
 |---|---|---|---|---|
-| Health band | `health_band` | `GET /projects/{id}/status-summary/` | `as_of` | The project's health: the project manager's own report when one is filed, otherwise critical when any incomplete task is on the critical path, at risk when any incomplete task has 5 or fewer working days of total float, and on track when neither holds. |
+| Health band | `health_band` | `GET /projects/{id}/status-summary/` | `as_of` | The project's health: the project manager's own report when one is filed, otherwise critical when any incomplete leaf task is on the critical path, at risk when any incomplete leaf task has 5 or fewer working days of total float, and on track when neither holds. |
 | At-risk tasks | `at_risk_count` | `GET /projects/{id}/status-summary/` | `as_of` | Incomplete leaf tasks with 5 or fewer working days of total float, including tasks already late (negative float). |
 | Critical tasks | `critical_count` | `GET /projects/{id}/status-summary/` | `as_of` | Incomplete leaf tasks on the critical path. |
 | Blocked tasks | `blocked_count` | `GET /projects/{id}/status-summary/` | `as_of` | Live tasks flagged blocked (a blocked reason is recorded): the rule the blocked list uses, counted in full rather than capped at the list's row limit. |

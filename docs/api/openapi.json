@@ -66607,7 +66607,8 @@
                     },
                     "count": {
                         "type": "integer",
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "The number of rows in this list, which stops at the list's row cap (see `truncated`). It is not the blocked-task metric: the full count is `blocked_count` on GET /projects/{id}/status-summary/ (ADR-1314)."
                     },
                     "blocked": {
                         "type": "array",
@@ -69653,7 +69654,7 @@
                 "properties": {
                     "health_band": {
                         "type": "string",
-                        "description": "The project's health: the project manager's own report when one is filed, otherwise critical when any incomplete task is on the critical path, at risk when any incomplete task has 5 or fewer working days of total float, and on track when neither holds."
+                        "description": "The project's health: the project manager's own report when one is filed, otherwise critical when any incomplete leaf task is on the critical path, at risk when any incomplete leaf task has 5 or fewer working days of total float, and on track when neither holds."
                     },
                     "at_risk_count": {
                         "type": "string",

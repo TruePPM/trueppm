@@ -12737,7 +12737,14 @@ class ProjectBlockedRollupSerializer(serializers.Serializer[dict[str, Any]]):
     """
 
     project_id = serializers.UUIDField(read_only=True)
-    count = serializers.IntegerField(read_only=True)
+    count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "The number of rows in this list, which stops at the list's row cap (see "
+            "`truncated`). It is not the blocked-task metric: the full count is "
+            "`blocked_count` on GET /projects/{id}/status-summary/ (ADR-1314)."
+        ),
+    )
     blocked = BlockedTaskRowSerializer(many=True, read_only=True)
     truncated = serializers.BooleanField(read_only=True)
 

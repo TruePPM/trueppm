@@ -35,9 +35,9 @@ METRIC_DEFINITIONS: dict[str, str] = {
     # ── status-summary ────────────────────────────────────────────────────
     "health_band": (
         "The project's health: the project manager's own report when one is filed, "
-        "otherwise critical when any incomplete task is on the critical path, at risk "
-        "when any incomplete task has 5 or fewer working days of total float, and on "
-        "track when neither holds."
+        "otherwise critical when any incomplete leaf task is on the critical path, at "
+        "risk when any incomplete leaf task has 5 or fewer working days of total float, "
+        "and on track when neither holds."
     ),
     "at_risk_count": (
         "Incomplete leaf tasks with 5 or fewer working days of total float, including "

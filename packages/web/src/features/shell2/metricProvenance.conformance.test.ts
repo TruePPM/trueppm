@@ -100,25 +100,66 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
+const BAND_WORD = String.raw`['"](critical|at_risk|at-risk|on_track|on-track)['"]`;
+
 const RECOMPUTE_PATTERNS: Record<string, RegExp> = {
-  // A count compared with zero AND a band word close behind it: the shape of a band
-  // derivation. A count alone is formatting ("3 on the critical path") and allowed.
-  'health band derived from counts':
-    /\b(critical|atRisk|at_risk)_?[Cc]ount\s*(>|>=|===|!==)\s*0[\s\S]{0,60}?['"](critical|at_risk|at-risk|on_track|on-track)['"]/,
+  // A count that decides a branch — compared with any number, or used for its
+  // truthiness — with a band word close behind it, whether returned, chosen by a
+  // ternary or assigned. A count alone is formatting ("3 on the critical path").
+  'health band derived from counts': new RegExp(
+    String.raw`\b\w*(critical|atRisk|at_risk|blocked|risk)_?[Cc]ount\b[^;{}\n]{0,40}[?{)][\s\S]{0,80}?` +
+      BAND_WORD,
+  ),
   'load computed from hours and capacity':
     /\b\w*(hours|booked|load)\w*\s*\/\s*\(?\s*\w*(capacity|max_?units|maxUnits|hoursPerDay|hours_per_day)/i,
   'date subtraction (slip or delta)':
     /\.getTime\(\)\s*-|differenceIn(Calendar|Business)?Days|86_?400_?000/,
-  'percentile sampled client-side': /\b(quantile|percentile)\s*\(|\*\s*0\.(5|8|95)\b/,
-  'client-written metric definition': /simulated schedules|\bthe date \d+% of\b/i,
+  // A helper that does the date arithmetic elsewhere is the same recomputation,
+  // one import away. Slip and deltas are server facts measured in working time.
+  'imported date-arithmetic helper':
+    /import\s*\{[^}]*\b(daysBetween|daysUntil|baselineFinishVariance)\b[^}]*\}\s*from/,
+  'percentile sampled client-side':
+    /\b(quantile|percentile)\s*\(|\*\s*0?\.(5|50|8|80|95)\b|\b0?\.(5|50|8|80|95)\s*\*\s*\w+\.length/,
+  // Wording only a metric definition uses. The definition is the server's sentence
+  // in `definitions`, rendered verbatim — never one the client writes.
+  'client-written metric definition':
+    /simulated schedules|\bthe date \d+% of\b|\bfinish(es)? on or before\b|working days of total float|divided by (their |the )?capacity|booked hours/i,
 };
+
+/**
+ * Sites that match a detector and are deliberately NOT a metric, each with the
+ * number of matches it is allowed and why. Pinned by count, so a further match in
+ * the same file still fails.
+ */
+const EXEMPT: { file: string; label: string; count: number; reason: string }[] = [
+  {
+    file: 'me/myWorkFocus.ts',
+    label: 'health band derived from counts',
+    count: 3,
+    // `needsAttentionCard` (two branches) and `criticalPathCard` (one) set a card's TONE from the
+    // person's own blocked / critical task counts: "you have 2 blocked tasks" is
+    // shown in the critical tone. That is the presentational severity of a count
+    // the server sent, not the project health band, which these cards never
+    // print and which `health_band` on status-summary owns (ADR-1314).
+    reason: 'presentational severity of a personal count, not the project health band',
+  },
+];
+
+function matchCount(re: RegExp, code: string): number {
+  return [
+    ...code.matchAll(new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')),
+  ].length;
+}
 
 function offenders(files: string[]): string[] {
   const hits: string[] = [];
   for (const f of files) {
+    const rel = f.slice(FEATURES.length + 1);
     const code = stripComments(readFileSync(f, 'utf8'));
     for (const [label, re] of Object.entries(RECOMPUTE_PATTERNS)) {
-      if (re.test(code)) hits.push(`${f.slice(FEATURES.length + 1)}: ${label}`);
+      const n = matchCount(re, code);
+      const allowed = EXEMPT.find((e) => e.file === rel && e.label === label)?.count ?? 0;
+      if (n > allowed) hits.push(`${rel}: ${label} (${n} match(es), ${allowed} exempt)`);
     }
   }
   return hits;
@@ -148,18 +189,44 @@ describe('shell v2 and the homes format server metrics and never recompute them'
     expect(RECOMPUTE_PATTERNS['health band derived from counts']?.test(copy)).toBe(false);
   });
 
+  it('every exemption still matches what it exempts (no stale exemptions)', () => {
+    for (const e of EXEMPT) {
+      const file = join(FEATURES, e.file);
+      expect(FILES).toContain(file);
+      const re = RECOMPUTE_PATTERNS[e.label];
+      expect(re).toBeDefined();
+      expect(matchCount(re, stripComments(readFileSync(file, 'utf8')))).toBe(e.count);
+    }
+  });
+
   it.each([
     [
       'health band derived from counts',
       "const band = criticalCount > 0 ? 'critical' : 'on_track';",
     ],
+    ['health band derived from counts', "if (atRiskCount > 1) return 'at_risk';"],
+    [
+      'health band derived from counts',
+      "let v = 'on-track';\nif (blockedCount) {\n  v = 'critical';\n}",
+    ],
+    ['health band derived from counts', "const tone = criticalCount ? 'at-risk' : 'neutral';"],
     ['load computed from hours and capacity', 'const pct = bookedHours / capacityHours * 100;'],
     ['date subtraction (slip or delta)', 'const slip = (a.getTime() - b.getTime()) / 86400000;'],
+    [
+      'imported date-arithmetic helper',
+      "import { daysUntil } from '@/features/sprints/sprintMath';",
+    ],
+    [
+      'imported date-arithmetic helper',
+      "import { baselineFinishVariance } from '@/lib/baselineFinishVariance';",
+    ],
     ['percentile sampled client-side', 'const p80 = sorted[Math.floor(sorted.length * 0.8)];'],
+    ['percentile sampled client-side', 'const p80 = sorted[Math.floor(sorted.length * 0.80)];'],
     [
       'client-written metric definition',
       "const DEF = 'the date 80% of the simulated schedules finish on';",
     ],
+    ['client-written metric definition', "const DEF = 'Booked hours divided by capacity.';"],
   ])('detects a reintroduced %s (proves the scan is not vacuous)', (label, snippet) => {
     expect(RECOMPUTE_PATTERNS[label]?.test(stripComments(snippet))).toBe(true);
   });

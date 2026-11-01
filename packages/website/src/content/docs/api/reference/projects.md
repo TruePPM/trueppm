@@ -102,7 +102,8 @@ For **who** filed a reported band and **when**, read `GET
 /api/v1/projects/{id}/history/` — `Project.health` is a tracked field. This field says
 which branch ran, not who ran it.
 
-**Read the nulls as facts.** Each of the last three is `null` for exactly one reason,
+**Read the nulls as facts.** Each of `monte_carlo_p80`, `last_saved` and
+`recalculated_at` is `null` for exactly one reason,
 and that reason is the answer rather than "not available yet":
 
 - `monte_carlo_p80` — no Monte Carlo run has been recorded for this project, or the
