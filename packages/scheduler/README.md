@@ -310,7 +310,7 @@ each is individually catchable:
 
 | Exception | Raised when |
 |-----------|-------------|
-| `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` lists the task IDs forming it. |
+| `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` is the full canonical path (deterministic, starts at its smallest ID, repeats it at the end). The message `repr()`-escapes IDs and truncates after 10 with `… (+M more)`. |
 | `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. |
 | `InvalidScheduleInput` | The input is structurally valid but out of range, or the wrong type (see below). |
 | `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project. |

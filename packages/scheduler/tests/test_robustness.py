@@ -701,3 +701,27 @@ class TestCycleErrorMessage:
         assert "… (+41 more)" in str(err)
         assert "t049" not in str(err)
         assert len(str(err)) < 300
+
+    def test_self_loop(self) -> None:
+        err = self._cycle_error([("a", "a")])
+        assert err.cycle == ["a", "a"]
+        assert str(err) == "Cyclic dependency detected: 'a' → 'a'"
+
+    def test_find_cycle_with_children_map_is_canonical(self) -> None:
+        children_map = {"S": ["L1", "L2"]}
+        edges = [("L2", "X"), ("X", "S"), ("Z", "Y"), ("Y", "Z")]
+        rng = random.Random(1)
+        results = set()
+        for _ in range(30):
+            rng.shuffle(edges)
+            cyc = find_cycle(edges, children_map=children_map).cycle
+            assert cyc is not None
+            results.add(tuple(cyc))
+        assert results == {("L2", "X", "L2")}
+
+    def test_long_id_is_cut_per_id(self) -> None:
+        long_id = "x" * 500
+        err = self._cycle_error([(long_id, "b"), ("b", long_id)])
+        assert long_id not in str(err)
+        assert "…" in str(err)
+        assert len(str(err)) < 300

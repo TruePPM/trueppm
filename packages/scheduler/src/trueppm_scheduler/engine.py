@@ -2013,9 +2013,9 @@ def _raise_cycle_error(g: nx.DiGraph[str]) -> NoReturn:
     """Reconstruct and raise the cycle from a graph a topological sort rejected.
 
     Called only from the ``NetworkXUnfeasible`` handler of a topological sort:
-    the sort has already proved the graph cyclic in ~3ms, so the ~148ms
-    ``nx.find_cycle`` edge-DFS (5K tasks/5.7K edges, #1526) runs only on this
-    error path to reconstruct the user-facing cycle — never on the happy path,
+    the sort has already proved the graph cyclic in ~3ms, so the SCC pass and
+    BFS in :func:`_canonical_cycle` run only on this error path to reconstruct
+    the user-facing cycle (#1526) — never on the happy path,
     where checking cycles eagerly with ``find_cycle`` was 37% of the
     ``schedule()`` budget for a result the topological sort already proves.
     """
@@ -2138,7 +2138,10 @@ def find_cycle(
         A :class:`CycleCheck` whose ``cycle`` is the cycle as an ordered list of
         task IDs with the first repeated at the end (e.g. ``['A', 'B', 'C', 'A']``)
         so callers can render an unambiguous path, or ``None`` if the graph is
-        acyclic. The result is truthy iff a cycle was found.
+        acyclic. The cycle is deterministic: independent of edge order, it is
+        the shortest cycle through the smallest id of the smallest non-trivial
+        strongly connected component, starting at that id and closing by
+        repeating it. The result is truthy iff a cycle was found.
 
     Raises:
         InvalidScheduleInput: If ``children_map`` itself is malformed — not a
@@ -4647,9 +4650,9 @@ def schedule(project: Project) -> ScheduleResult:
     g = _build_graph(project)
 
     # Detect cycles via the topological sort itself: it raises NetworkXUnfeasible
-    # on a cycle in ~3ms, versus ~148ms for an eager nx.find_cycle on every
-    # happy-path call at 5K tasks (#1526). find_cycle runs only on the error
-    # path, inside _raise_cycle_error, to rebuild the cycle for the message.
+    # on a cycle in ~3ms, versus ~148ms for an eager cycle search on every
+    # happy-path call at 5K tasks (#1526). The SCC + BFS in _canonical_cycle
+    # runs only on the error path, inside _raise_cycle_error.
     try:
         topo_order: list[str] = list(nx.topological_sort(g))
     except nx.NetworkXUnfeasible:
@@ -7600,8 +7603,9 @@ def monte_carlo(
     g = _build_graph(project)
     # Detect cycles via the topological sort itself (#1526), the same happy-path
     # optimization as schedule(): the lexicographic sort raises NetworkXUnfeasible
-    # on a cycle in ~3ms, so the ~148ms eager nx.find_cycle runs only on the error
-    # path, in _raise_cycle_error.
+    # on a cycle in ~3ms, so the eager cycle search (~148ms) is replaced by the
+    # SCC + BFS in _canonical_cycle, which runs only on the error path, in
+    # _raise_cycle_error.
     #
     # Use a lexicographically-keyed topological sort so the RNG is consumed in a
     # deterministic, version-independent order. Plain ``nx.topological_sort`` only

@@ -173,7 +173,7 @@ Durations and estimates are expressed in whole working days for the beta, lags i
 
 ### Cycle detection
 
-`schedule()` raises `CyclicDependencyError` if the graph contains a cycle. The `.cycle` attribute contains the list of task IDs forming the cycle.
+`schedule()` raises `CyclicDependencyError` if the graph contains a cycle. The `.cycle` attribute is the full, canonical path of task IDs forming the cycle (deterministic regardless of input order, starting at its smallest ID and repeating it at the end). The message `repr()`-escapes each ID and lists at most 10, followed by `… (+M more)`.
 
 ### Usage
 
