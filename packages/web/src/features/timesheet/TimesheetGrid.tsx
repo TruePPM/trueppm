@@ -176,12 +176,9 @@ export function TimesheetGrid({
         </div>
       </div>
 
-      {/* Add-task row — hidden once the week is submitted (read-only). */}
-      {!submitted && (
-        <div className="border-t border-neutral-border">
-          <AddTaskRow existingTaskIds={existingTaskIds} onAdd={onAddTask} />
-        </div>
-      )}
+      {/* Add-task row — hidden once the week is submitted (read-only), and renders nothing
+          when every candidate is already a row (#4766). */}
+      {!submitted && <AddTaskRow existingTaskIds={existingTaskIds} onAdd={onAddTask} />}
     </div>
   );
 }

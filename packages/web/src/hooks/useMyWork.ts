@@ -20,6 +20,7 @@ import { toApiRelativePath } from '@/api/pagination';
 import type { TaskStatus } from '@/types';
 import type { BlockerType } from '@/lib/blocker';
 import type { ExternalSyncOutcome } from '@/features/integrations/syncOutcome';
+import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
 
 export type DueSource = 'actual' | 'planned' | 'estimated' | 'sprint' | null;
 
@@ -354,7 +355,7 @@ export function useMyWorkStatusUpdate() {
     onSettled: () => {
       // Refresh once the server confirms — keeps due_today_count and
       // active_sprints in sync (the patch may have closed a sprint task etc.).
-      void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
+      invalidateMyWork(queryClient);
     },
   });
 }

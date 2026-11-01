@@ -1,7 +1,7 @@
 ---
 title: Timesheet
 description: Three ways to capture time — a running timer, a global quick-log popover, and a keyboard-fast weekly grid — plus how to review and submit your week.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 This is for anyone who needs to record time spent on their work — a contributor logging hours against tasks, or a PM who wants an accurate picture of effort. TruePPM offers three ways to capture time, and all three feed the same record behind the scenes: a
@@ -82,7 +82,19 @@ Monday to Sunday.
 
 ![The weekly grid header and daily-total row, zoomed: Saturday and Sunday shaded, Sunday's date tinted as today, and the Total column on the right](../../../assets/screenshots/timesheet-grid.webp)
 
-Step between weeks with the `‹ … ›` stepper, and start logging against a task that isn't in the grid yet with **Add project or task**.
+Step between weeks with the `‹ … ›` stepper, and start logging against a task that isn't in the grid yet with **Add project or task**, which lists the tasks assigned to you.
+
+:::note[Ships in 0.5]
+In the current release the grid lists only tasks you've already logged time against that
+week; a task with no time yet is added with **Add project or task**. That changes when 0.5 lands:
+your open assigned tasks — every task in your [My Work](/features/my-work/) list that isn't complete — will
+already be rows, even before you've logged anything against them: a row of empty cells ready
+for your first hours. Tasks you logged time on that week will still appear, even if they're
+complete or no longer assigned to you, and **Add project or task** will offer the assigned
+tasks that aren't rows yet, such as a completed task that needs a final hour. If nothing
+is assigned to you and nothing is logged for the week, the grid will say so instead of
+showing an empty table.
+:::
 
 ### Days with more than one entry
 

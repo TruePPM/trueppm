@@ -774,6 +774,8 @@ describe('suggestion action mutations', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(postMock).toHaveBeenCalledWith('/tasks/t-1/suggestions/s-1/accept/');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+    // The timesheet's read of the same feed refreshes too (#4766).
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['timesheet', 'assignments'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['tasks'] });
   });
 

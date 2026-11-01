@@ -3,7 +3,8 @@
  *
  * Route: `/me/timesheet`. The "review + submit my week" companion to the per-task inline
  * quick-log and running timer: a keyboard-fast grid of every project/task the contributor
- * logged against this week, with row/day/week totals, an over-8h amber flag, weekend
+ * logged against this week — plus a zero row for every task assigned to them (#4766) — with
+ * row/day/week totals, an over-8h amber flag, weekend
  * shading, a week stepper, an add-task row, and a single `Submit week` action (a
  * per-user-per-week marker — entries stay editable; approval is #100/0.5).
  *
@@ -13,6 +14,9 @@
  */
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
+import { ClockIcon } from '@/components/Icons';
+import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
 import {
   useSubmitWeek,
   useTimesheetCell,
@@ -22,9 +26,10 @@ import {
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import { TimesheetGrid } from './TimesheetGrid';
+import { assignedTasks, myWorkTaskMeta, zeroRowCandidates } from './assignedTasks';
 import {
   addDaysIso,
-  buildRows,
+  buildWeekRows,
   cellAt,
   dailyTotals,
   formatWeekRange,
@@ -64,14 +69,26 @@ export function TimesheetPage() {
   const cellMutation = useTimesheetCell(monday);
   const submitMutation = useSubmitWeek(monday);
 
+  // Rows come from the same assignment source My Work renders (`GET /me/work/`), so a
+  // contributor with open assigned tasks and no entries yet gets rows of zeros to log
+  // into, not an empty grid (#4766). The read is bounded and stops at a failed page
+  // (`useTimesheetAssignments`); a partial read is flagged below, never silent.
+  const assignments = useTimesheetAssignments();
+
   const days = useMemo(() => weekDays(monday, today), [monday, today]);
 
   const rows = useMemo(() => {
-    const entryRows = buildRows(data?.results ?? []);
-    const present = new Set(entryRows.map((r) => r.taskId));
+    const open = zeroRowCandidates(assignedTasks(assignments.data?.tasks)).map(myWorkTaskMeta);
+    const base = buildWeekRows(data?.results ?? [], open);
+    const present = new Set(base.map((r) => r.taskId));
     const extras = extraTasks.filter((t) => !present.has(t.taskId)).map(emptyRow);
-    return [...entryRows, ...extras];
-  }, [data, extraTasks]);
+    return [...base, ...extras];
+  }, [data, assignments.data, extraTasks]);
+
+  const isCurrentWeek = monday === mondayOf(today);
+  const emptyTitle = isCurrentWeek
+    ? 'Nothing assigned to you this week'
+    : `Nothing assigned to you for the week of ${formatWeekRange(monday)}`;
 
   const existingTaskIds = useMemo(() => new Set(rows.map((r) => r.taskId)), [rows]);
   const dayTotals = useMemo(() => dailyTotals(rows, days), [rows, days]);
@@ -203,20 +220,51 @@ export function TimesheetPage() {
       )}
 
       {/* Body */}
-      {isLoading ? (
+      {isLoading || assignments.isLoading ? (
         <div
           className="h-64 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
           aria-label="Loading timesheet"
         />
-      ) : isError ? (
+      ) : isError ||
+        // No rows + an incomplete assignment list is NOT "nothing assigned": the tasks may
+        // be in the part that failed to load, so show the error, never the empty state.
+        (rows.length === 0 && (assignments.isError || assignments.data?.partial === true)) ? (
         <div className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg p-4 text-sm">
           <p className="mb-2 text-neutral-text-primary">Couldn&rsquo;t load your timesheet.</p>
-          <Button variant="secondary" size="sm" onClick={() => void refetch()}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void refetch();
+              if (assignments.isError || assignments.data?.partial) void assignments.refetch();
+            }}
+          >
             Retry
           </Button>
         </div>
+      ) : rows.length === 0 ? (
+        // Reserved for the one case it is true (#4766): nothing assigned and nothing logged
+        // this week. Assigned tasks with no entries are rows of zeros above, never this.
+        <EmptyState
+          icon={ClockIcon}
+          title={emptyTitle}
+          description="Your open assigned tasks appear here as rows, ready for your hours. When a task is assigned to you, or you log time against a task, it shows up in this grid."
+          className="rounded-card border border-neutral-border bg-neutral-surface"
+        />
       ) : (
-        <TimesheetGrid
+        <>
+          {/* The assignment list is incomplete (a later page failed, or the page cap was
+              hit): say so, so a missing row is never read as "not assigned" (#4766). */}
+          {(assignments.data?.partial || (assignments.isError && rows.length > 0)) && (
+            <p
+              data-testid="timesheet-partial-assignments"
+              className="mb-3 rounded-card border border-semantic-at-risk/30 bg-semantic-at-risk-bg px-3 py-2 text-xs text-neutral-text-primary"
+            >
+              Some of your assigned tasks couldn&rsquo;t be loaded, so they may be missing from
+              this grid. Time you&rsquo;ve logged is all shown.
+            </p>
+          )}
+          <TimesheetGrid
           rows={rows}
           days={days}
           dayTotals={dayTotals}
@@ -226,7 +274,8 @@ export function TimesheetPage() {
           cellErrors={cellErrors}
           onCellSave={handleCellSave}
           onAddTask={handleAddTask}
-        />
+          />
+        </>
       )}
     </div>
   );
