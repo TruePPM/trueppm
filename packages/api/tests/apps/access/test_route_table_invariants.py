@@ -1351,6 +1351,164 @@ def test_the_unresolvable_scope_scan_is_not_vacuous() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Invariant 4b — auth-only permission classes are invisible to the scan above (#4582)
+# ---------------------------------------------------------------------------
+#
+# `_scope_family_classes` finds classes by the resolver they CALL. Three classes —
+# `IsProjectMemberWriteOrOwn`, `CanLogTime`, `IsTaskScopeManager` — resolve no scope in
+# `has_permission` at all: they return `is_authenticated` and put the whole membership
+# check in `has_object_permission`. They are therefore structurally invisible to that
+# discovery, and a new `detail=False` action or APIView POST declaring one of them and
+# forgetting `check_object_permissions(...)` reached the write with NO membership check
+# while invariant 4 stayed green.
+#
+# The family is discovered by SHAPE (a `has_permission` whose only statement returns an
+# `is_authenticated` test, on a class that defines `has_object_permission`), not listed
+# by name: the shape is exactly what makes a class silently depend on its caller, and a
+# by-name list would rot the day a fourth is written. If the shape rule ever sweeps in
+# something unrelated, the by-name pin below fails loudly and is the place to adjudicate.
+
+#: The classes the shape rule is expected to find today. Pinned so that a fourth class
+#: arriving is a reviewable diff in this file, not a silent widening.
+AUTH_ONLY_PERMISSION_CLASSES: frozenset[str] = frozenset(
+    {"CanLogTime", "IsProjectMemberWriteOrOwn", "IsTaskScopeManager"}
+)
+
+
+def _auth_only_permission_classes() -> set[str]:
+    """Permission classes whose ``has_permission`` only checks authentication.
+
+    Such a class enforces membership exclusively in ``has_object_permission``, which DRF
+    runs only for a ViewSet detail route (``get_object()``) or an explicit
+    ``check_object_permissions`` call in the view body.
+    """
+    found: set[str] = set()
+    for name, obj in vars(permissions_module).items():
+        if not (inspect.isclass(obj) and "has_permission" in vars(obj)):
+            continue
+        if "has_object_permission" not in vars(obj):
+            continue
+        try:
+            fn = ast.parse(textwrap.dedent(inspect.getsource(obj.has_permission))).body[0]
+        except (OSError, TypeError, SyntaxError):
+            continue
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        body = [
+            stmt
+            for stmt in fn.body
+            if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant))
+        ]
+        if (
+            len(body) == 1
+            and isinstance(body[0], ast.Return)
+            and "is_authenticated" in ast.unparse(body[0])
+            and "_resolve_" not in ast.unparse(body[0])
+        ):
+            found.add(name)
+    return found
+
+
+def _view_calls_object_check(cls: type) -> bool:
+    """Whether the view's own code (any non-DRF class in its MRO) calls
+    ``check_object_permissions`` — the only thing that makes an auth-only class bite
+    on a route that is not a ViewSet detail route."""
+    for klass in cls.__mro__:
+        # DRF's own GenericAPIView.get_object() contains the call; counting it would
+        # make every generic view look guarded.
+        if klass.__module__.startswith(("rest_framework", "builtins")):
+            continue
+        try:
+            source = inspect.getsource(klass)
+        except (OSError, TypeError):
+            continue
+        if "check_object_permissions(" in source:
+            return True
+    return False
+
+
+def _auth_only_unguarded(cls: type, view: Any) -> bool:
+    """True when an unsafe write under an auth-only class would reach its body unchecked.
+
+    Safe when DRF itself will run the object check (ViewSet detail route), when the
+    view's code calls ``check_object_permissions``, or when it pins an explicit
+    ``resolves_scope_in_body`` reason.
+    """
+    if permissions_module._object_permission_will_run(view):
+        return False
+    if permissions_module._scope_in_body_reason(view) is not None:
+        return False
+    return not _view_calls_object_check(cls)
+
+
+def _auth_only_write_entries() -> list[tuple[str, type, Any]]:
+    auth_only = _auth_only_permission_classes()
+    rows = []
+    for path, entry in _walk():
+        if _FORMAT_SUFFIX.search(path) or path.startswith("admin/"):
+            continue
+        cls = _view_class(entry)
+        if cls is None:
+            continue
+        for method, action in _unsafe_pairs(entry, cls):
+            if _effective_permission_names(cls, action, method) & auth_only:
+                rows.append(
+                    (
+                        _entry_key(path, action, method),
+                        cls,
+                        _synthetic_view(cls, path, action, method),
+                    )
+                )
+    return rows
+
+
+def test_no_auth_only_class_reaches_an_unsafe_write_without_an_object_check() -> None:
+    """A route using an auth-only class must be backed by an object check (#4582)."""
+    failing = [
+        key for key, cls, view in _auth_only_write_entries() if _auth_only_unguarded(cls, view)
+    ]
+    assert failing == [], (
+        "route(s) declare an auth-only permission class (membership lives only in "
+        "has_object_permission) but nothing runs the object check:\n"
+        + "\n".join(f"    {k}" for k in sorted(failing))
+    )
+
+
+def test_auth_only_family_is_pinned_and_scan_is_not_vacuous() -> None:
+    assert _auth_only_permission_classes() == AUTH_ONLY_PERMISSION_CLASSES
+    entries = _auth_only_write_entries()
+    assert len(entries) >= 15, f"only {len(entries)} auth-only write entries enumerated"
+    # At least some must be non-detail routes, or the scan is not testing its point.
+    assert any(not permissions_module._object_permission_will_run(v) for _k, _c, v in entries)
+
+
+def test_auth_only_scan_flags_a_view_that_forgets_the_object_check() -> None:
+    """Regression: the hypothetical view from #4582 is caught; its fixed twin is not."""
+    from rest_framework.permissions import IsAuthenticated
+    from rest_framework.views import APIView
+
+    class ForgetfulView(APIView):
+        permission_classes = (IsAuthenticated, permissions_module.CanLogTime)
+
+        def post(self, request: Any) -> None:  # pragma: no cover - never dispatched
+            return None
+
+    class CarefulView(APIView):
+        permission_classes = (IsAuthenticated, permissions_module.CanLogTime)
+
+        def post(self, request: Any) -> None:  # pragma: no cover - never dispatched
+            self.check_object_permissions(request, object())
+
+    assert "CanLogTime" in _auth_only_permission_classes()
+    for cls, expect_unguarded in ((ForgetfulView, True), (CarefulView, False)):
+        view = cls()
+        view.action = None
+        view.kwargs = {}
+        view.request = Request(APIRequestFactory().generic("POST", "/"))
+        assert _auth_only_unguarded(cls, view) is expect_unguarded
+
+
+# ---------------------------------------------------------------------------
 # Invariant 5 — IsProjectNotArchived's object hop resolves wherever it can fire
 # on a no-class-queryset route (#3587)
 # ---------------------------------------------------------------------------
