@@ -619,4 +619,64 @@ mod date_serde_tests {
             "tasks":[],"dependencies":[],"calendar":{"working_days":31,"exceptions":[]}}"#;
         assert!(serde_json::from_str::<super::Project>(doc).is_err());
     }
+
+    /// Every date field must refuse a non-canonical value, so an `Option` field
+    /// losing its `deserialize_with` (which falls back to chrono's lenient parse)
+    /// is caught here rather than in production.
+    #[test]
+    fn every_date_field_refuses_a_non_canonical_value() {
+        use serde_json::{json, Value};
+        let task_fields = [
+            "planned_start",
+            "planned_finish",
+            "early_start",
+            "early_finish",
+            "late_start",
+            "late_finish",
+            "scheduled_start",
+            "live_day_end_on",
+            "actual_start",
+            "actual_finish",
+        ];
+        let template = || {
+            json!({
+                "id": "p", "name": "p", "start_date": "2026-03-02", "status_date": "2026-03-02",
+                "tasks": [{"id": "a", "name": "a", "duration": 86400.0}],
+                "dependencies": [],
+                "calendar": {"working_days": 31,
+                    "exceptions": [{"start": "2026-03-02", "end": "2026-03-03"}]}
+            })
+        };
+        let canonical: Value = template();
+        assert!(serde_json::from_value::<super::Project>(canonical).is_ok());
+
+        let mut docs: Vec<(String, Value)> = Vec::new();
+        for f in ["start_date", "status_date"] {
+            let mut d = template();
+            d[f] = json!("2026-3-2");
+            docs.push((f.to_string(), d));
+        }
+        for f in ["start", "end"] {
+            let mut d = template();
+            d["calendar"]["exceptions"][0][f] = json!("2026-3-2");
+            docs.push((format!("exception.{f}"), d));
+        }
+        for f in task_fields {
+            let mut d = template();
+            d["tasks"][0][f] = json!("2026-3-2");
+            docs.push((format!("task.{f}"), d));
+        }
+        for (name, doc) in docs {
+            assert!(
+                serde_json::from_value::<super::Project>(doc).is_err(),
+                "{name} accepted a non-canonical date"
+            );
+        }
+        // The same field set with canonical values still parses.
+        for f in task_fields {
+            let mut d = template();
+            d["tasks"][0][f] = json!("2026-03-02");
+            assert!(serde_json::from_value::<super::Project>(d).is_ok(), "task.{f}");
+        }
+    }
 }

@@ -364,7 +364,7 @@ fn set_task_start_impl(
     task_id: &str,
     new_start: &str,
 ) -> Result<(), String> {
-    let date = NaiveDate::parse_from_str(new_start, "%Y-%m-%d")
+    let date = models::date_serde::parse_strict(new_start)
         .map_err(|e| format!("invalid start date {new_start:?}: {e}"))?;
     // `node_index[id].index()` is the task's dense position: nodes are added
     // in `project.tasks` order (#1535), so this indexes the same task.
@@ -1209,10 +1209,13 @@ mod tests {
             NaiveDate::MAX.month(),
             NaiveDate::MAX.day()
         );
+        // Since #4707 the strict parse refuses this non-canonical form before
+        // validation runs (Python refuses it too); the validation-bound path is
+        // still covered by the in-range 9500-01-01 cases below.
         let err = set_task_start_impl(&mut project, &pg, "T", &max_start).unwrap_err();
         assert!(
-            !err.contains("invalid start date"),
-            "MAX must be rejected by validation, not date parsing: {err}"
+            err.contains("invalid start date"),
+            "MAX string must be refused by the strict date parse: {err}"
         );
         assert_eq!(
             project.tasks[0].planned_start, None,
@@ -1265,6 +1268,13 @@ mod tests {
         let pg = crate::graph::build_graph(&project).unwrap();
         assert!(set_task_start_impl(&mut project, &pg, "NOPE", "2026-04-08").is_err());
         assert!(set_task_start_impl(&mut project, &pg, "T", "not-a-date").is_err());
+        // Non-canonical forms chrono's lenient parse accepted (#4707).
+        for bad in ["2026-3-2", "+2026-03-02", " 2026-03-02", "0000-12-28"] {
+            assert!(
+                set_task_start_impl(&mut project, &pg, "T", bad).is_err(),
+                "{bad:?} must be refused"
+            );
+        }
         assert_eq!(project.tasks[0].planned_start, None);
     }
 
