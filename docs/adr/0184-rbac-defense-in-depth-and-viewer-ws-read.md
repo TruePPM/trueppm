@@ -160,6 +160,15 @@ existence oracle arm 1 above exists to avoid. And a `detail=True` `@action` that
 never calls `get_object()` is admitted by arm 3 and gated by nothing — unchanged from
 before this amendment, but now load-bearing rather than incidental.
 
+**Update 2026-11-01 (#4582).** The three auth-only classes are no longer invisible to
+the route-table invariant. Invariant 4b in `tests/apps/access/test_route_table_invariants.py`
+treats every object-checking permission class that is neither scope-family nor pinned as
+deciding something in `has_permission` as auth-only, and requires each unsafe write
+under one to be a ViewSet detail route (DRF runs the object check) or to be pinned by route
+key in `AUTH_ONLY_BODY_CHECK_ENTRIES` with the place its explicit check lives. The caveat
+above that a `detail=True` `@action` that never calls `get_object()` is gated by nothing
+still holds and is not caught.
+
 This amendment narrows nothing ADR-0184 decided; the additive doctrine stands, and
 every in-body check it added remains authoritative.
 

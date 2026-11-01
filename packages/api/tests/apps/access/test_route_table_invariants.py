@@ -1351,6 +1351,195 @@ def test_the_unresolvable_scope_scan_is_not_vacuous() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Invariant 4b — auth-only permission classes are invisible to the scan above (#4582)
+# ---------------------------------------------------------------------------
+#
+# `_scope_family_classes` finds classes by the resolver they CALL. Three classes —
+# `IsProjectMemberWriteOrOwn`, `CanLogTime`, `IsTaskScopeManager` — decide nothing in
+# `has_permission` (it returns `is_authenticated`) and put the whole membership check in
+# `has_object_permission`, which DRF runs only on a ViewSet detail route or an explicit
+# `check_object_permissions` call. A new `detail=False` action declaring one of them and
+# forgetting that call reached the write with NO membership check while invariant 4 stayed
+# green.
+#
+# Discovery is by EXCLUSION, not by recognizing a spelling of "return is_authenticated":
+# every class under `trueppm_api/**/permissions.py` that defines `has_object_permission`
+# must be (a) in the scope family, (b) pinned below as deciding something real in
+# `has_permission`, or else (c) it is treated as auth-only. A shape matcher misses
+# `if not authed: return False; return True`, `return _helper(request)` and `return True`;
+# exclusion cannot, and a new class defaults to the STRICT bucket.
+#
+# Whether the object check runs is deliberately NOT inferred from view source: a
+# substring match passes on a docstring, on a sibling method, or on a subclass of a
+# viewset whose base already mentions the call (the very scenario this issue is about).
+# A route passes only if DRF itself runs the object check (ViewSet detail route) or it is
+# pinned by key below with the place its check is called. `resolves_scope_in_body` does
+# not excuse a route here — it is inheritable and action-blanket.
+
+#: Classes that define `has_object_permission` and DECIDE something in `has_permission`
+#: (so they are neither scope-family nor auth-only). Adding a class here is a claim that
+#: its `has_permission` is not merely `is_authenticated`.
+HAS_PERMISSION_DECIDES: dict[str, str] = {
+    "IsTrashedProjectOwner": "has_permission refuses unless the object check will run",
+    "IsProjectNotArchived": "lifecycle gate: archived state decided in has_permission (#3587)",
+    "IsProgramNotClosed": "lifecycle gate: closed state decided in has_permission (#3587)",
+    "IsTeamMember": "teams: route project membership in has_permission, fails closed",
+    "IsTeamFacetEditor": "teams: membership plus facet-edit role in has_permission",
+    "IsWorkspaceAdmin": "workspace role decided in has_permission",
+    "IsWorkspaceOwner": "workspace role decided in has_permission",
+    "IsWorkspaceAuditViewer": "workspace role decided in has_permission",
+    "IsWorkspaceAdminStrict": "workspace role decided in has_permission",
+}
+
+#: The classes the exclusion rule is expected to yield today. Pinned so a fourth is a
+#: reviewable diff in this file, not a silent widening.
+AUTH_ONLY_PERMISSION_CLASSES: frozenset[str] = frozenset(
+    {"CanLogTime", "IsProjectMemberWriteOrOwn", "IsTaskScopeManager"}
+)
+
+#: Non-detail (route, action) pairs under an auth-only class whose membership check is an
+#: explicit `check_object_permissions` call in the view body. Pinned by key with where the
+#: call lives, mirroring SCOPE_IN_BODY_ENTRIES: a new pair or a stale one both fail.
+_P = "api/v1/projects/<project_pk>/tasks/<task_pk>"
+AUTH_ONLY_BODY_CHECK_ENTRIES: dict[str, str] = {
+    "api/v1/^task-relations/$::create": "TaskRelationViewSet.perform_create: source",
+    f"{_P}/labels/::post": "TaskLabelView: resolved task",
+    f"{_P}/labels/::delete": "TaskLabelView: resolved task",
+    f"{_P}/labels/<label_id>/::post": "TaskLabelView: resolved task",
+    f"{_P}/labels/<label_id>/::delete": "TaskLabelView: resolved task",
+    f"{_P}/field-values/<field_id>/::put": "TaskCustomFieldValueView: resolved task",
+    f"{_P}/field-values/<field_id>/::delete": "TaskCustomFieldValueView: resolved task",
+    "api/v1/tasks/<uuid:task_pk>/time-entries/::post": "timetracking TaskTimeEntryView: task",
+    "api/v1/me/time-entries/<uuid:pk>/::patch": "timetracking MeTimeEntryDetailView: entry.task",
+    "api/v1/me/time-entries/<uuid:pk>/::delete": "timetracking MeTimeEntryDetailView: entry.task",
+    "api/v1/me/timer/start::post": "timetracking MeTimerStartView: task",
+}
+
+
+def _permission_modules() -> list[Any]:
+    """Every ``permissions.py`` under ``trueppm_api`` (access, teams, workspace, ...)."""
+    import importlib
+
+    root = Path(permissions_module.__file__).resolve().parents[2]  # .../trueppm_api
+    return [
+        importlib.import_module(
+            "trueppm_api." + ".".join(f.relative_to(root).with_suffix("").parts)
+        )
+        for f in sorted(root.rglob("permissions.py"))
+    ]
+
+
+def _object_check_classes() -> set[str]:
+    """Names of permission classes (defined in their own module) with ``has_object_permission``."""
+    return {
+        name
+        for mod in _permission_modules()
+        for name, obj in vars(mod).items()
+        if inspect.isclass(obj)
+        and obj.__module__ == mod.__name__
+        and "has_object_permission" in vars(obj)
+    }
+
+
+def _auth_only_permission_classes() -> set[str]:
+    project_classes, program_classes = _scope_family_classes()
+    return _object_check_classes() - project_classes - program_classes - set(HAS_PERMISSION_DECIDES)
+
+
+def _auth_only_unguarded(view: Any) -> bool:
+    """True when an unsafe write under an auth-only class has no DRF-run object check.
+
+    Only DRF running the check (ViewSet detail route) counts; the pinned body-check table
+    is applied by the caller by key. ``resolves_scope_in_body`` is deliberately NOT an
+    arm: it is read with ``getattr`` (so inherited from a parent), a plain string covers
+    every action including new ones, and it has no minimum length here.
+    """
+    return not permissions_module._object_permission_will_run(view)
+
+
+def _auth_only_write_entries() -> list[tuple[str, Any]]:
+    auth_only = _auth_only_permission_classes()
+    rows = []
+    for path, entry in _walk():
+        if _FORMAT_SUFFIX.search(path) or path.startswith("admin/"):
+            continue
+        cls = _view_class(entry)
+        if cls is None:
+            continue
+        for method, action in _unsafe_pairs(entry, cls):
+            if _effective_permission_names(cls, action, method) & auth_only:
+                rows.append(
+                    (_entry_key(path, action, method), _synthetic_view(cls, path, action, method))
+                )
+    return rows
+
+
+def test_every_object_checking_permission_class_is_classified() -> None:
+    """Scope family, auth-only, or pinned as deciding in has_permission — exactly one."""
+    project_classes, program_classes = _scope_family_classes()
+    scope = project_classes | program_classes
+    everything = _object_check_classes()
+    assert set(HAS_PERMISSION_DECIDES) <= everything, (
+        f"stale HAS_PERMISSION_DECIDES: {sorted(set(HAS_PERMISSION_DECIDES) - everything)}"
+    )
+    assert not (set(HAS_PERMISSION_DECIDES) & scope), "a class is pinned AND in the scope family"
+    assert _auth_only_permission_classes() == AUTH_ONLY_PERMISSION_CLASSES, (
+        "the auth-only set changed — a new object-checking permission class must be "
+        "added to HAS_PERMISSION_DECIDES (with a reason) or AUTH_ONLY_PERMISSION_CLASSES: "
+        f"{sorted(_auth_only_permission_classes() ^ AUTH_ONLY_PERMISSION_CLASSES)}"
+    )
+    assert len(everything) >= 25, "permission-module discovery looks vacuous"
+
+
+def test_auth_only_writes_are_object_checked_or_pinned() -> None:
+    """Each unsafe write under an auth-only class has a DRF-run check or a pinned entry."""
+    entries = _auth_only_write_entries()
+    assert len(entries) >= 15, f"only {len(entries)} auth-only write entries enumerated"
+    unguarded = {key for key, view in entries if _auth_only_unguarded(view)}
+    added = sorted(unguarded - set(AUTH_ONLY_BODY_CHECK_ENTRIES))
+    removed = sorted(set(AUTH_ONLY_BODY_CHECK_ENTRIES) - unguarded)
+    assert not added, (
+        "route(s) use an auth-only permission class (membership lives only in "
+        "has_object_permission) and nothing makes DRF run it. Call "
+        "check_object_permissions in the view and pin the route in "
+        "AUTH_ONLY_BODY_CHECK_ENTRIES, or fix the route:\n" + "\n".join(f"    {k}" for k in added)
+    )
+    assert not removed, f"stale AUTH_ONLY_BODY_CHECK_ENTRIES: {removed}"
+
+
+def test_auth_only_scan_flags_a_detail_false_action_on_a_task_viewset_subclass() -> None:
+    """Regression (#4582): the issue's scenario fails even though the base source
+    mentions ``check_object_permissions`` many times."""
+    from rest_framework.decorators import action
+    from rest_framework.permissions import IsAuthenticated
+
+    from trueppm_api.apps.projects.views import TaskViewSet
+
+    class ForgetfulTaskViewSet(TaskViewSet):
+        permission_classes = (IsAuthenticated, permissions_module.IsProjectMemberWriteOrOwn)
+
+        @action(detail=False, methods=["post"])
+        def bulk_thing(self, request: Any) -> None:  # pragma: no cover - never dispatched
+            return None
+
+    view = ForgetfulTaskViewSet()
+    view.action = "bulk_thing"
+    view.format_kwarg = None
+    view.kwargs = {}
+    view.request = Request(APIRequestFactory().generic("POST", "/"))
+    assert "check_object_permissions(" in inspect.getsource(TaskViewSet)
+    assert _auth_only_unguarded(view)
+    # An inherited blanket `resolves_scope_in_body` must not excuse the new action.
+    ForgetfulTaskViewSet.resolves_scope_in_body = "ok"
+    assert permissions_module._scope_in_body_reason(view) is not None
+    assert _auth_only_unguarded(view)
+    # ...while the same viewset's real detail route is covered by get_object().
+    view.action = "restore"
+    view.kwargs = {"pk": "x"}
+    assert not _auth_only_unguarded(view)
+
+
+# ---------------------------------------------------------------------------
 # Invariant 5 — IsProjectNotArchived's object hop resolves wherever it can fire
 # on a no-class-queryset route (#3587)
 # ---------------------------------------------------------------------------
