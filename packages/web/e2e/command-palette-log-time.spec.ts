@@ -137,4 +137,31 @@ test.describe('command palette: log time on last task', () => {
     await search.fill('log time');
     await expect(dialog.getByRole('option', { name: /Log time on/ })).toHaveCount(0);
   });
+
+  test('a 404 (task gone) is refused inline and the stale action is forgotten', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/tasks/*/time-entries/', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Not found.' }),
+      }),
+    );
+
+    const first = await openCommandPalette(page);
+    await first.search.fill('log time');
+    await first.search.press('Enter');
+    const minutes = first.dialog.getByLabel(/minutes/i);
+    await minutes.fill('30');
+    await minutes.press('Enter');
+    await expect(first.dialog.getByTestId('cmdk-log-time-error')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(first.dialog).toBeHidden();
+    const again = await openCommandPalette(page);
+    await again.search.fill('log time');
+    await expect(again.dialog.getByRole('option', { name: /Log time on/ })).toHaveCount(0);
+  });
 });

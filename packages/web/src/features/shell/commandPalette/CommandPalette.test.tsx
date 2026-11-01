@@ -63,6 +63,8 @@ vi.mock('@/hooks/usePins', () => ({
   useTogglePin: () => ({ mutate: togglePin, isPending: false }),
 }));
 
+vi.mock('@/hooks/useCurrentUser', () => ({ useCurrentUser: () => ({ user: { id: 'u1' } }) }));
+
 // The inline log-time form (#1211) mutates through the shared hook; stub it.
 vi.mock('@/hooks/useCreateTimeEntry', () => ({
   useCreateTimeEntry: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
@@ -443,5 +445,31 @@ describe('CommandPalette — the pin accelerator (#2390)', () => {
     });
     act(() => useCommandPaletteStore.getState().setOpen(false));
     expect(useCommandPaletteStore.getState().logTimeTarget).toBeNull();
+  });
+
+  it('Escape from the inline log-time form closes the whole palette (#1211)', () => {
+    open();
+    render(<CommandPalette />);
+    act(() => {
+      useCommandPaletteStore.getState().setLogTimeTarget({ taskId: 't1', taskLabel: 'x' });
+    });
+    fireEvent.keyDown(screen.getByLabelText(/minutes/i), { key: 'Escape' });
+    expect(useCommandPaletteStore.getState().open).toBe(false);
+  });
+
+  it('Tab wraps inside the inline log-time form (#1211)', () => {
+    open();
+    render(<CommandPalette />);
+    act(() => {
+      useCommandPaletteStore.getState().setLogTimeTarget({ taskId: 't1', taskLabel: 'x' });
+    });
+    const minutes = screen.getByLabelText(/minutes/i);
+    const log = screen.getByRole('button', { name: /^Log/ });
+    expect(minutes).toHaveFocus();
+    log.focus();
+    fireEvent.keyDown(log, { key: 'Tab' });
+    expect(minutes).toHaveFocus();
+    fireEvent.keyDown(minutes, { key: 'Tab', shiftKey: true });
+    expect(log).toHaveFocus();
   });
 });

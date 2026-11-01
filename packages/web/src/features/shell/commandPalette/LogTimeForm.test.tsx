@@ -3,6 +3,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { AxiosError, type AxiosResponse } from 'axios';
 
 import { LogTimeForm } from './LogTimeForm';
+import { readLastTask, recordLastTask } from '@/lib/lastTask';
+
+vi.mock('@/hooks/useCurrentUser', () => ({ useCurrentUser: () => ({ user: { id: 'u1' } }) }));
 
 const mutate = vi.fn();
 const reset = vi.fn();
@@ -15,6 +18,7 @@ vi.mock('@/hooks/useCreateTimeEntry', () => ({
 const TARGET = { taskId: 't1', taskLabel: 'T-8 · Wire OAuth' };
 
 afterEach(() => {
+  window.localStorage.clear();
   hookState = { isPending: false, error: null };
   vi.clearAllMocks();
 });
@@ -88,5 +92,29 @@ describe('LogTimeForm', () => {
     hookState = { isPending: true, error: null };
     setup();
     expect(screen.getByRole('button', { name: /logging/i })).toBeDisabled();
+  });
+
+  describe('refusal vs. the remembered target', () => {
+    const STORED = { taskId: 't1', projectId: 'p1', name: 'Wire OAuth', ref: 'T-8' };
+
+    function submitAndFail(status: number) {
+      recordLastTask('u1', STORED);
+      setup();
+      fireEvent.change(screen.getByLabelText(/minutes/i), { target: { value: '30' } });
+      fireEvent.submit(screen.getByTestId('cmdk-log-time'));
+      const [, opts] = mutate.mock.calls[0] as [unknown, { onError: (e: unknown) => void }];
+      const err = new AxiosError('x', 'ERR', undefined, undefined, { status } as AxiosResponse);
+      opts.onError(err);
+    }
+
+    it('forgets the target on a 404 (task or project is gone)', () => {
+      submitAndFail(404);
+      expect(readLastTask('u1')).toBeNull();
+    });
+
+    it('keeps the target on a 403 (archived project / lost membership)', () => {
+      submitAndFail(403);
+      expect(readLastTask('u1')).toEqual(STORED);
+    });
   });
 });

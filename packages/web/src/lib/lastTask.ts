@@ -51,3 +51,15 @@ export function readLastTask(userId: string | undefined): LastTask | null {
     return null;
   }
 }
+
+/** Forget the stored last task, but only if it is still `taskId` — a newer open
+ *  must not be erased by a late failure on an older one. */
+export function clearLastTask(userId: string, taskId: string): void {
+  try {
+    if (readLastTask(userId)?.taskId === taskId) {
+      window.localStorage.removeItem(`${KEY_PREFIX}${userId}`);
+    }
+  } catch {
+    // Storage unavailable — nothing was stored to clear.
+  }
+}

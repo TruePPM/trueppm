@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readLastTask, recordLastTask } from './lastTask';
+import { clearLastTask, readLastTask, recordLastTask } from './lastTask';
 
 const TASK = { taskId: 't1', projectId: 'p1', name: 'Wire OAuth', ref: 'T-8' };
 
@@ -35,6 +35,14 @@ describe('lastTask', () => {
       throw new Error('blocked');
     });
     expect(() => recordLastTask('u1', TASK)).not.toThrow();
+    expect(readLastTask('u1')).toBeNull();
+  });
+
+  it('clearLastTask removes only the matching task', () => {
+    recordLastTask('u1', TASK);
+    clearLastTask('u1', 'other');
+    expect(readLastTask('u1')).toEqual(TASK);
+    clearLastTask('u1', 't1');
     expect(readLastTask('u1')).toBeNull();
   });
 });

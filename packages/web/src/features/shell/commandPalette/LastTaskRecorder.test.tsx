@@ -31,4 +31,20 @@ describe('LastTaskRecorder', () => {
     act(() => useLastTaskStore.getState().setOpened(TASK));
     expect(readLastTask('u1')).toBeNull();
   });
+
+  it("never writes the previous user's task under the next user's key", () => {
+    const { rerender } = render(<LastTaskRecorder />);
+    act(() => useLastTaskStore.getState().setOpened(TASK));
+    expect(readLastTask('u1')).toEqual(TASK);
+
+    // SPA sign-out → sign-in: the store survives, the user changes.
+    userId = 'u2';
+    rerender(<LastTaskRecorder />);
+    expect(readLastTask('u2')).toBeNull();
+
+    // A task the new user opens afterwards is theirs.
+    const next = { ...TASK, taskId: 't2', name: 'Other' };
+    act(() => useLastTaskStore.getState().setOpened(next));
+    expect(readLastTask('u2')).toEqual(next);
+  });
 });

@@ -1,5 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 
+import { AxiosError } from 'axios';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { clearLastTask } from '@/lib/lastTask';
 import { useCreateTimeEntry } from '@/hooks/useCreateTimeEntry';
 import { localTodayIso } from '@/lib/localDate';
 import { describeWriteRefusal } from '@/lib/writeRefusal';
@@ -26,6 +29,7 @@ interface Props {
  */
 export function LogTimeForm({ target, onBack, onDone }: Props) {
   const create = useCreateTimeEntry({ toastErrors: false });
+  const { user } = useCurrentUser();
   const headingId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [raw, setRaw] = useState('');
@@ -52,7 +56,18 @@ export function LogTimeForm({ target, onBack, onDone }: Props) {
         minutes,
         entryDate: localTodayIso(),
       },
-      { onSuccess: onDone },
+      {
+        onSuccess: onDone,
+        onError: (error) => {
+          // 404: the task or project is gone, so the remembered target is dead —
+          // forget it so the action stops being offered. A 403 (archived project,
+          // lost membership) may be reversible, so it keeps the target and shows
+          // the refusal.
+          if (user?.id && error instanceof AxiosError && error.response?.status === 404) {
+            clearLastTask(user.id, target.taskId);
+          }
+        },
+      },
     );
   }
 
