@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, render } from '@testing-library/react';
+import { act, cleanup, render } from '@testing-library/react';
 
 import { readLastTask } from '@/lib/lastTask';
+import { useAuthStore } from '@/stores/authStore';
 import { useLastTaskStore } from '@/stores/lastTaskStore';
 import { LastTaskRecorder } from './LastTaskRecorder';
 
@@ -46,5 +47,19 @@ describe('LastTaskRecorder', () => {
     const next = { ...TASK, taskId: 't2', name: 'Other' };
     act(() => useLastTaskStore.getState().setOpened(next));
     expect(readLastTask('u2')).toEqual(next);
+  });
+
+  it('does not carry a task across an unmount/remount with a different user', () => {
+    // The shell unmounts on sign-out, so a component-held guard resets; only the
+    // store clearing in authStore protects this path.
+    const first = render(<LastTaskRecorder />);
+    act(() => useLastTaskStore.getState().setOpened(TASK));
+    first.unmount();
+    cleanup();
+
+    useAuthStore.getState().clearTokens();
+    userId = 'u2';
+    render(<LastTaskRecorder />);
+    expect(readLastTask('u2')).toBeNull();
   });
 });

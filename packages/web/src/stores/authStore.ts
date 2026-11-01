@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useLastTaskStore } from './lastTaskStore';
 
 interface AuthState {
   /** Short-lived JWT access token. Held in memory only and never persisted to
@@ -62,14 +63,22 @@ export const useAuthStore = create<AuthState>()(
           sessionExpired: false,
           sessionExpiredReadOnly: false,
         }),
-      clearTokens: () =>
+      clearTokens: () => {
+        // Every sign-out path funnels through here (menu, session-expired banner,
+        // workspace deletion). The last-opened drawer task is the previous user's
+        // and the store outlives the shell, so drop it before anyone else signs in
+        // (#1211). Cleared on the store, not in a component, because RequireAuth
+        // unmounts the shell on sign-out and a component-held guard would reset.
+        useLastTaskStore.setState({ opened: null });
         set({
           accessToken: null,
           isAuthenticated: false,
           sessionExpired: false,
           sessionExpiredReadOnly: false,
-        }),
-      markSessionExpired: () =>
+        });
+      },
+      markSessionExpired: () => {
+        useLastTaskStore.setState({ opened: null });
         set({
           accessToken: null,
           isAuthenticated: false,
@@ -77,7 +86,8 @@ export const useAuthStore = create<AuthState>()(
           // A fresh expiry always starts at the blocking modal, even if a
           // previous expiry in this tab had been acknowledged into read-only.
           sessionExpiredReadOnly: false,
-        }),
+        });
+      },
       enterReadOnlyMode: () => set({ sessionExpiredReadOnly: true }),
       reassertSessionExpired: () =>
         set((state) => (state.sessionExpiredReadOnly ? { sessionExpiredReadOnly: false } : {})),

@@ -7,11 +7,12 @@ import { useLastTaskStore } from '@/stores/lastTaskStore';
 /** Persists the most recently opened drawer task for the signed-in user so the
  *  ⌘K "Log time on <last task>" action can find it (#1211). Renders nothing.
  *
- *  The in-memory store survives a SPA sign-out → sign-in (no reload), so the
- *  `opened` value that was current when the user CHANGED belongs to the previous
- *  user and is ignored; only a task opened afterwards is recorded. This covers
- *  every sign-out path (menu, session-expired banner, workspace deletion), not just
- *  the ones that clear the store. */
+ *  The in-memory store outlives this component, so the previous user's task must
+ *  not reach the next user's key. The primary guard is in `authStore`
+ *  (`clearTokens` / `markSessionExpired` empty the store, and they cover every
+ *  sign-out path even though the shell unmounts). The ref guard below is a second
+ *  line for a user switch while this instance stays mounted: the `opened` value
+ *  current at that moment is ignored. */
 export function LastTaskRecorder() {
   const opened = useLastTaskStore((s) => s.opened);
   const { user } = useCurrentUser();
