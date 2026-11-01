@@ -321,11 +321,33 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     dispatchEvent('project_updated');
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['shellStats', 'proj-1'] });
-    // …and the two that were already there. Registration is last-write-wins, so
-    // a second `on('project_updated', …)` would have silently dropped these
-    // (rule 331) — asserting all three is what catches that mistake.
+    // …and the two that were already there (registration is additive since #3050).
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+
+  it('re-running the effect does not accumulate handlers (#3050)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    // Deps are [projectId, accessToken, liveUpdates]; a token refresh really re-runs
+    // the effect, which rebuilds the handler table and opens a new socket.
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-refreshed' });
+    });
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
+
+    invalidateSpy.mockClear();
+    act(() => {
+      MockWebSocket.instances[MockWebSocket.instances.length - 1].dispatch('message', {
+        data: JSON.stringify({ event_type: 'project_updated', payload: { id: 'proj-1' } }),
+      });
+    });
+
+    const callsFor = (key: string) =>
+      invalidateSpy.mock.calls.filter(
+        ([f]) => JSON.stringify(f?.queryKey) === JSON.stringify([key]),
+      ).length;
+    expect(callsFor('projects')).toBe(1);
   });
 
   it('invalidates project and projects list on project_transferred', () => {
@@ -2365,9 +2387,8 @@ describe('useProjectWebSocket — remaining invalidation handlers', () => {
   it('invalidates dependencies as well as tasks on tasks_restructured', () => {
     // Ungroup deletes the wrapper's own dependency edges and structural undo restores
     // them (ADR-0880, #2974), so this event is the one member of the bulk-mutation
-    // group that moves edges. Pinned separately because `on()` is last-write-wins:
-    // a second registration for the same event silently replaces the first, so the
-    // two invalidations must share one handler and this asserts both survive.
+    // group that moves edges. Pinned separately so both the tasks and the
+    // dependencies invalidations are asserted for this event.
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
