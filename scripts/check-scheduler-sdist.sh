@@ -6,7 +6,7 @@
 # [tool.hatch.build.targets.sdist] block, so hatchling packed everything not named in
 # packages/scheduler/.gitignore (only `mutants/`). A local `python -m build` after a
 # test run produced an sdist carrying `.coverage` (a SQLite DB with the developer's
-# absolute paths) and `.hypothesis/`. CI's scheduler:publish builds from a clean
+# absolute paths) and `.hypothesis/`. CI's scheduler:build builds from a clean
 # checkout so it was never affected; the exposure is a manual/fallback release.
 #
 # How. The real run copies packages/scheduler into a temp dir, PLANTS dev artifacts

@@ -1,0 +1,8 @@
+# Direct requirements for the BUILD half of the PyPI publish jobs (#4717).
+# Compiled to publish-build.txt with hashes; see that file's header.
+# hatchling MUST equal the pin in every packages/*/pyproject.toml
+# [build-system].requires (scripts/check-build-system-pins.sh enforces this).
+build==1.3.0
+hatchling==1.33.0
+cyclonedx-bom==7.3.0
+uv==0.9.5

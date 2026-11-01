@@ -75,7 +75,7 @@
 #   [Unreleased] section is hand-maintained during the cycle and rotated into a
 #   dated [<PEP440>] section here too, via scripts/rotate-scheduler-changelog.sh,
 #   so every scheduler-v<PEP440> tag publishes dated release notes (enforced by
-#   the scheduler:publish CI job). packages/mcp has no standalone changelog —
+#   the scheduler:build CI job). packages/mcp has no standalone changelog —
 #   the root CHANGELOG.md is its release record — so nothing is rotated for it.
 #
 # Versioning note (two schemes, one release):
@@ -84,13 +84,13 @@
 #   (0.2.0a1). The canonical parse source is the API manifest (semver,
 #   parser-compatible); the PyPI manifests are bumped via a semver→PEP 440
 #   translation so they always match their `<pkg>-v<PEP440>` publish tags and
-#   the CI version checks in scheduler:publish / mcp:publish. Three tags are
+#   the CI version checks in scheduler:build / mcp:build. Three tags are
 #   created: v<semver> (Docker/Helm publish), scheduler-v<PEP440> and
 #   mcp-v<PEP440> (PyPI publishes).
 #
 #   packages/mcp/server.json (the MCP registry manifest) carries BOTH forms —
 #   semver at the top level, PEP 440 under packages[0] — and both are bumped
-#   here. mcp:publish refuses to upload if either has drifted from
+#   here. mcp:build refuses to build if either has drifted from
 #   packages/mcp/pyproject.toml.
 #
 # Enterprise note:
@@ -818,7 +818,7 @@ command -v uv >/dev/null 2>&1 || die \
 # The api lock resolves trueppm-scheduler from PyPI, so it stays on the published
 # floor set above; the post-publish raise moves it (#4080, release skill Step 4).
 ( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
-# packages/mcp joined the re-lock list with mcp:publish (#2809): its SBOM step
+# packages/mcp joined the re-lock list with mcp:build (#2809): its SBOM step
 # runs `uv sync --frozen`, which hard-fails on a lock whose self-entry still
 # claims the previous version, and mcp:uv-lock-check would go red on main.
 ( cd packages/mcp && uv lock ) || die "Failed to regenerate packages/mcp/uv.lock"

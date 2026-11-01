@@ -356,6 +356,12 @@ pypi-id-tokens-check: ## Fail if a job outside the known publish jobs can mint a
 	@bash scripts/check-pypi-id-tokens.sh
 	@python3 scripts/check-pypi-token-project.py --self-test
 
+build-system-pins-check: ## Fail if [build-system].requires is unpinned or the PyPI build/upload toolchain is not hash-verified (#4717)
+	@# Unpinned hatchling/build/twine run at tag time next to a minted OIDC
+	@# identity. Parse + compare, no network, <1s.
+	@bash scripts/check-build-system-pins.sh --self-test
+	@bash scripts/check-build-system-pins.sh
+
 artifact-assertions-check: ## Fail if a tag publish job's declared artifacts:paths are not asserted non-empty (#4062)
 	@bash scripts/check-artifact-assertions.sh --self-test
 	@bash scripts/check-artifact-assertions.sh
@@ -695,6 +701,7 @@ pre-push-checks: summary-duration-units-check
 pre-push-checks: extension-signals-check
 pre-push-checks: pypi-id-tokens-check
 pre-push-checks: artifact-assertions-check
+pre-push-checks: build-system-pins-check
 pre-push-checks: dependency-soft-delete-check
 pre-push-checks: membership-live-floor-check
 pre-push-checks: enterprise-boundary-check

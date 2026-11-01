@@ -94,7 +94,7 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-ae3e8cd8c5ce"
+  CI_API_TAG: "py3.11-7534f4aeb664"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -2245,6 +2245,35 @@ ci:pypi-id-tokens:
     # The probe's token-scope checker (#4045), same fail-first discipline.
     - python3 scripts/check-pypi-token-project.py --self-test
 
+ci:build-system-pins:
+  extends: .fast-job
+  # [build-system].requires in every packages/*/pyproject.toml must pin its
+  # backend exactly, and the build/upload tooling the PyPI publish jobs install
+  # must come from the hash-verified .gitlab/ci/publish-{build,upload}.txt (#4717).
+  # Unpinned, whatever PyPI serves at tag time runs next to a minted OIDC
+  # identity. Static parse, ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - .gitlab-ci.yml
+        - packages/*/pyproject.toml
+        - .gitlab/ci/publish-*
+        - scripts/check-build-system-pins.sh
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab-ci.yml
+        - packages/*/pyproject.toml
+        - .gitlab/ci/publish-*
+        - scripts/check-build-system-pins.sh
+  before_script:
+    - apk add --no-cache bash python3
+  script:
+    # Self-test first: prove the gate can still fail before trusting it passed.
+    - bash scripts/check-build-system-pins.sh --self-test
+    - bash scripts/check-build-system-pins.sh
+
 ci:artifact-assertions:
   extends: .fast-job
   # The tag publish jobs that declare artifacts:paths must assert them
@@ -3934,7 +3963,7 @@ scheduler:sdist-check:
   # The trueppm-scheduler sdist ships only its allow-listed files and no developer
   # artifacts (#4520). Before the [tool.hatch.build.targets.sdist] allow-list, a
   # local `python -m build` after a test run packed `.coverage` (absolute paths
-  # from the developer's machine) and `.hypothesis/`. scheduler:publish builds
+  # from the developer's machine) and `.hypothesis/`. scheduler:build builds
   # from a clean checkout, so it was never affected; this guards a manual or
   # fallback release. The script plants dev artifacts in a COPY of the package,
   # builds the sdist, asserts on its members, then builds a wheel from it. Its
@@ -3959,10 +3988,10 @@ scheduler:sdist-check:
 mcp:uv-lock-check:
   extends: .fast-job
   # Verify packages/mcp/uv.lock stays in sync with packages/mcp/pyproject.toml.
-  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:publish
+  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:build
   # landed (#2809): that job materializes its CycloneDX SBOM with
   # `uv sync --frozen`, which HARD-FAILS on a stale lock. Without this gate the
-  # first symptom of a forgotten `uv lock` would be a red publish job on an
+  # first symptom of a forgotten `uv lock` would be a red mcp:build job on an
   # already-pushed `mcp-v*` tag — the expensive, mid-release failure mode.
   # Refresh with `cd packages/mcp && uv lock`. uv is pinned so the committed
   # lock's revision stays stable across CI runs and Renovate's
@@ -6172,7 +6201,7 @@ scheduler:sbom:
   #
   # This job blocks the pipeline on MRs/main: a missing or invalid SBOM is a
   # supply-chain regression for PyPI consumers, so it must fail the pipeline
-  # (the same validation is enforced independently in scheduler:publish: before
+  # (the same validation is enforced independently in scheduler:build: before
   # a release is cut). The 0.3 shake-out that ran this non-blocking is over
   # (v0.3.0-alpha.3 shipped), so allow_failure has been removed.
   #
@@ -6181,7 +6210,7 @@ scheduler:sbom:
   # the mutable :py3.11 tag and our runners only permit the if-not-present pull
   # policy, so a runner holding a pre-rebuild :py3.11 runs without cyclonedx-py
   # ("command not found") on the pipeline that first adds the tool. The
-  # before_script install (mirroring scheduler:publish, which runs on a vanilla
+  # before_script install (mirroring scheduler:build, which runs on a vanilla
   # base) is a fast no-op when the resident copy is present and supplies the
   # tool when the cached image is stale — making the job robust to image churn.
   #
@@ -6949,46 +6978,31 @@ tag:wait-for-main:
     - bash scripts/wait-for-main-pipeline.sh --self-test
     - bash scripts/wait-for-main-pipeline.sh
 
-scheduler:publish:
-  # Publishes trueppm-scheduler to PyPI. Closes issue #37.
+scheduler:build:
+  # Build half of the scheduler release (#4717). Produces dist/ (sdist + wheel +
+  # CycloneDX SBOM) and the dotenv report scheduler:release reads. Holds NO
+  # id_tokens: it installs and runs build tooling, so it must not be able to
+  # mint a PyPI token or a Sigstore identity. scheduler:publish below is the
+  # only job that does, and it runs only the hash-pinned upload tools.
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
     - job: tag:wait-for-main
-  environment:
-    name: pypi-scheduler
-    url: https://pypi.org/project/trueppm-scheduler/
   rules:
-    # Only fire on tags matching the scheduler version format.
-    # Never fire on branch pushes or MR events.
+    # Must stay identical to scheduler:publish's rule.
     - if: '$CI_COMMIT_TAG =~ /^scheduler-v\d+\.\d+\.\d+/'
   cache:
     <<: *scheduler-cache
     policy: pull
-  # GitLab OIDC tokens for PyPI Trusted Publishing (#938). Two audiences:
-  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
-  #                                       for a short-lived, project-scoped token.
-  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
-  #                                       the PEP 740 attestations (read by
-  #                                       sigstore-python's GitLab detector).
-  id_tokens:
-    PYPI_ID_TOKEN:
-      aud: pypi
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
   variables:
-    # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
     - !reference [.pip-floor, before_script]
-    # cyclonedx-bom pinned to match the resident version in the ci-scheduler
-    # image (.gitlab/ci-images/scheduler.Dockerfile); this job runs on the
-    # python:3.11-slim base, so it installs the tooling here. twine>=6.1 uploads
-    # the PEP 740 attestation sidecars passed to it (see the upload step below);
-    # pypi-attestations signs them via Sigstore — pinned so its CLI cannot drift
-    # silently like the other tools on this line. uv (pinned to 0.9.5, matching
-    # the uv-lock-check jobs) materializes the locked SBOM input below.
-    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations==0.0.28 uv==0.9.5 --quiet
+    # Every tool here is installed with --require-hashes from a file compiled by
+    # `uv pip compile --generate-hashes` (see .gitlab/ci/publish-build.in):
+    # build, hatchling (equal to [build-system].requires, enforced by
+    # scripts/check-build-system-pins.sh), cyclonedx-bom, uv, and their closure.
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-build.txt --quiet
   script:
     # Verify the tag version matches the version declared in pyproject.toml.
     # Mismatches (e.g. forgot to bump the version) fail fast before uploading.
@@ -7017,7 +7031,11 @@ scheduler:publish:
       fi
       echo "Release notes present for $PKG_VERSION"
     - cd packages/scheduler
-    - python -m build
+    # --no-isolation: build into THIS environment, where hatchling and its own
+    # dependencies were installed from the hash-pinned publish-build.txt. An
+    # isolated build would fetch whatever the build backend's dependency tree
+    # resolves to at tag time, unhashed (#4717).
+    - python -m build --no-isolation
     # Generate + validate the CycloneDX SBOM BEFORE uploading (#936). Ordering
     # matters: never let twine succeed (the release goes live) and then fail the
     # job on a malformed SBOM. The runtime closure is materialized from the
@@ -7038,8 +7056,8 @@ scheduler:publish:
     # Uploaded BEFORE twine for the same reason the SBOM is generated before it:
     # never let the irreversible PyPI upload succeed and then fail the job on
     # something recoverable. Publishing an SBOM for a version that then fails to
-    # reach PyPI is harmless — scheduler:release only runs when this whole job
-    # (twine included) passes, so no Release ever links an orphan.
+    # reach PyPI is harmless — scheduler:release only runs when scheduler:publish
+    # (twine included) also passes, so no Release ever links an orphan.
     #
     # Written in Python, not curl: this job runs on the vanilla python:3.11-slim
     # base, which ships NEITHER curl NOR wget. The job already does its PyPI
@@ -7076,6 +7094,66 @@ scheduler:publish:
       # there is exactly one place the URL is built.
       printf 'SCHEDULER_VERSION=%s\nSCHEDULER_SBOM_URL=%s\n' \
         "$PKG_VERSION" "$SBOM_PACKAGE_URL" > "${CI_PROJECT_DIR}/scheduler-release.env"
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/scheduler/dist/
+  artifacts:
+    # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
+    # The Generic Package Registry copy pushed above is now the SBOM's primary,
+    # citable location (#3819) — this artifact is the second copy. It stays at
+    # `never` (not the usual 30-day default) rather than reverting to a normal
+    # retention, because the registry path cannot be exercised until the first
+    # real `scheduler-v*` tag: dropping the fallback in the same change that
+    # introduces its replacement would leave nothing behind if that first tag
+    # goes wrong. A 30-day expiry is what made every published version's SBOM
+    # silently unrecoverable a month after release (#3817). Revisit once a tag
+    # has actually produced a registry entry.
+    paths:
+      - packages/scheduler/dist/
+    # Carries SCHEDULER_VERSION + SCHEDULER_SBOM_URL to scheduler:release, which
+    # cannot recompute them itself: the `release:` keyword expands CI/CD
+    # variables, not shell variables set in a `script:` block.
+    reports:
+      dotenv: scheduler-release.env
+    expire_in: never
+
+scheduler:publish:
+  # Upload half of the scheduler release (#4717). The ONLY scheduler job that
+  # holds id_tokens, and it runs nothing but the hash-pinned upload tools
+  # (twine, pypi-attestations): no build backend and no SBOM tooling are
+  # installed here. dist/ arrives from scheduler:build via needs:. Closes #37.
+  stage: publish
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs:
+    - job: tag:wait-for-main
+    - job: scheduler:build
+      artifacts: true
+  environment:
+    name: pypi-scheduler
+    url: https://pypi.org/project/trueppm-scheduler/
+  rules:
+    # Only fire on tags matching the scheduler version format.
+    # Never fire on branch pushes or MR events.
+    - if: '$CI_COMMIT_TAG =~ /^scheduler-v\d+\.\d+\.\d+/'
+  # GitLab OIDC tokens for PyPI Trusted Publishing (#938). Two audiences:
+  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
+  #                                       for a short-lived, project-scoped token.
+  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
+  #                                       the PEP 740 attestations (read by
+  #                                       sigstore-python's GitLab detector).
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  variables:
+    # Suppress the keyring warning that fires in non-interactive environments.
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    - !reference [.pip-floor, before_script]
+    # Hash-pinned (`--require-hashes`): twine uploads the PEP 740 attestation
+    # sidecars passed to it; pypi-attestations signs them via Sigstore.
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-upload.txt --quiet
+  script:
+    - cd packages/scheduler
     # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below — the
     # exact artifacts the SBOM is generated from — NOT the SBOM itself, which is
     # not a PyPI distribution file (the explicit *.tar.gz / *.whl globs exclude
@@ -7111,82 +7189,36 @@ scheduler:publish:
     # Release asset rather than a PyPI file.
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
-    # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
-    # The Generic Package Registry copy pushed above is now the SBOM's primary,
-    # citable location (#3819) — this artifact is the second copy. It stays at
-    # `never` (not the usual 30-day default) rather than reverting to a normal
-    # retention, because the registry path cannot be exercised until the first
-    # real `scheduler-v*` tag: dropping the fallback in the same change that
-    # introduces its replacement would leave nothing behind if that first tag
-    # goes wrong. A 30-day expiry is what made every published version's SBOM
-    # silently unrecoverable a month after release (#3817). Revisit once a tag
-    # has actually produced a registry entry.
+    # Only the PEP 740 sidecars this job creates; dist/ itself is the build
+    # job's artifact (same retention as there).
     paths:
-      - packages/scheduler/dist/
-    # Carries SCHEDULER_VERSION + SCHEDULER_SBOM_URL to scheduler:release, which
-    # cannot recompute them itself: the `release:` keyword expands CI/CD
-    # variables, not shell variables set in a `script:` block.
-    reports:
-      dotenv: scheduler-release.env
+      - packages/scheduler/dist/*.publish.attestation
     expire_in: never
+
+
 
 # scheduler:publish:test (TestPyPI on every main merge) was removed earlier.
 # The tag-triggered scheduler:publish above is LIVE, not dormant: the PyPI name
 # is reserved and two alphas are published (#937). Push a `scheduler-vX.Y.Z`
 # tag (after a green main pipeline) to release.
 
-mcp:publish:
-  # Publishes trueppm-mcp to PyPI (#2809). Modeled directly on scheduler:publish
-  # above — same Trusted Publishing exchange, same PEP 740 attestations, same
-  # locked-SBOM-before-upload ordering — with its own `mcp-vX.Y.Z` tag scheme so
-  # the MCP server can be released independently of the scheduler library.
-  #
-  # Why this job exists: packages/mcp had NO publish path at all. Three docs
-  # pages instructed `pip install trueppm-mcp`, packages/mcp/server.json declared a
-  # `pypi` registry entry with a `uvx` runtime hint, and two CI comments (in
-  # security:osv and license:check:mcp) asserted the package "ships to PyPI as
-  # trueppm-mcp" — while nothing in the publish stage built it and the name
-  # 404'd on pypi.org. Those comments are true as of this job.
+mcp:build:
+  # Build half of the trueppm-mcp release (#4717); see scheduler:build for the
+  # rationale. Holds NO id_tokens. Produces dist/ + SBOM + the dotenv report
+  # mcp:release reads. Modeled on scheduler:build.
   stage: publish
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
     - job: tag:wait-for-main
   rules:
-    # Only fire on tags matching the mcp version format (PEP 440, e.g.
-    # mcp-v0.4.0b1). Never fire on branch pushes or MR events.
+    # Must stay identical to mcp:publish's rule.
     - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
-  # Binds the GitLab OIDC claims to a named environment so the PyPI Trusted
-  # Publisher for `trueppm-mcp` can be registered with a NON-BLANK environment.
-  # A publisher bound with a blank environment matches every pipeline in this
-  # project that can mint a `pypi`-audience token, which is a wider trust
-  # surface than one release job needs. The environment name here MUST match
-  # the "Environment name" field configured on pypi.org, or the mint-token
-  # exchange fails closed with PyPI's own explanation (surfaced on stderr by
-  # the mint step below).
-  environment:
-    name: pypi-mcp
-    url: https://pypi.org/project/trueppm-mcp/
-  # GitLab OIDC tokens for PyPI Trusted Publishing. Two audiences:
-  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
-  #                                       for a short-lived, project-scoped token.
-  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
-  #                                       the PEP 740 attestations.
-  id_tokens:
-    PYPI_ID_TOKEN:
-      aud: pypi
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
   variables:
-    # Suppress the keyring warning that fires in non-interactive environments.
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
     - !reference [.pip-floor, before_script]
-    # Same pinned tool set as scheduler:publish — this job runs on the vanilla
-    # python:3.11-slim base, so everything installs here. twine >= 6.1 uploads
-    # the PEP 740 attestation sidecars passed to it; pypi-attestations signs
-    # them via Sigstore; uv (0.9.5, matching the uv-lock-check jobs)
-    # materializes the locked SBOM input.
-    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations==0.0.28 uv==0.9.5 --quiet
+    # Hash-pinned build tooling; see .gitlab/ci/publish-build.in.
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-build.txt --quiet
   script:
     # Verify the tag version matches the version declared in pyproject.toml AND
     # the two version fields in server.json (the MCP registry manifest, which
@@ -7246,7 +7278,11 @@ mcp:publish:
     # whose wheel force-includes one), so there is no per-package release-notes
     # gate to mirror here — the root CHANGELOG.md is its release record.
     - cd packages/mcp
-    - python -m build
+    # --no-isolation: build into THIS environment, where hatchling and its own
+    # dependencies were installed from the hash-pinned publish-build.txt. An
+    # isolated build would fetch whatever the build backend's dependency tree
+    # resolves to at tag time, unhashed (#4717).
+    - python -m build --no-isolation
     # Generate + validate the CycloneDX SBOM BEFORE uploading. Ordering matters:
     # never let twine succeed (the release goes live) and then fail the job on a
     # malformed SBOM. The runtime closure is materialized from the committed
@@ -7257,7 +7293,7 @@ mcp:publish:
     - UV_PYTHON_PREFERENCE=only-system uv sync --frozen --no-editable
     - cyclonedx-py environment .venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
     # Push the SBOM to the Generic Package Registry at a stable, versioned URL —
-    # see the matching block on scheduler:publish for why it is here rather than
+    # see the matching block on scheduler:build for why it is here rather than
     # after twine, and why it is Python rather than curl (#3819).
     - |
       SBOM_PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/trueppm-mcp-sbom/${PKG_VERSION}/sbom.cdx.json"
@@ -7286,6 +7322,72 @@ mcp:publish:
       PY
       printf 'MCP_VERSION=%s\nMCP_SBOM_URL=%s\n' \
         "$PKG_VERSION" "$SBOM_PACKAGE_URL" > "${CI_PROJECT_DIR}/mcp-release.env"
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/mcp/dist/
+  artifacts:
+    # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
+    # `never`, and the Generic Package Registry copy is the primary location —
+    # see the matching comment on scheduler:build; the same reasoning applies
+    # here (#3817, #3819).
+    paths:
+      - packages/mcp/dist/
+    reports:
+      dotenv: mcp-release.env
+    expire_in: never
+
+mcp:publish:
+  # Publishes trueppm-mcp to PyPI (#2809). Modeled directly on scheduler:publish
+  # above — same Trusted Publishing exchange, same PEP 740 attestations (the SBOM
+  # and build live in mcp:build, which this job needs) — with its own `mcp-vX.Y.Z` tag scheme so
+  # the MCP server can be released independently of the scheduler library.
+  #
+  # Why this job exists: packages/mcp had NO publish path at all. Three docs
+  # pages instructed `pip install trueppm-mcp`, packages/mcp/server.json declared a
+  # `pypi` registry entry with a `uvx` runtime hint, and two CI comments (in
+  # security:osv and license:check:mcp) asserted the package "ships to PyPI as
+  # trueppm-mcp" — while nothing in the publish stage built it and the name
+  # 404'd on pypi.org. Those comments are true as of this job.
+  stage: publish
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs:
+    - job: tag:wait-for-main
+    - job: mcp:build
+      artifacts: true
+  rules:
+    # Only fire on tags matching the mcp version format (PEP 440, e.g.
+    # mcp-v0.4.0b1). Never fire on branch pushes or MR events.
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
+  # Binds the GitLab OIDC claims to a named environment so the PyPI Trusted
+  # Publisher for `trueppm-mcp` can be registered with a NON-BLANK environment.
+  # A publisher bound with a blank environment matches every pipeline in this
+  # project that can mint a `pypi`-audience token, which is a wider trust
+  # surface than one release job needs. The environment name here MUST match
+  # the "Environment name" field configured on pypi.org, or the mint-token
+  # exchange fails closed with PyPI's own explanation (surfaced on stderr by
+  # the mint step below).
+  environment:
+    name: pypi-mcp
+    url: https://pypi.org/project/trueppm-mcp/
+  # GitLab OIDC tokens for PyPI Trusted Publishing. Two audiences:
+  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
+  #                                       for a short-lived, project-scoped token.
+  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
+  #                                       the PEP 740 attestations.
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  variables:
+    # Suppress the keyring warning that fires in non-interactive environments.
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    - !reference [.pip-floor, before_script]
+    # Hash-pinned (`--require-hashes`) upload tools only: twine uploads the PEP
+    # 740 attestation sidecars passed to it; pypi-attestations signs them via
+    # Sigstore. dist/ arrives from mcp:build via needs: (#4717).
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-upload.txt --quiet
+  script:
+    - cd packages/mcp
     # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below. The
     # explicit globs exclude dist/sbom.cdx.json, which is not a PyPI file.
     - python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
@@ -7315,15 +7417,13 @@ mcp:publish:
     # twine errors with "has no associated attestations" before any upload.
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
   artifacts:
-    # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
-    # `never`, and the Generic Package Registry copy is the primary location —
-    # see the matching comment on scheduler:publish; the same reasoning applies
-    # here (#3817, #3819).
+    # Only the PEP 740 sidecars this job creates; dist/ itself is the build
+    # job's artifact (same retention as there).
     paths:
-      - packages/mcp/dist/
-    reports:
-      dotenv: mcp-release.env
+      - packages/mcp/dist/*.publish.attestation
     expire_in: never
+
+
 
 # BEFORE THE FIRST `mcp-v*` TAG (one-time, human, cannot be automated):
 # register a PyPI Trusted Publisher for the project name `trueppm-mcp` at
@@ -8636,7 +8736,7 @@ ci:helm-publish-dry-run:
 
 ci:pypi-build-dry-run:
   # MR-time proof of the build half of the PyPI publish jobs (#3956):
-  # api:publish:pypi, scheduler:publish and mcp:publish all read the version out
+  # api:build:pypi, scheduler:build and mcp:build all read the version out
   # of pyproject.toml, `python -m build`, and hand the result to twine. Runs the
   # same build commands and `twine check`s the output; signs and uploads nothing.
   # The credential half is ci:pypi-mint-probe's job (release-time, protected ref).
@@ -8657,12 +8757,13 @@ ci:pypi-build-dry-run:
         - packages/api/pyproject.toml
         - packages/scheduler/pyproject.toml
         - packages/mcp/pyproject.toml
+        - .gitlab/ci/publish-*
   needs: []
   variables:
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
     - !reference [.pip-floor, before_script]
-    - pip install build "twine>=6.1" --quiet
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-build.txt -r .gitlab/ci/publish-upload.txt --quiet
   script:
     - |
       set -euo pipefail
@@ -8674,7 +8775,7 @@ ci:pypi-build-dry-run:
       ")
         [ -n "$PKG_VERSION" ] || { echo "ERROR: no version in packages/${pkg}/pyproject.toml"; exit 1; }
         echo "packages/${pkg} version: ${PKG_VERSION}"
-        (cd "packages/${pkg}" && python -m build && twine check --strict dist/*)
+        (cd "packages/${pkg}" && python -m build --no-isolation && twine check --strict dist/*)
         echo "packages/${pkg}: asserting LICENSE and NOTICE reached the built archives"
         WHEEL=$(ls "packages/${pkg}"/dist/*.whl)
         SDIST=$(ls "packages/${pkg}"/dist/*.tar.gz)
@@ -8728,7 +8829,11 @@ ci:pypi-mint-probe:
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
     - !reference [.pip-floor, before_script]
-    - pip install build "twine>=6.1" pypi-attestations==0.0.28 --quiet
+    # Hash-pinned build + upload tools (#4717). The probe builds AND holds
+    # tokens in one job (it is a manual, PYPI_PROBE-gated mirror of the real
+    # pair), so it is the one place the build/upload split is not applied; every
+    # tool it runs is hash-pinned instead.
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-build.txt -r .gitlab/ci/publish-upload.txt --quiet
   script:
     - |
       set -euo pipefail
@@ -8746,7 +8851,7 @@ ci:pypi-mint-probe:
       fi
       echo "packages/api/pyproject.toml version: ${PKG_VERSION}"
     - cd packages/api
-    - python -m build
+    - python -m build --no-isolation
     - |
       set -euo pipefail
       # PEP 740 attestation signing via the ambient SIGSTORE_ID_TOKEN. Builds
@@ -8813,6 +8918,51 @@ ci:pypi-mint-probe:
       - packages/api/dist/
     expire_in: 1 week
 
+api:build:pypi:
+  # Build half of the trueppm-api PyPI release (#4717); see scheduler:build for
+  # the rationale. Holds NO id_tokens. Distinct from api:publish (Docker image).
+  stage: publish
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  <<: *rules-release-tag
+  needs:
+    - job: tag:wait-for-main
+  variables:
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    - !reference [.pip-floor, before_script]
+    # Hash-pinned build tooling; see .gitlab/ci/publish-build.in.
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-build.txt --quiet
+  script:
+    # Verify the tag version matches the version declared in pyproject.toml.
+    # A mismatch (e.g. forgot to bump) fails fast before uploading.
+    - |
+      PKG_VERSION=$(python -c "
+      import tomllib
+      with open('packages/api/pyproject.toml', 'rb') as f:
+          print(tomllib.load(f)['project']['version'])
+      ")
+      TAG_VERSION="${CI_COMMIT_TAG#v}"
+      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+        echo "ERROR: tag version ($TAG_VERSION) does not match packages/api/pyproject.toml version ($PKG_VERSION)"
+        echo "Bump the version in packages/api/pyproject.toml before tagging."
+        exit 1
+      fi
+      echo "Version check passed: $PKG_VERSION"
+    - cd packages/api
+    # --no-isolation: build into THIS environment, where hatchling and its own
+    # dependencies were installed from the hash-pinned publish-build.txt. An
+    # isolated build would fetch whatever the build backend's dependency tree
+    # resolves to at tag time, unhashed (#4717).
+    - python -m build --no-isolation
+    # Fail HERE if the declared artifact path is empty (#4062).
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/api/dist/
+  artifacts:
+    # Keep the built wheel + sdist as a CI artifact for traceability (7-day
+    # expiry — this package has no SBOM / Generic Package Registry copy).
+    paths:
+      - packages/api/dist/
+    expire_in: 7 days
+
 api:publish:pypi:
   # trueppm-api → PyPI sdist + wheel. Mirrors scheduler:publish / mcp:publish:
   # PyPI Trusted Publishing (OIDC) + PEP 740 attestations, no static token
@@ -8828,6 +8978,8 @@ api:publish:pypi:
   <<: *rules-release-tag
   needs:
     - job: tag:wait-for-main
+    - job: api:build:pypi
+      artifacts: true
   # Binds the GitLab OIDC claims to a named environment so the PyPI Trusted
   # Publisher for `trueppm-api` can be registered with a NON-BLANK environment
   # (mirrors mcp:publish's reasoning; scheduler:publish predates it and uses a
@@ -8854,28 +9006,11 @@ api:publish:pypi:
     PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
   before_script:
     - !reference [.pip-floor, before_script]
-    # twine>=6.1 uploads the PEP 740 attestation sidecars passed to it (see the
-    # upload step below); pypi-attestations signs them via Sigstore — pinned so
-    # its CLI cannot drift silently, matching scheduler:publish / mcp:publish.
-    - pip install build "twine>=6.1" pypi-attestations==0.0.28 --quiet
+    # Hash-pinned (`--require-hashes`) upload tools only, matching
+    # scheduler:publish / mcp:publish. dist/ arrives from api:build:pypi (#4717).
+    - pip install --require-hashes --no-deps -r .gitlab/ci/publish-upload.txt --quiet
   script:
-    # Verify the tag version matches the version declared in pyproject.toml.
-    # A mismatch (e.g. forgot to bump) fails fast before uploading.
-    - |
-      PKG_VERSION=$(python -c "
-      import tomllib
-      with open('packages/api/pyproject.toml', 'rb') as f:
-          print(tomllib.load(f)['project']['version'])
-      ")
-      TAG_VERSION="${CI_COMMIT_TAG#v}"
-      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-        echo "ERROR: tag version ($TAG_VERSION) does not match packages/api/pyproject.toml version ($PKG_VERSION)"
-        echo "Bump the version in packages/api/pyproject.toml before tagging."
-        exit 1
-      fi
-      echo "Version check passed: $PKG_VERSION"
     - cd packages/api
-    - python -m build
     # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below.
     # Sigstore signs using the ambient SIGSTORE_ID_TOKEN.
     - python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
@@ -8904,15 +9039,11 @@ api:publish:pypi:
     # NOT filesystem discovery — the sidecars must appear in the argument list
     # or twine errors with "has no associated attestations" before any upload.
     - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
-    # Fail HERE if the declared artifact path is empty (#4062).
-    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/api/dist/
   artifacts:
-    # Keep the built wheel + sdist as a CI artifact for traceability (7-day
-    # expiry — unlike scheduler:publish / mcp:publish this job does not
-    # generate an SBOM, so there is no Generic Package Registry copy to make
-    # this the sole/long-lived record of).
+    # Only the PEP 740 sidecars this job creates; dist/ itself is the build
+    # job's artifact (same retention as there).
     paths:
-      - packages/api/dist/
+      - packages/api/dist/*.publish.attestation
     expire_in: 7 days
 
 # BEFORE THE FIRST `v*` TAG THAT SHOULD PUBLISH trueppm-api (one-time, human,
@@ -9015,7 +9146,11 @@ scheduler:release:
   stage: deploy
   image: registry.gitlab.com/gitlab-org/release-cli:v0.24.0@sha256:3f52d526f48e8d10625c722fa6d6423ee82aadeae1b1aa91f07b62551d96dacf
   needs:
+    # The upload must have succeeded (no Release for a version that never
+    # published); the dotenv report comes from the build job (#4717).
     - job: scheduler:publish
+      artifacts: false
+    - job: scheduler:build
       artifacts: true
   rules:
     # Must stay identical to scheduler:publish's rule — a Release for a tag that
@@ -9027,7 +9162,7 @@ scheduler:release:
       # would otherwise create a Release whose one asset link is a 404.
       if [ -z "$SCHEDULER_VERSION" ] || [ -z "$SCHEDULER_SBOM_URL" ]; then
         echo "ERROR: SCHEDULER_VERSION / SCHEDULER_SBOM_URL missing."
-        echo "They come from scheduler:publish's dotenv report (scheduler-release.env)."
+        echo "They come from scheduler:build's dotenv report (scheduler-release.env)."
         exit 1
       fi
       printf '**trueppm-scheduler %s** — published to [PyPI](https://pypi.org/project/trueppm-scheduler/%s/).\n\nRelease notes: [packages/scheduler/CHANGELOG.md](%s/-/blob/%s/packages/scheduler/CHANGELOG.md)\n\nThe linked **sbom.cdx.json** is this version CycloneDX SBOM, generated from the locked runtime closure and served from the GitLab Generic Package Registry.\n' \
@@ -9046,7 +9181,10 @@ mcp:release:
   stage: deploy
   image: registry.gitlab.com/gitlab-org/release-cli:v0.24.0@sha256:3f52d526f48e8d10625c722fa6d6423ee82aadeae1b1aa91f07b62551d96dacf
   needs:
+    # Upload must have succeeded; the dotenv report comes from the build job (#4717).
     - job: mcp:publish
+      artifacts: false
+    - job: mcp:build
       artifacts: true
   rules:
     - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
@@ -9054,11 +9192,11 @@ mcp:release:
     - |
       if [ -z "$MCP_VERSION" ] || [ -z "$MCP_SBOM_URL" ]; then
         echo "ERROR: MCP_VERSION / MCP_SBOM_URL missing."
-        echo "They come from mcp:publish's dotenv report (mcp-release.env)."
+        echo "They come from mcp:build's dotenv report (mcp-release.env)."
         exit 1
       fi
-      # packages/mcp has no standalone CHANGELOG.md (mcp:publish says so where it
-      # skips the per-package release-notes gate scheduler:publish enforces), so
+      # packages/mcp has no standalone CHANGELOG.md (mcp:build says so where it
+      # skips the per-package release-notes gate scheduler:build enforces), so
       # this points at the root CHANGELOG.md, which is its release record.
       printf '**trueppm-mcp %s** — published to [PyPI](https://pypi.org/project/trueppm-mcp/%s/).\n\nRelease notes: [CHANGELOG.md](%s/-/blob/%s/CHANGELOG.md)\n\nThe linked **sbom.cdx.json** is this version CycloneDX SBOM, generated from the locked runtime closure and served from the GitLab Generic Package Registry.\n' \
         "$MCP_VERSION" "$MCP_VERSION" "$CI_PROJECT_URL" "$CI_COMMIT_TAG" > release_notes.md
