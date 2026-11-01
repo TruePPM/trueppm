@@ -146,6 +146,8 @@ the flag changes chrome only.
   appears only when a program is in context and links to that program's agents
   page; it is omitted, not stubbed, elsewhere.
 - A full-page **Work** list. The rail's Work item lands on `/programs` for now.
+  *Superseded 2026-10-31 by #4756: the Work item now lands on the full-page
+  `/work` list, which shares its data model with the flyout.*
 - Retiring the v1 shell, `v2-golden-standard.md`, or rewriting the `brand`
   skill. Those happen when the default flips; until then the `brand` skill is
   known-stale for anything under `features/shell2/`.
