@@ -21,6 +21,7 @@ const LABEL: Record<string, string> = {
   labels: 'Labels',
   agents: 'Agents',
   members: 'Members',
+  decisions: 'Decisions',
 };
 const labelFor = (v: string) => LABEL[v] ?? v;
 
@@ -166,6 +167,7 @@ describe('resolveContextTabs — program', () => {
         'settings',
         'labels',
         'agents',
+        'decisions',
       ],
       labelFor,
     });
@@ -173,6 +175,7 @@ describe('resolveContextTabs — program', () => {
     expect(m.tabs.find((t) => t.key === 'deliver')!.to).toBe('/programs/PM/backlog');
     expect(m.more.map((t) => t.view)).toEqual([
       'projects',
+      'decisions',
       'labels',
       'agents',
       'members',

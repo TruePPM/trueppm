@@ -95,6 +95,7 @@ def _table_specs() -> list[tuple[str, QuerySet[Any], tuple[str, ...]]]:
         BaselineTask,
         Dependency,
         Program,
+        ProgramDecision,
         Project,
         ProjectCustomField,
         Risk,
@@ -140,6 +141,7 @@ def _table_specs() -> list[tuple[str, QuerySet[Any], tuple[str, ...]]]:
         # Programs
         ("programs/programs.json", Program.objects.all(), ()),
         ("programs/backlog_items.json", BacklogItem.objects.all(), ()),
+        ("programs/decisions.json", ProgramDecision.objects.all(), ()),
         # Projects and the schedule
         ("projects/projects.json", Project.objects.all(), ()),
         # ADR-0124: blocker reason text is readable only by the task's assignee or
