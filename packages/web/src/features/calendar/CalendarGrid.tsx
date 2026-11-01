@@ -32,7 +32,6 @@ import {
   weekDays,
   formatISODate,
   formatDayCellLabel,
-  isSameDay,
   buildChips,
   buildMilestoneMarks,
   formatWindowNoun,
@@ -43,6 +42,7 @@ import {
 import { CalendarChip } from './CalendarChip';
 import { CalendarMobileList } from './CalendarMobileList';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { todayLocalIso } from '@/features/schedule/scheduleUtils';
 
 /**
  * Column headers. The abbreviation is what the header cell prints; the full
@@ -318,7 +318,9 @@ export function CalendarGrid({
   }
 
   const anchor = parseUTCDate(anchorIso);
-  const today = new Date();
+  // Cells are date-only values at UTC midnight; "today" is the viewer's local
+  // calendar day, so compare ISO strings rather than UTC accessors on a local Date.
+  const todayIso = todayLocalIso();
   const isWeek = calView === 'week';
   const weeks = viewWeekStarts(anchor, calView);
   const allChips = buildChips(tasks, anchor, calView);
@@ -333,7 +335,7 @@ export function CalendarGrid({
   // Where the single tab stop sits when the user has not moved it: today if the
   // window contains it, else the anchor day, else the first day drawn. Tabbing
   // into the grid should land on the day the view is *about*.
-  const todayIdx = windowDays.findIndex((d) => isSameDay(d, today));
+  const todayIdx = windowDays.findIndex((d) => formatISODate(d) === todayIso);
   let defaultIso = windowIsos[0];
   if (todayIdx >= 0) defaultIso = windowIsos[todayIdx];
   else if (windowIsos.includes(anchorIso)) defaultIso = anchorIso;
@@ -523,7 +525,7 @@ export function CalendarGrid({
                 >
                   {days.map((day, dayIdx) => {
                     const iso = formatISODate(day);
-                    const isToday = isSameDay(day, today);
+                    const isToday = formatISODate(day) === todayIso;
                     // Every day a week row renders is inside the window, so the
                     // out-of-month graying is a month-mode concept only.
                     const isCurrentMonth = isWeek || day.getUTCMonth() === currentMonth;

@@ -55,6 +55,24 @@ const milestoneTask = (overrides: Partial<Task> = {}): Task => ({
   ...overrides,
 });
 
+describe('CalendarGrid today tint (#3242)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('marks the viewer-local day as today at 18:30 UTC-7, not the UTC day', () => {
+    // Aug 30 18:30 local (UTC-7) is already Aug 31 01:30 UTC.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-31T01:30:00Z'));
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(420);
+    render(<CalendarGrid anchorIso="2026-08-01" tasks={[]} onTaskClick={vi.fn()} />);
+    const todays = screen.getAllByLabelText(/, today$/);
+    expect(todays).toHaveLength(1);
+    expect(todays[0].getAttribute('aria-label')).toBe('Sunday, August 30, 2026, today');
+  });
+});
+
 describe('CalendarGrid', () => {
   it('renders day-of-week headers', () => {
     render(<CalendarGrid anchorIso={ANCHOR} tasks={[]} onTaskClick={vi.fn()} />);
@@ -408,8 +426,7 @@ describe('CalendarGrid', () => {
 
   describe('ARIA grid + keyboard (#3241)', () => {
     /** Every day cell's tabIndex, in DOM (visual) order. */
-    const cellTabIndexes = () =>
-      screen.getAllByRole('gridcell').map((c) => (c).tabIndex);
+    const cellTabIndexes = () => screen.getAllByRole('gridcell').map((c) => c.tabIndex);
 
     it('exposes grid / row / gridcell, and the day-cell count states the mode', () => {
       // This is the assertion the #3167 class was not mechanically checkable
@@ -491,7 +508,7 @@ describe('CalendarGrid', () => {
 
       // ...and the roving tab stop followed focus rather than staying behind.
       expect(cellTabIndexes().filter((t) => t === 0)).toHaveLength(1);
-      expect((cell('Monday, April 27, 2026')).tabIndex).toBe(0);
+      expect(cell('Monday, April 27, 2026').tabIndex).toBe(0);
     });
 
     it('clamps at the window edges instead of wrapping or stepping the window', async () => {
@@ -538,9 +555,7 @@ describe('CalendarGrid', () => {
       // ...and the new window still has exactly one tab stop, on a day it
       // actually renders rather than on a stale position.
       expect(cellTabIndexes().filter((t) => t === 0)).toHaveLength(1);
-      expect(
-        (screen.getByRole('gridcell', { name: 'Monday, June 1, 2026' })).tabIndex,
-      ).toBe(0);
+      expect(screen.getByRole('gridcell', { name: 'Monday, June 1, 2026' }).tabIndex).toBe(0);
 
       outside.remove();
     });
