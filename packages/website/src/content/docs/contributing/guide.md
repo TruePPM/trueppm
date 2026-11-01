@@ -191,7 +191,7 @@ Adding a `broadcast_board_event()` call is half a feature. If nothing on the cli
 make ws-handler-conformance-check   # same as the lint:ws-handler-conformance CI job
 ```
 
-It cross-references every event type reaching `broadcast_board_event()` / `abroadcast_board_event()` in `packages/api` — through the same AST sweep that enforces the frozen event set, including one level of wrapper indirection — against the `on(...)` registration table in `packages/web/src/hooks/useProjectWebSocket.ts`. It runs in both directions and also fails on a duplicate registration, because `on()` is last-write-wins: a second `on('task_updated', …)` silently replaces the first rather than adding to it.
+It cross-references every event type reaching `broadcast_board_event()` / `abroadcast_board_event()` in `packages/api` — through the same AST sweep that enforces the frozen event set, including one level of wrapper indirection — against the `on(...)` registration table in `packages/web/src/hooks/useProjectWebSocket.ts`. It runs in both directions and also fails on a duplicate registration, because a second `on('task_updated', …)` runs alongside the first (handlers are additive), which doubles the invalidation and is almost certainly a mistake.
 
 When you add an event, add its handler in the same MR. When the omission is deliberate — or the event is structurally undeliverable, as the `program_*` events are until the program channel ships — record it in `packages/api/tests/apps/sync/ws_handler_waivers.py` with a reason and the issue number that removes it, and raise that ledger's budget by one in the same diff. The budget is what makes an addition visible in review; the gate's own staleness checks force an entry out again once the handler lands.
 

@@ -23,9 +23,9 @@
 #      packages/web/src/hooks/useProjectWebSocket.ts, or carries a waiver.
 #   2. Every on(...) registration names an event something actually emits — a
 #      handler for an event nothing broadcasts is dead code — or carries a waiver.
-#   3. No event is registered twice. `on()` is last-write-wins
-#      (`eventHandlers[type] = handler`), so a second registration silently
-#      replaces the first; the hook's own comments warn about this twice.
+#   3. No event is registered twice. `on()` has been additive since #3050, so a
+#      duplicate no longer drops a handler — both run — but it is almost
+#      certainly a mistake (double invalidation); fold them into one.
 #   4. The waiver ledger is ratcheted: every entry names a real issue, a waiver
 #      whose event has since acquired a handler (or stopped being emitted) fails,
 #      and each budget must equal its dict's length so the list can only shrink
@@ -214,7 +214,7 @@ def b(self):
   mk_ledger waive_dead "" "'never_emitted': Waiver(reason='direct consumer frame', issue=321)," 0 1
   case_run "handler-for-unemitted-event-waived" pass "$tmp/dead" waive_dead || return 1
 
-  # 7. on() is last-write-wins — a second registration silently replaces the first.
+  # 7. on() is additive (#3050) — a second registration double-fires; still a mistake.
   mk_api "$tmp/dup" "$EMIT_AB"
   mk_ts "$tmp/dup" "on('alpha_happened', () => {});
 on('beta_happened', () => {});

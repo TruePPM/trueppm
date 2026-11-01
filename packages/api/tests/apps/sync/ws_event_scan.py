@@ -257,10 +257,10 @@ def mask_ts_source(source: str) -> tuple[str, list[str]]:
 def handler_registrations_in_source(ts_path: pathlib.Path) -> list[str]:
     """Every event type an ``on(...)`` call registers, in source order, with duplicates.
 
-    Duplicates are deliberately **not** collapsed. ``on()`` is last-write-wins
-    (``eventHandlers[type] = handler``), so a second registration for a type
-    silently replaces the first — a real defect the hook's own comments warn about
-    twice. Callers surface it as a finding; a ``set()`` here would erase it.
+    Duplicates are deliberately **not** collapsed. ``on()`` is additive
+    since #3050, so a second registration for a type runs alongside the first
+    (double invalidation) — almost certainly a mistake. Callers surface it as a
+    finding; a ``set()`` here would erase it.
 
     Reads MASKED source (see :func:`mask_ts_source`), so neither a comment nor a
     string literal can contribute a registration that is not one.
@@ -396,7 +396,7 @@ def evaluate(api_src: pathlib.Path, ts_path: pathlib.Path, ledger: WaiverLedger)
 
     violations: list[Violation] = []
 
-    # `on()` is last-write-wins: a second registration silently replaces the first.
+    # `on()` is additive (#3050): a second registration double-fires, which is still a mistake.
     seen: set[str] = set()
     for event in registrations:
         if event in seen:
@@ -408,8 +408,8 @@ def evaluate(api_src: pathlib.Path, ts_path: pathlib.Path, ledger: WaiverLedger)
                     "duplicate-registration",
                     event,
                     f"registered by {registrations.count(event)} separate on(...) calls. "
-                    "Registration is last-write-wins, so every call but the last is dead "
-                    "code — fold the handlers into one registration.",
+                    "Handlers are additive, so each call runs on every dispatch "
+                    "(double invalidation) — fold the handlers into one registration.",
                 )
             )
 

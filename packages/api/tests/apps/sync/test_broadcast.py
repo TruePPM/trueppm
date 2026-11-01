@@ -894,11 +894,11 @@ def test_gate_fails_on_a_wrapper_emitted_event_with_no_handler(tmp_path: pathlib
 
 
 def test_gate_fails_on_a_duplicate_handler_registration(tmp_path: pathlib.Path) -> None:
-    """`on()` is last-write-wins, so a second registration is silent dead code.
+    """`on()` is additive (#3050), so a second registration double-fires.
 
-    `eventHandlers[type] = handler` overwrites rather than appending — the hook's
-    own comments warn about this twice — so a duplicate is a real defect, not a
-    style nit, and must not be collapsed by a `set()` on the way in.
+    Before #3050 `eventHandlers[type] = handler` overwrote the first handler. A
+    duplicate is now a double invocation rather than dead code, but it is still
+    almost certainly a mistake, and must not be collapsed by a `set()` on the way in.
     """
     api_src, ts_path = _fixture_tree(
         tmp_path,
