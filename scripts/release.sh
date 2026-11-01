@@ -805,6 +805,18 @@ bash scripts/check-ci-api-tag.sh >/dev/null || die \
    Releasing now would red main and hold every publish job (#4022)."
 echo "  Bumped CI_API_TAG to $NEW_CI_API_TAG"
 
+# ci-scheduler is stamped from scheduler.Dockerfile + the scheduler pyproject,
+# which the manifest bump above just rewrote — same staleness, same fix (#4791).
+NEW_CI_SCHEDULER_TAG="$(bash scripts/check-ci-api-tag.sh --image scheduler --print-expected)" || die \
+  "Failed to compute the expected CI_SCHEDULER_TAG after the manifest bump."
+[ -n "$NEW_CI_SCHEDULER_TAG" ] || die \
+  "scripts/check-ci-api-tag.sh --image scheduler --print-expected produced an empty tag."
+sed -i.bak "s/^\(  CI_SCHEDULER_TAG: \).*\$/\1\"${NEW_CI_SCHEDULER_TAG}\"/" .gitlab-ci.yml \
+  && rm .gitlab-ci.yml.bak
+bash scripts/check-ci-api-tag.sh --image scheduler >/dev/null || die \
+  "CI_SCHEDULER_TAG is still stale after restamping (#4791)."
+echo "  Bumped CI_SCHEDULER_TAG to $NEW_CI_SCHEDULER_TAG"
+
 # Re-lock after bumping the Python manifests. Each uv.lock records the project's
 # own version under its self-entry, so a manifest bump without a re-lock leaves
 # the lock claiming the previous version and turns the post-tag main pipeline red
@@ -1060,6 +1072,7 @@ echo "  # this one fails lint:api-scheduler-lock until it lands:"
 echo "  #   bash scripts/bump-api-scheduler-floor.sh $NEW_PEP440"
 echo "  #   (cd packages/api && uv lock --upgrade-package trueppm-scheduler)"
 echo "  #   + restamp CI_API_TAG (bash scripts/check-ci-api-tag.sh --print-expected)"
+echo "  #     and CI_SCHEDULER_TAG (… --image scheduler --print-expected)"
 echo ""
 echo "  # First mcp-v* tag only: the PyPI Trusted Publisher for 'trueppm-mcp' must"
 echo "  # already exist (GitLab / trueppm / trueppm / .gitlab-ci.yml / environment"

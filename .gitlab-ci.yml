@@ -96,6 +96,13 @@ variables:
   # the current inputs require. Enforced by api:ci-api-tag.
   CI_API_TAG: "py3.11-7534f4aeb664"
 
+  # Same mechanism for the ci-scheduler image (#4791): `py3.11-<digest>` over
+  # scheduler.Dockerfile plus packages/scheduler/pyproject.toml. A fixed tag let
+  # dell-03 and nuc-03 run one SHA against different cached pytest versions
+  # (#4787). Bump with `bash scripts/check-ci-api-tag.sh --image scheduler
+  # --print-expected`; enforced by api:ci-api-tag. See contributing/ci-images.
+  CI_SCHEDULER_TAG: "py3.11-f34f5eae2737"
+
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
 # GitLab job-level `retry` can only rerun the WHOLE job, and would have to
@@ -342,7 +349,7 @@ workflow:
 # only re-links the editable package — no wheel downloads.
 # Kaizen #651: shaves cold-install time off each of the five scheduler:* jobs.
 .scheduler:
-  image: $CI_REGISTRY_IMAGE/ci-scheduler:py3.11
+  image: $CI_REGISTRY_IMAGE/ci-scheduler:$CI_SCHEDULER_TAG
   needs:
     - job: ci:build-scheduler-image
       optional: true
@@ -357,6 +364,9 @@ workflow:
     # Image already has scheduler[dev] wheels resident; this is a fast
     # editable re-link against the checked-out source.
     - pip install -e "packages/scheduler[dev]" --quiet
+    # Print the toolchain actually resolved on THIS runner, so a future split
+    # between runners is diagnosable from the trace alone (#4791).
+    - pip freeze | grep -iE '^(pytest|mutmut|hypothesis|numpy|networkx|scipy|numba|mypy|ruff|trueppm)' || true
 
 # Full API template — postgres + valkey services, used by api:test only.
 # Valkey is the BSD-licensed Redis fork; wire-compatible, REDIS_URL unchanged.
@@ -1827,7 +1837,7 @@ ci:build-scheduler-image:
     - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-    IMAGE: "$CI_REGISTRY_IMAGE/ci-scheduler:py3.11"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-scheduler:$CI_SCHEDULER_TAG"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -2548,6 +2558,7 @@ api:ci-api-tag:
     # failure mode this whole class of bug is made of.
     - bash scripts/check-ci-api-tag.sh --self-test
     - bash scripts/check-ci-api-tag.sh
+    - bash scripts/check-ci-api-tag.sh --image scheduler
 
 web:row-vocabulary:
   extends: .fast-job
