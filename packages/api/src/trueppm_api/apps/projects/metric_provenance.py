@@ -131,6 +131,16 @@ def definitions_for(keys: Iterable[str]) -> dict[str, str]:
     return {k: METRIC_DEFINITIONS[k] for k in keys}
 
 
+def task_slip_definitions() -> dict[str, str]:
+    """The ``definitions`` map for the single-task baseline comparison (ADR-1314).
+
+    That response names the slip ``finish_delta_days``; task rows name the same
+    computation ``baseline_finish_variance_days``. One sentence, two field names —
+    the sentence is keyed by the field the payload actually carries.
+    """
+    return {"finish_delta_days": METRIC_DEFINITIONS["baseline_finish_variance_days"]}
+
+
 def definitions_field(name: str, keys: Iterable[str]) -> Any:
     """A typed ``definitions`` schema field: one string per key, documented by its sentence.
 

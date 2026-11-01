@@ -279,6 +279,147 @@ class TestForecastCommitment:
         assert resp.status_code in (403, 404)
 
 
+# ── program target date: who sees it (accepted exposure, ADR-1314) ──────────
+
+
+class TestProgramTargetExposure:
+    URL = "/api/v1/projects/{}/monte-carlo/latest/"
+
+    def _program_project(self, project: Project, **program_kw: object) -> Program:
+        program = Program.objects.create(
+            name="Prog", target_date=datetime.date(2026, 6, 12), **program_kw
+        )
+        project.program = program
+        project.save(update_fields=["program"])
+        MonteCarloRun.objects.create(
+            project=project,
+            p80=datetime.date(2026, 6, 5),
+            n_simulations=500,
+            p80_at_day_start=False,
+        )
+        return program
+
+    def test_project_viewer_who_is_not_a_program_member_sees_the_commitment(
+        self, project: Project
+    ) -> None:
+        # Program membership is independent of project membership (ADR-0070). The
+        # commitment is the project's own; ADR-1314 accepts showing this one date to
+        # every forecast reader so two readers never see two different deltas.
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        program = self._program_project(project)
+        viewer = User.objects.create_user(username="prov-viewer", password="pw")
+        ProjectMembership.objects.create(project=project, user=viewer, role=Role.VIEWER)
+        assert not ProgramMembership.objects.filter(program=program, user=viewer).exists()
+        c = APIClient()
+        c.force_authenticate(user=viewer)
+
+        body = c.get(self.URL.format(project.pk)).json()
+
+        assert body["commitment_source"] == "program_target"
+        assert body["commitment_date"] == "2026-06-12"
+        # Nothing else about the program rides along.
+        assert not any(k.startswith("program") for k in body)
+
+    def test_a_soft_deleted_programs_target_date_is_ignored(
+        self, client: APIClient, project: Project
+    ) -> None:
+        self._program_project(project, is_deleted=True)
+
+        body = client.get(self.URL.format(project.pk)).json()
+
+        assert body["commitment_source"] == "none"
+        assert body["p80_delta_vs_commitment_reason"] == "no_commitment"
+
+
+# ── the live run (POST) spreads the same facts ──────────────────────────────
+
+
+def test_live_run_carries_commitment_and_definitions(
+    client: APIClient, project: Project, user: object
+) -> None:
+    Task.objects.create(
+        project=project,
+        name="Work",
+        duration=5,
+        optimistic_duration=3,
+        most_likely_duration=5,
+        pessimistic_duration=10,
+    )
+    _baseline(project, user, [datetime.date(2026, 1, 9)])
+
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
+    )
+
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["commitment_source"] == "baseline"
+    assert body["commitment_date"] == "2026-01-09"
+    assert isinstance(body["p80_delta_vs_commitment_days"], int)
+    assert body["p80_delta_vs_commitment_reason"] is None
+    assert set(body["definitions"]) == set(FORECAST_DEFINED)
+
+
+# ── task slip: the single-task comparison carries its own provenance ────────
+
+
+class TestTaskSlipProvenance:
+    def _url(self, project: Project, task: Task) -> str:
+        return f"/api/v1/projects/{project.pk}/tasks/{task.pk}/baseline/"
+
+    def test_no_baseline_still_carries_definition_and_as_of(
+        self, client: APIClient, project: Project
+    ) -> None:
+        task = _task(project, "Lonely")
+
+        body = client.get(self._url(project, task)).json()
+
+        assert body["has_baseline"] is False
+        assert body["as_of"]
+        assert body["definitions"] == {
+            "finish_delta_days": METRIC_DEFINITIONS["baseline_finish_variance_days"]
+        }
+
+    def test_slip_matches_the_task_row_figure(
+        self, client: APIClient, project: Project, user: object
+    ) -> None:
+        task = _task(
+            project,
+            "Slipping",
+            early_start=datetime.date(2026, 6, 1),
+            early_finish=datetime.date(2026, 6, 12),
+        )
+        baseline = Baseline.objects.create(
+            project=project, name="B1", created_by=user, is_active=True, has_cpm_dates=True
+        )
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=task.pk,
+            task_name=task.name,
+            start=datetime.date(2026, 6, 1),
+            finish=datetime.date(2026, 6, 5),
+            duration=5,
+            finish_at_day_start=False,
+        )
+
+        body = client.get(self._url(project, task)).json()
+        listing = client.get(f"/api/v1/tasks/?project={project.pk}").json()
+        rows = listing["results"] if isinstance(listing, dict) else listing
+        row = next(r for r in rows if r["id"] == str(task.pk))
+
+        assert body["finish_delta_days"] == 7
+        assert body["as_of"]
+        assert set(body["definitions"]) == {"finish_delta_days"}
+        # One computation, two field names: the row and the comparison agree.
+        assert row["baseline_finish_variance_days"] == body["finish_delta_days"]
+
+    def test_non_member_is_refused(self, stranger_client: APIClient, project: Project) -> None:
+        task = _task(project, "Hidden")
+        resp = stranger_client.get(self._url(project, task))
+        assert resp.status_code in (403, 404)
+
+
 # ── the other owners ────────────────────────────────────────────────────────
 
 

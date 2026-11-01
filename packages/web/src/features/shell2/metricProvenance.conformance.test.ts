@@ -13,10 +13,12 @@ import { describe, expect, it } from 'vitest';
  * `healthBand.conformance.test.ts` enforces for the band words: **surfaces format,
  * they never recompute.**
  *
- * So this scans every non-test source file under `features/shell2/` (and a homes
- * directory, once one exists) for the shapes a client-side recomputation takes:
+ * So this scans every non-test source file under `features/shell2/`, under any
+ * directory named home or homes at any depth of `features/`, and in the v1 pages the homes render in place (My
+ * Work, the programs list, the program overview), for the shapes a client-side
+ * recomputation takes:
  *
- * - deriving a health band from the counts (`criticalCount > 0`) — the server folds
+ * - deriving a health band from the counts (`criticalCount > 0 ? 'critical'`) — the server folds
  *   in the PM's manual report, which the counts cannot see (#3501);
  * - dividing hours by capacity — person load is `load_pct` on `/utilization/`;
  * - subtracting dates — slip and the P80-vs-commitment delta are measured in working
@@ -34,13 +36,41 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url)); // packages/web/src/features/shell2
 const FEATURES = resolve(here, '..');
 
-/** Shell v2, plus the homes (#4755) wherever they land under `features/`. */
-const SCANNED_DIRS = [
-  here,
-  ...readdirSync(FEATURES)
-    .filter((d) => /^homes?$/i.test(d))
-    .map((d) => join(FEATURES, d)),
-].filter((d) => existsSync(d));
+/**
+ * Every directory under `features/` (at any depth) whose name starts with "home".
+ * Found, not listed: a new home directory is scanned the moment it exists, so a
+ * home cannot land somewhere the scan does not look (#4755).
+ */
+function homeDirs(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (!statSync(full).isDirectory()) continue;
+    if (/^homes?($|[-_])/i.test(entry)) out.push(full);
+    else out.push(...homeDirs(full));
+  }
+  return out;
+}
+
+/**
+ * The v1 pages the homes (#4755) render IN PLACE rather than rebuild: My Work and
+ * its parts, the programs list, and the program overview. Pinned by path. A
+ * missing entry fails the vacuity check below, so a rename cannot quietly drop a
+ * page out of the scan.
+ */
+const HOME_SURFACE_FILES = [
+  'me/MyWorkPage.tsx',
+  'me/MyWorkFocusCards.tsx',
+  'me/myWorkFocus.ts',
+  'me/MyWorkSideColumn.tsx',
+  'me/MyWorkTaskRow.tsx',
+  'me/myWorkBlocked.ts',
+  'me/MyProjectsHealthSummary.tsx',
+  'programs/ProgramListPage.tsx',
+  'programs/ProgramCard.tsx',
+  'programs/ProgramOverviewPage.tsx',
+  'programs/UngroupedProjectsSection.tsx',
+].map((f) => join(FEATURES, f));
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -57,7 +87,13 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-const FILES = SCANNED_DIRS.flatMap(sourceFiles);
+const SCANNED_DIRS = [here, ...homeDirs(FEATURES).filter((d) => d !== here)];
+const FILES = [
+  ...new Set([
+    ...SCANNED_DIRS.flatMap(sourceFiles),
+    ...HOME_SURFACE_FILES.filter((f) => existsSync(f)),
+  ]),
+];
 
 /** Drop block and line comments so prose about the rule never matches the rule. */
 function stripComments(src: string): string {
@@ -65,7 +101,10 @@ function stripComments(src: string): string {
 }
 
 const RECOMPUTE_PATTERNS: Record<string, RegExp> = {
-  'health band derived from counts': /\b(critical|atRisk|at_risk)_?[Cc]ount\s*(>|>=|===|!==)\s*0/,
+  // A count compared with zero AND a band word close behind it: the shape of a band
+  // derivation. A count alone is formatting ("3 on the critical path") and allowed.
+  'health band derived from counts':
+    /\b(critical|atRisk|at_risk)_?[Cc]ount\s*(>|>=|===|!==)\s*0[\s\S]{0,60}?['"](critical|at_risk|at-risk|on_track|on-track)['"]/,
   'load computed from hours and capacity':
     /\b\w*(hours|booked|load)\w*\s*\/\s*\(?\s*\w*(capacity|max_?units|maxUnits|hoursPerDay|hours_per_day)/i,
   'date subtraction (slip or delta)':
@@ -90,9 +129,23 @@ describe('shell v2 and the homes format server metrics and never recompute them'
     expect(offenders(FILES)).toEqual([]);
   });
 
-  it('scanned the shell (the scan itself cannot go vacuous)', () => {
-    expect(FILES.length).toBeGreaterThan(8);
+  it('scanned the shell and every pinned home surface (the scan cannot go vacuous)', () => {
+    expect(FILES.length).toBeGreaterThan(20);
     expect(FILES.some((f) => f.endsWith('features/shell2/ContextHeader2.tsx'))).toBe(true);
+    // A renamed or moved home surface fails here instead of silently leaving the scan.
+    expect(HOME_SURFACE_FILES.filter((f) => !existsSync(f))).toEqual([]);
+  });
+
+  it('finds home directories wherever they land', () => {
+    // Not a fixture tree on disk: the matcher is what decides, so pin it.
+    expect(/^homes?($|[-_])/i.test('homes')).toBe(true);
+    expect(/^homes?($|[-_])/i.test('home-pm')).toBe(true);
+    expect(/^homes?($|[-_])/i.test('homepage')).toBe(false);
+  });
+
+  it('does not flag formatting a count next to prose', () => {
+    const copy = 'if (criticalCount > 0) parts.push(`${criticalCount} on the critical path`);';
+    expect(RECOMPUTE_PATTERNS['health band derived from counts']?.test(copy)).toBe(false);
   });
 
   it.each([

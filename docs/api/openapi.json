@@ -76353,10 +76353,32 @@
                     },
                     "duration_delta": {
                         "type": "integer"
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the server computed this comparison. The current dates were written by the CPM pass at the project's recalculated_at."
+                    },
+                    "definitions": {
+                        "$ref": "#/components/schemas/TaskBaselineComparisonDefinitions"
                     }
                 },
                 "required": [
+                    "as_of",
+                    "definitions",
                     "has_baseline"
+                ]
+            },
+            "TaskBaselineComparisonDefinitions": {
+                "type": "object",
+                "properties": {
+                    "finish_delta_days": {
+                        "type": "string",
+                        "description": "A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late."
+                    }
+                },
+                "required": [
+                    "finish_delta_days"
                 ]
             },
             "TaskBulkAppliedEntry": {

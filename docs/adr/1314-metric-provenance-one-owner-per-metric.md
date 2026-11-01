@@ -58,7 +58,8 @@ the web client, MCP and the homes, reads that value and only formats it.
 | Schedule performance | overview | `schedule_health` | `as_of` |
 | Burn series | `GET /projects/{id}/burn/` | `series` | `as_of` |
 | S-curve (planned vs actual) | burn, `chart_type=burnup` | `series` + `baseline_series` | `as_of` |
-| Task slip | task rows (`TaskSerializer`) | `baseline_finish_variance_days` | `Project.recalculated_at` (on status-summary) |
+| Task slip (one task) | `GET /projects/{id}/tasks/{task_id}/baseline/` | `finish_delta_days` | `as_of` |
+| Task slip (rows) | task rows (`TaskSerializer`), the same computation | `baseline_finish_variance_days` | the comparison's `as_of`; on a list, `Project.recalculated_at` |
 
 The issue asked for the burn endpoint to be consolidated, not duplicated. The
 S-curve therefore gets no new endpoint. A burnup with the active-baseline overlay
@@ -74,6 +75,12 @@ The `count` on `/blocked/` stays the list's row count. The blocked metric is
 `status-summary.blocked_count`, which uses the same rule (a non-empty
 `blocked_reason` on a live row) without the cap. It is computed in the existing
 aggregate, so the query count does not change.
+
+Task slip is owned by the single-task baseline comparison. It carries `as_of` and
+`definitions` on every branch, including `has_baseline: false`, which is the
+not-computable case. Task rows carry the same computation under the name
+`baseline_finish_variance_days`. A row in a paginated list has no response of its
+own to carry an `as_of`, so the rows are an echo, and a test pins that the two agree.
 
 ### 2. Every owning payload carries `definitions` and an `as_of`
 
@@ -118,6 +125,33 @@ with the reader's program role would also bring back the problem this ADR remove
 two people would see two different deltas for one project. Nothing else about the
 program is exposed.
 
+Pinned by tests: a project Viewer who is not a program member sees the
+`program_target` commitment, and a soft-deleted program's date is ignored.
+
+**Threat model of this boundary change (STRIDE, `threat-model` run inline).** The
+asset is `Program.target_date`. The boundary is the project-membership read gate on
+`monte-carlo/latest/` and the POST run (Boundary 1, authenticated API). The value
+used to sit behind the program-membership gate.
+
+- **Spoofing:** no new identity path. The read keeps the forecast's existing
+  permissions: `IsAuthenticated`, `IsProjectMember` and `IsProjectNotArchived`.
+- **Tampering:** read-only. The date is still written only through the program
+  serializer, which requires Program Admin.
+- **Repudiation:** no write and no new action, so there is nothing new to audit.
+- **Information disclosure:** the one finding. A project member who is not a
+  program member learns the program's target date. Accepted, for the reason
+  above. Only the date is exposed: not the program's name, its id or its other
+  projects. A soft-deleted program contributes nothing. MCP readers of the
+  forecast see exactly what REST readers see. Nothing is broadcast over WebSocket
+  (the forecast is not a broadcast payload).
+- **Denial of service:** at most one extra indexed query per forecast read. The
+  endpoint keeps its throttle scope.
+- **Elevation of privilege:** none. Reading the date grants no program role and
+  opens no program endpoint.
+
+Outcome: 1 finding (information disclosure), accepted by the user and documented.
+No other STRIDE category changes.
+
 The commitment is derived on every response and is never stored with the run.
 Activating a baseline or changing a program date moves the commitment without
 moving the forecast.
@@ -159,12 +193,17 @@ percentile sampling, and a client-written definition. The P80 tooltip in
 - Every figure in scope has one owner, a definition, and an as_of an MCP client can
   cite. The `ai-review` provenance check passes for them.
 - `schedule_health` is defined as "Not the project health band". A v1 surface that
-  labels it "Health" now visibly contradicts its own definition. Renaming those
-  labels is consumer migration and is out of scope here (the issue scopes the
-  source-scan to shell v2 and the homes).
+  labels it "Health" now visibly contradicts its own definition. Relabeling those
+  surfaces is tracked in #4780.
 - Person load is owned per project. A person's load across projects, which the
   Resource Manager home will need, has no owner yet. That home must extend the
   `utilization` engine named here rather than sum per-project loads in the client.
+  The cross-project owner, and reconciling `/sprints/{id}/capacity/` and the
+  `/me/work` `signals.utilization` figure with it, are tracked in #4777.
+- Two further sources were deliberately left for later rather than owned here: the
+  My Work `signals.forecast.p80_finish` and the sprint burn sources (#4778), and the
+  program rollup's metrics (#4779). Until those land they are not owners in the
+  sense of this ADR, and a home must not present them as the forecast or burn figure.
 - Two small costs per forecast read: up to three indexed queries for the commitment
   (active baseline id, then max finish and the readings on that day), plus one
   query for the program when there is no baseline.
@@ -177,6 +216,6 @@ percentile sampling, and a client-written definition. The P80 tooltip in
   `forecast_commitment_facts`.
 - Owners touched: `ProjectViewSet.status_summary`, `ProjectViewSet.utilization`,
   `ProjectOverviewView`, `ProjectBurnView`, `run_monte_carlo`,
-  `MonteCarloLatestView` (cache and persisted branches).
+  `MonteCarloLatestView` (cache and persisted branches), `TaskBaselineDetailView`.
 - Tests: `packages/api/tests/apps/projects/test_metric_provenance.py`.
 - Docs: `packages/website/src/content/docs/features/metric-vocabulary.md`.

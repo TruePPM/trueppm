@@ -79,7 +79,7 @@ const HIT_44 =
   "relative before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-full before:min-w-[44px] before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']";
 
 /** The P80 stamp: the server's value, the server's definition on hover/focus, and its `as_of` (`last_run_at`). */
-function ForecastStamp({ projectId }: { projectId: string }) {
+export function ForecastStamp({ projectId }: { projectId: string }) {
   const { data: mc, error, refetch } = useMonteCarloResult(projectId);
   if (error) {
     return (

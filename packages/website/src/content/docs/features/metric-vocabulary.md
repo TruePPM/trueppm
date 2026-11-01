@@ -45,7 +45,7 @@ Each owning endpoint returns two extra things beside its figures:
 | Schedule performance | `schedule_health` | `GET /projects/{id}/overview/` | `as_of` | The schedule performance band from the SPI proxy (completed planned work divided by work planned by today); unknown when nothing is planned yet. Not the project health band. |
 | Burn series | `series` | `GET /projects/{id}/burn/` | `as_of` | Per day, the remaining (burndown) or completed (burnup) task count or story points, replayed from task history. |
 | Planned (baseline) series | `baseline_series` | `GET /projects/{id}/burn/` | `as_of` | Per day, the same quantity as planned by the active baseline; absent when the project has no active baseline with dates. |
-| Task slip | `baseline_finish_variance_days` | task rows (`GET /tasks/`) | `recalculated_at` on status-summary | A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late. |
+| Task slip | `finish_delta_days` (`baseline_finish_variance_days` on task rows, the same computation) | `GET /projects/{id}/tasks/{task_id}/baseline/` | `as_of` | A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late. |
 
 ## Commitment
 
@@ -74,6 +74,28 @@ reason. It is never left out of the response. For the commitment delta,
 
 The overview's `team_utilization_pct` works the same way: when it is null,
 `team_utilization_reason` explains why.
+
+## Who sees the commitment
+
+The forecast is readable by every project member, Viewer and up. When the
+commitment comes from the parent program, those readers see the program's target
+date, including members of the project who are not members of the program. Only
+the date is shown. The program's name and its other projects stay behind program
+membership. A soft-deleted program's date is never used.
+
+## Figures without an owner yet
+
+These figures appear on some screens but do not have an owning endpoint yet. They
+should not be read as the forecast, load or burn figures above:
+
+- A person's load across several projects, `/sprints/{id}/capacity/`, and the
+  My Work `signals.utilization` figure (#4777).
+- The My Work `signals.forecast.p80_finish` figure and the sprint burn sources
+  (#4778).
+- The program rollup's metrics (#4779).
+
+Older screens that show schedule performance under the word "Health" are being
+relabeled in #4780.
 
 ## Two figures that are easy to confuse
 

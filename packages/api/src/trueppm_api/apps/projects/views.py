@@ -117,6 +117,7 @@ from trueppm_api.apps.projects.metric_provenance import (
     UTILIZATION_DEFINED,
     definitions_field,
     definitions_for,
+    task_slip_definitions,
 )
 from trueppm_api.apps.projects.models import (
     _HISTORY_EXCLUDED_TASK,
@@ -14696,6 +14697,23 @@ class TaskHistoryView(APIView):
                             required=False, allow_null=True
                         ),
                         "duration_delta": serializers.IntegerField(required=False),
+                        # Provenance (ADR-1314), on every branch: this is the owning
+                        # response for one task's slip.
+                        "as_of": serializers.DateTimeField(
+                            help_text=(
+                                "When the server computed this comparison. The current "
+                                "dates were written by the CPM pass at the project's "
+                                "recalculated_at."
+                            ),
+                        ),
+                        "definitions": inline_serializer(
+                            name="TaskBaselineComparisonDefinitions",
+                            fields={
+                                "finish_delta_days": serializers.CharField(
+                                    help_text=METRIC_DEFINITIONS["baseline_finish_variance_days"]
+                                )
+                            },
+                        ),
                     },
                 ),
                 description=(
@@ -14732,10 +14750,14 @@ class TaskBaselineDetailView(APIView):
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
+        # Provenance on every branch (ADR-1314): "no active baseline" is the
+        # not-computable case, and it still says what the slip would mean.
+        provenance = {"as_of": timezone.now(), "definitions": task_slip_definitions()}
+
         try:
             baseline = Baseline.objects.get(project_id=project_pk, is_active=True, is_deleted=False)
         except Baseline.DoesNotExist:
-            return Response({"has_baseline": False})
+            return Response({"has_baseline": False, **provenance})
 
         from trueppm_api.apps.projects.services import _project_sched_calendar
         from trueppm_api.apps.scheduling.finish_reading import (
@@ -14752,6 +14774,7 @@ class TaskBaselineDetailView(APIView):
                     "in_baseline": False,
                     "baseline_name": baseline.name,
                     "baseline_taken_at": baseline.created_at.isoformat(),
+                    **provenance,
                 }
             )
 
@@ -14826,6 +14849,7 @@ class TaskBaselineDetailView(APIView):
                 "start_delta_days": start_delta,
                 "finish_delta_days": _finish_delta(task.early_finish, bt.finish),
                 "duration_delta": task.duration - bt.duration,
+                **provenance,
             }
         )
 
