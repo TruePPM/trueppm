@@ -181,8 +181,8 @@ const OVERVIEW_KEYS = [
   'monte-carlo-latest',
 ] as const satisfies readonly InvalidateKey[];
 
-// A single dispatched-event handler. `on(...)` registers these against one or
-// more event_type keys; `handleMessage` looks the handler up by event_type.
+// A single dispatched-event handler. `on(...)` appends these to one or more
+// event_type keys (additive, #3050); `dispatch` runs every handler for the type.
 type OnFn = (types: string | readonly string[], handler: WsHandler) => Unsubscribe;
 
 // Store slices whose setters the handlers dispatch into. Deriving the setter

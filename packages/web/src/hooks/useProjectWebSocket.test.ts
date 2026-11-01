@@ -326,20 +326,28 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
   });
 
-  it('a re-render does not duplicate handler invocations (#3050)', () => {
+  it('re-running the effect does not accumulate handlers (#3050)', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
-    const { rerender } = renderHook(() => useProjectWebSocket('proj-1'), {
-      wrapper: makeWrapper(qc),
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    // Deps are [projectId, accessToken, liveUpdates]; a token refresh really re-runs
+    // the effect, which rebuilds the handler table and opens a new socket.
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-refreshed' });
     });
-    rerender();
-    rerender();
+    expect(MockWebSocket.instances.length).toBeGreaterThan(1);
 
-    dispatchEvent('project_updated');
+    invalidateSpy.mockClear();
+    act(() => {
+      MockWebSocket.instances[MockWebSocket.instances.length - 1].dispatch('message', {
+        data: JSON.stringify({ event_type: 'project_updated', payload: { id: 'proj-1' } }),
+      });
+    });
 
-    const projectsCalls = invalidateSpy.mock.calls.filter(
-      ([f]) => JSON.stringify(f?.queryKey) === JSON.stringify(['projects']),
-    );
-    expect(projectsCalls).toHaveLength(1);
+    const callsFor = (key: string) =>
+      invalidateSpy.mock.calls.filter(
+        ([f]) => JSON.stringify(f?.queryKey) === JSON.stringify([key]),
+      ).length;
+    expect(callsFor('projects')).toBe(1);
   });
 
   it('invalidates project and projects list on project_transferred', () => {
