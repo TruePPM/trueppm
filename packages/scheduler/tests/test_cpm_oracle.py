@@ -56,7 +56,11 @@ finishes (on non-working days and before the project start), a data date, SNETs,
 and four-, five- and seven-day per-task calendars with exceptions. Not generated
 there: summary tasks, ``live_day_end_on``, Monte Carlo. One shape is excluded by
 name, the open #4436 (``_ends_in_a_start_of_day_finish_gap``), and pinned by a
-strict xfail so the exclusion cannot outlive the fix.
+strict xfail so the exclusion cannot outlive the fix. The close-or-start-at-forecast
+property (#4690) excludes one variant by name the same way: closing a predecessor
+of a milestone already closed with actuals, whose day edge then depends on
+``live_day_end_on`` history this harness never supplies (the open #4574,
+``_closing_releases_a_frozen_edge``).
 
 A slip oracle sees only float that disagrees with what slipping does. A bug that
 moves early dates while keeping floats consistent is invisible to it: #4433 (a
@@ -1397,8 +1401,34 @@ def test_rust_closing_a_milestone_on_the_data_date_moves_nothing(
     _closed_moves_nothing(MILESTONE_CLOSED_ON_THE_DATA_DATE, rust_engine.run)
 
 
+def _closing_releases_a_frozen_edge(project: RefProject, tid: str) -> bool:
+    """TODO(#4574): the open design question, excluded by name until it is decided.
+
+    Closing ``tid`` closes a predecessor of a milestone that is already closed
+    with recorded actuals. That milestone's day edge is read from its *completed*
+    predecessors only, frozen while any is open by ``live_day_end_on`` — the
+    history the API hands back (ADR-0136, #4525) and this harness never supplies.
+    With none, it reads the start of its day until ``tid`` closes, and then an
+    FS+1d link out of ``tid`` puts it at the end. ADR-0136 names this move as the
+    one the freeze exists to stop, and #4574 that the history-free reading depends
+    on the path. Closing ``tid`` is still checked on every other shape, and
+    starting it on every shape. Delete this when #4574 closes.
+    """
+    for link in project.links:
+        recorded = project.progress.get(link.succ)
+        if (
+            link.pred == tid
+            and project.durations[link.succ] == 0
+            and recorded is not None
+            and recorded.complete
+            and (recorded.actual_start is not None or recorded.actual_finish is not None)
+        ):
+            return True
+    return False
+
+
 def forecast_record_violations(
-    project: RefProject, run: Callable[[RefProject], EngineRun]
+    project: RefProject, run: Callable[[RefProject], EngineRun], exclude_4574: bool = True
 ) -> list[str]:
     """Closing or starting a live milestone on the day it is shown moves nothing (#4690).
 
@@ -1423,7 +1453,9 @@ def forecast_record_violations(
         shown = base.tasks[tid].early_start
         pct = 0.0 if recorded is None else recorded.percent_complete
         variants = {"started": RefProgress(percent_complete=pct, actual_start=shown)}
-        if all(_complete(project, link.pred) for link in project.links if link.succ == tid):
+        if all(
+            _complete(project, link.pred) for link in project.links if link.succ == tid
+        ) and not (exclude_4574 and _closing_releases_a_frozen_edge(project, tid)):
             variants["closed"] = RefProgress(100.0, actual_start=shown, actual_finish=shown)
         for name, progress in variants.items():
             after = run(replace(project, progress={**project.progress, tid: progress}))
@@ -1449,13 +1481,124 @@ MILESTONE_AT_A_SUNDAY_INSTANT = RefProject(
 )
 
 
+#: #4785 — ``T2 -FS+1d-> T4``, ``T4`` closed with an ``actual_start`` on Mon 01-05
+#: while ``T2`` is still open. With no ``live_day_end_on`` it reads the start of
+#: Monday; closing ``T2`` on its forecast Monday lets the completed work decide,
+#: and ``T4`` moves to the end of Monday (#4574). Hypothesis' own shrink, verbatim.
+CLOSING_RELEASES_A_FROZEN_EDGE = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 0, "T1": 0, "T2": 0, "T3": 0, "T4": 0, "T5": 0},
+    links=(
+        RefLink("T0", "T1", "FS", 0),
+        RefLink("T0", "T3", "FS", 0),
+        RefLink("T1", "T3", "FS", 0),
+        RefLink("T2", "T4", "FS", 1),
+    ),
+    planned_start={"T0": date(2026, 1, 5)},
+    progress={"T4": RefProgress(percent_complete=100.0, actual_start=date(2026, 1, 5))},
+)
+
+#: #4785, the same move with another predecessor still open: closing ``T0`` alone
+#: lets ``T0 -FS+1d-> T5`` decide ``T5``'s edge while ``T1`` is open. A 4,000-example
+#: run's shrink, verbatim.
+CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 0, "T1": 0, "T2": 0, "T3": 0, "T4": 0, "T5": 0},
+    links=(
+        RefLink("T0", "T1", "FS", 0),
+        RefLink("T0", "T2", "FS", 0),
+        RefLink("T1", "T2", "FS", 0),
+        RefLink("T0", "T3", "FS", 0),
+        RefLink("T1", "T3", "FS", 0),
+        RefLink("T0", "T5", "FS", 1),
+        RefLink("T1", "T5", "FS", 0),
+    ),
+    planned_start={tid: date(2026, 1, 5) for tid in ("T0", "T1", "T2", "T3")},
+    progress={"T5": RefProgress(percent_complete=100.0, actual_start=date(2026, 1, 5))},
+)
+
+
 def test_recording_a_milestone_on_its_forecast_moves_nothing() -> None:
     """#4690, metamorphic, on the Python engine: the issue's own shape."""
     assert forecast_record_violations(MILESTONE_AT_A_SUNDAY_INSTANT, python_run) == []
 
 
+def test_the_4574_exclusion_is_what_hides_the_frozen_edge_shape() -> None:
+    """The filter matches #4785's repro, and only the history-free close moves it."""
+    project = CLOSING_RELEASES_A_FROZEN_EDGE
+    assert _closing_releases_a_frozen_edge(project, "T2")
+    assert forecast_record_violations(project, python_run) == []
+    assert forecast_record_violations(project, python_run, exclude_4574=False) == [
+        "T2 closed on 2026-01-05: moved ['T4']"
+    ]
+    other = CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE
+    assert _closing_releases_a_frozen_edge(other, "T0")
+    assert forecast_record_violations(other, python_run) == []
+    assert forecast_record_violations(other, python_run, exclude_4574=False) == [
+        "T0 closed on 2026-01-05: moved ['T5']"
+    ]
+    # Completed with no actuals, T4 is pinned at the start of its day whatever its
+    # predecessors do (ADR-0136): the filter does not match, and nothing moves.
+    pinned = replace(project, progress={"T4": RefProgress(percent_complete=100.0)})
+    assert not _closing_releases_a_frozen_edge(pinned, "T2")
+    assert forecast_record_violations(pinned, python_run, exclude_4574=False) == []
+
+
+def test_closing_beside_a_frozen_edge_moves_nothing_with_its_history() -> None:
+    """ADR-0136's remedy: hand back the edge the live run showed, and nothing moves.
+
+    Live, ``T2 -FS+1d-> T4`` put ``T4`` at the end of Monday; the API hands that
+    day back as ``live_day_end_on``, so ``T4`` keeps it while ``T2`` is open and
+    the completed work agrees once ``T2`` closes. ``X`` behind ``T4`` stays put.
+    """
+    base = RefProject(
+        start=date(2026, 1, 5),
+        durations={"T2": 0, "T4": 0, "X": 1},
+        links=(RefLink("T2", "T4", "FS", 1), RefLink("T4", "X", "FS", 0)),
+        progress={"T4": RefProgress(100.0, actual_start=date(2026, 1, 5))},
+    )
+    closed = replace(
+        base,
+        progress={**base.progress, "T2": RefProgress(100.0, date(2026, 1, 5), date(2026, 1, 5))},
+    )
+
+    def run(project: RefProject) -> dict[str, tuple[date, date, bool]]:
+        engine_project = to_engine_project(project)
+        engine_project.tasks = [
+            replace(t, live_day_end_on=date(2026, 1, 5)) if t.id == "T4" else t
+            for t in engine_project.tasks
+        ]
+        return {
+            tid: _record_position(t)
+            for tid, t in python_engine_tasks(schedule(engine_project)).items()
+        }
+
+    assert run(base) == run(closed)
+    assert run(closed)["X"][0] == date(2026, 1, 6)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="TODO(#4574): with no live_day_end_on, a closed milestone's edge depends on "
+    "which of its predecessors have closed; when this XPASSes, delete "
+    "_closing_releases_a_frozen_edge",
+)
+def test_closing_the_last_open_predecessor_of_a_closed_milestone() -> None:
+    problems = [
+        problem
+        for project in (
+            CLOSING_RELEASES_A_FROZEN_EDGE,
+            CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE,
+        )
+        for problem in forecast_record_violations(project, python_run, exclude_4574=False)
+    ]
+    assert not problems, "\n".join(problems)
+
+
 @pytest.mark.fuzz
 @given(progress_projects())
+@example(CLOSING_RELEASES_A_FROZEN_EDGE)
+@example(CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE)
 def test_python_close_or_start_at_forecast_moves_nothing(project: RefProject) -> None:
     problems = forecast_record_violations(project, python_run)
     assert not problems, "\n".join([repr(project), *problems])
@@ -1469,6 +1612,8 @@ def test_rust_recording_a_milestone_on_its_forecast_moves_nothing(
 
 @pytest.mark.fuzz
 @given(project=progress_projects())
+@example(project=CLOSING_RELEASES_A_FROZEN_EDGE)
+@example(project=CLOSING_ONE_OF_TWO_PREDECESSORS_OF_A_CLOSED_MILESTONE)
 def test_rust_close_or_start_at_forecast_moves_nothing(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
@@ -1579,6 +1724,36 @@ SUB_START_FLOORS_ON_A_FREE_MILESTONE = RefProject(
     planned_start={"K": date(2026, 1, 20)},
 )
 
+#: #4785 — ``T0 -FS-1d-> T1`` puts ``T1`` at Sunday 00:00, below the project start
+#: (Mon 01-05) and shown on it; ``T1`` started that Monday. The start only ties the
+#: link (#4690), so ``T1 -FS+1d-> T2`` counts from Sunday and ``T2`` sits at the start
+#: of Monday. The reference measured it from Monday, a working day later.
+MILESTONE_STARTED_ON_ITS_SHOWN_DAY_BELOW_THE_START = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 0, "T1": 0, "T2": 0},
+    links=(RefLink("T0", "T1", "FS", -1), RefLink("T1", "T2", "FS", 1)),
+    planned_start={"T0": date(2026, 1, 5), "T1": date(2026, 1, 5)},
+    progress={"T1": RefProgress(percent_complete=0.0, actual_start=date(2026, 1, 5))},
+)
+#: #4690's own shape with ``T1`` started on its shown Monday: the link instant stays
+#: Sunday 00:00, so ``T2`` (FS+2d) starts Tuesday 08-11, as with ``T1`` not started.
+MILESTONE_STARTED_ON_ITS_SHOWN_MONDAY = replace(
+    MILESTONE_AT_A_SUNDAY_INSTANT,
+    progress={
+        **MILESTONE_AT_A_SUNDAY_INSTANT.progress,
+        "T1": RefProgress(actual_start=date(2026, 8, 10)),
+    },
+)
+#: The same start one day after the shown Monday is a real floor: ``T2`` counts
+#: from Tuesday 08-11 and starts Thursday 08-13.
+MILESTONE_STARTED_THE_DAY_AFTER_ITS_SHOWN_MONDAY = replace(
+    MILESTONE_AT_A_SUNDAY_INSTANT,
+    progress={
+        **MILESTONE_AT_A_SUNDAY_INSTANT.progress,
+        "T1": RefProgress(actual_start=date(2026, 8, 11)),
+    },
+)
+
 PROGRESS_EXAMPLES = (
     SS_OUT_OF_A_RECORDED_START,
     SS_OUT_OF_A_DERIVED_START,
@@ -1590,6 +1765,9 @@ PROGRESS_EXAMPLES = (
     SATURDAY_STARTED_SUCCESSOR_OF_A_MILESTONE,
     SF_INTO_A_MILESTONE_BESIDE_A_SATURDAY_FINISH,
     SUB_START_FLOORS_ON_A_FREE_MILESTONE,
+    MILESTONE_STARTED_ON_ITS_SHOWN_DAY_BELOW_THE_START,
+    MILESTONE_STARTED_ON_ITS_SHOWN_MONDAY,
+    MILESTONE_STARTED_THE_DAY_AFTER_ITS_SHOWN_MONDAY,
     # Not SF_INTO_A_FOUR_DAY_MILESTONE: an SF link across two calendars, which the
     # reference refuses (``_check_modeled``).
 )
@@ -1638,6 +1816,17 @@ def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
     sub_start = reference_schedule(SUB_START_FLOORS_ON_A_FREE_MILESTONE).tasks
     assert sub_start["A"].early_start == date(2026, 2, 12)
 
+    # A start on the day the link already shows a milestone at the start of only
+    # ties the link: lags out of it count from the link's midnight (#4690, #4785).
+    below = reference_schedule(MILESTONE_STARTED_ON_ITS_SHOWN_DAY_BELOW_THE_START).tasks
+    assert below["T2"].start_at == date(2026, 1, 5)
+    for project, t2 in (
+        (MILESTONE_AT_A_SUNDAY_INSTANT, date(2026, 8, 11)),
+        (MILESTONE_STARTED_ON_ITS_SHOWN_MONDAY, date(2026, 8, 11)),
+        (MILESTONE_STARTED_THE_DAY_AFTER_ITS_SHOWN_MONDAY, date(2026, 8, 13)),
+    ):
+        assert reference_schedule(project).tasks["T2"].early_start == t2
+
     # Late dates never precede early ones (#3963).
     for project in PROGRESS_EXAMPLES:
         for t in reference_schedule(project).tasks.values():
@@ -1666,6 +1855,68 @@ def test_the_4631_exclusion_is_what_hides_the_open_shape() -> None:
 def test_ff_successor_of_a_non_working_actual_finish() -> None:
     project = FF_OUT_OF_A_SATURDAY_ACTUAL_FINISH
     assert_matches_reference(python_engine(project), project)
+
+
+def _floors_tying_a_milestone_link() -> list[tuple[str, RefProject]]:
+    """#4785: a floor on the day a link already shows ``M`` at the start of, every
+    link kind into and out of ``M`` (#4690's rule; the generator reaches it about
+    once in 3,000 progress networks).
+
+    ``A(5d) -K-> M`` puts ``M`` at Sunday 00:00 (an SS/SF link through a 6-day
+    lag from Monday), with ``M``'s ``actual_start`` or ``planned_start`` on the
+    Monday; and a milestone at the project start leads ``M`` by a day, below the
+    start, with ``M`` started on the start's own day.
+    """
+    into = {"FS": 1, "SS": 6, "FF": 1, "SF": 6}
+    monday, start = date(2026, 8, 10), date(2026, 1, 5)
+    shapes = []
+    for kind_in, lag in into.items():
+        for kind_out in ("FS", "SS", "FF", "SF"):
+            sunday = RefProject(
+                start=date(2026, 8, 3),
+                durations={"A": 5, "M": 0, "B": 1},
+                links=(RefLink("A", "M", kind_in, lag), RefLink("M", "B", kind_out, 2)),
+            )
+            shapes += [
+                (
+                    f"sunday-{kind_in}-{kind_out}-started",
+                    replace(sunday, progress={"M": RefProgress(actual_start=monday)}),
+                ),
+                (f"sunday-{kind_in}-{kind_out}-snet", replace(sunday, planned_start={"M": monday})),
+                (
+                    f"below-start-{kind_in}-{kind_out}-started",
+                    RefProject(
+                        start=start,
+                        durations={"K": 0, "M": 0, "B": 1},
+                        links=(RefLink("K", "M", kind_in, -1), RefLink("M", "B", kind_out, 1)),
+                        progress={"M": RefProgress(actual_start=start)},
+                    ),
+                ),
+            ]
+    return shapes
+
+
+FLOORS_TYING_A_MILESTONE_LINK = _floors_tying_a_milestone_link()
+
+
+@pytest.mark.parametrize(
+    "project",
+    [p for _, p in FLOORS_TYING_A_MILESTONE_LINK],
+    ids=[n for n, _ in FLOORS_TYING_A_MILESTONE_LINK],
+)
+def test_python_floor_tying_a_milestone_link_matches_reference(project: RefProject) -> None:
+    assert_matches_reference(python_engine(project), project)
+
+
+@pytest.mark.parametrize(
+    "project",
+    [p for _, p in FLOORS_TYING_A_MILESTONE_LINK],
+    ids=[n for n, _ in FLOORS_TYING_A_MILESTONE_LINK],
+)
+def test_rust_floor_tying_a_milestone_link_matches_reference(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    assert_matches_reference(rust_engine.schedule(project), project)
 
 
 def _with_progress_examples(test: Callable[..., None]) -> Callable[..., None]:

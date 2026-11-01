@@ -102,6 +102,16 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   a floor kept **verbatim**, even on a non-working day; when it is the latest
   floor the task's window opens there and its first working day is the one after
   (#4332).
+* **A floor that only ties a milestone's link moves none of its lags (#4690).** A
+  live milestone's floor (data date, SNET, ``actual_start``) that falls on the very
+  day its latest link already shows it at the start of — an earlier midnight read
+  as a day start, with no working time before the floor, or a point below the
+  project start when the floor is the project start's own day — holds the
+  milestone there but is not what its successors measure from: their calendar-day
+  lags keep counting from the link's own midnight. Which midnights read as a day
+  start is the display rule of the Scheduler Conventions milestone row (#4173,
+  #4079), modeled for this purpose only (:func:`_proposal_reads_start`); a floor on
+  a non-working day never ties.
 * **Remaining duration.** Live work at ``p`` percent schedules only its remaining
   ``n - floor(n * p / 100)`` working days (ADR-0132 §3): its early and late dates
   are that remaining window.
@@ -591,28 +601,97 @@ def _snapped_floors(project: RefProject, tid: str) -> list[date]:
     return out
 
 
+def _proposal_reads_start(
+    project: RefProject, link: RefLink, need: date, reads_start: dict[str, bool]
+) -> bool:
+    """Whether the instant ``link`` proposes to a milestone is shown as a day start.
+
+    The Scheduler Conventions milestone row: a milestone driven by work sits at the
+    end of its driver's day, and one a lag places after non-working time is shown
+    at the start of the next working day (#4173). An SS link reads as a start; a
+    zero-lag FS/FF/SS link out of another milestone lands on that milestone's own
+    midnight and keeps its reading (#4079). Only :func:`_floor_ties_link` asks.
+    """
+    if link.kind == "SF":
+        base = False
+    elif link.lag == 0 and project.durations[link.pred] == 0:
+        base = reads_start[link.pred]
+    else:
+        base = link.kind == "SS"
+    return base or not project.calendar_of(link.succ).is_working(need - ONE_DAY)
+
+
+def _floor_ties_link(
+    project: RefProject, tid: str, proposal: tuple[date, bool], floor: date
+) -> bool:
+    """Whether ``floor`` only ties the latest link ``proposal`` in working time (#4690).
+
+    True when the link shows the milestone at the start of ``floor``'s own day from
+    an earlier midnight: read as a day start with nothing but non-working time
+    before ``floor``, or below the project start when ``floor`` is the project
+    start's day (the project start only bounds where a milestone is shown, #4225).
+    A floor on a non-working day is shown verbatim and never ties.
+    """
+    raw, reads = proposal
+    if raw >= floor:
+        return False
+    cal = project.calendar_of(tid)
+    if not _sf_linked(project, tid):
+        base = start_at_or_after(project.start, cal)
+        if raw < base:
+            return base == floor
+    return reads and start_at_or_after(raw, cal) == floor
+
+
+def _place_live_milestone(
+    project: RefProject, tid: str, links_from: dict[str, Span], reads_start: dict[str, bool]
+) -> tuple[date, date, bool]:
+    """``(instant, link instant, link reads as a day start)`` of a live milestone.
+
+    The instant is the raw latest of everything that holds it. Its successors
+    measure from the same instant, except where the latest floor only ties the
+    latest link (:func:`_floor_ties_link`): then they measure from the link's own
+    midnight, so recording or pinning the day a milestone is shown moves nothing.
+    """
+    cal = project.calendar_of(tid)
+    proposals = [
+        (need, _proposal_reads_start(project, link, need, reads_start))
+        for link, need in _needs(project, tid, links_from)
+    ]
+    floors = _snapped_floors(project, tid)
+    recorded = _progress(project, tid).actual_start
+    if recorded is not None:
+        floors.append(recorded)
+    if not proposals and not floors:
+        base = start_at_or_after(project.start, cal)
+        return base, base, True
+    latest = max(proposals) if proposals else None
+    floor = max(floors) if floors else None
+    if latest is None or (floor is not None and floor >= latest[0]):
+        assert floor is not None
+        held = (floor, True)
+    else:
+        held = latest
+    link = held
+    if latest is not None and floor is not None and _floor_ties_link(project, tid, latest, floor):
+        link = latest
+    return held[0], link[0], link[1]
+
+
 def _forward_task(
     project: RefProject, tid: str, early: dict[str, Span], links_from: dict[str, Span]
 ) -> Span:
-    """Early span of one live task, its predecessors already placed.
+    """Early span of one live work task, its predecessors already placed.
 
-    For live work it is the window of its *remaining* days (ADR-0132). A recorded
-    actual start is a floor kept verbatim, even on a non-working day; the other
-    floors are the start of a working day.
+    It is the window of its *remaining* days (ADR-0132). A recorded actual start is
+    a floor kept verbatim, even on a non-working day; the other floors are the
+    start of a working day. Live milestones are :func:`_place_live_milestone`.
     """
     cal = project.calendar_of(tid)
     needs = _needs(project, tid, links_from)
 
     recorded = _progress(project, tid).actual_start
     floors = _snapped_floors(project, tid)
-
-    if project.durations[tid] == 0:
-        # A milestone is one raw instant: the latest of everything that holds it.
-        held = [need for _, need in needs] + floors
-        if recorded is not None:
-            held.append(recorded)
-        instant = max(held) if held else start_at_or_after(project.start, cal)
-        return instant, instant
 
     n = remaining_days(project, tid)
     start_needs = [need for link, need in needs if constrains_start(link)] + floors
@@ -792,19 +871,25 @@ def reference_schedule(project: RefProject) -> RefResult:
     early: dict[str, Span] = {}
     links_from: dict[str, Span] = {}
     shown: dict[str, date] = {}
+    reads_start: dict[str, bool] = {}
     for tid in order:
         if is_complete(project, tid):
             early[tid], start = _pinned(project, tid)
             links_from[tid] = (start, early[tid][1] if project.durations[tid] else start)
             if project.durations[tid] == 0:
                 shown[tid] = early[tid][0]
+                reads_start[tid] = True  # the start of its pinned day
+            continue
+        if project.durations[tid] == 0:
+            instant, link, reads_start[tid] = _place_live_milestone(
+                project, tid, links_from, reads_start
+            )
+            early[tid] = (instant, instant)
+            links_from[tid] = (link, link)
+            shown[tid] = _shown_instant(project, tid, instant)
             continue
         early[tid] = _forward_task(project, tid, early, links_from)
-        if project.durations[tid] == 0:
-            links_from[tid] = early[tid]
-            shown[tid] = _shown_instant(project, tid, early[tid][0])
-        else:
-            links_from[tid] = (link_start(project, tid, early[tid]), early[tid][1])
+        links_from[tid] = (link_start(project, tid, early[tid]), early[tid][1])
 
     project_finish, finish_by_work = _project_finish(project, early, shown, project_start)
 
