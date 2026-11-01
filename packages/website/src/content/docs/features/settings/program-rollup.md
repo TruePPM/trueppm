@@ -32,7 +32,7 @@ Ten KPIs can be enabled. The page groups them into three sections for scannabili
 
 | KPI | Identifier | What it shows |
 |-----|-----------|---------------|
-| Schedule health | `schedule_health` | Rollup of project health dots weighted by task count |
+| Schedule health | `schedule_health` | Rollup of the schedule health band of each project (not the manual project health report), combined by the aggregation policy |
 | Schedule variance (SV) | `schedule_variance` | Earned-value schedule variance vs. the saved baseline (negative = behind plan) |
 | Baseline variance | `baseline_variance` | Aggregate schedule and cost variance vs. the most recent saved baseline |
 | Critical task count | `critical_tasks` | Total tasks on the critical path across all projects in the program |

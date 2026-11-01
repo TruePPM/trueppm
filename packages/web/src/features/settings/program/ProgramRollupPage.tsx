@@ -44,7 +44,7 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'schedule_health',
         label: 'Schedule health',
-        description: 'Rollup of project health dots weighted by task count.',
+        description: 'Rollup of the schedule health band of each project (not the manual project health report), combined by the aggregation policy.',
       },
       {
         id: 'schedule_variance',
