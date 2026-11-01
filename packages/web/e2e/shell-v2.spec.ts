@@ -21,6 +21,7 @@ const FIXTURE_PROJECTS = [
     description: '',
     start_date: '2026-04-01',
     calendar: 'default',
+    program: PROGRAM_ID,
     program_detail: { id: PROGRAM_ID, name: 'Platform Modernization' },
   },
 ];
@@ -200,6 +201,78 @@ test.describe('shell v2 (shell_v2 flag)', () => {
     });
   });
 
+  test.describe('full-page Work list (#4756)', () => {
+    test.use({ viewport: { width: 1440, height: 900 } });
+
+    const mockPins = (page: Page, body: unknown[] = []) =>
+      page.route('**/api/v1/auth/me/pinned/', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }),
+      );
+
+    test('rail Work lands on the tree; arrows move and expand, Enter opens a project', async ({
+      page,
+    }) => {
+      await setup(page);
+      await mockPins(page);
+      await page.goto('/me/work');
+      const work = destinations(page).getByRole('link', { name: 'Work' });
+      await expect(work).toHaveAttribute('href', '/work');
+      await work.click();
+      await expect(page).toHaveURL(/\/work$/);
+      await expect(page.getByRole('heading', { name: 'Work', level: 1 })).toBeVisible();
+      const tree = page.getByRole('tree', { name: 'Programs' });
+      const program = tree.getByRole('treeitem', { name: 'Platform Modernization' });
+      const project = tree.getByRole('treeitem', { name: 'Atlas Migration' });
+      await expect(program).toHaveAttribute('aria-expanded', 'true');
+      await expect(project).toBeVisible();
+      // Roving tabindex: one tab stop.
+      await expect(tree.locator('[tabindex="0"]')).toHaveCount(1);
+      await program.focus();
+      await page.keyboard.press('ArrowLeft'); // collapse
+      await expect(program).toHaveAttribute('aria-expanded', 'false');
+      await expect(project).toHaveCount(0);
+      await page.keyboard.press('ArrowRight'); // expand
+      await page.keyboard.press('ArrowRight'); // into the first child
+      await expect(project).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/overview$`));
+    });
+
+    test('search narrows the tree without losing focus in the box', async ({ page }) => {
+      await setup(page);
+      await mockPins(page);
+      await page.goto('/work');
+      const box = page.getByRole('searchbox', { name: 'Find a program or project' });
+      await box.click();
+      await page.keyboard.type('atl');
+      await expect(box).toBeFocused();
+      await expect(box).toHaveValue('atl');
+      await expect(page.getByRole('treeitem', { name: 'Atlas Migration' })).toBeVisible();
+    });
+
+    test('empty state when the person has no programs or projects', async ({ page }) => {
+      await setup(page);
+      await mockPins(page);
+      await page.route('**/api/v1/programs/', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+        }),
+      );
+      await page.route('**/api/v1/projects/', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+        }),
+      );
+      await page.goto('/work');
+      await expect(page.getByText('No programs or projects yet')).toBeVisible();
+      await expect(page.getByRole('tree')).toHaveCount(0);
+    });
+  });
+
   test.describe('laptop 1024', () => {
     test.use({ viewport: { width: 1024, height: 768 } });
 
@@ -235,10 +308,7 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       await expect(flyout).toBeVisible();
       const target = flyout.getByRole('link', { name: 'Atlas Migration' });
       await expect(target).toBeVisible();
-      await expect(flyout.getByRole('link', { name: 'All work' })).toHaveAttribute(
-        'href',
-        '/programs',
-      );
+      await expect(flyout.getByRole('link', { name: 'All work' })).toHaveAttribute('href', '/work');
       await target.hover();
       await expect(flyout).toBeVisible();
       await target.click();
@@ -259,6 +329,7 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       const bar = page.getByRole('navigation', { name: 'Primary navigation' });
       await expect(bar).toBeVisible();
       await expect(bar.getByRole('link')).toHaveCount(4); // Home · Inbox · Log time · Work
+      await expect(bar.getByRole('link', { name: /Work/ })).toHaveAttribute('href', '/work');
       for (const name of ['Home', 'Inbox', 'Log time', 'Work']) {
         await expect(bar.getByRole('link', { name: new RegExp(name) })).toBeVisible();
       }
