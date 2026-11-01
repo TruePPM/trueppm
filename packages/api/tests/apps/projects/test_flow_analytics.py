@@ -593,3 +593,12 @@ def test_can_read_signal_handles_flow_metrics_key(project: Project, member: Any)
     req2 = rf.get("/")
     req2.user = outsider
     assert can_read_signal(req2, project.pk, "flow_metrics") is False
+
+
+@pytest.mark.parametrize(("v", "k"), [(0.1, 10), (0.3, 7), (0.7, 3), (1.1, 9)])
+def test_backlog_sprint_counts_tolerate_float_accumulation(v: float, k: int) -> None:
+    """An ulp-short cumulative sum must not add a phantom sprint (#4699)."""
+    from trueppm_api.apps.projects.services import _sample_backlog_sprint_counts
+
+    out = _sample_backlog_sprint_counts(round(v * k, 10), [v], 20, 1)
+    assert set(out.tolist()) == {float(k)}

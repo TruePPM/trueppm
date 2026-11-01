@@ -5481,7 +5481,8 @@ def _sample_backlog_sprint_counts(
     max_sprints = min(int(np.ceil(remaining_points / mean)) * 4 + 10, 2000)
     draws = rng.choice(observations, size=(runs, max_sprints), replace=True)
     cumulative = np.cumsum(draws, axis=1)
-    reached = cumulative >= remaining_points
+    # Relative tolerance: float accumulation can land an ulp short of an exact target (#4699).
+    reached = cumulative >= remaining_points * (1.0 - 1e-12)
     counts = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1, max_sprints)
     return counts.astype(np.float64)
 
