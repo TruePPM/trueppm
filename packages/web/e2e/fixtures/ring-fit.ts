@@ -15,17 +15,22 @@ export async function scrollerRingOverflow(child: Locator, ringExtent = 3): Prom
     }
     if (!scroller) throw new Error('no horizontal scroller around the element');
     const s = scroller.getBoundingClientRect();
-    let worst = -Infinity;
-    for (const c of Array.from(scroller.children)) {
-      const b = c.getBoundingClientRect();
-      if (b.width === 0 && b.height === 0) continue;
-      worst = Math.max(
-        worst,
-        s.left - (b.left - extent),
-        b.right + extent - s.right,
-        s.top - (b.top - extent),
-        b.bottom + extent - s.bottom,
-      );
+    const items = Array.from(scroller.children)
+      .map((c) => c.getBoundingClientRect())
+      .filter((b) => b.width > 0 || b.height > 0);
+    if (items.length === 0) throw new Error('scroller has no rendered children');
+    // Horizontally, children past the visible edge are scrolled out by design —
+    // so measure the first and last child against the SCROLL extent, not the
+    // viewport box. Vertically nothing scrolls, so every child must fit.
+    const originLeft = s.left - scroller.scrollLeft;
+    const first = items[0];
+    const last = items[items.length - 1];
+    let worst = Math.max(
+      originLeft - (first.left - extent),
+      last.right + extent - (originLeft + scroller.scrollWidth),
+    );
+    for (const b of items) {
+      worst = Math.max(worst, s.top - (b.top - extent), b.bottom + extent - s.bottom);
     }
     return worst;
   }, ringExtent);
