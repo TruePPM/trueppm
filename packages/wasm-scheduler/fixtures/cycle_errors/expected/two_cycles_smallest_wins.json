@@ -1,0 +1,8 @@
+{
+  "cycle": [
+    "B",
+    "C",
+    "B"
+  ],
+  "message": "Cyclic dependency detected: 'B' → 'C' → 'B'"
+}

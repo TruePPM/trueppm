@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from trueppm_scheduler import SchedulerError
+from trueppm_scheduler import CyclicDependencyError, SchedulerError
 from trueppm_scheduler.engine import monte_carlo, schedule
 from trueppm_scheduler.models import Project
 
@@ -23,6 +23,7 @@ FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "wasm-scheduler" 
 EXPECTED_DIR = FIXTURES_DIR / "expected"
 INVALID_DIR = FIXTURES_DIR / "invalid"
 PARSE_REJECTS_DIR = FIXTURES_DIR / "parse_rejects"
+CYCLE_ERRORS_DIR = FIXTURES_DIR / "cycle_errors"
 
 # Regeneration is an explicit, opt-in action — never a side effect of a normal
 # run. A missing expected snapshot HARD-FAILS (#1506); it may only be
@@ -301,3 +302,28 @@ def test_sub_start_floor_fixture_matches_the_same_network_without_floors() -> No
     assert _positions(schedule(Project.from_dict(raw))) == _positions(
         schedule(Project.from_dict(bare))
     )
+
+
+_CYCLE_ERROR_FIXTURES = sorted(p.stem for p in CYCLE_ERRORS_DIR.glob("*.json"))
+assert _CYCLE_ERROR_FIXTURES, (
+    f"No fixtures in {CYCLE_ERRORS_DIR} — cycle-payload parity would vanish."
+)
+
+
+@pytest.mark.parametrize("name", _CYCLE_ERROR_FIXTURES, ids=_CYCLE_ERROR_FIXTURES)
+def test_cycle_error_payload_and_message(name: str) -> None:
+    """The cycle payload and message are the cross-engine oracle (#4781).
+
+    ``cycle_errors/expected/<name>.json`` is the committed snapshot; the Rust
+    half is ``graph.rs::cycle_error_fixtures_match_python_oracle`` (run by
+    ``wasm:test``). Both assert the same ``cycle`` list and message string, so
+    the engines cannot report different cycles or differently escaped ids.
+    """
+    with open(CYCLE_ERRORS_DIR / f"{name}.json") as f:
+        project = Project.from_dict(json.load(f))
+    with open(CYCLE_ERRORS_DIR / "expected" / f"{name}.json") as f:
+        expected = json.load(f)
+    with pytest.raises(CyclicDependencyError) as excinfo:
+        schedule(project)
+    assert excinfo.value.cycle == expected["cycle"]
+    assert str(excinfo.value) == expected["message"]

@@ -1,0 +1,70 @@
+{
+  "id": "p-two_cycles_smallest_wins",
+  "name": "Two disjoint cycles; the one holding the smallest id is reported",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {
+      "id": "Z",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "Y",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "C",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "B",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "D",
+      "name": "T",
+      "duration": 172800.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "Z",
+      "successor_id": "Y",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "Y",
+      "successor_id": "Z",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "C",
+      "successor_id": "B",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "B",
+      "successor_id": "C",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "B",
+      "successor_id": "D",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

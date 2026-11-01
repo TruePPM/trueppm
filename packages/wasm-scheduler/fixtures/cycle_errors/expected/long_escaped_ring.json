@@ -1,0 +1,18 @@
+{
+  "cycle": [
+    "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+    "t00",
+    "t01",
+    "t02",
+    "it's",
+    "t04",
+    "say \"hi\"\tthere\nnow",
+    "t06",
+    "back\\slash",
+    "t08",
+    "q'\"both",
+    "é ​x",
+    "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL"
+  ],
+  "message": "Cyclic dependency detected: 'LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL… → 't00' → 't01' → 't02' → \"it's\" → 't04' → 'say \"hi\"\\tthere\\nnow' → 't06' → 'back\\\\slash' → 't08' … (+3 more)"
+}

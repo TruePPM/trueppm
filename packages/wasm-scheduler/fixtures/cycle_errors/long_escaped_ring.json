@@ -1,0 +1,147 @@
+{
+  "id": "p-long_escaped_ring",
+  "name": "12-id ring: escaping, 10-id cutoff, 80-char id cut",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {
+      "id": "t00",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "t01",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "t02",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "it's",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "t04",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "say \"hi\"\tthere\nnow",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "t06",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "back\\slash",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "t08",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "q'\"both",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "é ​x",
+      "name": "T",
+      "duration": 172800.0
+    },
+    {
+      "id": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "name": "T",
+      "duration": 172800.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "t00",
+      "successor_id": "t01",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t01",
+      "successor_id": "t02",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t02",
+      "successor_id": "it's",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "it's",
+      "successor_id": "t04",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t04",
+      "successor_id": "say \"hi\"\tthere\nnow",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "say \"hi\"\tthere\nnow",
+      "successor_id": "t06",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t06",
+      "successor_id": "back\\slash",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "back\\slash",
+      "successor_id": "t08",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "t08",
+      "successor_id": "q'\"both",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "q'\"both",
+      "successor_id": "é ​x",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "é ​x",
+      "successor_id": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "dep_type": "FS",
+      "lag": 0.0
+    },
+    {
+      "predecessor_id": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+      "successor_id": "t00",
+      "dep_type": "FS",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
