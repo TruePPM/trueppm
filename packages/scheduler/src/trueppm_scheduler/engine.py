@@ -195,16 +195,35 @@ class SchedulerError(ValueError):
     """
 
 
+_CYCLE_MSG_MAX_IDS = 10
+_CYCLE_MSG_ID_CHARS = 80
+
+
+def _short_repr(node: object) -> str:
+    text = repr(node)
+    if len(text) > _CYCLE_MSG_ID_CHARS:
+        return text[: _CYCLE_MSG_ID_CHARS - 1] + "…"
+    return text
+
+
 class CyclicDependencyError(SchedulerError):
     """Raised when the dependency graph contains a cycle.
 
     The offending cycle is provided so callers can surface it to users
-    without parsing a raw networkx exception.
+    without parsing a raw networkx exception. ``cycle`` is the full, canonical
+    path (first id repeated at the end); the message is a bounded, escaped
+    rendering of it: each id is ``repr()``-formatted (control characters cannot
+    forge log lines), ids longer than ``_CYCLE_MSG_ID_CHARS`` are cut, and
+    only the first ``_CYCLE_MSG_MAX_IDS`` ids are listed, followed by
+    ``… (+M more)``.
     """
 
     def __init__(self, cycle: list[str]) -> None:
         self.cycle = cycle
-        ids = " → ".join(cycle)
+        shown = [_short_repr(c) for c in cycle[:_CYCLE_MSG_MAX_IDS]]
+        ids = " → ".join(shown)
+        if len(cycle) > _CYCLE_MSG_MAX_IDS:
+            ids += f" … (+{len(cycle) - _CYCLE_MSG_MAX_IDS} more)"
         super().__init__(f"Cyclic dependency detected: {ids}")
 
 
@@ -2000,8 +2019,48 @@ def _raise_cycle_error(g: nx.DiGraph[str]) -> NoReturn:
     where checking cycles eagerly with ``find_cycle`` was 37% of the
     ``schedule()`` budget for a result the topological sort already proves.
     """
-    cycle = nx.find_cycle(g)
-    raise CyclicDependencyError([u for u, _ in cycle] + [cycle[-1][1]])
+    raise CyclicDependencyError(_canonical_cycle(g))
+
+
+def _node_key(node: object) -> tuple[str, str]:
+    return (str(node), repr(node))
+
+
+def _canonical_cycle(g: nx.DiGraph[str]) -> list[str]:
+    """Return one cycle of ``g`` independent of edge/node insertion order.
+
+    Picks the non-trivial strongly connected component holding the smallest id,
+    then the shortest cycle through that id (BFS over sorted successors), so the
+    result starts at the smallest id on it and closes by repeating it. Ids are
+    ordered by ``str`` then ``repr`` so mixed-type ids still sort stably.
+    """
+    sccs = [
+        c
+        for c in nx.strongly_connected_components(g)
+        if len(c) > 1 or any(g.has_edge(n, n) for n in c)
+    ]
+    start = min((min(c, key=_node_key) for c in sccs), key=_node_key)
+    scc = next(c for c in sccs if start in c)
+    parent: dict[str, str | None] = {start: None}
+    queue = [start]
+    closer: str | None = None
+    for node in queue:
+        for nxt in sorted(g.successors(node), key=_node_key):
+            if nxt == start:
+                closer = node
+                break
+            if nxt in scc and nxt not in parent:
+                parent[nxt] = node
+                queue.append(nxt)
+        if closer is not None:
+            break
+    path: list[str] = []
+    cur: str | None = closer
+    while cur is not None:
+        path.append(cur)
+        cur = parent[cur]
+    path.reverse()
+    return [*path, start]
 
 
 @dataclass
@@ -2100,11 +2159,9 @@ def find_cycle(
         edge_list = _expand_edges_for_cycle_check(edge_list, children_map)
     g: nx.DiGraph[str] = nx.DiGraph()
     g.add_edges_from(edge_list)
-    try:
-        cycle = nx.find_cycle(g)
-    except nx.NetworkXNoCycle:
+    if nx.is_directed_acyclic_graph(g):
         return CycleCheck(cycle=None)
-    return CycleCheck(cycle=[u for u, _ in cycle] + [cycle[-1][1]])
+    return CycleCheck(cycle=_canonical_cycle(g))
 
 
 def _validate_edge_list(edges: list[tuple[str, str]]) -> list[tuple[str, str]]:
