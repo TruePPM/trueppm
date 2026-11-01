@@ -69,12 +69,14 @@ def _display(value: object) -> str:
 
 def _load_project(path: str) -> Project:
     try:
-        text = Path(path).read_text()
+        raw = Path(path).read_bytes()
     except OSError as e:
         print(f"error: cannot read {_display(repr(path))}: {_display(e)}", file=sys.stderr)
         sys.exit(1)
     try:
-        return Project.from_json(text)
+        # JSON is UTF-8 (RFC 8259), never the locale codec; a UnicodeDecodeError
+        # is a ValueError, so a non-UTF-8 file maps to the documented error.
+        return Project.from_json(raw.decode("utf-8-sig"))
     except (KeyError, ValueError) as e:
         print(f"error: invalid project file: {_display(e)}", file=sys.stderr)
         sys.exit(1)
@@ -145,7 +147,16 @@ def _cmd_monte_carlo(args: argparse.Namespace) -> None:
         )
 
 
+def _make_stdout_safe() -> None:
+    """Stop an ASCII/legacy-codec stdout from crashing on the human-mode glyphs."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
+
+
 def main() -> None:
+    _make_stdout_safe()
     parser = argparse.ArgumentParser(
         prog="trueppm-scheduler",
         description="TruePPM scheduling engine — CPM and Monte Carlo",
