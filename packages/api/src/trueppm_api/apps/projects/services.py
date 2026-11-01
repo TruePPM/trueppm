@@ -6155,22 +6155,34 @@ def _sample_throughput_counts(
     ``np.random.Generator`` so a given window yields a stable distribution within a
     request (idempotent reads, ADR-0130 §DE).
 
-    Returns ``None`` when there are no positive weekly observations or
-    ``remaining_count`` is non-positive; a single positive week yields a degenerate
-    (constant) distribution, which is honest — one observation cannot express variance.
+    Zero-throughput weeks are real observations and are bootstrapped, so a team that
+    finishes 4 items in one week out of four forecasts at ~1/week, not 4/week (the same
+    "zero is data" principle as the velocity sampler, #4535). The one exception is the
+    *leading* run of zero weeks: the series is a fixed, zero-filled calendar window that
+    is not trimmed to the project's start, so weeks before the first completion are
+    artifacts of the window, not evidence of a slow team, and counting them would
+    penalize every young project. Interior and trailing zeros are kept.
+
+    Returns ``None`` when every week is zero (no pace to project — the horizon would be
+    unbounded) or ``remaining_count`` is non-positive; a single positive week yields a
+    degenerate (constant) distribution, which is honest — one observation cannot
+    express variance.
     """
     import numpy as np
 
-    positive = np.asarray([w for w in weekly_throughput if w and w > 0], dtype=float)
-    if remaining_count <= 0 or positive.size == 0:
+    first_active = next((i for i, w in enumerate(weekly_throughput) if w and w > 0), None)
+    if remaining_count <= 0 or first_active is None:
         return None
-    mean = float(positive.mean())
+    observations = np.asarray(
+        [max(w or 0, 0) for w in weekly_throughput[first_active:]], dtype=float
+    )
+    mean = float(observations.mean())
     # Bound the per-run horizon the same way the velocity sampler does: ~4× the
     # naive estimate, hard-capped so a pathological backlog/slow-mean pair can't
     # drive an unbounded allocation. 2000 weeks is ~38 years — beyond that the
     # answer is "never" and runs saturate to the cap.
     max_weeks = min(int(np.ceil(remaining_count / mean)) * 4 + 10, 2000)
-    draws = rng.choice(positive, size=(n, max_weeks), replace=True)
+    draws = rng.choice(observations, size=(n, max_weeks), replace=True)
     cumulative = np.cumsum(draws, axis=1)
     # No float tolerance here (cf. _sample_backlog_sprint_counts, #4699): weekly throughput is
     # integer completion counts, so the cumsum is exact.

@@ -868,6 +868,41 @@ class TestBootstrapSamplers:
 
         assert _sample_throughput_counts([0, 0], 12.0, 5, np.random.default_rng(3)) is None
 
+    def test_throughput_sampler_keeps_interior_zero_weeks(self) -> None:
+        """1 item in 1 of 4 weeks forecasts ~1/week, not the 4/week of the nonzero-only mean."""
+        import numpy as np
+
+        counts = _sample_throughput_counts([4, 0, 0, 0] * 3, 20.0, 400, np.random.default_rng(3))
+        dense = _sample_throughput_counts([4, 4, 4, 4], 20.0, 400, np.random.default_rng(3))
+        assert counts is not None
+        assert dense is not None
+        assert set(dense.tolist()) == {5.0}
+        assert float(np.median(counts)) >= 3 * float(np.median(dense))
+
+    def test_throughput_sampler_does_not_penalize_leading_zero_padding(self) -> None:
+        """Leading empty weeks (before the project's first activity) are trimmed."""
+        import numpy as np
+
+        interior = [3, 0, 2, 0, 3, 1]
+        bare = _sample_throughput_counts(interior, 15.0, 300, np.random.default_rng(5))
+        padded = _sample_throughput_counts([0] * 8 + interior, 15.0, 300, np.random.default_rng(5))
+        assert bare is not None
+        assert padded is not None
+        assert padded.tolist() == bare.tolist()
+        # ...while the interior zeros still slow the forecast versus an all-active history.
+        active = _sample_throughput_counts([3, 2, 3, 1], 15.0, 300, np.random.default_rng(5))
+        assert active is not None
+        assert float(np.median(bare)) > float(np.median(active))
+
+    def test_throughput_sampler_keeps_trailing_zero_weeks(self) -> None:
+        import numpy as np
+
+        trailing = _sample_throughput_counts([4, 4, 0, 0], 20.0, 400, np.random.default_rng(3))
+        steady = _sample_throughput_counts([4, 4], 20.0, 400, np.random.default_rng(3))
+        assert trailing is not None
+        assert steady is not None
+        assert float(np.median(trailing)) > float(np.median(steady))
+
     def test_throughput_sampler_returns_none_with_an_empty_backlog(self) -> None:
         import numpy as np
 
