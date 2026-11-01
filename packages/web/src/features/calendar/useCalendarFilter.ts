@@ -8,6 +8,7 @@
 
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
+import { todayLocalIso } from '@/features/schedule/scheduleUtils';
 import type { CalViewMode } from './calendarUtils';
 import {
   isValidISODate,
@@ -20,10 +21,6 @@ import {
 } from './calendarUtils';
 
 const DEFAULT_MODE: CalViewMode = 'month';
-
-function todayUTCIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 interface UseCalendarFilterReturn {
   calView: CalViewMode;
@@ -42,7 +39,7 @@ export function useCalendarFilter(): UseCalendarFilterReturn {
   // render-time RangeError in week mode) or an unknown mode into the view.
   const calView = parseCalViewMode(searchParams.get('calView'), DEFAULT_MODE);
   const rawAnchor = searchParams.get('calAnchor');
-  const anchorIso = isValidISODate(rawAnchor) ? rawAnchor : todayUTCIso();
+  const anchorIso = isValidISODate(rawAnchor) ? rawAnchor : todayLocalIso();
 
   const updateParams = useCallback(
     (patch: Record<string, string>) => {
@@ -63,7 +60,7 @@ export function useCalendarFilter(): UseCalendarFilterReturn {
     [updateParams],
   );
 
-  const goToToday = useCallback(() => updateParams({ calAnchor: todayUTCIso() }), [updateParams]);
+  const goToToday = useCallback(() => updateParams({ calAnchor: todayLocalIso() }), [updateParams]);
 
   const goNext = useCallback(() => {
     const anchor = parseUTCDate(anchorIso);
