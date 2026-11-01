@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 
+import pytest
 from hypothesis import HealthCheck, settings
 
 # The engine's hard caps (MAX_PROJECT_SPAN_DAYS, MAX_DURATION_DAYS, …) bound the
@@ -44,3 +45,25 @@ settings.register_profile(
 )
 
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "gate"))
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Fail collection for a Hypothesis property that lacks ``@pytest.mark.fuzz``.
+
+    ``scheduler:fuzz-deep`` selects with ``-m fuzz``, so an unmarked ``@given``
+    test runs only under the fixed 200-example gate profile and is never
+    deepened -- silently, because the ``other`` shard treats "nothing selected"
+    as success (#4716).
+    """
+    unmarked = [
+        item.nodeid
+        for item in items
+        if getattr(getattr(item, "obj", None), "is_hypothesis_test", False)
+        and item.get_closest_marker("fuzz") is None
+    ]
+    if unmarked:
+        listing = "\n  ".join(unmarked)
+        raise pytest.UsageError(
+            "Hypothesis properties must carry @pytest.mark.fuzz so scheduler:fuzz-deep "
+            f"deepens them:\n  {listing}"
+        )

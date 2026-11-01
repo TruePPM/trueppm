@@ -231,6 +231,7 @@ def test_a_few_monday_runs_do_not_drag_the_percentiles_onto_the_monday() -> None
         assert (day, at_start) == (fri, False)
 
 
+@pytest.mark.fuzz
 @example(project=_mixed_reading_project())
 @example(project=_mixed_reading_project(most_likely_days=4))
 @given(project=_plausible_projects())
@@ -259,6 +260,7 @@ def test_each_percentile_is_a_quantile_of_the_distribution(project: Project) -> 
         assert before < q + 1 / n, f"{name}={day} but {before:.1%} of runs are strictly before it"
 
 
+@pytest.mark.fuzz
 @given(project=_plausible_projects())
 def test_no_start_of_day_finish_reports_the_pre_4204_dates(project: Project) -> None:
     """Without a start-of-day finish, ranking by working time is ranking by shown day.
