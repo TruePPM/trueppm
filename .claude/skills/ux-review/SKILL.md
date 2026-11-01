@@ -5,7 +5,7 @@ description: >
   Review existing UI/UX implementations for usability, accessibility, consistency,
   performance, and adherence to TruePPM design principles. Use when reviewing
   React components, mobile screens, Gantt chart interactions, or any user-facing
-  code. Checks against WCAG 2.1 AA, mobile touch targets, responsive behavior,
+  code. Checks against WCAG 2.2 AA, mobile touch targets, responsive behavior,
   offline states, and information hierarchy.
 ---
 
@@ -21,7 +21,7 @@ against these eight dimensions — they frame severity and guide the summary:
 | Dimension | UI question |
 |-----------|-------------|
 | **Performance** | Does it do what the design and stakeholders intended? Does it solve the right problem? |
-| **Conformity** | Does it match the design spec, CLAUDE.md rules, and WCAG 2.1 AA requirements? |
+| **Conformity** | Does it match the design spec, CLAUDE.md rules, and WCAG 2.2 AA requirements? |
 | **Reliability** | Does it behave consistently regardless of data, device, or network state? |
 | **Resilience** | Does it degrade gracefully — offline, error states, empty states, slow connections? |
 | **Satisfaction** | Does it elicit positive feedback — usable, delightful, low friction? |
@@ -66,7 +66,19 @@ Uniformity or Sustainability rates MEDIUM or LOW.
 - Are large lists virtualized (react-window or similar)?
 - Does navigation feel instant (prefetching, caching)?
 
-### 6. Accessibility (WCAG 2.1 AA)
+### 6. Accessibility (WCAG 2.2 AA)
+Cite failures by success-criterion number. WCAG 2.2 adds nine criteria and removes
+**4.1.1 Parsing** (obsolete; never cite it). AA-floor in 2.2: **2.4.11** Focus Not Obscured
+(Minimum), **2.5.7** Dragging Movements, **2.5.8** Target Size (Minimum), **3.2.6**
+Consistent Help (A), **3.3.7** Redundant Entry (A), **3.3.8** Accessible Authentication
+(Minimum). AAA, informational only and never blocking: **2.4.12** Focus Not Obscured
+(Enhanced), **2.4.13** Focus Appearance, **3.3.9** Accessible Authentication (Enhanced).
+The full table lives in the `accessibility` skill.
+
+- **2.5.8 Target Size (Minimum)** — most relevant to dense rows, chips, icon buttons: every pointer target >= 24x24 CSS px (or 24px clear spacing). House rule 5 (44px) is stricter and still governs; flag a sub-24px target as a WCAG failure and a 24-43px one as a rule-5 finding.
+- **2.4.11 Focus Not Obscured (Minimum)** — most relevant to sticky headers, the context header, frozen Gantt columns, bottom bars and toasts: Tab through a scrolled view; a focused control entirely hidden under sticky chrome is a failure (fix with `scroll-padding`/`scroll-margin`).
+- **2.5.7 Dragging Movements** — every drag (Gantt bar, board card, resize, reorder) has a single-pointer alternative.
+- **3.2.6 / 3.3.7 / 3.3.8** — help entry points sit in the same place on every page; a multi-step flow never re-asks for information already given; login does not block paste or password managers.
 - All images have alt text
 - Color is not the only means of conveying information
 - Focus order is logical (tab through the page makes sense)

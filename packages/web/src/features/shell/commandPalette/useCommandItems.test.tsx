@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { recordLastTask } from '@/lib/lastTask';
 
 import { useCommandItems } from './useCommandItems';
 import type { CommandItem } from './commandItems';
@@ -133,7 +134,7 @@ let hiddenViews: string[] = [];
 let userWorkspaceRole: number | undefined;
 vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
-    user: { hidden_views: hiddenViews, workspace_role: userWorkspaceRole },
+    user: { id: 'u1', hidden_views: hiddenViews, workspace_role: userWorkspaceRole },
     isLoading: false,
   }),
 }));
@@ -155,8 +156,16 @@ vi.mock('@/stores/themeStore', () => ({
 vi.mock('@/stores/shellStore', () => ({
   useShellStore: (sel: (s: unknown) => unknown) => sel({ toggleSidebar: vi.fn() }),
 }));
+const setLogTimeTarget = vi.fn();
 vi.mock('@/stores/commandPaletteStore', () => ({
-  useCommandPaletteStore: (sel: (s: unknown) => unknown) => sel({ setOpen: vi.fn() }),
+  useCommandPaletteStore: (sel: (s: unknown) => unknown) =>
+    sel({ setOpen: vi.fn(), setLogTimeTarget }),
+}));
+// Role in the LAST task's project (#1211). A spy so the gate argument is assertable.
+let lastTaskRole: number | null = 100;
+const roleFor = vi.fn((_pid?: string) => ({ role: lastTaskRole }));
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: (pid?: string) => roleFor(pid),
 }));
 const openTask = vi.fn();
 vi.mock('@/stores/taskDrawerStore', () => ({
@@ -174,6 +183,8 @@ afterEach(() => {
   omniResults = [];
   labelCatalog = [];
   pinnedResults = [];
+  lastTaskRole = 100;
+  window.localStorage.clear();
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
   sprintTargets.mockImplementation((pid?: string) =>
@@ -486,7 +497,7 @@ describe('useCommandItems — tier assembly', () => {
     expect(recentSearch).toHaveBeenCalledWith(true);
   });
 
-  it('lists the caller\'s pins cold, ABOVE Recent', () => {
+  it("lists the caller's pins cold, ABOVE Recent", () => {
     pinnedResults = [
       {
         kind: 'project',
@@ -675,6 +686,55 @@ describe('useCommandItems — tier assembly', () => {
       labelCatalog = [];
       const { result } = renderHook(() => useCommandItems(true, 'rew'));
       expect(result.current.some((i) => i.group === 'label')).toBe(false);
+    });
+  });
+  describe('Log time on <last task> action (#1211)', () => {
+    const LAST = { taskId: 't9', projectId: 'p2', name: 'Pour footing', ref: 'HD-T-9' };
+    const ID = 'action:log-time-last-task';
+
+    it('is offered when a last task exists and the user can log time on its project', () => {
+      recordLastTask('u1', LAST);
+      const { result } = renderHook(() => useCommandItems(true, ''));
+      const item = byId(result.current).get(ID);
+      expect(item?.label).toBe('Log time on Pour footing');
+      expect(item?.group).toBe('action');
+      expect(item?.detail).toBe('HD-T-9');
+      // Gated on the role in the last task's project, not the route's.
+      expect(roleFor).toHaveBeenCalledWith('p2');
+    });
+
+    it('starts the inline form instead of closing the palette', () => {
+      recordLastTask('u1', LAST);
+      const { result } = renderHook(() => useCommandItems(true, ''));
+      byId(result.current).get(ID)?.run();
+      expect(setLogTimeTarget).toHaveBeenCalledWith({
+        taskId: 't9',
+        taskLabel: 'HD-T-9 · Pour footing',
+      });
+    });
+
+    it('is omitted with no last task', () => {
+      const { result } = renderHook(() => useCommandItems(true, ''));
+      expect(byId(result.current).has(ID)).toBe(false);
+    });
+
+    it("is omitted for another user's last task", () => {
+      recordLastTask('someone-else', LAST);
+      const { result } = renderHook(() => useCommandItems(true, ''));
+      expect(byId(result.current).has(ID)).toBe(false);
+    });
+
+    it.each([null, 1])('is omitted when the role cannot log time (%s)', (role) => {
+      recordLastTask('u1', LAST);
+      lastTaskRole = role;
+      const { result } = renderHook(() => useCommandItems(true, ''));
+      expect(byId(result.current).has(ID)).toBe(false);
+    });
+
+    it('is omitted while the palette is closed', () => {
+      recordLastTask('u1', LAST);
+      const { result } = renderHook(() => useCommandItems(false, ''));
+      expect(byId(result.current).has(ID)).toBe(false);
     });
   });
 });

@@ -7,6 +7,7 @@ import {
   AgentIcon,
   type IconProps,
 } from '@/components/Icons';
+import { WORK_PATH } from './workModel';
 
 export type RailItemKey = 'home' | 'inbox' | 'work' | 'people' | 'agents';
 
@@ -35,7 +36,6 @@ export interface RailItemsInput {
   agentsCount: number;
 }
 
-const WORK_PATH = '/programs';
 const INBOX_PATH = '/me/notifications';
 const PEOPLE_PATH = '/resources';
 const HOME_FALLBACK_PATH = '/me/work';
@@ -78,7 +78,9 @@ export function resolveRailItems(input: RailItemsInput): RailItem[] {
       label: 'Work',
       to: WORK_PATH,
       active:
-        (under(pathname, '/projects') || under(pathname, '/programs')) &&
+        (under(pathname, '/projects') ||
+          under(pathname, '/programs') ||
+          under(pathname, WORK_PATH)) &&
         !(input.programAgentsPath !== null && pathname === input.programAgentsPath),
       Icon: FolderIcon,
     },

@@ -14,6 +14,7 @@ import { RateLimitDisabledBanner } from './RateLimitDisabledBanner';
 import { PendingWritesGuard } from './PendingWritesGuard';
 import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
+import { LastTaskRecorder } from './commandPalette/LastTaskRecorder';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { SettingsHotkey } from './useSettingsHotkey';
@@ -206,6 +207,7 @@ export function AppShell() {
 
       {/* ⌘K command palette (v2 design system) — portaled overlay; renders only when open */}
       <CommandPalette />
+      <LastTaskRecorder />
 
       {/* Create-intent dispatcher (ADR-0131, 1179) — renders the modal create flow
           for the active "+ New" intent; null when none is open. */}

@@ -38,6 +38,7 @@ describe('resolveRailItems', () => {
     expect(active('/me/work')).toEqual(['home']);
     expect(active('/me/notifications')).toEqual(['inbox']);
     expect(active('/programs')).toEqual(['work']);
+    expect(active('/work')).toEqual(['work']);
     expect(active('/projects/ATL/schedule')).toEqual(['work']);
     expect(active('/resources')).toEqual(['people']);
     expect(active('/programs/PM/agents', { programAgentsPath: '/programs/PM/agents' })).toEqual([
@@ -68,5 +69,12 @@ describe('resolveRailItems', () => {
     expect(
       resolveRailItems({ ...base, pathname: '/x' }).find((i) => i.key === 'inbox')?.badge,
     ).toBeUndefined();
+  });
+});
+
+describe('Work destination', () => {
+  it('points the Work item at the full-page Work list', () => {
+    const items = resolveRailItems({ ...base, pathname: '/me/work' });
+    expect(items.find((i) => i.key === 'work')?.to).toBe('/work');
   });
 });

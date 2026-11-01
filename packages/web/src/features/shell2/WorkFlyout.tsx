@@ -1,84 +1,17 @@
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-} from 'react';
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
-import { usePinned } from '@/hooks/usePins';
-import { usePrograms } from '@/hooks/usePrograms';
-import { useProjects } from '@/hooks/useProjects';
-import { programPath, projectPath } from '@/lib/refPath';
 import { ArrowRightIcon, SearchIcon } from '@/components/Icons';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import type { RailItem } from './railItems';
+import { WORK_PATH, useWorkModel } from './workModel';
 
 const FLYOUT_WIDTH = 300;
 const FLYOUT_HEIGHT = 420;
 /** Pointer grace: the panel opens 6px below the trigger, so a slow pointer crossing the gap must not close it. */
 const LEAVE_GRACE_MS = 160;
-
-interface FlyoutRow {
-  key: string;
-  label: string;
-  to: string;
-  indent?: boolean;
-}
-
-/** The pinned, program and project rows the flyout lists, already filtered by `q`. */
-export function flyoutRows(input: {
-  q: string;
-  pins: ReadonlyArray<{
-    kind: 'project' | 'program';
-    id: string;
-    name: string;
-    code: string | null;
-  }>;
-  programs: ReadonlyArray<{ id: string; name: string; code?: string | null }>;
-  projects: ReadonlyArray<{ id: string; name: string; code?: string; programId: string | null }>;
-}): { pinned: FlyoutRow[]; programs: FlyoutRow[] } {
-  const needle = input.q.trim().toLowerCase();
-  const matches = (name: string) => needle === '' || name.toLowerCase().includes(needle);
-  const pinned = input.pins
-    .filter((p) => matches(p.name))
-    .map((p) => ({
-      key: `pin:${p.kind}:${p.id}`,
-      label: p.name,
-      to:
-        p.kind === 'program'
-          ? programPath({ id: p.id, code: p.code }, 'overview')
-          : projectPath({ id: p.id, code: p.code }, 'overview'),
-    }));
-  const programs: FlyoutRow[] = [];
-  for (const program of input.programs) {
-    const children = input.projects.filter((pr) => pr.programId === program.id && matches(pr.name));
-    if (!matches(program.name) && children.length === 0) continue;
-    programs.push({
-      key: `program:${program.id}`,
-      label: program.name,
-      to: programPath(program, 'overview'),
-    });
-    for (const pr of children) {
-      programs.push({
-        key: `project:${pr.id}`,
-        label: pr.name,
-        to: projectPath(pr, 'overview'),
-        indent: true,
-      });
-    }
-  }
-  const standalone = input.projects.filter((pr) => pr.programId === null && matches(pr.name));
-  for (const pr of standalone) {
-    programs.push({ key: `project:${pr.id}`, label: pr.name, to: projectPath(pr, 'overview') });
-  }
-  return { pinned, programs };
-}
 
 const ROW_LINK =
   'flex h-11 items-center gap-2 rounded-md px-2.5 text-sm no-underline hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus';
@@ -115,20 +48,7 @@ export function WorkFlyout({ item }: { item: RailItem }) {
     gap: 6,
     onDismiss: () => setOpen(false),
   });
-  const { data: pins } = usePinned();
-  const programsQuery = usePrograms();
-  const projectsQuery = useProjects();
-
-  const rows = useMemo(
-    () =>
-      flyoutRows({
-        q,
-        pins: pins ?? [],
-        programs: programsQuery.data ?? [],
-        projects: projectsQuery.data ?? [],
-      }),
-    [q, pins, programsQuery.data, projectsQuery.data],
-  );
+  const { rows, loading, failed, refetch } = useWorkModel(q);
   const { Icon } = item;
 
   const cancelLeave = () => {
@@ -178,9 +98,6 @@ export function WorkFlyout({ item }: { item: RailItem }) {
     if (next && (triggerRef.current?.contains(next) || popoverRef.current?.contains(next))) return;
     setOpen(false);
   };
-
-  const loading = programsQuery.isLoading || projectsQuery.isLoading;
-  const failed = programsQuery.error ?? projectsQuery.error;
 
   return (
     <div
@@ -265,7 +182,7 @@ export function WorkFlyout({ item }: { item: RailItem }) {
                     variant="inline"
                     message="Couldn't load programs and projects."
                     onRetry={() => {
-                      void programsQuery.refetch();
+                      refetch();
                     }}
                   />
                 ) : loading ? (
@@ -287,7 +204,7 @@ export function WorkFlyout({ item }: { item: RailItem }) {
                 )}
               </div>
               <Link
-                to="/programs"
+                to={WORK_PATH}
                 className="mt-1 flex h-11 items-center gap-2 border-t border-p1-hairline px-2.5 text-sm text-p1-text-2 no-underline hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus"
               >
                 All work

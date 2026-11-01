@@ -58,12 +58,13 @@ function firstValidationMessage(error: unknown): string | null {
 }
 
 /**
- * Returns the create-time-entry mutation. On success it invalidates the weekly
+ * Returns the create-time-entry mutation (`toastErrors: false` leaves error
+ * presentation to the caller). On success it invalidates the weekly
  * grid and My Work reads and raises a `Logged {duration} on {task} · Undo` toast;
  * on error it surfaces a permission-specific message (403), the server's
  * validation reason (400), or a generic fallback.
  */
-export function useCreateTimeEntry() {
+export function useCreateTimeEntry({ toastErrors = true }: { toastErrors?: boolean } = {}) {
   const qc = useQueryClient();
 
   const invalidateReads = () => {
@@ -107,6 +108,9 @@ export function useCreateTimeEntry() {
       );
     },
     onError: (error) => {
+      // A caller that renders the refusal inline (the ⌘K palette form, #1211) opts
+      // out so the same message is not announced twice.
+      if (!toastErrors) return;
       if (error instanceof AxiosError && error.response?.status === 403) {
         toast.error("You don't have permission to log time on this project.");
         return;
