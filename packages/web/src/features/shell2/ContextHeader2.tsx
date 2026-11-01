@@ -74,14 +74,11 @@ function HealthSlot() {
   return <HealthChip band={stats.healthBand} />;
 }
 
-const P80_DEFINITION =
-  'P80 finish — the date 80% of the simulated schedules finish on or before. Recomputed from the latest saved forecast.';
-
 /** A 44px hit area around a control shorter than 44px (rules 5, 330): sized, never inset; only valid where no ancestor clips overflow. */
 const HIT_44 =
   "relative before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-full before:min-w-[44px] before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']";
 
-/** The P80 stamp: value, definition on hover/focus, and how long ago it was computed. */
+/** The P80 stamp: the server's value, the server's definition on hover/focus, and its `as_of` (`last_run_at`). */
 function ForecastStamp({ projectId }: { projectId: string }) {
   const { data: mc, error, refetch } = useMonteCarloResult(projectId);
   if (error) {
@@ -97,16 +94,24 @@ function ForecastStamp({ projectId }: { projectId: string }) {
   // No saved forecast yet → no stamp. A dash here would be the "P80 —" placeholder
   // tile the Pass 1 audit filed as gap #2; the stamp states a date or nothing.
   if (!mc?.p80) return null;
+  const definition = mc.definitions?.p80;
   return (
     <span className="hidden items-center gap-1.5 text-xs text-p1-text-2 md:flex">
-      <Tooltip content={P80_DEFINITION}>
-        <button
-          type="button"
-          className={`${HIT_44} cursor-help rounded border-b border-dotted border-p1-hairline-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus`}
-        >
-          P80
-        </button>
-      </Tooltip>
+      {/* The definition is the SERVER's sentence (ADR-1314) — a client-written one
+          described the number in words the server never used. Without one (a payload
+          from before it shipped) the label is plain text, not an empty tooltip. */}
+      {definition ? (
+        <Tooltip content={definition}>
+          <button
+            type="button"
+            className={`${HIT_44} cursor-help rounded border-b border-dotted border-p1-hairline-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus`}
+          >
+            P80
+          </button>
+        </Tooltip>
+      ) : (
+        <span>P80</span>
+      )}
       <span className="font-mono font-semibold tabular-nums text-p1-text-1">
         {fmtUtcShort(mc.p80)}
       </span>

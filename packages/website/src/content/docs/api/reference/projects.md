@@ -1,7 +1,7 @@
 ---
 title: "Projects, members and workspace API"
 description: "Calendars, projects, project members, and workspace members, invites and groups."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 ## Calendars
@@ -41,9 +41,18 @@ to fan out.
 | `critical_count` | `integer` | Incomplete tasks on the critical path. Leaf rows only — phase rows excluded, since a phase's `is_critical` is a rollup of its children, not a fact about the phase row itself |
 | `at_risk_tasks` | `array` | Up to 5 at-risk tasks as `{id, name, wbs}`, lowest float first |
 | `critical_tasks` | `array` | Up to 5 critical tasks as `{id, name, wbs}`, in WBS order |
-| `monte_carlo_p80` | `date \| null` | P80 finish from the project's most recent Monte Carlo run |
+| `blocked_count` | `integer` | Live tasks flagged blocked, counted in full. The `count` on `GET /projects/{id}/blocked/` is that list's row count and stops at its cap |
+| `monte_carlo_p80` | `date \| null` | An echo of `p80` on `GET /projects/{id}/monte-carlo/latest/`, which owns the figure. Reads the same latest result, so the two agree |
 | `last_saved` | `date-time \| null` | Newest human-caused write to any live task |
 | `recalculated_at` | `date-time \| null` | When the last CPM pass completed |
+| `as_of` | `date-time` | When the server computed this payload |
+| `definitions` | `object` | One sentence per figure (`health_band`, `at_risk_count`, `critical_count`, `blocked_count`). See [Metric vocabulary](/features/metric-vocabulary/) |
+
+:::note[Ships in 0.5]
+`blocked_count`, `as_of` and `definitions` ship in 0.5 (ADR-1314). In 0.4,
+`monte_carlo_p80` reads only the persisted run, so it can lag the forecast
+endpoint after a run that refreshed only the cache.
+:::
 
 #### Read `health_band`, do not re-derive it
 

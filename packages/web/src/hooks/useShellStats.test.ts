@@ -48,6 +48,9 @@ const SUMMARY = {
   critical_tasks: [{ id: 't2', name: 'B', wbs: '2' }],
   last_saved: '2026-06-01T10:00:00Z',
   recalculated_at: '2026-06-01T11:00:00Z',
+  blocked_count: 2,
+  as_of: '2026-06-01T12:00:00Z',
+  definitions: { health_band: 'Server sentence.' },
 };
 
 describe('useShellStats', () => {
@@ -71,6 +74,10 @@ describe('useShellStats', () => {
     expect(s?.criticalCount).toBe(5);
     expect(s?.atRiskTasks).toEqual(SUMMARY.at_risk_tasks);
     expect(s?.criticalTasks).toEqual(SUMMARY.critical_tasks);
+    // Provenance (ADR-1314): copied, never derived.
+    expect(s?.blockedCount).toBe(2);
+    expect(s?.asOf).toBe('2026-06-01T12:00:00Z');
+    expect(s?.definitions?.health_band).toBe('Server sentence.');
   });
 
   it('does not carry last_saved or recalculated_at onto ShellStats', async () => {
