@@ -9,6 +9,8 @@ paths, driving main() through argparse so the wiring is covered end to end.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -144,3 +146,93 @@ def test_load_project_invalid_json_exits(
         _load_project(str(bad))
     assert exc.value.code == 1
     assert "invalid project file" in capsys.readouterr().err
+
+
+def test_load_project_non_utf8_file_is_invalid_project_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = tmp_path / "c.json"
+    bad.write_bytes(b"\xff\xfe")
+    with pytest.raises(SystemExit) as exc:
+        _load_project(str(bad))
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "error: invalid project file" in err
+    assert "Traceback" not in err
+
+
+def test_load_project_latin1_file_is_rejected_not_mojibake(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = tmp_path / "latin1.json"
+    bad.write_bytes('{"name": "Café"}'.encode("latin-1"))
+    with pytest.raises(SystemExit) as exc:
+        _load_project(str(bad))
+    assert exc.value.code == 1
+    assert "error:" in capsys.readouterr().err
+
+
+def test_cli_decodes_utf8_under_ascii_locale(tmp_path: Path) -> None:
+    """Mirrors the #4719 repro: a UTF-8 file must load when the locale codec is ASCII."""
+    path = Path(_project_file(tmp_path))
+    path.write_bytes(path.read_bytes().replace(b"Design", "Café".encode()))
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONUTF8": "0",
+        "LC_ALL": "C",
+        "PYTHONPATH": src,
+    }
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-X",
+            "utf8=0",
+            "-m",
+            "trueppm_scheduler.cli",
+            "schedule",
+            str(path),
+            "--json",
+        ],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    names = [t["name"] for t in json.loads(proc.stdout)["tasks"]]
+    assert "Café" in names
+
+
+def test_load_project_accepts_utf8_bom(tmp_path: Path) -> None:
+    path = Path(_project_file(tmp_path))
+    path.write_bytes(b"\xef\xbb\xbf" + path.read_bytes())
+    assert len(_load_project(str(path)).tasks) == 3
+
+
+@pytest.mark.parametrize("command", ["schedule", "monte-carlo"])
+def test_human_output_survives_ascii_stdout(tmp_path: Path, command: str) -> None:
+    env = {**os.environ, "PYTHONIOENCODING": "ascii", "PYTHONUTF8": "0"}
+    proc = subprocess.run(
+        [sys.executable, "-m", "trueppm_scheduler.cli", command, _project_file(tmp_path)],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()
+    assert b"Traceback" not in proc.stderr
+    # errors="replace" turns the unencodable em dash into "?" rather than crashing.
+    assert b"earliest feasible ? run" in proc.stdout or command == "monte-carlo"
+    assert b"Monte Carlo ? " in proc.stdout or command == "schedule"
+
+
+def test_stderr_survives_ascii_codec(tmp_path: Path) -> None:
+    env = {**os.environ, "PYTHONIOENCODING": "ascii", "PYTHONUTF8": "0"}
+    proc = subprocess.run(
+        [sys.executable, "-m", "trueppm_scheduler.cli", "schedule", str(tmp_path / "é.json")],
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    assert proc.returncode == 1
+    assert b"Traceback" not in proc.stderr
+    assert b"error: cannot read" in proc.stderr
