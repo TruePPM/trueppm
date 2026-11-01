@@ -10,8 +10,8 @@ vi.mock('@/hooks/useWeekTimesheet', () => ({
   useTimesheetCell: vi.fn(),
   useSubmitWeek: vi.fn(),
 }));
-vi.mock('@/hooks/useMyWork', () => ({
-  useMyWork: vi.fn(() => ({ data: { pages: [{ results: [] }] }, isLoading: false })),
+vi.mock('@/hooks/useTimesheetAssignments', () => ({
+  useTimesheetAssignments: vi.fn(),
 }));
 
 import {
@@ -19,12 +19,21 @@ import {
   useTimesheetCell,
   useSubmitWeek,
 } from '@/hooks/useWeekTimesheet';
-import { useMyWork } from '@/hooks/useMyWork';
+import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
 
 const mockUseWeek = useWeekTimesheet as ReturnType<typeof vi.fn>;
 const mockUseCell = useTimesheetCell as ReturnType<typeof vi.fn>;
 const mockUseSubmit = useSubmitWeek as ReturnType<typeof vi.fn>;
-const mockUseMyWork = useMyWork as ReturnType<typeof vi.fn>;
+const mockUseAssignments = useTimesheetAssignments as ReturnType<typeof vi.fn>;
+
+/** A `/me/work/` task row with only the fields the timesheet reads. */
+function myWorkTask(id: string, name: string, extra: Record<string, unknown> = {}) {
+  return { id, short_id: id.toUpperCase(), name, project_id: 'p1', project_name: 'Web', status: 'IN_PROGRESS', due: null, ...extra };
+}
+
+function setAssignments(tasks: unknown[], state: Record<string, unknown> = {}) {
+  mockUseAssignments.mockReturnValue({ data: { tasks, partial: false }, isLoading: false, isError: false, refetch: vi.fn(), ...state });
+}
 
 const submitMutate = vi.fn();
 const cellMutate = vi.fn();
@@ -88,7 +97,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUseCell.mockReturnValue({ mutate: cellMutate, isPending: false });
   mockUseSubmit.mockReturnValue({ mutate: submitMutate, isPending: false });
-  mockUseMyWork.mockReturnValue({ data: { pages: [{ results: [] }] }, isLoading: false });
+  setAssignments([]);
   setWeek({ data: weekData(false, [weekEntry(120)]) });
 });
 
@@ -201,20 +210,12 @@ describe('TimesheetPage', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('renders an assigned task with no entries as a row of zeros (#4766)', () => {
-    mockUseMyWork.mockReturnValue({
-      data: {
-        pages: [
-          {
-            results: [
-              { id: 't2', short_id: 'ENG-2', name: 'Wire the hook', project_id: 'p1', project_name: 'Web' },
-              { id: 't3', short_id: 'ENG-3', name: 'A phase', project_id: 'p1', project_name: 'Web', is_phase: true },
-            ],
-          },
-        ],
-      },
-      isLoading: false,
-    });
+  it('renders an open assigned task with no entries as a row of zeros (#4766)', () => {
+    setAssignments([
+      myWorkTask('t2', 'Wire the hook', { due: '2020-01-01' }), // overdue, still open
+      myWorkTask('t3', 'A phase', { is_phase: true }),
+      myWorkTask('t4', 'Shipped work', { status: 'COMPLETE' }),
+    ]);
     setWeek({ data: weekData(false, []) });
     render(<TimesheetPage />);
 
@@ -222,12 +223,27 @@ describe('TimesheetPage', () => {
     expect(within(grid).getByText('Wire the hook')).toBeInTheDocument();
     // A phase is never a loggable assignment — same filter My Work applies.
     expect(within(grid).queryByText('A phase')).not.toBeInTheDocument();
+    // Finished work gets no zero row…
+    expect(within(grid).queryByText('Shipped work')).not.toBeInTheDocument();
     // Its cells are editable inputs ready for the first hours of the week.
-    expect(within(grid).getAllByLabelText(/ENG-2 Wire the hook, Mon/).length).toBeGreaterThan(0);
+    expect(within(grid).getAllByLabelText(/T2 Wire the hook, Mon/).length).toBeGreaterThan(0);
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
-    // Every assignment is already a row, so the add-task picker has nothing to offer and
-    // renders nothing rather than an empty dropdown.
-    expect(screen.queryByRole('button', { name: /add project or task/i })).not.toBeInTheDocument();
+  });
+
+  it('adds a completed assigned task through the picker as a row (#4766)', () => {
+    setAssignments([
+      myWorkTask('t2', 'Wire the hook'),
+      myWorkTask('t4', 'Shipped work', { status: 'COMPLETE' }),
+    ]);
+    setWeek({ data: weekData(false, []) });
+    render(<TimesheetPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /add project or task/i }));
+    // The picker offers exactly the assigned tasks that are not rows.
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('option', { name: /shipped work/i }));
+    const grid = screen.getByRole('grid', { name: 'Weekly timesheet' });
+    expect(within(grid).getByText('Shipped work')).toBeInTheDocument();
   });
 
   it('shows the empty state only when nothing is assigned and nothing is logged (#4766)', () => {
@@ -238,32 +254,46 @@ describe('TimesheetPage', () => {
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
   });
 
-  it('waits for My Work before deciding the week is empty (#4766)', () => {
-    mockUseMyWork.mockReturnValue({ data: undefined, isLoading: true });
+  it('names the week in the empty state when it is not the current one (#4766)', () => {
+    setWeek({ data: weekData(false, []) });
+    render(<TimesheetPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+    expect(
+      screen.getByRole('heading', { name: 'Nothing assigned to you for the week of Jun 8 – 14, 2026' }),
+    ).toBeInTheDocument();
+  });
+
+  it('waits for the assignments before deciding the week is empty (#4766)', () => {
+    mockUseAssignments.mockReturnValue({ data: undefined, isLoading: true, isError: false });
     setWeek({ data: weekData(false, []) });
     render(<TimesheetPage />);
     expect(screen.getByLabelText('Loading timesheet')).toBeInTheDocument();
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
   });
 
-  it('does not claim "nothing assigned" when My Work failed to load (#4766)', () => {
-    mockUseMyWork.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() });
+  it('does not claim "nothing assigned" when the assignments failed to load (#4766)', () => {
+    mockUseAssignments.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() });
     setWeek({ data: weekData(false, []) });
     render(<TimesheetPage />);
     expect(screen.getByText(/couldn.t load your timesheet/i)).toBeInTheDocument();
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
   });
 
-  it('loads every My Work page so no assignment is dropped from the grid', () => {
-    const fetchNextPage = vi.fn();
-    mockUseMyWork.mockReturnValue({
-      data: { pages: [{ results: [] }] },
+  it('flags a partially loaded assignment list instead of a silently partial grid (#4766)', () => {
+    mockUseAssignments.mockReturnValue({
+      data: { tasks: [myWorkTask('t2', 'Wire the hook')], partial: true },
       isLoading: false,
-      hasNextPage: true,
-      isFetchingNextPage: false,
-      fetchNextPage,
+      isError: false,
     });
     render(<TimesheetPage />);
-    expect(fetchNextPage).toHaveBeenCalled();
+    expect(screen.getByTestId('timesheet-partial-assignments')).toHaveTextContent(
+      /assigned tasks couldn.t be loaded/i,
+    );
+    expect(screen.getByRole('grid', { name: 'Weekly timesheet' })).toBeInTheDocument();
+  });
+
+  it('shows no partial notice when the assignment list is complete', () => {
+    render(<TimesheetPage />);
+    expect(screen.queryByTestId('timesheet-partial-assignments')).not.toBeInTheDocument();
   });
 });

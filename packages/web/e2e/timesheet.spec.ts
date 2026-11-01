@@ -19,6 +19,8 @@ const TASK_A = { id: 'task-aaaa', short_id: 'RIV-1', name: 'Foundation pour', pr
 const TASK_B = { id: 'task-bbbb', short_id: 'RIV-2', name: 'Framing', project_id: 'proj-1', project_name: 'Riverside' };
 const TASK_C = { id: 'task-cccc', short_id: 'RIV-3', name: 'Roofing', project_id: 'proj-1', project_name: 'Riverside' };
 const TASKS = [TASK_A, TASK_B, TASK_C];
+// A completed assignment: no zero row (#4766), but reachable through the add-task picker.
+const TASK_DONE = { id: 'task-dddd', short_id: 'RIV-4', name: 'Site survey', project_id: 'proj-1', project_name: 'Riverside', status: 'COMPLETE' };
 
 // Seed as (task, day-offset-from-Monday, minutes): Mon = 5h(A) + 4h(B) = 9h (over 8h),
 // Tue = 2h(A). Week total = 11h.
@@ -62,7 +64,7 @@ interface TimesheetOpts {
   /** Seed the week's entries (default true). False = a week with nothing logged yet. */
   seedEntries?: boolean;
   /** Tasks `/me/work/` reports as assigned (default all three). */
-  assigned?: typeof TASKS;
+  assigned?: Array<(typeof TASKS)[number] & { status?: string }>;
 }
 
 function seedFor(monday: string, seedEntries: boolean): MockEntry[] {
@@ -108,8 +110,8 @@ async function setupTimesheet(page: Page, opts: TimesheetOpts = {}): Promise<voi
       contentType: 'application/json',
       body: JSON.stringify({
         results: assigned.map((t) => ({
-          ...t,
           status: 'IN_PROGRESS',
+          ...t,
           group: 'today',
           is_critical: false,
           is_blocked: false,
@@ -358,7 +360,7 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
   test('assigned tasks with no entries yet are rows of zeros, ready for the first hours (#4766)', async ({
     page,
   }) => {
-    await setupTimesheet(page, { seedEntries: false });
+    await setupTimesheet(page, { seedEntries: false, assigned: [...TASKS, TASK_DONE] });
     await page.goto('/me/timesheet');
 
     const grid = page.getByRole('grid', { name: 'Weekly timesheet' });
@@ -370,6 +372,8 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
       await expect(grid.getByRole('row').filter({ hasText: name })).toBeVisible();
     }
     await expect(page.getByLabel('Week total 0:00')).toBeVisible();
+    // Finished work is not padded in as a zero row…
+    await expect(grid.getByRole('row').filter({ hasText: 'Site survey' })).toHaveCount(0);
 
     // Log the first hours of the week into a zero row: the POST lands and totals move.
     const row = grid.getByRole('row').filter({ hasText: 'Roofing' });
@@ -379,6 +383,12 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
     await input.press('Enter');
     await expect(page.getByLabel('Week total 2:00')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Submit week' })).toBeEnabled();
+
+    // …but stays one pick away for a final hour: the picker offers exactly it.
+    await page.getByRole('button', { name: /add project or task/i }).click();
+    await expect(page.getByRole('option')).toHaveCount(1);
+    await page.getByRole('option', { name: /Site survey/ }).click();
+    await expect(grid.getByRole('row').filter({ hasText: 'Site survey' })).toBeVisible();
   });
 
   test('the empty state is reserved for a week with no assignments and nothing logged (#4766)', async ({

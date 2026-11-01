@@ -12,11 +12,11 @@
  * endpoints (create / PATCH / DELETE); the multi-entry cell is read-only (ADR-0224). No
  * portfolio/governance surface — a contributor reviews and submits *their own* time (OSS).
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { ClockIcon } from '@/components/Icons';
-import { useMyWork } from '@/hooks/useMyWork';
+import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
 import {
   useSubmitWeek,
   useTimesheetCell,
@@ -26,7 +26,7 @@ import {
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import { TimesheetGrid } from './TimesheetGrid';
-import { assignedTaskMetas } from './assignedTasks';
+import { assignedTasks, myWorkTaskMeta, zeroRowCandidates } from './assignedTasks';
 import {
   addDaysIso,
   buildWeekRows,
@@ -70,23 +70,25 @@ export function TimesheetPage() {
   const submitMutation = useSubmitWeek(monday);
 
   // Rows come from the same assignment source My Work renders (`GET /me/work/`), so a
-  // contributor with assigned tasks and no entries yet gets rows of zeros to log into, not
-  // an empty grid (#4766). My Work is paginated; load every page so no assignment is
-  // silently dropped from the grid.
-  const myWork = useMyWork();
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = myWork;
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // contributor with open assigned tasks and no entries yet gets rows of zeros to log
+  // into, not an empty grid (#4766). The read is bounded and stops at a failed page
+  // (`useTimesheetAssignments`); a partial read is flagged below, never silent.
+  const assignments = useTimesheetAssignments();
 
   const days = useMemo(() => weekDays(monday, today), [monday, today]);
 
   const rows = useMemo(() => {
-    const base = buildWeekRows(data?.results ?? [], assignedTaskMetas(myWork.data?.pages));
+    const open = zeroRowCandidates(assignedTasks(assignments.data?.tasks)).map(myWorkTaskMeta);
+    const base = buildWeekRows(data?.results ?? [], open);
     const present = new Set(base.map((r) => r.taskId));
     const extras = extraTasks.filter((t) => !present.has(t.taskId)).map(emptyRow);
     return [...base, ...extras];
-  }, [data, myWork.data, extraTasks]);
+  }, [data, assignments.data, extraTasks]);
+
+  const isCurrentWeek = monday === mondayOf(today);
+  const emptyTitle = isCurrentWeek
+    ? 'Nothing assigned to you this week'
+    : `Nothing assigned to you for the week of ${formatWeekRange(monday)}`;
 
   const existingTaskIds = useMemo(() => new Set(rows.map((r) => r.taskId)), [rows]);
   const dayTotals = useMemo(() => dailyTotals(rows, days), [rows, days]);
@@ -218,12 +220,12 @@ export function TimesheetPage() {
       )}
 
       {/* Body */}
-      {isLoading || myWork.isLoading ? (
+      {isLoading || assignments.isLoading ? (
         <div
           className="h-64 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
           aria-label="Loading timesheet"
         />
-      ) : isError || (rows.length === 0 && myWork.isError) ? (
+      ) : isError || (rows.length === 0 && assignments.isError) ? (
         <div className="rounded-card border border-semantic-critical/30 bg-semantic-critical-bg p-4 text-sm">
           <p className="mb-2 text-neutral-text-primary">Couldn&rsquo;t load your timesheet.</p>
           <Button
@@ -231,7 +233,7 @@ export function TimesheetPage() {
             size="sm"
             onClick={() => {
               void refetch();
-              if (myWork.isError) void myWork.refetch();
+              if (assignments.isError) void assignments.refetch();
             }}
           >
             Retry
@@ -242,12 +244,24 @@ export function TimesheetPage() {
         // this week. Assigned tasks with no entries are rows of zeros above, never this.
         <EmptyState
           icon={ClockIcon}
-          title="Nothing assigned to you this week"
-          description="Tasks assigned to you appear here as rows, ready for your hours. When a task is assigned to you, or you log time from a task, it shows up in this grid."
+          title={emptyTitle}
+          description="Your open assigned tasks appear here as rows, ready for your hours. When a task is assigned to you, or you log time against a task, it shows up in this grid."
           className="rounded-card border border-neutral-border bg-neutral-surface"
         />
       ) : (
-        <TimesheetGrid
+        <>
+          {/* The assignment list is incomplete (a later page failed, or the page cap was
+              hit): say so, so a missing row is never read as "not assigned" (#4766). */}
+          {(assignments.data?.partial || (assignments.isError && rows.length > 0)) && (
+            <p
+              data-testid="timesheet-partial-assignments"
+              className="mb-3 rounded-card border border-semantic-at-risk/30 bg-semantic-at-risk-bg px-3 py-2 text-xs text-neutral-text-primary"
+            >
+              Some of your assigned tasks couldn&rsquo;t be loaded, so they may be missing from
+              this grid. Time you&rsquo;ve logged is all shown.
+            </p>
+          )}
+          <TimesheetGrid
           rows={rows}
           days={days}
           dayTotals={dayTotals}
@@ -257,7 +271,8 @@ export function TimesheetPage() {
           cellErrors={cellErrors}
           onCellSave={handleCellSave}
           onAddTask={handleAddTask}
-        />
+          />
+        </>
       )}
     </div>
   );

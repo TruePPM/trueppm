@@ -1,18 +1,18 @@
 /**
  * "Add a task" row for the weekly timesheet grid (#1435).
  *
- * Lets a contributor start logging against a task not yet in the grid. The candidate
- * source is the caller's cross-project assigned tasks (`GET /me/work/` via `useMyWork`),
- * filtered to exclude tasks already shown as rows. Since #4766 the page already renders
- * every loaded assignment as a row, so the picker usually has nothing to offer and then
- * renders nothing rather than an empty dropdown; it stays as the entry point a broader
- * cross-project task search (#1416) will feed.
+ * Lets a contributor start logging against an assigned task that is not a row this week.
+ * Candidates are the caller's assigned tasks (`GET /me/work/`, read through the same
+ * timesheet-owned query the page uses) minus the tasks already shown as rows — in
+ * practice the COMPLETE assignments, which get no zero row (#4766) but can still need a
+ * final hour logged. When every candidate is already a row the picker renders nothing
+ * rather than an empty dropdown. A broader cross-project task search is #1416.
  */
 import { useMemo } from 'react';
 import { EntitySelectCombobox, type EntityOption } from '@/components/EntitySelectCombobox';
-import { useMyWork } from '@/hooks/useMyWork';
+import { useTimesheetAssignments } from '@/hooks/useTimesheetAssignments';
 import type { CellTaskMeta } from '@/hooks/useWeekTimesheet';
-import { assignedTaskMetas } from './assignedTasks';
+import { assignedTasks, myWorkTaskMeta } from './assignedTasks';
 
 interface AddTaskRowProps {
   /** Task ids already shown as grid rows — excluded from the picker. */
@@ -25,13 +25,14 @@ function initials(shortId: string): string {
 }
 
 export function AddTaskRow({ existingTaskIds, onAdd }: AddTaskRowProps) {
-  const { data, isLoading } = useMyWork();
+  const { data, isLoading } = useTimesheetAssignments();
 
   const { options, metaById } = useMemo(() => {
     const options: EntityOption[] = [];
     const metaById = new Map<string, CellTaskMeta>();
-    for (const meta of assignedTaskMetas(data?.pages)) {
-      if (existingTaskIds.has(meta.taskId)) continue;
+    for (const task of assignedTasks(data?.tasks)) {
+      if (existingTaskIds.has(task.id)) continue;
+      const meta = myWorkTaskMeta(task);
       options.push({
         id: meta.taskId,
         primaryText: meta.taskName,
