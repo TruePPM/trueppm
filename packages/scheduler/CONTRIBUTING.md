@@ -119,7 +119,7 @@ Rust properties build the crate's `oracle_runner` example and feed it the same
 generated networks; without a toolchain they skip. In CI, `wasm:test` runs
 `packages/wasm-scheduler/tests/oracle_conformance.rs` against
 `packages/wasm-scheduler/fixtures/oracle/corpus.json`, a seeded corpus generated
-**by the reference** (160 planning networks and 80 progress networks), and `scheduler:test` fails if that corpus no longer matches
+**by the reference** (160 planning networks, 80 progress networks, and the named shapes in `NAMED_CORPUS_CASES`), and `scheduler:test` fails if that corpus no longer matches
 the reference. After changing the reference, regenerate it with:
 
 ```bash
