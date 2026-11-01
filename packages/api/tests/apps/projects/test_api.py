@@ -1117,8 +1117,13 @@ class TestCrossProjectDependency:
         # every other node is an all-blank placeholder.
         labeled = [node for node in cycle if node["id"]]
         assert {node["id"] for node in labeled} == {str(a1.pk), str(b1.pk)}
+        # The engine's cycle is closed (first id repeated at the end) and starts at
+        # the smallest task id, which is arbitrary here — so a hidden node can be
+        # the one that repeats. Count distinct nodes (len - 1), not blank entries.
+        assert len(cycle) == len(hidden) + 3
         blanks = [node for node in cycle if not node["id"]]
-        assert blanks == [{"id": "", "name": "", "hex_id": ""}] * len(hidden)
+        assert blanks == [{"id": "", "name": "", "hex_id": ""}] * (len(cycle) - len(labeled))
+        assert cycle[0] == cycle[-1]
         assert len(r.data["offending"]) == len(cycle)
 
     def test_cycle_error_redacts_nodes_in_projects_caller_cannot_read(
