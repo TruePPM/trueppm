@@ -800,8 +800,7 @@ changed:
   :::note[Ships in 0.5]
   After upgrading to 0.5, a program-scoped token whose minter has already left the
   program, or sits below Member there, starts returning `401` on both write endpoints
-  even if the minter still has Member or above on the project. Re-mint such tokens
-  under an account that holds Member or above in the program.
+  even if the minter still has Member or above on the project. Have a Program Admin (or above) re-mint the token.
   :::
 - **Project-scoped API tokens (task-sync and acceptance-results).** Today these two
   write endpoints do not re-check a project-scoped token's minter — the token keeps full
@@ -858,7 +857,7 @@ dormant webhook and shows up in the delivery log looking healthy while real even
 are silently dropped. A program-scoped integration token that starts returning `401` on
 task-sync or acceptance-results usually means its minter lost project membership (on 0.5 and later, also program
 membership, or was demoted below Member in the program); add
-them back or re-mint the token under a member account. The
+them back, or have a Program Admin (or above) re-mint the token. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 
