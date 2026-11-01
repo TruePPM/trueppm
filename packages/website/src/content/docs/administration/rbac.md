@@ -43,6 +43,14 @@ Both the membership and the role will be checked at request time, not mint time,
 revoking the minter's membership, or demoting it below Member, will invalidate an
 already-minted token's write authority on the very next request.
 
+:::note[Ships in 0.5]
+A program-scoped token's minter must also still hold a live Member-or-above
+`ProgramMembership` on the token's **program**. Removing them from the program, or
+demoting them to Viewer there, stops the token on the very next request even when
+they keep Member or above on the target project. Unlike a project-scoped token, a
+program-scoped token does not survive its minter leaving the program.
+:::
+
 **Also not yet released:** a project-scoped token will get its own request-time check.
 On every write, TruePPM will look at the minter's *last recorded role* on the token's
 project, whether or not the minter is still a member, and require Member or above:

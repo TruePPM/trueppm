@@ -304,6 +304,14 @@ Viewer-only will stop being able to write through either endpoint once this
 ships, and demoting a minter already below Member will have the same effect
 on the next request as removing them.
 
+:::note[Ships in 0.5]
+A program-scoped token's reach is also bounded by its minter's membership in the
+**program**: once the minter is removed from the program, or demoted to Viewer
+there, the token stops writing on the next request even if they remain a Member or
+above on the project. Deactivating an account does not remove program membership,
+so this applies only when the membership itself is removed or demoted.
+:::
+
 A project-scoped token's reach is different: it is bound to exactly one
 project by its own FK, so there is no cross-project membership to bound.
 **Also not yet released:** it will get its own request-time check on the

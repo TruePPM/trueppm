@@ -165,6 +165,13 @@ Viewer, or demoted and then removed, gets a `401`; a minter removed in good
 standing does not. A token whose minter's account has been deleted is refused
 with a `403` today, because it authenticates as no user; that does not change.
 
+:::note[Ships in 0.5]
+A program-scoped token's minter must also still hold a live Member-or-above
+membership in the **program** itself. Removal from the program, or demotion to
+Viewer there, returns the same `401` even when the minter keeps Member or above on
+the target project. On 0.4 only the project membership is checked.
+:::
+
 **A push into an archived project is refused with a `403`, and writes nothing** —
 no task, no external-link row, no audit entry. Archiving makes a plan read-only,
 and that is a property of the plan rather than of the caller, so the refusal

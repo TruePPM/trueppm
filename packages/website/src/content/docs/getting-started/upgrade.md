@@ -796,6 +796,12 @@ changed:
   membership, so a Viewer-minted program token will be refused on both write endpoints.
   Until that lands, a minter who is a live member but Viewer-only can still use a
   program-scoped token to write into the project (#4331).
+
+  :::note[Ships in 0.5]
+  After upgrading to 0.5, a program-scoped token whose minter has already left the
+  program, or sits below Member there, starts returning `401` on both write endpoints
+  even if the minter still has Member or above on the project. Have a Program Admin (or above) re-mint the token.
+  :::
 - **Project-scoped API tokens (task-sync and acceptance-results).** Today these two
   write endpoints do not re-check a project-scoped token's minter — the token keeps full
   write authority after its minter is demoted or removed from the project, because
@@ -849,8 +855,9 @@ reliable health check here: it is gated on the caller's own current role, not th
 registrant's membership or role, so a current Admin's test ping still succeeds against a
 dormant webhook and shows up in the delivery log looking healthy while real events
 are silently dropped. A program-scoped integration token that starts returning `401` on
-task-sync or acceptance-results usually means its minter lost project membership; add
-them back or re-mint the token under a member account. The
+task-sync or acceptance-results usually means its minter lost project membership (on 0.5 and later, also program
+membership, or was demoted below Member in the program); add
+them back, or have a Program Admin (or above) re-mint the token. The
 `manage.py export_program` command is unaffected: it runs as the operator with shell
 access and exports every member project.
 

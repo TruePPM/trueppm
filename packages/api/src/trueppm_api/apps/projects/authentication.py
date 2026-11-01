@@ -164,8 +164,9 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         #     ``IsTokenForProject`` also requires ``created_by`` to hold a live
         #     ``ProjectMembership`` on the URL project — and (#4334) for a
         #     PROJECT-scoped token, a Member+ floor on the minter's last recorded
-        #     role on that project, live or removed. Those are project-membership
-        #     checks on the minter, not account-active checks, so they are orthogonal to
+        #     role on that project, live or removed. A program token's write path
+        #     additionally requires a live Member+ ProgramMembership (#4584). Those are
+        #     membership checks on the minter, not account-active checks, so they are orthogonal to
         #     the ``is_active`` guard here — this paragraph's "leave the token alone on
         #     off-boarding" decision is unchanged.
         #     Rejecting it would kill a team's CI the moment an unrelated colleague is

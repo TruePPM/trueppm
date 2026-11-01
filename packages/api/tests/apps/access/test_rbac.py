@@ -2287,6 +2287,15 @@ def _mint_token(user: object, **kwargs: Any) -> Any:
     from trueppm_api.apps.projects.models import ProjectApiToken
 
     raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    program = kwargs.get("program")
+    if program is not None:
+        # #4584: a program token's minter must hold a live Member+ ProgramMembership;
+        # default the fixture to the Program Admin that minting really requires.
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        ProgramMembership.objects.get_or_create(
+            program=program, user=user, defaults={"role": Role.ADMIN}
+        )
     return ProjectApiToken.objects.create(
         name="t",
         token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
@@ -2500,6 +2509,67 @@ class TestIsTokenForProjectScopes:
 
         with pytest.raises(AuthenticationFailed):
             IsTokenForProject().has_permission(req, view)
+
+    def test_program_token_refused_after_minter_program_membership_removed(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4584: the minter keeps Member+ on the project, but once their
+        ProgramMembership is gone the program token stops working."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        project = Project.objects.create(
+            name="P", start_date=date(2026, 1, 1), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
+
+        ProgramMembership.objects.filter(program=program, user=user).update(is_deleted=True)
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_program_token_refused_after_minter_demoted_to_program_viewer(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4584: demotion below Member at program level revokes the token too."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        project = Project.objects.create(
+            name="P", start_date=date(2026, 1, 1), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(project.pk)}
+
+        ProgramMembership.objects.filter(program=program, user=user).update(role=Role.VIEWER)
+        with pytest.raises(AuthenticationFailed):
+            IsTokenForProject().has_permission(req, view)
+
+    def test_program_token_member_level_program_minter_is_authorized(
+        self, user: object, program: Program, calendar: Calendar
+    ) -> None:
+        """#4584: Member (the floor) at program level is enough."""
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        project = Project.objects.create(
+            name="P", start_date=date(2026, 1, 1), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, program=program)
+        ProgramMembership.objects.filter(program=program, user=user).update(role=Role.MEMBER)
+        view = MagicMock()
+        view.kwargs = {"project_pk": str(project.pk)}
+        assert IsTokenForProject().has_permission(req, view) is True
 
     def test_project_token_viewer_minter_is_rejected(self, user: object, project: Project) -> None:
         """#4334: a project-scoped token's minter holds a LIVE ProjectMembership on
