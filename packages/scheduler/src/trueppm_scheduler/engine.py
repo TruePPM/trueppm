@@ -195,16 +195,35 @@ class SchedulerError(ValueError):
     """
 
 
+_CYCLE_MSG_MAX_IDS = 10
+_CYCLE_MSG_ID_CHARS = 80
+
+
+def _short_repr(node: object) -> str:
+    text = repr(node)
+    if len(text) > _CYCLE_MSG_ID_CHARS:
+        return text[: _CYCLE_MSG_ID_CHARS - 1] + "…"
+    return text
+
+
 class CyclicDependencyError(SchedulerError):
     """Raised when the dependency graph contains a cycle.
 
     The offending cycle is provided so callers can surface it to users
-    without parsing a raw networkx exception.
+    without parsing a raw networkx exception. ``cycle`` is the full, canonical
+    path (first id repeated at the end); the message is a bounded, escaped
+    rendering of it: each id is ``repr()``-formatted (control characters cannot
+    forge log lines), ids longer than ``_CYCLE_MSG_ID_CHARS`` are cut, and
+    only the first ``_CYCLE_MSG_MAX_IDS`` ids are listed, followed by
+    ``… (+M more)``.
     """
 
     def __init__(self, cycle: list[str]) -> None:
         self.cycle = cycle
-        ids = " → ".join(cycle)
+        shown = [_short_repr(c) for c in cycle[:_CYCLE_MSG_MAX_IDS]]
+        ids = " → ".join(shown)
+        if len(cycle) > _CYCLE_MSG_MAX_IDS:
+            ids += f" … (+{len(cycle) - _CYCLE_MSG_MAX_IDS} more)"
         super().__init__(f"Cyclic dependency detected: {ids}")
 
 
@@ -1994,14 +2013,54 @@ def _raise_cycle_error(g: nx.DiGraph[str]) -> NoReturn:
     """Reconstruct and raise the cycle from a graph a topological sort rejected.
 
     Called only from the ``NetworkXUnfeasible`` handler of a topological sort:
-    the sort has already proved the graph cyclic in ~3ms, so the ~148ms
-    ``nx.find_cycle`` edge-DFS (5K tasks/5.7K edges, #1526) runs only on this
-    error path to reconstruct the user-facing cycle — never on the happy path,
+    the sort has already proved the graph cyclic in ~3ms, so the SCC pass and
+    BFS in :func:`_canonical_cycle` run only on this error path to reconstruct
+    the user-facing cycle (#1526) — never on the happy path,
     where checking cycles eagerly with ``find_cycle`` was 37% of the
     ``schedule()`` budget for a result the topological sort already proves.
     """
-    cycle = nx.find_cycle(g)
-    raise CyclicDependencyError([u for u, _ in cycle] + [cycle[-1][1]])
+    raise CyclicDependencyError(_canonical_cycle(g))
+
+
+def _node_key(node: object) -> tuple[str, str]:
+    return (str(node), repr(node))
+
+
+def _canonical_cycle(g: nx.DiGraph[str]) -> list[str]:
+    """Return one cycle of ``g`` independent of edge/node insertion order.
+
+    Picks the non-trivial strongly connected component holding the smallest id,
+    then the shortest cycle through that id (BFS over sorted successors), so the
+    result starts at the smallest id on it and closes by repeating it. Ids are
+    ordered by ``str`` then ``repr`` so mixed-type ids still sort stably.
+    """
+    sccs = [
+        c
+        for c in nx.strongly_connected_components(g)
+        if len(c) > 1 or any(g.has_edge(n, n) for n in c)
+    ]
+    start = min((min(c, key=_node_key) for c in sccs), key=_node_key)
+    scc = next(c for c in sccs if start in c)
+    parent: dict[str, str | None] = {start: None}
+    queue = [start]
+    closer: str | None = None
+    for node in queue:
+        for nxt in sorted(g.successors(node), key=_node_key):
+            if nxt == start:
+                closer = node
+                break
+            if nxt in scc and nxt not in parent:
+                parent[nxt] = node
+                queue.append(nxt)
+        if closer is not None:
+            break
+    path: list[str] = []
+    cur: str | None = closer
+    while cur is not None:
+        path.append(cur)
+        cur = parent[cur]
+    path.reverse()
+    return [*path, start]
 
 
 @dataclass
@@ -2079,7 +2138,10 @@ def find_cycle(
         A :class:`CycleCheck` whose ``cycle`` is the cycle as an ordered list of
         task IDs with the first repeated at the end (e.g. ``['A', 'B', 'C', 'A']``)
         so callers can render an unambiguous path, or ``None`` if the graph is
-        acyclic. The result is truthy iff a cycle was found.
+        acyclic. The cycle is deterministic: independent of edge order, it is
+        the shortest cycle through the smallest id of the smallest non-trivial
+        strongly connected component, starting at that id and closing by
+        repeating it. The result is truthy iff a cycle was found.
 
     Raises:
         InvalidScheduleInput: If ``children_map`` itself is malformed — not a
@@ -2100,11 +2162,9 @@ def find_cycle(
         edge_list = _expand_edges_for_cycle_check(edge_list, children_map)
     g: nx.DiGraph[str] = nx.DiGraph()
     g.add_edges_from(edge_list)
-    try:
-        cycle = nx.find_cycle(g)
-    except nx.NetworkXNoCycle:
+    if nx.is_directed_acyclic_graph(g):
         return CycleCheck(cycle=None)
-    return CycleCheck(cycle=[u for u, _ in cycle] + [cycle[-1][1]])
+    return CycleCheck(cycle=_canonical_cycle(g))
 
 
 def _validate_edge_list(edges: list[tuple[str, str]]) -> list[tuple[str, str]]:
@@ -4590,9 +4650,9 @@ def schedule(project: Project) -> ScheduleResult:
     g = _build_graph(project)
 
     # Detect cycles via the topological sort itself: it raises NetworkXUnfeasible
-    # on a cycle in ~3ms, versus ~148ms for an eager nx.find_cycle on every
-    # happy-path call at 5K tasks (#1526). find_cycle runs only on the error
-    # path, inside _raise_cycle_error, to rebuild the cycle for the message.
+    # on a cycle in ~3ms, versus ~148ms for an eager cycle search on every
+    # happy-path call at 5K tasks (#1526). The SCC + BFS in _canonical_cycle
+    # runs only on the error path, inside _raise_cycle_error.
     try:
         topo_order: list[str] = list(nx.topological_sort(g))
     except nx.NetworkXUnfeasible:
@@ -7543,8 +7603,9 @@ def monte_carlo(
     g = _build_graph(project)
     # Detect cycles via the topological sort itself (#1526), the same happy-path
     # optimization as schedule(): the lexicographic sort raises NetworkXUnfeasible
-    # on a cycle in ~3ms, so the ~148ms eager nx.find_cycle runs only on the error
-    # path, in _raise_cycle_error.
+    # on a cycle in ~3ms, so the eager cycle search (~148ms) is replaced by the
+    # SCC + BFS in _canonical_cycle, which runs only on the error path, in
+    # _raise_cycle_error.
     #
     # Use a lexicographically-keyed topological sort so the RNG is consumed in a
     # deterministic, version-independent order. Plain ``nx.topological_sort`` only

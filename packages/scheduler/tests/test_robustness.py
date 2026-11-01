@@ -10,6 +10,7 @@ multi-million-iteration spin, an uncaught ``OverflowError``, or a
 from __future__ import annotations
 
 import contextlib
+import random
 import time
 from datetime import date, timedelta
 
@@ -17,6 +18,7 @@ import pytest
 
 from trueppm_scheduler import (
     Calendar,
+    CyclicDependencyError,
     DateRange,
     Dependency,
     DependencyType,
@@ -649,3 +651,77 @@ class TestMonteCarloMilestoneAtDateMin:
         )
         with contextlib.suppress(InvalidScheduleInput):
             monte_carlo(p, runs=8, seed=1)
+
+
+class TestCycleErrorMessage:
+    """CyclicDependencyError message is escaped, bounded and input-order independent."""
+
+    @staticmethod
+    def _cycle_error(ids_edges: list[tuple[str, str]]) -> CyclicDependencyError:
+        names = sorted({n for e in ids_edges for n in e})
+        project = make_project(
+            [Task(id=n, name=n, duration=timedelta(days=1)) for n in names],
+            [Dependency(a, b, DependencyType.FS) for a, b in ids_edges],
+        )
+        with pytest.raises(CyclicDependencyError) as exc_info:
+            schedule(project)
+        return exc_info.value
+
+    def test_hostile_id_is_escaped(self) -> None:
+        evil = "a\x1b[2J\nFAKE: all good"
+        err = self._cycle_error([(evil, "b"), ("b", evil)])
+        assert "\n" not in str(err)
+        assert "\x1b" not in str(err)
+        assert repr(evil) in str(err)
+
+    def test_message_is_permutation_stable(self) -> None:
+        edges = [("d", "c"), ("c", "d"), ("b", "a"), ("a", "b"), ("x", "y"), ("y", "z"), ("z", "x")]
+        rng = random.Random(4729)
+        seen: set[tuple[str, tuple[str, ...]]] = set()
+        finds: set[tuple[str, ...]] = set()
+        for _ in range(60):
+            shuffled = edges[:]
+            rng.shuffle(shuffled)
+            err = self._cycle_error(shuffled)
+            seen.add((str(err), tuple(err.cycle)))
+            cyc = find_cycle(shuffled).cycle
+            assert cyc is not None
+            finds.add(tuple(cyc))
+        assert len(seen) == 1
+        assert len(finds) == 1
+        assert next(iter(finds)) == ("a", "b", "a")
+        assert next(iter(seen))[1] == ("a", "b", "a")
+
+    def test_long_cycle_is_truncated(self) -> None:
+        n = 50
+        ids = [f"t{i:03d}" for i in range(n)]
+        edges = [(ids[i], ids[(i + 1) % n]) for i in range(n)]
+        err = self._cycle_error(edges)
+        assert len(err.cycle) == n + 1
+        assert "… (+41 more)" in str(err)
+        assert "t049" not in str(err)
+        assert len(str(err)) < 300
+
+    def test_self_loop(self) -> None:
+        err = self._cycle_error([("a", "a")])
+        assert err.cycle == ["a", "a"]
+        assert str(err) == "Cyclic dependency detected: 'a' → 'a'"
+
+    def test_find_cycle_with_children_map_is_canonical(self) -> None:
+        children_map = {"S": ["L1", "L2"]}
+        edges = [("L2", "X"), ("X", "S"), ("Z", "Y"), ("Y", "Z")]
+        rng = random.Random(1)
+        results = set()
+        for _ in range(30):
+            rng.shuffle(edges)
+            cyc = find_cycle(edges, children_map=children_map).cycle
+            assert cyc is not None
+            results.add(tuple(cyc))
+        assert results == {("L2", "X", "L2")}
+
+    def test_long_id_is_cut_per_id(self) -> None:
+        long_id = "x" * 500
+        err = self._cycle_error([(long_id, "b"), ("b", long_id)])
+        assert long_id not in str(err)
+        assert "…" in str(err)
+        assert len(str(err)) < 300
