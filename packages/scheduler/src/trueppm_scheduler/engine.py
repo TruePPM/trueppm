@@ -7331,8 +7331,10 @@ def _mc_percentiles(
 
     ``completion_offsets`` is each run's **working-time** finish position and
     ``shown_offsets`` the exclusive offset of the day that finish is shown on; they
-    differ only for a run whose finish is a start-of-day milestone, shown one working
-    day past its position.
+    differ only where a start-of-day milestone sets the run's shown offset. That is
+    either the run's finish, shown one working day past its position, or a milestone
+    outranked by work ending later on its shown day, which lifts the offset to the
+    whole day without moving the shown day (#4786).
 
     Percentile convention (documented for the public surface, #826): numpy.percentile
     — linear interpolation between the two nearest ranks — over the FULL run set,
@@ -7349,10 +7351,13 @@ def _mc_percentiles(
     than following either the earliest or the latest reading at ``k``. It reads as the
     start of its day when that day lies past ``k``. Every candidate day is the same
     working-time position, so a delta measured in working time does not depend on
-    the choice, and with no start-of-day finish it is exactly the day the pre-#4204
-    shown-day ranking reported. With no run at ``k`` (interpolation between two
-    positions) it is the end of the working day before ``k`` — unless a run at an
-    earlier position is shown on a later day, in which case it is that run's day.
+    the choice, and with no start-of-day milestone in any run's shown offset it is
+    exactly the day the pre-#4204 shown-day ranking reported. An outranked one can
+    still differ by a day: the old ranking interpolated over its whole-day offset,
+    so a milestone that does not finish the run could pick the day. With no run at
+    ``k`` (interpolation between two positions) it is the end of the working day
+    before ``k`` — unless a run at an earlier position is shown on a later day, in
+    which case it is that run's day.
 
     That exception exists for mixed calendars (#4691). The reference ruler is the
     union of every calendar's working days, so it can hold a day no run can finish

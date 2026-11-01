@@ -1264,6 +1264,7 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
 
     dispatch('suggestion_created', { task_id: 'task-9', suggestion_id: 's-1' });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['timesheet', 'assignments'] });
     flushDebounce();
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });

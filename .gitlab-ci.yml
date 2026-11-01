@@ -4228,9 +4228,14 @@ scheduler:fuzz-deep:
   # a property added there lands in exactly one of the two whatever it is
   # named. `--durations` prints the per-property cost, so the next split is
   # read off the log instead of estimated.
+  #
+  # `invariants` took test_cpm_invariants.py out of `other` (#4786): read off
+  # --durations, `other` held 14 properties at ~45 min of calls, so a green run
+  # finished past the 50-min timeout (4467d45dd) and only a run that failed early
+  # got under it. The file's 6 properties cost ~21 min on their own.
   parallel:
     matrix:
-      - FUZZ_SHARD: [contract, contract-semantic, milestone, oracle, other]
+      - FUZZ_SHARD: [contract, contract-semantic, milestone, oracle, invariants, other]
   timeout: 50m
   # Persist Hypothesis's example database across scheduled runs so the search
   # accumulates a shrinking corpus of interesting inputs rather than starting
@@ -4247,6 +4252,10 @@ scheduler:fuzz-deep:
       # contract-semantic's properties were fuzzed under the contract key
       # until #4511; Hypothesis keys its database per test, so seeding one
       # shard from another's corpus is harmless.
+      # GitLab restores the first fallback key that exists, and `-contract`
+      # always does, so `invariants` (split out of `other` in #4786) seeds from
+      # it, not from `other`: its first run starts its own properties cold. The
+      # #4786 counterexample is pinned by @example and does not depend on it.
       fallback_keys:
         - scheduler-fuzz-corpus-contract
         - scheduler-fuzz-corpus
@@ -4264,7 +4273,8 @@ scheduler:fuzz-deep:
         contract-semantic) set -- tests/test_contract_fuzz.py -k "not conforms" ;;
         milestone)         set -- tests/test_milestone_instant.py ;;
         oracle)            set -- tests/test_cpm_oracle.py ;;
-        other)             set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py ;;
+        invariants)        set -- tests/test_cpm_invariants.py ;;
+        other)             set -- --ignore=tests/test_contract_fuzz.py --ignore=tests/test_milestone_instant.py --ignore=tests/test_cpm_oracle.py --ignore=tests/test_cpm_invariants.py ;;
         *)                 echo "unknown FUZZ_SHARD '$FUZZ_SHARD'"; exit 1 ;;
       esac
       rc=0

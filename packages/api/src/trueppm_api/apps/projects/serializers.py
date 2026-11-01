@@ -8152,7 +8152,10 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         if self.instance is not None:
             existing_qs = existing_qs.exclude(pk=self.instance.pk)
 
-        edges: list[tuple[str, str]] = [(str(p), str(s)) for p, s in existing_qs]
+        # Sorted so the graph's node insertion order — which decides where
+        # networkx starts its search, and therefore which cycle is reported and
+        # where the path begins — does not depend on the unordered DB row order.
+        edges: list[tuple[str, str]] = sorted((str(p), str(s)) for p, s in existing_qs)
         edges.append((str(predecessor.id), str(successor.id)))
 
         try:
@@ -8173,13 +8176,12 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         # Resolve to rich objects so the toast can render task names without
         # racing the frontend's task cache (a freshly created task may not be
         # there yet); see ADR-0055 §7.
-        unique_ids = set(cycle_ids)
         # Resolve by id only — the cycle path may span member projects when the
         # proposed edge is cross-project, so a single-project filter would drop
         # the foreign nodes from the rendered path.
         tasks_by_id = {
             str(t.id): t
-            for t in Task.objects.filter(id__in=unique_ids).only(
+            for t in Task.objects.filter(id__in=set(cycle_ids)).only(
                 "id", "name", "short_id", "project_id"
             )
         }
@@ -8191,6 +8193,50 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             self.context.get("request"), {t.project_id for t in tasks_by_id.values()}
         )
         endpoint_ids = {predecessor.id, successor.id}
+
+        def _labeled(node_id: str) -> bool:
+            t = tasks_by_id.get(node_id)
+            return t is not None and (t.id in endpoint_ids or t.project_id in readable)
+
+        def _with_descendants(root: str) -> set[str]:
+            found = {root}
+            stack = [root]
+            while stack:
+                for child in children_map.get(stack.pop(), []):
+                    if child not in found:
+                        found.add(child)
+                        stack.append(child)
+            return found
+
+        # The engine returns a closed path ``[n0, ..., nk, n0]`` that may start at
+        # any node on the cycle. Rotate it so it starts (and ends) at a stable,
+        # preferably labeled node, so a redacted interior node is never blanked
+        # twice and the path is the same across requests. Preference: the
+        # predecessor (a summary one is expanded to leaves, so its labeled
+        # descendants count), then the successor likewise, then any predecessor
+        # descendant; if none is on the path the engine's start is kept (still
+        # deterministic via sorted edges).
+        if len(cycle_ids) > 2:
+            ring = cycle_ids[:-1]
+            pred_anchors = _with_descendants(str(predecessor.id))
+            succ_anchors = _with_descendants(str(successor.id))
+            start = next(
+                (
+                    i
+                    for anchors, need_label in (
+                        (pred_anchors, True),
+                        (succ_anchors, True),
+                        (pred_anchors, False),
+                    )
+                    for i, n in enumerate(ring)
+                    if n in anchors and (_labeled(n) or not need_label)
+                ),
+                None,
+            )
+            if start is not None:
+                ring = ring[start:] + ring[:start]
+                cycle_ids = [*ring, ring[0]]
+
         ordered: list[Task | None] = [
             t if t is not None and (t.id in endpoint_ids or t.project_id in readable) else None
             for t in (tasks_by_id.get(tid) for tid in cycle_ids)

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   addDaysIso,
   buildRows,
+  buildWeekRows,
   cellAt,
   computeTotals,
   dailyTotals,
@@ -124,6 +125,45 @@ describe('buildRows', () => {
     expect(empty.minutes).toBe(0);
     expect(empty.editable).toBe(true);
     expect(empty.entryId).toBeNull();
+  });
+});
+
+describe('buildWeekRows (#4766)', () => {
+  const assigned = (taskId: string, taskName: string) => ({
+    taskId,
+    taskShortId: taskId.toUpperCase(),
+    taskName,
+    projectId: 'proj-1',
+    projectCode: '',
+    projectName: 'Riverside',
+  });
+
+  it('gives an assigned task with no entries a zero row, not an absence', () => {
+    const rows = buildWeekRows([], [assigned('task-a', 'Foundation'), assigned('task-b', 'Framing')]);
+    expect(rows.map((r) => r.taskId)).toEqual(['task-a', 'task-b']);
+    for (const row of rows) {
+      expect(rowTotalMinutes(row)).toBe(0);
+      expect(cellAt(row, '2026-06-15')).toEqual({ minutes: 0, entries: [], entryId: null, editable: true });
+    }
+  });
+
+  it('keeps logged rows first and does not duplicate an assigned task that has entries', () => {
+    const rows = buildWeekRows(
+      [entry({ task: 'task-b', task_name: 'Framing', minutes: 90 })],
+      [assigned('task-a', 'Foundation'), assigned('task-b', 'Framing')],
+    );
+    expect(rows.map((r) => r.taskId)).toEqual(['task-b', 'task-a']);
+    expect(rowTotalMinutes(rows[0])).toBe(90);
+    expect(rowTotalMinutes(rows[1])).toBe(0);
+  });
+
+  it('still shows a logged task that is no longer assigned', () => {
+    const rows = buildWeekRows([entry({ task: 'task-z', task_name: 'Old work' })], []);
+    expect(rows.map((r) => r.taskId)).toEqual(['task-z']);
+  });
+
+  it('is empty only when nothing is assigned and nothing is logged', () => {
+    expect(buildWeekRows([], [])).toEqual([]);
   });
 });
 
