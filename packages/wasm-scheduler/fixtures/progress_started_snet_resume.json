@@ -1,0 +1,24 @@
+{
+  "id": "p-progress-started-snet-resume",
+  "name": "An SNET after the data date floors a started task's remaining work, its span start stays put (#4527, ADR-0132 §2 note)",
+  "start_date": "2026-03-02",
+  "status_date": "2026-03-04",
+  "tasks": [
+    {"id": "A", "name": "Started, SNET later", "duration": 864000.0, "percent_complete": 20.0, "actual_start": "2026-03-02", "planned_start": "2026-03-16"},
+    {"id": "B", "name": "FS after A", "duration": 259200.0},
+    {"id": "E", "name": "SS after A", "duration": 259200.0},
+    {"id": "C", "name": "Percent only, SNET later", "duration": 864000.0, "percent_complete": 20.0, "planned_start": "2026-03-16"},
+    {"id": "D", "name": "FS after C", "duration": 259200.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "E", "dep_type": "SS", "lag": 0.0},
+    {"predecessor_id": "C", "successor_id": "D", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
