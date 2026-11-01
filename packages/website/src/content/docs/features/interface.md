@@ -114,6 +114,16 @@ it does not follow you to another browser or device. Until then, log time from *
 Work** or the **Log time** button in the top bar.
 :::
 
+:::note[Ships in 0.5]
+Result ranking and the no-match fallback change in 0.5. When your query exactly matches
+or starts a project, program, or view name, that row moves to a **Best match** group
+above everything else, ordered project, then program, then view, so Enter opens the
+project rather than a task that merely starts with the same words. When a query matches
+nothing, a **Views in other projects** group lists the matching views your projects have
+(for example "Sprints — Platform Core"), limited to views each project's methodology
+shows. Today the palette shows only "No matches" and groups tasks above projects.
+:::
+
 Type to filter; arrow keys move; Enter activates; Escape closes. The palette is a
 pop surface with a focus trap, so keyboard and screen-reader users get the same
 reach as a pointer.

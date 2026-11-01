@@ -50,6 +50,13 @@ const MOCK_ITEMS: CommandItem[] = [
 // Mutable so a test can swap in a large task/person set to exercise the caps.
 let mockItems: CommandItem[] = MOCK_ITEMS;
 vi.mock('./useCommandItems', () => ({ useCommandItems: () => mockItems }));
+// The no-match fallback (#4504) reads the router + projects list; stub it with a
+// mutable list. Query-gating lives in the real hook, so mirror it here.
+let mockCrossViews: CommandItem[] = [];
+vi.mock('./useCrossProjectViewItems', () => ({
+  useCrossProjectViewItems: (_enabled: boolean, query: string) =>
+    query.trim() ? mockCrossViews : [],
+}));
 
 // Default to an in-context project so the off-project hint stays hidden; the
 // off-project test overrides this per-case.
@@ -80,6 +87,7 @@ afterEach(() => {
   // clearAllMocks wipes the implementation too — restore the in-context default.
   mockProjectId.mockReturnValue('p1');
   mockItems = MOCK_ITEMS;
+  mockCrossViews = [];
 });
 
 describe('CommandPalette', () => {
@@ -471,5 +479,68 @@ describe('CommandPalette — the pin accelerator (#2390)', () => {
     expect(minutes).toHaveFocus();
     fireEvent.keyDown(minutes, { key: 'Tab', shiftKey: true });
     expect(log).toHaveFocus();
+  });
+});
+
+describe('CommandPalette — ranking and no-match fallback (#4504)', () => {
+  it('ranks a project above a task that starts with its name, and Enter opens the project', () => {
+    const runProject = vi.fn();
+    mockItems = [
+      {
+        id: 'task:gA',
+        label: 'Open task: Platform Core GA',
+        group: 'task',
+        tag: 'Task',
+        run: runOpenTask,
+      },
+      {
+        id: 'jump:project:pc',
+        label: 'Platform Core',
+        group: 'jump',
+        tag: 'Project',
+        run: runProject,
+      },
+    ];
+    open();
+    render(<CommandPalette />);
+    const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: 'Platform Core' } });
+    const options = screen.getAllByRole('option');
+    expect(options[0]).toHaveAccessibleName(/Platform Core\s*Project/);
+    expect(within(screen.getByTestId('cmdk-group-best')).getAllByRole('option')).toHaveLength(1);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(runProject).toHaveBeenCalledTimes(1);
+    expect(runOpenTask).not.toHaveBeenCalled();
+  });
+
+  it('lists matching views in other projects when nothing matches, navigable like results', () => {
+    const runView = vi.fn();
+    mockCrossViews = [
+      {
+        id: 'projectview:pc:sprints',
+        label: 'Sprints — Platform Core',
+        group: 'projectView',
+        tag: 'View',
+        run: runView,
+      },
+    ];
+    open();
+    render(<CommandPalette />);
+    const input = screen.getByRole('combobox');
+    fireEvent.change(input, { target: { value: 'Sprints' } });
+    expect(screen.getByText(/No matches for “Sprints” here/)).toBeInTheDocument();
+    const group = screen.getByRole('group', { name: 'Views in other projects' });
+    const opt = within(group).getByRole('option', { name: /Sprints — Platform Core/ });
+    expect(input).toHaveAttribute('aria-activedescendant', opt.id);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(runView).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the plain empty state when no project has the view either', () => {
+    open();
+    render(<CommandPalette />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzzz' } });
+    expect(screen.getByText(/No matches for “zzzz”\./)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Views in other projects' })).toBeNull();
   });
 });
