@@ -1231,6 +1231,17 @@ mod tests {
             "rejected drag must not mutate"
         );
 
+        // The largest string the strict parse accepts: validation must still refuse it.
+        let err = set_task_start_impl(&mut project, &pg, "T", "9999-12-31").unwrap_err();
+        assert!(
+            !err.contains("invalid start date"),
+            "9999-12-31 parses; validation must be what refuses it: {err}"
+        );
+        assert_eq!(
+            project.tasks[0].planned_start, None,
+            "rejected drag must not mutate"
+        );
+
         // A sane drag still lands, and the session stays fully usable — the
         // rejected mutations must not have poisoned the resident project.
         set_task_start_impl(&mut project, &pg, "T", "2026-04-08").unwrap();
