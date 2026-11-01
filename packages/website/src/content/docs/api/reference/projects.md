@@ -207,6 +207,12 @@ that token's scope. If nothing you can read matches, the response is
 exist, belongs to a project you can't see, is outside your token's scope, or is a
 retired key of a hidden project.
 
+:::note[Ships in 0.5]
+A program-scoped token also requires its minter to still be a member of the
+program, at any role. Once the minter is removed from the program, the token
+resolves nothing and every lookup returns the same `404`.
+:::
+
 ### Key suggestion and availability
 
 With `name`, the response is `{"suggestion": "PLAT"}`. With `key`, it is

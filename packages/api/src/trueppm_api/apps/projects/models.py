@@ -7189,7 +7189,9 @@ class ApiToken(VersionedModel):
     specific project AND that membership's role is Member or above (#4324,
     #4331), checked at request time (``IsTokenForProject``); the caller
     specifies the target project on each request via the URL. A minter who is
-    a live member but Viewer-only cannot write through this path. The DB
+    a live member but Viewer-only cannot write through this path, and the
+    minter must also hold a live Member+ ``ProgramMembership`` on the program
+    (#4584). The DB
     constraint enforces the XOR — neither both-set nor both-null is a valid
     row. A project-scoped token gets its own request-time check
     (``IsTokenForProject``, #4334): the Member+ floor is applied to the role on

@@ -19957,7 +19957,8 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
     specific project AND that membership's role is Member or above
     (ADR-0076; `IsTokenForProject`, #4324, #4331) — program-level authority to
     mint the token is not by itself project-level write access, and a live but
-    Viewer-only membership is not write-capable either.
+    Viewer-only membership is not write-capable either. The minter must also
+    still hold a live Member+ ProgramMembership on this program (#4584).
     Reuses the one-time-reveal create, soft-delete revoke,
     and audit substrate from ProjectApiTokenViewSet via the scope hooks; only the
     scope resolution and RBAC ladder change. Reads: Program Member+; create:

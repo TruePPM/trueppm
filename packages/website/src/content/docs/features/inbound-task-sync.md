@@ -48,9 +48,14 @@ stops an already-minted token from writing into that project on the very next
 request. **Not yet released:** that membership will also have to be Member or
 above — a minter who is a live member but Viewer-only will not be enough,
 and demoting a minter below Member will stop an already-minted token the same
-way a membership removal does. The minter must also still be a Member or above of the **program** itself:
-removing them from the program, or demoting them to Viewer there, stops the
-token on the next request even if they remain a project member.
+way a membership removal does.
+
+:::note[Ships in 0.5]
+The minter must also still be a Member or above of the **program** itself.
+Removing them from the program, or demoting them to Viewer there, stops a
+program-scoped token on the next request even if they remain a project member.
+On 0.4 only the minter's project membership is checked.
+:::
 
 **Not yet released:** a project-scoped token will also be checked against its
 minter on every request, in a different way. TruePPM will look at the minter's

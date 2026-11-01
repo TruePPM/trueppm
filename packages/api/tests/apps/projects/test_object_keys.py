@@ -638,6 +638,26 @@ class TestResolve:
         ProgramMembership.objects.filter(program=program, user=owner).update(is_deleted=True)
         assert _resolve(token_client, "INSIDE").status_code == 404
 
+    def test_program_token_still_resolves_for_a_program_viewer_minter(self, owner: Any) -> None:
+        """#4584: the read floor is any live program role, not Member+ (pins readable_projects)."""
+        import secrets
+
+        program = Program.objects.create(name="Atlas")
+        ProgramMembership.objects.create(program=program, user=owner, role=Role.ADMIN)
+        inside = _project(owner, "Inside", code="INSIDE")
+        inside.program = program
+        inside.save(update_fields=["program"])
+        raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        ApiToken.objects.create(
+            program=program,
+            name="t",
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=owner,
+        )
+        ProgramMembership.objects.filter(program=program, user=owner).update(role=Role.VIEWER)
+        assert _resolve(_bearer_client(raw), "INSIDE").status_code == 200
+
     def test_a_trashed_project_does_not_resolve(self, owner: Any) -> None:
         p = _project(owner, "Platform")
         p.soft_delete()
