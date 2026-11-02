@@ -796,6 +796,14 @@ class AuditEventType(models.TextChoices):
     SSO_PROVIDER_UPDATED = "sso_provider_updated", "SSO provider updated"
     SSO_PROVIDER_DELETED = "sso_provider_deleted", "SSO provider deleted"
     SSO_SECRET_ROTATED = "sso_secret_rotated", "SSO client secret rotated"
+    # The admin "Test connection" probe. It changes nothing, but it is server-side egress
+    # an admin triggers, so "who tried to reach our IdP, and when" is audit evidence in
+    # the same way the config changes are. Failed probes are rows too (the endpoint still
+    # answers 200), so the row records the attempt rather than only its success.
+    SSO_PROVIDER_TEST_CONNECTION = (
+        "sso_provider_test_connection",
+        "SSO provider connection tested",
+    )
     # Branch 3 of ``sso.services.resolve_user`` — an IdP identity binding itself to an
     # account that already exists. Branch 4 (auto-create) wrote MEMBER_ADDED and this
     # one wrote nothing, so the path that grants a federated credential over an

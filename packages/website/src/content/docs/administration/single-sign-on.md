@@ -34,7 +34,7 @@ deprovision, and govern accounts from a directory → Enterprise.**
 | Enforced SSO (disable password sign-in / disable local accounts) | Enterprise |
 | SCIM provisioning, LDAP/AD directory sync, SAML federation | Enterprise |
 | Immutable, retained auth-event trail with evidence export | Enterprise |
-| Audit rows for provider config changes, secret rotation, and account linking | ✅ Open-source core |
+| Audit rows for provider config changes, secret rotation, Test connection attempts, and account linking | ✅ Open-source core |
 
 For OIDC, the open-source core requests only the `openid email profile` scopes —
 never a `groups` scope. For GitHub it requests only `read:user user:email`. On
@@ -394,7 +394,9 @@ every existing sign-in would silently stop working).
   after for each field that actually changed** — the allowed email domains, auto-create
   setting, default role, enabled state, issuer URL, GitHub org, OAuth client id, and
   display name. The client secret never appears in any of them, in any form: a rotation
-  records only that it happened. A save that changes nothing writes nothing.
+  records only that it happened. A save that changes nothing writes nothing. Each
+  **Test connection** attempt also writes a row, passed or failed, recording who ran it,
+  the result, and the failure code (never the upstream error text).
 - Rows also record whether the change came from a browser session or from a Personal
   Access Token (`actor_kind`), so a scripted change is not indistinguishable from an
   admin sitting at the page.

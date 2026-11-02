@@ -46,6 +46,7 @@ recorded:
 | `sso_provider_updated` *(0.4)* | An Admin changes a provider's configuration | The provider | `changed` (per-field before/after), `actor_kind` |
 | `sso_provider_deleted` *(0.4)* | An Admin removes a provider | The provider | `linked_accounts`, `locked_out_accounts`, `confirmed_lockout`, `config`, `actor_kind` |
 | `sso_secret_rotated` *(0.4)* | An Admin supplies a new client secret for a provider | The provider | `actor_kind` |
+| `sso_provider_test_connection` *(0.4)* | An Admin runs **Test connection** on a provider, whether the probe passes or fails | The provider | `result` (`ok`/`failed`), `error` and `reason` (failure codes only), `actor_kind` |
 | `sso_account_linked` *(0.4)* | A single sign-on identity binds to an **existing** local account | The user | `via`, `provider`, `issuer`, `subject`, `role` |
 
 :::note[Why `invite_accepted` exists alongside `member_added`]
