@@ -402,6 +402,18 @@ class TestIndexOverrunIsRefused:
         with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
             engine._index_offset(_WD[-1] + timedelta(days=3), offset_of, _WD)
 
+    def test_index_offset_interior_gap_takes_the_next_working_day(self) -> None:
+        # Mon..Fri, Mon, Tue: Saturday is inside the index but not a cell. It must
+        # read as the next working day's offset (5), not the last cell (6) (#4714).
+        wd = [*_WD, MONDAY + timedelta(days=7), MONDAY + timedelta(days=8)]
+        offset_of = {d: i for i, d in enumerate(wd)}
+        saturday = MONDAY + timedelta(days=5)
+        assert engine._index_offset(saturday, offset_of, wd) == 5.0
+        cal = engine.Calendar(working_days=0b0011111)
+        assert engine._snapped_offset(saturday, cal, offset_of, 6.0) == 5.0
+        assert engine._index_offset(MONDAY - timedelta(days=3), offset_of, wd) == 0.0
+        assert engine._index_offset(wd[-1], offset_of, wd) == 6.0
+
     def test_milestone_lookups_refuse_past_the_end(self) -> None:
         idx = engine._McIndex([_WD_ORD], [engine.Calendar(working_days=0b0011111)])
         past = np.array([_WD_ORD[-1] + 3], dtype=np.int64)

@@ -156,6 +156,7 @@ from __future__ import annotations
 import copy
 import math
 import weakref
+from bisect import bisect_left
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
@@ -6200,8 +6201,11 @@ def _completed_dates(
 
 
 def _index_offset(d: date, offset_of: _OffsetLookup, wd_index: Sequence[date]) -> float:
-    """Working-day offset of ``d``, clamped to the index start when it falls before it.
+    """Working-day offset of ``d``: its own cell, else the next working day's cell.
 
+    A date before the index start clamps to 0. A date inside the index that is not
+    itself a cell (a weekend or holiday) takes the offset of the next indexed day,
+    matching :func:`_snapped_offset`; it never reads as the last cell (#4714).
     A date past the index end raises (#4429): clamping it to the last entry reported
     an undersized index as a plausible, silently early date.
     """
@@ -6210,7 +6214,7 @@ def _index_offset(d: date, offset_of: _OffsetLookup, wd_index: Sequence[date]) -
         return float(off)
     if d > wd_index[-1]:
         _raise_mc_index_overrun()
-    return 0.0 if d < wd_index[0] else float(len(wd_index) - 1)
+    return 0.0 if d < wd_index[0] else float(bisect_left(wd_index, d))
 
 
 def _completed_offsets(
