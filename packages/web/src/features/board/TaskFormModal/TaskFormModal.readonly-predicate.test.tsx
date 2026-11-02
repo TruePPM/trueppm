@@ -18,12 +18,12 @@ import type { Task } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN, canEditTaskRow } from '@/lib/roles';
 import { TaskFormModal } from './index';
 
-const roleState = { role: ROLE_MEMBER as number | null, isError: false };
+const roleState = { role: ROLE_MEMBER as number | null, isError: false, isLoading: false };
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({
     role: roleState.role,
-    isLoading: false,
+    isLoading: roleState.isLoading,
     isError: roleState.isError,
   }),
 }));
@@ -113,6 +113,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   roleState.role = ROLE_MEMBER;
   roleState.isError = false;
+  roleState.isLoading = false;
 });
 
 const nameField = () => screen.getByRole('textbox', { name: /^task name/i });
@@ -156,6 +157,20 @@ describe('TaskFormModal — read-only resolves the server verdict (edit mode)', 
   it('keeps the form editable while the role is unsettled and no verdict exists', () => {
     roleState.role = null;
     roleState.isError = true;
+    renderModal(editTask({}));
+    expect(nameField()).toBeEnabled();
+  });
+
+  it('renders read-only for a settled null role when the server sent no verdict', () => {
+    roleState.role = null;
+    renderModal(editTask({}));
+    expect(nameField()).toBeDisabled();
+    expect(screen.getByText('VIEW TASK')).toBeInTheDocument();
+  });
+
+  it('keeps the form editable while the role is still loading', () => {
+    roleState.role = null;
+    roleState.isLoading = true;
     renderModal(editTask({}));
     expect(nameField()).toBeEnabled();
   });
