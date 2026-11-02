@@ -3981,12 +3981,14 @@ scheduler:sdist-check:
       changes:
         - packages/scheduler/**/*
         - scripts/check-scheduler-sdist.sh
+        - scripts/check-scheduler-wheel-smoke.sh
         - .gitlab-ci.yml
   before_script:
     - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
     - bash scripts/check-scheduler-sdist.sh --self-test
+    - bash scripts/check-scheduler-wheel-smoke.sh --self-test
     - bash scripts/check-scheduler-sdist.sh
 
 mcp:uv-lock-check:
@@ -7127,6 +7129,14 @@ scheduler:build:
     # isolated build would fetch whatever the build backend's dependency tree
     # resolves to at tag time, unhashed (#4717).
     - python -m build --no-isolation
+    # Run the smoke subset of the test suite against the INSTALLED wheel in a
+    # throwaway venv outside the source tree (#4544). Here, not in
+    # scheduler:publish: publish `needs:` this job, so a failure stops the
+    # pipeline before publish starts (before any upload), and publish stays the
+    # only job holding id_tokens while running nothing but hash-pinned tools.
+    # This job holds none, so installing pytest/hypothesis here mints nothing.
+    - bash ../../scripts/check-scheduler-wheel-smoke.sh --self-test
+    - bash ../../scripts/check-scheduler-wheel-smoke.sh dist/*.whl
     # Generate + validate the CycloneDX SBOM BEFORE uploading (#936). Ordering
     # matters: never let twine succeed (the release goes live) and then fail the
     # job on a malformed SBOM. The runtime closure is materialized from the

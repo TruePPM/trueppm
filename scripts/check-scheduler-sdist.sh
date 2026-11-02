@@ -168,10 +168,14 @@ whl="$(ls "$work"/wheel/*.whl 2>/dev/null || true)"
 if [ -n "$whl" ]; then
   python3 -c 'import sys,zipfile; print("\n".join(zipfile.ZipFile(sys.argv[1]).namelist()))' "$whl" > "$work/wheel-members"
   check_wheel_listing "$work/wheel-members" || rc=1
+  # Membership is not behavior (#4544): run the smoke subset against the INSTALLED
+  # wheel, plus its negative control, so neither half of the gate can rot silently.
+  bash "$REPO_ROOT/scripts/check-scheduler-wheel-smoke.sh" "$whl" || rc=1
+  bash "$REPO_ROOT/scripts/check-scheduler-wheel-smoke.sh" --negative-control "$whl" || rc=1
 fi
 
 if [ "$rc" -ne 0 ]; then
   echo "FAIL: the trueppm-scheduler sdist is not clean (#4520). Fix [tool.hatch.build.targets.sdist] in packages/scheduler/pyproject.toml."
   exit 1
 fi
-echo "OK: sdist contains the required files and no dev artifacts; wheel builds from it."
+echo "OK: sdist contains the required files and no dev artifacts; wheel builds from it and passes the install smoke."

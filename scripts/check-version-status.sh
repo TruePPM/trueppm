@@ -51,6 +51,7 @@ ROADMAP_DEFAULT="packages/website/src/content/docs/overview/roadmap.md"
 DOCS_ROOT_DEFAULT="packages/website/src/content/docs"
 BASELINE_DEFAULT="packages/website/docs-declaration-baseline.txt"
 SIDEBAR_DEFAULT="packages/website/astro.config.mjs"
+FWD_WAIVERS_DEFAULT="packages/website/docs-forward-tense-waivers.txt"
 
 # Files outside docs_root that the tense and stale-currency scans must still
 # reach, relative to REPO_ROOT (#3996).
@@ -229,6 +230,79 @@ for line in sys.stdin:
         best, best_key = tag, key
 print(best)
 '
+}
+
+# Emit one "<sentence>" line per forward-modal sentence in a file (#4727).
+#
+# The #4058 patterns above need the modal ("will") to sit directly beside the
+# version: "0.4 will add", "planned for 0.4". Real prose puts words between them
+# — "From 0.4, a run will be recorded", "lifts in 0.4 (... monte_carlo() will
+# honor ...)" — and 0.4 sat on five such sentences on a green pipeline.
+#
+# So this works per sentence: a sentence that names a SHIPPED version (<=
+# highest) and carries `will`/`won't`, with no unshipped version in it, is
+# forward-tense about a release that is out. A sentence that also names an
+# unshipped version ("0.4 shipped X; 0.5 will add Y") is left alone — the modal
+# may belong to the unshipped half. Sentence, not line: a hard-wrapped
+# paragraph has no per-line meaning.
+#
+# What this deliberately cannot see: a `will` sentence that names NO version
+# ("The history will be available at:"). Scoping by section or neighbor was
+# measured across the tree (74-114 hits, the large majority generic "you will
+# see" prose) and rejected as noise; those must be caught in review. Opt out per
+# line with `tense-ok`, as for the #4058 patterns.
+forward_modal_hits() { # forward_modal_hits <file> <highest-shipped X.Y>
+  python3 - "$1" "$2" <<'PYEOF'
+import re, sys
+
+path, highest = sys.argv[1], sys.argv[2]
+hi = int(highest.split(".")[1])  # the regex below only matches 0.X
+text = open(path, encoding="utf-8").read()
+text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S)
+text = re.sub(r"```.*?```", "", text, flags=re.S)
+text = text.replace("*", "")
+ver = re.compile(r"(?<![\d.])0\.(\d+)(?!\d|\.\d)")
+modal = re.compile(r"\b(will|won['’]t)\b", re.I)
+item = re.compile(r"^\s*([-+]|\d+\.|\|)")
+past_before = re.compile(
+    r"\b(shipped|added|introduced|released|landed|new|also|upgrading|upgrade)"
+    r"\s+((in|with|to)\s+)?(the\s+)?$",
+    re.I,
+)
+past_after = re.compile(
+    r"(['\u2019]s\b|\s+(froze|shipped|added|introduced|landed|removed|made)\b)",
+    re.I,
+)
+
+units = []
+for para in re.split(r"\n\s*\n", text):
+    cur = []
+    for line in para.split("\n"):
+        if item.match(line) and cur:
+            units.append(" ".join(cur))
+            cur = []
+        cur.append(line.strip())
+    units.append(" ".join(cur))
+
+for unit in units:
+    if "tense-ok" in unit:
+        continue
+    for sent in re.split(r"(?<=[.!?:;])\s+(?=[A-Z`(\[<|])", unit):
+        if not modal.search(sent):
+            continue
+        nums, forward = [], False
+        for m in ver.finditer(sent):
+            nums.append(int(m.group(1)))
+            before, after = sent[: m.start()], sent[m.end():]
+            # Past-framed mentions ("added in 0.4", "(also 0.3)", "upgrading
+            # to 0.4", "0.3 froze", "0.4's") say nothing about the modal.
+            if past_before.search(before) or past_after.match(after):
+                continue
+            forward = True
+        if not forward or any(n > hi for n in nums):
+            continue
+        print(re.sub(r"\s+", " ", sent).strip())
+PYEOF
 }
 
 # ── Declaration coverage ratchet (#2846) ────────────────────────────────────
@@ -503,7 +577,8 @@ badge_check() { # badge_check <sidebar_file> <docs_root> <highest_shipped>
   return 0
 }
 
-# Run the scan. Args: <roadmap> <docs_root> [baseline] [sidebar] [extra_files].
+# Run the scan. Args: <roadmap> <docs_root> [baseline] [sidebar] [extra_files]
+# [tags] [forward-modal waivers].
 # Returns 1 on violations. Every optional arg is opt-in so the tense/pairing
 # fixtures in self_test keep exercising exactly what they were written for.
 run_scan() {
@@ -511,6 +586,9 @@ run_scan() {
   # Newline-separated git tag names (#4106). Empty = the pinned-latest check is
   # skipped, which is how the fixtures and the tagless CI image run it.
   local tags="${6:-}"
+  # Ratcheted per-file allowance for the forward-modal scan (#4727); empty =
+  # none, which is how every fixture runs.
+  local fwd_waivers="${7:-}"
   # Shared "pull the 0.X out of a matched hit" pattern — every stale/forward
   # verb regex above already anchors on the surrounding words; this just lifts
   # the bare version number back out of whichever one matched.
@@ -806,7 +884,7 @@ $extra"
   local fwd_verb_re='\b(ships?|lands?|landing|arrives?|coming|planned|scheduled|slated|follows?)[[:space:]]+((in|for|at|with|by)[[:space:]]+)?(the[[:space:]]+)?0\.[0-9]+\b'
   local fwd_far_re='\b(ships?|lands?|arrives?)[[:space:]]+[^.;|]{0,40}[[:space:]](at|with|in)[[:space:]]+(the[[:space:]]+)?0\.[0-9]+\b'
   local fwd_will_re='(^|[^0-9.])0\.[0-9]+([[:space:]]+(beta|release))?[[:space:]]+(will|is[[:space:]]+planned|is[[:space:]]+expected|is[[:space:]]+sequenced)\b'
-  local fwd_hits fwd_hit fwd_ver
+  local fwd_hits fwd_hit fwd_ver fm_hits_all
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     local fwd_text
@@ -822,6 +900,45 @@ $extra"
       fi
     done <<< "$fwd_hits"
   done <<< "$files"
+  # ── Forward-modal sentences naming a shipped version (#4727) ───────────────
+  # Sentence-level companion to the #4058 patterns; see forward_modal_hits.
+  # Pages that predate the rule are listed with a per-file count in the waivers
+  # file, which can only shrink: more hits than waived is a violation, and so is
+  # fewer (lower the number), so a fixed page never keeps a stale allowance.
+  local fm_rel fm_count fm_waived fm_sent
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    fm_hits_all="$(forward_modal_hits "$f" "$highest")"
+    fm_count=0
+    [ -n "$fm_hits_all" ] && fm_count="$(printf '%s\n' "$fm_hits_all" | wc -l | tr -d ' ')"
+    fm_rel="${f#"$docs_root"/}"
+    fm_waived=0
+    if [ -n "$fwd_waivers" ] && [ -f "$fwd_waivers" ]; then
+      fm_waived="$(awk -v p="$fm_rel" '$1==p{print $2}' "$fwd_waivers" | sed -n 1p)"
+      fm_waived="${fm_waived:-0}"
+    fi
+    if [ "$fm_count" -gt "$fm_waived" ]; then
+      while IFS= read -r fm_sent; do
+        [ -z "$fm_sent" ] && continue
+        echo "VIOLATION: $f: future-tense sentence about a shipped version: \"$fm_sent\"" >&2
+      done <<< "$fm_hits_all"
+      echo "    That version has shipped — rewrite in present/past tense (or add \`tense-ok\` to the line if deliberate)." >&2
+      stale_violations=$((stale_violations + fm_count - fm_waived))
+    elif [ "$fm_count" -lt "$fm_waived" ]; then
+      echo "VIOLATION: $fwd_waivers allows $fm_waived for $fm_rel but only $fm_count remain — lower it (drop the line at 0)." >&2
+      stale_violations=$((stale_violations + 1))
+    fi
+  done <<< "$files"
+  # A waiver whose page is gone, or that names no scanned file, is dead weight.
+  if [ -n "$fwd_waivers" ] && [ -f "$fwd_waivers" ]; then
+    while IFS= read -r fm_rel; do
+      [ -z "$fm_rel" ] && continue
+      if [ ! -f "$docs_root/$fm_rel" ]; then
+        echo "VIOLATION: $fwd_waivers lists $fm_rel, which no longer exists" >&2
+        stale_violations=$((stale_violations + 1))
+      fi
+    done <<< "$(awk 'NF && $1 !~ /^#/ {print $1}' "$fwd_waivers")"
+  fi
   violations=$((violations + stale_violations))
 
   # Declaration coverage (#2846) — only when a baseline path is supplied, so the
@@ -1239,6 +1356,71 @@ This page documents functionality added in **TruePPM 0.2**.
   fm_case "fwd-tense-ok-optout" expect-pass \
     'The importer lands with the 0.2 beta. <!-- tense-ok: quoted from the original announcement -->' || return 1
 
+  # ── Forward-modal sentences naming a shipped version (#4727) ───────────────
+  # The two phrases below are the ones from #4727 that name a version in the
+  # sentence. They sat on a green pipeline because "will" is not adjacent to the
+  # version, which is all the #4058 patterns look for. 0.2 is shipped in this
+  # fixture roadmap, 0.3 is not.
+  fm_case "modal-from-version-will" expect-fail \
+    'From **0.2**, a run will be recorded only when it is triggered by a Scheduler or above.' || return 1
+  fm_case "modal-lifts-in-version-will" expect-fail \
+    'The engine restriction lifts in 0.2 (#1385 -- `monte_carlo()` will honor per-task calendars).' || return 1
+  fm_case "modal-hard-wrapped" expect-fail \
+    'From 0.2 the export
+will also write the constraint
+for any task with a start.' || return 1
+  fm_case "modal-bullet-isolated" expect-pass \
+    '- Added in 0.2 and stable.
+- Anything else will be rejected.' || return 1
+  # False-positive shapes that must stay accepted.
+  fm_case "modal-unshipped-version" expect-pass \
+    'From 0.3, a run will be recorded only when it is triggered by a Scheduler.' || return 1
+  fm_case "modal-shipped-and-unshipped-one-line" expect-pass \
+    '0.2 records every run; from 0.3 a run will be recorded only for Schedulers.' || return 1
+  fm_case "modal-past-framed-shipped" expect-pass \
+    'Outcome of the last close attempt, and whether it will be retried (shipped in 0.2).' || return 1
+  fm_case "modal-possessive" expect-pass \
+    'This is the posture 0.2'"'"'s carve-out encourages, so you will see it by default.' || return 1
+  fm_case "modal-tense-ok" expect-pass \
+    'From 0.2 a run will be recorded only for Schedulers. <!-- tense-ok: quoted -->' || return 1
+  # Known blind spot, pinned so it is a decision and not an accident: a `will`
+  # sentence that names no version is invisible to a sentence-level check, and
+  # scoping by section was measured as mostly noise. These are the other three
+  # #4727 phrases; they were fixed by hand and are caught in review.
+  fm_case "modal-blind-spot-no-version-history" expect-pass \
+    'The history will be available at:' || return 1
+  fm_case "modal-blind-spot-no-version-retention" expect-pass \
+    'OSS will keep the newest 100 runs per project.' || return 1
+  fm_case "modal-blind-spot-no-version-status-date" expect-pass \
+    'A new optional `status_date` field on the project will set that anchor.' || return 1
+
+  # Waiver ratchet: a ceiling that may only shrink.
+  wv_case() { # wv_case <name> <expect-pass|expect-fail> <waiver-line-or-empty>
+    local name="$1" expect="$2" wline="$3"
+    local dir="$tmp/wv-$name"
+    mkdir -p "$dir"
+    cp "$docs/overview/roadmap.md" "$dir/"
+    printf '%s\n' 'From 0.2 the app will refuse to boot on zero.' > "$dir/page.md"
+    printf '# waivers\n%s\n' "$wline" > "$dir/waivers.txt"
+    if run_scan "$dir/roadmap.md" "$dir" "" "" "" "" "$dir/waivers.txt" >/dev/null 2>&1; then
+      if [ "$expect" = "$expect_pass_val" ]; then
+        echo "SELF-TEST OK: $name accepted."
+      else
+        echo "SELF-TEST FAILED: $name was accepted and should not be." >&2
+        return 1
+      fi
+    elif [ "$expect" = "$expect_fail_val" ]; then
+      echo "SELF-TEST OK: $name correctly rejected."
+    else
+      echo "SELF-TEST FAILED: $name was rejected and should not be." >&2
+      return 1
+    fi
+  }
+  wv_case "waiver-exact" expect-pass "page.md 1" || return 1
+  wv_case "waiver-none" expect-fail "" || return 1
+  wv_case "waiver-too-generous" expect-fail "page.md 2" || return 1
+  wv_case "waiver-page-gone" expect-fail "$(printf 'page.md 1\ngone.md 1')" || return 1
+
   # -- Files outside docs_root (#3996) ---------------------------------------
   # README.md is named by the CLAUDE.md rule and was never walked by the scan.
   # These cases pin the three properties the extension has to hold: an extra
@@ -1632,7 +1814,7 @@ main() {
     echo "NOTE: no version tags visible to git; skipping the pinned \"latest release\" check." >&2
     tags=""
   fi
-  run_scan "$roadmap" "$docs_root" "$baseline" "$sidebar" "$extra" "$tags"
+  run_scan "$roadmap" "$docs_root" "$baseline" "$sidebar" "$extra" "$tags" "${FWD_WAIVERS_OVERRIDE-$FWD_WAIVERS_DEFAULT}"
 }
 
 main "$@"

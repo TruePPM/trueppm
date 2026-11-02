@@ -168,20 +168,20 @@ Carlo runs so you can read finish-date *drift* over time: "my P80 was Aug 14 two
 weeks ago, now it's Aug 28." Each recorded run carries its P50/P80/P95 as of that
 moment, so the history is a true before/after, not just the latest snapshot.
 
-From **0.4**, a run will be recorded only when it is triggered by a **Scheduler** or
-above — the members who own the schedule. Everyone from Viewer up will still be able to run
-the forecast and read the result and the drift history; their runs will simply not
+Since **0.4**, a run is recorded only when it is triggered by a **Scheduler** or
+above — the members who own the schedule. Everyone from Viewer up can still run
+the forecast and read the result and the drift history; their runs simply do not
 add a history row. This keeps the drift timeline a signal about deliberate
 re-planning rather than a log of every incidental read, and prevents a
 low-privilege member from flooding the history or skewing run attribution.
 
-The history will be available at:
+The history is available at:
 
 ```
 GET /api/v1/projects/<project_id>/monte-carlo/history/
 ```
 
-It will return persisted runs newest-first. Each run carries:
+It returns persisted runs newest-first. Each run carries:
 
 | Field | Meaning |
 |---|---|
@@ -194,18 +194,20 @@ It will return persisted runs newest-first. Each run carries:
 | `delta` | Per-percentile signed day change versus the immediately previous run (positive = the forecast slipped later). `null` on the oldest/baseline run. |
 | `triggered_by_name` | Who ran the simulation — see the visibility note below. |
 
-In the UI, the Monte Carlo drawer (and the mobile bottom sheet) will gain a
+In the UI, the Monte Carlo drawer (and the mobile bottom sheet) has a
 collapsible **Forecast history** list showing each run with its per-run delta
 (for example, `P80 ▲ +14d`), so the drift is legible at a glance.
 
-The latest-result endpoint (`GET .../monte-carlo/latest/`) will also fall back to
+The latest-result endpoint (`GET .../monte-carlo/latest/`) also falls back to
 this persisted history once the 24-hour cache has expired, so your most recent
 forecast survives past the cache rather than disappearing.
 
-:::note[Attribution is Project Manager and above only]
-`triggered_by_name` will be returned **only** to Project Managers and Project Admins. Every
-other member (Viewer and up) will see the drift values without the run-author
-name. This is deliberate: forecast drift is a planning signal about the *project*,
+:::note[Attribution defaults to Project Manager and above]
+By default `triggered_by_name` is returned **only** to Project Managers and Project Admins. Every
+other member (Viewer and up) sees the drift values without the run-author
+name. A workspace, program, or project can widen this to Schedulers and above, or
+hide the name from everyone, with its **Run attribution visible to** setting. The
+default is deliberate: forecast drift is a planning signal about the *project*,
 not a performance signal about a *person*.
 :::
 
@@ -216,8 +218,10 @@ belongs to the Enterprise edition.
 ### Retention
 
 Consistent with the OSS cap philosophy (`MC_SIMULATION_CAP`, `MC_TASK_CAP`), OSS
-will keep the **newest 100 runs per project** (`MC_HISTORY_CAP`); a nightly job
-trims older runs. Operators can set the cap to `None` (unlimited history). 100 runs
+keeps the **newest 100 runs per project** (`MC_HISTORY_CAP`) by default; a nightly job
+trims older runs. A workspace, program, or project can raise or lower its own
+limit (**Run history limit**) or turn history off (**Keep Monte Carlo run history**);
+a raised limit is clamped to a hard ceiling of 500 runs. 100 runs
 is ample to read multi-month drift on an actively re-forecast project.
 
 ## What-if analysis
@@ -244,7 +248,7 @@ Supply exactly one of:
 
 An optional `n_simulations` controls the iteration count (default and caps are the
 same as a normal run, including the runs × tasks cap; `runs` in the response reports
-the count simulated). The response will carry:
+the count simulated). The response carries:
 
 | Field | Meaning |
 |---|---|
@@ -336,15 +340,15 @@ Progress-aware forecasting was added in the **0.3** release, available since the
 
 As of 0.3 the forecast accounts for what is already done rather than
 re-simulating the project from its original start date every run. As work
-progresses, the simulation will:
+progresses, the simulation:
 
 - **Pin completed tasks** to their recorded actual finish dates instead of
   re-rolling their durations — finished work is a fact, not a probability.
 - **Sample only the remaining duration** of in-progress tasks. A task that is
   60% complete contributes the uncertainty of its last 40%, not its whole
   estimate.
-- **Anchor remaining work at a data date.** Not-started and remaining work will
-  be scheduled no earlier than the project's **status date**, so the forecast
+- **Anchor remaining work at a data date.** Not-started and remaining work is
+  scheduled no earlier than the project's **status date**, so the forecast
   never places future work in the past. The one exception is a task with a
   Start-to-Finish link when the status date is on or before the project start
   (including a project that starts in the future and has no status date, where
@@ -352,7 +356,7 @@ progresses, the simulation will:
   data date before the start does not either, so it sits where its links (or
   its own SNET) place it ([#4635](https://gitlab.com/trueppm/trueppm/-/issues/4635)).
 - **Floor in-progress work at its recorded actual start.** A task that actually
-  began *after* the data date will be forecast from the day it really started,
+  began *after* the data date is forecast from the day it really started,
   not from the status date — actuals are truth and are never smoothed back to an
   earlier slot in the network. This is the same floor the deterministic CPM
   schedule applies, so the Monte Carlo band can never claim a finish date the
@@ -361,12 +365,12 @@ progresses, the simulation will:
   whose work started later than its last status report can read percentiles
   earlier than its own CPM finish — re-run those forecasts after upgrading.)*
 
-A new optional `status_date` field on the project (`GET`/`PATCH
-/api/v1/projects/<id>/`) will set that anchor — in the app, under
+An optional `status_date` field on the project (`GET`/`PATCH
+/api/v1/projects/<id>/`) sets that anchor — in the app, under
 **Project settings → General → Status date (data date)**, not API-only. When it is left null the forecast
 defaults to today, so an actively-tracked project reads correctly with no extra
 configuration; a PM who wants a reproducible, frozen forecast for a report can
-pin an explicit date. The same progress signals will flow through the
+pin an explicit date. The same progress signals flow through the
 deterministic CPM schedule, so the Gantt bars and the Monte Carlo band stay
 consistent.
 
@@ -666,8 +670,7 @@ not 1.2× M.
 | Max tasks per project (`MC_TASK_CAP`) | 5,000 |
 | Max run history per project (`MC_HISTORY_CAP`, added in 0.3) | 100 |
 
-Both settings can be changed in `settings/base.py` (or a local override). Self-hosted OSS operators may set any integer or `None` in their local
-settings — the cap is advisory, not license-enforced.
+Both settings can be changed in `settings/base.py` (or a local override). Self-hosted OSS operators may set any integer or `None` for the run and task caps — the cap is advisory, not license-enforced. The run-history default is different: `MC_HISTORY_CAP = None` does not remove the limit in OSS, it falls back to 100, and a per-workspace limit is clamped to 500 (see [Retention](#retention)).
 
 Exceeding either cap returns HTTP 402 with a structured error body:
 
