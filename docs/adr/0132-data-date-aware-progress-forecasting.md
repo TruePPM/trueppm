@@ -2,7 +2,8 @@
 
 ## Status
 Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: status_date);
-§1/§2 correction below landed in #2676 (ADR-0752 §4/§7); §2a amended 2026-10-18 (#4523)
+§1/§2 correction below landed in #2676 (ADR-0752 §4/§7); §2a amended 2026-10-18 (#4523);
+§2 in-progress floor list corrected 2026-11-01 (#4527)
 
 > **Two claims below did not match the shipped code as of 2026-07-31 (#2622); both are now
 > corrected by ADR-0752 §4/§7, landed in #2676.** Read §1 and §2 with this note:
@@ -21,6 +22,31 @@ Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (v
 >   reproduced. The one-time date shift this arming causes on an already-scheduled project is
 >   deliberately not reported as ordinary per-task movement (ADR-0752 §7, tracked per-project
 >   by the new `Project.status_date_floor_armed_at` field).
+>
+> - **§2 — the in-progress bullet omits the SNET floor, and that omission was never the
+>   rule (2026-11-01, #4527).** A started task's remaining work *is* floored at its
+>   `planned_start` (SNET), next to its `actual_start`, the data date and its predecessor
+>   constraints. A PM uses it as "resume no earlier than": an SNET after the data date parks
+>   the remaining work on the SNET and moves its successors with it, while the span start
+>   (`scheduled_start`, ADR-0752) stays on `actual_start`. A 2026-10-18 audit (N5) read the
+>   omission as a defect; it is the bullet that is wrong, for four reasons. The library
+>   contract says so (`packages/scheduler/README.md`: "A data date or `planned_start` after
+>   the project start, and a recorded `actual_start`, hold every task"); so do the published
+>   conventions (`packages/website/src/content/docs/features/scheduler-conventions.md`, the
+>   SF-link / project-start row); the reference oracle models it
+>   (`packages/scheduler/tests/oracle/reference_cpm.py`: "Live work and live milestones are
+>   floored at the data date and at an SNET"); and the Gantt depends on it —
+>   `packages/web/src/workers/cpmEngine.ts::applyDrag` lets a PM drag an in-progress bar,
+>   the drop is committed as `planned_start`, and only this floor makes the server keep the
+>   bar where it was dropped. Dropping the floor would turn every such drop into a preview
+>   that snaps back on commit (the #2819 class). Pinned by
+>   `packages/scheduler/tests/test_started_link_anchor.py` (`test_snet_*`, #4527).
+>   The web Gantt draws such a bar from the SNET, not from `scheduled_start`:
+>   `packages/web/src/hooks/useScheduleTasks.ts::deriveBarGeometry` paints from
+>   `max(planned_start, scheduled_start)` (and `cpmEngine.ts` documents the same), so a started
+>   task with a later SNET is drawn from its SNET while the API and the task drawer report
+>   `scheduled_start` on `actual_start`. That is deliberate existing client behavior — the bar
+>   lands where it was dropped — and this note records it rather than changing it.
 
 ## Context
 
@@ -80,7 +106,9 @@ For each committed task, in the forward pass / sampling:
   `early_start = early_finish = actual_finish`. In MC, zero duration variance —
   not re-sampled. The pinned date is a hard constraint that anchors successors.
 - **In progress** (`actual_start` set, not complete) → `early_start` floored at
-  `max(actual_start, predecessor constraints)`; the task contributes only its
+  `max(actual_start, predecessor constraints)` *(incomplete — the data date and the
+  `planned_start` (SNET) floor it too; see the status notes above, #2676, #4527)*; the
+  task contributes only its
   **remaining** duration (see §3). It is *not* floored at the status date — work
   already underway stays where it actually started.
 - **Not started** → floored at `max(status_date, planned_start, predecessor

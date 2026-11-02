@@ -588,3 +588,92 @@ def test_no_ss_sf_route_reaches_the_late_window_floor_for_work() -> None:
                 if any(c.kind == "late_window_floor" and c.is_binding for c in d.contributions):
                     hits.append((seed, t.id, q.value))
     assert hits == []
+
+
+# --- #4527: an SNET still floors a started task's remaining work -------------------
+#
+# ``planned_start`` (SNET) after the data date parks a started task's remaining work on
+# the SNET — "resume no earlier than" — while its span start stays on the recorded
+# ``actual_start``. A 2026-10-18 audit read this as a defect because ADR-0132 §2's
+# in-progress bullet omits the SNET; that bullet is what was wrong (its 2026-11-01 status
+# note). The library README, the published conventions and the reference oracle all say
+# the SNET holds every task, and the Gantt commits a drag of an in-progress bar as
+# ``planned_start``, so dropping this floor would make every such drop snap back.
+# Shared with the Rust engine as ``fixtures/progress_started_snet_resume.json``.
+
+_SNET = date(2026, 3, 16)
+_DATA_DATE = date(2026, 3, 4)
+
+
+def _snet_project(*, snet: date | None, actual: date | None) -> Project:
+    a = Task(
+        id="A",
+        name="A",
+        duration=timedelta(days=10),
+        percent_complete=20.0,
+        actual_start=actual,
+        planned_start=snet,
+    )
+    b = Task(id="B", name="B", duration=timedelta(days=3))
+    return Project(
+        id="p",
+        name="p",
+        start_date=START,
+        tasks=[a, b],
+        dependencies=[Dependency("A", "B", DependencyType.FS, timedelta(0))],
+        calendar=Calendar(working_days=WEEKDAYS),
+        status_date=_DATA_DATE,
+    )
+
+
+def _dates(project: Project) -> dict[str, tuple[date | None, date | None, date | None]]:
+    return {
+        t.id: (t.early_start, t.early_finish, t.scheduled_start) for t in schedule(project).tasks
+    }
+
+
+def test_snet_after_data_date_floors_started_work_and_keeps_its_span_start() -> None:
+    """Started 03-02, 8 of 10 days left, data date 03-04, SNET Mon 03-16.
+
+    Without the SNET the remaining work runs 03-04..03-13 and B starts 03-16. With it
+    the remaining work resumes on the SNET (03-16..03-25), B follows on 03-26, and A's
+    span still starts where the work actually started.
+    """
+    free = _dates(_snet_project(snet=None, actual=START))
+    assert free["A"] == (date(2026, 3, 4), date(2026, 3, 13), START)
+    assert free["B"][0] == date(2026, 3, 16)
+
+    held = _dates(_snet_project(snet=_SNET, actual=START))
+    assert held["A"] == (_SNET, date(2026, 3, 25), START)
+    assert held["B"][0] == date(2026, 3, 26)
+
+    project = _snet_project(snet=_SNET, actual=START)
+    d = derive_value(project, "A", Quantity.EARLY_START)
+    binding = [c.kind for c in d.contributions if c.is_binding]
+    assert binding == ["planned_start_snet"]
+
+
+def test_snet_at_or_before_data_date_moves_no_started_work() -> None:
+    """An SNET the data date already passed holds nothing: the data date floors first."""
+    baseline = _dates(_snet_project(snet=None, actual=START))
+    for snet in (date(2026, 3, 3), _DATA_DATE):
+        assert _dates(_snet_project(snet=snet, actual=START)) == baseline
+
+
+def test_snet_floors_percent_only_progress_the_same_way() -> None:
+    """Progress with no recorded start takes the same floor.
+
+    Its span start is derived — the full 10 days backed off the forecast finish
+    (ADR-0752) — so it moves with the remaining work: Thu 03-12, not 03-02.
+    """
+    held = _dates(_snet_project(snet=_SNET, actual=None))
+    assert held["A"] == (_SNET, date(2026, 3, 25), date(2026, 3, 12))
+    assert held["B"][0] == date(2026, 3, 26)
+
+
+def test_snet_floor_on_started_work_holds_in_monte_carlo() -> None:
+    """With no duration spread, every Monte Carlo run lands on ``schedule()``'s finish."""
+    project = _snet_project(snet=_SNET, actual=START)
+    finish = schedule(project).project_finish
+    result = monte_carlo(project, runs=50, seed=4527)
+    assert result.p50 == result.p95 == finish
