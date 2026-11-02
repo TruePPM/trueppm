@@ -25,6 +25,7 @@ completion route, which then calls the existing ``/auth/token/refresh/``.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from django.conf import settings
@@ -531,8 +532,10 @@ def _record_provider_audit(
 ) -> None:
     """Write one SSO provider audit row (#3552, ADR-1120).
 
-    Called only on paths that have already succeeded. That is the whole reason this
-    feature never meets the ``set_rollback`` trap of ADR-0902: under ``ATOMIC_REQUESTS``
+    Called only on paths that have already succeeded (a Test connection probe counts: a
+    failed probe still answers 200 with ``ok: false``, so its row persists). That is the
+    whole reason this feature never meets the ``set_rollback`` trap of ADR-0902: under
+    ``ATOMIC_REQUESTS``
     DRF's exception handler rolls back for *every* ``APIException``, so a row written on a
     400/403/409 path is issued and silently discarded. Here a refusal simply writes
     nothing, which is also the correct record — nothing changed.
@@ -554,6 +557,42 @@ def _record_provider_audit(
         target_id=policy.pk,
         target_label=slug,
         metadata={**metadata, "actor_kind": _actor_kind(request)},
+    )
+
+
+_PROBE_CODE_RE = re.compile(r"^[a-z0-9_]{1,40}$")
+
+
+def _probe_code(value: object) -> str | None:
+    """Admit a probe's ``error`` / ``reason`` only if it is a short machine code.
+
+    The probe result also carries ``detail`` (``str(exc)`` — upstream prose that can quote a
+    URL, query string or response body) and ``issuer``. Those are never copied into the
+    audit row. The codes come from fixed taxonomies, but the shape check means a future
+    code path that put prose in ``error`` degrades to ``"unknown"`` rather than leaking.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and _PROBE_CODE_RE.match(value):
+        return value
+    return "unknown"
+
+
+def _record_test_connection_audit(
+    request: Request, policy: SsoProviderPolicy, slug: str, result: dict[str, Any]
+) -> None:
+    """Record one Test connection attempt: actor, ok/failed, and the failure code only."""
+    ok = result.get("ok") is True
+    _record_provider_audit(
+        request,
+        event_type=AuditEventType.SSO_PROVIDER_TEST_CONNECTION,
+        policy=policy,
+        slug=slug,
+        metadata={
+            "result": "ok" if ok else "failed",
+            "error": None if ok else _probe_code(result.get("error")),
+            "reason": None if ok else _probe_code(result.get("reason")),
+        },
     )
 
 
@@ -900,7 +939,7 @@ class SsoTestConnectionView(IdempotencyMixin, APIView):
     """``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.
 
     Session/JWT only, like the rest of the admin surface (#3551 — see the section
-    comment above). Included even though the probe mutates nothing: it is server-side
+    comment above). Included even though the probe mutates no configuration: it is server-side
     egress an admin's leaked token could aim at an arbitrary configured issuer, and
     leaving one method of the surface token-reachable is how a guard erodes.
     """
@@ -912,7 +951,7 @@ class SsoTestConnectionView(IdempotencyMixin, APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "sso_test_connection"
     # Exempt from the generic Idempotency-Key path (ADR-0170): a read-only
-    # reachability probe that mutates nothing.
+    # reachability probe that mutates no configuration (it writes only its audit row).
     idempotency_exempt = True
 
     @extend_schema(
@@ -930,6 +969,12 @@ class SsoTestConnectionView(IdempotencyMixin, APIView):
 
         ctx = ProviderContext(social_app=policy.social_app, policy=policy)
         if not ctx.is_github and not ctx.issuer:
+            # A probe attempt that never leaves the process is still an attempt, and the
+            # response is a 200, so the row persists (a 4xx would be rolled back).
+            _record_test_connection_audit(
+                request, policy, slug, {"ok": False, "error": "no_issuer"}
+            )
             return Response({"ok": False, "error": "no_issuer"})
         result = services.check_provider_reachability(ctx)
+        _record_test_connection_audit(request, policy, slug, result)
         return Response(SsoTestConnectionResponseSerializer(result).data)

@@ -51909,7 +51909,7 @@
         "/api/v1/workspace/sso/providers/{slug}/test-connection/": {
             "post": {
                 "operationId": "v1_workspace_sso_providers_test_connection_create",
-                "description": "``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.\n\nSession/JWT only, like the rest of the admin surface (#3551 — see the section\ncomment above). Included even though the probe mutates nothing: it is server-side\negress an admin's leaked token could aim at an arbitrary configured issuer, and\nleaving one method of the surface token-reachable is how a guard erodes.",
+                "description": "``POST /workspace/sso/providers/{slug}/test-connection/`` — probe reachability.\n\nSession/JWT only, like the rest of the admin surface (#3551 — see the section\ncomment above). Included even though the probe mutates no configuration: it is server-side\negress an admin's leaked token could aim at an arbitrary configured issuer, and\nleaving one method of the surface token-reachable is how a guard erodes.",
                 "summary": "Test a provider's discovery/JWKS (OIDC) or API (GitHub) reachability",
                 "parameters": [
                     {

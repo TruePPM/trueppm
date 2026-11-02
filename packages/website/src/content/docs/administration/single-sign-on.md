@@ -394,7 +394,9 @@ every existing sign-in would silently stop working).
   after for each field that actually changed** — the allowed email domains, auto-create
   setting, default role, enabled state, issuer URL, GitHub org, OAuth client id, and
   display name. The client secret never appears in any of them, in any form: a rotation
-  records only that it happened. A save that changes nothing writes nothing.
+  records only that it happened. A save that changes nothing writes nothing. From 0.5, each
+  **Test connection** attempt also writes a row, passed or failed, recording who ran it,
+  the result, and the failure code (never the upstream error text); 0.4 records none.
 - Rows also record whether the change came from a browser session or from a Personal
   Access Token (`actor_kind`), so a scripted change is not indistinguishable from an
   admin sitting at the page.

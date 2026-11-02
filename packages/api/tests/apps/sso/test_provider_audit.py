@@ -668,3 +668,123 @@ def test_a_token_authenticated_write_is_recorded_as_such(
     assert _actor_kind(req) == "session"  # type: ignore[arg-type]
     req.auth = ApiToken()
     assert _actor_kind(req) == "token"  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Test connection probe
+# ---------------------------------------------------------------------------
+
+TEST_CONN = DETAIL + "test-connection/"
+
+
+def _probe_returning(monkeypatch: pytest.MonkeyPatch, result: dict[str, Any]) -> None:
+    monkeypatch.setattr(services, "check_provider_reachability", lambda ctx: result)
+
+
+@pytest.mark.django_db
+def test_a_successful_probe_writes_a_row_naming_the_admin(
+    admin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _create(admin)
+    _probe_returning(monkeypatch, {"ok": True, "issuer": ISSUER, "endpoints": {}})
+
+    assert client.post(TEST_CONN, {}, format="json").status_code == 200
+
+    (row,) = _rows(AuditEventType.SSO_PROVIDER_TEST_CONNECTION)
+    assert row.actor_id == admin.pk
+    assert row.target_label == "generic"
+    assert row.metadata["result"] == "ok"
+    assert row.metadata["error"] is None
+    assert row.metadata["actor_kind"] == "session"
+
+
+@pytest.mark.django_db
+def test_a_failed_probe_still_writes_a_row_with_only_the_error_code(
+    admin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _create(admin)
+    _probe_returning(
+        monkeypatch,
+        {
+            "ok": False,
+            "issuer": ISSUER,
+            "error": "jwks_unreachable",
+            "reason": "egress_blocked",
+            "detail": "GET https://idp.example/.well-known?access_token=hunter2 refused",
+        },
+    )
+
+    resp = client.post(TEST_CONN, {}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["ok"] is False
+
+    (row,) = _rows(AuditEventType.SSO_PROVIDER_TEST_CONNECTION)
+    assert row.metadata["result"] == "failed"
+    assert row.metadata["error"] == "jwks_unreachable"
+    assert row.metadata["reason"] == "egress_blocked"
+    dumped = str(row.metadata) + str(row.target_label)
+    assert "hunter2" not in dumped
+    assert "access_token" not in dumped
+    assert _SECRET not in dumped
+
+
+@pytest.mark.django_db
+def test_a_prose_error_code_is_not_copied_into_the_row(
+    admin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _create(admin)
+    _probe_returning(monkeypatch, {"ok": False, "error": "failed at https://x/?token=abc"})
+    client.post(TEST_CONN, {}, format="json")
+
+    (row,) = _rows(AuditEventType.SSO_PROVIDER_TEST_CONNECTION)
+    assert row.metadata["error"] == "unknown"
+    assert "abc" not in str(row.metadata)
+
+
+@pytest.mark.django_db
+def test_a_probe_with_no_issuer_is_recorded_as_a_failed_attempt(admin: Any) -> None:
+    client = _create(admin)
+    SocialApp.objects.filter(provider_id="generic").update(settings={})
+
+    resp = client.post(TEST_CONN, {}, format="json")
+    assert resp.status_code == 200
+    assert resp.data == {"ok": False, "error": "no_issuer"}
+
+    (row,) = _rows(AuditEventType.SSO_PROVIDER_TEST_CONNECTION)
+    assert row.metadata["result"] == "failed"
+    assert row.metadata["error"] == "no_issuer"
+
+
+@pytest.mark.django_db
+def test_a_probe_of_an_unknown_provider_writes_no_row(admin: Any) -> None:
+    assert api_client(admin).post(TEST_CONN, {}, format="json").status_code == 404
+    assert _rows(AuditEventType.SSO_PROVIDER_TEST_CONNECTION) == []
+
+
+@pytest.mark.django_db
+def test_a_refused_probe_writes_no_row(admin: Any, member: Any) -> None:
+    _create(admin)
+    assert api_client(member).post(TEST_CONN, {}, format="json").status_code == 403
+    assert _rows(AuditEventType.SSO_PROVIDER_TEST_CONNECTION) == []
+
+
+@pytest.mark.django_db
+def test_probe_rows_are_listed_and_filterable_beside_config_change_rows(
+    admin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The audit trail endpoint accepts the new type and returns it with SSO config events."""
+    client = _create(admin)
+    _probe_returning(monkeypatch, {"ok": True, "issuer": ISSUER, "endpoints": {}})
+    client.post(TEST_CONN, {}, format="json")
+
+    audit = "/api/v1/workspace/audit-events/"
+    filtered = client.get(audit, {"event_type": "sso_provider_test_connection"})
+    assert filtered.status_code == 200, filtered.data
+    rows = filtered.data["results"]
+    assert [r["event_type"] for r in rows] == ["sso_provider_test_connection"]
+    assert rows[0]["metadata"]["result"] == "ok"
+
+    everything = client.get(audit)
+    assert everything.status_code == 200
+    kinds = {r["event_type"] for r in everything.data["results"]}
+    assert {"sso_provider_created", "sso_provider_test_connection"} <= kinds
