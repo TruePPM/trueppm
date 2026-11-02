@@ -5482,21 +5482,29 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     the engine expresses an open task with nothing left to do. No duration above zero
     can say it, because the integer rule always leaves a day below 100%. Everything
     else stays as recorded: the percentage and ``actual_start`` describe work the
-    what-if did not change, and a zero-duration task reads neither for layout.
+    what-if did not change. Layout no longer reads the percentage at zero duration, but
+    ``actual_start`` still floors the task, which can limit how far the finish moves.
 
     The task stays open rather than becoming complete because a completed task is
     pinned at its actuals and stops reading its predecessors. That would be a statement
     about history the what-if has no evidence for, and it would cut the task's
     predecessors off from its successors: they would leave the critical path and their
     risk would drop out of the Monte Carlo bands, moving the forecast far more than the
-    pull-in asked for. Open, the task still sits behind its predecessors, so the finish
-    moves by the remaining days and nothing else changes.
+    pull-in asked for. Open, the task still sits behind its predecessors, so with no
+    lag and no other floor, finish-to-start and finish-to-finish links out of it move
+    the finish by the remaining days. Two shapes do not get that result yet; see the
+    comments on the return below.
     """
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
     elapsed = int(duration_days * pct / 100.0)
     remaining = duration_days - elapsed + delta_days
     if remaining <= 0:
+        # TODO(#4819): SS and SF links out of a zero-duration task stop reading the
+        # recorded start, so a bigger pull-in can finish later than a smaller one.
+        # TODO(#4820): on a velocity-sampled task the caller converts the elapsed days to
+        # points, and whole-sprint rounding can then move a band backward as the pull-in
+        # grows, or later than the unperturbed forecast.
         return replace(task, duration=timedelta(0))
     new_days = elapsed + remaining
     if int(new_days * pct / 100.0) != elapsed:

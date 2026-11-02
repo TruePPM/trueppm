@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, timedelta
+from itertools import pairwise
 
 import pytest
 
@@ -25,6 +26,7 @@ from trueppm_scheduler import (
     Calendar,
     DeliveryMode,
     Dependency,
+    DependencyType,
     InvalidScheduleInput,
     Project,
     Task,
@@ -898,26 +900,76 @@ def test_the_last_day_of_a_pull_in_moves_a_risky_tasks_bands_by_one_day() -> Non
         assert _working_day_shift(getattr(before, band), getattr(after, band)) == -1, band
 
 
-def test_a_velocity_task_absorbs_its_elapsed_days_at_the_teams_pace() -> None:
-    """The velocity branch has the same subtraction: 10d at 40% has 4 elapsed days, so a
-    6-day pull-in is 10 days of points at 2 per day. The bands stay quantized to whole
-    sprints, so this pins the input and only the direction of the movement."""
-    baseline = replace(
+def _velocity_chain(duration_days: int, pct: float, points: float) -> Project:
+    return replace(
         _milestone_chain(
-            10, percent_complete=40.0, delivery_mode=DeliveryMode.SCRUM, story_points=40.0
+            duration_days,
+            percent_complete=pct,
+            delivery_mode=DeliveryMode.SCRUM,
+            story_points=points,
         ),
         velocity_samples=VELOCITY_SAMPLES,
         sprint_length_days=SPRINT_LENGTH_DAYS,
     )
-    perturbed = perturb_task_duration(baseline, "M", -6)
 
-    assert _milestone_of(perturbed).story_points == pytest.approx(20.0)
-    assert _milestone_of(perturbed).actual_finish is None
-    base = monte_carlo(baseline, runs=RUNS, seed=SEED)
-    moved = monte_carlo(perturbed, runs=RUNS, seed=SEED)
-    assert moved.p50 <= base.p50
-    assert moved.p80 <= base.p80
-    assert moved.p95 <= base.p95
+
+def test_an_exhausted_velocity_task_converts_its_elapsed_days_to_points() -> None:
+    """The input only: 10d at 40% has 4 elapsed days, so a 6-day pull-in is 10 days of
+    points at 2 per day. Where the bands land is a separate question."""
+    perturbed = perturb_task_duration(_velocity_chain(10, 40.0, 40.0), "M", -6)
+    target = _milestone_of(perturbed)
+
+    assert target.story_points == pytest.approx(20.0)
+    assert target.duration == timedelta(0)
+    assert target.actual_finish is None
+
+
+@pytest.mark.xfail(strict=True, reason="#4820")
+@pytest.mark.parametrize(
+    ("duration_days", "pct", "points"),
+    [
+        pytest.param(10, 40.0, 40.0, id="10d@40-steps-backward"),
+        pytest.param(5, 40.0, 30.0, id="5d@40-later-than-current"),
+        pytest.param(3, 34.0, 20.0, id="3d@34-later-than-current"),
+    ],
+)
+def test_a_growing_pull_in_never_moves_a_velocity_band_later(
+    duration_days: int, pct: float, points: float
+) -> None:
+    """The correct behavior, not the current one: from the unperturbed forecast onward,
+    each bigger pull-in leaves every band where it was or earlier."""
+    baseline = _velocity_chain(duration_days, pct, points)
+    forecasts = [monte_carlo(baseline, runs=RUNS, seed=SEED)] + [
+        monte_carlo(perturb_task_duration(baseline, "M", delta), runs=RUNS, seed=SEED)
+        for delta in (-1, -2, -3, -4, -5, -6, -9)
+    ]
+    for smaller, bigger in pairwise(forecasts):
+        assert bigger.p50 <= smaller.p50
+        assert bigger.p80 <= smaller.p80
+        assert bigger.p95 <= smaller.p95
+
+
+def test_past_exhaustion_cpm_stops_moving_while_a_risky_tasks_bands_do_not_get_later() -> None:
+    """Remaining work has a floor and an estimate's upper leg does not reach it as soon:
+    the CPM finish clamps at the remaining days, and the bands may keep tightening."""
+    baseline = _milestone_chain(
+        5,
+        actual_start=_STARTED,
+        percent_complete=40.0,
+        optimistic_duration=timedelta(days=5),
+        most_likely_duration=timedelta(days=5),
+        pessimistic_duration=timedelta(days=11),
+    )
+    exhausted = perturb_task_duration(baseline, "M", -3)
+    further = perturb_task_duration(baseline, "M", -9)
+
+    assert schedule(further).project_finish == schedule(exhausted).project_finish
+    at_exhaustion = monte_carlo(exhausted, runs=RUNS, seed=SEED)
+    past_exhaustion = monte_carlo(further, runs=RUNS, seed=SEED)
+    assert past_exhaustion.p50 <= at_exhaustion.p50
+    assert past_exhaustion.p80 <= at_exhaustion.p80
+    assert past_exhaustion.p95 <= at_exhaustion.p95
+    assert past_exhaustion.p95 < at_exhaustion.p95
 
 
 @pytest.mark.parametrize(
@@ -954,3 +1006,97 @@ def test_a_pull_in_to_nothing_then_a_slip_restores_the_remaining_work() -> None:
 
     assert _milestone_of(back).duration == timedelta(days=3)
     assert schedule(back).project_finish == schedule(baseline).project_finish
+
+
+# ---------------------------------------------------------------------------
+# Link types other than finish-to-start
+# ---------------------------------------------------------------------------
+
+
+def _chain_with_link_out(
+    link: DependencyType,
+    lag_days: int = 0,
+    duration_days: int = 5,
+    status_date: date | None = _DATA_DATE,
+    **fields: object,
+) -> Project:
+    """The same chain with the link from M to S replaced."""
+    baseline = _milestone_chain(duration_days, status_date, **fields)
+    return replace(
+        baseline,
+        dependencies=[
+            Dependency("P", "M"),
+            Dependency("M", "S", link, timedelta(days=lag_days)),
+        ],
+    )
+
+
+_EXHAUSTIBLE_FIELDS = [
+    pytest.param({"percent_complete": 40.0, "actual_start": _STARTED}, id="40-started"),
+    pytest.param({"percent_complete": 40.0}, id="40"),
+    pytest.param({"percent_complete": 10.0}, id="10-zero-elapsed"),
+    pytest.param({"actual_start": _STARTED}, id="no-percentage-started"),
+    pytest.param({}, id="not-started"),
+]
+
+
+@pytest.mark.parametrize("fields", _EXHAUSTIBLE_FIELDS)
+@pytest.mark.parametrize("delta", [-1, -2, -3, -4, -5, -9])
+def test_a_pull_in_across_a_finish_to_finish_link_moves_the_finish_by_the_days_consumed(
+    delta: int, fields: dict[str, object]
+) -> None:
+    """An FF link reads the finish, which zero duration still expresses, so the shift is
+    the days consumed on either side of exhaustion, and P still reaches S."""
+    baseline = _chain_with_link_out(DependencyType.FF, **fields)
+    remaining = _remaining_days(_milestone_of(baseline))
+    base = schedule(baseline).project_finish
+    perturbed = perturb_task_duration(baseline, "M", delta)
+    moved = schedule(perturbed).project_finish
+
+    assert _working_day_shift(base, moved) == -min(remaining, -delta)
+    assert _milestone_of(perturbed).actual_finish is None
+    slipped = schedule(perturb_task_duration(perturbed, "P", 10)).project_finish
+    assert _working_day_shift(moved, slipped) == 10
+
+
+@pytest.mark.parametrize("fields", _EXHAUSTIBLE_FIELDS)
+def test_without_a_data_date_a_recorded_start_can_hold_an_ff_pull_in_back(
+    fields: dict[str, object],
+) -> None:
+    """With no data date the remaining work can begin at ``actual_start``, and the task
+    is still floored there at zero duration, so the finish may move less than the days
+    pulled in. It never moves later, and never before the recorded start."""
+    baseline = _chain_with_link_out(DependencyType.FF, status_date=None, **fields)
+    finishes = [schedule(baseline).project_finish] + [
+        schedule(perturb_task_duration(baseline, "M", delta)).project_finish
+        for delta in (-1, -2, -3, -4, -5, -9)
+    ]
+    for smaller, bigger in pairwise(finishes):
+        assert bigger <= smaller
+    recorded_start = fields.get("actual_start")
+    if isinstance(recorded_start, date):
+        assert finishes[-1] >= recorded_start
+
+
+@pytest.mark.xfail(strict=True, reason="#4819")
+@pytest.mark.parametrize(
+    ("lag_days", "status_date", "fields"),
+    [
+        pytest.param(0, _DATA_DATE, {"percent_complete": 40.0, "actual_start": _STARTED}, id="ss0"),
+        pytest.param(0, _DATA_DATE, {"percent_complete": 40.0}, id="ss0-no-recorded-start"),
+        pytest.param(2, _DATA_DATE, {"percent_complete": 40.0, "actual_start": _STARTED}, id="ss2"),
+        pytest.param(0, _DATA_DATE, {"actual_start": _STARTED}, id="ss0-no-percentage"),
+    ],
+)
+def test_a_growing_pull_in_across_a_start_to_start_link_never_finishes_later(
+    lag_days: int, status_date: date | None, fields: dict[str, object]
+) -> None:
+    """The correct behavior, not the current one: removing more work from M cannot move
+    the finish later. At zero duration the link stops reading the recorded start."""
+    baseline = _chain_with_link_out(DependencyType.SS, lag_days, 5, status_date, **fields)
+    finishes = [schedule(baseline).project_finish] + [
+        schedule(perturb_task_duration(baseline, "M", delta)).project_finish
+        for delta in (-1, -2, -3, -4, -5, -9)
+    ]
+    for smaller, bigger in pairwise(finishes):
+        assert bigger <= smaller

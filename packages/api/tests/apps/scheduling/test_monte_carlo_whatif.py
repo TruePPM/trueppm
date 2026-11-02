@@ -354,6 +354,30 @@ class TestWhatIfMovesCpmAndBandsTogether:
         assert task.actual_finish is None
         assert task.percent_complete == 50
 
+    @pytest.mark.parametrize(
+        ("delta", "expected"),
+        [(2, 7), (-1, 4), (-2, 3), (-3, 0), (-4, 0), (-9, 0)],
+        ids=["slip", "pull-in", "one-day-left", "exhausted", "past-exhausted", "far-past"],
+    )
+    def test_applied_reports_the_duration_the_forecast_used(
+        self, member_client: APIClient, project: Project, delta: int, expected: int
+    ) -> None:
+        """5d at 40% has 2 elapsed and 3 remaining days. ``base + delta`` read 2 and 1 at
+        -3 and -4, describing a duration the engine never simulated."""
+        task = Task.objects.create(project=project, name="Task", duration=5, percent_complete=40)
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(task.pk), "duration_delta": delta, "n_simulations": 100},
+        )
+
+        assert r.status_code == 200, r.data
+        assert r.data["applied"] == {
+            "base_duration_days": 5,
+            "duration_delta_days": delta,
+            "new_duration_days": expected,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Non-mutation guarantee
