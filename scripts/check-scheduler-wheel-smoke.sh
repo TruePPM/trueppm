@@ -37,6 +37,55 @@ SMOKE_TESTS="test_public_surface.py test_engine.py"
 # Test dependencies the smoke subset + conftest import. Specifiers come from the wheel.
 SMOKE_DEPS="pytest hypothesis"
 
+# The one location assertion: pre-flight, the pytest plugin and --self-test all use it.
+write_location_check() { # write_location_check <dir>
+  cat > "$1/smoke_location.py" <<'PY'
+"""Fail unless a module file lives inside the given site-packages directory."""
+import sys
+from pathlib import Path
+
+
+def assert_installed(module_file, purelib):
+    f, site = Path(module_file).resolve(), Path(purelib).resolve()
+    if site not in f.parents:
+        raise SystemExit(f"trueppm_scheduler imported from {f}, not site-packages {site}")
+    return f
+
+
+if __name__ == "__main__":
+    if sys.argv[1:2] == ["--check"]:  # --check <module file> <purelib>
+        assert_installed(*sys.argv[2:4])
+    else:
+        import sysconfig
+
+        import trueppm_scheduler
+
+        f = assert_installed(trueppm_scheduler.__file__, sysconfig.get_paths()["purelib"])
+        print("trueppm_scheduler.__file__ =", f)
+PY
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  st="$(mktemp -d)"; trap 'rm -rf "$st"' EXIT
+  write_location_check "$st"
+  rc=0
+  expect() { # expect <0|1> <name> <command...>
+    local want="$1" name="$2" got=0; shift 2
+    "$@" >/dev/null 2>&1 || got=1
+    if [ "$got" -eq "$want" ]; then echo "ok   $name"; else echo "FAIL $name"; rc=1; fi
+  }
+  expect 0 "module inside site-packages passes" \
+    python3 -I "$st/smoke_location.py" --check /v/lib/site-packages/trueppm_scheduler/__init__.py /v/lib/site-packages
+  expect 1 "module from a source tree is rejected" \
+    python3 -I "$st/smoke_location.py" --check /repo/packages/scheduler/src/trueppm_scheduler/__init__.py /v/lib/site-packages
+  expect 1 "module from a different venv is rejected" \
+    python3 -I "$st/smoke_location.py" --check /other/lib/site-packages/trueppm_scheduler/__init__.py /v/lib/site-packages
+  expect 1 "no wheel argument is a usage error" bash "${BASH_SOURCE[0]}"
+  expect 1 "a missing wheel is a usage error" bash "${BASH_SOURCE[0]}" /nonexistent.whl
+  [ "$rc" -eq 0 ] && echo "SELF-TEST OK: check-scheduler-wheel-smoke.sh rejects shadowed imports and bad usage."
+  exit "$rc"
+fi
+
 negative=0
 if [ "${1:-}" = "--negative-control" ]; then negative=1; shift; fi
 wheel="${1:-}"
@@ -91,34 +140,29 @@ PY
   find "$root" -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 
   mkdir -p "$guard"
+  write_location_check "$guard"
   cat > "$guard/smoke_guard.py" <<'PY'
 """pytest plugin: fail the run unless trueppm_scheduler came from site-packages."""
 import sys
 import sysconfig
-from pathlib import Path
+
+import smoke_location
+import trueppm_scheduler
 
 
 def pytest_configure(config):
-    import trueppm_scheduler
-
-    f = Path(trueppm_scheduler.__file__).resolve()
-    site = Path(sysconfig.get_paths()["purelib"]).resolve()
-    if site not in f.parents:
-        raise SystemExit(f"trueppm_scheduler imported from {f}, not site-packages {site}")
+    f = smoke_location.assert_installed(
+        trueppm_scheduler.__file__, sysconfig.get_paths()["purelib"]
+    )
     print(f"smoke_guard: trueppm_scheduler -> {f}", file=sys.stderr)
 PY
 
   local py="$venv/bin/python" tests=() t
-  # Pre-flight in isolated mode from a neutral cwd: prints where the package lives.
-  (cd "$root" && "$py" -I -c '
-import sys, sysconfig
-from pathlib import Path
-import trueppm_scheduler as m
-f = Path(m.__file__).resolve(); site = Path(sysconfig.get_paths()["purelib"]).resolve()
-print("trueppm_scheduler.__file__ =", f)
-assert site in f.parents, f"not in site-packages {site}"
-assert not any(Path(p).resolve() == Path(sys.argv[1]).resolve() for p in sys.path if p), "src on sys.path"
-' "$PKG/src") || return 1
+  # Pre-flight in isolated mode (-I: no PYTHONPATH, no cwd) from the throwaway root.
+  (cd "$root" && "$py" -I "$guard/smoke_location.py") || return 1
+  # And src/ must not be reachable from the interpreter pytest will use.
+  if PYTHONPATH="$guard" "$py" -c 'import sys; sys.exit(any(p.endswith("packages/scheduler/src") for p in sys.path))'; then :; else
+    echo "source tree on sys.path" >&2; return 1; fi
   for t in $SMOKE_TESTS; do tests+=("tests/$t"); done
   (cd "$root" && env -u PYTHONPATH PYTHONNOUSERSITE=1 PYTHONPATH="$guard" \
     "$py" -m pytest -p smoke_guard -p no:cacheprovider "${tests[@]}")

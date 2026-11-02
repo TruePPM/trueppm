@@ -3988,6 +3988,7 @@ scheduler:sdist-check:
     - pip install uv==0.9.5 --quiet
   script:
     - bash scripts/check-scheduler-sdist.sh --self-test
+    - bash scripts/check-scheduler-wheel-smoke.sh --self-test
     - bash scripts/check-scheduler-sdist.sh
 
 mcp:uv-lock-check:
@@ -7134,6 +7135,7 @@ scheduler:build:
     # pipeline before publish starts (before any upload), and publish stays the
     # only job holding id_tokens while running nothing but hash-pinned tools.
     # This job holds none, so installing pytest/hypothesis here mints nothing.
+    - bash "$CI_PROJECT_DIR/scripts/check-scheduler-wheel-smoke.sh" --self-test
     - bash "$CI_PROJECT_DIR/scripts/check-scheduler-wheel-smoke.sh" dist/*.whl
     # Generate + validate the CycloneDX SBOM BEFORE uploading (#936). Ordering
     # matters: never let twine succeed (the release goes live) and then fail the
