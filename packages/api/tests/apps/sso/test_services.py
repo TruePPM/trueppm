@@ -190,6 +190,46 @@ def test_consume_state_is_single_use(
         services.consume_state(result.state)
 
 
+@pytest.mark.django_db
+def test_consume_state_concurrent_consumers_exactly_one_wins(
+    provider_ctx: services.ProviderContext,
+    fake_discovery: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Interleave a second consumer between the first one's read and its delete.
+
+    Reproduces the get-then-delete window deterministically: consumer A has read
+    the value, consumer B then runs to completion, and only then does A delete.
+    Exactly one of them may be handed the state.
+    """
+    result = services.start_login(provider_ctx, redirect_uri="https://app/cb/")
+    real_get = services.cache.get
+    outcomes: list[str] = []
+    interleaved = False
+
+    def get_then_race(key: str, *args: Any, **kwargs: Any) -> Any:
+        nonlocal interleaved
+        value = real_get(key, *args, **kwargs)
+        if not interleaved:
+            interleaved = True
+            try:
+                services.consume_state(result.state)
+                outcomes.append("b-won")
+            except services.OIDCStateError:
+                outcomes.append("b-rejected")
+        return value
+
+    monkeypatch.setattr(services.cache, "get", get_then_race)
+    try:
+        services.consume_state(result.state)
+        outcomes.append("a-won")
+    except services.OIDCStateError:
+        outcomes.append("a-rejected")
+
+    assert sorted(o for o in outcomes if o.endswith("won")) == ["b-won"]
+    assert "a-rejected" in outcomes
+
+
 def test_consume_state_missing_raises() -> None:
     with pytest.raises(services.OIDCStateError):
         services.consume_state("does-not-exist")

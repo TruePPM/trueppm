@@ -483,7 +483,7 @@ def start_login(ctx: ProviderContext, *, redirect_uri: str) -> LoginRedirect:
 
 
 def consume_state(state: str) -> dict[str, Any]:
-    """Pop the stored login state (single-use; deleted on read).
+    """Pop the stored login state (single-use; the delete is the arbiter).
 
     Returns the stored ``{slug, redirect_uri, ...}``. A missing / expired /
     already-consumed state raises :class:`OIDCStateError` — the callback fails
@@ -493,11 +493,15 @@ def consume_state(state: str) -> dict[str, Any]:
         raise OIDCStateError("missing state")
     key = _STATE_KEY_PREFIX + state
     data = cache.get(key)
-    # Delete before doing anything else, so even concurrent callbacks race to a
-    # single winner (the small get/delete TOCTOU window is acceptable — the token
-    # endpoint also rejects a re-used authorization code).
-    cache.delete(key)
-    if not isinstance(data, dict):
+    # A get followed by an unconditional delete lets two concurrent callbacks both
+    # read the value before either delete lands, so both would proceed. Instead the
+    # delete's return value decides: Django's cache backends return True only for
+    # the caller that actually removed the key (Redis ``DEL`` returns the removed
+    # count; LocMem returns whether the key existed), so exactly one caller wins and
+    # every other one fails closed. This does not lean on the IdP rejecting a
+    # replayed authorization code.
+    deleted = cache.delete(key)
+    if not deleted or not isinstance(data, dict):
         raise OIDCStateError("unknown or expired state")
     return data
 
