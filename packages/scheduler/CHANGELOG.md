@@ -16,7 +16,30 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`perturb_task_duration` no longer completes a task, and its results change.**
+  A pull-in that used up a task's remaining work set `actual_finish` and
+  `percent_complete=100` and could move `actual_start`, which cut the task off
+  from its predecessors: the critical path fell to its successors, and the Monte
+  Carlo bands could move further than the pull-in (P80 by 4 working days on a
+  1-day pull-in) because the predecessors' risk dropped out. A zero or negative
+  delta on a started milestone did the same. The task now stays open at zero
+  duration with `percent_complete`, `actual_start` and `actual_finish` as they
+  were. With no lag on finish-to-start or finish-to-finish links out of it, the
+  CPM finish moves by the days pulled in. Its three-point estimate and story
+  points are also lowered by its elapsed days, which Monte Carlo stops
+  subtracting at zero duration. This reverses the completion behavior added with
+  the #4432 fix. A zero delta now returns every task unchanged
+  ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)).
+
+  Known limits of this behavior. On start-to-start and start-to-finish links out
+  of the task, the link stops reading the recorded start at zero duration, so a
+  bigger pull-in can finish later than a smaller one, even with no lag
+  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)). On velocity-sampled
+  tasks, whole-sprint rounding of the converted points can move a band backward as
+  the pull-in grows, or later than the unperturbed forecast
+  ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)).
 
 ## [0.4.0] - 2026-10-31
 

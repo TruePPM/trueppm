@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, timedelta
+from itertools import pairwise
 
 import pytest
 
@@ -25,6 +26,7 @@ from trueppm_scheduler import (
     Calendar,
     DeliveryMode,
     Dependency,
+    DependencyType,
     InvalidScheduleInput,
     Project,
     Task,
@@ -424,10 +426,10 @@ def test_slip_and_pull_in_are_mirror_images_on_an_in_progress_critical_task(n: i
 @pytest.mark.parametrize("pct", [0.5, 10.0, 33.3, 50.0, 66.7, 99.0, 99.9])
 @pytest.mark.parametrize("delta", [-5, -1, 1, 4, 17])
 def test_elapsed_working_days_are_held_constant(duration_days: int, pct: float, delta: int) -> None:
-    """The mechanism, swept: whatever the shift, ``floor(duration * pct)`` on the
-    perturbed task equals the baseline's, and remaining work moves by exactly
-    ``delta`` (floored at zero). Float rounding in the rescaled percentage must
-    never truncate one elapsed day short."""
+    """The mechanism, swept: while any work remains, ``floor(duration * pct)`` on the
+    perturbed task equals the baseline's and remaining work moves by exactly ``delta``.
+    Float rounding in the rescaled percentage must never truncate one elapsed day
+    short. Once none remains the task is open at zero duration."""
     task = Task(id="A", name="A", duration=timedelta(days=duration_days), percent_complete=pct)
     baseline = _project(task)
     target = next(t for t in perturb_task_duration(baseline, "A", delta).tasks if t.id == "A")
@@ -435,11 +437,14 @@ def test_elapsed_working_days_are_held_constant(duration_days: int, pct: float, 
     elapsed = _elapsed_days(task)
     remaining = duration_days - elapsed
     new_remaining = max(0, remaining + delta)
-    assert target.duration == timedelta(days=elapsed + new_remaining)
     if new_remaining == 0:
-        # Every remaining day pulled in: the task is done, not in progress at 0 left.
-        assert target.percent_complete == 100.0
+        # Zero duration is how an open task says it has nothing left. Elapsed days are
+        # read off ``duration``, so they read zero here, and no recorded fact changes.
+        assert target.duration == timedelta(0)
+        assert target.percent_complete == pct
+        assert target.actual_finish is None
     else:
+        assert target.duration == timedelta(days=elapsed + new_remaining)
         assert 0 < (target.percent_complete or 0.0) < 100.0
         assert _elapsed_days(target) == elapsed
 
@@ -452,17 +457,16 @@ def test_a_zero_delta_leaves_an_in_progress_task_unchanged() -> None:
     assert target.percent_complete == 50.0
 
 
-def test_pulling_in_all_remaining_work_completes_the_task() -> None:
-    """Work already done cannot be un-done by a what-if: the duration floors at the
-    elapsed days, not at zero, and a task with nothing left is complete."""
+def test_pulling_in_all_remaining_work_leaves_the_task_open() -> None:
+    """The what-if has no evidence about history, so it records none: the task has no
+    work left, and its percentage and actual start still say what they said."""
     baseline = _in_progress_chain()
     target = next(t for t in perturb_task_duration(baseline, "A", -50).tasks if t.id == "A")
 
-    assert target.duration == timedelta(days=2)
-    assert target.percent_complete == 100.0
-    # Pinned to finish the working day before its remaining work would have started
-    # (Friday before the Monday data date), not laid out from its actual start.
-    assert target.actual_finish == date(2027, 2, 26)
+    assert target.duration == timedelta(0)
+    assert target.percent_complete == 50.0
+    assert target.actual_start == date(2027, 2, 24)
+    assert target.actual_finish is None
 
 
 # actual_start 2027-02-24 leaves 3 working days before the data date; 2027-02-26
@@ -486,10 +490,8 @@ def test_an_exhausting_pull_in_moves_the_finish_earlier_by_exactly_the_remaining
     overshoot: int,
 ) -> None:
     """Pulling in all remaining work (or more) on a critical task moves the finish
-    earlier by the remaining working days — never later. A bare 100% with no
-    ``actual_finish`` was laid out at full duration from ``actual_start`` or the
-    project start: a 10-day task at 99% pulled in by one day moved the finish
-    +5 working days with an actual start and +8 without one."""
+    earlier by the remaining working days — never later, wherever ``actual_start``
+    falls and whatever the elapsed days."""
     a = Task(
         id="A",
         name="A",
@@ -532,3 +534,569 @@ def test_in_progress_pert_bands_move_by_the_remaining_work_shift() -> None:
     p = monte_carlo(perturbed, runs=RUNS, seed=SEED)
     for band in ("p50", "p80", "p95"):
         assert _working_day_shift(getattr(b, band), getattr(p, band)) == 4, band
+
+
+# ---------------------------------------------------------------------------
+# Zero remaining work is not completion: milestones and the zero-delta identity
+# ---------------------------------------------------------------------------
+
+_STARTED = date(2027, 3, 5)
+_DATA_DATE = date(2027, 3, 8)
+
+_MILESTONE_STATES = [
+    pytest.param({}, id="not-started"),
+    pytest.param({"actual_start": _STARTED}, id="actual-start-only"),
+    pytest.param({"percent_complete": 50.0}, id="percent-only"),
+    pytest.param({"actual_start": _STARTED, "percent_complete": 50.0}, id="started-at-50"),
+]
+
+
+def _milestone_chain(
+    duration_days: int = 0,
+    status_date: date | None = _DATA_DATE,
+    **fields: object,
+) -> Project:
+    """Open predecessor -FS-> target M -FS-> successor, with M on the critical path.
+
+    The defaults make M a milestone: the baseline finish depends on M being open, so a
+    fabricated ``actual_finish`` shows up in the finish and in the critical path.
+    """
+    return Project(
+        id="p",
+        name="P",
+        start_date=date(2027, 3, 1),  # Monday
+        status_date=status_date,
+        tasks=[
+            Task(
+                id="P",
+                name="P",
+                duration=timedelta(days=5),
+                actual_start=date(2027, 3, 1),
+                percent_complete=20.0,
+            ),
+            Task(id="M", name="M", duration=timedelta(days=duration_days), **fields),  # type: ignore[arg-type]
+            Task(id="S", name="S", duration=timedelta(days=3)),
+        ],
+        dependencies=[Dependency("P", "M"), Dependency("M", "S")],
+        calendar=Calendar(),
+    )
+
+
+def _milestone_of(project: Project) -> Task:
+    return next(t for t in project.tasks if t.id == "M")
+
+
+@pytest.mark.parametrize("status_date", [_DATA_DATE, None], ids=["data-date", "no-data-date"])
+@pytest.mark.parametrize("fields", _MILESTONE_STATES)
+@pytest.mark.parametrize("delta", [0, -1, -3, -500])
+def test_a_non_positive_delta_on_a_milestone_changes_nothing(
+    delta: int, fields: dict[str, object], status_date: date | None
+) -> None:
+    """A milestone has no days a pull-in could consume, so its zero remaining work is
+    not evidence of completion. As shipped, a percentage on it took the exhausting
+    branch: ``actual_finish`` appeared, the finish moved two working days earlier, and
+    its predecessor and the milestone itself left the critical path."""
+    baseline = _milestone_chain(status_date=status_date, **fields)
+    perturbed = perturb_task_duration(baseline, "M", delta)
+
+    assert perturbed.tasks == baseline.tasks
+    base = schedule(baseline)
+    moved = schedule(perturbed)
+    assert moved.project_finish == base.project_finish
+    assert moved.critical_path == base.critical_path
+
+
+@pytest.mark.parametrize("status_date", [_DATA_DATE, None], ids=["data-date", "no-data-date"])
+@pytest.mark.parametrize("fields", _MILESTONE_STATES)
+@pytest.mark.parametrize("delta", [1, 2, 3, 7, 1000])
+def test_a_slip_on_a_started_milestone_reads_like_one_on_an_unstarted_milestone(
+    delta: int, fields: dict[str, object], status_date: date | None
+) -> None:
+    """A slip creates work and leaves the task open: nothing is completed, its recorded
+    start survives, none of the created days count as already done (a held percentage
+    would floor some of them into elapsed work), and starting the milestone has no
+    effect on how far the finish moves."""
+    baseline = _milestone_chain(status_date=status_date, **fields)
+    perturbed = perturb_task_duration(baseline, "M", delta)
+    target = _milestone_of(perturbed)
+
+    assert target.duration == timedelta(days=delta)
+    assert target.actual_finish is None
+    assert target.actual_start == fields.get("actual_start")
+    assert (target.percent_complete or 0.0) < 100.0
+    assert _elapsed_days(target) == 0
+
+    unstarted = _milestone_chain(status_date=status_date)
+    assert _working_day_shift(
+        schedule(baseline).project_finish, schedule(perturbed).project_finish
+    ) == _working_day_shift(
+        schedule(unstarted).project_finish,
+        schedule(perturb_task_duration(unstarted, "M", delta)).project_finish,
+    )
+
+
+@pytest.mark.parametrize("fields", _MILESTONE_STATES)
+@pytest.mark.parametrize("delta", [1, 3])
+def test_a_slip_on_a_critical_milestone_moves_the_finish_by_the_delta(
+    delta: int, fields: dict[str, object]
+) -> None:
+    """The promise the function exists for still holds on a milestone."""
+    baseline = _milestone_chain(**fields)
+    base = schedule(baseline)
+    assert "M" in base.critical_path
+
+    moved = schedule(perturb_task_duration(baseline, "M", delta)).project_finish
+    assert _working_day_shift(base.project_finish, moved) == delta
+
+
+@pytest.mark.parametrize("delta", [-3, 0])
+def test_monte_carlo_agrees_a_started_milestone_was_not_completed(delta: int) -> None:
+    """Both passes read the same fields, so a fabricated actual would move the bands
+    as well as the CPM finish."""
+    baseline = _milestone_chain(actual_start=_STARTED, percent_complete=50.0)
+    perturbed = perturb_task_duration(baseline, "M", delta)
+
+    base = monte_carlo(baseline, runs=50, seed=SEED)
+    moved = monte_carlo(perturbed, runs=50, seed=SEED)
+    assert (moved.p50, moved.p80, moved.p95) == (base.p50, base.p80, base.p95)
+
+
+def test_pert_legs_on_a_started_milestone_still_shift_without_completing_it() -> None:
+    """A what-if on a milestone with an estimate still reaches the input the sampler
+    reads, floored at zero, and only that input changes."""
+    baseline = _milestone_chain(
+        actual_start=_STARTED,
+        percent_complete=50.0,
+        optimistic_duration=timedelta(days=1),
+        most_likely_duration=timedelta(days=2),
+        pessimistic_duration=timedelta(days=4),
+    )
+    target = _milestone_of(perturb_task_duration(baseline, "M", -2))
+
+    assert target.duration == timedelta(0)
+    assert target.percent_complete == 50.0
+    assert target.actual_finish is None
+    assert target.optimistic_duration == timedelta(0)
+    assert target.most_likely_duration == timedelta(0)
+    assert target.pessimistic_duration == timedelta(days=2)
+
+
+@pytest.mark.parametrize("status_date", [_DATA_DATE, None], ids=["data-date", "no-data-date"])
+@pytest.mark.parametrize(
+    ("duration_days", "fields"),
+    [
+        pytest.param(0, {}, id="milestone-not-started"),
+        pytest.param(0, {"actual_start": _STARTED}, id="milestone-actual-start"),
+        pytest.param(0, {"percent_complete": 50.0}, id="milestone-percent"),
+        pytest.param(
+            0, {"actual_start": _STARTED, "percent_complete": 99.0}, id="milestone-started"
+        ),
+        pytest.param(5, {}, id="work-not-started"),
+        pytest.param(5, {"actual_start": _STARTED}, id="work-actual-start"),
+        pytest.param(5, {"percent_complete": 50.0}, id="work-percent"),
+        pytest.param(5, {"actual_start": _STARTED, "percent_complete": 50.0}, id="work-started"),
+        pytest.param(7, {"actual_start": _STARTED, "percent_complete": 33.3}, id="work-rounding"),
+        pytest.param(10, {"actual_start": _STARTED, "percent_complete": 99.9}, id="work-last-day"),
+    ],
+)
+def test_a_zero_delta_is_an_exact_identity_for_every_task_kind(
+    duration_days: int, fields: dict[str, object], status_date: date | None
+) -> None:
+    """Comparing the tasks themselves, rather than only the finish, catches a change
+    that happens not to bind on this network."""
+    baseline = _milestone_chain(duration_days, status_date, **fields)
+    perturbed = perturb_task_duration(baseline, "M", 0)
+
+    assert perturbed.tasks == baseline.tasks
+    assert schedule(perturbed).to_dict() == schedule(baseline).to_dict()
+
+
+def test_a_zero_delta_keeps_a_fractional_duration() -> None:
+    """``schedule`` refuses a sub-day duration, so this input cannot go through the
+    identity sweep above. The shift path rebuilds a duration from ``.days``, which would
+    turn 2d4h into a valid 2d and hide the bad input from the later refusal."""
+    fractional = timedelta(days=2, hours=4)
+    baseline = _milestone_chain(actual_start=_STARTED, percent_complete=50.0)
+    baseline = replace(
+        baseline,
+        tasks=[replace(t, duration=fractional) if t.id == "M" else t for t in baseline.tasks],
+    )
+    perturbed = perturb_task_duration(baseline, "M", 0)
+
+    assert perturbed.tasks == baseline.tasks
+    assert _milestone_of(perturbed).duration == fractional
+
+
+def test_a_zero_delta_still_returns_a_new_project_and_task_list() -> None:
+    baseline = _milestone_chain(actual_start=_STARTED, percent_complete=50.0)
+    perturbed = perturb_task_duration(baseline, "M", 0)
+
+    assert perturbed is not baseline
+    assert perturbed.tasks is not baseline.tasks
+    perturbed.tasks.clear()
+    assert len(baseline.tasks) == 3
+
+
+@pytest.mark.parametrize(
+    ("project", "task_id", "delta"),
+    [
+        pytest.param("not a project", "M", 0, id="project-not-a-project"),
+        pytest.param(_milestone_chain(), "nope", 0, id="unknown-task"),
+        pytest.param(_milestone_chain(), "M", False, id="delta-false"),
+        pytest.param(_milestone_chain(percent_complete=100.0), "M", 0, id="complete-percent"),
+        pytest.param(
+            _milestone_chain(actual_finish=date(2027, 3, 5)), "M", 0, id="complete-actual-finish"
+        ),
+    ],
+)
+def test_a_zero_delta_is_refused_wherever_any_other_delta_is(
+    project: object, task_id: str, delta: int
+) -> None:
+    """The zero-delta return sits after the refusals. Before them it would hand back an
+    unperturbed project for an unknown id or a completed task, which reads as a
+    zero-impact what-if."""
+    with pytest.raises(InvalidScheduleInput):
+        perturb_task_duration(project, task_id, delta)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("fields", [{}, {"actual_start": _STARTED}], ids=["unstarted", "started"])
+@pytest.mark.parametrize("delta", [-5, -9])
+def test_an_exhausting_pull_in_without_a_percentage_leaves_the_task_open(
+    delta: int, fields: dict[str, object]
+) -> None:
+    """Without a percentage the duration floors at zero the same way, so the open form
+    does not depend on whether progress was ever reported."""
+    baseline = _milestone_chain(5, **fields)
+    target = _milestone_of(perturb_task_duration(baseline, "M", delta))
+
+    assert target.duration == timedelta(0)
+    assert not target.percent_complete
+    assert target.actual_finish is None
+    assert target.actual_start == fields.get("actual_start")
+
+
+# ---------------------------------------------------------------------------
+# An exhausting pull-in behind an open predecessor stays coupled to it
+# ---------------------------------------------------------------------------
+
+_EXHAUSTING_SHAPES = [
+    pytest.param(5, {"percent_complete": 10.0}, id="5d@10-zero-elapsed"),
+    pytest.param(1, {"percent_complete": 50.0}, id="1d@50-zero-elapsed"),
+    pytest.param(
+        5, {"percent_complete": 10.0, "actual_start": _STARTED}, id="5d@10-zero-elapsed-started"
+    ),
+    pytest.param(5, {"percent_complete": 40.0}, id="5d@40-elapsed"),
+    pytest.param(5, {"percent_complete": 40.0, "actual_start": _STARTED}, id="5d@40-started"),
+    pytest.param(10, {"percent_complete": 99.0, "actual_start": _STARTED}, id="10d@99-started"),
+    pytest.param(5, {"actual_start": _STARTED}, id="5d-no-percentage-started"),
+]
+
+
+def _remaining_days(task: Task) -> int:
+    return task.duration.days - _elapsed_days(task)
+
+
+def _risky_predecessor(project: Project) -> Project:
+    """P gets a wide estimate, so its risk reaches the bands only through M."""
+    return replace(
+        project,
+        tasks=[
+            replace(
+                t,
+                optimistic_duration=timedelta(days=3),
+                most_likely_duration=timedelta(days=5),
+                pessimistic_duration=timedelta(days=25),
+            )
+            if t.id == "P"
+            else t
+            for t in project.tasks
+        ],
+    )
+
+
+@pytest.mark.parametrize("status_date", [_DATA_DATE, None], ids=["data-date", "no-data-date"])
+@pytest.mark.parametrize(("duration_days", "fields"), _EXHAUSTING_SHAPES)
+@pytest.mark.parametrize("overshoot", [0, 7])
+def test_an_exhausting_pull_in_keeps_the_task_on_its_open_predecessors_path(
+    overshoot: int, duration_days: int, fields: dict[str, object], status_date: date | None
+) -> None:
+    """Completing the task would pin it at invented actuals and detach it from P: the
+    critical path fell to S alone, and a later slip of P no longer reached S."""
+    baseline = _milestone_chain(duration_days, status_date, **fields)
+    remaining = _remaining_days(_milestone_of(baseline))
+    base = schedule(baseline)
+    perturbed = perturb_task_duration(baseline, "M", -remaining - overshoot)
+    target = _milestone_of(perturbed)
+    moved = schedule(perturbed)
+
+    assert target.duration == timedelta(0)
+    assert target.actual_finish is None
+    assert target.actual_start == fields.get("actual_start")
+    assert target.percent_complete == fields.get("percent_complete", target.percent_complete)
+
+    assert _working_day_shift(base.project_finish, moved.project_finish) == -remaining
+    assert moved.critical_path == base.critical_path
+    assert "P" in moved.critical_path
+
+    slipped = schedule(perturb_task_duration(perturbed, "P", 10)).project_finish
+    assert _working_day_shift(moved.project_finish, slipped) == 10
+
+
+@pytest.mark.parametrize("status_date", [_DATA_DATE, None], ids=["data-date", "no-data-date"])
+@pytest.mark.parametrize(("duration_days", "fields"), _EXHAUSTING_SHAPES)
+def test_monte_carlo_agrees_with_cpm_on_the_open_zero_duration_task(
+    duration_days: int, fields: dict[str, object], status_date: date | None
+) -> None:
+    """With no estimate anywhere every percentile equals the deterministic finish, so
+    the two passes read the open zero-duration task the same way."""
+    baseline = _milestone_chain(duration_days, status_date, **fields)
+    remaining = _remaining_days(_milestone_of(baseline))
+    perturbed = perturb_task_duration(baseline, "M", -remaining)
+
+    finish = schedule(perturbed).project_finish
+    result = monte_carlo(perturbed, runs=50, seed=SEED)
+    assert (result.p50, result.p80, result.p95) == (finish, finish, finish)
+
+
+@pytest.mark.parametrize(("duration_days", "fields"), _EXHAUSTING_SHAPES)
+def test_an_open_predecessors_risk_stays_in_the_bands(
+    duration_days: int, fields: dict[str, object]
+) -> None:
+    """Every band moves by the days pulled in and no further. Completing the task cut
+    P's estimate out of the simulation: P80 moved 4 working days on a 1-day CPM pull-in."""
+    baseline = _risky_predecessor(_milestone_chain(duration_days, **fields))
+    remaining = _remaining_days(_milestone_of(baseline))
+    perturbed = perturb_task_duration(baseline, "M", -remaining)
+
+    base = monte_carlo(baseline, runs=RUNS, seed=SEED)
+    moved = monte_carlo(perturbed, runs=RUNS, seed=SEED)
+    for band in ("p50", "p80", "p95"):
+        assert _working_day_shift(getattr(base, band), getattr(moved, band)) == -remaining, band
+
+
+def test_the_last_day_of_a_pull_in_moves_a_risky_tasks_bands_by_one_day() -> None:
+    """Monte Carlo subtracts elapsed days off ``duration``, so that subtraction ends at
+    zero duration and the estimate has to absorb them. Otherwise the step from one
+    remaining day to none would add the two elapsed days back to the sampled work."""
+    baseline = _milestone_chain(
+        5,
+        actual_start=_STARTED,
+        percent_complete=40.0,
+        optimistic_duration=timedelta(days=5),
+        most_likely_duration=timedelta(days=5),
+        pessimistic_duration=timedelta(days=11),
+    )
+    one_left = perturb_task_duration(baseline, "M", -2)
+    none_left = perturb_task_duration(baseline, "M", -3)
+
+    target = _milestone_of(none_left)
+    assert target.optimistic_duration == timedelta(0)
+    assert target.most_likely_duration == timedelta(0)
+    assert target.pessimistic_duration == timedelta(days=6)
+
+    before = monte_carlo(one_left, runs=RUNS, seed=SEED)
+    after = monte_carlo(none_left, runs=RUNS, seed=SEED)
+    for band in ("p50", "p80", "p95"):
+        assert _working_day_shift(getattr(before, band), getattr(after, band)) == -1, band
+
+
+def _velocity_chain(duration_days: int, pct: float, points: float) -> Project:
+    return replace(
+        _milestone_chain(
+            duration_days,
+            percent_complete=pct,
+            delivery_mode=DeliveryMode.SCRUM,
+            story_points=points,
+        ),
+        velocity_samples=VELOCITY_SAMPLES,
+        sprint_length_days=SPRINT_LENGTH_DAYS,
+    )
+
+
+def test_an_exhausted_velocity_task_converts_its_elapsed_days_to_points() -> None:
+    """The input only: 10d at 40% has 4 elapsed days, so a 6-day pull-in is 10 days of
+    points at 2 per day. Where the bands land is a separate question."""
+    perturbed = perturb_task_duration(_velocity_chain(10, 40.0, 40.0), "M", -6)
+    target = _milestone_of(perturbed)
+
+    assert target.story_points == pytest.approx(20.0)
+    assert target.duration == timedelta(0)
+    assert target.actual_finish is None
+
+
+@pytest.mark.xfail(strict=True, reason="#4820")
+@pytest.mark.parametrize(
+    ("duration_days", "pct", "points"),
+    [
+        pytest.param(10, 40.0, 40.0, id="10d@40-steps-backward"),
+        pytest.param(5, 40.0, 30.0, id="5d@40-later-than-current"),
+        pytest.param(3, 34.0, 20.0, id="3d@34-later-than-current"),
+    ],
+)
+def test_a_growing_pull_in_never_moves_a_velocity_band_later(
+    duration_days: int, pct: float, points: float
+) -> None:
+    """The correct behavior, not the current one: from the unperturbed forecast onward,
+    each bigger pull-in leaves every band where it was or earlier."""
+    baseline = _velocity_chain(duration_days, pct, points)
+    forecasts = [monte_carlo(baseline, runs=RUNS, seed=SEED)] + [
+        monte_carlo(perturb_task_duration(baseline, "M", delta), runs=RUNS, seed=SEED)
+        for delta in (-1, -2, -3, -4, -5, -6, -9)
+    ]
+    for smaller, bigger in pairwise(forecasts):
+        assert bigger.p50 <= smaller.p50
+        assert bigger.p80 <= smaller.p80
+        assert bigger.p95 <= smaller.p95
+
+
+def test_past_exhaustion_cpm_stops_moving_while_a_risky_tasks_bands_do_not_get_later() -> None:
+    """Remaining work has a floor and an estimate's upper leg does not reach it as soon:
+    the CPM finish clamps at the remaining days, and the bands may keep tightening."""
+    baseline = _milestone_chain(
+        5,
+        actual_start=_STARTED,
+        percent_complete=40.0,
+        optimistic_duration=timedelta(days=5),
+        most_likely_duration=timedelta(days=5),
+        pessimistic_duration=timedelta(days=11),
+    )
+    exhausted = perturb_task_duration(baseline, "M", -3)
+    further = perturb_task_duration(baseline, "M", -9)
+
+    assert schedule(further).project_finish == schedule(exhausted).project_finish
+    at_exhaustion = monte_carlo(exhausted, runs=RUNS, seed=SEED)
+    past_exhaustion = monte_carlo(further, runs=RUNS, seed=SEED)
+    assert past_exhaustion.p50 <= at_exhaustion.p50
+    assert past_exhaustion.p80 <= at_exhaustion.p80
+    assert past_exhaustion.p95 <= at_exhaustion.p95
+    assert past_exhaustion.p95 < at_exhaustion.p95
+
+
+@pytest.mark.parametrize(
+    ("duration_days", "fields"),
+    [
+        pytest.param(0, {"percent_complete": 50.0, "actual_start": _STARTED}, id="milestone"),
+        pytest.param(5, {"percent_complete": 10.0}, id="work-zero-elapsed"),
+        pytest.param(5, {"percent_complete": 40.0, "actual_start": _STARTED}, id="work-elapsed"),
+    ],
+)
+@pytest.mark.parametrize("amount", [1, 3, 8])
+def test_a_slip_then_its_pull_in_returns_to_the_baseline_forecast(
+    amount: int, duration_days: int, fields: dict[str, object]
+) -> None:
+    """The second shift must not read the first one's created days as work to complete:
+    on a started milestone, +a then -a used to end with a fabricated ``actual_finish``."""
+    baseline = _milestone_chain(duration_days, **fields)
+    there_and_back = perturb_task_duration(
+        perturb_task_duration(baseline, "M", amount), "M", -amount
+    )
+
+    assert _milestone_of(there_and_back).actual_finish is None
+    base = schedule(baseline)
+    moved = schedule(there_and_back)
+    assert moved.project_finish == base.project_finish
+    assert moved.critical_path == base.critical_path
+
+
+def test_a_pull_in_to_nothing_then_a_slip_restores_the_remaining_work() -> None:
+    """Elapsed days cannot be read back off zero duration, but they were never part of
+    the forecast: what comes back is the remaining work, so the finish returns too."""
+    baseline = _milestone_chain(5, actual_start=_STARTED, percent_complete=40.0)
+    back = perturb_task_duration(perturb_task_duration(baseline, "M", -3), "M", 3)
+
+    assert _milestone_of(back).duration == timedelta(days=3)
+    assert schedule(back).project_finish == schedule(baseline).project_finish
+
+
+# ---------------------------------------------------------------------------
+# Link types other than finish-to-start
+# ---------------------------------------------------------------------------
+
+
+def _chain_with_link_out(
+    link: DependencyType,
+    lag_days: int = 0,
+    duration_days: int = 5,
+    status_date: date | None = _DATA_DATE,
+    **fields: object,
+) -> Project:
+    """The same chain with the link from M to S replaced."""
+    baseline = _milestone_chain(duration_days, status_date, **fields)
+    return replace(
+        baseline,
+        dependencies=[
+            Dependency("P", "M"),
+            Dependency("M", "S", link, timedelta(days=lag_days)),
+        ],
+    )
+
+
+_EXHAUSTIBLE_FIELDS = [
+    pytest.param({"percent_complete": 40.0, "actual_start": _STARTED}, id="40-started"),
+    pytest.param({"percent_complete": 40.0}, id="40"),
+    pytest.param({"percent_complete": 10.0}, id="10-zero-elapsed"),
+    pytest.param({"actual_start": _STARTED}, id="no-percentage-started"),
+    pytest.param({}, id="not-started"),
+]
+
+
+@pytest.mark.parametrize("fields", _EXHAUSTIBLE_FIELDS)
+@pytest.mark.parametrize("delta", [-1, -2, -3, -4, -5, -9])
+def test_a_pull_in_across_a_finish_to_finish_link_moves_the_finish_by_the_days_consumed(
+    delta: int, fields: dict[str, object]
+) -> None:
+    """An FF link reads the finish, which zero duration still expresses, so the shift is
+    the days consumed on either side of exhaustion, and P still reaches S."""
+    baseline = _chain_with_link_out(DependencyType.FF, **fields)
+    remaining = _remaining_days(_milestone_of(baseline))
+    base = schedule(baseline).project_finish
+    perturbed = perturb_task_duration(baseline, "M", delta)
+    moved = schedule(perturbed).project_finish
+
+    assert _working_day_shift(base, moved) == -min(remaining, -delta)
+    assert _milestone_of(perturbed).actual_finish is None
+    slipped = schedule(perturb_task_duration(perturbed, "P", 10)).project_finish
+    assert _working_day_shift(moved, slipped) == 10
+
+
+@pytest.mark.parametrize("fields", _EXHAUSTIBLE_FIELDS)
+def test_without_a_data_date_a_recorded_start_can_hold_an_ff_pull_in_back(
+    fields: dict[str, object],
+) -> None:
+    """With no data date the remaining work can begin at ``actual_start``, and the task
+    is still floored there at zero duration, so the finish may move less than the days
+    pulled in. It never moves later, and never before the recorded start."""
+    baseline = _chain_with_link_out(DependencyType.FF, status_date=None, **fields)
+    finishes = [schedule(baseline).project_finish] + [
+        schedule(perturb_task_duration(baseline, "M", delta)).project_finish
+        for delta in (-1, -2, -3, -4, -5, -9)
+    ]
+    for smaller, bigger in pairwise(finishes):
+        assert bigger <= smaller
+    recorded_start = fields.get("actual_start")
+    if isinstance(recorded_start, date):
+        assert finishes[-1] >= recorded_start
+
+
+@pytest.mark.xfail(strict=True, reason="#4819")
+@pytest.mark.parametrize(
+    ("lag_days", "status_date", "fields"),
+    [
+        pytest.param(0, _DATA_DATE, {"percent_complete": 40.0, "actual_start": _STARTED}, id="ss0"),
+        pytest.param(0, _DATA_DATE, {"percent_complete": 40.0}, id="ss0-no-recorded-start"),
+        pytest.param(2, _DATA_DATE, {"percent_complete": 40.0, "actual_start": _STARTED}, id="ss2"),
+        pytest.param(0, _DATA_DATE, {"actual_start": _STARTED}, id="ss0-no-percentage"),
+    ],
+)
+def test_a_growing_pull_in_across_a_start_to_start_link_never_finishes_later(
+    lag_days: int, status_date: date | None, fields: dict[str, object]
+) -> None:
+    """The correct behavior, not the current one: removing more work from M cannot move
+    the finish later. At zero duration the link stops reading the recorded start."""
+    baseline = _chain_with_link_out(DependencyType.SS, lag_days, 5, status_date, **fields)
+    finishes = [schedule(baseline).project_finish] + [
+        schedule(perturb_task_duration(baseline, "M", delta)).project_finish
+        for delta in (-1, -2, -3, -4, -5, -9)
+    ]
+    for smaller, bigger in pairwise(finishes):
+        assert bigger <= smaller
