@@ -1078,6 +1078,9 @@ _ONE_DAY = timedelta(days=1)
 _START_ANCHORED = (DependencyType.FS, DependencyType.SS)
 """Dependency types whose successor constraint bounds the successor's *start*."""
 
+_FROM_PREDECESSOR_FINISH = (DependencyType.FS, DependencyType.FF)
+"""Dependency types measured from the predecessor's *finish*, not its start."""
+
 _Instant = tuple[date, bool]
 """A milestone's position: ``(instant, start_display)``.
 
@@ -6562,6 +6565,14 @@ def _mc_milestone_floors(
     return out
 
 
+_InstantRuns = tuple[np.ndarray, np.ndarray, np.ndarray]
+"""``(is_instant, start_excess, finish_excess)`` of a zero-base column (#4698).
+
+``is_instant`` flags the runs placed as an instant (:func:`_mc_zero_base_column`). The
+excesses are each run's ES and EF less their nearest whole offsets: what those runs
+round away and hand to a successor, by the end of the task its link measures from.
+"""
+
 _VerbatimActual = tuple[int, float, float]
 """``(actual_ordinal, snapped_offset, other_floor)`` of a live non-working actual start.
 
@@ -6812,7 +6823,8 @@ def _mc_forward_pass(
     index: _McIndex | None = None,
     verbatim_actuals: dict[str, _VerbatimActual] | None = None,
     milestone_floors: dict[str, _MilestoneFloors] | None = None,
-) -> tuple[np.ndarray, np.ndarray, date | None]:
+    zero_base_ids: frozenset[str] = frozenset(),
+) -> tuple[np.ndarray, np.ndarray, date | None, dict[str, _InstantRuns]]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
 
     ES and EF are floating-point working-day offsets (0 = project start); EF = ES +
@@ -6852,7 +6864,12 @@ def _mc_forward_pass(
     percentiles at the date, as it does for completed work. Where only some runs
     show it there, the column keeps the next working day (later, never earlier).
 
-    Returns ``(es_mat, ef_mat, finish_floor)``.
+    ``zero_base_ids`` (#4698) are live zero-duration tasks with a positive estimate.
+    Each of their runs is one or the other, because a draw that rounds away leaves
+    the task the 0-day task ``schedule()`` placed and only a larger one is work:
+    see :func:`_mc_zero_base_column`. Those instant runs come back per column.
+
+    Returns ``(es_mat, ef_mat, finish_floor, instant_runs)``.
     """
     n_tasks = len(topo_order)
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
@@ -6863,6 +6880,7 @@ def _mc_forward_pass(
     verbatim_actuals = verbatim_actuals or {}
     milestone_floors = milestone_floors or {}
     finish_floor: date | None = None
+    instant_runs: dict[str, _InstantRuns] = {}
     # Live work whose SS/SF links measure from a derived span start (#4523,
     # _mc_span_link): elapsed working days, by task. A recorded start never reaches
     # those links here — they are constants in ``completed_edge``.
@@ -6891,6 +6909,7 @@ def _mc_forward_pass(
                 index,
                 runs,
                 span_elapsed,
+                instant_runs,
             )
             instant_mat[:, col] = link
             start_display_mat[:, col] = link_display
@@ -6923,11 +6942,14 @@ def _mc_forward_pass(
             runs,
             (milestone_ids, instant_mat, index, col),
             span_elapsed,
+            instant_runs,
         )
         if actual is not None:
             es_constraints = np.maximum(es_constraints, actual[1])
 
-        eff_dur = _mc_effective_duration(dur_matrix[:, col], tid, elapsed_days)
+        eff_dur = _mc_effective_duration(
+            dur_matrix[:, col], tid, elapsed_days, min_days=0.0 if tid in zero_base_ids else 1.0
+        )
         es = es_constraints
         ef = es + eff_dur
 
@@ -6937,10 +6959,89 @@ def _mc_forward_pass(
             es = np.maximum(es_constraints, ef - eff_dur)
             ef = es + eff_dur
 
+        if tid in zero_base_ids:
+            assert index is not None
+            (link, link_display), (instant, start_display) = _mc_milestone_bounds(
+                tid,
+                col,
+                g,
+                task_idx,
+                (es_mat, ef_mat, instant_mat, start_display_mat),
+                milestone_floors.get(tid, (None, None)),
+                completed_edge,
+                milestone_ids,
+                index,
+                runs,
+                span_elapsed,
+                instant_runs,
+            )
+            instant_mat[:, col] = link
+            start_display_mat[:, col] = link_display
+            es, ef, instant_runs[tid], actual_day = _mc_zero_base_column(
+                es,
+                eff_dur,
+                instant,
+                start_display,
+                index.next_wd_offset(col, instant).astype(np.float64),
+                actual,
+            )
+            if actual_day is not None:
+                finish_floor = actual_day if finish_floor is None else max(finish_floor, actual_day)
+
         es_mat[:, col] = es
         ef_mat[:, col] = ef
 
-    return es_mat, ef_mat, finish_floor
+    return es_mat, ef_mat, finish_floor, instant_runs
+
+
+def _mc_zero_base_column(
+    es: np.ndarray,
+    eff_dur: np.ndarray,
+    instant: np.ndarray,
+    start_display: np.ndarray,
+    position: np.ndarray,
+    actual: _VerbatimActual | None,
+) -> tuple[np.ndarray, np.ndarray, _InstantRuns, date | None]:
+    """ES/EF of a zero-duration task with a positive estimate, run by run (#4698).
+
+    The working-day offsets cannot say which midnight a start sits on, so a draw
+    too small to survive rounding, simulated as work, reads as work that ended the
+    working day *before* its start: a lag would count from there, and a task held
+    to a Monday would be shown on the Friday before. Flooring every draw at a day
+    hid that by charging a day nobody estimated. So a run whose draw rounds away is
+    the instant :func:`_place_milestone` gives the deterministic pass, and links
+    out of it measure from that instant (``instant_runs``). It keeps the fraction
+    it rounded away, as work does: an FS or FF successor carries the finish's
+    fraction, so a chain of such tasks still adds up, and an SS or SF successor only
+    the start's. A larger draw is ordinary work: an FF or SF link back-solves its start
+    over the draw, which can put a successor ahead of the instant's plan (#4822).
+
+    ``position`` is the instant's offset. ``actual`` is the task's non-working
+    recorded start, if any: it floors the finish, as for a milestone, when every
+    instant run is shown on that day (:func:`_mc_forward_pass`). The other runs are
+    floored at the same recorded start, so none finishes before that date.
+
+    Returns ``(es, ef, (is_instant, start_excess, finish_excess), actual_day)``.
+    """
+    ef = es + eff_dur
+    is_instant = np.rint(ef) == np.rint(es)
+    finish_excess = ef - np.rint(ef)
+    instant_es = position + finish_excess
+    instant_ef = instant_es + start_display
+    actual_day: date | None = None
+    if (
+        actual is not None
+        and is_instant.any()
+        and bool(np.all(~is_instant | ((instant == actual[0]) & start_display)))
+    ):
+        instant_ef = instant_es
+        actual_day = date.fromordinal(actual[0])
+    return (
+        np.where(is_instant, instant_es, es),
+        np.where(is_instant, instant_ef, ef),
+        (is_instant, es - np.rint(es), finish_excess),
+        actual_day,
+    )
 
 
 def _mc_span_link(
@@ -6988,6 +7089,55 @@ def _mc_span_link(
     return offsets[inverse], proposals[inverse], displays[inverse]
 
 
+def _mc_instant_proposal(
+    dep: Dependency,
+    p: int,
+    instant_mat: np.ndarray,
+    start_display_mat: np.ndarray,
+    index: _McIndex,
+) -> tuple[np.ndarray, np.ndarray | bool]:
+    """Per-run ``(raw midnight, start_display)`` a link out of an instant proposes."""
+    lag = dep.lag.days
+    if dep.dep_type in _START_ANCHORED:
+        # Mirrors engine._place_milestone (#4079 fuzz regression): the
+        # predecessor's own reading only carries over at zero lag, the
+        # same midnight it occupies; a nonzero lag proposes a different
+        # midnight and reads fresh, like an ordinary FS/SS predecessor.
+        base_display = start_display_mat[:, p] if lag == 0 else dep.dep_type == DependencyType.SS
+        return instant_mat[:, p] + lag, base_display
+    # A positive SF lag counts from the day the instant closes (#4333).
+    anchor = instant_mat[:, p] - 1 if lag > 0 else index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
+    # SF proposes the raw midnight closing its anchor day, plus the lag (#4272).
+    return anchor + 1 + lag, False
+
+
+def _mc_work_proposal(
+    dep: Dependency,
+    p: int,
+    col: int,
+    es_mat: np.ndarray,
+    ef_mat: np.ndarray,
+    index: _McIndex,
+    elapsed: int,
+) -> tuple[np.ndarray, np.ndarray | bool]:
+    """Per-run ``(raw midnight, start_display)`` a link out of work proposes."""
+    lag = dep.lag.days
+    if dep.dep_type == DependencyType.FS:
+        return index.ordinal_at(p, ef_mat[:, p] - 1.0) + 1 + lag, False
+    if elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF):
+        # Measured from a derived span start (#4523, _mc_span_link).
+        _, proposal, display = _mc_span_link(dep, p, col, es_mat, elapsed, index)
+        return proposal, display
+    if dep.dep_type == DependencyType.SS:
+        return index.ordinal_at(p, es_mat[:, p]) + lag, True
+    if lag > 0:  # SF — the day the start instant closes (#4333)
+        anchor = index.ordinal_at(p, es_mat[:, p]) - 1
+    else:  # SF — the working day before the predecessor's start (#4145)
+        anchor = index.prev_wd_ordinal(p, index.ordinal_at(p, es_mat[:, p]) - 1)
+    # SF proposes the raw midnight closing its anchor day, plus the lag (#4272).
+    return anchor + 1 + lag, False
+
+
 def _mc_milestone_bounds(
     tid: str,
     col: int,
@@ -7000,6 +7150,7 @@ def _mc_milestone_bounds(
     index: _McIndex,
     runs: int,
     span_elapsed: dict[str, int] | None = None,
+    instant_runs: dict[str, _InstantRuns] | None = None,
 ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
     """Per-run ``(link, shown)`` of a live milestone, each ``(instant ordinal, start_display)``.
 
@@ -7033,50 +7184,26 @@ def _mc_milestone_bounds(
     for pred_id in g.predecessors(tid):
         # FF into a milestone is FS (engine._milestone_link, #4272).
         dep: Dependency = _milestone_link(g[pred_id][tid]["dep"])
-        lag = dep.lag.days
         fixed = completed_edge.get((pred_id, tid))
         if fixed is not None:
             offer(np.full(runs, fixed[2], dtype=np.int64), fixed[3])
             continue
         p = task_idx[pred_id]
         if pred_id in milestone_ids:
-            if dep.dep_type in _START_ANCHORED:
-                # Mirrors engine._place_milestone (#4079 fuzz regression): the
-                # predecessor's own reading only carries over at zero lag, the
-                # same midnight it occupies; a nonzero lag proposes a different
-                # midnight and reads fresh, like an ordinary FS/SS predecessor.
-                base_display = (
-                    start_display_mat[:, p] if lag == 0 else dep.dep_type == DependencyType.SS
-                )
-                offer(instant_mat[:, p] + lag, base_display)
-                continue
-            if lag > 0:
-                # A positive SF lag counts from the day the instant closes (#4333).
-                anchor = instant_mat[:, p] - 1
-            else:
-                anchor = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
-        elif dep.dep_type == DependencyType.FS:
-            offer(index.ordinal_at(p, ef_mat[:, p] - 1.0) + 1 + lag, False)
+            offer(*_mc_instant_proposal(dep, p, instant_mat, start_display_mat, index))
             continue
-        elif (span_elapsed or {}).get(pred_id, 0) > 0 and dep.dep_type in (
-            DependencyType.SS,
-            DependencyType.SF,
-        ):
-            # Measured from a derived span start (#4523, _mc_span_link).
-            _, proposal, display = _mc_span_link(
-                dep, p, col, es_mat, (span_elapsed or {})[pred_id], index
+        proposal, display = _mc_work_proposal(
+            dep, p, col, es_mat, ef_mat, index, (span_elapsed or {}).get(pred_id, 0)
+        )
+        # A zero-base predecessor is an instant in some runs (#4698).
+        pred_runs = (instant_runs or {}).get(pred_id)
+        if pred_runs is not None:
+            at_instant, at_display = _mc_instant_proposal(
+                dep, p, instant_mat, start_display_mat, index
             )
-            offer(proposal, display)
-            continue
-        elif dep.dep_type == DependencyType.SS:
-            offer(index.ordinal_at(p, es_mat[:, p]) + lag, True)
-            continue
-        elif lag > 0:  # SF — the day the start instant closes (#4333)
-            anchor = index.ordinal_at(p, es_mat[:, p]) - 1
-        else:  # SF — the working day before the predecessor's start (#4145)
-            anchor = index.prev_wd_ordinal(p, index.ordinal_at(p, es_mat[:, p]) - 1)
-        # SF proposes the raw midnight closing its anchor day, plus the lag (#4272).
-        offer(anchor + 1 + lag, False)
+            proposal = np.where(pred_runs[0], at_instant, proposal)
+            display = np.where(pred_runs[0], at_display, display)
+        offer(proposal, display)
 
     def read(winner: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # _start_reading (#4173): an end-of-day reading needs a working day before
@@ -7118,6 +7245,22 @@ def _mc_milestone_bounds(
     return (link, link_display), read(shown_key)
 
 
+def _mc_instant_edge_bound(
+    dep: Dependency, p: int, col: int, instant_mat: np.ndarray, index: _McIndex
+) -> np.ndarray:
+    """Per-run bound a link out of an instant puts on work: ES for FS/SS, exclusive EF else."""
+    if dep.dep_type in _START_ANCHORED:
+        anchor_ord = instant_mat[:, p]
+    elif dep.lag > timedelta(0):
+        # A positive FF or SF lag counts from the day the instant closes
+        # (#4273, #4333); a lead counts back from the zero-lag anchor below.
+        anchor_ord = instant_mat[:, p] - 1
+    else:
+        anchor_ord = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
+    bound = index.next_wd_offset(col, anchor_ord + dep.lag.days).astype(np.float64)
+    return bound if dep.dep_type in _START_ANCHORED else bound + 1.0
+
+
 def _mc_edge_constraints(
     tid: str,
     g: nx.DiGraph[str],
@@ -7130,6 +7273,7 @@ def _mc_edge_constraints(
     runs: int,
     milestones: tuple[frozenset[str], np.ndarray, _McIndex | None, int] | None = None,
     span_elapsed: dict[str, int] | None = None,
+    instant_runs: dict[str, _InstantRuns] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """Fold every predecessor edge into one task's ES/EF constraint vectors.
 
@@ -7151,6 +7295,9 @@ def _mc_edge_constraints(
     ``completed_edge`` as a constant resolved in date space from the verbatim
     actual, like a completed predecessor's. Only an SS/SF link from work that has
     not started reaches the offset anchor below, where the start is a working day.
+
+    A zero-base predecessor (#4698) is such an instant only in its ``instant_runs``,
+    and adds the fraction the link's anchor rounded away; its other runs are work.
 
     Returns ``(es_constraints, ef_constraints, has_ef_constraint)``.
     """
@@ -7175,20 +7322,11 @@ def _mc_edge_constraints(
 
         if pred_id in milestone_ids:
             assert index is not None
-            start_anchored = dep.dep_type in _START_ANCHORED
-            if start_anchored:
-                anchor_ord = instant_mat[:, p]
-            elif dep.lag > timedelta(0):
-                # A positive FF or SF lag counts from the day the instant closes
-                # (#4273, #4333); a lead counts back from the zero-lag anchor below.
-                anchor_ord = instant_mat[:, p] - 1
-            else:
-                anchor_ord = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
-            bound = index.next_wd_offset(col, anchor_ord + dep.lag.days).astype(np.float64)
-            if start_anchored:
+            bound = _mc_instant_edge_bound(dep, p, col, instant_mat, index)
+            if dep.dep_type in _START_ANCHORED:
                 np.maximum(es_constraints, bound, out=es_constraints)
             else:
-                np.maximum(ef_constraints, bound + 1.0, out=ef_constraints)
+                np.maximum(ef_constraints, bound, out=ef_constraints)
                 has_ef_constraint = True
             continue
 
@@ -7219,6 +7357,13 @@ def _mc_edge_constraints(
         # task (never views aliasing the anchor's matrix) and both start
         # fully initialized (SNET/status floors and zeros respectively).
         constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
+        pred_runs = (instant_runs or {}).get(pred_id)
+        if pred_runs is not None:
+            assert index is not None
+            # As work does: FS/FF hand on the finish's fraction, SS/SF the start's.
+            excess = pred_runs[2] if dep.dep_type in _FROM_PREDECESSOR_FINISH else pred_runs[1]
+            at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index) + excess
+            constraint = np.where(pred_runs[0], at_instant, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)
         else:  # FF / SF
@@ -7229,23 +7374,24 @@ def _mc_edge_constraints(
 
 
 def _mc_effective_duration(
-    sampled: np.ndarray, tid: str, elapsed_days: dict[str, float]
+    sampled: np.ndarray, tid: str, elapsed_days: dict[str, float], min_days: float = 1.0
 ) -> np.ndarray:
-    """Sampled duration floored at one working day, less any elapsed portion.
+    """Sampled duration floored at ``min_days`` of work, less any elapsed portion.
 
-    The floor exists because ordinary work occupies at least its start day. It
-    no longer applies to milestones (#4079): a live zero-duration task is an
-    instant and never reaches this function — :func:`_mc_forward_pass` places it
-    with :func:`_mc_milestone_bounds` instead. #1066 had floored milestones at a
-    day too, to agree with the deterministic pass's old convention, which gave
-    every milestone a whole working day.
+    The default floor of one working day exists because ordinary work occupies at
+    least its start day. It does not apply to a task whose base duration is zero:
+    a live one that samples zero in every run is an instant and never reaches this
+    function (#4079), and one with a positive estimate passes ``min_days=0.0``
+    (#4698), since a day it was never estimated to take would be charged in every
+    run. #1066 had floored milestones at a day too, to agree with the deterministic
+    pass's old convention, which gave every milestone a whole working day.
 
     The fixed elapsed portion of an in-progress task is subtracted first so only
-    its remaining work is sampled (ADR-0132); the 1.0 floor then applies.
+    its remaining work is sampled (ADR-0132); the floor then applies.
     """
     if tid in elapsed_days:
         sampled = sampled - elapsed_days[tid]
-    eff_dur: np.ndarray = np.maximum(sampled, 1.0)
+    eff_dur: np.ndarray = np.maximum(sampled, min_days)
     return eff_dur
 
 
@@ -7511,7 +7657,9 @@ def monte_carlo(
     :func:`schedule` floors it (ADR-0132 §2, #2833), and zero-duration
     milestones are instants exactly as in :func:`schedule` (#4079) — a fully
     deterministic project (no estimates, no velocity signal) simulates to
-    precisely the CPM finish date. **Never before is the invariant on an FS/SS
+    precisely the CPM finish date. A zero-duration task with an estimate is that
+    instant in the runs whose draw rounds away, and ordinary work otherwise
+    (:func:`_mc_zero_base_column`, #4698). **Never before is the invariant on an FS/SS
     network**, and it holds for an uncertain one too: the early-start floors bind
     the start dates (see :func:`_mc_es_floors`) and the duration floor above binds
     the durations, so every percentile is at or after the deterministic finish for
@@ -7751,14 +7899,14 @@ def monte_carlo(
     # possibly None) array.
     # Live zero-duration tasks whose every run samples zero are milestone instants
     # (#4079); completed ones are pinned like any completed task, and a zero-base
-    # task carrying a positive estimate is simulated as the work it samples.
-    milestone_ids = frozenset(
-        tid
+    # task carrying a positive estimate is decided run by run (#4698).
+    live_zero_cols = [
+        (col, tid)
         for col, tid in enumerate(topo_order)
-        if task_map[tid].duration.days == 0
-        and not _is_complete(task_map[tid])
-        and not dur_matrix[:, col].any()
-    )
+        if task_map[tid].duration.days == 0 and not _is_complete(task_map[tid])
+    ]
+    milestone_ids = frozenset(tid for col, tid in live_zero_cols if not dur_matrix[:, col].any())
+    zero_base_ids = frozenset(tid for _, tid in live_zero_cols) - milestone_ids
     delta_by_key = _build_lag_delta_table(
         g, wd_ord_by_cal, index_size, cal_key_of, prev_ord_of, milestone_ids, max_lag_delta_cells
     )
@@ -7812,7 +7960,7 @@ def monte_carlo(
     verbatim_actuals = _mc_verbatim_actuals(
         project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal, sf_linked_ids
     )
-    es_mat, ef_mat, milestone_finish_floor = _mc_forward_pass(
+    es_mat, ef_mat, milestone_finish_floor, instant_runs = _mc_forward_pass(
         topo_order,
         runs,
         g,
@@ -7829,17 +7977,25 @@ def monte_carlo(
             [cal_of[tid] for tid in topo_order],
         ),
         verbatim_actuals,
-        _mc_milestone_floors(project, task_map, milestone_ids, cal_of, sf_linked_ids),
+        _mc_milestone_floors(
+            project, task_map, milestone_ids | zero_base_ids, cal_of, sf_linked_ids
+        ),
+        zero_base_ids,
     )
     # Working-time finish of each column (#4204). Work ends at its EF. A live
     # milestone's EF is the exclusive offset of the day it is *shown* on, one past its
     # instant for a start-of-day reading, so its working-time position is its ES —
     # the end of a Friday and the start of the next Monday are the same position.
+    # A zero-base column is that instant in the runs that placed it (#4698).
     wt_mat = ef_mat
     milestone_cols = [task_idx[tid] for tid in milestone_ids]
-    if milestone_cols:
+    has_instants = bool(milestone_cols or instant_runs)
+    if has_instants:
         wt_mat = ef_mat.copy()
         wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
+        for tid, (is_instant, *_) in instant_runs.items():
+            col = task_idx[tid]
+            wt_mat[is_instant, col] = es_mat[is_instant, col]
     # The floor wins over the index only when it is later; it is a start-of-day
     # reading exactly when it comes from a milestone shown at the start of its
     # non-working actual day and no completed work finishes that day or later.
@@ -7873,7 +8029,7 @@ def monte_carlo(
             )
 
         ef_mat_ref = _to_reference(ef_mat)
-        wt_mat = _to_reference(wt_mat) if milestone_cols else ef_mat_ref
+        wt_mat = _to_reference(wt_mat) if has_instants else ef_mat_ref
         ef_mat = ef_mat_ref
     shown_offsets = ef_mat.max(axis=1)  # shape (runs,): the day each run is shown on
     completion_offsets = wt_mat.max(axis=1)  # shape (runs,): its working-time position

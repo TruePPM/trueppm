@@ -18,6 +18,29 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A zero-duration task with a small estimate no longer costs a full working day
+  in Monte Carlo, and seeded results for such tasks change.** A 0-day task with a
+  `(0, 0, 1)` estimate, mean 1/6 day and mode 0, was floored at one working day in
+  every run, so P50 moved a working day past the CPM finish. A run whose draw rounds
+  away is now the instant `schedule()` places, links and lags included, and hands on
+  what it rounded away as work does: an FS or FF successor takes the finish's
+  fraction, an SS or SF successor only the start's. A larger draw is still simulated
+  as work: with no recorded start, the same as a task of that length with the same
+  link. A started zero-duration task can differ from a started real task. This applies
+  to any zero-duration task with a sampled duration, including story points on the
+  velocity path, though velocity draws measured no change because they are work-sized.
+  Tasks with a duration of one day or more and zero-duration tasks with no estimate or
+  velocity signal are unchanged
+  ([#4698](https://gitlab.com/trueppm/trueppm/-/issues/4698)).
+
+  Known limits. An FF or SF link in with an SS or SF link out back-solves a work-sized
+  draw, so a run can finish before the CPM finish, and a draw just past the rounding point can finish earlier than one just below it
+  ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)). On an FS link out, when
+  the successor's own draw is fractional and a lag, a hold or a calendar puts a
+  non-working gap between them, the same crossing can finish a day earlier: nearest-day
+  rounding does this to ordinary work too
+  ([#4697](https://gitlab.com/trueppm/trueppm/-/issues/4697)).
+
 - **`perturb_task_duration` no longer completes a task, and its results change.**
   A pull-in that used up a task's remaining work set `actual_finish` and
   `percent_complete=100` and could move `actual_start`, which cut the task off
