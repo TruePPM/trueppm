@@ -807,7 +807,7 @@ echo "  Bumped CI_API_TAG to $NEW_CI_API_TAG"
 
 # ci-scheduler is stamped from scheduler.Dockerfile + the scheduler pyproject,
 # which the manifest bump above just rewrote — same staleness, same fix (#4791).
-NEW_CI_SCHEDULER_TAG="$(bash scripts/restamp-ci-image-tag.sh scheduler)" || die \
+NEW_CI_SCHEDULER_TAG="$(bash scripts/release-restamp-ci-image-tag.sh scheduler)" || die \
   "Failed to restamp CI_SCHEDULER_TAG after the manifest bump (#4791) - see the error above."
 echo "  Bumped CI_SCHEDULER_TAG to $NEW_CI_SCHEDULER_TAG"
 

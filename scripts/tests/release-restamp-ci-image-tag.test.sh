@@ -2,7 +2,7 @@
 # Exercises the release restamp (#4791) against a scratch tree: a stale
 # CI_SCHEDULER_TAG is rewritten to what check-ci-api-tag.sh demands, CI_API_TAG
 # is left alone, a missing variable line fails loudly, and release.sh uses it.
-# Run: bash scripts/tests/restamp-ci-image-tag.test.sh
+# Run: bash scripts/tests/release-restamp-ci-image-tag.test.sh
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -18,7 +18,7 @@ done
 printf 'variables:\n  CI_API_TAG: "py3.11-aaaaaaaaaaaa"\n  CI_SCHEDULER_TAG: "py3.11-bbbbbbbbbbbb"\n' >"$R/.gitlab-ci.yml"
 want="$(REPO_ROOT_OVERRIDE="$R" bash "$REPO_ROOT/scripts/check-ci-api-tag.sh" --image scheduler --print-expected)"
 
-out="$(REPO_ROOT_OVERRIDE="$R" bash "$REPO_ROOT/scripts/restamp-ci-image-tag.sh" scheduler)"; rc=$?
+out="$(REPO_ROOT_OVERRIDE="$R" bash "$REPO_ROOT/scripts/release-restamp-ci-image-tag.sh" scheduler)"; rc=$?
 expect "restamp exits 0" [ "$rc" -eq 0 ]
 expect "prints the new tag" [ "$out" = "$want" ]
 expect "CI_SCHEDULER_TAG written" grep -qF "  CI_SCHEDULER_TAG: \"$want\"" "$R/.gitlab-ci.yml"
@@ -26,17 +26,17 @@ expect "CI_API_TAG untouched" grep -qF '  CI_API_TAG: "py3.11-aaaaaaaaaaaa"' "$R
 expect "gate accepts the result" env REPO_ROOT_OVERRIDE="$R" CI_FILE_OVERRIDE="$R/.gitlab-ci.yml" bash "$REPO_ROOT/scripts/check-ci-api-tag.sh" --image scheduler
 
 # api path too
-REPO_ROOT_OVERRIDE="$R" bash "$REPO_ROOT/scripts/restamp-ci-image-tag.sh" api >/dev/null
+REPO_ROOT_OVERRIDE="$R" bash "$REPO_ROOT/scripts/release-restamp-ci-image-tag.sh" api >/dev/null
 expect "api restamp passes the gate" env REPO_ROOT_OVERRIDE="$R" CI_FILE_OVERRIDE="$R/.gitlab-ci.yml" bash "$REPO_ROOT/scripts/check-ci-api-tag.sh"
 
 printf 'variables:\n  OTHER: "x"\n' >"$R/.gitlab-ci.yml"
-rc=0; REPO_ROOT_OVERRIDE="$R" bash "$REPO_ROOT/scripts/restamp-ci-image-tag.sh" scheduler >/dev/null 2>&1 || rc=$?
+rc=0; REPO_ROOT_OVERRIDE="$R" bash "$REPO_ROOT/scripts/release-restamp-ci-image-tag.sh" scheduler >/dev/null 2>&1 || rc=$?
 expect "fails when the variable line is missing" [ "$rc" -ne 0 ]
-rc=0; bash "$REPO_ROOT/scripts/restamp-ci-image-tag.sh" bogus >/dev/null 2>&1 || rc=$?
+rc=0; bash "$REPO_ROOT/scripts/release-restamp-ci-image-tag.sh" bogus >/dev/null 2>&1 || rc=$?
 expect "rejects an unknown image" [ "$rc" -eq 2 ]
 
 # shellcheck disable=SC2016
 expect "release.sh restamps the scheduler tag via the script" \
-  grep -qF 'scripts/restamp-ci-image-tag.sh scheduler' "$REPO_ROOT/scripts/release.sh"
+  grep -qF 'scripts/release-restamp-ci-image-tag.sh scheduler' "$REPO_ROOT/scripts/release.sh"
 
-[ "$fail" -eq 0 ] && echo "restamp-ci-image-tag: all cases passed." || exit 1
+[ "$fail" -eq 0 ] && echo "release-restamp-ci-image-tag: all cases passed." || exit 1

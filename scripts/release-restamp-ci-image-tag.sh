@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# scripts/restamp-ci-image-tag.sh <api|scheduler> — rewrite CI_API_TAG /
+# scripts/release-restamp-ci-image-tag.sh <api|scheduler> — rewrite CI_API_TAG /
 # CI_SCHEDULER_TAG in .gitlab-ci.yml to the value scripts/check-ci-api-tag.sh
 # demands, then re-run that check. Used by release.sh after the manifest bump has
 # invalidated the stamp (#4022, #4791). Factored out so the restamp is testable
-# against a scratch tree (scripts/tests/restamp-ci-image-tag.test.sh).
+# against a scratch tree (scripts/tests/release-restamp-ci-image-tag.test.sh).
 #
 # REPO_ROOT_OVERRIDE points both the digest inputs and .gitlab-ci.yml at a
 # scratch tree.
