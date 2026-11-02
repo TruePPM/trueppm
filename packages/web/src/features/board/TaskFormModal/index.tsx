@@ -692,12 +692,12 @@ export function TaskFormModal({
   // Edit mode asks the same question the schedule outline and canvas ask, through
   // the same resolver, so the modal cannot disagree with the row that opened it.
   // The server's per-task verdict wins; the role decides only when the server
-  // sent none. A role that has not resolved (loading, failed, or no membership
-  // row) keeps the form editable, matching the pre-existing behavior: the server
-  // enforces on save, and locking an editor out on a dropped request is worse
-  // than one refused write. Create mode has no task to ask about, so only a
-  // Viewer is locked out.
-  const roleUnsettled = roleLoading === true || (roleError ?? false) || role === null;
+  // sent none. A role that is still loading or failed keeps the form editable: the
+  // server enforces on save, and locking an editor out on a dropped request is
+  // worse than one refused write. A settled null role (no membership) is NOT
+  // unsettled; it resolves exactly as the schedule row does, as not editable.
+  // Create mode has no task to ask about, so only a Viewer is locked out.
+  const roleUnsettled = roleLoading === true || roleError === true;
   const isReadOnly =
     mode === 'edit'
       ? !canEditTaskRow(task?.canEdit, role, roleUnsettled)

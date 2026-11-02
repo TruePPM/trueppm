@@ -166,6 +166,9 @@ describe('TaskFormModal — read-only resolves the server verdict (edit mode)', 
     [undefined, ROLE_MEMBER],
     [undefined, ROLE_VIEWER],
     [undefined, ROLE_ADMIN],
+    [undefined, null],
+    [true, null],
+    [false, null],
   ])('agrees with canEditTaskRow for canEdit=%s role=%s', (canEdit, role) => {
     roleState.role = role;
     renderModal(editTask({ canEdit }));
