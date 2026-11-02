@@ -46,7 +46,7 @@ recorded:
 | `sso_provider_updated` *(0.4)* | An Admin changes a provider's configuration | The provider | `changed` (per-field before/after), `actor_kind` |
 | `sso_provider_deleted` *(0.4)* | An Admin removes a provider | The provider | `linked_accounts`, `locked_out_accounts`, `confirmed_lockout`, `config`, `actor_kind` |
 | `sso_secret_rotated` *(0.4)* | An Admin supplies a new client secret for a provider | The provider | `actor_kind` |
-| `sso_provider_test_connection` *(0.4)* | An Admin runs **Test connection** on a provider, whether the probe passes or fails | The provider | `result` (`ok`/`failed`), `error` and `reason` (failure codes only), `actor_kind` |
+| `sso_provider_test_connection` *(0.5)* | An Admin runs **Test connection** on a provider, whether the probe passes or fails | The provider | `result` (`ok`/`failed`), `error` and `reason` (failure codes only), `actor_kind` |
 | `sso_account_linked` *(0.4)* | A single sign-on identity binds to an **existing** local account | The user | `via`, `provider`, `issuer`, `subject`, `role` |
 
 :::note[Why `invite_accepted` exists alongside `member_added`]
@@ -85,6 +85,7 @@ concluding it never happened.
 | Who widened the allowed email domains, and to what? | `?event_type=sso_provider_updated` |
 | Who rotated the client secret, and when? | `?event_type=sso_secret_rotated` |
 | Which accounts got a federated credential? | `?event_type=sso_account_linked` |
+| Who ran Test connection against our IdP, and when? *(0.5)* | `?event_type=sso_provider_test_connection` |
 | Who signed in, from where, just now? | `trueppm.auth` in your log pipeline |
 | Who *failed* to sign in? | `trueppm.auth` (`auth.login_failed`, since 0.3) |
 

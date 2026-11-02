@@ -766,3 +766,25 @@ def test_a_refused_probe_writes_no_row(admin: Any, member: Any) -> None:
     _create(admin)
     assert api_client(member).post(TEST_CONN, {}, format="json").status_code == 403
     assert _rows(AuditEventType.SSO_PROVIDER_TEST_CONNECTION) == []
+
+
+@pytest.mark.django_db
+def test_probe_rows_are_listed_and_filterable_beside_config_change_rows(
+    admin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The audit trail endpoint accepts the new type and returns it with SSO config events."""
+    client = _create(admin)
+    _probe_returning(monkeypatch, {"ok": True, "issuer": ISSUER, "endpoints": {}})
+    client.post(TEST_CONN, {}, format="json")
+
+    audit = "/api/v1/workspace/audit-events/"
+    filtered = client.get(audit, {"event_type": "sso_provider_test_connection"})
+    assert filtered.status_code == 200, filtered.data
+    rows = filtered.data["results"]
+    assert [r["event_type"] for r in rows] == ["sso_provider_test_connection"]
+    assert rows[0]["metadata"]["result"] == "ok"
+
+    everything = client.get(audit)
+    assert everything.status_code == 200
+    kinds = {r["event_type"] for r in everything.data["results"]}
+    assert {"sso_provider_created", "sso_provider_test_connection"} <= kinds
