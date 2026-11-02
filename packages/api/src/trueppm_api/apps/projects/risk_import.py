@@ -346,27 +346,37 @@ def parse_risk_csv(raw: bytes, owner_index: dict[str, User]) -> ImportPlan:
             column, or more than :data:`MAX_ROWS` rows).
     """
     reader = csv.reader(io.StringIO(_decode(raw)))
-    col_keys = _read_header(reader)
+    # csv.reader is lazy: a cell past the stdlib field limit raises while the
+    # header or rows are consumed, not here, so the guard has to cover the
+    # consumption or the view's RiskImportError handler never sees it.
+    try:
+        col_keys = _read_header(reader)
 
-    plan = ImportPlan()
-    data_rows = 0
-    for offset, cells in enumerate(reader):
-        # Skip wholly blank lines (trailing newline, blank separator rows).
-        if not any(cell.strip() for cell in cells):
-            continue
-        data_rows += 1
-        if data_rows > MAX_ROWS:
-            raise RiskImportError(
-                f"Too many rows (limit {MAX_ROWS}). Split the file and import in batches."
-            )
-        row_num = offset + 2  # header is row 1; first data row is row 2
+        plan = ImportPlan()
+        data_rows = 0
+        for offset, cells in enumerate(reader):
+            # Skip wholly blank lines (trailing newline, blank separator rows).
+            if not any(cell.strip() for cell in cells):
+                continue
+            data_rows += 1
+            if data_rows > MAX_ROWS:
+                raise RiskImportError(
+                    f"Too many rows (limit {MAX_ROWS}). Split the file and import in batches."
+                )
+            row_num = offset + 2  # header is row 1; first data row is row 2
 
-        draft = _draft_from_row(_row_values(cells, col_keys), row_num, owner_index, plan)
-        if draft is not None:
-            plan.drafts.append(draft)
+            draft = _draft_from_row(_row_values(cells, col_keys), row_num, owner_index, plan)
+            if draft is not None:
+                plan.drafts.append(draft)
 
-    if data_rows == 0:
-        raise RiskImportError("No data rows found below the header.")
+        if data_rows == 0:
+            raise RiskImportError("No data rows found below the header.")
+    except csv.Error as exc:
+        raise RiskImportError(
+            f"The file could not be read as CSV ({exc}). "
+            f"A single cell may not exceed {csv.field_size_limit():,} characters; "
+            "shorten any oversized cell."
+        ) from exc
 
     return plan
 
