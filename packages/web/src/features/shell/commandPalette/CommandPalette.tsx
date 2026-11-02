@@ -14,10 +14,14 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { filterCommandItems, type CommandItem } from './commandItems';
+import { promoteTopMatches } from './searchRanking';
+import { useCrossProjectViewItems } from './useCrossProjectViewItems';
 import { useCommandItems } from './useCommandItems';
 import { LogTimeForm } from './LogTimeForm';
 
 const GROUP_LABEL: Record<CommandItem['group'], string> = {
+  best: 'Best match',
+  projectView: 'Views in other projects',
   sprint: 'Current sprint',
   sprintTask: 'Current sprint tasks',
   task: 'Tasks',
@@ -50,6 +54,7 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
 // leads `recent`: a pin is a standing intent the user declared, a recent visit is
 // only where they happened to be, so an empty query opens on Pinned then Recent.
 const GROUP_ORDER: CommandItem['group'][] = [
+  'best',
   'sprint',
   'sprintTask',
   'task',
@@ -60,6 +65,7 @@ const GROUP_ORDER: CommandItem['group'][] = [
   'story',
   'milestone',
   'omniTask',
+  'projectView',
   'pinned',
   'recent',
   'jump',
@@ -93,6 +99,9 @@ const STORY_RESULT_CAP = 6;
  *  the project-scoped tier and its scope-relaxation story. */
 const MILESTONE_RESULT_CAP = 6;
 const OMNI_TASK_RESULT_CAP = 6;
+/** No-match fallback views from other projects (#4504) — one project's worth of
+ *  the same view is one row, so eight keeps it scannable. */
+const PROJECT_VIEW_RESULT_CAP = 8;
 
 /**
  * Apply the per-section result caps to the filtered list, preserving order so the
@@ -118,6 +127,7 @@ const RESULT_CAPS: Partial<Record<CommandItem['group'], number>> = {
   story: STORY_RESULT_CAP,
   milestone: MILESTONE_RESULT_CAP,
   omniTask: OMNI_TASK_RESULT_CAP,
+  projectView: PROJECT_VIEW_RESULT_CAP,
 };
 /** Groups shown only once a query is typed — a cold palette never dumps them. */
 const QUERY_ONLY_GROUPS = new Set<CommandItem['group']>([
@@ -303,9 +313,12 @@ function PaletteResultsBody({
   onHover,
   truncatedGroups,
   sprintTaskTotal,
+  fallback,
 }: {
   items: CommandItem[];
   query: string;
+  /** True when `items` are the cross-project view fallback, not direct matches. */
+  fallback: boolean;
   activeItem: CommandItem | undefined;
   onHover: (item: CommandItem) => void;
 } & TruncationCues) {
@@ -319,6 +332,11 @@ function PaletteResultsBody({
   const cues: TruncationCues = { truncatedGroups, sprintTaskTotal };
   return (
     <>
+      {fallback && (
+        <p className="px-3 pb-1 pt-2 text-sm text-neutral-text-secondary" role="note">
+          No matches for “{query}” here — these views exist in other projects.
+        </p>
+      )}
       {GROUP_ORDER.map((group) => (
         <PaletteGroup
           key={group}
@@ -368,7 +386,14 @@ export function CommandPalette() {
   const allItems = useCommandItems(open, query);
   const currentProjectId = useProjectId();
 
-  const filtered = useMemo(() => filterCommandItems(allItems, query), [allItems, query]);
+  const crossProjectViews = useCrossProjectViewItems(open, query);
+  const directMatches = useMemo(
+    () => promoteTopMatches(filterCommandItems(allItems, query), query),
+    [allItems, query],
+  );
+  // No-match state: offer the views other projects have (#4504) instead of a dead end.
+  const fallback = directMatches.length === 0 && crossProjectViews.length > 0;
+  const filtered = fallback ? crossProjectViews : directMatches;
   const items = useMemo(() => applyResultCaps(filtered, query), [filtered, query]);
 
   // Which capped sections overflowed — drives the explicit "showing first N" hints
@@ -406,11 +431,13 @@ export function CommandPalette() {
       setResultsAnnouncement(
         items.length === 0
           ? `No matches for ${q}`
-          : `${items.length} result${items.length === 1 ? '' : 's'}`,
+          : fallback
+            ? `No matches for ${q}. ${items.length} view${items.length === 1 ? '' : 's'} in other projects`
+            : `${items.length} result${items.length === 1 ? '' : 's'}`,
       );
     }, 300);
     return () => window.clearTimeout(id);
-  }, [open, query, items.length]);
+  }, [open, query, items.length, fallback]);
 
   // Reset query + selection each time the palette opens, and focus the input.
   useEffect(() => {
@@ -549,6 +576,7 @@ export function CommandPalette() {
               <PaletteResultsBody
                 items={items}
                 query={query}
+                fallback={fallback}
                 activeItem={activeItem}
                 onHover={(item) => setActiveIndex(items.indexOf(item))}
                 truncatedGroups={truncatedGroups}

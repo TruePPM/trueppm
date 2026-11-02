@@ -348,4 +348,70 @@ test.describe('command palette', () => {
     await expect(page.getByRole('button', { name: 'Close task detail' })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECTS[0].id}/schedule`));
   });
+
+  // ---- ranking + no-match fallback (#4504) --------------------------------
+
+  const DEMO_PROJECTS: ProjectFixture[] = [
+    { id: 'cmdk-proj-pc', name: 'Platform Core', methodology: 'HYBRID' },
+    { id: 'cmdk-proj-wf', name: 'Harbor Waterfall', methodology: 'WATERFALL' },
+  ];
+
+  test('a project outranks a task that starts with its name; Enter opens the project (#4504)', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: DEMO_PROJECTS,
+      projectId: DEMO_PROJECTS[0].id,
+      tasks: [
+        {
+          id: 'cmdk-task-ga',
+          name: 'Platform Core GA',
+          status: 'IN_PROGRESS',
+          wbs_path: '1',
+          percent_complete: 0,
+          duration: 1,
+          is_milestone: false,
+          is_summary: false,
+          parent_id: null,
+        },
+      ],
+    });
+    await page.goto(`/projects/${DEMO_PROJECTS[0].id}/schedule`);
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+
+    await paletteSearch(page).fill('Platform Core');
+    const options = dialog.getByRole('option');
+    // The task is still offered, but below the project.
+    await expect(dialog.getByRole('option', { name: /Open task: Platform Core GA/ })).toBeVisible();
+    await expect(options.first()).toHaveAccessibleName('Platform Core Project');
+
+    await paletteSearch(page).press('Enter');
+    await expect(page).toHaveURL(/\/projects\/cmdk-proj-pc\/overview/);
+  });
+
+  test('a view no match here lists the views other projects have (#4504)', async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: DEMO_PROJECTS, projectId: DEMO_PROJECTS[1].id });
+    await page.goto(`/projects/${DEMO_PROJECTS[1].id}/schedule`);
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+
+    await paletteSearch(page).fill('Sprints');
+    await expect(dialog.getByText(/No matches for “Sprints” here/)).toBeVisible();
+    // Only the project whose methodology has Sprints is offered — not the waterfall one.
+    const row = dialog.getByRole('option', { name: /Sprints — Platform Core/ });
+    await expect(row).toBeVisible();
+    await expect(dialog.getByRole('option', { name: /Harbor Waterfall/ })).toHaveCount(0);
+
+    await paletteSearch(page).press('Enter');
+    await expect(page).toHaveURL(/\/projects\/cmdk-proj-pc\/sprints/);
+  });
 });

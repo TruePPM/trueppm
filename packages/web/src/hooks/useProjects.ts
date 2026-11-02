@@ -42,6 +42,8 @@ interface ApiProject {
   start_date: string;
   calendar: string;
   methodology?: Methodology;
+  /** Server-resolved iteration term (workspace → program → project, ADR-0116). */
+  effective_iteration_label?: string;
   /** Optional program FK (ADR-0070). Null for standalone projects. */
   program?: string | null;
   /** The requesting user's own pin (#2390). Absent on pre-0.4 fixtures. */
@@ -90,6 +92,9 @@ function mapProject(p: ApiProject, index: number): Project {
     methodology: p.methodology ?? 'HYBRID',
     programId: p.program ?? null,
     isPinned: p.is_pinned ?? false,
+    // Lets list-only surfaces (the ⌘K cross-project view fallback) name the
+    // sprints view with the project's own term without a per-project fetch.
+    effectiveIterationLabel: p.effective_iteration_label,
   };
 }
 
