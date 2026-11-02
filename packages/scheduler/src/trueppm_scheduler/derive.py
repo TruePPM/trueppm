@@ -70,7 +70,14 @@ from trueppm_scheduler.engine import (
     _working_days_between,
     schedule,
 )
-from trueppm_scheduler.models import Calendar, Dependency, DependencyType, Project, Task
+from trueppm_scheduler.models import (
+    Calendar,
+    Dependency,
+    DependencyType,
+    Project,
+    Task,
+    _short_repr,
+)
 
 
 class Quantity(enum.Enum):
@@ -1372,11 +1379,19 @@ def derive_value(
         contribution, and which pass set the value.
 
     Raises:
-        UnknownTaskError: If ``task_id`` names no task in the project.
+        UnknownTaskError: If ``task_id`` names no task in the project, or a
+            dependency of that task names a task missing from ``result``.
+        CyclicDependencyError: If ``result`` was supplied and the derivation reaches
+            the milestone replay (the project has a zero-duration task) over a
+            ``project`` that has gained a dependency cycle since ``result`` was
+            computed. Without a zero-duration task no graph pass runs, so a stale
+            cycle is not detected and a value is returned.
         InvalidScheduleInput: If ``project`` is not a :class:`Project`, or
             ``quantity`` is not a known quantity (the message lists the allowed
             values), or ``result`` is neither a :class:`ScheduleResult` nor ``None``.
-        SchedulerError: Propagated from :func:`schedule` for a degenerate project.
+        SchedulerError: Propagated from :func:`schedule` for a degenerate project,
+            or from the milestone replay when a supplied ``result`` no longer
+            matches ``project``.
     """
     _require_project(project)
     if isinstance(quantity, Quantity):
@@ -1387,7 +1402,7 @@ def derive_value(
         except (ValueError, TypeError) as err:
             allowed = ", ".join(m.value for m in Quantity)
             raise InvalidScheduleInput(
-                f"quantity must be one of {allowed} (got {quantity!r})."
+                f"quantity must be one of {allowed} (got {_short_repr(quantity)})."
             ) from err
 
     if result is None:
@@ -1400,7 +1415,7 @@ def derive_value(
     task_map: dict[str, Task] = {t.id: t for t in result.tasks}
     task = task_map.get(task_id) if isinstance(task_id, str) else None
     if task is None:
-        raise UnknownTaskError(f"Task {task_id!r} is not in the project.")
+        raise UnknownTaskError(f"Task {_short_repr(task_id)} is not in the project.")
 
     task_calendars = _resolve_task_calendars(project)
     default_cal = project.calendar
@@ -1421,6 +1436,16 @@ def derive_value(
             pred_deps[dep.predecessor_id] = dep
         if dep.predecessor_id == task_id:
             succ_deps[dep.successor_id] = dep
+
+    # ``result`` may predate the project (a dependency added since it was computed),
+    # in which case an endpoint of this task's own edges has no row in it. Name the
+    # missing id rather than let the lookup below surface a bare KeyError.
+    for far_id in (*pred_deps, *succ_deps):
+        if far_id not in task_map:
+            raise UnknownTaskError(
+                f"Dependency of task {_short_repr(task_id)} references task "
+                f"{_short_repr(far_id)}, which is not in the supplied result."
+            )
 
     preds: list[tuple[Task, DependencyType, timedelta]] = [
         (task_map[pred_id], dep.dep_type, dep.lag) for pred_id, dep in pred_deps.items()

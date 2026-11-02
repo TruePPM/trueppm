@@ -42,6 +42,7 @@ import signal
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, timedelta
+from itertools import pairwise
 from typing import Any
 
 import pytest
@@ -55,8 +56,10 @@ from trueppm_scheduler import (
     Dependency,
     DependencyType,
     Project,
+    Quantity,
     SchedulerError,
     Task,
+    derive_value,
     engine,
     expand_summary_dependencies,
     find_cycle,
@@ -1203,4 +1206,109 @@ def test_expand_summary_conforms(project: Project, children_map: dict[str, list[
     _assert_conforms(
         "expand_summary_dependencies",
         lambda: expand_summary_dependencies(project.tasks, project.dependencies, children_map),
+    )
+
+
+# A baseline result with milestones (zero-duration tasks), so a derivation against a
+# drifted project reaches the milestone replay rather than the O(degree) shortcut.
+_BASELINE_IDS = [f"t{i}" for i in range(4)]
+_BASELINE = Project(
+    id="base",
+    name="base",
+    start_date=date(2026, 3, 2),
+    tasks=[
+        Task(id=tid, name=tid, duration=timedelta(days=0 if i % 2 else 2))
+        for i, tid in enumerate(_BASELINE_IDS)
+    ],
+    dependencies=[
+        Dependency(predecessor_id=a, successor_id=b, dep_type=DependencyType.FS)
+        for a, b in pairwise(_BASELINE_IDS)
+    ],
+    calendar=Calendar(working_days=0b0011111),
+)
+_BASELINE_RESULT = schedule(_BASELINE)
+
+
+@example(
+    project=Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=_BASELINE.tasks,
+        dependencies=[
+            *_BASELINE.dependencies,
+            Dependency(predecessor_id="t3", successor_id="t0", dep_type=DependencyType.FS),
+        ],
+        calendar=Calendar(working_days=0b0011111),
+    ),
+    task_id="t1",
+    quantity=Quantity.EARLY_START,
+)
+@example(
+    project=Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=_BASELINE.tasks,
+        dependencies=[Dependency(predecessor_id="zzz", successor_id="t1")],
+        calendar=Calendar(working_days=0b0011111),
+    ),
+    task_id="t1",
+    quantity=Quantity.LATE_FINISH,
+)
+@given(
+    project=_projects(),
+    task_id=st.sampled_from(_BASELINE_IDS) | _ids,
+    quantity=st.sampled_from(list(Quantity)),
+)
+def test_derive_value_with_result_conforms(
+    project: Project, task_id: str, quantity: Quantity
+) -> None:
+    """derive_value(project, ..., result=<result computed for another project>) raises
+    only a SchedulerError. A caller-supplied ``result`` skips the schedule() that would
+    validate ``project``, so a project that has drifted from it (a dependency on an
+    unknown task, a new cycle) used to leak a bare KeyError/NetworkXUnfeasible."""
+    _assert_conforms(
+        "derive_value(result=...)",
+        lambda: derive_value(project, task_id, quantity, result=_BASELINE_RESULT),
+    )
+
+
+_junk_knobs = st.one_of(
+    st.none(),
+    st.booleans(),
+    st.integers(min_value=-5, max_value=50),
+    st.floats(allow_nan=True, allow_infinity=True),
+    st.text(max_size=3),
+    st.lists(st.integers(), max_size=2),
+)
+
+
+@given(
+    sensitivity_cap=_junk_knobs,
+    max_runs=_junk_knobs,
+    max_tasks=_junk_knobs,
+    max_lag_delta_cells=_junk_knobs,
+    max_index_cells=_junk_knobs,
+)
+def test_monte_carlo_knobs_conform(
+    sensitivity_cap: object,
+    max_runs: object,
+    max_tasks: object,
+    max_lag_delta_cells: object,
+    max_index_cells: object,
+) -> None:
+    """monte_carlo's own cap parameters raise only a SchedulerError for any value."""
+    _assert_conforms(
+        "monte_carlo(knobs)",
+        lambda: monte_carlo(
+            _BASELINE,
+            runs=8,
+            seed=1,
+            sensitivity_cap=sensitivity_cap,  # type: ignore[arg-type]
+            max_runs=max_runs,  # type: ignore[arg-type]
+            max_tasks=max_tasks,  # type: ignore[arg-type]
+            max_lag_delta_cells=max_lag_delta_cells,  # type: ignore[arg-type]
+            max_index_cells=max_index_cells,  # type: ignore[arg-type]
+        ),
     )

@@ -175,6 +175,7 @@ from trueppm_scheduler.models import (
     Task,
     _is_finite_real,
     _mask_days_between,
+    _short_repr,
     _validate_calendar_fields,
     _validate_project_fields,
 )
@@ -200,13 +201,6 @@ _CYCLE_MSG_MAX_IDS = 10
 _CYCLE_MSG_ID_CHARS = 80
 
 
-def _short_repr(node: object) -> str:
-    text = repr(node)
-    if len(text) > _CYCLE_MSG_ID_CHARS:
-        return text[: _CYCLE_MSG_ID_CHARS - 1] + "…"
-    return text
-
-
 class CyclicDependencyError(SchedulerError):
     """Raised when the dependency graph contains a cycle.
 
@@ -221,7 +215,7 @@ class CyclicDependencyError(SchedulerError):
 
     def __init__(self, cycle: list[str]) -> None:
         self.cycle = cycle
-        shown = [_short_repr(c) for c in cycle[:_CYCLE_MSG_MAX_IDS]]
+        shown = [_short_repr(c, _CYCLE_MSG_ID_CHARS) for c in cycle[:_CYCLE_MSG_MAX_IDS]]
         ids = " → ".join(shown)
         if len(cycle) > _CYCLE_MSG_MAX_IDS:
             ids += f" … (+{len(cycle) - _CYCLE_MSG_MAX_IDS} more)"
@@ -2007,7 +2001,8 @@ def _build_graph(project: Project) -> nx.DiGraph[str]:
             # (#1087). InvalidScheduleInput subclasses ValueError, so existing
             # ``except ValueError`` callers are unaffected.
             raise InvalidScheduleInput(
-                f"Dependency references unknown task: {dep.predecessor_id!r} → {dep.successor_id!r}"
+                f"Dependency references unknown task: {_short_repr(dep.predecessor_id)} → "
+                f"{_short_repr(dep.successor_id)}"
             )
         g.add_edge(dep.predecessor_id, dep.successor_id, dep=dep)
     return g
@@ -2181,15 +2176,20 @@ def _validate_edge_list(edges: list[tuple[str, str]]) -> list[tuple[str, str]]:
     try:
         edge_list = list(edges)
     except TypeError as err:
-        raise InvalidScheduleInput(f"edges must be an iterable of pairs (got {edges!r}).") from err
+        raise InvalidScheduleInput(
+            f"edges must be an iterable of pairs (got {_short_repr(edges)})."
+        ) from err
     for e in edge_list:
         if not (isinstance(e, tuple) and len(e) == 2):
             raise InvalidScheduleInput(
-                f"each edge must be a (predecessor_id, successor_id) 2-tuple (got {e!r})."
+                f"each edge must be a (predecessor_id, successor_id) 2-tuple (got "
+                f"{_short_repr(e)})."
             )
         u, v = e
         if not isinstance(u, str) or not isinstance(v, str):
-            raise InvalidScheduleInput(f"edge endpoints must be string task ids (got {e!r}).")
+            raise InvalidScheduleInput(
+                f"edge endpoints must be string task ids (got {_short_repr(e)})."
+            )
     return edge_list
 
 
@@ -2217,17 +2217,18 @@ def _validate_children_map_shape(children_map: dict[str, list[str]] | None) -> N
         if not isinstance(sid, str):
             raise InvalidScheduleInput(
                 f"children_map contains a non-string summary id "
-                f"(got {type(sid).__name__}: {sid!r})."
+                f"(got {type(sid).__name__}: {_short_repr(sid)})."
             )
         if not isinstance(kids, list):
             raise InvalidScheduleInput(
-                f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
+                f"children_map[{_short_repr(sid)}] must be a list of child ids (got "
+                f"{_short_repr(kids)})."
             )
         for child_id in kids:
             if not isinstance(child_id, str):
                 raise InvalidScheduleInput(
-                    f"children_map[{sid!r}] contains a non-string child id "
-                    f"(got {type(child_id).__name__}: {child_id!r})."
+                    f"children_map[{_short_repr(sid)}] contains a non-string child id "
+                    f"(got {type(child_id).__name__}: {_short_repr(child_id)})."
                 )
 
 
@@ -3594,22 +3595,23 @@ def _check_children_map(children_map: dict[str, list[str]]) -> None:
         if not isinstance(sid, str):
             raise InvalidScheduleInput(
                 f"children_map contains a non-string summary id "
-                f"(got {type(sid).__name__}: {sid!r})."
+                f"(got {type(sid).__name__}: {_short_repr(sid)})."
             )
         if not isinstance(kids, list):
             raise InvalidScheduleInput(
-                f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
+                f"children_map[{_short_repr(sid)}] must be a list of child ids (got "
+                f"{_short_repr(kids)})."
             )
         if not kids:
             raise InvalidScheduleInput(
-                f"Summary task {sid!r} has an empty children list; remove it from "
+                f"Summary task {_short_repr(sid)} has an empty children list; remove it from "
                 "children_map or give it children."
             )
         for child_id in kids:
             if not isinstance(child_id, str):
                 raise InvalidScheduleInput(
-                    f"children_map[{sid!r}] contains a non-string child id "
-                    f"(got {type(child_id).__name__}: {child_id!r})."
+                    f"children_map[{_short_repr(sid)}] contains a non-string child id "
+                    f"(got {type(child_id).__name__}: {_short_repr(child_id)})."
                 )
 
 
@@ -3666,7 +3668,9 @@ def _collect_leaves(
                 leaves.append(node)
             continue
         if node in path:
-            raise InvalidScheduleInput(f"children_map contains a cycle through task {node!r}.")
+            raise InvalidScheduleInput(
+                f"children_map contains a cycle through task {_short_repr(node)}."
+            )
         if node in path_count:
             continue  # already expanded via another parent (diamond)
         path.add(node)
@@ -3747,7 +3751,8 @@ def _reject_summary_start_links(deps: list[Dependency], summary_ids: set[str]) -
         ):
             raise InvalidScheduleInput(
                 f"Start-to-Start/Start-to-Finish dependency from summary task "
-                f"{dep.predecessor_id!r} is not supported (ADR-0024); link to a specific "
+                f"{_short_repr(dep.predecessor_id)} is not supported (ADR-0024); link to a "
+                f"specific "
                 "leaf task instead."
             )
 
@@ -3829,8 +3834,9 @@ def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -
                     if prior_source.dep_type != dep.dep_type:
                         raise InvalidScheduleInput(
                             f"Dependencies {_describe_link(prior_source)} and "
-                            f"{_describe_link(dep)} both resolve to leaf link {p!r} → "
-                            f"{s!r} with different types ({prior_source.dep_type.value} vs "
+                            f"{_describe_link(dep)} both resolve to leaf link {_short_repr(p)} → "
+                            f"{_short_repr(s)} with different types ({prior_source.dep_type.value} "
+                            f"vs "
                             f"{dep.dep_type.value}); a task pair can hold only one "
                             "dependency type. Remove one link or change its type to match."
                         )
@@ -3850,7 +3856,8 @@ def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -
 def _describe_link(dep: Dependency) -> str:
     """Render a source link for an error message, e.g. ``'S' → 'C' (FS, lag 7d)``."""
     return (
-        f"{dep.predecessor_id!r} → {dep.successor_id!r} ({dep.dep_type.value}, lag {dep.lag.days}d)"
+        f"{_short_repr(dep.predecessor_id)} → {_short_repr(dep.successor_id)} "
+        f"({dep.dep_type.value}, lag {dep.lag.days}d)"
     )
 
 
@@ -3969,8 +3976,9 @@ def _velocity_worst_case_days(task: Task, project: Project) -> int:
     ratio = task.story_points / mean
     if not math.isfinite(ratio):
         raise InvalidScheduleInput(
-            f"Task {task.id!r} velocity horizon is not computable: story_points "
-            f"({task.story_points!r}) over mean velocity ({mean!r}) overflows to a "
+            f"Task {_short_repr(task.id)} velocity horizon is not computable: story_points "
+            f"({_short_repr(task.story_points)}) over mean velocity ({_short_repr(mean)}) "
+            f"overflows to a "
             "non-finite value."
         )
     max_sprints = math.ceil(ratio) * 4 + 10
@@ -3999,14 +4007,17 @@ def _validate_project_shape(project: Project) -> None:
         value = getattr(project, field_name)
         if not isinstance(value, str):
             raise InvalidScheduleInput(
-                f"Project {field_name} must be a string, got {type(value).__name__}: {value!r}."
+                f"Project {field_name} must be a string, got {type(value).__name__}: "
+                f"{_short_repr(value)}."
             )
     if not isinstance(project.calendar, Calendar):
         raise InvalidScheduleInput(
             f"Project calendar must be a Calendar instance, got {type(project.calendar).__name__}."
         )
     if not isinstance(project.tasks, list) or any(not isinstance(t, Task) for t in project.tasks):
-        raise InvalidScheduleInput(f"Project tasks must be a list of Task, got {project.tasks!r}.")
+        raise InvalidScheduleInput(
+            f"Project tasks must be a list of Task, got {_short_repr(project.tasks)}."
+        )
     # Task.id keys every lookup; a non-str id is unhashable (TypeError), None (bare
     # networkx ValueError), or an int the Rust engine's String serde rejects (#4130).
     # Task.name is likewise a Rust ``String``; Python never reads it during a pass,
@@ -4014,17 +4025,19 @@ def _validate_project_shape(project: Project) -> None:
     for t in project.tasks:
         if not isinstance(t.id, str):
             raise InvalidScheduleInput(
-                f"Task id must be a string, got {type(t.id).__name__}: {t.id!r}."
+                f"Task id must be a string, got {type(t.id).__name__}: {_short_repr(t.id)}."
             )
         if not isinstance(t.name, str):
             raise InvalidScheduleInput(
-                f"Task {t.id!r} name must be a string, got {type(t.name).__name__}: {t.name!r}."
+                f"Task {_short_repr(t.id)} name must be a string, got {type(t.name).__name__}: "
+                f"{_short_repr(t.name)}."
             )
     if not isinstance(project.dependencies, list) or any(
         not isinstance(d, Dependency) for d in project.dependencies
     ):
         raise InvalidScheduleInput(
-            f"Project dependencies must be a list of Dependency, got {project.dependencies!r}."
+            f"Project dependencies must be a list of Dependency, got "
+            f"{_short_repr(project.dependencies)}."
         )
     if project.calendars is not None and (
         not isinstance(project.calendars, dict)
@@ -4032,7 +4045,7 @@ def _validate_project_shape(project: Project) -> None:
     ):
         raise InvalidScheduleInput(
             f"Project calendars must be a dict of calendar id to Calendar, got "
-            f"{project.calendars!r}."
+            f"{_short_repr(project.calendars)}."
         )
 
 
@@ -4046,7 +4059,7 @@ def _validate_unique_task_ids(project: Project) -> None:
     for t in project.tasks:
         if t.id in seen_ids:
             raise InvalidScheduleInput(
-                f"Duplicate task id {t.id!r}; every task must have a unique id."
+                f"Duplicate task id {_short_repr(t.id)}; every task must have a unique id."
             )
         seen_ids.add(t.id)
 
@@ -4060,7 +4073,7 @@ def _validate_project_calendar(project: Project) -> None:
     ):
         raise InvalidScheduleInput(
             f"Calendar working_days must be an integer bitmask "
-            f"(got {project.calendar.working_days!r})."
+            f"(got {_short_repr(project.calendar.working_days)})."
         )
     if project.calendar.working_days & 0b111_1111 == 0:
         raise InvalidScheduleInput(
@@ -4125,20 +4138,22 @@ def _validate_task_calendars(project: Project) -> None:
         for cal_id, cal in project.calendars.items():
             if isinstance(cal.working_days, bool) or not isinstance(cal.working_days, int):
                 raise InvalidScheduleInput(
-                    f"Calendar {cal_id!r} working_days must be an integer bitmask "
-                    f"(got {cal.working_days!r})."
+                    f"Calendar {_short_repr(cal_id)} working_days must be an integer bitmask "
+                    f"(got {_short_repr(cal.working_days)})."
                 )
             if cal.working_days & 0b111_1111 == 0:
                 raise InvalidScheduleInput(
-                    f"Calendar {cal_id!r} has no working weekday set (working_days bitmask "
+                    f"Calendar {_short_repr(cal_id)} has no working weekday set (working_days "
+                    f"bitmask "
                     "is empty); at least one of Mon-Sun must be a working day."
                 )
             if len(cal.exceptions) > MAX_CALENDAR_EXCEPTIONS:
                 raise InvalidScheduleInput(
-                    f"Calendar {cal_id!r} has {len(cal.exceptions)} exception ranges, exceeding "
+                    f"Calendar {_short_repr(cal_id)} has {len(cal.exceptions)} exception ranges, "
+                    f"exceeding "
                     f"the maximum of {MAX_CALENDAR_EXCEPTIONS:,}."
                 )
-            _validate_calendar_fields(cal, f"Calendar {cal_id!r}")
+            _validate_calendar_fields(cal, f"Calendar {_short_repr(cal_id)}")
             _next_working_day(project.start_date, cal)
 
 
@@ -4153,7 +4168,8 @@ def _validate_agile_inputs(project: Project) -> None:
         # TypeError ("'int' object is not iterable") past the documented contract.
         if not isinstance(project.velocity_samples, (list, tuple)):
             raise InvalidScheduleInput(
-                f"velocity_samples must be a list of numbers, got {project.velocity_samples!r}."
+                f"velocity_samples must be a list of numbers, got "
+                f"{_short_repr(project.velocity_samples)}."
             )
         for s in project.velocity_samples:
             if s is None:
@@ -4163,7 +4179,7 @@ def _validate_agile_inputs(project: Project) -> None:
             # but never a meaningful velocity, so reject it explicitly.
             if not _is_finite_number(s):
                 raise InvalidScheduleInput(
-                    f"velocity_samples must contain only finite numbers (got {s!r})."
+                    f"velocity_samples must contain only finite numbers (got {_short_repr(s)})."
                 )
 
     # sprint_length_days reaches ``project.sprint_length_days <= 0`` in
@@ -4180,7 +4196,8 @@ def _validate_agile_inputs(project: Project) -> None:
         or not isinstance(project.sprint_length_days, int)
     ):
         raise InvalidScheduleInput(
-            f"sprint_length_days must be an integer (got {project.sprint_length_days!r})."
+            f"sprint_length_days must be an integer (got "
+            f"{_short_repr(project.sprint_length_days)})."
         )
 
 
@@ -4224,11 +4241,12 @@ def _validate_task_date_types(t: Task) -> None:
     """
     if not isinstance(t.duration, timedelta):
         raise InvalidScheduleInput(
-            f"Task {t.id!r} duration must be a timedelta (got {t.duration!r})."
+            f"Task {_short_repr(t.id)} duration must be a timedelta (got "
+            f"{_short_repr(t.duration)})."
         )
-    _require_plain_date(t.planned_start, f"Task {t.id!r} planned_start")
-    _require_plain_date(t.actual_start, f"Task {t.id!r} actual_start")
-    _require_plain_date(t.actual_finish, f"Task {t.id!r} actual_finish")
+    _require_plain_date(t.planned_start, f"Task {_short_repr(t.id)} planned_start")
+    _require_plain_date(t.actual_start, f"Task {_short_repr(t.id)} actual_start")
+    _require_plain_date(t.actual_finish, f"Task {_short_repr(t.id)} actual_finish")
 
 
 def _validate_task_actual_order(t: Task) -> None:
@@ -4249,7 +4267,7 @@ def _validate_task_actual_order(t: Task) -> None:
         return
     if t.actual_start > t.actual_finish:
         raise InvalidScheduleInput(
-            f"Task {t.id!r} actual_start must not be after actual_finish "
+            f"Task {_short_repr(t.id)} actual_start must not be after actual_finish "
             f"(got {t.actual_start.isoformat()} > {t.actual_finish.isoformat()})."
         )
 
@@ -4272,7 +4290,7 @@ def _validate_task_calendar_id(t: Task, calendars: dict[str, Calendar] | None) -
         return
     if not isinstance(t.calendar_id, str):
         raise InvalidScheduleInput(
-            f"Task {t.id!r} calendar_id must be a string or None, "
+            f"Task {_short_repr(t.id)} calendar_id must be a string or None, "
             f"not {type(t.calendar_id).__name__}."
         )
     if calendars and t.calendar_id not in calendars:
@@ -4282,7 +4300,8 @@ def _validate_task_calendar_id(t: Task, calendars: dict[str, Calendar] | None) -
 def _unknown_calendar_id_message(task_id: str, calendar_id: str) -> str:
     """The refusal both the validator and the resolver raise, so they read identically."""
     return (
-        f"Task {task_id!r} calendar_id {calendar_id!r} names no calendar in the "
+        f"Task {_short_repr(task_id)} calendar_id {_short_repr(calendar_id)} names no calendar in "
+        f"the "
         "project's calendars registry."
     )
 
@@ -4296,7 +4315,7 @@ def _validate_task_durations(t: Task) -> None:
     the user's own pessimistic bound (#1069). Partial estimates are not validated:
     Monte Carlo only samples when all three are present.
     """
-    _check_duration(t.duration, f"Task {t.id!r} duration")
+    _check_duration(t.duration, f"Task {_short_repr(t.id)} duration")
     for field_name, value in (
         ("optimistic_duration", t.optimistic_duration),
         ("most_likely_duration", t.most_likely_duration),
@@ -4310,9 +4329,10 @@ def _validate_task_durations(t: Task) -> None:
             # the documented contract.
             if not isinstance(value, timedelta):
                 raise InvalidScheduleInput(
-                    f"Task {t.id!r} {field_name} must be a timedelta (got {value!r})."
+                    f"Task {_short_repr(t.id)} {field_name} must be a timedelta (got "
+                    f"{_short_repr(value)})."
                 )
-            _check_duration(value, f"Task {t.id!r} {field_name}")
+            _check_duration(value, f"Task {_short_repr(t.id)} {field_name}")
 
     if (
         t.optimistic_duration is None
@@ -4325,7 +4345,7 @@ def _validate_task_durations(t: Task) -> None:
     pe = t.pessimistic_duration.days
     if not o <= m <= pe:
         raise InvalidScheduleInput(
-            f"Task {t.id!r} three-point estimates must satisfy "
+            f"Task {_short_repr(t.id)} three-point estimates must satisfy "
             f"optimistic <= most_likely <= pessimistic "
             f"(got {o} <= {m} <= {pe} days)."
         )
@@ -4359,16 +4379,18 @@ def _validate_task_numerics(t: Task) -> None:
     """
     if t.story_points is not None and not _is_finite_number(t.story_points):
         raise InvalidScheduleInput(
-            f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r})."
+            f"Task {_short_repr(t.id)} story_points must be a finite number (got "
+            f"{_short_repr(t.story_points)})."
         )
     if t.percent_complete is not None and not _is_finite_number(t.percent_complete):
         raise InvalidScheduleInput(
-            f"Task {t.id!r} percent_complete must be a finite number (got {t.percent_complete!r})."
+            f"Task {_short_repr(t.id)} percent_complete must be a finite number (got "
+            f"{_short_repr(t.percent_complete)})."
         )
     if t.percent_complete is not None and not 0 <= t.percent_complete <= 100:
         raise InvalidScheduleInput(
-            f"Task {t.id!r} percent_complete must be between 0 and 100 "
-            f"(got {t.percent_complete!r})."
+            f"Task {_short_repr(t.id)} percent_complete must be between 0 and 100 "
+            f"(got {_short_repr(t.percent_complete)})."
         )
 
 
@@ -4383,7 +4405,7 @@ def _validate_task_span(t: Task, project_start: date) -> None:
         and (t.planned_start - project_start).days > MAX_PROJECT_SPAN_DAYS
     ):
         raise InvalidScheduleInput(
-            f"Task {t.id!r} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days "
+            f"Task {_short_repr(t.id)} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days "
             "after the project start; the schedule cannot be computed within a "
             "representable date range."
         )
@@ -4406,8 +4428,9 @@ def _validate_dependencies(project: Project) -> None:
         # otherwise leak AttributeError from ``.days`` here and in both passes.
         if not isinstance(dep.lag, timedelta):
             raise InvalidScheduleInput(
-                f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag must be a "
-                f"timedelta (got {dep.lag!r})."
+                f"Dependency {_short_repr(dep.predecessor_id)} → {_short_repr(dep.successor_id)} "
+                f"lag must be a "
+                f"timedelta (got {_short_repr(dep.lag)})."
             )
         # Type guards for the direct-object API (#3846/#1209): predecessor_id/
         # successor_id key ``seen_edges`` (a set) below and, for dep_type, the Monte
@@ -4418,7 +4441,7 @@ def _validate_dependencies(project: Project) -> None:
         if not isinstance(dep.predecessor_id, str) or not isinstance(dep.successor_id, str):
             raise InvalidScheduleInput(
                 f"Dependency predecessor_id/successor_id must be strings (got "
-                f"{dep.predecessor_id!r} → {dep.successor_id!r})."
+                f"{_short_repr(dep.predecessor_id)} → {_short_repr(dep.successor_id)})."
             )
         if not isinstance(dep.dep_type, DependencyType):
             # Same first-run-legibility treatment as the from_dict path (#947): name
@@ -4427,7 +4450,7 @@ def _validate_dependencies(project: Project) -> None:
             # DependencyType member.
             allowed = ", ".join(dt.value for dt in DependencyType)
             raise InvalidScheduleInput(
-                f"Invalid dependency type {dep.dep_type!r}; must be one of: {allowed}."
+                f"Invalid dependency type {_short_repr(dep.dep_type)}; must be one of: {allowed}."
             )
         # Duplicate (predecessor, successor) edges diverge between engines (#1817):
         # ``_build_graph`` uses ``nx.DiGraph``, which *overwrites* the edge attribute
@@ -4439,17 +4462,22 @@ def _validate_dependencies(project: Project) -> None:
         key = (dep.predecessor_id, dep.successor_id)
         if key in seen_edges:
             raise InvalidScheduleInput(
-                f"Duplicate dependency {dep.predecessor_id!r} → {dep.successor_id!r}; "
+                f"Duplicate dependency {_short_repr(dep.predecessor_id)} → "
+                f"{_short_repr(dep.successor_id)}; "
                 "each task pair may carry at most one dependency (declare a single "
                 "relationship per predecessor/successor pair)."
             )
         seen_edges.add(key)
         # Sub-day lag schedules differently across engines and can drive a late date
         # before an early date (#1818); reject a non-whole-day lag like a duration.
-        _check_whole_days(dep.lag, f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag")
+        _check_whole_days(
+            dep.lag,
+            f"Dependency {_short_repr(dep.predecessor_id)} → {_short_repr(dep.successor_id)} lag",
+        )
         if abs(dep.lag.days) > MAX_LAG_DAYS:
             raise InvalidScheduleInput(
-                f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag exceeds "
+                f"Dependency {_short_repr(dep.predecessor_id)} → {_short_repr(dep.successor_id)} "
+                f"lag exceeds "
                 f"the maximum of ±{MAX_LAG_DAYS} days (got {dep.lag.days})."
             )
 
@@ -4865,7 +4893,12 @@ def _milestone_instants(
     kept (#4524).
     """
     g = _build_graph(project)
-    topo_order: list[str] = list(nx.topological_sort(g))
+    # Reached from derive_value with a caller-supplied result and no validation, so
+    # a project that gained a cycle since the result was computed lands here.
+    try:
+        topo_order: list[str] = list(nx.topological_sort(g))
+    except nx.NetworkXUnfeasible:
+        _raise_cycle_error(g)
     task_map = {t.id: copy.copy(t) for t in project.tasks}
     task_calendars = _resolve_task_calendars(project)
     link_instants: dict[str, _Instant] = {}
@@ -5282,6 +5315,9 @@ def _validate_monte_carlo_args(
     seed: int | None,
     max_runs: int | None,
     max_tasks: int | None,
+    sensitivity_cap: int = MC_SENSITIVITY_CAP,
+    max_lag_delta_cells: int = MAX_LAG_DELTA_CELLS,
+    max_index_cells: int = MAX_INDEX_CELLS,
 ) -> None:
     """Validate ``monte_carlo()``'s own parameters before any network work.
 
@@ -5296,7 +5332,7 @@ def _validate_monte_carlo_args(
     # guard below already closes (#1453). bool is an int subclass but never a
     # meaningful run count, so reject it explicitly (#1825).
     if isinstance(runs, bool) or not isinstance(runs, int):
-        raise InvalidScheduleInput(f"runs must be a positive integer (got {runs!r}).")
+        raise InvalidScheduleInput(f"runs must be a positive integer (got {_short_repr(runs)}).")
     if runs < 1:
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
     # An absurd count otherwise reaches ``np.empty((runs, ...))`` and surfaces as a
@@ -5307,14 +5343,34 @@ def _validate_monte_carlo_args(
         )
     for name, cap in (("max_runs", max_runs), ("max_tasks", max_tasks)):
         if cap is not None and (isinstance(cap, bool) or not isinstance(cap, int)):
-            raise InvalidScheduleInput(f"{name} must be an integer or None (got {cap!r}).")
+            raise InvalidScheduleInput(
+                f"{name} must be an integer or None (got {_short_repr(cap)})."
+            )
     # seed is passed straight to np.random.default_rng(seed); a negative int raises
     # a bare numpy ValueError and a float/non-int a bare TypeError, both escaping the
     # documented SchedulerError contract for a documented public parameter (#1453).
     # Accept None (non-deterministic) or a non-negative int; bool is an int subclass
     # but never a meaningful seed, so reject it like the other numeric guards.
     if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int) or seed < 0):
-        raise InvalidScheduleInput(f"seed must be a non-negative integer or None (got {seed!r}).")
+        raise InvalidScheduleInput(
+            f"seed must be a non-negative integer or None (got {_short_repr(seed)})."
+        )
+    # The three always-int knobs have no "unset" spelling (the default is the
+    # unset value), so None is rejected here rather than compared later. Checked
+    # before the simulation: ``sensitivity_cap`` is first read after every run has
+    # finished, so a bad value used to cost the whole simulation before failing.
+    for name, knob in (
+        ("sensitivity_cap", sensitivity_cap),
+        ("max_lag_delta_cells", max_lag_delta_cells),
+        ("max_index_cells", max_index_cells),
+    ):
+        if isinstance(knob, bool) or not isinstance(knob, int) or knob < 0:
+            raise InvalidScheduleInput(
+                f"{name} must be a non-negative integer (got {_short_repr(knob)})."
+            )
+    # ``len(project.tasks)`` below needs the container to be a list; a direct-object
+    # Project(tasks=7) would otherwise leak a bare TypeError from len().
+    _validate_project_shape(project)
     if max_tasks is not None and len(project.tasks) > max_tasks:
         raise SimulationCapExceeded(
             f"Project task count ({len(project.tasks)}) exceeds the configured "
@@ -5610,7 +5666,9 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     # bool is an int subclass but never a meaningful day offset; the magnitude bound
     # keeps ``timedelta`` from raising a bare OverflowError on a huge int (#4518).
     if isinstance(delta_days, bool) or not isinstance(delta_days, int):
-        raise InvalidScheduleInput(f"delta_days must be an integer (got {delta_days!r}).")
+        raise InvalidScheduleInput(
+            f"delta_days must be an integer (got {_short_repr(delta_days)})."
+        )
     if abs(delta_days) > MAX_DURATION_DAYS:
         raise InvalidScheduleInput(
             f"delta_days exceeds the maximum magnitude of {MAX_DURATION_DAYS} days "
@@ -5618,13 +5676,15 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
         )
     target = next((t for t in project.tasks if t.id == task_id), None)
     if target is None:
-        raise InvalidScheduleInput(f"Task {task_id!r} is not in project {project.id!r}.")
+        raise InvalidScheduleInput(
+            f"Task {_short_repr(task_id)} is not in project {_short_repr(project.id)}."
+        )
     if _is_complete(target):
         # Completed work is pinned by its actuals and laid out at full duration
         # regardless of what ``duration`` says, so any offset is a silent zero-impact
         # what-if — refuse it like the unknown id above.
         raise InvalidScheduleInput(
-            f"Task {task_id!r} is complete; its dates are actuals and a duration "
+            f"Task {_short_repr(task_id)} is complete; its dates are actuals and a duration "
             "change cannot move the forecast."
         )
     if delta_days == 0:
@@ -7773,9 +7833,21 @@ def monte_carlo(
             or lag is negative/out of range, the project has no tasks,
             ``runs`` is less than 1 or above the absolute ceiling, ``seed`` is
             not a non-negative int or ``None``, ``max_runs``/``max_tasks`` is
-            not an int or ``None``, or ``project`` is not a :class:`Project`.
+            not an int or ``None``, ``sensitivity_cap`` / ``max_lag_delta_cells`` /
+            ``max_index_cells`` is not a non-negative int, or ``project`` is not a
+            :class:`Project` or has a malformed ``tasks``/``dependencies``/``calendar``
+            container.
     """
-    _validate_monte_carlo_args(project, runs, seed, max_runs, max_tasks)
+    _validate_monte_carlo_args(
+        project,
+        runs,
+        seed,
+        max_runs,
+        max_tasks,
+        sensitivity_cap,
+        max_lag_delta_cells,
+        max_index_cells,
+    )
     _validate_project(project)
 
     g = _build_graph(project)
