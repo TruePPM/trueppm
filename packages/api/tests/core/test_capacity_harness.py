@@ -634,3 +634,37 @@ def test_main_preflights_all_secrets_before_any_stack_work(
     monkeypatch.setattr(sys, "argv", ["run_capacity.py", "--dimension", "tasks"])
     with pytest.raises(SystemExit, match="CAPACITY_DB_PASSWORD"):
         capacity.main()
+
+
+def test_full_load_token_refresh_failure_is_a_failed_sample_not_a_crash(
+    capacity: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    h = _FullLoadHarness(capacity, monkeypatch, status=200)
+
+    def hung(self: Any) -> None:
+        raise capacity.requests.ConnectTimeout("token endpoint hung")
+
+    monkeypatch.setattr(capacity.Client, "ensure_fresh_token", hung, raising=False)
+    h.run()
+    assert {s.status for s in h.samples} == {0}
+    assert all(s.ms == 0.0 and not s.ok for s in h.samples)
+    assert h.requests_made == 0
+
+
+def test_measure_step_token_refresh_failure_is_a_contaminated_attempt(
+    capacity: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Client:
+        def ensure_fresh_token(self) -> None:
+            raise capacity.requests.ConnectionError("down")
+
+        def timed(self, path: str) -> Any:
+            raise AssertionError("must not measure with no token")
+
+    monkeypatch.setattr(capacity.time, "sleep", lambda _s: None)
+    result = capacity.measure_step(
+        _Client(), step=1, label="s", take=lambda: pytest.fail("took samples")
+    )
+    assert result.contaminated
+    assert "token refresh failed" in result.notes
+    assert result.status_histogram == {"0": 1}

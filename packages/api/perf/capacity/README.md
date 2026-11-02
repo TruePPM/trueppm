@@ -146,7 +146,7 @@ cannot set p95 alone. It is still a coarse statistic, which is why every step al
 records and prints `p50_ms`. Read p50 for the typical cost and p95 as a tail
 indicator, not as a tight bound.
 
-All three secrets from step 0 are checked before anything is brought up or
+All three secrets from step 0 are checked before anything is
 seeded, so a missing or too-short one fails in a second with a message naming it.
 
 **Known limitation of the control.** Neither the old nor the new probe touches

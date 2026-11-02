@@ -13,6 +13,8 @@ dependency, and anyone with the venv can reproduce a published number.
 Usage::
 
     export TRUEPPM_CAPACITY_PASSWORD=...   # required; see owner_password()
+    export CAPACITY_INTEGRATION_KEY=...    # required; see README step 0
+    export CAPACITY_DB_PASSWORD=...        # required, 12+ chars; see README step 0
     python packages/api/perf/capacity/run_capacity.py --dimension tasks
     python packages/api/perf/capacity/run_capacity.py --dimension concurrency
     python packages/api/perf/capacity/run_capacity.py --dimension all --out results/
@@ -113,9 +115,11 @@ FULL_LOAD_SAMPLES = 21
 # `ACCESS_TOKEN_LIFETIME` is 15 minutes
 # (packages/api/src/trueppm_api/settings/base.py). A single sweep *step* —
 # not just the whole sweep — can itself run for minutes at the largest sizes,
-# so the token has to stay valid for the entire step, not merely be fresh at
-# the moment the step starts. Refreshing at 10 minutes rather than at the
-# 15-minute deadline leaves every step a safety window instead of racing it.
+# so the token is re-checked at every attempt and before every `full_load`
+# walk rather than once per sweep. Refreshing at 10 minutes rather than at the
+# 15-minute deadline leaves a token just under the margin about 5 minutes of
+# life, which covers a walk or an ordinary attempt but not an attempt that
+# itself runs longer than that (a very slow step can still outlast it).
 # Before this fix the token was cached for the life of the process with no
 # refresh at all: a 17m51s `tasks` sweep spent its final (16,000-task) step
 # entirely on 401s from an expired token, at the ~4.8 ms speed of an auth
@@ -228,7 +232,22 @@ def measure_step(
         # Once per attempt, not per request (see `ensure_fresh_token`). A step
         # can retry for minutes (each retry sleeps and re-measures), so a token
         # fresh at the first attempt may be near expiry by the third.
-        client.ensure_fresh_token()
+        try:
+            client.ensure_fresh_token()
+        except requests.RequestException as exc:
+            # The token endpoint is unreachable or hung: the API is not
+            # answering, which is not an auth rejection. Record a failed,
+            # contaminated attempt (never a published ceiling) and retry.
+            failed = summarize(
+                step, label, [Sample(ms=0.0, status=0, ok=False)], f"token refresh failed: {exc}"
+            )
+            failed.contaminated = True
+            failed.attempts = attempt
+            if best is None:
+                best = failed
+            print(f"    [token refresh failed: {exc}] retrying…", flush=True)
+            time.sleep(15)
+            continue
         control_a = control_sample(client)
         samples = take()
         control_b = control_sample(client)
@@ -342,7 +361,8 @@ def preflight_secrets() -> None:
     """Fail in a second if any of the three stack secrets is missing or too short.
 
     `seed()` captures docker output, so a missing `CAPACITY_DB_PASSWORD` would
-    otherwise surface minutes in as a bare `CalledProcessError`.
+    otherwise surface at the first seed as a bare `CalledProcessError` with no
+    explanation.
     """
     owner_password()
     problems = []
@@ -363,8 +383,8 @@ def owner_password() -> str:
     """The load driver's password, or a hard stop explaining how to mint one.
 
     Also called once from `main()` rather than only lazily at first login: the
-    failure has to land before the sweep brings a stack up and seeds it, not
-    several minutes in.
+    failure has to land before the sweep seeds anything, not at the first login
+    after the first seed.
     """
     password = os.environ.get(OWNER_PASSWORD_ENV, "").strip()
     if not password:
@@ -412,12 +432,13 @@ class Client:
     def ensure_fresh_token(self) -> None:
         """Re-mint the bearer token if it has passed `TOKEN_REFRESH_AFTER`.
 
-        Called once per step (from `measure_step`), not per request: the cache
-        lookup is cheap, but the point is that the token only actually needs to
-        change on a ~10-minute cadence, so checking at request granularity buys
-        nothing. This is the fix for #3828 — a sweep step now always starts
-        with a token good for the whole step, not whatever was minted at the
-        start of the sweep possibly tens of minutes earlier.
+        Called once per `measure_step` attempt and before each `full_load`
+        walk, not per request: the cache lookup is cheap, but the token only
+        needs to change on a ~10-minute cadence, so checking per request buys
+        nothing. A token just under the margin still has about 5 minutes of
+        life, enough for a walk or an ordinary attempt. Raises
+        `requests.RequestException` when the token endpoint is unreachable;
+        callers record that as a failed sample or attempt, not an auth fault.
         """
         self.token = self._login()
 
@@ -581,7 +602,11 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
         def full_load(pid: str = pid, client: Client = client) -> Sample:
             # A regressed build can take ~40 s per walk, so 21 samples outlast
             # the token margin; check before each walk, not just per step.
-            client.ensure_fresh_token()
+            try:
+                client.ensure_fresh_token()
+            except requests.RequestException:
+                # Untimed: no request was made to the endpoint under test.
+                return Sample(ms=0.0, status=0, ok=False)
             start = time.perf_counter()
             page = 1
             ok = True
