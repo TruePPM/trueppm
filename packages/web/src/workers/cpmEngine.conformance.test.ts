@@ -126,6 +126,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // The engine applies SNET (#3535) but the harness seeds every task at the
   // project start, which is not how a fixture's own planned_start reads.
   planned_start_snet: 'adapter: seeds all tasks at project start, overriding SNET',
+  // #4527. Two unlinked source tasks (A and C), each pinned by planned_start and
+  // progress, under a status date the harness deliberately omits.
+  progress_started_snet_resume: 'adapter: 2 source tasks, needs statusDate and plannedStart',
   // #4145. Both pin a source task with planned_start so an SF successor has room
   // to finish before it. The SF-from-work rule itself is asserted here through
   // `sf_from_work_chained` (in scope), which reaches the same shape via FS.
