@@ -109,12 +109,13 @@ sizes returned `200` on every request, with the API container's memory flat and
 `OOM=false`. Nothing was exhausted — the sweep had simply logged itself out.
 `/api/v1/health/` needs no token, so it stayed green (~6.7 ms) for the entire
 step and never saw the failure it existed to catch. The control now polls an
-authenticated endpoint instead, so an expired or rejected token shows up as an
-elevated, `contaminated` control sample rather than passing silently underneath a
-step that is actually failing. **Fixed alongside it:** the token cache is now
+authenticated endpoint instead, so an expired or rejected token is now seen by the
+control. A rejection is fast (~5 ms), so it does not inflate the control's latency;
+what catches it is the failure itself, which raises `InstrumentFault` (see below).
+**Fixed alongside it:** the token cache is now
 time-aware (`TOKEN_REFRESH_AFTER`, refreshes at ~10 minutes — well inside the
-15-minute lifetime so a long step never crosses the deadline mid-flight) instead of
-cached for the life of the process, checked once per step rather than per request
+15-minute lifetime) instead of cached for the life of the process, checked once
+per attempt and before each `full_load` walk rather than per request
 so the anti-credential-stuffing throttle is not tripped; and every step's results
 now carry a `status_histogram` (e.g. `{"401": 29, "200": 1}`) alongside
 `error_rate`, so a wall of `401`s is distinguishable from a wall of `500`s or
@@ -138,11 +139,15 @@ part-way through a sweep.
 
 **Warm-up and sample counts.** Both `tasks` and `full_load` discard
 `WARMUP_REQUESTS` (5) requests before the first measured sample. `full_load`
-takes `FULL_LOAD_SAMPLES` (15) samples per step, up from 7. The percentile index
-is `int(n * 0.95)`, so p95 is the slowest sample at n=7 and the second-slowest at
-n=15: still a coarse statistic, which is why every step also records and prints
-`p50_ms`. Read p50 for the typical cost and p95 as a tail indicator, not as a
-tight bound.
+takes `FULL_LOAD_SAMPLES` (21) samples per step, up from 7. The percentile index
+is `int(n * 0.95)`, which selects the slowest sample for every n up to 20 and the
+second-slowest first at n=21, so 21 is the smallest count at which one outlier
+cannot set p95 alone. It is still a coarse statistic, which is why every step also
+records and prints `p50_ms`. Read p50 for the typical cost and p95 as a tail
+indicator, not as a tight bound.
+
+All three secrets from step 0 are checked before anything is brought up or
+seeded, so a missing or too-short one fails in a second with a message naming it.
 
 **Known limitation of the control.** Neither the old nor the new probe touches
 project- or task-scoped tables, so it detects host **CPU** starvation and auth

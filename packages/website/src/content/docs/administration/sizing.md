@@ -311,7 +311,7 @@ The stack under test is an isolated Docker Compose stack running `settings.prod`
 
 Both are **single-node developer-class machines**, not a tuned multi-node cluster, and both are faster per core than a typical small VPS. Do not read either as a worst case.
 
-**Statistics.** PostgreSQL chooses a query plan from statistics that `autovacuum` refreshes some time after data changes. The harness re-seeds a project at every step and does not run `ANALYZE`, so its readings depend on whether autovacuum has caught up yet. A real database has been running long enough that it has. **The whole-project row is therefore measured with `ANALYZE` run after seeding** — the steady state — and every load in it was measured individually, 7 per size. (The harness's own "p95" is its slowest of 7 samples, so it can be set by a single outlier.)
+**Statistics.** PostgreSQL chooses a query plan from statistics that `autovacuum` refreshes some time after data changes. The harness re-seeds a project at every step and, on 0.4, does not run `ANALYZE` (planned for 0.5), so its readings depend on whether autovacuum has caught up yet. A real database has been running long enough that it has. **The whole-project row is therefore measured with `ANALYZE` run after seeding** — the steady state — and every load in it was measured individually, 7 per size. (On 0.4 the harness's own "p95" is its slowest of 7 samples, so it can be set by a single outlier; 0.5 is planned to take 21.)
 
 ### What was measured
 
@@ -485,6 +485,7 @@ Planned for 0.5: the stack reads the password from `CAPACITY_DB_PASSWORD`, which
 
 - It will run `ANALYZE` after every seed. On 0.4 it does not, so a step can measure a plan chosen from stale statistics; run `ANALYZE` against the capacity database after each seed to get the steady state this page reports.
 - It will record the chip model, the performance/efficiency core split and the Docker CPU, memory and swap allocation. On 0.4 it records only `os.cpu_count()`, so write down the machine and the Docker allocation yourself. A figure without them cannot be compared with anything, which is how two computers came to be published as one.
+- It will discard 5 warm-up requests before the first measured whole-project load, as the task-list sweep already does, and it will take 21 samples per size instead of 7. On 0.4 the whole-project sweep has no warm-up and its "p95" is the slowest of 7.
 - It will abort, without writing a result, when every failure in a step is a 401 or 403, and it will publish p50 beside p95. On 0.4 an authentication failure inside a step still counts as an error-rate breach.
 :::
 

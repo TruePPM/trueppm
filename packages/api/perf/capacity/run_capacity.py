@@ -48,6 +48,12 @@ OWNER_EMAIL = "capacity@trueppm.local"
 # constant in the tree — which is what this replaces (#2457).
 OWNER_PASSWORD_ENV = "TRUEPPM_CAPACITY_PASSWORD"
 
+INTEGRATION_KEY_ENV = "CAPACITY_INTEGRATION_KEY"
+DB_PASSWORD_ENV = "CAPACITY_DB_PASSWORD"
+# Mirrors core.security_checks.MIN_SERVICE_PASSWORD_LENGTH; the harness is a
+# standalone script and cannot import the API package.
+MIN_DB_PASSWORD_LENGTH = 12
+
 COMPOSE_FILE = Path(__file__).parent / "docker-compose.capacity.yml"
 
 # Breach gates. These are the thresholds the published envelope is measured to;
@@ -95,12 +101,12 @@ WARMUP_REQUESTS = 5
 
 # `full_load` carries the headline published number, and each sample is a whole
 # serial page walk (seconds at the larger sizes), so the count is a runtime
-# trade. `p95_of` indexes `int(n * 0.95)`: at n=7 that is the slowest sample,
-# and at n=15 it is still only the second-slowest, so p95 stays a coarse
-# statistic here and `p50_ms` is reported beside it. 15 roughly doubles the
-# measured time per step; 21+ would be needed for p95 to stop being a
-# near-maximum, which is not worth tripling the run for.
-FULL_LOAD_SAMPLES = 15
+# trade. `p95_of` indexes `int(n * 0.95)`, which selects the slowest sample for
+# every n up to 20 (n=7, 15 and 20 all land on the maximum) and the
+# second-slowest first at n=21. 21 is therefore the smallest count at which p95
+# is no longer simply the worst sample, so one outlier cannot set it alone.
+# `p50_ms` is still reported beside it. A test pins this reason.
+FULL_LOAD_SAMPLES = 21
 
 # Refresh margin for the cached bearer token (#3828).
 #
@@ -217,14 +223,12 @@ def measure_step(
     and why its number was not published — silently dropping it would misreport
     the sweep as having covered ground it did not.
     """
-    # Once per step, not per request (see `ensure_fresh_token`) — a step at the
-    # largest sizes can itself run for minutes, so it must start with a token
-    # good for its own duration, not one that was merely fresh when the sweep
-    # began.
-    client.ensure_fresh_token()
-
     best: StepResult | None = None
     for attempt in range(1, MAX_STEP_ATTEMPTS + 1):
+        # Once per attempt, not per request (see `ensure_fresh_token`). A step
+        # can retry for minutes (each retry sleeps and re-measures), so a token
+        # fresh at the first attempt may be near expiry by the third.
+        client.ensure_fresh_token()
         control_a = control_sample(client)
         samples = take()
         control_b = control_sample(client)
@@ -332,6 +336,27 @@ def _token_is_fresh(cached: _CachedToken, *, now: float) -> bool:
     live token endpoint — see `tests/perf/test_capacity_harness.py`.
     """
     return (now - cached.minted_at) < TOKEN_REFRESH_AFTER.total_seconds()
+
+
+def preflight_secrets() -> None:
+    """Fail in a second if any of the three stack secrets is missing or too short.
+
+    `seed()` captures docker output, so a missing `CAPACITY_DB_PASSWORD` would
+    otherwise surface minutes in as a bare `CalledProcessError`.
+    """
+    owner_password()
+    problems = []
+    if not os.environ.get(INTEGRATION_KEY_ENV, "").strip():
+        problems.append(f"{INTEGRATION_KEY_ENV} is not set (see README step 0a)")
+    db_password = os.environ.get(DB_PASSWORD_ENV, "").strip()
+    if len(db_password) < MIN_DB_PASSWORD_LENGTH:
+        problems.append(
+            f"{DB_PASSWORD_ENV} must be set to at least {MIN_DB_PASSWORD_LENGTH} "
+            "characters — settings.prod refuses to boot on a shorter service "
+            "password (README step 0c)"
+        )
+    if problems:
+        raise SystemExit("Capacity stack secrets missing:\n  " + "\n  ".join(problems))
 
 
 def owner_password() -> str:
@@ -554,16 +579,25 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
         pid = client.first_project_id()
 
         def full_load(pid: str = pid, client: Client = client) -> Sample:
+            # A regressed build can take ~40 s per walk, so 21 samples outlast
+            # the token margin; check before each walk, not just per step.
+            client.ensure_fresh_token()
             start = time.perf_counter()
             page = 1
             ok = True
             status = 200
             while True:
-                r = requests.get(
-                    f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=200&page={page}",
-                    headers=client.headers,
-                    timeout=180,
-                )
+                try:
+                    r = requests.get(
+                        f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=200&page={page}",
+                        headers=client.headers,
+                        timeout=180,
+                    )
+                except requests.RequestException:
+                    # Same convention as `Client.timed`: a timeout is status 0.
+                    status = 0
+                    ok = False
+                    break
                 status = r.status_code
                 if r.status_code >= 400:
                     ok = False
@@ -802,7 +836,7 @@ def main() -> int:
 
     # Before any stack work: a missing credential should cost a second, not the
     # several minutes it takes to seed the first step and then fail to log in.
-    owner_password()
+    preflight_secrets()
 
     names = list(DIMENSIONS) if args.dimension == "all" else [args.dimension]
     results: list[dict[str, Any]] = []
