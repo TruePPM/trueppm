@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { MethodologyMismatchBanner } from './MethodologyMismatchBanner';
 
@@ -13,8 +13,14 @@ vi.mock('react-router', async () => {
   return { ...actual, useNavigate: () => navigateMock };
 });
 
+// Default to an Admin: the action is withheld from everyone else, and the shipped
+// assertions below are about the action itself.
+const accessMock = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/useAdminSettingsAccess', () => ({ useAdminSettingsAccess: accessMock }));
+
 const MESSAGE = 'This project is configured as Waterfall, but 3 sprints already are committed here.';
 
+beforeEach(() => accessMock.mockReturnValue({ verdict: 'admin', refetch: () => {} }));
 afterEach(() => vi.clearAllMocks());
 
 describe('MethodologyMismatchBanner (#2619)', () => {
@@ -80,5 +86,23 @@ describe('MethodologyMismatchBanner (#2619)', () => {
     expect(screen.getByRole('button', { name: 'Review methodology' }).className).toContain(
       'focus-visible:ring-2',
     );
+  });
+});
+
+describe('MethodologyMismatchBanner action visibility (#3528)', () => {
+  it.each(['not-admin', 'loading'])(
+    'withholds the action but keeps the disclosure for verdict %s',
+    (verdict) => {
+      accessMock.mockReturnValue({ verdict, refetch: () => {} });
+      renderWithRouter(<MethodologyMismatchBanner projectId="proj-1" message={MESSAGE} />);
+      expect(screen.getByRole('status')).toHaveTextContent(MESSAGE);
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    },
+  );
+
+  it('keeps the action when /auth/me failed, so an error cannot strand an Admin', () => {
+    accessMock.mockReturnValue({ verdict: 'unknown', refetch: () => {} });
+    renderWithRouter(<MethodologyMismatchBanner projectId="proj-1" message={MESSAGE} />);
+    expect(screen.getByRole('button', { name: 'Review methodology' })).toBeInTheDocument();
   });
 });

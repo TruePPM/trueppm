@@ -70,7 +70,14 @@ const ACTIVE_SPRINT = {
   updated_at: '2026-04-01T00:00:00Z',
 };
 
-async function setupCommon(page: import('@playwright/test').Page, sprints: unknown[] = []) {
+async function setupCommon(
+  page: import('@playwright/test').Page,
+  sprints: unknown[] = [],
+  // Admin by default: the methodology action is withheld from anyone the Settings
+  // page would show only the reduced member rail, so the shipped assertions below
+  // must state that they run as one rather than lean on an absent flag.
+  canAccessAdminSettings = true,
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -197,6 +204,7 @@ async function setupCommon(page: import('@playwright/test').Page, sprints: unkno
         display_name: 'E2E',
         initials: 'E',
         email: 'e2e@example.com',
+        can_access_admin_settings: canAccessAdminSettings,
       }),
     }),
   );
@@ -269,5 +277,32 @@ test.describe('A methodology-hidden view reached by direct URL (#2619)', () => {
     await expect(page).toHaveURL(
       new RegExp(`/projects/${PROJECT_ID}/settings#how-this-team-works$`),
     );
+  });
+
+  test('a contributor sees the disclosure and the primary action, but no methodology action (#3528)', async ({
+    page,
+  }) => {
+    await setupCommon(page, [], false);
+    await page.goto(BASE_URL);
+
+    // Positive signals first: absence assertions are vacuous until the page has
+    // demonstrably rendered with the role already resolved.
+    await expect(page.getByText(/Sprints aren't part of this project's workflow/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Go to Schedule' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change methodology' })).toHaveCount(0);
+    await expect(page.getByText(/switch the methodology in Settings/i)).toHaveCount(0);
+  });
+
+  test('a contributor sees the mismatch sentence but no "Review methodology" (#3528)', async ({
+    page,
+  }) => {
+    await setupCommon(page, [ACTIVE_SPRINT], false);
+    await page.goto(BASE_URL);
+
+    await expect(
+      page.getByText(/This project is configured as Waterfall, but 1 sprint already is committed/i),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /Active sprint/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Review methodology' })).toHaveCount(0);
   });
 });

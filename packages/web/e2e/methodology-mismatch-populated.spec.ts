@@ -20,6 +20,7 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { DEFAULT_USER } from './fixtures/api-mocks';
 
 const AGILE_ID = 'e2e-mm-agile-0000-0000-0000-000000002619';
 const WATERFALL_ID = 'e2e-mm-water-0000-0000-0000-000000002619';
@@ -158,13 +159,19 @@ function groomedBacklogPayload() {
 const banner = (page: Page) => page.getByRole('status').filter({ hasText: /configured as/ });
 const reviewButton = (page: Page) => page.getByRole('button', { name: 'Review methodology' });
 
-async function setupProject(page: Page, id: string, methodology: 'WATERFALL' | 'AGILE') {
+async function setupProject(
+  page: Page,
+  id: string,
+  methodology: 'WATERFALL' | 'AGILE',
+  canAccessAdminSettings = true,
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
     projects: [project(id, methodology)],
     projectId: id,
     tasks: TASKS,
+    user: { ...DEFAULT_USER, can_access_admin_settings: canAccessAdminSettings },
   });
   // `product-backlog/` is an OBJECT endpoint — the catch-all's list shape
   // (`{count:0,…}`) would reach the page as truthy-but-malformed and throw at
@@ -274,5 +281,31 @@ test.describe('WATERFALL project, groomed Backlog reached by URL (#2619)', () =>
     await expect(page).toHaveURL(
       new RegExp(`/projects/${WATERFALL_ID}/settings#how-this-team-works$`),
     );
+  });
+});
+
+test.describe('A contributor on a mismatched project (#3528)', () => {
+  test('sees the AGILE schedule banner sentence but no "Review methodology"', async ({ page }) => {
+    await setupProject(page, AGILE_ID, 'AGILE', false);
+    await page.goto(`/projects/${AGILE_ID}/schedule`);
+
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(banner(page)).toBeVisible();
+    await expect(reviewButton(page)).toHaveCount(0);
+  });
+
+  test('sees the WATERFALL backlog banner sentence but no "Review methodology"', async ({
+    page,
+  }) => {
+    await setupProject(page, WATERFALL_ID, 'WATERFALL', false);
+    await page.goto(`/projects/${WATERFALL_ID}/product-backlog`);
+
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(banner(page)).toBeVisible();
+    await expect(reviewButton(page)).toHaveCount(0);
   });
 });

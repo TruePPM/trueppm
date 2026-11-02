@@ -1189,7 +1189,8 @@ function SprintStateBody({
           projectId={projectId}
           icon={SprintIcon}
           title={`${itl.plural} aren't part of this project's workflow`}
-          description={`This project runs on phases and gates, not ${itl.lowerPlural}. If ${itl.lowerPlural} fit better here, switch the methodology in Settings.`}
+          description={`This project runs on phases and gates, not ${itl.lowerPlural}.`}
+          adminHint={`If ${itl.lowerPlural} fit better here, switch the methodology in Settings.`}
           primaryLabel="Go to Schedule"
           primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
         />

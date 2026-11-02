@@ -205,7 +205,8 @@ function CalendarGridArea({
         projectId={projectId}
         icon={CalendarIcon}
         title="Calendar isn't part of this project's workflow"
-        description={`This project runs on ${itl.lowerPlural}, not a phase-gated calendar. If a calendar view fits better here, switch the methodology in Settings.`}
+        description={`This project runs on ${itl.lowerPlural}, not a phase-gated calendar.`}
+        adminHint={`If a calendar view fits better here, switch the methodology in Settings.`}
         primaryLabel={`Go to ${itl.plural}`}
         primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
       />
