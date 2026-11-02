@@ -299,6 +299,10 @@ vi.mock('@/hooks/useProject', () => ({
     isLoading: false,
   }),
 }));
+// The methodology action is withheld from a non-admin; the specs asserting it run as one.
+vi.mock('@/hooks/useAdminSettingsAccess', () => ({
+  useAdminSettingsAccess: () => ({ verdict: 'admin', refetch: () => {} }),
+}));
 vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     user: { id: 'test-user-1', display_name: 'Test User' },

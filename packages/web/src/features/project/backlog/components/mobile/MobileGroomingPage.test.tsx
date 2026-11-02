@@ -68,6 +68,10 @@ const h = vi.hoisted(() => ({
   quickAddMutate: vi.fn((_vars: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.()),
 }));
 
+// The methodology action is withheld from a non-admin; these specs assert it, so they run as one.
+vi.mock('@/hooks/useAdminSettingsAccess', () => ({
+  useAdminSettingsAccess: () => ({ verdict: 'admin', refetch: () => {} }),
+}));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({

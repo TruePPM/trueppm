@@ -190,7 +190,7 @@ const DEFAULT_PROJECT: ProjectFixture = {
   inherited_task_duration_change_percent_policy: 'keep',
 };
 
-const DEFAULT_USER: UserFixture = {
+export const DEFAULT_USER: UserFixture = {
   id: 'e2e-user',
   username: 'e2euser',
   display_name: 'E2E User',

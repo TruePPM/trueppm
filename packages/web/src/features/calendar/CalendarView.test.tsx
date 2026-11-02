@@ -10,6 +10,10 @@ const calendarTasksMock = vi.hoisted(() => vi.fn());
 const roleMock = vi.hoisted(() => vi.fn());
 const projectMock = vi.hoisted(() => vi.fn());
 
+// The methodology action is withheld from a non-admin; these specs assert it, so they run as one.
+vi.mock('@/hooks/useAdminSettingsAccess', () => ({
+  useAdminSettingsAccess: () => ({ verdict: 'admin', refetch: () => {} }),
+}));
 vi.mock('@/hooks/useCalendarTasks', () => ({ useCalendarTasks: calendarTasksMock }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({ useCurrentUserRole: roleMock }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));

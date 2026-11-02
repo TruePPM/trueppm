@@ -21,6 +21,10 @@ const { patchMock } = vi.hoisted(() => ({
   patchMock: vi.fn().mockResolvedValue({ data: {} }),
 }));
 
+// The methodology action is withheld from a non-admin; these specs assert it, so they run as one.
+vi.mock('@/hooks/useAdminSettingsAccess', () => ({
+  useAdminSettingsAccess: () => ({ verdict: 'admin', refetch: () => {} }),
+}));
 vi.mock('@/api/client', () => ({
   apiClient: { patch: patchMock },
 }));

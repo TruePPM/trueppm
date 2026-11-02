@@ -10,6 +10,10 @@ import type { ProjectVelocity, SprintCapacity } from '@/hooks/useSprints';
 import type { ApiSprint, Task } from '@/types';
 
 const projectIdMock = vi.fn<() => string | undefined>(() => 'proj-1');
+// The methodology action is withheld from a non-admin; these specs assert it, so they run as one.
+vi.mock('@/hooks/useAdminSettingsAccess', () => ({
+  useAdminSettingsAccess: () => ({ verdict: 'admin', refetch: () => {} }),
+}));
 vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: () => projectIdMock(),
 }));

@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router';
+import { useCanChangeMethodology } from './useCanChangeMethodology';
 
 export interface MethodologyMismatchBannerProps {
   /** The "Review methodology" action routes relative to this — inert while absent. */
@@ -59,6 +60,7 @@ export function MethodologyMismatchBanner({
   className,
 }: MethodologyMismatchBannerProps) {
   const navigate = useNavigate();
+  const canChange = useCanChangeMethodology();
   return (
     <div
       // Polite, never `alert`: the mismatch is a standing condition, not an
@@ -71,22 +73,24 @@ export function MethodologyMismatchBanner({
     }`}
     >
       <p>{message}</p>
-      <button
-        type="button"
-        onClick={() =>
-          projectId && void navigate(`/projects/${projectId}/settings#how-this-team-works`)
-        }
-        // `min-h-11` (44px) only below `md`: the row wraps on a phone and the
-        // button becomes a standalone touch target there. Desktop keeps the
-        // shipped text-link height. `md:` — not `sm:` — matches the touch-target
-        // convention already in the tree (`WorkspaceEmailPage`,
-        // `ProjectGuardrailsPage`), and `md` is the breakpoint `useBreakpoint`
-        // uses to switch these surfaces to their mobile components.
-        className="shrink-0 min-h-11 md:min-h-0 inline-flex items-center text-xs font-semibold underline hover:no-underline
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
-      >
-        Review methodology
-      </button>
+      {canChange && (
+        <button
+          type="button"
+          onClick={() =>
+            projectId && void navigate(`/projects/${projectId}/settings#how-this-team-works`)
+          }
+          // `min-h-11` (44px) only below `md`: the row wraps on a phone and the
+          // button becomes a standalone touch target there. Desktop keeps the
+          // shipped text-link height. `md:` — not `sm:` — matches the touch-target
+          // convention already in the tree (`WorkspaceEmailPage`,
+          // `ProjectGuardrailsPage`), and `md` is the breakpoint `useBreakpoint`
+          // uses to switch these surfaces to their mobile components.
+          className="shrink-0 min-h-11 md:min-h-0 inline-flex items-center text-xs font-semibold underline hover:no-underline
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
+        >
+          Review methodology
+        </button>
+      )}
     </div>
   );
 }

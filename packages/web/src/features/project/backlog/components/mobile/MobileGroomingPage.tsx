@@ -88,7 +88,8 @@ function MobileGroomingBody({
         projectId={projectId}
         icon={ListIcon}
         title="Backlog isn't part of this project's workflow"
-        description="This project runs on phases and gates, not a product backlog. If backlog grooming fits better here, switch the methodology in Settings."
+        description="This project runs on phases and gates, not a product backlog."
+        adminHint="If backlog grooming fits better here, switch the methodology in Settings."
         primaryLabel="Go to Schedule"
         primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
       />

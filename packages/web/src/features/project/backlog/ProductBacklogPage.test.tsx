@@ -63,6 +63,10 @@ const h = vi.hoisted(() => ({
   },
 }));
 
+// The methodology action is withheld from a non-admin; these specs assert it, so they run as one.
+vi.mock('@/hooks/useAdminSettingsAccess', () => ({
+  useAdminSettingsAccess: () => ({ verdict: 'admin', refetch: () => {} }),
+}));
 vi.mock('@dnd-kit/core', async (orig) => {
   const actual = await orig<typeof import('@dnd-kit/core')>();
   return {

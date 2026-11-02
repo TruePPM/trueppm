@@ -166,7 +166,8 @@ export function MobileSchedule({
         projectId={projectId}
         icon={CalendarIcon}
         title="Schedule isn't part of this project's workflow"
-        description={`This project runs on ${itl.lowerPlural}, not a phase-gated schedule. If a full CPM schedule fits better here, switch the methodology in Settings.`}
+        description={`This project runs on ${itl.lowerPlural}, not a phase-gated schedule.`}
+        adminHint={`If a full CPM schedule fits better here, switch the methodology in Settings.`}
         primaryLabel={`Go to ${itl.plural}`}
         primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
       />
