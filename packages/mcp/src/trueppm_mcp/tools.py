@@ -43,7 +43,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from trueppm_mcp.client import TruePPMClient
+from trueppm_mcp.client import AuthError, TruePPMClient, TruePPMError
 
 #: API path for the task collection, relative to the client's /api/v1/ base.
 _TASKS_PATH = "tasks/"
@@ -412,13 +412,41 @@ async def _list_projects(client: TruePPMClient) -> dict[str, Any]:
 
 
 async def _get_project(client: TruePPMClient, project_id: str) -> dict[str, Any]:
-    """Full project metadata (with ``caller_role``) plus its health overview."""
+    """Full project metadata (with ``caller_role``), its overview, and the health band.
+
+    ``health_band`` / ``health_band_source`` come from ``status-summary/``, the
+    only endpoint that runs the server's ``compute_health_band`` (the PM's manual
+    ``health`` report first, otherwise the at-risk / critical counts). Folding it in
+    here means an agent never re-derives the band, and never has to choose between
+    the raw ``health`` and ``overview.schedule_health`` (an SPI proxy that ignores
+    the manual report) on its own.
+
+    If only the ``status-summary/`` call fails, the rest of the project is still
+    returned, ``health_band`` is omitted (never guessed), and
+    ``health_band_unavailable`` says why. An auth failure is not swallowed: it
+    would fail every other call too and must reach the operator.
+    """
     detail = await client.get(f"projects/{project_id}/")
     result = _project_result(detail if isinstance(detail, Mapping) else {})
     overview = await client.get(f"projects/{project_id}/overview/")
     compact_overview = _compact_value(overview)
     if compact_overview not in (None, "", [], {}):
         result["overview"] = compact_overview
+    try:
+        summary = await client.get(f"projects/{project_id}/status-summary/")
+    except AuthError:
+        raise
+    except TruePPMError as exc:
+        result["health_band_unavailable"] = f"status-summary request failed: {exc}"
+        return result
+    band = summary.get("health_band") if isinstance(summary, Mapping) else None
+    if isinstance(band, str) and band:
+        result["health_band"] = band
+        source = summary.get("health_band_source")
+        if isinstance(source, str) and source:
+            result["health_band_source"] = source
+    else:
+        result["health_band_unavailable"] = "status-summary carried no health_band"
     return result
 
 
@@ -691,7 +719,16 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
     @server.tool()
     async def get_project(project_id: str) -> dict[str, Any]:
-        """Full metadata and health overview for one project, with ``caller_role``.
+        """Full metadata, overview and health band for one project, with ``caller_role``.
+
+        ``health_band`` is the project's health: read it and do not re-derive it.
+        ``health_band_source`` says why — ``reported`` means the project manager set
+        it by hand, ``derived`` means the server computed it from at-risk /
+        critical task counts. The band already accounts for the raw ``health`` field (the manager's
+        report), so when they differ, ``health_band`` wins. ``overview.schedule_health``
+        is a different measure (schedule performance, SPI) and never overrides it.
+        If ``health_band_unavailable`` is present the band could not be read; do not
+        infer one from ``health`` or ``schedule_health``.
 
         Args:
             project_id: The project's UUID.

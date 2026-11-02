@@ -217,12 +217,69 @@ async def test_get_project_merges_detail_and_overview(settings: Settings) -> Non
             {"id": "p-1", "name": "Apollo", "my_role": 200, "my_role_label": "Resource Manager"}
         ),
         "projects/p-1/overview/": _json({"health": "GREEN", "task_count": 12, "blank": None}),
+        "projects/p-1/status-summary/": _json(
+            {"health_band": "critical", "health_band_source": "reported", "at_risk_count": 0}
+        ),
     }
     async with _client(settings, routes) as client:
         result = await _get_project(client, "p-1")
     assert result["id"] == "p-1"
     assert result["caller_role"] == "Resource Manager"
     assert result["overview"] == {"health": "GREEN", "task_count": 12}
+    # #3526: the server's band (and why) is passed through, not re-derived.
+    assert result["health_band"] == "critical"
+    assert result["health_band_source"] == "reported"
+    assert "health_band_unavailable" not in result
+
+
+async def test_get_project_without_source_omits_it(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/": _json({"id": "p-1"}),
+        "projects/p-1/overview/": _json({}),
+        "projects/p-1/status-summary/": _json({"health_band": "on_track"}),
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_project(client, "p-1")
+    assert result["health_band"] == "on_track"
+    assert "health_band_source" not in result
+
+
+async def test_get_project_status_summary_error_states_no_band(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/": _json({"id": "p-1", "name": "Apollo", "health": "RED"}),
+        "projects/p-1/overview/": _json({"schedule_health": "on_track"}),
+        "projects/p-1/status-summary/": httpx.Response(500, json={"detail": "boom"}),
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_project(client, "p-1")
+    assert result["id"] == "p-1"
+    assert result["overview"] == {"schedule_health": "on_track"}
+    assert "health_band" not in result
+    assert "health_band_source" not in result
+    assert result["health_band_unavailable"].startswith("status-summary request failed")
+
+
+async def test_get_project_status_summary_missing_band_states_no_band(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/": _json({"id": "p-1"}),
+        "projects/p-1/overview/": _json({}),
+        "projects/p-1/status-summary/": _json({"task_count": 3}),
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_project(client, "p-1")
+    assert "health_band" not in result
+    assert result["health_band_unavailable"]
+
+
+async def test_get_project_status_summary_auth_error_propagates(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/": _json({"id": "p-1"}),
+        "projects/p-1/overview/": _json({}),
+        "projects/p-1/status-summary/": httpx.Response(401, json={"detail": "no"}),
+    }
+    async with _client(settings, routes) as client:
+        with pytest.raises(AuthError):
+            await _get_project(client, "p-1")
 
 
 # ---------------------------------------------------------------------------
@@ -1067,6 +1124,7 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         "projects/": _json(_page([])),
         "projects/p-1/": _json({"id": "p-1"}),
         "projects/p-1/overview/": _json({"health": "GREEN"}),
+        "projects/p-1/status-summary/": _json({"health_band": "on_track"}),
         "tasks/": tasks_handler,
         "tasks/t-1/": _json({"id": "t-1"}),
         "projects/p-1/board-config/": _json({"columns": []}),
