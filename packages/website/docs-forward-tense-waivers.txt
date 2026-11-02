@@ -1,0 +1,25 @@
+# Forward-modal waivers (#4727) - see forward_modal_hits in scripts/check-version-status.sh.
+#
+# Each line is "<page relative to the docs root> <count>": that many sentences on the page
+# still use `will` about a version the roadmap lists as Shipped (most are "From 0.4 ... will"
+# written before 0.4 shipped). This is a GRANDFATHERED backlog found when the check was
+# added, NOT a review: these were not verified against code. The ceiling only ratchets down -
+# more hits than listed fails, and so does fewer (lower the number, delete the line at 0).
+# Fix the sentence in present/past tense rather than raising a number.
+# Tracked in #4821.
+administration/dead-letter-alerting.md 1
+administration/helm-values.md 1
+administration/rbac.md 1
+administration/retention.md 1
+api/reference/resources.md 1
+api/stability.md 1
+contributing/release.md 2
+features/burn-charts.md 1
+features/methodology-preset.md 1
+features/msproject-import-export.md 1
+features/notifications.md 1
+features/programs.md 1
+features/resources.md 4
+features/schedule/editing.md 1
+features/schedule/sprint-windows.md 1
+features/task-classification.md 1
