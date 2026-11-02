@@ -327,20 +327,23 @@ it('edit mode: a non-agile effective_methodology still shows Duration even if th
   expect(screen.getByLabelText(/Duration/)).toBeInTheDocument();
 });
 
-// ----- Member read-only heuristic ------------------------------------------
+// ----- Member read-only (server verdict) ------------------------------------
 
-describe('member ownership read-only heuristic', () => {
-  it('renders read-only for a Member editing a task with no assignees', () => {
+describe('member read-only follows task.canEdit', () => {
+  it('renders read-only for a Member when the server says the task is not editable', () => {
     mockUserRole = 100; // ROLE_MEMBER
-    renderModal({ task: baseTask({ assignees: [] }) });
+    renderModal({ task: baseTask({ assignees: [], canEdit: false }) });
     expect(screen.getByText('VIEW TASK')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
   });
 
-  it('keeps the form editable for a Member when the task has assignees', () => {
+  it('keeps the form editable for a Member when the server says the task is editable', () => {
     mockUserRole = 100;
     renderModal({
-      task: baseTask({ assignees: [{ resourceId: 'r1', name: 'Alice', units: 1 }] }),
+      task: baseTask({
+        assignees: [{ resourceId: 'r1', name: 'Alice', units: 1 }],
+        canEdit: true,
+      }),
     });
     expect(screen.getByText('EDIT TASK')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
