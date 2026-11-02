@@ -373,3 +373,84 @@ def test_seed_runs_analyze_after_seeding(
     capacity.seed(projects=1, tasks=10)
     assert "seed_capacity" in commands[0]
     assert commands[1][-2:] == ["-c", "ANALYZE"]
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# dimension_full_load wiring
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class _FullLoadHarness:
+    """Drive `dimension_full_load` for one size with every network/docker edge stubbed.
+
+    Records how many page requests happened before `measure_step` was entered
+    (the warm-up) and how many `take()` issued (the samples), plus the samples.
+    """
+
+    def __init__(self, capacity: ModuleType, monkeypatch: pytest.MonkeyPatch, status: int) -> None:
+        self.requests_made = 0
+        self.warmup_requests = -1
+        self.sample_requests = -1
+        self.samples: list[Any] = []
+
+        harness = self
+
+        class _Response:
+            status_code = status
+
+            def json(self) -> dict[str, Any]:
+                return {"next": None}
+
+        def fake_get(url: str, headers: dict[str, str], timeout: int) -> _Response:
+            harness.requests_made += 1
+            return _Response()
+
+        class _Client:
+            headers = None
+
+            def first_project_id(self) -> str:
+                return "pid"
+
+        def fake_measure_step(client: Any, *, step: Any, label: str, take: Any, **_kw: Any) -> Any:
+            harness.warmup_requests = harness.requests_made
+            harness.samples = take()
+            harness.sample_requests = harness.requests_made - harness.warmup_requests
+            return capacity.summarize(step, label, harness.samples)
+
+        monkeypatch.setattr(capacity, "seed", lambda **_kw: None)
+        monkeypatch.setattr(capacity, "Client", _Client)
+        monkeypatch.setattr(capacity.requests, "get", fake_get)
+        monkeypatch.setattr(capacity, "measure_step", fake_measure_step)
+        monkeypatch.setattr(capacity, "report", lambda _step: None)
+        self.capacity = capacity
+
+    def run(self) -> Any:
+        return self.capacity.dimension_full_load([100])
+
+
+def test_full_load_warms_up_then_takes_the_configured_samples(
+    capacity: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    h = _FullLoadHarness(capacity, monkeypatch, status=200)
+    h.run()
+    # Literal floors, not just the constants: lowering either constant back to
+    # the pre-fix values (no warm-up, 7 samples) must fail here.
+    assert h.warmup_requests == capacity.WARMUP_REQUESTS >= 5
+    assert h.sample_requests == capacity.FULL_LOAD_SAMPLES >= 15
+
+
+def test_full_load_reports_the_real_failing_status(
+    capacity: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 401 on a page must surface as status 401, not a hardcoded 200.
+
+    Auth-fault detection and the status histogram both read `Sample.status`, so
+    a hardcoded 200 would make an expired token look like a plain error rate.
+    """
+    h = _FullLoadHarness(capacity, monkeypatch, status=401)
+    result = h.run()
+    assert {s.status for s in h.samples} == {401}
+    assert all(not s.ok for s in h.samples)
+    assert result.steps[0].status_histogram == {"401": capacity.FULL_LOAD_SAMPLES}
+    with pytest.raises(capacity.InstrumentFault):
+        capacity.assert_no_auth_fault("100 tasks", h.samples, source="measured")

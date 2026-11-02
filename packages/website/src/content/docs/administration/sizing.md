@@ -478,23 +478,27 @@ The seeded database is written with `bulk_create`, so it carries **no `django-si
 
 ### Re-running this
 
-:::caution[The harness does not start on 0.4 without a one-line change]
-`docker-compose.capacity.yml` hard-codes an 8-character database password, and `settings.prod` refuses to boot on any service credential shorter than 12 characters — so `api-init` exits before the first migration runs. Until [#3826](https://gitlab.com/trueppm/trueppm/-/issues/3826) lands, substitute a longer password in the two places it appears: `POSTGRES_PASSWORD` under the `db` service, and the `DATABASE_URL` in the `&api_env` anchor.
+:::caution[On 0.4 the harness does not start without a one-line change]
+In 0.4 as shipped, `docker-compose.capacity.yml` hard-codes an 8-character database password, and `settings.prod` refuses to boot on any service credential shorter than 12 characters, so `api-init` exits before the first migration runs. On 0.4, substitute a longer password in the two places it appears: `POSTGRES_PASSWORD` under the `db` service, and the `DATABASE_URL` in the `&api_env` anchor ([#3826](https://gitlab.com/trueppm/trueppm/-/issues/3826)).
 
-That issue tracks a second fault worth knowing before you trust any result it gives you: the harness authenticates once and caches the token for an entire sweep with no refresh, while the access-token lifetime is 15 minutes. **Any sweep that runs longer than 15 minutes will report an error-rate breach at whatever step it happens to reach**, and that breach looks exactly like a capacity ceiling. One previously published ceiling on this page was withdrawn for precisely that reason.
+Planned for 0.5: the stack reads the password from `CAPACITY_DB_PASSWORD`, which you export in the next step, and the harness also gains the following. Until you are on a build that has them, do these by hand when you compare a result with this page:
 
-Two more things before comparing a result with this page. The harness does **not** run `ANALYZE` after seeding, so a step can measure a plan chosen from stale statistics — run `ANALYZE` against the capacity database after each seed if you want the steady state this page reports. And it records only `os.cpu_count()` about the host, so **write down the machine and the Docker allocation yourself**: a figure without them cannot be compared with anything, which is how two computers came to be published as one.
+- It will run `ANALYZE` after every seed. On 0.4 it does not, so a step can measure a plan chosen from stale statistics; run `ANALYZE` against the capacity database after each seed to get the steady state this page reports.
+- It will record the chip model, the performance/efficiency core split and the Docker CPU, memory and swap allocation. On 0.4 it records only `os.cpu_count()`, so write down the machine and the Docker allocation yourself. A figure without them cannot be compared with anything, which is how two computers came to be published as one.
+- It will abort, without writing a result, when every failure in a step is a 401 or 403, and it will publish p50 beside p95. On 0.4 an authentication failure inside a step still counts as an error-rate breach.
 :::
 
 The numbers carry the version they were measured against so they can be compared next release:
 
-The stack takes its two secrets from the environment rather than from committed defaults, so mint a throwaway pair first — they are discarded with the stack:
+The stack takes its secrets from the environment rather than from committed defaults, so mint throwaway values first — they are discarded with the stack. `CAPACITY_DB_PASSWORD` is read from 0.5 onward; on 0.4 the variable is ignored and you edit the compose file as described above:
 
 ```bash
 export CAPACITY_INTEGRATION_KEY=$(python3 -c \
   'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')
 export TRUEPPM_CAPACITY_PASSWORD=$(python3 -c \
   'import secrets; print(secrets.token_urlsafe(16))')
+export CAPACITY_DB_PASSWORD=$(python3 -c \
+  'import secrets; print(secrets.token_urlsafe(18))')
 
 docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml up -d
 python packages/api/perf/capacity/run_capacity.py --dimension all \
