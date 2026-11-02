@@ -120,15 +120,17 @@ leading `v` if the tag scheme ever changes.
 
 The fixed-name tags — `ci-wasm:1.85`, `ci-keycloak:26` — and the stamped
 `ci-api` / `ci-scheduler` `py3.11-<digest>` tags match no keep pattern and survive on
-`keep_n` alone. That is thin protection, and no schedule is relied on to refresh it:
-the pipeline rules permit only a few named schedules, none dedicated to these images,
-and a cache-hit push may not renew a tag's age. Because `ci-api` and `ci-scheduler`
-gain a tag per input change, roughly ten experimental MRs touching an input can push
-`main`'s live tag past `keep_n` and `older_than`, making it eligible for deletion. The
-symptom is an image pull error in CI with no code change to blame. Recovery is to
-re-run `ci:build-api-image` / `ci:build-scheduler-image` on `main`, or touch an input
-file to trigger the build. The project-settings mitigation is to widen
-`name_regex_keep` to also match `^py3\.11-` — just never at the cost of `^v.*$`.
+`keep_n` alone. That is thin protection, and nothing here relies on a schedule to
+refresh them: no dedicated image-refresh schedule is configured, so do not count on one
+to keep the live tag fresh, and a cache-hit push may not renew a tag's age. Because
+`ci-api` and `ci-scheduler` gain a tag per input change, roughly ten experimental MRs
+touching an input can push `main`'s live tag past `keep_n` and `older_than`, making it
+eligible for deletion. The symptom is an image pull error in CI with no code change to
+blame. Recovery is to retry the build job in the pipeline that last built the image, or
+to touch an input file (or trigger a schedule) so the job is created, since
+`ci:build-api-image` and `ci:build-scheduler-image` exist only in schedule pipelines and
+in main/MR pipelines that change their inputs. The project-settings mitigation is to
+widen `name_regex_keep` to also match `^py3\.11-` — just never at the cost of `^v.*$`.
 
 ## Changing the policy
 
