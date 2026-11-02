@@ -807,14 +807,8 @@ echo "  Bumped CI_API_TAG to $NEW_CI_API_TAG"
 
 # ci-scheduler is stamped from scheduler.Dockerfile + the scheduler pyproject,
 # which the manifest bump above just rewrote — same staleness, same fix (#4791).
-NEW_CI_SCHEDULER_TAG="$(bash scripts/check-ci-api-tag.sh --image scheduler --print-expected)" || die \
-  "Failed to compute the expected CI_SCHEDULER_TAG after the manifest bump."
-[ -n "$NEW_CI_SCHEDULER_TAG" ] || die \
-  "scripts/check-ci-api-tag.sh --image scheduler --print-expected produced an empty tag."
-sed -i.bak "s/^\(  CI_SCHEDULER_TAG: \).*\$/\1\"${NEW_CI_SCHEDULER_TAG}\"/" .gitlab-ci.yml \
-  && rm .gitlab-ci.yml.bak
-bash scripts/check-ci-api-tag.sh --image scheduler >/dev/null || die \
-  "CI_SCHEDULER_TAG is still stale after restamping (#4791)."
+NEW_CI_SCHEDULER_TAG="$(bash scripts/restamp-ci-image-tag.sh scheduler)" || die \
+  "Failed to restamp CI_SCHEDULER_TAG after the manifest bump (#4791) - see the error above."
 echo "  Bumped CI_SCHEDULER_TAG to $NEW_CI_SCHEDULER_TAG"
 
 # Re-lock after bumping the Python manifests. Each uv.lock records the project's

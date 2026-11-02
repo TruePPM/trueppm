@@ -69,21 +69,22 @@ visible in the trace.
 
 ## Why retention matters
 
-Every rebuild pushes a **new image SHA under the same `:py3.11` tag**, which leaves
-the previously-tagged SHA in the registry as an *untagged* layer. Nothing reaps those
-untagged layers automatically, so they accumulate indefinitely. At one scheduled
-rebuild per week per image — plus `pyproject.toml` churn — the registry is tens of
-gigabytes deep within a single release cycle.
+Every input change mints a **new tag** (`py3.11-<digest>` for `ci-api` and
+`ci-scheduler`, a Playwright version for `ci-integration`), and each MR that touches an
+input builds and pushes its own. Nothing reaps superseded tags automatically, so
+they accumulate: with Dockerfile and `pyproject.toml` churn the registry is tens of
+gigabytes deep within a single release cycle. A rebuild that reuses an existing tag
+(for example a re-run of the build job) orphans the previous SHA as an *untagged* layer,
+which accumulates the same way.
 
-A Playwright bump is the one case that behaves differently: it retires the whole
-`ci-integration` / `playwright-base` tag rather than orphaning a SHA under a reused
-one, so the superseded tag stays tagged and the `^v.*$` keep pattern below preserves
-it. Those are worth deleting by hand a release or two after a bump — they are large,
-and nothing reaps them.
+A Playwright bump retires the whole `ci-integration` / `playwright-base` tag, so the
+superseded tag stays tagged and the `^v.*$` keep pattern below preserves it. Those are
+worth deleting by hand a release or two after a bump — they are large, and nothing
+reaps them.
 
 It is also a quiet supply-chain risk: a stale untagged SHA that a long-running MR
-pipeline still references can pin a vulnerable transitive dependency that the latest
-`:py3.11` tag has since dropped.
+pipeline still references can pin a vulnerable transitive dependency that the current
+tag has since dropped.
 
 ## The cleanup policy
 
@@ -119,12 +120,15 @@ leading `v` if the tag scheme ever changes.
 
 The fixed-name tags — `ci-wasm:1.85`, `ci-keycloak:26` — and the stamped
 `ci-api` / `ci-scheduler` `py3.11-<digest>` tags match no keep pattern and survive on
-`keep_n` alone (the stamped ones because the live tag is the most recently pushed, and
-the weekly schedule re-pushes it). That is thin protection: if one of
-them ever accumulates more than ten tags, the live tag becomes eligible for
-deletion, and the symptom is CI failing to pull an image with no code change to
-blame. Widening the keep pattern to cover them is worthwhile — just never at the
-cost of `^v.*$`.
+`keep_n` alone. That is thin protection, and no schedule is relied on to refresh it:
+the pipeline rules permit only a few named schedules, none dedicated to these images,
+and a cache-hit push may not renew a tag's age. Because `ci-api` and `ci-scheduler`
+gain a tag per input change, roughly ten experimental MRs touching an input can push
+`main`'s live tag past `keep_n` and `older_than`, making it eligible for deletion. The
+symptom is an image pull error in CI with no code change to blame. Recovery is to
+re-run `ci:build-api-image` / `ci:build-scheduler-image` on `main`, or touch an input
+file to trigger the build. The project-settings mitigation is to widen
+`name_regex_keep` to also match `^py3\.11-` — just never at the cost of `^v.*$`.
 
 ## Changing the policy
 

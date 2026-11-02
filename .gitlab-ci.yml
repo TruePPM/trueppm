@@ -736,6 +736,8 @@ scripts:test:
         - scripts/release-unpublished-guard.sh
         - scripts/tests/release-readme-pins.test.sh
         - scripts/tests/release-api-scheduler-floor.test.sh
+        - scripts/tests/restamp-ci-image-tag.test.sh
+        - scripts/restamp-ci-image-tag.sh
         - scripts/bump-api-scheduler-floor.sh
         - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
@@ -789,6 +791,8 @@ scripts:test:
         - scripts/release-unpublished-guard.sh
         - scripts/tests/release-readme-pins.test.sh
         - scripts/tests/release-api-scheduler-floor.test.sh
+        - scripts/tests/restamp-ci-image-tag.test.sh
+        - scripts/restamp-ci-image-tag.sh
         - scripts/bump-api-scheduler-floor.sh
         - scripts/bump-readme-pins.sh
         - scripts/release-default-summary.py
@@ -823,6 +827,7 @@ scripts:test:
     - bash scripts/tests/release-summary.test.sh
     - bash scripts/tests/release-unpublished.test.sh
     - bash scripts/tests/release-readme-pins.test.sh
+    - bash scripts/tests/restamp-ci-image-tag.test.sh
     - bash scripts/tests/wt-args.test.sh
     - bash scripts/tests/wt-prune.test.sh
     - bash scripts/tests/wt-reserve.test.sh
