@@ -491,14 +491,18 @@ class TestReleaseMetadataConsistency:
     @classmethod
     def _tag_exists(cls, version: str) -> bool:
         tag = f"scheduler-v{version}"
-        return (
-            subprocess.run(
+        try:
+            result = subprocess.run(
                 ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"],
                 capture_output=True,
                 cwd=cls._pkg_root(),
-            ).returncode
-            == 0
-        )
+            )
+        except FileNotFoundError:
+            # No git binary (the wheel smoke run in the slim CI image, where the
+            # tests execute outside any checkout). Without tag data the tagged-only
+            # assertions cannot apply, so treat the version as untagged and skip.
+            return False
+        return result.returncode == 0
 
     def test_the_declared_version_has_a_changelog_section(self) -> None:
         version = self._pyproject()["project"]["version"]
