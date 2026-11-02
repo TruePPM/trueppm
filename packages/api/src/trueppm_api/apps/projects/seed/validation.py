@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -1008,6 +1009,7 @@ def _task_reference_errors(
         _check_ref(label_ref, label_slugs, f"{tpath}.labels[{k}]", "label", errors)
     _check_task_links(task, wbs, project_slug, ctx.task_index, tpath, errors)
     _check_estimate_order(task, tpath, errors)
+    _check_actual_order(task, tpath, errors)
     for k, assignment in enumerate(task.get("assignments", [])):
         _check_ref(
             assignment.get("resource"),
@@ -1064,6 +1066,42 @@ def _check_estimate_order(task: dict[str, Any], tpath: str, errors: list[str]) -
                 f"{tpath}.estimate: three-point estimate must satisfy "
                 f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
             )
+
+
+def _seed_date_key(value: Any) -> tuple[str, Any] | None:
+    """Comparable key for a seedDate: ISO literals and anchor offsets only compare within kind."""
+    if not isinstance(value, str):
+        return None
+    if value.startswith("A"):
+        try:
+            return ("rel", int(value[1:].rstrip("!")))
+        except ValueError:
+            return None
+    try:
+        return ("iso", date.fromisoformat(value))
+    except ValueError:
+        return None
+
+
+def _check_actual_order(task: dict[str, Any], tpath: str, errors: list[str]) -> None:
+    """``actual_start`` must not be after ``actual_finish`` (ADR-1153 ordering rule).
+
+    The engine rejects an out-of-order pair at the project's next recompute, so
+    an imported seed carrying one would persist and then fail later; refuse it
+    here with a path-anchored error. Mixed ISO/relative pairs are not compared:
+    resolving them needs the anchor, and the schema already guarantees each
+    value's shape.
+    """
+    for field in ("actual_start", "actual_finish"):
+        value = task.get(field)
+        # v2's seedDate is a regex, so "2026-13-40" passes the schema and would
+        # reach date.fromisoformat at import time as an unhandled ValueError.
+        if isinstance(value, str) and _seed_date_key(value) is None:
+            errors.append(f"{tpath}.{field}: {value!r} is not a valid date")
+    start = _seed_date_key(task.get("actual_start"))
+    finish = _seed_date_key(task.get("actual_finish"))
+    if start and finish and start[0] == finish[0] and start[1] > finish[1]:
+        errors.append(f"{tpath}.actual_finish: cannot be earlier than actual_start")
 
 
 def _check_dependencies(

@@ -469,9 +469,12 @@ def _apply_task_status(beat: _Beat, ctx: ReplayContext) -> None:
         task.actual_start = beat.when.date()
         fields.append("actual_start")
     if new_status == TaskStatus.COMPLETE:
-        task.actual_finish = beat.when.date()
+        # An authored actual_finish (exported, #3161) outranks the beat-derived one.
+        if task.actual_finish is None:
+            task.actual_finish = beat.when.date()
+            fields.append("actual_finish")
         task.remaining_points = 0
-        fields += ["actual_finish", "remaining_points"]
+        fields.append("remaining_points")
     # Defense-in-depth (ADR-1153, #3709): beats are deterministic,
     # developer-authored data and should never trip these rules, but this is a
     # direct model write like the MS Project importer's, so it runs through the

@@ -1846,6 +1846,10 @@ class _SeedImporter:
             is_milestone=f.is_milestone,
             duration=0 if f.is_milestone else data.get("duration", 1),
             planned_start=f.planned_start,
+            # Recorded history, never snapped: an actual date may fall on a
+            # non-working day, and snapping would drift it on re-export (#3161).
+            actual_start=self._date_opt(data.get("actual_start"), project_slug, snap=False),
+            actual_finish=self._date_opt(data.get("actual_finish"), project_slug, snap=False),
             percent_complete=f.base_percent,
             notes=data.get("notes", ""),
             story_points=f.story_points,

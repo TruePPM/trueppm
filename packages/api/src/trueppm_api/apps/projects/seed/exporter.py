@@ -1046,6 +1046,14 @@ class _Exporter:
             block["duration"] = task.duration
         if task.planned_start is not None:
             block["planned_start"] = self._date_str(task.planned_start)
+        # ADR-0132: an in-flight task's actuals are the floor the CPM pass honors.
+        # Without them a re-imported in-progress project reschedules from its
+        # planned dates (#3161). Absent when null, so documents of tasks that
+        # have neither stay byte-identical.
+        if task.actual_start is not None:
+            block["actual_start"] = self._date_str(task.actual_start)
+        if task.actual_finish is not None:
+            block["actual_finish"] = self._date_str(task.actual_finish)
         if task.percent_complete:
             block["percent_complete"] = task.percent_complete
         _put(block, "notes", task.notes)
