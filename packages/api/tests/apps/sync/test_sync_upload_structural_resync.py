@@ -298,3 +298,50 @@ def test_subsequent_recalc_preserves_restored_duration(
     parent.refresh_from_db()
     assert parent.duration == 6, "the recalc must not re-roll-up a leaf's own estimate"
     assert parent.auto_container is False
+
+
+@pytest.mark.django_db
+def test_sync_create_cannot_place_a_task_under_a_parent(
+    admin_client: APIClient, project: Project
+) -> None:
+    """A sync-created row has no structural parent, so there is nothing to promote (#4495).
+
+    REST ``perform_create`` resyncs the new task's parent (#2950) because REST can
+    place a task (``parent_id`` -> server-derived ``wbs_path``). The sync upload
+    cannot: ``wbs_path`` is stripped and ``parent_id`` is not read (ADR-0743), so a
+    created row lands with ``wbs_path = NULL`` and never becomes a child. This pins
+    that premise. If sync create ever gains placement, this test fails and
+    ``_apply_created_row`` must call the same parent-promote repair as REST.
+    """
+    parent = Task.objects.create(
+        project=project, name="Leaf", duration=5, wbs_path="1", status=TaskStatus.NOT_STARTED
+    )
+    child_id = str(uuid.uuid4())
+    payload = {
+        "client_batch_id": str(uuid.uuid4()),
+        "changes": {
+            "tasks": {
+                "created": [
+                    {
+                        "id": child_id,
+                        "name": "Child",
+                        "duration": 1,
+                        "wbs_path": "1.1",
+                        "parent_id": str(parent.pk),
+                    }
+                ],
+                "updated": [],
+                "deleted": [],
+            }
+        },
+    }
+    resp = admin_client.post(_url(project), payload, format="json")
+    assert resp.status_code == 200
+
+    child = Task.objects.get(pk=child_id)
+    assert child.wbs_path is None, "sync create cannot place a task"
+
+    parent.refresh_from_db()
+    assert parent.auto_container is False
+    assert parent.own_estimate is None
+    assert parent.duration == 5
