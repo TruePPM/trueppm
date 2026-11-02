@@ -13,6 +13,23 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, NoReturn, Self
 
+_REPR_LIMIT = 200
+
+
+def _short_repr(value: object, limit: int = _REPR_LIMIT) -> str:
+    """``repr(value)`` capped at ``limit`` characters, for error messages.
+
+    A validator message that echoes client input with a bare ``repr()`` lets one
+    request make the server reflect a payload of any size back in the error body
+    (``str(exc)`` is what an embedding API returns as its 400 detail). The cap
+    keeps the message diagnosable for a short value and bounded for a hostile one;
+    a truncated repr ends in an ellipsis so the cut is visible.
+    """
+    text = repr(value)
+    if len(text) > limit:
+        return text[: max(0, limit - 1)] + "…"
+    return text
+
 
 # Enum value-casing convention (frozen public contract).
 #
@@ -336,7 +353,7 @@ class Task:
             # schedule() too, so accepting it here split the accepted set (#4517).
             if d.get("calendar_id") is not None and not isinstance(d["calendar_id"], str):
                 raise ValueError(
-                    f"calendar_id must be a string or null (got {d['calendar_id']!r})."
+                    f"calendar_id must be a string or null (got {_short_repr(d['calendar_id'])})."
                 )
             return cls(**d)
         except InvalidScheduleInput:
@@ -359,7 +376,7 @@ def _require_str(d: dict[str, Any], field_name: str, owner: str) -> None:
 
         raise InvalidScheduleInput(
             f"{owner} {field_name} must be a string (got {type(d[field_name]).__name__}: "
-            f"{d[field_name]!r})."
+            f"{_short_repr(d[field_name])})."
         )
 
 
@@ -372,7 +389,9 @@ def _require_number(value: Any, field_name: str) -> None:
     f64``) — acceptance the 1.0 document format would otherwise inherit (#4512).
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{field_name} must be a number, got {type(value).__name__}: {value!r}.")
+        raise ValueError(
+            f"{field_name} must be a number, got {type(value).__name__}: {_short_repr(value)}."
+        )
     # An int beyond f64 range makes float() raise a bare OverflowError that escapes
     # the InvalidScheduleInput wrappers; Rust's serde rejects the same literal.
     if isinstance(value, int) and abs(value) > sys.float_info.max:
@@ -384,7 +403,7 @@ def _require_bool(d: dict[str, Any], field_name: str) -> None:
     if field_name in d and not isinstance(d[field_name], bool):
         raise ValueError(
             f"{field_name} must be a boolean, got {type(d[field_name]).__name__}: "
-            f"{d[field_name]!r}."
+            f"{_short_repr(d[field_name])}."
         )
 
 
@@ -425,7 +444,9 @@ def _list_field(d: dict[str, Any], field_name: str) -> list[Any]:
     """
     value = d.get(field_name, [])
     if not isinstance(value, list):
-        raise ValueError(f"{field_name} must be a list (got {type(value).__name__}: {value!r}).")
+        raise ValueError(
+            f"{field_name} must be a list (got {type(value).__name__}: {_short_repr(value)})."
+        )
     return value
 
 
@@ -444,13 +465,13 @@ def _check_velocity_samples(velocity_samples: Any) -> None:
     if not isinstance(velocity_samples, list):
         raise ValueError(
             f"velocity_samples must be a list (got {type(velocity_samples).__name__}: "
-            f"{velocity_samples!r})."
+            f"{_short_repr(velocity_samples)})."
         )
     for s in velocity_samples:
         if s is not None:
             _require_number(s, "velocity_samples")
             if not math.isfinite(float(s)):
-                raise ValueError(f"velocity_samples must be finite numbers (got {s!r}).")
+                raise ValueError(f"velocity_samples must be finite numbers (got {_short_repr(s)}).")
 
 
 def _check_sprint_length(sprint_length_days: Any) -> None:
@@ -469,7 +490,9 @@ def _check_sprint_length(sprint_length_days: Any) -> None:
     if sprint_length_days is None:
         return
     if isinstance(sprint_length_days, bool) or not isinstance(sprint_length_days, int):
-        raise ValueError(f"sprint_length_days must be an integer (got {sprint_length_days!r}).")
+        raise ValueError(
+            f"sprint_length_days must be an integer (got {_short_repr(sprint_length_days)})."
+        )
 
 
 def _coerce_task_dates(d: dict[str, Any]) -> None:
@@ -512,7 +535,7 @@ def _coerce_delivery_mode(d: dict[str, Any]) -> None:
     except ValueError as err:
         allowed = ", ".join(m.value for m in DeliveryMode)
         raise InvalidScheduleInput(
-            f"Invalid delivery_mode {d['delivery_mode']!r}; must be one of: {allowed}."
+            f"Invalid delivery_mode {_short_repr(d['delivery_mode'])}; must be one of: {allowed}."
         ) from err
 
 
@@ -582,7 +605,7 @@ class Dependency:
             except ValueError as err:
                 allowed = ", ".join(t.value for t in DependencyType)
                 raise InvalidScheduleInput(
-                    f"Invalid dependency type {raw_type!r}; must be one of: {allowed}."
+                    f"Invalid dependency type {_short_repr(raw_type)}; must be one of: {allowed}."
                 ) from err
             try:
                 lag = _parse_timedelta(d.get("lag", 0))
@@ -897,7 +920,7 @@ class Calendar:
         wd = data.get("working_days", 0b0011111)
         if isinstance(wd, bool) or not isinstance(wd, int) or not (0 <= wd < 0b1000_0000):
             raise InvalidScheduleInput(
-                f"working_days must be an integer bitmask in [0, 127] (got {wd!r})."
+                f"working_days must be an integer bitmask in [0, 127] (got {_short_repr(wd)})."
             )
         # The reserved-but-inert hours_per_day/timezone fields were duck-typed here
         # (any value passed straight through) while the Rust engine's serde is
@@ -909,16 +932,18 @@ class Calendar:
         # not a JSON number to serde, so reject it explicitly.
         hpd = data.get("hours_per_day", 8.0)
         if isinstance(hpd, bool) or not isinstance(hpd, (int, float)):
-            raise InvalidScheduleInput(f"hours_per_day must be a number (got {hpd!r}).")
+            raise InvalidScheduleInput(f"hours_per_day must be a number (got {_short_repr(hpd)}).")
         # A non-finite value would serialize as the ``Infinity`` literal
         # ``from_json`` refuses (#4517). It reaches here from a Python dict, and from
         # JSON too: ``json.loads`` parses an overflowing literal such as ``1e400``
         # to ``inf`` without going through the NaN/Infinity constant hook.
         if not _is_finite_real(hpd):
-            raise InvalidScheduleInput(f"hours_per_day must be a finite number (got {hpd!r}).")
+            raise InvalidScheduleInput(
+                f"hours_per_day must be a finite number (got {_short_repr(hpd)})."
+            )
         tz = data.get("timezone", "UTC")
         if not isinstance(tz, str):
-            raise InvalidScheduleInput(f"timezone must be a string (got {tz!r}).")
+            raise InvalidScheduleInput(f"timezone must be a string (got {_short_repr(tz)}).")
         # Rust ``exceptions: Vec<DateRange>`` accepts only a JSON array. Python
         # iterated any iterable, so ``""``/``{}`` parsed as "no exceptions" and
         # ``null``/``5`` leaked a bare TypeError on a direct call (#4521).
@@ -926,7 +951,7 @@ class Calendar:
         if not isinstance(raw_exceptions, list):
             raise InvalidScheduleInput(
                 f"exceptions must be a list (got {type(raw_exceptions).__name__}: "
-                f"{raw_exceptions!r})."
+                f"{_short_repr(raw_exceptions)})."
             )
         return cls(
             working_days=wd,
@@ -1212,7 +1237,9 @@ class Project:
 
 def _reject_nonfinite(token: str) -> Any:
     """parse_constant hook: reject NaN / Infinity / -Infinity in a project document."""
-    raise ValueError(f"Non-finite JSON literal {token!r} is not allowed in a project document.")
+    raise ValueError(
+        f"Non-finite JSON literal {_short_repr(token)} is not allowed in a project document."
+    )
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1229,7 +1256,9 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError(f"Duplicate JSON key {key!r} is not allowed in a project document.")
+            raise ValueError(
+                f"Duplicate JSON key {_short_repr(key)} is not allowed in a project document."
+            )
         result[key] = value
     return result
 
@@ -1280,7 +1309,8 @@ def _parse_date(val: Any, field_name: str) -> date:
     """
     if not isinstance(val, str) or not _STRICT_DATE_RE.fullmatch(val):
         raise ValueError(
-            f"{field_name} must be an ISO-8601 date string in YYYY-MM-DD format, got {val!r}."
+            f"{field_name} must be an ISO-8601 date string in YYYY-MM-DD format, got "
+            f"{_short_repr(val)}."
         )
     # The regex pins the shape; fromisoformat still validates the calendar
     # (month in 1..12, day in range for the month).
@@ -1300,11 +1330,11 @@ def _parse_timedelta(val: Any) -> timedelta:
     _require_number(val, "Duration")
     seconds = float(val)
     if not math.isfinite(seconds):
-        raise ValueError(f"Duration must be a finite number of seconds, got {val!r}.")
+        raise ValueError(f"Duration must be a finite number of seconds, got {_short_repr(val)}.")
     try:
         td = timedelta(seconds=seconds)
     except OverflowError as err:  # finite but beyond timedelta's range (e.g. 1e300)
-        raise ValueError(f"Duration is out of range, got {val!r}.") from err
+        raise ValueError(f"Duration is out of range, got {_short_repr(val)}.") from err
     # Quantization guard (#1862). ``timedelta`` has microsecond resolution, so a
     # raw seconds value with a sub-microsecond fraction — e.g. 86400.0000001 s
     # (1 day + 100 ns) — is silently *rounded* to the nearest microsecond here
@@ -1321,7 +1351,7 @@ def _parse_timedelta(val: Any) -> timedelta:
     # round-trip cleanly, so a legitimate whole-day duration is never over-rejected.
     if td.total_seconds() != seconds:
         raise ValueError(
-            f"Duration {seconds!r}s carries sub-microsecond precision that would be "
+            f"Duration {_short_repr(seconds)}s carries sub-microsecond precision that would be "
             "silently quantized; the Rust engine rejects it, so it is rejected here too."
         )
     return td
@@ -1379,7 +1409,7 @@ def _check_plain_date_field(value: Any, label: str, *, optional: bool = True) ->
         return
     if not isinstance(value, date) or isinstance(value, datetime):
         expected = "a date or None" if optional else "a date"
-        _invalid(f"{label} must be {expected} (got {type(value).__name__}: {value!r}).")
+        _invalid(f"{label} must be {expected} (got {type(value).__name__}: {_short_repr(value)}).")
 
 
 def _check_timedelta_field(value: Any, label: str, *, optional: bool) -> None:
@@ -1391,20 +1421,20 @@ def _check_timedelta_field(value: Any, label: str, *, optional: bool) -> None:
     if value is None and optional:
         return
     if not isinstance(value, timedelta):
-        _invalid(f"{label} must be a timedelta (got {type(value).__name__}: {value!r}).")
+        _invalid(f"{label} must be a timedelta (got {type(value).__name__}: {_short_repr(value)}).")
     try:
         exact = timedelta(seconds=value.total_seconds()) == value
     except OverflowError:
         exact = False
     if not exact:
-        _invalid(f"{label} {value!r} cannot be represented exactly in seconds.")
+        _invalid(f"{label} {_short_repr(value)} cannot be represented exactly in seconds.")
 
 
 def _check_str_field(value: Any, label: str, *, optional: bool = False) -> None:
     if value is None and optional:
         return
     if not isinstance(value, str):
-        _invalid(f"{label} must be a string (got {type(value).__name__}: {value!r}).")
+        _invalid(f"{label} must be a string (got {type(value).__name__}: {_short_repr(value)}).")
 
 
 def _validate_calendar_fields(cal: Calendar, label: str) -> None:
@@ -1416,15 +1446,19 @@ def _validate_calendar_fields(cal: Calendar, label: str) -> None:
     """
     wd = cal.working_days
     if isinstance(wd, bool) or not isinstance(wd, int) or not 0 <= wd < 0b1000_0000:
-        _invalid(f"{label} working_days must be an integer bitmask in [0, 127] (got {wd!r}).")
+        _invalid(
+            f"{label} working_days must be an integer bitmask in [0, 127] (got {_short_repr(wd)})."
+        )
     if not _is_finite_real(cal.hours_per_day):
-        _invalid(f"{label} hours_per_day must be a finite number (got {cal.hours_per_day!r}).")
+        _invalid(
+            f"{label} hours_per_day must be a finite number (got {_short_repr(cal.hours_per_day)})."
+        )
     _check_str_field(cal.timezone, f"{label} timezone")
     for exc in cal.exceptions:
         if not isinstance(exc, DateRange):
             _invalid(
                 f"{label} exceptions must contain only DateRange instances "
-                f"(got {type(exc).__name__}: {exc!r})."
+                f"(got {type(exc).__name__}: {_short_repr(exc)})."
             )
         for bound in ("start", "end"):
             _check_plain_date_field(
@@ -1458,30 +1492,40 @@ def _validate_task_fields(t: Task) -> None:
     the result would not load back.
     """
     _check_str_field(t.id, "Task id")
-    _check_str_field(t.name, f"Task {t.id!r} name")
-    _check_timedelta_field(t.duration, f"Task {t.id!r} duration", optional=False)
+    _check_str_field(t.name, f"Task {_short_repr(t.id)} name")
+    _check_timedelta_field(t.duration, f"Task {_short_repr(t.id)} duration", optional=False)
     for name in ("total_float", "free_float"):
-        _check_timedelta_field(getattr(t, name), f"Task {t.id!r} {name}", optional=False)
+        _check_timedelta_field(getattr(t, name), f"Task {_short_repr(t.id)} {name}", optional=False)
     for name in ("optimistic_duration", "most_likely_duration", "pessimistic_duration"):
-        _check_timedelta_field(getattr(t, name), f"Task {t.id!r} {name}", optional=True)
+        _check_timedelta_field(getattr(t, name), f"Task {_short_repr(t.id)} {name}", optional=True)
     for name in _TASK_DATE_FIELDS:
-        _check_plain_date_field(getattr(t, name), f"Task {t.id!r} {name}")
+        _check_plain_date_field(getattr(t, name), f"Task {_short_repr(t.id)} {name}")
     for name in ("is_critical", "milestone_at_day_end"):
         if not isinstance(getattr(t, name), bool):
-            _invalid(f"Task {t.id!r} {name} must be a bool (got {getattr(t, name)!r}).")
+            _invalid(
+                f"Task {_short_repr(t.id)} {name} must be a bool (got "
+                f"{_short_repr(getattr(t, name))})."
+            )
     pct = t.percent_complete
     if pct is not None and (not _is_finite_real(pct) or not 0 <= pct <= 100):
-        _invalid(f"Task {t.id!r} percent_complete must be a number in [0, 100] (got {pct!r}).")
+        _invalid(
+            f"Task {_short_repr(t.id)} percent_complete must be a number in [0, 100] (got "
+            f"{_short_repr(pct)})."
+        )
     if t.story_points is not None and not _is_finite_real(t.story_points):
-        _invalid(f"Task {t.id!r} story_points must be a finite number (got {t.story_points!r}).")
+        _invalid(
+            f"Task {_short_repr(t.id)} story_points must be a finite number (got "
+            f"{_short_repr(t.story_points)})."
+        )
     # A plain "scrum" string serializes to the same JSON as DeliveryMode.SCRUM but is
     # not equal to it, so the object schedules as waterfall and its round-trip as
     # scrum — refuse rather than let the two forms of one project disagree.
     if t.delivery_mode is not None and not isinstance(t.delivery_mode, DeliveryMode):
         _invalid(
-            f"Task {t.id!r} delivery_mode must be a DeliveryMode or None (got {t.delivery_mode!r})."
+            f"Task {_short_repr(t.id)} delivery_mode must be a DeliveryMode or None (got "
+            f"{_short_repr(t.delivery_mode)})."
         )
-    _check_str_field(t.calendar_id, f"Task {t.id!r} calendar_id", optional=True)
+    _check_str_field(t.calendar_id, f"Task {_short_repr(t.id)} calendar_id", optional=True)
 
 
 def _validate_dependency_fields(d: Dependency) -> None:
@@ -1490,9 +1534,11 @@ def _validate_dependency_fields(d: Dependency) -> None:
     _check_str_field(d.successor_id, "Dependency successor_id")
     if not isinstance(d.dep_type, DependencyType):
         allowed = ", ".join(t.value for t in DependencyType)
-        _invalid(f"Invalid dependency type {d.dep_type!r}; must be one of: {allowed}.")
+        _invalid(f"Invalid dependency type {_short_repr(d.dep_type)}; must be one of: {allowed}.")
     _check_timedelta_field(
-        d.lag, f"Dependency {d.predecessor_id!r} → {d.successor_id!r} lag", optional=False
+        d.lag,
+        f"Dependency {_short_repr(d.predecessor_id)} → {_short_repr(d.successor_id)} lag",
+        optional=False,
     )
 
 
@@ -1528,18 +1574,20 @@ def _validate_project_scalar_fields(p: Project) -> None:
     ):
         _invalid(
             f"Project calendars must be a dict of str calendar id to Calendar "
-            f"(got {p.calendars!r})."
+            f"(got {_short_repr(p.calendars)})."
         )
     vs = p.velocity_samples
     if vs is not None:
         if not isinstance(vs, (list, tuple)):
-            _invalid(f"velocity_samples must be a list of numbers (got {vs!r}).")
+            _invalid(f"velocity_samples must be a list of numbers (got {_short_repr(vs)}).")
         for s in vs:
             if s is not None and not _is_finite_real(s):
-                _invalid(f"velocity_samples must contain only finite numbers (got {s!r}).")
+                _invalid(
+                    f"velocity_samples must contain only finite numbers (got {_short_repr(s)})."
+                )
     sld = p.sprint_length_days
     if sld is not None and (isinstance(sld, bool) or not isinstance(sld, int)):
-        _invalid(f"sprint_length_days must be an integer (got {sld!r}).")
+        _invalid(f"sprint_length_days must be an integer (got {_short_repr(sld)}).")
 
 
 def _validate_project_fields(p: Project) -> None:
@@ -1554,7 +1602,7 @@ def _validate_project_fields(p: Project) -> None:
     _validate_project_scalar_fields(p)
     _validate_calendar_fields(p.calendar, "Calendar")
     for cid, cal in (p.calendars or {}).items():
-        _validate_calendar_fields(cal, f"Calendar {cid!r}")
+        _validate_calendar_fields(cal, f"Calendar {_short_repr(cid)}")
     for t in p.tasks:
         _validate_task_fields(t)
     for d in p.dependencies:

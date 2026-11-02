@@ -23,11 +23,16 @@ import pytest
 
 from trueppm_scheduler import (
     Calendar,
+    CyclicDependencyError,
     Dependency,
     DependencyType,
     InvalidScheduleInput,
     Project,
+    Quantity,
     Task,
+    UnknownTaskError,
+    derive_value,
+    engine,
     expand_summary_dependencies,
     find_cycle,
     monte_carlo,
@@ -913,3 +918,152 @@ def test_free_float_absorbs_whole_vacation_week() -> None:
     assert result["B"].early_start == date(2026, 6, 22)
     assert result["A"].free_float == timedelta(days=5)
     assert result["A"].total_float > result["A"].free_float
+
+
+# ---------------------------------------------------------------------------
+# #4162 — derive_value(result=...) on a drifted project, monte_carlo parameter
+# guards, bounded reprs in validator messages
+# ---------------------------------------------------------------------------
+
+
+def _chain_with_milestone() -> Project:
+    """A -> M (zero duration) -> B, so a derivation reaches the milestone replay."""
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=2)),
+            Task(id="M", name="M", duration=timedelta(days=0)),
+            Task(id="B", name="B", duration=timedelta(days=2)),
+        ],
+        dependencies=[
+            Dependency(predecessor_id="A", successor_id="M", dep_type=DependencyType.FS),
+            Dependency(predecessor_id="M", successor_id="B", dep_type=DependencyType.FS),
+        ],
+    )
+
+
+def _foreign_result_for(project: Project) -> object:
+    """A result that did not come from ``schedule(project)`` itself (a deep copy)."""
+    import copy
+
+    return schedule(copy.deepcopy(project))
+
+
+def test_derive_value_result_with_a_cycle_added_since_raises_cyclic() -> None:
+    project = _chain_with_milestone()
+    result = _foreign_result_for(project)
+    project.dependencies.append(
+        Dependency(predecessor_id="B", successor_id="A", dep_type=DependencyType.FS)
+    )
+    with pytest.raises(CyclicDependencyError):
+        derive_value(project, "M", Quantity.EARLY_START, result=result)  # type: ignore[arg-type]
+
+
+def test_derive_value_result_with_an_unknown_endpoint_raises_unknown_task() -> None:
+    project = _chain_with_milestone()
+    result = schedule(project)
+    project.dependencies.append(Dependency(predecessor_id="zzz", successor_id="M"))
+    with pytest.raises(UnknownTaskError, match="zzz"):
+        derive_value(project, "M", Quantity.EARLY_START, result=result)
+    project.dependencies[-1] = Dependency(predecessor_id="M", successor_id="yyy")
+    with pytest.raises(UnknownTaskError, match="yyy"):
+        derive_value(project, "M", Quantity.LATE_FINISH, result=result)
+
+
+def test_derive_value_result_with_an_unknown_endpoint_elsewhere_raises_scheduler_error() -> None:
+    """A bad edge not incident to the target still surfaces from the milestone replay."""
+    project = _chain_with_milestone()
+    result = _foreign_result_for(project)
+    project.dependencies.append(Dependency(predecessor_id="zzz", successor_id="B"))
+    with pytest.raises(InvalidScheduleInput):
+        derive_value(project, "A", Quantity.EARLY_START, result=result)  # type: ignore[arg-type]
+
+
+def test_monte_carlo_max_tasks_with_malformed_tasks_raises_invalid_input() -> None:
+    project = _chain_with_milestone()
+    project.tasks = 7  # type: ignore[assignment]
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(project, runs=4, max_tasks=5)
+
+
+@pytest.mark.parametrize("bad", ["3", 1.5, None, True, -1])
+def test_monte_carlo_sensitivity_cap_is_validated_before_the_simulation(
+    bad: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ran: list[bool] = []
+    real = engine._build_graph
+
+    def _spy(p: Project) -> object:
+        ran.append(True)
+        return real(p)
+
+    monkeypatch.setattr(engine, "_build_graph", _spy)
+    with pytest.raises(InvalidScheduleInput, match="sensitivity_cap"):
+        monte_carlo(_chain_with_milestone(), runs=4, sensitivity_cap=bad)  # type: ignore[arg-type]
+    assert not ran, "the simulation started before sensitivity_cap was checked"
+
+
+@pytest.mark.parametrize(
+    ("name", "bad"),
+    [
+        ("max_runs", "10"),
+        ("max_runs", 1.5),
+        ("max_runs", True),
+        ("max_tasks", "5"),
+        ("max_tasks", 2.5),
+        ("max_lag_delta_cells", None),
+        ("max_lag_delta_cells", -1),
+        ("max_lag_delta_cells", "9"),
+        ("max_index_cells", None),
+        ("max_index_cells", 1.5),
+    ],
+)
+def test_monte_carlo_cap_parameters_reject_the_wrong_type(name: str, bad: object) -> None:
+    with pytest.raises(InvalidScheduleInput, match=name):
+        monte_carlo(_chain_with_milestone(), runs=4, **{name: bad})  # type: ignore[arg-type]
+
+
+def test_monte_carlo_cap_parameters_keep_their_legitimate_values() -> None:
+    """None stays valid for max_runs/max_tasks, 0 for sensitivity_cap, and the
+    defaults are unchanged — the guard is validation only."""
+    p = _chain_with_milestone()
+    base = monte_carlo(p, runs=16, seed=3)
+    capped = monte_carlo(
+        p,
+        runs=16,
+        seed=3,
+        max_runs=None,
+        max_tasks=None,
+        sensitivity_cap=0,
+        max_lag_delta_cells=10_000,
+        max_index_cells=10_000_000,
+    )
+    assert capped.p50 == base.p50 and capped.p95 == base.p95
+    assert capped.sensitivity == []
+
+
+def test_validator_messages_bound_the_echoed_input() -> None:
+    huge = "x" * 2_000_000
+    with pytest.raises(InvalidScheduleInput) as exc:
+        Calendar.from_dict({"working_days": huge})
+    assert len(str(exc.value)) < 1000
+    assert "…" in str(exc.value)
+    # A task id is client input too.
+    p = _chain_with_milestone()
+    p.tasks[0].duration = huge  # type: ignore[assignment]
+    p.tasks[0].id = "A" * 5000
+    with pytest.raises(InvalidScheduleInput) as exc2:
+        schedule(p)
+    assert len(str(exc2.value)) < 1000
+
+
+def test_short_values_are_echoed_unchanged() -> None:
+    from trueppm_scheduler.models import _short_repr
+
+    assert _short_repr("abc") == "'abc'"
+    assert len(_short_repr("x" * 500)) == 200
+    assert _short_repr("x" * 500).endswith("…")
+    with pytest.raises(InvalidScheduleInput, match=r"runs must be a positive integer \(got '3'\)"):
+        monte_carlo(_chain_with_milestone(), runs="3")  # type: ignore[arg-type]
