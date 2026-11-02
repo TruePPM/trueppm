@@ -288,9 +288,15 @@ so dropping them silently reschedules a re-imported project from its planned
 dates. Validation applies the shared ADR-1153 actual-date rules and refuses a
 malformed date, an `actual_finish` earlier than `actual_start`, an
 `actual_finish` on a task that is not in `REVIEW` or `COMPLETE`, and a date in
-the future or more than 366,000 days from the project start. The exporter omits
-an `actual_finish` left on a reopened task, so a project's own export always
-re-imports. Under v2 replay an authored `actual_finish` outranks the one a
+the future or more than 366,000 days from the project start. The exporter
+deliberately drops an `actual_finish` left on a task that is not in `REVIEW` or
+`COMPLETE` (a reopened task or a row that predates the rule), keeping its
+`actual_start`, because emitting it would make the project's own export fail its
+own validation. Relative dates are resolved against the document `anchor`, or
+against import day when there is none, exactly as the importer does. A project
+whose data date (`status_date`) is set after today can hold an actual date that
+a re-import refuses, because an imported project starts with no data date; this
+is tracked in #4824 and lands in 0.5 only as a known limit. Under v2 replay an authored `actual_finish` outranks the one a
 `task.status` to `COMPLETE` beat would stamp.
 
 **Anchor-relative dates + an events timeline (v2).** A v1 seed pins absolute

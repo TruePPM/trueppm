@@ -17,53 +17,41 @@ defensively (its beats are deterministic and should never trip this).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
-from trueppm_api.apps.projects.models import MAX_PROJECT_SPAN_DAYS, TaskStatus
+from trueppm_api.apps.projects.actual_date_core import (
+    ActualDateViolation,
+    check_actual_date_order,
+    check_actual_date_value_bound,
+    check_actual_finish_signoff,
+    check_resolved_actual_dates,
+)
+from trueppm_api.apps.projects.models import TaskStatus
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Project
+
+__all__ = [
+    "SIGNOFF_STATUSES",
+    "ActualDateViolation",
+    "check_actual_date_bound",
+    "check_actual_date_order",
+    "check_actual_dates",
+    "check_actual_finish_signoff",
+]
 
 #: Statuses on which an ``actual_finish`` may be recorded (ADR-1153 sign-off gate).
 #: Both mean "delivered" — ``Task._coerce_signoff_percent`` forces them to 100%.
 SIGNOFF_STATUSES: frozenset[str] = frozenset({TaskStatus.REVIEW, TaskStatus.COMPLETE})
 
 
-@dataclass(frozen=True)
-class ActualDateViolation:
-    """One violated ADR-1153 actual-date rule.
+def _bound_upper(project: Project) -> date:
+    from trueppm_api.apps.scheduling.services import resolve_cpm_status_date
 
-    ``field`` names the offending ``Task`` field (``actual_start`` or
-    ``actual_finish``) so a caller with field-level error reporting (the DRF
-    serializer) can attach the message to the right key.
-    """
-
-    field: str
-    message: str
-    code: str
-
-
-def check_actual_date_order(
-    actual_start: date | None, actual_finish: date | None
-) -> ActualDateViolation | None:
-    """Ordering rule: ``actual_start <= actual_finish`` when both are present.
-
-    Mirrors the engine's own ``_validate_task_actual_order`` so no write path can
-    persist a pair that detonates the project's next recompute.
-    """
-    if actual_start is not None and actual_finish is not None and actual_start > actual_finish:
-        return ActualDateViolation(
-            field="actual_finish",
-            message=(
-                f"Actual finish cannot be earlier than actual start ({actual_start.isoformat()})."
-            ),
-            code="actual_dates_out_of_order",
-        )
-    return None
+    return max(resolve_cpm_status_date(project.status_date), timezone.localdate())
 
 
 def check_actual_date_bound(
@@ -77,48 +65,9 @@ def check_actual_date_bound(
     """
     if value is None:
         return None
-
-    from trueppm_api.apps.scheduling.services import resolve_cpm_status_date
-
-    upper = max(resolve_cpm_status_date(project.status_date), timezone.localdate())
-    if value > upper:
-        return ActualDateViolation(
-            field=field,
-            message=f"{label} cannot be in the future (after {upper.isoformat()}).",
-            code="actual_date_in_future",
-        )
-    # Span cap, the same class as the ordering rule and measured as an ABSOLUTE
-    # offset, so a date far in the past detonates exactly like one far in the
-    # future — the future bound above does not reach that direction, and an
-    # imported or hand-typed date carries no floor otherwise (#1068 class).
-    if abs((value - project.start_date).days) > MAX_PROJECT_SPAN_DAYS:
-        return ActualDateViolation(
-            field=field,
-            message=(
-                f"{label} is more than {MAX_PROJECT_SPAN_DAYS} days from the project "
-                "start; the schedule cannot be computed within a representable date range."
-            ),
-            code="actual_date_outside_span",
-        )
-    return None
-
-
-def check_actual_finish_signoff(
-    actual_finish: date | None, status: str | None
-) -> ActualDateViolation | None:
-    """Sign-off gate: ``actual_finish`` may only be recorded on a REVIEW/COMPLETE task.
-
-    ``engine._is_complete`` reads completion as ``actual_finish is not None or
-    percent_complete >= 100``, so a finish written onto an in-flight task pins it
-    as complete in CPM while the board still shows it in progress.
-    """
-    if actual_finish is not None and status not in SIGNOFF_STATUSES:
-        return ActualDateViolation(
-            field="actual_finish",
-            message="Actual finish can only be set on a task that is in review or complete.",
-            code="actual_finish_requires_signoff",
-        )
-    return None
+    return check_actual_date_value_bound(
+        field, label, value, upper=_bound_upper(project), project_start=project.start_date
+    )
 
 
 def check_actual_dates(
@@ -147,17 +96,10 @@ def check_actual_dates(
     Returns the first violated rule (ordering, then future/span bound, then
     sign-off), or ``None``.
     """
-    violation = check_actual_date_order(actual_start, actual_finish)
-    if violation is not None:
-        return violation
-
-    if project is not None:
-        for field, label, value in (
-            ("actual_start", "Actual start", actual_start),
-            ("actual_finish", "Actual finish", actual_finish),
-        ):
-            violation = check_actual_date_bound(field, label, value, project)
-            if violation is not None:
-                return violation
-
-    return check_actual_finish_signoff(actual_finish, status)
+    return check_resolved_actual_dates(
+        actual_start=actual_start,
+        actual_finish=actual_finish,
+        status=status,
+        upper=_bound_upper(project) if project is not None else None,
+        project_start=project.start_date if project is not None else None,
+    )

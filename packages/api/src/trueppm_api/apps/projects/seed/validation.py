@@ -32,12 +32,11 @@ from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from trueppm_api.apps.projects.actual_date_rules import check_actual_dates
+from trueppm_api.apps.projects.actual_date_core import check_resolved_actual_dates
 from trueppm_api.apps.projects.seed.reldates import resolve_date
 
 # Schema majors this validator understands. The major component is the
@@ -974,7 +973,7 @@ def _project_reference_errors(
         _task_reference_errors(
             task, wbs, tpath, slug, sprint_slugs, label_slugs, own_tasks, ctx, errors
         )
-        _check_actual_dates(task, tpath, project, ctx.anchor, errors)
+        _check_actual_dates(task, tpath, project, ctx.anchor or date.today(), errors)
 
     _check_dependencies(project, base, slug, ctx.task_index, errors)
     _check_baselines(project, base, own_tasks, errors)
@@ -1087,16 +1086,12 @@ def _parse_anchor(value: Any) -> date | None:
         return None
 
 
-def _resolve_seed_date(value: Any, anchor: date | None) -> date | None:
-    """Resolve a seedDate to a date, or ``None`` when it cannot be (bad or no anchor)."""
+def _resolve_seed_date(value: Any, anchor: date) -> date | None:
+    """Resolve a seedDate to a date, or ``None`` when it is not a real date."""
     if not isinstance(value, str):
         return None
     try:
-        return (
-            resolve_date(value, anchor=anchor or date.min, snap=False)
-            if (anchor is not None or not value.startswith("A"))
-            else None
-        )
+        return resolve_date(value, anchor=anchor, snap=False)
     except (ValueError, OverflowError):
         return None
 
@@ -1105,22 +1100,25 @@ def _check_actual_dates(
     task: dict[str, Any],
     tpath: str,
     project: dict[str, Any],
-    anchor: date | None,
+    anchor: date,
     errors: list[str],
 ) -> None:
     """Apply the shared ADR-1153 actual-date rules to a seed task.
 
     The importer writes ``actual_start``/``actual_finish`` straight onto ``Task``
     (bulk insert, no serializer), so this is the only write-boundary check they
-    get. It reuses :func:`check_actual_dates` rather than copying the rules:
-    ordering, the future bound, the span cap (a far date makes every later
-    recompute raise ``InvalidScheduleInput``) and the sign-off gate.
+    get. It reuses :func:`check_resolved_actual_dates` (the Django-free core of
+    ``actual_date_rules``) rather than copying the rules: ordering, the future
+    bound, the span cap (a far date makes every later recompute raise
+    ``InvalidScheduleInput``) and the sign-off gate.
 
-    A seed carries no data date, and an imported project starts with
-    ``status_date=None``, which the bound resolves to today — so a stub project
-    with that value is exactly what the importer will create. The future bound
-    only loosens as wall-clock time passes, so re-importing an older export never
-    starts failing because of when it runs.
+    ``anchor`` is the importer's own resolution (explicit anchor, else today), so
+    relative dates mean here what they will mean at import. The bound mirrors a
+    freshly imported project, whose ``status_date`` is null and so resolves to
+    today; the project start is resolved without weekend-snapping, which differs
+    from the importer by at most a few days and cannot matter against a
+    366,000-day cap. The future bound only loosens as wall-clock time passes, so
+    re-importing an older export never starts failing because of when it runs.
     """
     values = {f: task.get(f) for f in ("actual_start", "actual_finish")}
     if all(v is None for v in values.values()):
@@ -1130,21 +1128,14 @@ def _check_actual_dates(
         resolved[field] = _resolve_seed_date(value, anchor)
         # v2's seedDate is a regex, so "2026-13-40" passes the schema and would
         # reach date.fromisoformat at import time as an unhandled ValueError.
-        if (
-            isinstance(value, str)
-            and resolved[field] is None
-            and not (anchor is None and value.startswith("A"))
-        ):
+        if isinstance(value, str) and resolved[field] is None:
             errors.append(f"{tpath}.{field}: {value!r} is not a valid date")
-    start_date = _resolve_seed_date(project.get("start_date"), anchor)
-    stub = (
-        SimpleNamespace(status_date=None, start_date=start_date) if start_date is not None else None
-    )
-    violation = check_actual_dates(
+    violation = check_resolved_actual_dates(
         actual_start=resolved["actual_start"],
         actual_finish=resolved["actual_finish"],
         status=task.get("status", "NOT_STARTED"),
-        project=stub,  # type: ignore[arg-type]
+        upper=date.today(),
+        project_start=_resolve_seed_date(project.get("start_date"), anchor),
     )
     if violation is not None:
         errors.append(f"{tpath}.{violation.field}: {violation.message}")

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
+import sys
 from datetime import date
 from typing import Any
 
@@ -207,3 +209,83 @@ def test_reopened_task_keeping_its_finish_still_round_trips() -> None:
     first = dump_seed(first_doc)
     again = import_seed(json.loads(first), owner=owner, create_users=True, replace=True)
     assert dump_seed(export_program(again)) == first
+
+
+def _unanchored(start: str = "A-90", **task: Any) -> dict[str, Any]:
+    """A v2 seed with NO ``anchor`` (the common case: the importer resolves it to today)."""
+    doc = _doc("2.0")
+    del doc["anchor"]
+    doc["projects"][0]["start_date"] = start
+    doc["projects"][0]["tasks"] = [{"wbs_path": "1", "name": "T", **task}]
+    return doc
+
+
+@pytest.mark.parametrize(
+    ("task", "field", "needle"),
+    [
+        ({"status": "IN_PROGRESS", "actual_finish": "A-5"}, "actual_finish", "review or complete"),
+        (
+            {"status": "COMPLETE", "actual_start": "A-5", "actual_finish": "A-10"},
+            "actual_finish",
+            "earlier than actual start",
+        ),
+        ({"actual_start": "A+400"}, "actual_start", "in the future"),
+        ({"actual_start": "2999-01-01"}, "actual_start", "in the future"),
+        ({"actual_start": "0001-01-01"}, "actual_start", "more than"),
+    ],
+)
+def test_unanchored_seed_still_enforces_every_actual_date_rule(
+    task: dict[str, Any], field: str, needle: str
+) -> None:
+    errors = _errors(_unanchored(**task))
+    assert any(f"tasks[0].{field}" in e and needle in e for e in errors)
+
+
+def test_unanchored_relative_actuals_that_are_valid_pass() -> None:
+    validate_seed(_unanchored(status="COMPLETE", actual_start="A-20", actual_finish="A-5"))
+
+
+_DJANGO_FREE_SCRIPT = """
+import sys
+from trueppm_api.apps.projects.seed.validation import SeedValidationError, validate_seed
+doc = {
+    "schema_version": "1.0",
+    "program": {"slug": "r", "name": "R", "methodology": "WATERFALL"},
+    "accounts": [],
+    "projects": [{"slug": "p", "name": "P", "methodology": "WATERFALL",
+        "start_date": "2026-01-05",
+        "tasks": [{"wbs_path": "1", "name": "T", "status": "IN_PROGRESS",
+                   "actual_finish": "2026-01-10"}]}],
+}
+try:
+    validate_seed(doc)
+except SeedValidationError as exc:
+    assert "review or complete" in exc.errors[0], exc.errors
+else:
+    raise SystemExit("validate_seed accepted a finish on an in-progress task")
+assert "django.db.models" not in sys.modules, "validation pulled Django models in"
+"""
+
+
+def test_validate_seed_is_importable_and_callable_without_django() -> None:
+    """The sample generators call validate_seed with no django.setup() (#3161)."""
+    import os
+
+    env = {k: v for k, v in os.environ.items() if k != "DJANGO_SETTINGS_MODULE"}
+    result = subprocess.run(
+        [sys.executable, "-c", _DJANGO_FREE_SCRIPT],
+        env={**env, "PYTHONPATH": os.pathsep.join(sys.path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_django_free_core_mirrors_the_model_constants() -> None:
+    from trueppm_api.apps.projects import actual_date_core as core
+    from trueppm_api.apps.projects.actual_date_rules import SIGNOFF_STATUSES
+    from trueppm_api.apps.projects.models import MAX_PROJECT_SPAN_DAYS
+
+    assert core.MAX_PROJECT_SPAN_DAYS == MAX_PROJECT_SPAN_DAYS
+    assert set(core.SIGNOFF_STATUS_VALUES) == {str(s) for s in SIGNOFF_STATUSES}
