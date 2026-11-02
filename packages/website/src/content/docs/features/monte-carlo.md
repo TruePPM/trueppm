@@ -252,7 +252,7 @@ the count simulated). The response will carry:
 | `whatif` | The same fields recomputed with your perturbation applied. |
 | `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
 | `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. All four are measured in working time: a finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
-| `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). |
+| `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). `new_duration_days` is the duration the forecast used, which is 0 once a pull-in uses up the remaining work. |
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 
 A perturbation target must be a real unit of work: a milestone (zero duration by
@@ -272,12 +272,40 @@ pull-in of `-N` days moves it `N` working days earlier, whatever its percent
 complete. This holds when the task's outgoing links have no lag. A lag counted in
 calendar days can gain or lose weekend days, so the shift can then differ from `N`.
 A pull-in can move the finish less than this if another path becomes
-critical first. Completed work cannot be undone, so the largest possible pull-in equals
-the remaining working days. A bigger pull-in has the same effect as that one. The
-what-if then treats the task as finished on the working day before its remaining
-work would have started. With no lag on its outgoing links, the finish then moves
-earlier by exactly the remaining days.
-Its duration is never set below the days already completed. Before the fix
+critical first. The largest possible pull-in equals the remaining working days, and a
+bigger one moves `cpm_finish` no further. The bands can keep moving on a task with a
+three-point estimate, because the estimate keeps shrinking.
+
+Once a pull-in uses up the remaining work, the what-if treats the task as open with no
+work left. It does not record a finish for it, and its percent complete and actual
+start stay as they were. Its predecessors still drive what comes after it, so they stay
+on the critical path and their risk stays in the bands. A recorded actual start still
+holds the task at or after that date, which can limit how far the finish moves. With
+no lag on finish-to-start or finish-to-finish links out of the task, `cpm_finish` moves
+earlier by the remaining days. On a finish-to-start chain, the bands of a task with no
+estimate of its own move by the same amount.
+
+:::note[Ships in 0.5]
+Keeping the task open ships in 0.5. Through 0.4, a pull-in of all remaining work marks
+the task finished on the working day before its remaining work would have started, so
+its predecessors can drop off the critical path and the bands can move further than
+the pull-in.
+
+Do not rely on a pull-in that uses up the remaining work on these two shapes. Both are
+known defects in the 0.5 behavior:
+
+- **Start-to-start and start-to-finish links out of the task**
+  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)). At zero duration the link
+  stops measuring from the task's recorded start. On a start-to-start link, even with
+  no lag, a bigger pull-in can finish later than a smaller one and can land back at or
+  past the current finish. On a start-to-finish link the finish can move by a different
+  number of days than you pulled in.
+- **Sprint-delivered tasks** ([#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820)).
+  The completed days are converted to story points, and whole-sprint rounding can then
+  move a band backward as the pull-in grows, or later than the current forecast.
+:::
+
+Before the fix
 ([#4432](https://gitlab.com/trueppm/trueppm/-/issues/4432)), the change was spread
 over both the done and the remaining share of the task. A `+1` slip on a task that
 was 50% done could report no impact.

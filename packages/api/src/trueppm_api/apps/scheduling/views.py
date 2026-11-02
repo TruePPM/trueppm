@@ -1528,7 +1528,6 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             # new_duration is absolute; convert to the equivalent signed shift so both
             # inputs flow through one perturbation path.
             delta_days = int(params["new_duration"]) - base_duration_days
-        new_duration_days = max(0, base_duration_days + delta_days)
 
         suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
         baseline_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
@@ -1619,6 +1618,12 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     perturbed_tasks = perturb_task_duration(
                         _make_project(leaf_tasks, cpm_status_date), task_id, delta_days
                     ).tasks
+                    # Read back rather than computed here: the engine decides the duration
+                    # (a pull-in of all remaining work lands on zero whatever is elapsed),
+                    # and the response has to report the input the forecast really used.
+                    new_duration_days = next(
+                        t for t in perturbed_tasks if t.id == task_id
+                    ).duration.days
                     baseline_cpm = schedule(_make_project(leaf_tasks, cpm_status_date))
                     perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
                     baseline_mc = monte_carlo(

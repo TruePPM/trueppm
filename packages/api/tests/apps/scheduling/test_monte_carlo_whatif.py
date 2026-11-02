@@ -326,6 +326,58 @@ class TestWhatIfMovesCpmAndBandsTogether:
         assert r.status_code == 200, r.data
         assert r.data["delta_vs_current"] == {"p50": 0, "p80": 0, "p95": 0, "cpm_finish": 0}
 
+    def test_pulling_in_all_remaining_work_keeps_the_critical_path(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """A pull-in of the last day must not read as completion. Pinning the task at
+        invented actuals moved the finish two working days on a one-day pull-in and
+        reported its predecessor as no longer critical."""
+        project.start_date = date(2027, 3, 1)  # Monday
+        project.status_date = date(2027, 3, 8)
+        project.save()
+        pred = Task.objects.create(project=project, name="Pred", duration=5)
+        target = Task.objects.create(project=project, name="Last", duration=1, percent_complete=50)
+        succ = Task.objects.create(project=project, name="Succ", duration=3)
+        Dependency.objects.create(predecessor=pred, successor=target, lag=0)
+        Dependency.objects.create(predecessor=target, successor=succ, lag=0)
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(target.pk), "duration_delta": -1, "n_simulations": 100},
+        )
+
+        assert r.status_code == 200, r.data
+        assert r.data["critical_path_changed"] is False
+        assert str(pred.pk) in r.data["whatif"]["critical_path"]
+        assert r.data["delta_vs_current"]["cpm_finish"] == -1
+        task = Task.objects.get(pk=target.pk)
+        assert task.actual_finish is None
+        assert task.percent_complete == 50
+
+    @pytest.mark.parametrize(
+        ("delta", "expected"),
+        [(2, 7), (-1, 4), (-2, 3), (-3, 0), (-4, 0), (-9, 0)],
+        ids=["slip", "pull-in", "one-day-left", "exhausted", "past-exhausted", "far-past"],
+    )
+    def test_applied_reports_the_duration_the_forecast_used(
+        self, member_client: APIClient, project: Project, delta: int, expected: int
+    ) -> None:
+        """5d at 40% has 2 elapsed and 3 remaining days. ``base + delta`` read 2 and 1 at
+        -3 and -4, describing a duration the engine never simulated."""
+        task = Task.objects.create(project=project, name="Task", duration=5, percent_complete=40)
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(task.pk), "duration_delta": delta, "n_simulations": 100},
+        )
+
+        assert r.status_code == 200, r.data
+        assert r.data["applied"] == {
+            "base_duration_days": 5,
+            "duration_delta_days": delta,
+            "new_duration_days": expected,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Non-mutation guarantee

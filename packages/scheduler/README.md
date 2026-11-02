@@ -518,10 +518,7 @@ release it is scheduled for:
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
   *into* a summary task do not fan out to every leaf the way the successor
   side does
-  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); `perturb_task_duration(duration=0)`
-  on a started milestone can mark it complete and move the schedule as a side
-  effect of the perturbation
-  ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)); `driving_edges`
+  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); `driving_edges`
   can omit a link whose calendar-day lag lands on non-working time even
   though removing it does move the successor
   ([#4537](https://gitlab.com/trueppm/trueppm/-/issues/4537));
@@ -628,10 +625,8 @@ MS-Project-parity gaps, the zero-lag milestone-calendar overstatement
 ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)), the three leaking
 Monte Carlo keyword caps, a `monte_carlo(return_samples=True)` option to
 hand back the raw matrices
-([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)), and five findings
-from the 2026-10-18 scheduler audit above: the `perturb_task_duration`
-milestone side effect
-([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)), the
+([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)), and four findings
+from the 2026-10-18 scheduler audit above: the
 `driving_edges` false negative on calendar-lag-onto-non-working-time
 ([#4537](https://gitlab.com/trueppm/trueppm/-/issues/4537)), the
 `expand_summary_dependencies` sibling-ordering bug on invalid input
