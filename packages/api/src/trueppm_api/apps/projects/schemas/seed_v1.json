@@ -263,6 +263,8 @@
         "is_milestone": { "type": "boolean" },
         "duration": { "type": "integer", "minimum": 0 },
         "planned_start": { "type": "string", "format": "date" },
+        "actual_start": { "type": "string", "format": "date" },
+        "actual_finish": { "type": "string", "format": "date" },
         "percent_complete": { "type": "number", "minimum": 0, "maximum": 100 },
         "notes": { "type": "string", "maxLength": 10000 },
         "estimate": { "$ref": "#/$defs/estimate" },

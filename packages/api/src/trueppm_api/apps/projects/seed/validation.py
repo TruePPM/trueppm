@@ -29,11 +29,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
+
+from trueppm_api.apps.projects.actual_date_core import check_resolved_actual_dates
+from trueppm_api.apps.projects.seed.reldates import resolve_date
 
 # Schema majors this validator understands. The major component is the
 # compatibility boundary: a payload whose major is unknown is rejected outright.
@@ -865,6 +869,7 @@ class _RefContext:
     resource_slugs: set[str]
     project_slugs: set[str]
     task_index: dict[str, set[str]]
+    anchor: date | None = None
 
 
 def _referential_errors(payload: dict[str, Any]) -> list[str]:
@@ -877,7 +882,14 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
 
     projects = payload.get("projects", [])
     project_slugs, task_index = _build_project_index(projects, errors)
-    ctx = _RefContext(account_slugs, calendar_slugs, resource_slugs, project_slugs, task_index)
+    ctx = _RefContext(
+        account_slugs,
+        calendar_slugs,
+        resource_slugs,
+        project_slugs,
+        task_index,
+        anchor=_parse_anchor(payload.get("anchor")),
+    )
 
     # program.lead -> account
     program = payload.get("program", {})
@@ -961,6 +973,7 @@ def _project_reference_errors(
         _task_reference_errors(
             task, wbs, tpath, slug, sprint_slugs, label_slugs, own_tasks, ctx, errors
         )
+        _check_actual_dates(task, tpath, project, ctx.anchor or date.today(), errors)
 
     _check_dependencies(project, base, slug, ctx.task_index, errors)
     _check_baselines(project, base, own_tasks, errors)
@@ -1064,6 +1077,68 @@ def _check_estimate_order(task: dict[str, Any], tpath: str, errors: list[str]) -
                 f"{tpath}.estimate: three-point estimate must satisfy "
                 f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
             )
+
+
+def _parse_anchor(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def _resolve_seed_date(value: Any, anchor: date) -> date | None:
+    """Resolve a seedDate to a date, or ``None`` when it is not a real date."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return resolve_date(value, anchor=anchor, snap=False)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _check_actual_dates(
+    task: dict[str, Any],
+    tpath: str,
+    project: dict[str, Any],
+    anchor: date,
+    errors: list[str],
+) -> None:
+    """Apply the shared ADR-1153 actual-date rules to a seed task.
+
+    The importer writes ``actual_start``/``actual_finish`` straight onto ``Task``
+    (bulk insert, no serializer), so this is the only write-boundary check they
+    get. It reuses :func:`check_resolved_actual_dates` (the Django-free core of
+    ``actual_date_rules``) rather than copying the rules: ordering, the future
+    bound, the span cap (a far date makes every later recompute raise
+    ``InvalidScheduleInput``) and the sign-off gate.
+
+    ``anchor`` is the importer's own resolution (explicit anchor, else today), so
+    relative dates mean here what they will mean at import. The bound mirrors a
+    freshly imported project, whose ``status_date`` is null and so resolves to
+    today; the project start is resolved without weekend-snapping, which differs
+    from the importer by at most a few days and cannot matter against a
+    366,000-day cap. The future bound only loosens as wall-clock time passes, so
+    re-importing an older export never starts failing because of when it runs.
+    """
+    values = {f: task.get(f) for f in ("actual_start", "actual_finish")}
+    if all(v is None for v in values.values()):
+        return
+    resolved: dict[str, date | None] = {}
+    for field, value in values.items():
+        resolved[field] = _resolve_seed_date(value, anchor)
+        # v2's seedDate is a regex, so "2026-13-40" passes the schema and would
+        # reach date.fromisoformat at import time as an unhandled ValueError.
+        if isinstance(value, str) and resolved[field] is None:
+            errors.append(f"{tpath}.{field}: {value!r} is not a valid date")
+    violation = check_resolved_actual_dates(
+        actual_start=resolved["actual_start"],
+        actual_finish=resolved["actual_finish"],
+        status=task.get("status", "NOT_STARTED"),
+        upper=date.today(),
+        project_start=_resolve_seed_date(project.get("start_date"), anchor),
+    )
+    if violation is not None:
+        errors.append(f"{tpath}.{violation.field}: {violation.message}")
 
 
 def _check_dependencies(

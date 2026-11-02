@@ -1,6 +1,7 @@
 ---
 title: Seed data schema
 description: The canonical JSON seed format — its design choices, and how to author a new sample.
+documentedFor: "0.5"
 ---
 
 This page is for developers authoring or modifying a bundled sample, or building
@@ -14,6 +15,12 @@ front of every ingress path. The contract around the schema (fidelity tiers,
 identity model, limits, error model, and how CSV differs) is the
 [data interchange specification](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/specs/data-interchange.spec.md)
 and [ADR-0634](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0634-file-interchange-contract-json-seed-and-csv.md).
+:::
+
+:::note[Ships in 0.5]
+Task `actual_start` and `actual_finish` round-trip through the seed in 0.5. The
+current release leaves them out of an export, so a project re-imported from its
+own export loses its in-flight schedule floor.
 :::
 
 ## The format
@@ -270,6 +277,27 @@ it as a single object makes the all-or-none invariant
 ([ADR-0093](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0093-msproject-three-point-pert-mapping.md))
 structurally enforceable: a task has all three points or none. Imported
 estimates are written as accepted, bypassing estimation governance.
+
+**Task actuals round-trip.** A task's `actual_start` and `actual_finish` are
+optional task keys (ISO dates in v1, `seedDate` in v2). The exporter writes each
+only when it is set, so a task with neither is unchanged, and the importer reads
+them back without snapping to a working day. They matter because the actuals are
+the floor the scheduler honors for in-flight work
+([ADR-0132](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0132-data-date-aware-progress-forecasting.md)),
+so dropping them silently reschedules a re-imported project from its planned
+dates. Validation applies the shared ADR-1153 actual-date rules and refuses a
+malformed date, an `actual_finish` earlier than `actual_start`, an
+`actual_finish` on a task that is not in `REVIEW` or `COMPLETE`, and a date in
+the future or more than 366,000 days from the project start. The exporter
+deliberately drops an `actual_finish` left on a task that is not in `REVIEW` or
+`COMPLETE` (a reopened task or a row that predates the rule), keeping its
+`actual_start`, because emitting it would make the project's own export fail its
+own validation. Relative dates are resolved against the document `anchor`, or
+against import day when there is none, exactly as the importer does. A project
+whose data date (`status_date`) is set after today can hold an actual date that
+a re-import refuses, because an imported project starts with no data date; this
+is tracked in #4824 and lands in 0.5 only as a known limit. Under v2 replay an authored `actual_finish` outranks the one a
+`task.status` to `COMPLETE` beat would stamp.
 
 **Anchor-relative dates + an events timeline (v2).** A v1 seed pins absolute
 dates, so a bundled demo ages. v2 instead authors dates as offsets from an

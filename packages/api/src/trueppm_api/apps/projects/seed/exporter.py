@@ -29,6 +29,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.projects.actual_date_rules import SIGNOFF_STATUSES
 from trueppm_api.apps.projects.models import (
     AcceptanceCriterion,
     BacklogItem,
@@ -1046,6 +1047,17 @@ class _Exporter:
             block["duration"] = task.duration
         if task.planned_start is not None:
             block["planned_start"] = self._date_str(task.planned_start)
+        # ADR-0132: an in-flight task's actuals are the floor the CPM pass honors.
+        # Without them a re-imported in-progress project reschedules from its
+        # planned dates (#3161). Absent when null, so documents of tasks that
+        # have neither stay byte-identical.
+        if task.actual_start is not None:
+            block["actual_start"] = self._date_str(task.actual_start)
+        # Only on a sign-off status: validation refuses a finish anywhere else
+        # (ADR-1153), and a legacy row can still carry one after a reopen, so
+        # emitting it would make the project's own export un-importable.
+        if task.actual_finish is not None and task.status in SIGNOFF_STATUSES:
+            block["actual_finish"] = self._date_str(task.actual_finish)
         if task.percent_complete:
             block["percent_complete"] = task.percent_complete
         _put(block, "notes", task.notes)
