@@ -1381,8 +1381,11 @@ def derive_value(
     Raises:
         UnknownTaskError: If ``task_id`` names no task in the project, or a
             dependency of that task names a task missing from ``result``.
-        CyclicDependencyError: If ``result`` was supplied and ``project`` has gained
-            a dependency cycle since it was computed.
+        CyclicDependencyError: If ``result`` was supplied and the derivation reaches
+            the milestone replay (the project has a zero-duration task) over a
+            ``project`` that has gained a dependency cycle since ``result`` was
+            computed. Without a zero-duration task no graph pass runs, so a stale
+            cycle is not detected and a value is returned.
         InvalidScheduleInput: If ``project`` is not a :class:`Project`, or
             ``quantity`` is not a known quantity (the message lists the allowed
             values), or ``result`` is neither a :class:`ScheduleResult` nor ``None``.
