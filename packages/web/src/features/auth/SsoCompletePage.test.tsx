@@ -67,7 +67,26 @@ describe('SsoCompletePage', () => {
     searchString = 'error=weird_backend_code';
     renderPage();
     expect(screen.getByText(/couldn't complete sign-in/i)).toBeInTheDocument();
-    expect(screen.getByTestId('sso-error-code')).toHaveTextContent('SSO_WEIRD_BACKEND_CODE');
+    expect(screen.getByTestId('sso-error-code')).toHaveTextContent(/^Error code: SSO_UNKNOWN$/);
+    expect(document.body.textContent).not.toMatch(/weird/i);
+  });
+
+  it.each([
+    ['over-long', 'a'.repeat(800)],
+    ['non-ASCII', encodeURIComponent('séñor_ünïcode_日本語')],
+    ['markup', encodeURIComponent('<script>alert(1)</script>')],
+    ['inherited constructor', 'constructor'],
+    ['inherited __proto__', '__proto__'],
+    ['inherited toString', 'toString'],
+    ['inherited hasOwnProperty', 'hasOwnProperty'],
+  ])('renders a fixed SSO_UNKNOWN code for a %s value, echoing nothing', (_label, value) => {
+    searchString = `error=${value}`;
+    renderPage();
+    expect(screen.getByTestId('sso-error-code')).toHaveTextContent(/^Error code: SSO_UNKNOWN$/);
+    expect(screen.getByText(/couldn't complete sign-in/i)).toBeInTheDocument();
+    const decoded = decodeURIComponent(value);
+    expect(document.body.textContent).not.toContain(decoded.toUpperCase());
+    expect(document.body.textContent).not.toContain(decoded);
   });
 
   it('distinguishes a deactivated account from a non-member (#2875)', () => {

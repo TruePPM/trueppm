@@ -131,9 +131,15 @@ const GENERIC_ERROR: ErrorCopy = {
   code: 'SSO_ERROR',
 };
 
+// The `?error=` value is attacker-controllable on a public page, so it only ever
+// selects copy — it is never rendered. An own-property check is required: a plain
+// object lookup resolves `constructor`, `__proto__` or `toString` to an inherited
+// member and would skip the fallback.
+const UNKNOWN_ERROR: ErrorCopy = { ...GENERIC_ERROR, code: 'SSO_UNKNOWN' };
+
 function copyFor(code: string | null): ErrorCopy {
   if (!code) return GENERIC_ERROR;
-  return ERROR_COPY[code] ?? { ...GENERIC_ERROR, code: `SSO_${code.toUpperCase()}` };
+  return Object.hasOwn(ERROR_COPY, code) ? ERROR_COPY[code] : UNKNOWN_ERROR;
 }
 
 // Named SuccessBadge, not CheckIcon: this is the 44px circular badge *container*,
