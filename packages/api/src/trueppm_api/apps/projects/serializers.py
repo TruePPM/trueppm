@@ -18,6 +18,8 @@ from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
+from trueppm_api.apps.scheduling.graph_guard import TypedEdge, validate_expansion_with_edge
+
 if TYPE_CHECKING:
     from rest_framework.views import APIView
 
@@ -7997,7 +7999,7 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             )
 
         if predecessor and successor:
-            self._check_no_cycle(predecessor, successor)
+            self._check_no_cycle(predecessor, successor, attrs)
             if not cross_project:
                 self._validate_span_with_lag(attrs, predecessor)
         return attrs
@@ -8097,7 +8099,9 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             }
         return {"pending_acceptance": True, "accepted_by": None, "accepted_at": None}
 
-    def _check_no_cycle(self, predecessor: Task, successor: Task) -> None:
+    def _check_no_cycle(
+        self, predecessor: Task, successor: Task, attrs: dict[str, Any] | None = None
+    ) -> None:
         """Reject the proposed edge if it would close a logical cycle.
 
         Builds the project's existing dep graph (excluding the current row on
@@ -8148,14 +8152,17 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             # task_ids are stringified for the children-map keys above; the FK
             # `_id` lookup is typed to want UUID objects, so convert back here.
             predecessor_id__in=[uuid.UUID(t) for t in task_ids],
-        ).values_list("predecessor_id", "successor_id")
+        ).values_list("predecessor_id", "successor_id", "dep_type", "lag")
         if self.instance is not None:
             existing_qs = existing_qs.exclude(pk=self.instance.pk)
 
+        # One fetch serves both checks: cycle detection reads the pairs, the
+        # type-collision check reads the type and lag too.
+        existing_rows = list(existing_qs)
         # Sorted so the graph's node insertion order — which decides where
         # networkx starts its search, and therefore which cycle is reported and
         # where the path begins — does not depend on the unordered DB row order.
-        edges: list[tuple[str, str]] = sorted((str(p), str(s)) for p, s in existing_qs)
+        edges: list[tuple[str, str]] = sorted((str(p), str(s)) for p, s, _t, _lag in existing_rows)
         edges.append((str(predecessor.id), str(successor.id)))
 
         try:
@@ -8171,6 +8178,13 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             raise serializers.ValidationError(str(exc)) from exc
         if cycle_ids is None:
+            self._check_no_type_collision(
+                predecessor,
+                successor,
+                attrs or {},
+                children_map,
+                [(str(p), str(s), t, lag) for p, s, t, lag in existing_rows],
+            )
             return
 
         # Resolve to rich objects so the toast can render task names without
@@ -8242,6 +8256,59 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             for t in (tasks_by_id.get(tid) for tid in cycle_ids)
         ]
         self._raise_cycle_error(ordered)
+
+    def _check_no_type_collision(
+        self,
+        predecessor: Task,
+        successor: Task,
+        attrs: dict[str, Any],
+        children_map: dict[str, list[str]],
+        existing: list[TypedEdge],
+    ) -> None:
+        """Reject an edge whose summary expansion the CPM pass would later refuse.
+
+        Two links of different types that expand onto the same leaf pair (``A -FF-> C``
+        beside ``S(A, B) -FS-> C``) make every later recalculation raise, so the write
+        is refused here where the caller can act on it. The rule itself is the
+        engine's — see :func:`validate_expansion_with_edge` — and the proposed edge is
+        taken post-change (``attrs`` merged over the instance on a PATCH) with the
+        edited row already excluded from ``existing``.
+
+        The engine words its refusal in task ids. Those are swapped for task names, and
+        only for names the caller may read (the cycle refusal's redaction policy), so
+        the program-wide scope of a cross-project check cannot disclose a title.
+        """
+        dep_type = attrs.get("dep_type") or (self.instance.dep_type if self.instance else "FS")
+        lag = attrs.get("lag", self.instance.lag if self.instance is not None else 0)
+        proposed: TypedEdge = (str(predecessor.id), str(successor.id), dep_type, int(lag))
+        try:
+            validate_expansion_with_edge(existing, proposed, children_map=children_map)
+        except InvalidScheduleInput as exc:
+            raise serializers.ValidationError(
+                {"dep_type": [self._name_task_ids(str(exc), predecessor, successor)]}
+            ) from exc
+
+    def _name_task_ids(self, message: str, predecessor: Task, successor: Task) -> str:
+        """Replace the quoted task ids in an engine message with readable task names."""
+        quoted = set(_QUOTED_UUID.findall(message))
+        if not quoted:
+            return message
+        tasks = {
+            str(t.id): t
+            for t in Task.objects.filter(id__in=quoted).only("id", "name", "project_id")
+        }
+        readable = _cycle_readable_project_ids(
+            self.context.get("request"), {t.project_id for t in tasks.values()}
+        )
+        endpoint_ids = {predecessor.id, successor.id}
+
+        def _swap(match: re.Match[str]) -> str:
+            t = tasks.get(match.group(1))
+            if t is None or not (t.id in endpoint_ids or t.project_id in readable):
+                return "another task"
+            return "'" + " ".join(t.name.split())[:40] + "'"
+
+        return _QUOTED_UUID.sub(_swap, message)
 
     def _raise_cycle_error(self, tasks: list[Task] | list[Task | None]) -> None:
         """Raise the structured cycle refusal for an ordered cycle path.
@@ -8544,6 +8611,7 @@ _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by project
 # never required in new board configurations.
 _CANONICAL_STATUSES = frozenset({"BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "COMPLETE"})
 
+_QUOTED_UUID = re.compile(r"'([0-9a-fA-F]{8}-[0-9a-fA-F-]{27})'")
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 # Board lane keys (#2967). Lowercase slug so the key is safe as a droppable id, a

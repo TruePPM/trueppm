@@ -285,6 +285,29 @@ minor so an already-shipped client survives without a server-version check. They
 are scheduled for removal in a future minor — branch on `code` and `offending`,
 the pair every other 400 in this table uses.
 
+**Coming in 0.5: a dependency whose summary expansion cannot be scheduled will be
+refused on `dep_type`.** Until then such a write is accepted and every later
+schedule recalculation fails. `POST /dependencies/` and
+`PATCH /dependencies/{id}/` will expand a summary task's links down to its leaf
+tasks, as the schedule engine does. When a new or edited link would land on the
+same pair of leaf tasks as an existing link of a **different** type — for example
+Finish-to-Finish from a task, beside an existing Finish-to-Start from the summary
+that contains it — the write will be refused with a plain field error rather than
+a `code`:
+
+```json
+{
+  "dep_type": [
+    "Dependencies 'Phase' → 'Ship' (FS, lag 0d) and 'Design' → 'Ship' (FF, lag 0d) both resolve to leaf link 'Design' → 'Ship' with different types (FS vs FF); a task pair can hold only one dependency type. Remove one link or change its type to match."
+  ]
+}
+```
+
+Two links of the **same** type on one leaf pair will still be accepted; the larger
+lag applies. Tasks you cannot read will be named `another task`. A project that
+already holds a conflicting pair will not block unrelated edges, so the pair can
+be repaired by re-typing or deleting one of the links.
+
 `subtree_too_large` carries `matched` (how many descendants the request would
 have touched) and `max` (the cap), so a client can say how far over the limit it
 is without parsing the sentence in `detail`. Both are **strings**, not numbers —
