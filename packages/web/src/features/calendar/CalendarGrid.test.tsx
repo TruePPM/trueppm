@@ -608,7 +608,7 @@ describe('CalendarGrid', () => {
       expect(order).toEqual(['Early Task, due', 'Late Task, due']);
     });
 
-    it('mutes a weekend cell’s own marks without muting a chip that starts there', () => {
+    it('mutes a weekend date number with a solid token without muting a chip that starts there', () => {
       // Chips live in the day cell they start in now, so a weekend mute left on
       // the cell BOX would dim a Saturday-starting bar and leave an identical
       // Monday-starting one at full strength — the same bar rendered two ways
@@ -625,12 +625,15 @@ describe('CalendarGrid', () => {
       const chip = container.querySelector('[data-cal-chip]');
       expect(chip).not.toBeNull();
       expect(chip?.closest('.opacity-60')).toBeNull();
-      // ...while the Saturday cell's own date number and marks still are muted.
+      // ...while the Saturday date number is muted by a SOLID token (opacity
+      // composites to 4.02:1 and fails WCAG 1.4.3; #3879)...
       const satCell = screen.getByRole('gridcell', { name: 'Saturday, May 2, 2026' });
-      expect(satCell.querySelector('.opacity-60')).not.toBeNull();
-      // ...and a weekday cell is not.
+      expect(satCell.querySelector('.opacity-60')).toBeNull();
+      expect(satCell.querySelector('span.text-neutral-text-secondary')).not.toBeNull();
+      // ...and a weekday cell keeps the primary ink.
       const friCell = screen.getByRole('gridcell', { name: 'Friday, May 1, 2026' });
-      expect(friCell.querySelector('.opacity-60')).toBeNull();
+      expect(friCell.querySelector('span.text-neutral-text-primary')).not.toBeNull();
+      expect(friCell.querySelector('span.text-neutral-text-secondary')).toBeNull();
     });
 
     it('exposes the legend label by giving it a role that can carry one', () => {

@@ -23,7 +23,7 @@ Month is the default. The grid runs from the Monday on or before the 1st to the 
 ![The Calendar view in Month mode showing task chips spanning days with a critical-path legend](../../../assets/screenshots/calendar.webp)
 
 - Days that belong to the neighboring months are **dimmed** — sunken cell background, muted date number — so the month's own shape stays legible.
-- Saturday and Sunday columns are muted relative to the working week.
+- Saturday and Sunday date numbers are muted relative to the working week — a lighter weight in the secondary text color, still above the 4.5:1 contrast minimum. Milestones and chips on a weekend are drawn at full strength.
 - **Today** gets a tinted cell and its date number in a filled circle.
 
 ### The four-lane cap
