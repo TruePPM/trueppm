@@ -408,6 +408,32 @@ class TestImportTaskDeadLettering:
         odd = _describe_bad_graph(InfeasibleGraphError("cyclic_dependency", ["a", "b", "a"]))
         assert "task a -> task b -> task a" in odd
 
+    @pytest.mark.parametrize(
+        "fixture_name", ["EXTREME_DOTTED_WBS_CSV", "LONG_LABEL_DOTTED_WBS_CSV"]
+    )
+    def test_dotted_wbs_code_past_ltree_limits_is_rejected_and_persists(
+        self, project: Project, fixture_name: str
+    ) -> None:
+        """A dotted WBS code reaches ltree verbatim via _build_wbs_paths, so an
+        over-deep or over-wide code must be dropped with a warning and the
+        import must still persist through real Postgres."""
+        from trueppm_api.apps.csvimport.parser import MAX_OUTLINE_DEPTH
+
+        from . import fixtures
+
+        parsed = parse_spreadsheet(getattr(fixtures, fixture_name), "plan.csv")
+        matching = [e for e in parsed.row_errors if e.code == "excessive_indent_depth"]
+        assert len(matching) == 1
+        assert matching[0].severity == "warning"
+        for t in parsed.project_data.tasks:
+            assert t.outline_number.count(".") <= MAX_OUTLINE_DEPTH
+            assert all(len(p) <= 18 for p in t.outline_number.split("."))
+
+        import_project(str(project.pk), parsed.project_data)
+        assert Task.objects.filter(project=project).count() == 3
+        child = Task.objects.get(project=project, name="Child")
+        assert str(child.wbs_path) == "1.1"
+
     def test_extreme_wbs_depth_clamps_and_completes_the_import(self, project: Project) -> None:
         """Same failure mode as the indentation case, via the bare-digit WBS
         column, exercised end-to-end through the async task (#2761).
@@ -756,6 +782,19 @@ class TestPreviewEndpoint:
         # Nothing was written -- neither tasks nor an outbox row.
         assert Task.objects.filter(project=project).count() == 0
         assert not CsvImportRequest.objects.filter(project=project).exists()
+
+    def test_preview_of_a_cell_over_the_csv_field_limit_is_a_400(self, project: Project) -> None:
+        import csv
+
+        oversized = b"Name,Notes\nTask," + b"x" * (csv.field_size_limit() + 1) + b"\n"
+        client = self._client(project, Role.SCHEDULER, "p_big")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/preview/",
+            {"file": SimpleUploadedFile("big.csv", oversized, content_type="text/csv")},
+            format="multipart",
+        )
+        assert r.status_code == 400
+        assert "may not exceed 131,072" in r.data["detail"]
 
     def test_preview_returns_at_most_ten_sample_rows(self, project: Project) -> None:
         body = b"Name,Duration\n" + b"".join(f"Task {i},1\n".encode() for i in range(40))

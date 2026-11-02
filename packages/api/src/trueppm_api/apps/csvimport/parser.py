@@ -82,6 +82,13 @@ LABEL_NAME_MAX_LENGTH = 50
 #: contract in this module.
 MAX_OUTLINE_DEPTH = 100
 
+#: Longest digit run accepted in one segment of a dotted WBS code. The path is
+#: handed to an ltree column verbatim, and ltree caps a label's length; no real
+#: outline number comes near this. A longer run is treated like an over-deep
+#: code rather than truncated, because truncating would make distinct rows
+#: collide on one path.
+MAX_OUTLINE_LABEL_DIGITS = 18
+
 #: Name of the summary task unresolvable rows are parked under (#2732). A fixed
 #: string rather than one carrying the filename: the branch is meant to be
 #: *emptied*, so the operator, the wizard copy, and the docs all have to be able
@@ -434,7 +441,17 @@ def _read_csv_rows(content: bytes) -> tuple[list[list[str]], list[str]]:
     if delimiter != ",":
         warnings.append(f"Detected '{delimiter}' as the column separator.")
 
-    rows = [list(row) for row in csv.reader(io.StringIO(text), delimiter=delimiter)]
+    # csv.reader is lazy, so a cell past the stdlib field limit raises only while
+    # the rows are consumed. It must surface as a CsvImportError (a 400), not as
+    # the bare csv.Error the preview view does not catch.
+    try:
+        rows = [list(row) for row in csv.reader(io.StringIO(text), delimiter=delimiter)]
+    except csv.Error as exc:
+        raise CsvImportError(
+            f"The file could not be read as delimited text ({exc}). "
+            f"A single cell may not exceed {csv.field_size_limit():,} characters; "
+            "shorten any oversized cell or split its contents across columns."
+        ) from exc
     return rows, warnings
 
 
@@ -1410,6 +1427,25 @@ def _apply_wbs(
     perfectly ordinary *code* in a column whose other rows are dotted.
     """
     if is_code and all(p.strip().isdigit() for p in wbs_raw.split(".")):
+        segments = wbs_raw.split(".")
+        if len(segments) - 1 > MAX_OUTLINE_DEPTH or any(
+            len(p.strip()) > MAX_OUTLINE_LABEL_DIGITS for p in segments
+        ):
+            # The code is passed to ltree unchanged by _build_wbs_paths, so it cannot
+            # be kept. Truncating it would make distinct rows share a wbs_path, so the
+            # code is rejected instead: the row keeps the positional outline number
+            # _build_task assigned and lands flat, with a warning.
+            result.row_errors.append(
+                RowError(
+                    row_number,
+                    column,
+                    "excessive_indent_depth",
+                    f"WBS code exceeds the maximum of {MAX_OUTLINE_DEPTH} levels "
+                    f"or {MAX_OUTLINE_LABEL_DIGITS} digits per level; "
+                    "the code was ignored and the task placed at the top level.",
+                )
+            )
+            return
         # An outline code carries the hierarchy directly; the importer's
         # _build_wbs_paths prefers this over the level sequence. A bare integer here is
         # a top-level code (a phase's own number), not a depth.

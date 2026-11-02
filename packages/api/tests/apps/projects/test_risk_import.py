@@ -408,6 +408,19 @@ class TestRiskImportEndpoint:
         assert r.data["imported"] == 0
         broadcast.assert_not_called()
 
+    def test_cell_over_csv_field_limit_returns_400_not_500(
+        self,
+        member_client: APIClient,
+        project: Project,
+        member_membership: ProjectMembership,
+    ) -> None:
+        import csv
+
+        raw = b"Title,Description\nRisk," + b"x" * (csv.field_size_limit() + 1) + b"\n"
+        r = member_client.post(_url(project), {"file": _upload(raw)}, format="multipart")
+        assert r.status_code == 400
+        assert "may not exceed 131,072" in r.data["detail"]
+
     def test_missing_file_returns_400(
         self,
         member_client: APIClient,

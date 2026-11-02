@@ -1,7 +1,7 @@
 ---
 title: CSV / Excel import & export
 description: What TruePPM's CSV and Excel surfaces can and cannot do — the round-trip table, the file format, the import wizard, the column-alias reference, the limits, and why a CSV is not a backup.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 TruePPM reads and writes CSV and Excel files so data can move between a
@@ -200,6 +200,16 @@ WBS   Name
 2     Build
 2.1   Data model
 ```
+
+:::note[Ships in 0.5]
+The WBS-code limits below ship in 0.5. In the current release an extremely deep or
+wide code is not checked and can fail the whole import with a database error.
+:::
+
+A dotted code may be at most 100 levels deep, with at most 18 digits in any one
+level. A code past either limit is **ignored with a warning**
+(`excessive_indent_depth`), and that task is placed at the top level instead of
+failing the import. Indentation and bare-number depths are clamped to 100 levels.
 
 **Indentation in the name column.** Two spaces (or one tab, or one leading dot)
 per level — the convention most hand-built sheets use:
@@ -559,12 +569,23 @@ column is mapped to a date field.
 | Task import `.xlsx` uncompressed size | 100 MB | `CSV_IMPORT_MAX_UNCOMPRESSED_MB` |
 | Risk import upload size | 2 MB | — |
 | Risk import data rows | 500 | — |
+| Characters in a single cell (task and risk import) | 131 072 | — |
+| Levels in a dotted WBS code | 100 | — |
+| Digits in one level of a dotted WBS code | 18 | — |
 
 Rows past the task-import cap are **reported back to you** as skipped, not
 silently dropped. A risk import over its cap is **rejected outright** rather
 than partially imported. See
 [CSV / Excel import limits](/administration/configuration/limits/#csv--excel-import-limits)
 for operator configuration.
+
+:::note[Ships in 0.5]
+The per-cell and WBS-code limits in this table ship in 0.5. From then, a cell over
+the limit is **rejected with a 400** that names the limit, rather than failing with a
+server error, and a WBS code over its limits is ignored with a warning and the task
+placed at the top level. Until then, the current release fails the import with a
+server error in both cases.
+:::
 
 ## Excel specifics
 
