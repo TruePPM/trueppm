@@ -102,7 +102,7 @@ def build_huge_header_nameless_csv(header_chars: int = 100_000, rows: int = 5) -
     retained strings if `_raw_values` truncates only the value side.
 
     Stays under Python's 131,072-char `csv` field limit; a longer cell raises
-    `_csv.Error`, which this parser does not translate (tracked separately).
+    `_csv.Error`, which the parser translates to a `CsvImportError`.
     """
     long_header = "H" * header_chars
     lines = [f"Name,{long_header},{long_header}2"]
@@ -123,6 +123,14 @@ Name,Level
 Shallow,1
 Deep,70000
 """
+
+# Same failure mode via a dotted WBS code, which bypassed the bare-digit clamp.
+# 60000 segments (120,000 chars, under the csv field limit) is far past
+# ltree's label-count limit.
+EXTREME_DOTTED_WBS_CSV = b"WBS,Name\n1,Phase\n1.1,Child\n" + b".".join([b"1"] * 60000) + b",Deep\n"
+
+# A dotted code with a sane segment count but one absurdly long digit run.
+LONG_LABEL_DOTTED_WBS_CSV = b"WBS,Name\n1,Phase\n1.1,Child\n1." + b"9" * 5000 + b",Wide\n"
 
 # A 2-cycle in the predecessor column: 1 depends on 2 and 2 depends on 1. The
 # parser leaves the edge set intact; the graph guard must reject it before any
