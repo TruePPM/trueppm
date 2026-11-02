@@ -141,10 +141,69 @@ def test_actual_finish_before_actual_start_is_refused() -> None:
     doc = _doc()
     task = doc["projects"][0]["tasks"][1]
     task["actual_start"], task["actual_finish"] = _FINISHED, _STARTED
-    assert any("actual_finish: cannot be earlier than actual_start" in e for e in _errors(doc))
+    assert any("cannot be earlier than actual start" in e for e in _errors(doc))
 
 
 def test_unknown_task_key_is_still_rejected() -> None:
     doc = copy.deepcopy(_doc())
     doc["projects"][0]["tasks"][2]["actual_middle"] = _STARTED
     assert _errors(doc)
+
+
+@pytest.mark.parametrize("status", ["IN_PROGRESS", "NOT_STARTED", "BACKLOG", "ON_HOLD"])
+def test_actual_finish_on_a_non_signoff_status_is_refused(status: str) -> None:
+    doc = _doc()
+    task = doc["projects"][0]["tasks"][2]
+    task.update(status=status, actual_finish=_FINISHED)
+    assert any("tasks[2].actual_finish" in e and "review or complete" in e for e in _errors(doc))
+
+
+@pytest.mark.parametrize("status", ["REVIEW", "COMPLETE"])
+def test_actual_finish_on_a_signoff_status_is_accepted(status: str) -> None:
+    doc = _doc()
+    doc["projects"][0]["tasks"][2].update(status=status, actual_finish=_FINISHED)
+    validate_seed(doc)
+
+
+@pytest.mark.parametrize("version", ["1.0", "2.0"])
+@pytest.mark.parametrize(
+    ("value", "needle"),
+    [
+        ("9999-01-01", "in the future"),  # far future: the bound fires before the span cap
+        ("0001-01-01", "more than"),  # far past: the cap is absolute, not one-sided
+        ("2999-01-01", "in the future"),  # inside the span cap, past the data date
+    ],
+)
+def test_out_of_range_actual_start_is_refused(version: str, value: str, needle: str) -> None:
+    doc = _doc(version)
+    doc["projects"][0]["tasks"][2]["actual_start"] = value
+    assert any("tasks[2].actual_start" in e and needle in e for e in _errors(doc))
+
+
+def test_v2_relative_offset_beyond_the_future_bound_is_refused() -> None:
+    # A seedDate offset is capped at four digits (~27 years), which can never reach
+    # the 366000-day span cap, so the reachable v2 failure is the future bound.
+    doc = _doc("2.0")
+    doc["projects"][0]["tasks"][2]["actual_start"] = "A+9999!"
+    assert any("tasks[2].actual_start" in e and "in the future" in e for e in _errors(doc))
+
+
+@pytest.mark.django_db
+def test_reopened_task_keeping_its_finish_still_round_trips() -> None:
+    """A legacy row (reopened before ADR-1153 cleared the stamp) must stay exportable."""
+    owner = User.objects.create_user("act-owner")
+    program = import_seed(_doc(), owner=owner, create_users=True)
+    done = _tasks(program)["2"]
+    Task.objects.filter(pk=done.pk).update(status="IN_PROGRESS")  # finish left behind
+    assert Task.objects.get(pk=done.pk).actual_finish == date(2026, 1, 18)
+
+    first_doc = export_program(program)
+    by_wbs = {t["wbs_path"]: t for t in first_doc["projects"][0]["tasks"]}
+    assert by_wbs["2"]["status"] == "IN_PROGRESS"
+    assert "actual_finish" not in by_wbs["2"]
+    assert by_wbs["2"]["actual_start"] == _STARTED
+    validate_seed(first_doc)  # the project's own export is importable
+
+    first = dump_seed(first_doc)
+    again = import_seed(json.loads(first), owner=owner, create_users=True, replace=True)
+    assert dump_seed(export_program(again)) == first

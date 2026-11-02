@@ -285,8 +285,12 @@ them back without snapping to a working day. They matter because the actuals are
 the floor the scheduler honors for in-flight work
 ([ADR-0132](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0132-data-date-aware-progress-forecasting.md)),
 so dropping them silently reschedules a re-imported project from its planned
-dates. Validation refuses a malformed date or an `actual_finish` earlier than
-`actual_start`; under v2 replay an authored `actual_finish` outranks the one a
+dates. Validation applies the shared ADR-1153 actual-date rules and refuses a
+malformed date, an `actual_finish` earlier than `actual_start`, an
+`actual_finish` on a task that is not in `REVIEW` or `COMPLETE`, and a date in
+the future or more than 366,000 days from the project start. The exporter omits
+an `actual_finish` left on a reopened task, so a project's own export always
+re-imports. Under v2 replay an authored `actual_finish` outranks the one a
 `task.status` to `COMPLETE` beat would stamp.
 
 **Anchor-relative dates + an events timeline (v2).** A v1 seed pins absolute
