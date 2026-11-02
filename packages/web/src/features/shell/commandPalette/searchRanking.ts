@@ -6,6 +6,7 @@
  */
 import { groupedVisibleViews } from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
+import { iterationLabelForms } from '@/lib/iterationLabel';
 import { projectPath } from '@/lib/refPath';
 import type { Methodology } from '@/types';
 import type { CommandItem } from './commandItems';
@@ -54,13 +55,15 @@ interface ViewSearchProject {
   name: string;
   code?: string;
   methodology?: Methodology;
+  /** Server-resolved iteration term; names the `sprints` view (ADR-0203 §12). */
+  effectiveIterationLabel?: string | null;
 }
 
 /**
- * Views whose availability depends on a per-project role gate the list payload
+ * Views behind a per-project role gate (Team: Scheduler+, Settings: admin) the list payload
  * does not carry; offering them would risk a dead link, so they are left out.
  */
-const ROLE_GATED_VIEWS = new Set(['resources']);
+const ROLE_GATED_VIEWS = new Set(['resources', 'settings']);
 
 /**
  * When a query matches nothing, list the views other projects DO have, e.g.
@@ -85,7 +88,12 @@ export function buildCrossProjectViewItems(
       (g) => g.visibleViews,
     );
     for (const view of views) {
-      const label = VIEW_TAB_META[view]?.label;
+      // `sprints` is named by the project's configured iteration term, as on the
+      // rail and in the direct-match path (ADR-0203 §12).
+      const label =
+        view === 'sprints'
+          ? iterationLabelForms(project.effectiveIterationLabel).plural
+          : VIEW_TAB_META[view]?.label;
       if (!label || ROLE_GATED_VIEWS.has(view)) continue;
       const name = label.toLowerCase();
       if (!name.includes(q)) continue;

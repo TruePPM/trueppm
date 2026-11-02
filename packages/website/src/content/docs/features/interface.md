@@ -121,7 +121,10 @@ above everything else, ordered project, then program, then view, so Enter opens 
 project rather than a task that merely starts with the same words. When a query matches
 nothing, a **Views in other projects** group lists the matching views your projects have
 (for example "Sprints — Platform Core"), limited to views each project's methodology
-shows. Today the palette shows only "No matches" and groups tasks above projects.
+shows, and it uses each project's own name for sprints (for example "Iterations"). The list is
+built from what each project's methodology shows, so it cannot know your role or a view a
+project has turned off: views that need a higher role (Team, Settings) are left out, and a
+view a project has turned off may still be listed. Today the palette shows only "No matches" and groups tasks above projects.
 :::
 
 Type to filter; arrow keys move; Enter activates; Escape closes. The palette is a

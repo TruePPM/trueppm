@@ -88,6 +88,18 @@ describe('buildCrossProjectViewItems', () => {
     expect(sched.map((i) => i.label)).toEqual(['Schedule — Platform Core']);
   });
 
+  it('names the sprints view with the project iteration term', () => {
+    const renamed = [{ ...projects[1], effectiveIterationLabel: 'Iteration' }];
+    expect(buildCrossProjectViewItems(renamed, 'Iterations', go).map((i) => i.label)).toEqual([
+      'Iterations — Platform Core',
+    ]);
+    expect(buildCrossProjectViewItems(renamed, 'Sprints', go)).toEqual([]);
+  });
+
+  it('omits the role-gated Settings view', () => {
+    expect(buildCrossProjectViewItems(projects, 'Settings', go)).toEqual([]);
+  });
+
   it('omits the role-gated Team view and returns nothing for an empty query or no projects', () => {
     expect(buildCrossProjectViewItems(projects, 'Team', go)).toEqual([]);
     expect(buildCrossProjectViewItems(projects, '', go)).toEqual([]);
