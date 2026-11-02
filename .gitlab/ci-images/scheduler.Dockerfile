@@ -27,7 +27,7 @@
 # release builds unchanged.
 ARG DOCKERHUB_PREFIX=docker.io
 
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377
+FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:673719e071ecf27434fd2635bbd8d00f49f4fdd81f243143438a42ced8bedf60
 
 # git is needed by diff-cover and by some scheduler:* tooling.
 RUN apt-get update -qq \
