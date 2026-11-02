@@ -15,6 +15,7 @@ Covers:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from typing import Any
 from unittest import mock
@@ -480,6 +481,25 @@ def test_split_endpoint_ok_for_owner(owner_client: APIClient, project: Project) 
     resp = owner_client.post(f"/api/v1/tasks/{parent.pk}/split/", {}, format="json")
     assert resp.status_code == 201
     assert resp.data["id"] != str(parent.pk)
+
+
+def test_split_response_matches_task_detail_read(owner_client: APIClient, project: Project) -> None:
+    """The split response is serialized through the annotated queryset (#1546), so it
+    agrees field-for-field with a follow-up GET of the new child."""
+    epic = _story(project, name="EP", type=TaskType.EPIC)
+    parent = _story(project, name="big story", parent_epic=epic, story_points=8)
+    _criterion(parent, met=False, pos=0, text="remaining bit")
+    resp = owner_client.post(f"/api/v1/tasks/{parent.pk}/split/", {}, format="json")
+    assert resp.status_code == 201
+    detail = owner_client.get(f"/api/v1/tasks/{resp.data['id']}/")
+    assert detail.status_code == 200
+    volatile = {"server_version", "updated_at"}
+    mismatched = {
+        k: (resp.data[k], detail.data.get(k))
+        for k in resp.data
+        if k not in volatile and resp.data[k] != detail.data.get(k)
+    }
+    assert mismatched == {}
 
 
 # --------------------------------------------------------------------------- #
@@ -1393,3 +1413,20 @@ def test_product_backlog_blockers_and_met_by_no_n_plus_one(
         f"{large_queries} queries vs {small_queries} for the small one — "
         "the FK relations must be select_related, not lazy-loaded per row"
     )
+
+
+def test_split_query_count_is_bounded(
+    owner_client: APIClient,
+    project: Project,
+    django_assert_max_num_queries: Callable[..., Any],
+) -> None:
+    """Tripwire (#1546): the split response fires no stray per-field queries.
+
+    Measured 28 after the fix; the bare-child serialize measured 29. No headroom, so a
+    new per-field query on the response fails here and forces a conscious bump."""
+    epic = _story(project, name="EP", type=TaskType.EPIC)
+    parent = _story(project, name="big story", parent_epic=epic, story_points=8)
+    _criterion(parent, met=False, pos=0, text="remaining bit")
+    with django_assert_max_num_queries(28):
+        resp = owner_client.post(f"/api/v1/tasks/{parent.pk}/split/", {}, format="json")
+    assert resp.status_code == 201

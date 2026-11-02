@@ -47,6 +47,7 @@ from trueppm_api.apps.projects.models import (
     BacklogItemStatus,
     Program,
     Project,
+    Task,
 )
 from trueppm_api.apps.projects.serializers import BacklogItemSerializer, TaskSerializer
 from trueppm_api.core.request_body import object_body
@@ -293,9 +294,19 @@ class BacklogItemViewSet(
         item = BacklogItem.objects.select_related(
             "pulled_task__project", "created_by", "pulled_by"
         ).get(pk=pk)
+        # Serialize the task through the shared annotated queryset with the request
+        # in context (#1546): a bare ``TaskSerializer(task)`` skips every annotation
+        # the blocker/AC fields read (stray per-field queries) and, with no request,
+        # fails ``can_edit``/``can_delete``/``can_log_time`` closed to False — the
+        # client would render the just-pulled task read-only until the next refetch.
+        from trueppm_api.apps.projects.views import annotate_tasks_queryset
+
+        annotated_task = annotate_tasks_queryset(
+            Task.objects.filter(pk=task.pk), request, str(project.pk)
+        ).get()
         return Response(
             {
-                "task": TaskSerializer(task).data,
+                "task": TaskSerializer(annotated_task, context={"request": request}).data,
                 "backlog_item": BacklogItemSerializer(item).data,
             },
             status=status.HTTP_201_CREATED,
