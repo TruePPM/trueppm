@@ -5476,7 +5476,7 @@ def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task
     edge, so float rounding in ``elapsed / new_duration * 100`` can never truncate
     one day short. With at least one remaining day that value is strictly below
     100, so the task stays in progress. The original percentage is kept whenever it
-    already yields the same elapsed count, so a zero delta changes nothing.
+    already yields the same elapsed count.
 
     A task with no remaining work to begin with (a zero-duration milestone carrying a
     percentage) is returned as it is unless the delta gives it some. Reaching zero
@@ -5578,13 +5578,15 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     shifts the sampled remaining work by ``delta_days``.
 
     Completion is only ever a consequence of pulling in work that was still there. A
-    pull-in that consumes the last remaining day of a task completes it, because the
-    engine cannot express an in-progress task with nothing left. A milestone has no
-    days to consume, so no delta can complete it, whatever its ``actual_start`` or
-    ``percent_complete`` say: a zero or negative delta leaves its duration, percentage
-    and actuals as they were, matching an unstarted milestone. A positive delta turns
-    it into a task of ``delta_days`` days, still open, so the finish moves as it would
-    for that unstarted milestone. A zero delta is an exact identity on every task.
+    pull-in that consumes the last remaining day of a task carrying a
+    ``percent_complete`` completes it, because the engine cannot express an in-progress
+    task with nothing left. Without a percentage the task keeps no record of work done,
+    so it floors at zero duration and stays open. A milestone has no days to consume,
+    so no delta can complete it, whatever its ``actual_start`` or ``percent_complete``
+    say: a zero or negative delta leaves its duration, percentage and actuals as they
+    were, matching an unstarted milestone. A positive delta turns it into a task of
+    ``delta_days`` days, still open, so the finish moves as it would for that unstarted
+    milestone. A zero delta is an exact identity on every task.
 
     Sampling semantics are untouched: this only changes what the engine is asked
     about, never how it answers.
@@ -5603,8 +5605,8 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
 
     Returns:
         A new :class:`Project`, identical to ``project`` except for the target
-        task's shifted duration inputs. On an in-progress task that includes a
-        rescaled ``percent_complete``; on a pull-in that consumes all remaining
+        task's shifted duration inputs. On a task carrying a ``percent_complete``
+        that includes a rescaled percentage; on a pull-in that consumes all remaining
         work it also sets ``actual_finish`` and may move ``actual_start`` earlier
         (see :func:`_shift_remaining_work`). A task with no remaining work to
         consume, such as a started milestone, is never completed by a shift.
@@ -5643,6 +5645,11 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
             f"Task {task_id!r} is complete; its dates are actuals and a duration "
             "change cannot move the forecast."
         )
+    if delta_days == 0:
+        # After the refusals, so an invalid request fails the same way at any delta.
+        # The shift path rebuilds a duration from whole days and floors each estimate,
+        # so returning here is what makes "nothing changed" true of any input.
+        return replace(project, tasks=list(project.tasks))
 
     story_points = target.story_points
     # Gate the points conversion on the same predicate the sampler uses, so a task

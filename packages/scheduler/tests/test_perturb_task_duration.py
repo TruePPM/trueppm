@@ -613,7 +613,7 @@ def test_a_slip_on_a_started_milestone_reads_like_one_on_an_unstarted_milestone(
     """A slip creates work and leaves the task open: nothing is completed, its recorded
     start survives, none of the created days count as already done (a held percentage
     would floor some of them into elapsed work), and starting the milestone has no
-    effect on where the finish lands."""
+    effect on how far the finish moves."""
     baseline = _milestone_chain(status_date=status_date, **fields)
     perturbed = perturb_task_duration(baseline, "M", delta)
     target = _milestone_of(perturbed)
@@ -624,8 +624,13 @@ def test_a_slip_on_a_started_milestone_reads_like_one_on_an_unstarted_milestone(
     assert (target.percent_complete or 0.0) < 100.0
     assert _elapsed_days(target) == 0
 
-    unstarted = perturb_task_duration(_milestone_chain(status_date=status_date), "M", delta)
-    assert schedule(perturbed).project_finish == schedule(unstarted).project_finish
+    unstarted = _milestone_chain(status_date=status_date)
+    assert _working_day_shift(
+        schedule(baseline).project_finish, schedule(perturbed).project_finish
+    ) == _working_day_shift(
+        schedule(unstarted).project_finish,
+        schedule(perturb_task_duration(unstarted, "M", delta)).project_finish,
+    )
 
 
 @pytest.mark.parametrize("fields", _MILESTONE_STATES)
@@ -713,3 +718,67 @@ def test_a_pull_in_of_real_remaining_work_still_completes_the_task() -> None:
     assert target.duration == timedelta(days=2)
     assert target.percent_complete == 100.0
     assert target.actual_finish is not None
+
+
+def test_a_zero_delta_keeps_a_fractional_duration() -> None:
+    """``schedule`` refuses a sub-day duration, so this input cannot go through the
+    identity sweep above. The shift path rebuilds a duration from ``.days``, which would
+    turn 2d4h into a valid 2d and hide the bad input from the later refusal."""
+    fractional = timedelta(days=2, hours=4)
+    baseline = _milestone_chain(actual_start=_STARTED, percent_complete=50.0)
+    baseline = replace(
+        baseline,
+        tasks=[replace(t, duration=fractional) if t.id == "M" else t for t in baseline.tasks],
+    )
+    perturbed = perturb_task_duration(baseline, "M", 0)
+
+    assert perturbed.tasks == baseline.tasks
+    assert _milestone_of(perturbed).duration == fractional
+
+
+def test_a_zero_delta_still_returns_a_new_project_and_task_list() -> None:
+    baseline = _milestone_chain(actual_start=_STARTED, percent_complete=50.0)
+    perturbed = perturb_task_duration(baseline, "M", 0)
+
+    assert perturbed is not baseline
+    assert perturbed.tasks is not baseline.tasks
+    perturbed.tasks.clear()
+    assert len(baseline.tasks) == 3
+
+
+@pytest.mark.parametrize(
+    ("project", "task_id", "delta"),
+    [
+        pytest.param("not a project", "M", 0, id="project-not-a-project"),
+        pytest.param(_milestone_chain(), "nope", 0, id="unknown-task"),
+        pytest.param(_milestone_chain(), "M", False, id="delta-false"),
+        pytest.param(_milestone_chain(percent_complete=100.0), "M", 0, id="complete-percent"),
+        pytest.param(
+            _milestone_chain(actual_finish=date(2027, 3, 5)), "M", 0, id="complete-actual-finish"
+        ),
+    ],
+)
+def test_a_zero_delta_is_refused_wherever_any_other_delta_is(
+    project: object, task_id: str, delta: int
+) -> None:
+    """The zero-delta return sits after the refusals. Before them it would hand back an
+    unperturbed project for an unknown id or a completed task, which reads as a
+    zero-impact what-if."""
+    with pytest.raises(InvalidScheduleInput):
+        perturb_task_duration(project, task_id, delta)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("fields", [{}, {"actual_start": _STARTED}], ids=["unstarted", "started"])
+@pytest.mark.parametrize("delta", [-5, -9])
+def test_an_exhausting_pull_in_without_a_percentage_leaves_the_task_open(
+    delta: int, fields: dict[str, object]
+) -> None:
+    """Only a task carrying a percentage is completed by consuming its last day. Without
+    one the duration floors at zero and no actual is invented."""
+    baseline = _milestone_chain(5, **fields)
+    target = _milestone_of(perturb_task_duration(baseline, "M", delta))
+
+    assert target.duration == timedelta(0)
+    assert not target.percent_complete
+    assert target.actual_finish is None
+    assert target.actual_start == fields.get("actual_start")

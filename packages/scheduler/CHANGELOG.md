@@ -16,7 +16,15 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- `perturb_task_duration` no longer completes a started milestone. A zero or
+  negative delta on a zero-duration task carrying a `percent_complete` used to
+  set `actual_finish`, move the finish earlier, and drop the task and its
+  predecessors off the critical path. Its duration, percentage and actuals now
+  stay as they were; on a negative delta its three-point estimate and story
+  points still shift. A zero delta now returns every task unchanged
+  ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)).
 
 ## [0.4.0] - 2026-10-31
 
