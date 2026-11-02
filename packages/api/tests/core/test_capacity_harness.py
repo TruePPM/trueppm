@@ -245,3 +245,131 @@ def test_control_sample_uses_authenticated_constant_cost_endpoint(
     assert calls == [capacity.CONTROL_PATH] * 3
     assert capacity.CONTROL_PATH != "/api/v1/health/"
     assert "auth" in capacity.CONTROL_PATH
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Instrument-fault abort
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _samples(capacity: ModuleType, statuses: list[int]) -> list[Any]:
+    return [capacity.Sample(ms=5.0, status=s, ok=s < 400) for s in statuses]
+
+
+def test_all_auth_failures_abort_as_instrument_fault(capacity: ModuleType) -> None:
+    samples = _samples(capacity, [200] * 3 + [401] * 27)
+    with pytest.raises(capacity.InstrumentFault, match="auth rejection"):
+        capacity.assert_no_auth_fault("16000 tasks", samples, source="measured")
+
+
+def test_mixed_401_and_403_still_abort(capacity: ModuleType) -> None:
+    samples = _samples(capacity, [401, 403, 200])
+    with pytest.raises(capacity.InstrumentFault):
+        capacity.assert_no_auth_fault("step", samples, source="measured")
+
+
+def test_server_errors_are_a_capacity_result_not_a_fault(capacity: ModuleType) -> None:
+    capacity.assert_no_auth_fault("step", _samples(capacity, [200, 500, 500]), source="measured")
+    # A timeout is status 0 and is also the API's problem.
+    capacity.assert_no_auth_fault("step", _samples(capacity, [0, 0, 200]), source="measured")
+
+
+def test_a_401_mixed_with_a_5xx_is_not_all_auth(capacity: ModuleType) -> None:
+    capacity.assert_no_auth_fault("step", _samples(capacity, [401, 500, 200]), source="measured")
+
+
+def test_clean_samples_and_empty_samples_do_not_abort(capacity: ModuleType) -> None:
+    capacity.assert_no_auth_fault("step", _samples(capacity, [200] * 5), source="measured")
+    capacity.assert_no_auth_fault("step", [], source="measured")
+
+
+def test_measure_step_raises_before_recording_a_ceiling(
+    capacity: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An all-401 step must raise out of `measure_step`, so no caller can set a ceiling."""
+
+    class _Client:
+        def ensure_fresh_token(self) -> None:
+            return None
+
+        def timed(self, path: str) -> Any:
+            return capacity.Sample(ms=4.8, status=200, ok=True)
+
+    monkeypatch.setattr(capacity.time, "sleep", lambda _s: None)
+    with pytest.raises(capacity.InstrumentFault):
+        capacity.measure_step(
+            _Client(),
+            step=16000,
+            label="16000 tasks",
+            take=lambda: _samples(capacity, [401] * 30),
+        )
+
+
+def test_measure_step_raises_when_the_control_is_rejected(
+    capacity: ModuleType,
+) -> None:
+    class _Client:
+        def ensure_fresh_token(self) -> None:
+            return None
+
+        def timed(self, path: str) -> Any:
+            return capacity.Sample(ms=4.8, status=401, ok=False)
+
+    with pytest.raises(capacity.InstrumentFault, match="control"):
+        capacity.measure_step(
+            _Client(), step=500, label="500 tasks", take=lambda: _samples(capacity, [200] * 5)
+        )
+
+
+def test_measure_step_keeps_status_histogram_and_p50(
+    capacity: ModuleType,
+) -> None:
+    class _Client:
+        def ensure_fresh_token(self) -> None:
+            return None
+
+        def timed(self, path: str) -> Any:
+            return capacity.Sample(ms=1.0, status=200, ok=True)
+
+    result = capacity.measure_step(
+        _Client(),
+        step=500,
+        label="500 tasks",
+        take=lambda: _samples(capacity, [200] * 9 + [500]),
+    )
+    assert result.status_histogram == {"200": 9, "500": 1}
+    assert result.p50_ms == 5.0
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Host metadata and ANALYZE
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_parse_meminfo_reads_mem_and_swap(capacity: ModuleType) -> None:
+    text = "MemTotal:        8146132 kB\nMemFree:         100 kB\nSwapTotal:       1048576 kB\n"
+    assert capacity.parse_meminfo(text) == {"mem_total_mib": 7955, "swap_total_mib": 1024}
+
+
+def test_parse_meminfo_tolerates_garbage(capacity: ModuleType) -> None:
+    assert capacity.parse_meminfo("nonsense\nMemTotal: lots kB\n") == {}
+
+
+def test_host_metadata_degrades_to_none_without_tools(
+    capacity: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(capacity, "_run_text", lambda _cmd: None)
+    host = capacity.collect_host_metadata()
+    assert host["chip_model"] is None
+    assert host["docker"] == {"cpus": None, "mem_total_mib": None, "swap_total_mib": None}
+    assert host["cpu_count"]
+
+
+def test_seed_runs_analyze_after_seeding(
+    capacity: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(capacity.subprocess, "run", lambda cmd, **_kw: commands.append(cmd))
+    capacity.seed(projects=1, tasks=10)
+    assert "seed_capacity" in commands[0]
+    assert commands[1][-2:] == ["-c", "ANALYZE"]

@@ -36,7 +36,7 @@ tree, and seeding is not a measured path.
 ## Running it
 
 ```bash
-# 0. Mint the two throwaway secrets this stack needs. Both are supplied from
+# 0. Mint the three throwaway secrets this stack needs. All are supplied from
 #    the environment rather than committed: a literal key or password in a
 #    tracked file is a secret-scanner finding however disposable it is. Same
 #    `${VAR:?}` pattern the prod compose uses.
@@ -51,6 +51,13 @@ export CAPACITY_INTEGRATION_KEY=$(python3 -c \
 #       same shell you run both from; the value is thrown away with the stack.
 export TRUEPPM_CAPACITY_PASSWORD=$(python3 -c \
   'import secrets; print(secrets.token_urlsafe(16))')
+
+#    c. Datastore password, shared by Postgres and the API's DATABASE_URL. It
+#       must be at least 12 characters: `settings.prod` (which this stack runs)
+#       refuses to boot on a shorter service password. A URL-safe alphabet is
+#       required because it is interpolated into the connection URL.
+export CAPACITY_DB_PASSWORD=$(python3 -c \
+  'import secrets; print(secrets.token_urlsafe(18))')
 
 # 1. Bring the isolated stack up (from repo root)
 docker compose -f packages/api/perf/capacity/docker-compose.capacity.yml up -d
@@ -113,6 +120,30 @@ now carry a `status_histogram` (e.g. `{"401": 29, "200": 1}`) alongside
 `error_rate`, so a wall of `401`s is distinguishable from a wall of `500`s or
 timeouts without re-running the sweep.
 
+**An all-401/403 step is an instrument fault, not a ceiling.** Refreshing the
+token makes the failure unlikely; it does not make it impossible (a revoked
+account, a rotated secret, a throttled login). `measure_step` therefore raises
+`InstrumentFault` when every failed request in a step, or in its control samples,
+was a 401 or 403. The sweep exits with status 2, prints the status histogram to
+stderr, and writes **no** result file. An overloaded API returns 5xx, timeouts or
+slow `200`s; it does not selectively reject credentials, so a step that fails
+only on auth measured the harness, and recording it would publish a plausible
+wrong number.
+
+**Every seed is followed by `ANALYZE`.** `seed_capacity` bulk-loads and `--reset`
+rewrites the tables, so until autovacuum runs the planner works from stale or
+absent statistics. Without the explicit `ANALYZE` a step measures whichever plan
+those statistics produce, and autovacuum landing mid-step moves the answer
+part-way through a sweep.
+
+**Warm-up and sample counts.** Both `tasks` and `full_load` discard
+`WARMUP_REQUESTS` (5) requests before the first measured sample. `full_load`
+takes `FULL_LOAD_SAMPLES` (15) samples per step, up from 7. The percentile index
+is `int(n * 0.95)`, so p95 is the slowest sample at n=7 and the second-slowest at
+n=15: still a coarse statistic, which is why every step also records and prints
+`p50_ms`. Read p50 for the typical cost and p95 as a tail indicator, not as a
+tight bound.
+
 **Known limitation of the control.** Neither the old nor the new probe touches
 project- or task-scoped tables, so it detects host **CPU** starvation and auth
 failures but not **database** contention on the tables under test. A step can pass
@@ -150,8 +181,10 @@ as untested until it can be run on a quiet, dedicated host.
 ## What a result file contains
 
 `results/capacity-<dimension>.json` carries the gates, the host description
-(platform, CPU count, load average), the **git SHA the measured image was built
-from**, and every step with `p95_ms`, `error_rate`, `status_histogram`,
+(platform, CPU count, chip model, performance/efficiency core split, load
+average, and the Docker VM's CPU, memory and swap allocation, each `null` when
+it could not be read), the **git SHA the measured image was built
+from**, and every step with `p50_ms`, `p95_ms`, `error_rate`, `status_histogram`,
 `control_p95_ms`, `load_avg`, `attempts` and `contaminated`. A number without its
 SHA and host is not repeatable, so both are recorded rather than assumed.
 `status_histogram` (e.g. `{"200": 29, "401": 1}`) is the per-status-code breakdown

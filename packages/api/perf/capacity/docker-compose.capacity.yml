@@ -23,7 +23,7 @@ services:
     environment:
       POSTGRES_DB: trueppm
       POSTGRES_USER: trueppm
-      POSTGRES_PASSWORD: capacity
+      POSTGRES_PASSWORD: ${CAPACITY_DB_PASSWORD:?mint one of 12+ characters — see README step 0}
     # Defaults tuned off the 8 GiB Docker VM this envelope was measured on, so
     # the database is not the accidental bottleneck. Recorded in the results
     # metadata — a different host needs these re-stated, not silently inherited.
@@ -58,7 +58,14 @@ services:
       sh -c "python manage.py migrate --noinput &&
              python manage.py create_admin"
     environment: &api_env
-      DATABASE_URL: postgres://trueppm:capacity@db:5432/trueppm
+      # Datastore credential. settings.prod refuses to boot on a service password
+      # under 12 characters (validate_service_credentials), so a short literal here
+      # makes `api-init` exit 1 before the first migration. Supplied from the
+      # environment, like the two secrets below, so no credential sits in a tracked
+      # file. Use a URL-safe alphabet — it is interpolated into the URL:
+      #   export CAPACITY_DB_PASSWORD=$(python3 -c \
+      #     'import secrets; print(secrets.token_urlsafe(18))')
+      DATABASE_URL: postgres://trueppm:${CAPACITY_DB_PASSWORD:?mint one of 12+ characters — see the comment above}@db:5432/trueppm
       REDIS_URL: redis://valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       # 50 chars — clears the strong-key boot guard (#566).

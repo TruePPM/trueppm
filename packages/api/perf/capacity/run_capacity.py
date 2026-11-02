@@ -90,6 +90,18 @@ ERROR_RATE_GATE = 0.01
 CONTROL_P95_GATE_MS = 150.0
 MAX_STEP_ATTEMPTS = 3
 
+# Discarded requests before the first measured sample of a step.
+WARMUP_REQUESTS = 5
+
+# `full_load` carries the headline published number, and each sample is a whole
+# serial page walk (seconds at the larger sizes), so the count is a runtime
+# trade. `p95_of` indexes `int(n * 0.95)`: at n=7 that is the slowest sample,
+# and at n=15 it is still only the second-slowest, so p95 stays a coarse
+# statistic here and `p50_ms` is reported beside it. 15 roughly doubles the
+# measured time per step; 21+ would be needed for p95 to stop being a
+# near-maximum, which is not worth tripling the run for.
+FULL_LOAD_SAMPLES = 15
+
 # Refresh margin for the cached bearer token (#3828).
 #
 # `ACCESS_TOKEN_LIFETIME` is 15 minutes
@@ -105,6 +117,19 @@ MAX_STEP_ATTEMPTS = 3
 # control sample of the time (`/api/v1/health/`) is unauthenticated and cannot
 # see a 401.
 TOKEN_REFRESH_AFTER = timedelta(minutes=10)
+
+
+class InstrumentFault(RuntimeError):
+    """The harness, not the API, is what failed — abort, never record a ceiling.
+
+    Raised when every failure in a step is a 401/403. An API that is out of
+    capacity returns 5xx, timeouts or slow 200s; it does not selectively reject
+    credentials. A step like that measured the harness's own login, and recording
+    it as a ceiling publishes a plausible-looking wrong number.
+    """
+
+
+AUTH_REJECTION_STATUSES = frozenset({401, 403})
 
 
 @dataclass
@@ -161,6 +186,22 @@ def p95_of(samples: list[Sample]) -> float:
     return round(times[min(len(times) - 1, int(len(times) * 0.95))], 1)
 
 
+def assert_no_auth_fault(label: str, samples: list[Sample], *, source: str) -> None:
+    """Raise `InstrumentFault` when every failed sample was a 401/403.
+
+    A sample set with no failures, or with any non-auth failure (5xx, timeout =
+    status 0), is left to the normal breach logic: that is the API misbehaving.
+    """
+    failures = [s for s in samples if not s.ok]
+    if failures and all(s.status in AUTH_REJECTION_STATUSES for s in failures):
+        histogram = _status_histogram(samples)
+        raise InstrumentFault(
+            f"{label}: every failed {source} request was an auth rejection "
+            f"(status histogram {histogram}). The harness lost its credentials; "
+            "this is an instrument fault, not a capacity result. Nothing recorded."
+        )
+
+
 def measure_step(
     client: Client,
     *,
@@ -184,10 +225,15 @@ def measure_step(
 
     best: StepResult | None = None
     for attempt in range(1, MAX_STEP_ATTEMPTS + 1):
-        control_before = p95_of(control_sample(client))
+        control_a = control_sample(client)
         samples = take()
-        control_after = p95_of(control_sample(client))
-        control = max(control_before, control_after)
+        control_b = control_sample(client)
+        # Checked before anything is summarized, so a fault can never reach
+        # `result.ceiling`: the control proves the credential, the step proves
+        # the endpoint under test.
+        assert_no_auth_fault(label, control_a + control_b, source="control")
+        assert_no_auth_fault(label, samples, source="measured")
+        control = max(p95_of(control_a), p95_of(control_b))
         load = os.getloadavg()[0]
 
         result = summarize(step, label, samples, notes)
@@ -398,6 +444,26 @@ def seed(*, projects: int, tasks: int, edge_ratio: float = 1.0) -> None:
         "--reset",
     ]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
+    analyze()
+
+
+def analyze() -> None:
+    """Refresh planner statistics after a seed.
+
+    `seed_capacity` bulk-loads and `--reset` rewrites the tables, so until
+    autovacuum catches up the planner works from stale or absent statistics.
+    A step then measures whichever plan that produces, and autovacuum landing
+    mid-step changes the answer part-way through a sweep.
+    """
+    subprocess.run(
+        [
+            "docker", "compose", "-f", str(COMPOSE_FILE),
+            "exec", "-T", "db", "psql", "-U", "trueppm", "-d", "trueppm", "-c", "ANALYZE",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )  # fmt: skip
 
 
 def repeat(fn: Callable[[], Sample], n: int) -> list[Sample]:
@@ -445,7 +511,7 @@ def dimension_tasks(steps: Iterable[int]) -> DimensionResult:
         client = Client()
         pid = client.first_project_id()
         path = f"/api/v1/tasks/?project={pid}&page_size=100"
-        repeat(lambda c=client, u=path: c.timed(u), 5)  # warm caches/connection
+        repeat(lambda c=client, u=path: c.timed(u), WARMUP_REQUESTS)  # warm caches/connection
         step = measure_step(
             client,
             step=size,
@@ -463,7 +529,8 @@ def dimension_tasks(steps: Iterable[int]) -> DimensionResult:
 def report(step: StepResult) -> None:
     flag = " CONTAMINATED" if step.contaminated else ""
     print(
-        f"    p95={step.p95_ms}ms err={step.error_rate} "
+        f"    p50={step.p50_ms}ms p95={step.p95_ms}ms err={step.error_rate} "
+        f"status={step.status_histogram} "
         f"control={step.control_p95_ms}ms load={step.load_avg} "
         f"breached={step.breached}{flag}",
         flush=True,
@@ -490,27 +557,32 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
             start = time.perf_counter()
             page = 1
             ok = True
+            status = 200
             while True:
                 r = requests.get(
                     f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=200&page={page}",
                     headers=client.headers,
                     timeout=180,
                 )
+                status = r.status_code
                 if r.status_code >= 400:
                     ok = False
                     break
                 if not r.json().get("next"):
                     break
                 page += 1
-            return Sample(ms=(time.perf_counter() - start) * 1000, status=200, ok=ok)
+            return Sample(ms=(time.perf_counter() - start) * 1000, status=status, ok=ok)
 
+        # Same warm-up as `dimension_tasks`. Without it the first measured
+        # sample of every step is the cold read straight after a re-seed.
+        repeat(full_load, WARMUP_REQUESTS)
         step = measure_step(
             client,
             step=size,
             label=f"{size} tasks — full load",
             # Bind the loop's closure by default-arg, matching the idiom used by the
             # other steps in this file — `full_load` is rebound each iteration (S1515).
-            take=lambda f=full_load: repeat(f, 7),
+            take=lambda f=full_load: repeat(f, FULL_LOAD_SAMPLES),
         )
         report(step)
         result.steps.append(step)
@@ -631,6 +703,81 @@ DIMENSIONS: dict[str, Callable[[], DimensionResult]] = {
 }
 
 
+def _run_text(cmd: list[str]) -> str | None:
+    """Best-effort command output; `None` when the tool is absent or fails."""
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return None
+    return out.stdout.strip() or None
+
+
+def _int_or_none(value: str | None) -> int | None:
+    return int(value) if value and value.isdigit() else None
+
+
+def parse_meminfo(text: str) -> dict[str, int]:
+    """`/proc/meminfo` text to `{"mem_total_mib": .., "swap_total_mib": ..}`."""
+    names = {"MemTotal": "mem_total_mib", "SwapTotal": "swap_total_mib"}
+    found: dict[str, int] = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(":")
+        parts = rest.split()
+        if key in names and parts and parts[0].isdigit():
+            found[names[key]] = int(parts[0]) // 1024
+    return found
+
+
+def collect_host_metadata() -> dict[str, Any]:
+    """What the numbers were measured on.
+
+    `os.cpu_count()` alone reports the same count for differently-binned chips
+    with another performance/efficiency split, and two machines were published
+    as one. Docker's allocation matters as much as the host's: the database and
+    API run inside the VM. Every field is best-effort (`None` when unavailable,
+    e.g. the chip fields off macOS, or the Docker fields with the stack down) so
+    a missing tool never aborts a sweep.
+    """
+    host: dict[str, Any] = {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "cpu_count": os.cpu_count(),
+        "chip_model": None,
+        "performance_cores": None,
+        "efficiency_cores": None,
+        "load_avg_at_finish": [round(v, 2) for v in os.getloadavg()],
+    }
+    if sys.platform == "darwin":
+        host["chip_model"] = _run_text(["sysctl", "-n", "machdep.cpu.brand_string"])
+        # perflevel0 is the performance cluster, perflevel1 the efficiency one.
+        host["performance_cores"] = _int_or_none(
+            _run_text(["sysctl", "-n", "hw.perflevel0.logicalcpu"])
+        )
+        host["efficiency_cores"] = _int_or_none(
+            _run_text(["sysctl", "-n", "hw.perflevel1.logicalcpu"])
+        )
+
+    docker: dict[str, Any] = {
+        "cpus": _int_or_none(_run_text(["docker", "info", "--format", "{{.NCPU}}"])),
+        "mem_total_mib": None,
+        "swap_total_mib": None,
+    }
+    # Read from inside the VM: `docker info` has no swap figure.
+    meminfo = _run_text(
+        ["docker", "compose", "-f", str(COMPOSE_FILE), "exec", "-T", "db", "cat", "/proc/meminfo"]
+    )
+    if meminfo:
+        docker.update(parse_meminfo(meminfo))
+    host["docker"] = docker
+    host["note"] = (
+        "Shared developer workstation, not an idle host. Every step carries "
+        "its own control measurement and load average; steps flagged "
+        "`contaminated` were measured while the host was busy and must not "
+        "be published as capacity numbers."
+    )
+    return host
+
+
 def _git_sha() -> str:
     """The commit the measured image was built from — a number without one is unrepeatable."""
     try:
@@ -661,7 +808,13 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     for name in names:
         print(f"\n=== {name} ===", flush=True)
-        result = DIMENSIONS[name]()
+        try:
+            result = DIMENSIONS[name]()
+        except InstrumentFault as fault:
+            # No result file: a sweep that hit an instrument fault has no
+            # trustworthy ceiling to record.
+            print(f"\nINSTRUMENT FAULT — aborting, nothing written.\n{fault}", file=sys.stderr)
+            return 2
         results.append(asdict(result))
 
     payload = {
@@ -670,18 +823,7 @@ def main() -> int:
             "error_rate": ERROR_RATE_GATE,
             "control_p95_ms": CONTROL_P95_GATE_MS,
         },
-        "host": {
-            "platform": platform.platform(),
-            "machine": platform.machine(),
-            "cpu_count": os.cpu_count(),
-            "load_avg_at_finish": [round(v, 2) for v in os.getloadavg()],
-            "note": (
-                "Shared developer workstation, not an idle host. Every step carries "
-                "its own control measurement and load average; steps flagged "
-                "`contaminated` were measured while the host was busy and must not "
-                "be published as capacity numbers."
-            ),
-        },
+        "host": collect_host_metadata(),
         "git_sha": _git_sha(),
         "base_url": BASE_URL,
         "dimensions": results,
