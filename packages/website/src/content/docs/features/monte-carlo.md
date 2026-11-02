@@ -445,6 +445,14 @@ The simulation still expresses risk in the direction that matters: any sample
 above `duration` passes through untouched, so P80 and P95 continue to carry the
 full tail of the estimate.
 
+:::note[Ships in 0.5]
+A zero-duration task with a three-point estimate is charged only what it samples.
+In a run where the sample rounds to no time at all, the task behaves as the
+milestone the CPM pass shows; a larger sample is work starting from that point. An
+O=0 / M=0 / P=1 estimate therefore leaves P50 on the CPM finish. In 0.4 every run
+charges such a task at least one full working day.
+:::
+
 :::caution[Networks with Finish-to-Finish or Start-to-Finish links]
 On a network containing an FF or SF dependency, CPM itself is not monotone in
 duration — those links pin a task's *finish*, so a longer task starts earlier,

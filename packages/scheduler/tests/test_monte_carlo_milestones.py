@@ -1,0 +1,356 @@
+"""A zero-duration task with a three-point estimate in Monte Carlo (#4698).
+
+Such a task is taken off the milestone path because some run samples work, and every
+run was then floored at a full working day: a ``(0, 0, 1)`` estimate, mean 1/6 day and
+mode 0, cost a day in 100% of runs. Removing only the floor is not the fix. The offset
+ruler cannot say which midnight a start sits on, so a draw that rounds away would read
+as work ending the working day *before* its start, and that network finishes before
+its CPM date whenever a lag or a floor is involved (373 of 1,728 networks measured) or
+after it when an SS link reads the next working day (102). A run whose draw rounds away
+therefore has to be the instant ``schedule()`` places.
+
+The class is ``CELLS``: M state (3) x link into M (4) x link out of M (4) x calendar
+scope (3), 144 cells, each run over the five lag/hold variants in ``VARIANTS``, so 720
+networks. ``test_instant_runs_match_a_real_milestone`` then generalizes it to random
+networks.
+
+Most cases draw an exact zero so they say nothing about how a fractional finish rounds.
+"""
+
+from __future__ import annotations
+
+import random
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import date, timedelta
+from itertools import product
+from typing import Any
+from unittest.mock import patch
+
+import numpy as np
+import pytest
+
+from trueppm_scheduler import (
+    Calendar,
+    Dependency,
+    DependencyType,
+    MonteCarloResult,
+    Project,
+    Task,
+    engine,
+    monte_carlo,
+    schedule,
+)
+
+# 2026-03-02 is a Monday; 03-07/03-08 and 03-14/03-15 are weekends.
+START = date(2026, 3, 2)
+WEEKDAYS = 0b0011111
+SIX_DAY = 0b0111111
+HELD_TO_A_MONDAY = date(2026, 3, 16)
+
+STATES = ("live", "started", "predecessor_in_progress")
+LINKS = (DependencyType.FS, DependencyType.SS, DependencyType.FF, DependencyType.SF)
+SCOPES = ("project", "per_task", "only_m")
+CELLS = list(product(STATES, LINKS, LINKS, SCOPES))
+# (lag into M, lag out of M, M's SNET)
+VARIANTS = (
+    (0, 0, None),
+    (1, 3, None),
+    (3, 1, None),
+    (0, 0, HELD_TO_A_MONDAY),
+    (1, 3, HELD_TO_A_MONDAY),
+)
+
+
+def _days(n: int) -> timedelta:
+    return timedelta(days=n)
+
+
+def _estimate(opt: int = 0, ml: int = 0, pess: int = 1) -> dict[str, timedelta]:
+    return {
+        "optimistic_duration": _days(opt),
+        "most_likely_duration": _days(ml),
+        "pessimistic_duration": _days(pess),
+    }
+
+
+def _project(tasks: list[Task], deps: list[Dependency], **kw: Any) -> Project:
+    return Project(
+        id="p",
+        name="p",
+        start_date=START,
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(working_days=WEEKDAYS),
+        **kw,
+    )
+
+
+def _link(
+    pred: str, succ: str, dep_type: DependencyType = DependencyType.FS, lag: int = 0
+) -> Dependency:
+    return Dependency(predecessor_id=pred, successor_id=succ, dep_type=dep_type, lag=_days(lag))
+
+
+def _cell(
+    state: str,
+    link_in: DependencyType,
+    link_out: DependencyType,
+    scope: str,
+    variant: tuple[int, int, date | None] = (0, 0, None),
+) -> Project:
+    """``A(5d) -> M(0d) -> B(5d)`` for one cell of the class."""
+    lag_in, lag_out, held_to = variant
+    a: dict[str, Any] = {"id": "A", "name": "A", "duration": _days(5)}
+    m: dict[str, Any] = {"id": "M", "name": "M", "duration": _days(0), **_estimate()}
+    b: dict[str, Any] = {"id": "B", "name": "B", "duration": _days(5)}
+    kw: dict[str, Any] = {}
+    if state == "started":
+        m["actual_start"] = date(2026, 3, 6)
+        kw["status_date"] = date(2026, 3, 6)
+    elif state == "predecessor_in_progress":
+        a["actual_start"] = START
+        a["percent_complete"] = 40.0
+        kw["status_date"] = date(2026, 3, 4)
+    if held_to is not None:
+        m["planned_start"] = held_to
+    if scope != "project":
+        kw["calendars"] = {"six": Calendar(working_days=SIX_DAY)}
+        m["calendar_id"] = "six"
+        if scope == "per_task":
+            a["calendar_id"] = b["calendar_id"] = "six"
+    return _project(
+        [Task(**a), Task(**m), Task(**b)],
+        [_link("A", "M", link_in, lag_in), _link("M", "B", link_out, lag_out)],
+        **kw,
+    )
+
+
+@contextmanager
+def _draws(fill: Callable[[int], np.ndarray]) -> Iterator[None]:
+    """Replace every PERT column with ``fill(runs)``."""
+    with patch.object(engine, "_sample_pert", lambda _o, _m, _p, n, _rng: fill(n)):
+        yield
+
+
+def _exact_zeros(n: int) -> np.ndarray:
+    """Exact-zero draws, but for a tiny one that keeps the column off the milestone path."""
+    out = np.zeros(n)
+    out[-1] = 1e-9
+    return out
+
+
+def _constant(value: float) -> Callable[[int], np.ndarray]:
+    return lambda n: np.full(n, value)
+
+
+def _run(project: Project, runs: int = 64) -> MonteCarloResult:
+    return monte_carlo(project, runs=runs, seed=1)
+
+
+class TestReportedRepro:
+    def _repro(self) -> Project:
+        return _cell("live", DependencyType.FS, DependencyType.FS, "project")
+
+    def test_a_small_estimate_does_not_cost_a_day(self) -> None:
+        project = self._repro()
+        cpm = schedule(project).project_finish
+        assert cpm == date(2026, 3, 13)
+        mc = monte_carlo(project, runs=5000, seed=1)
+        assert mc.p50 == cpm
+        assert mc.p80 == cpm
+
+    def test_the_estimate_still_reaches_the_tail(self) -> None:
+        project = _cell("live", DependencyType.FS, DependencyType.FS, "project")
+        mc = monte_carlo(project, runs=5000, seed=1)
+        assert max(mc.distribution) > schedule(project).project_finish
+
+
+class TestSensitivity:
+    def test_a_driving_task_is_credited_with_its_variance(self) -> None:
+        project = _cell("live", DependencyType.FS, DependencyType.FS, "project")
+        mc = monte_carlo(project, runs=2000, seed=1)
+        assert {s.task_id: s.index for s in mc.sensitivity} == {"M": pytest.approx(1.0)}
+
+    def test_it_shares_the_finish_with_other_uncertain_work(self) -> None:
+        project = _project(
+            [
+                Task(id="A", name="A", duration=_days(5), **_estimate(5, 5, 9)),
+                Task(id="M", name="M", duration=_days(0), **_estimate()),
+                Task(id="B", name="B", duration=_days(5)),
+            ],
+            [_link("A", "M"), _link("M", "B")],
+        )
+        indexes = {s.task_id: s.index for s in monte_carlo(project, runs=5000, seed=1).sensitivity}
+        assert indexes["A"] > indexes["M"] > 0.1
+
+    def test_a_task_off_the_driving_path_moves_nothing(self) -> None:
+        project = _project(
+            [
+                Task(id="L", name="L", duration=_days(30)),
+                Task(id="M", name="M", duration=_days(0), **_estimate()),
+            ],
+            [],
+        )
+        assert monte_carlo(project, runs=2000, seed=1).sensitivity == []
+
+
+@pytest.mark.parametrize(("state", "link_in", "link_out", "scope"), CELLS)
+class TestTheClass:
+    def test_runs_that_draw_zero_finish_on_the_cpm_date(
+        self, state: str, link_in: DependencyType, link_out: DependencyType, scope: str
+    ) -> None:
+        for variant in VARIANTS:
+            project = _cell(state, link_in, link_out, scope, variant)
+            cpm = schedule(project).project_finish
+            with _draws(_exact_zeros):
+                mc = _run(project)
+            assert (mc.p50, min(mc.distribution)) == (cpm, cpm), variant
+
+    def test_no_real_draw_finishes_before_the_cpm_date(
+        self, state: str, link_in: DependencyType, link_out: DependencyType, scope: str
+    ) -> None:
+        for variant in VARIANTS:
+            project = _cell(state, link_in, link_out, scope, variant)
+            cpm = schedule(project).project_finish
+            mc = _run(project, runs=500)
+            assert min(mc.distribution) >= cpm, variant
+
+
+class TestWhatARunIs:
+    def test_a_held_task_is_shown_on_the_day_it_is_held_to(self) -> None:
+        """Read as work it would end the Friday before the Monday it cannot precede."""
+        project = _project(
+            [
+                Task(
+                    id="M",
+                    name="M",
+                    duration=_days(0),
+                    planned_start=HELD_TO_A_MONDAY,
+                    **_estimate(),
+                )
+            ],
+            [],
+        )
+        with _draws(_exact_zeros):
+            mc = _run(project)
+        assert mc.p50 == HELD_TO_A_MONDAY
+        assert mc.p50_at_day_start is True
+
+    def test_a_lag_counts_from_the_instant(self) -> None:
+        """M is held to Monday 00:00, so +3d is Thursday's start, not Friday + 1 + 3."""
+        project = _project(
+            [
+                Task(
+                    id="M",
+                    name="M",
+                    duration=_days(0),
+                    planned_start=HELD_TO_A_MONDAY,
+                    **_estimate(),
+                ),
+                Task(id="B", name="B", duration=_days(1)),
+            ],
+            [_link("M", "B", lag=3)],
+        )
+        with _draws(_exact_zeros):
+            mc = _run(project)
+        assert mc.p50 == schedule(project).project_finish == date(2026, 3, 19)
+
+    def test_an_ss_link_counts_from_the_instant(self) -> None:
+        """M closes Friday, so SS+1d lands on Sunday and snaps to Monday, not Tuesday."""
+        project = _cell("live", DependencyType.FS, DependencyType.SS, "project", (0, 1, None))
+        with _draws(_exact_zeros):
+            mc = _run(project)
+        assert mc.p50 == schedule(project).project_finish == date(2026, 3, 13)
+
+    def test_a_chain_of_small_draws_still_adds_up(self) -> None:
+        """Three 0.2-day draws are 0.6 of a day of work, however each one reads alone."""
+        project = _project(
+            [
+                *(
+                    Task(id=f"M{i}", name=f"M{i}", duration=_days(0), **_estimate())
+                    for i in range(3)
+                ),
+                Task(id="B", name="B", duration=_days(5)),
+            ],
+            [_link("M0", "M1"), _link("M1", "M2"), _link("M2", "B")],
+        )
+        assert schedule(project).project_finish == date(2026, 3, 6)
+        with _draws(_constant(0.2)):
+            assert _run(project).p50 == date(2026, 3, 9)
+
+    def test_a_whole_day_draw_is_a_day_of_work(self) -> None:
+        project = _cell("live", DependencyType.FS, DependencyType.FS, "project")
+        with _draws(_constant(1.0)):
+            assert _run(project).p50 == date(2026, 3, 16)
+        with _draws(_constant(2.0)):
+            assert _run(project).p50 == date(2026, 3, 17)
+
+    def test_ff_cannot_back_solve_work_ahead_of_the_instant(self) -> None:
+        """Back-solved over a 0.7 draw, M would start Friday and let B start before CPM."""
+        project = _cell("live", DependencyType.FF, DependencyType.SS, "project")
+        with _draws(_constant(0.7)):
+            mc = _run(project)
+        assert min(mc.distribution) >= schedule(project).project_finish
+
+    def test_a_task_with_work_keeps_its_one_day_floor(self) -> None:
+        tasks = [
+            Task(id="A", name="A", duration=_days(1), **_estimate()),
+            Task(id="B", name="B", duration=_days(5)),
+        ]
+        project = _project(tasks, [_link("A", "B")])
+        with _draws(_constant(0.2)):
+            assert _run(project).p50 == date(2026, 3, 9) == schedule(project).project_finish
+        assert engine._mc_effective_duration(np.array([0.2]), "A", {}).tolist() == [1.0]
+
+
+def _random_network(seed: int, *, estimates: bool) -> Project:
+    """A network mixing work and zero-duration tasks; floors, progress, calendars, all links."""
+    r = random.Random(seed)
+    n = r.randint(2, 8)
+    per_task = r.random() < 0.3
+    tasks: list[Task] = []
+    deps: list[Dependency] = []
+    kw: dict[str, Any] = {}
+    if per_task:
+        kw["calendars"] = {
+            "six": Calendar(working_days=SIX_DAY),
+            "four": Calendar(working_days=0b0001111),
+        }
+    if r.random() < 0.3:
+        kw["status_date"] = START + _days(r.randint(0, 12))
+    for i in range(n):
+        days = r.choice([0, 0, 0, 1, 2, 5])
+        spec: dict[str, Any] = {"id": f"T{i}", "name": f"T{i}", "duration": _days(days)}
+        if per_task and r.random() < 0.5:
+            spec["calendar_id"] = r.choice(["six", "four"])
+        if r.random() < 0.2:
+            spec["planned_start"] = START + _days(r.randint(-3, 20))
+        if days and r.random() < 0.25:
+            spec["actual_start"] = START + _days(r.randint(0, 5))
+            spec["percent_complete"] = r.choice([20.0, 50.0])
+        elif not days and r.random() < 0.15:
+            spec["actual_start"] = START + _days(r.randint(0, 8))
+        if not days and estimates:
+            spec.update(_estimate())
+        tasks.append(Task(**spec))
+    for j in range(1, n):
+        for i in r.sample(range(j), min(j, r.randint(0, 2))):
+            deps.append(
+                _link(f"T{i}", f"T{j}", r.choice(LINKS), r.choice([-3, -1, 0, 0, 0, 1, 2, 3, 7]))
+            )
+    return _project(tasks, deps, **kw)
+
+
+def test_instant_runs_match_a_real_milestone() -> None:
+    """Zero draws must solve exactly as the same network with no estimates on its 0-day tasks."""
+    for seed in range(400):
+        milestones = monte_carlo(_random_network(seed, estimates=False), runs=8, seed=3)
+        with _draws(_exact_zeros):
+            zero_draws = monte_carlo(_random_network(seed, estimates=True), runs=8, seed=3)
+        assert (zero_draws.p50, zero_draws.p80) == (milestones.p50, milestones.p80), seed
+        assert (zero_draws.p50_at_day_start, zero_draws.p80_at_day_start) == (
+            milestones.p50_at_day_start,
+            milestones.p80_at_day_start,
+        ), seed
+        assert zero_draws.distribution[:-1] == milestones.distribution[:-1], seed
