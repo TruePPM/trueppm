@@ -46,9 +46,9 @@ projects, but only deterministically. There is no program-scoped Monte Carlo
 endpoint and no MCP tool for it, so the one scope where a confidence date matters
 most is the scope that cannot produce one.
 
-The engine restriction that made this impossible lifts in 0.4
+The engine restriction that made this impossible lifted in 0.4
 ([#1385](https://gitlab.com/trueppm/trueppm/-/issues/1385) <!-- known-issues-ack:closed -->
-— `monte_carlo()` will honor per-task calendars, see [ADR-0672](/architecture/decisions/)).
+— `monte_carlo()` honors per-task calendars, see [ADR-0672](/architecture/decisions/)).
 What remains after that is the API surface, which is why this entry is separate.
 
 - **Impact:** a program manager gets a deterministic finish date with no band around
