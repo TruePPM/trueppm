@@ -17,8 +17,8 @@ project's own container registry, not a self-hosted TruePPM deployment.
 
 | Image | Built by | Dockerfile |
 |---|---|---|
-| `registry.gitlab.com/trueppm/trueppm/ci-api:py3.11` | `ci:build-api-image` | `.gitlab/ci-images/api.Dockerfile` |
-| `registry.gitlab.com/trueppm/trueppm/ci-scheduler:py3.11` | `ci:build-scheduler-image` | `.gitlab/ci-images/scheduler.Dockerfile` |
+| `registry.gitlab.com/trueppm/trueppm/ci-api:$CI_API_TAG` | `ci:build-api-image` | `.gitlab/ci-images/api.Dockerfile` |
+| `registry.gitlab.com/trueppm/trueppm/ci-scheduler:$CI_SCHEDULER_TAG` | `ci:build-scheduler-image` | `.gitlab/ci-images/scheduler.Dockerfile` |
 | `registry.gitlab.com/trueppm/trueppm/ci-integration:$PLAYWRIGHT_BASE_TAG` | `ci:build-integration-image` | `.gitlab/ci-images/integration.Dockerfile` |
 
 All three are rebuilt when their `Dockerfile` or the relevant `pyproject.toml` changes,
@@ -40,26 +40,51 @@ spec died at `browserType.launch: Executable doesn't exist`, because
 never re-downloads it (#2825). Stamping the version into the tag mints a name no
 runner can already hold, which forces a real pull.
 
-`ci-api` and `ci-scheduler` keep fixed tags: they carry only Python wheels, and a
-stale one costs a slower `pip install -e` rather than a hard failure.
+### Why `ci-api` and `ci-scheduler` are content-stamped
+
+These two carry only Python wheels, but a stale cached copy is not merely slower: a
+runner that held an older image served older dependencies, so one commit ran against
+different toolchains. Three `ci-api` digests ran the same commit and `api:type-check`
+reported 41 mypy errors under one and none under the others (#3275); `scheduler:mutation`
+passed on one runner and failed on another because their cached `ci-scheduler` images
+held different pytest versions (#4787, #4791). `pip install -e` does not downgrade a
+cached dependency that already satisfies the range, so the job cannot repair it.
+
+Both images are therefore tagged `py3.11-<digest>` (`CI_API_TAG`, `CI_SCHEDULER_TAG` in
+`.gitlab-ci.yml`), where the digest covers the image's own inputs:
+
+| Tag | Digest covers |
+|---|---|
+| `CI_API_TAG` | `api.Dockerfile`, and the api, scheduler and mcp `pyproject.toml` |
+| `CI_SCHEDULER_TAG` | `scheduler.Dockerfile` and the scheduler `pyproject.toml` |
+
+**When to bump.** Whenever one of those files changes. `make pre-push` and the
+`api:ci-api-tag` job run `scripts/check-ci-api-tag.sh` (add `--image scheduler` for
+the scheduler) and fail with the exact value to paste; `--print-expected` prints it.
+`scripts/release.sh` restamps both on a release. A tag bump changes an input file, which
+is also what triggers `ci:build-*-image` on the MR, so the new image exists before the
+jobs that reference it run. Each `scheduler:*` job prints the resolved `pytest`,
+`mutmut`, `numpy` and related versions (`pip freeze`) at start, so a runner split is
+visible in the trace.
 
 ## Why retention matters
 
-Every rebuild pushes a **new image SHA under the same `:py3.11` tag**, which leaves
-the previously-tagged SHA in the registry as an *untagged* layer. Nothing reaps those
-untagged layers automatically, so they accumulate indefinitely. At one scheduled
-rebuild per week per image — plus `pyproject.toml` churn — the registry is tens of
-gigabytes deep within a single release cycle.
+Every input change mints a **new tag** (`py3.11-<digest>` for `ci-api` and
+`ci-scheduler`, a Playwright version for `ci-integration`), and each MR that touches an
+input builds and pushes its own. Nothing reaps superseded tags automatically, so
+they accumulate: with Dockerfile and `pyproject.toml` churn the registry is tens of
+gigabytes deep within a single release cycle. A rebuild that reuses an existing tag
+(for example a re-run of the build job) orphans the previous SHA as an *untagged* layer,
+which accumulates the same way.
 
-A Playwright bump is the one case that behaves differently: it retires the whole
-`ci-integration` / `playwright-base` tag rather than orphaning a SHA under a reused
-one, so the superseded tag stays tagged and the `^v.*$` keep pattern below preserves
-it. Those are worth deleting by hand a release or two after a bump — they are large,
-and nothing reaps them.
+A Playwright bump retires the whole `ci-integration` / `playwright-base` tag, so the
+superseded tag stays tagged and the `^v.*$` keep pattern below preserves it. Those are
+worth deleting by hand a release or two after a bump — they are large, and nothing
+reaps them.
 
 It is also a quiet supply-chain risk: a stale untagged SHA that a long-running MR
-pipeline still references can pin a vulnerable transitive dependency that the latest
-`:py3.11` tag has since dropped.
+pipeline still references can pin a vulnerable transitive dependency that the current
+tag has since dropped.
 
 ## The cleanup policy
 
@@ -93,13 +118,19 @@ This pattern is also what protects the version-stamped CI images: `ci-integratio
 and `playwright-base` are tagged `v1.62.1-noble`, which matches `^v.*$`. Keep the
 leading `v` if the tag scheme ever changes.
 
-The fixed-name tags — `ci-api:py3.11`, `ci-scheduler:py3.11`, `ci-wasm:1.85`,
-`ci-keycloak:26` — match no keep pattern and survive on `keep_n` alone, because each
-of those repositories holds only the one tag. That is thin protection: if one of
-them ever accumulates more than ten tags, the live tag becomes eligible for
-deletion, and the symptom is CI failing to pull an image with no code change to
-blame. Widening the keep pattern to cover them is worthwhile — just never at the
-cost of `^v.*$`.
+The fixed-name tags — `ci-wasm:1.85`, `ci-keycloak:26` — and the stamped
+`ci-api` / `ci-scheduler` `py3.11-<digest>` tags match no keep pattern and survive on
+`keep_n` alone. That is thin protection, and nothing here relies on a schedule to
+refresh them: no dedicated image-refresh schedule is configured, so do not count on one
+to keep the live tag fresh, and a cache-hit push may not renew a tag's age. Because
+`ci-api` and `ci-scheduler` gain a tag per input change, roughly ten experimental MRs
+touching an input can push `main`'s live tag past `keep_n` and `older_than`, making it
+eligible for deletion. The symptom is an image pull error in CI with no code change to
+blame. Recovery is to retry the build job in the pipeline that last built the image, or
+to touch an input file (or trigger a schedule) so the job is created, since
+`ci:build-api-image` and `ci:build-scheduler-image` exist only in schedule pipelines and
+in main/MR pipelines that change their inputs. The project-settings mitigation is to
+widen `name_regex_keep` to also match `^py3\.11-` — just never at the cost of `^v.*$`.
 
 ## Changing the policy
 

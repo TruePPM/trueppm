@@ -449,12 +449,13 @@ nul-bytes-check: ## Fail if a tracked text=set file contains a literal NUL byte 
 	@# filesystem walk; python3 does the byte scan. ~1s, no network.
 	@bash scripts/check-nul-bytes.sh
 
-ci-api-tag-check: ## Fail if CI_API_TAG no longer matches the ci-api image inputs (#3275)
+ci-api-tag-check: ## Fail if CI_API_TAG / CI_SCHEDULER_TAG no longer match their image inputs (#3275, #4791)
 	@# A fixed image tag whose contents change is invisible to every runner that
 	@# already cached it — three digests ran one commit and api:type-check
 	@# disagreed with itself. The tag is stamped with a digest of the Dockerfile
 	@# plus the three baked pyproject.toml files; this recomputes it. No network.
 	@bash scripts/check-ci-api-tag.sh
+	@bash scripts/check-ci-api-tag.sh --image scheduler
 
 image-pip-check: ## Self-test the image pip-floor assertion (the real check runs in api:image-lock-check, #4642)
 	@python3 scripts/check-image-pip.py --self-test

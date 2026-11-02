@@ -12,8 +12,13 @@
 #   - .gitlab/ci-images/scheduler.Dockerfile
 # or on a scheduled pipeline (weekly safety net for transitive drift).
 #
-# Tagged `:py3.11` — the only Python version we ship to. Bump to `:py3.12`
-# when we move requires-python.
+# Tagged `:$CI_SCHEDULER_TAG` — `py3.11-<digest>`, where the digest covers this
+# Dockerfile plus packages/scheduler/pyproject.toml (the only Python version we
+# ship to is 3.11; bump the prefix when we move requires-python). A fixed
+# `:py3.11` was a name that never changed when its contents did, and runners
+# pull `if-not-present`, so two runners ran one commit against different
+# pytest versions (#4787, #4791). scripts/check-ci-api-tag.sh --image scheduler
+# recomputes the digest and fails if CI_SCHEDULER_TAG in .gitlab-ci.yml is stale.
 #
 # Base image pinned by digest (#904 supply-chain hardening). Renovate
 # (pinDigests) keeps the digest current; bump the tag + digest together.
