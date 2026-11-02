@@ -13,6 +13,8 @@ dependency, and anyone with the venv can reproduce a published number.
 Usage::
 
     export TRUEPPM_CAPACITY_PASSWORD=...   # required; see owner_password()
+    export CAPACITY_INTEGRATION_KEY=...    # required; see README step 0
+    export CAPACITY_DB_PASSWORD=...        # required, 12+ chars; see README step 0
     python packages/api/perf/capacity/run_capacity.py --dimension tasks
     python packages/api/perf/capacity/run_capacity.py --dimension concurrency
     python packages/api/perf/capacity/run_capacity.py --dimension all --out results/
@@ -47,6 +49,12 @@ OWNER_EMAIL = "capacity@trueppm.local"
 # variable to create the account, so the two sides agree without a shared
 # constant in the tree — which is what this replaces (#2457).
 OWNER_PASSWORD_ENV = "TRUEPPM_CAPACITY_PASSWORD"
+
+INTEGRATION_KEY_ENV = "CAPACITY_INTEGRATION_KEY"
+DB_PASSWORD_ENV = "CAPACITY_DB_PASSWORD"
+# Mirrors core.security_checks.MIN_SERVICE_PASSWORD_LENGTH; the harness is a
+# standalone script and cannot import the API package.
+MIN_DB_PASSWORD_LENGTH = 12
 
 COMPOSE_FILE = Path(__file__).parent / "docker-compose.capacity.yml"
 
@@ -90,14 +98,28 @@ ERROR_RATE_GATE = 0.01
 CONTROL_P95_GATE_MS = 150.0
 MAX_STEP_ATTEMPTS = 3
 
+# Discarded requests before the first measured sample of a step.
+WARMUP_REQUESTS = 5
+
+# `full_load` carries the headline published number, and each sample is a whole
+# serial page walk (seconds at the larger sizes), so the count is a runtime
+# trade. `p95_of` indexes `int(n * 0.95)`, which selects the slowest sample for
+# every n up to 20 (n=7, 15 and 20 all land on the maximum) and the
+# second-slowest first at n=21. 21 is therefore the smallest count at which p95
+# is no longer simply the worst sample, so one outlier cannot set it alone.
+# `p50_ms` is still reported beside it. A test pins this reason.
+FULL_LOAD_SAMPLES = 21
+
 # Refresh margin for the cached bearer token (#3828).
 #
 # `ACCESS_TOKEN_LIFETIME` is 15 minutes
 # (packages/api/src/trueppm_api/settings/base.py). A single sweep *step* —
 # not just the whole sweep — can itself run for minutes at the largest sizes,
-# so the token has to stay valid for the entire step, not merely be fresh at
-# the moment the step starts. Refreshing at 10 minutes rather than at the
-# 15-minute deadline leaves every step a safety window instead of racing it.
+# so the token is re-checked at every attempt and before every `full_load`
+# walk rather than once per sweep. Refreshing at 10 minutes rather than at the
+# 15-minute deadline leaves a token just under the margin about 5 minutes of
+# life, which covers a walk or an ordinary attempt but not an attempt that
+# itself runs longer than that (a very slow step can still outlast it).
 # Before this fix the token was cached for the life of the process with no
 # refresh at all: a 17m51s `tasks` sweep spent its final (16,000-task) step
 # entirely on 401s from an expired token, at the ~4.8 ms speed of an auth
@@ -105,6 +127,19 @@ MAX_STEP_ATTEMPTS = 3
 # control sample of the time (`/api/v1/health/`) is unauthenticated and cannot
 # see a 401.
 TOKEN_REFRESH_AFTER = timedelta(minutes=10)
+
+
+class InstrumentFault(RuntimeError):
+    """The harness, not the API, is what failed — abort, never record a ceiling.
+
+    Raised when every failure in a step is a 401/403. An API that is out of
+    capacity returns 5xx, timeouts or slow 200s; it does not selectively reject
+    credentials. A step like that measured the harness's own login, and recording
+    it as a ceiling publishes a plausible-looking wrong number.
+    """
+
+
+AUTH_REJECTION_STATUSES = frozenset({401, 403})
 
 
 @dataclass
@@ -161,6 +196,22 @@ def p95_of(samples: list[Sample]) -> float:
     return round(times[min(len(times) - 1, int(len(times) * 0.95))], 1)
 
 
+def assert_no_auth_fault(label: str, samples: list[Sample], *, source: str) -> None:
+    """Raise `InstrumentFault` when every failed sample was a 401/403.
+
+    A sample set with no failures, or with any non-auth failure (5xx, timeout =
+    status 0), is left to the normal breach logic: that is the API misbehaving.
+    """
+    failures = [s for s in samples if not s.ok]
+    if failures and all(s.status in AUTH_REJECTION_STATUSES for s in failures):
+        histogram = _status_histogram(samples)
+        raise InstrumentFault(
+            f"{label}: every failed {source} request was an auth rejection "
+            f"(status histogram {histogram}). The harness lost its credentials; "
+            "this is an instrument fault, not a capacity result. Nothing recorded."
+        )
+
+
 def measure_step(
     client: Client,
     *,
@@ -176,18 +227,36 @@ def measure_step(
     and why its number was not published — silently dropping it would misreport
     the sweep as having covered ground it did not.
     """
-    # Once per step, not per request (see `ensure_fresh_token`) — a step at the
-    # largest sizes can itself run for minutes, so it must start with a token
-    # good for its own duration, not one that was merely fresh when the sweep
-    # began.
-    client.ensure_fresh_token()
-
     best: StepResult | None = None
     for attempt in range(1, MAX_STEP_ATTEMPTS + 1):
-        control_before = p95_of(control_sample(client))
+        # Once per attempt, not per request (see `ensure_fresh_token`). A step
+        # can retry for minutes (each retry sleeps and re-measures), so a token
+        # fresh at the first attempt may be near expiry by the third.
+        try:
+            client.ensure_fresh_token()
+        except requests.RequestException as exc:
+            # The token endpoint is unreachable or hung: the API is not
+            # answering, which is not an auth rejection. Record a failed,
+            # contaminated attempt (never a published ceiling) and retry.
+            failed = summarize(
+                step, label, [Sample(ms=0.0, status=0, ok=False)], f"token refresh failed: {exc}"
+            )
+            failed.contaminated = True
+            failed.attempts = attempt
+            if best is None:
+                best = failed
+            print(f"    [token refresh failed: {exc}] retrying…", flush=True)
+            time.sleep(15)
+            continue
+        control_a = control_sample(client)
         samples = take()
-        control_after = p95_of(control_sample(client))
-        control = max(control_before, control_after)
+        control_b = control_sample(client)
+        # Checked before anything is summarized, so a fault can never reach
+        # `result.ceiling`: the control proves the credential, the step proves
+        # the endpoint under test.
+        assert_no_auth_fault(label, control_a + control_b, source="control")
+        assert_no_auth_fault(label, samples, source="measured")
+        control = max(p95_of(control_a), p95_of(control_b))
         load = os.getloadavg()[0]
 
         result = summarize(step, label, samples, notes)
@@ -288,12 +357,34 @@ def _token_is_fresh(cached: _CachedToken, *, now: float) -> bool:
     return (now - cached.minted_at) < TOKEN_REFRESH_AFTER.total_seconds()
 
 
+def preflight_secrets() -> None:
+    """Fail in a second if any of the three stack secrets is missing or too short.
+
+    `seed()` captures docker output, so a missing `CAPACITY_DB_PASSWORD` would
+    otherwise surface at the first seed as a bare `CalledProcessError` with no
+    explanation.
+    """
+    owner_password()
+    problems = []
+    if not os.environ.get(INTEGRATION_KEY_ENV, "").strip():
+        problems.append(f"{INTEGRATION_KEY_ENV} is not set (see README step 0a)")
+    db_password = os.environ.get(DB_PASSWORD_ENV, "").strip()
+    if len(db_password) < MIN_DB_PASSWORD_LENGTH:
+        problems.append(
+            f"{DB_PASSWORD_ENV} must be set to at least {MIN_DB_PASSWORD_LENGTH} "
+            "characters — settings.prod refuses to boot on a shorter service "
+            "password (README step 0c)"
+        )
+    if problems:
+        raise SystemExit("Capacity stack secrets missing:\n  " + "\n  ".join(problems))
+
+
 def owner_password() -> str:
     """The load driver's password, or a hard stop explaining how to mint one.
 
     Also called once from `main()` rather than only lazily at first login: the
-    failure has to land before the sweep brings a stack up and seeds it, not
-    several minutes in.
+    failure has to land before the sweep seeds anything, not at the first login
+    after the first seed.
     """
     password = os.environ.get(OWNER_PASSWORD_ENV, "").strip()
     if not password:
@@ -341,12 +432,13 @@ class Client:
     def ensure_fresh_token(self) -> None:
         """Re-mint the bearer token if it has passed `TOKEN_REFRESH_AFTER`.
 
-        Called once per step (from `measure_step`), not per request: the cache
-        lookup is cheap, but the point is that the token only actually needs to
-        change on a ~10-minute cadence, so checking at request granularity buys
-        nothing. This is the fix for #3828 — a sweep step now always starts
-        with a token good for the whole step, not whatever was minted at the
-        start of the sweep possibly tens of minutes earlier.
+        Called once per `measure_step` attempt and before each `full_load`
+        walk, not per request: the cache lookup is cheap, but the token only
+        needs to change on a ~10-minute cadence, so checking per request buys
+        nothing. A token just under the margin still has about 5 minutes of
+        life, enough for a walk or an ordinary attempt. Raises
+        `requests.RequestException` when the token endpoint is unreachable;
+        callers record that as a failed sample or attempt, not an auth fault.
         """
         self.token = self._login()
 
@@ -398,6 +490,26 @@ def seed(*, projects: int, tasks: int, edge_ratio: float = 1.0) -> None:
         "--reset",
     ]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
+    analyze()
+
+
+def analyze() -> None:
+    """Refresh planner statistics after a seed.
+
+    `seed_capacity` bulk-loads and `--reset` rewrites the tables, so until
+    autovacuum catches up the planner works from stale or absent statistics.
+    A step then measures whichever plan that produces, and autovacuum landing
+    mid-step changes the answer part-way through a sweep.
+    """
+    subprocess.run(
+        [
+            "docker", "compose", "-f", str(COMPOSE_FILE),
+            "exec", "-T", "db", "psql", "-U", "trueppm", "-d", "trueppm", "-c", "ANALYZE",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )  # fmt: skip
 
 
 def repeat(fn: Callable[[], Sample], n: int) -> list[Sample]:
@@ -445,7 +557,7 @@ def dimension_tasks(steps: Iterable[int]) -> DimensionResult:
         client = Client()
         pid = client.first_project_id()
         path = f"/api/v1/tasks/?project={pid}&page_size=100"
-        repeat(lambda c=client, u=path: c.timed(u), 5)  # warm caches/connection
+        repeat(lambda c=client, u=path: c.timed(u), WARMUP_REQUESTS)  # warm caches/connection
         step = measure_step(
             client,
             step=size,
@@ -463,7 +575,8 @@ def dimension_tasks(steps: Iterable[int]) -> DimensionResult:
 def report(step: StepResult) -> None:
     flag = " CONTAMINATED" if step.contaminated else ""
     print(
-        f"    p95={step.p95_ms}ms err={step.error_rate} "
+        f"    p50={step.p50_ms}ms p95={step.p95_ms}ms err={step.error_rate} "
+        f"status={step.status_histogram} "
         f"control={step.control_p95_ms}ms load={step.load_avg} "
         f"breached={step.breached}{flag}",
         flush=True,
@@ -487,30 +600,48 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
         pid = client.first_project_id()
 
         def full_load(pid: str = pid, client: Client = client) -> Sample:
+            # A regressed build can take ~40 s per walk, so 21 samples outlast
+            # the token margin; check before each walk, not just per step.
+            try:
+                client.ensure_fresh_token()
+            except requests.RequestException:
+                # Untimed: no request was made to the endpoint under test.
+                return Sample(ms=0.0, status=0, ok=False)
             start = time.perf_counter()
             page = 1
             ok = True
+            status = 200
             while True:
-                r = requests.get(
-                    f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=200&page={page}",
-                    headers=client.headers,
-                    timeout=180,
-                )
+                try:
+                    r = requests.get(
+                        f"{BASE_URL}/api/v1/tasks/?project={pid}&page_size=200&page={page}",
+                        headers=client.headers,
+                        timeout=180,
+                    )
+                except requests.RequestException:
+                    # Same convention as `Client.timed`: a timeout is status 0.
+                    status = 0
+                    ok = False
+                    break
+                status = r.status_code
                 if r.status_code >= 400:
                     ok = False
                     break
                 if not r.json().get("next"):
                     break
                 page += 1
-            return Sample(ms=(time.perf_counter() - start) * 1000, status=200, ok=ok)
+            return Sample(ms=(time.perf_counter() - start) * 1000, status=status, ok=ok)
 
+        # Same warm-up as `dimension_tasks`. Without it the first measured
+        # sample of every step is the cold read straight after a re-seed.
+        repeat(full_load, WARMUP_REQUESTS)
         step = measure_step(
             client,
             step=size,
             label=f"{size} tasks — full load",
             # Bind the loop's closure by default-arg, matching the idiom used by the
             # other steps in this file — `full_load` is rebound each iteration (S1515).
-            take=lambda f=full_load: repeat(f, 7),
+            take=lambda f=full_load: repeat(f, FULL_LOAD_SAMPLES),
         )
         report(step)
         result.steps.append(step)
@@ -631,6 +762,81 @@ DIMENSIONS: dict[str, Callable[[], DimensionResult]] = {
 }
 
 
+def _run_text(cmd: list[str]) -> str | None:
+    """Best-effort command output; `None` when the tool is absent or fails."""
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return None
+    return out.stdout.strip() or None
+
+
+def _int_or_none(value: str | None) -> int | None:
+    return int(value) if value and value.isdigit() else None
+
+
+def parse_meminfo(text: str) -> dict[str, int]:
+    """`/proc/meminfo` text to `{"mem_total_mib": .., "swap_total_mib": ..}`."""
+    names = {"MemTotal": "mem_total_mib", "SwapTotal": "swap_total_mib"}
+    found: dict[str, int] = {}
+    for line in text.splitlines():
+        key, _, rest = line.partition(":")
+        parts = rest.split()
+        if key in names and parts and parts[0].isdigit():
+            found[names[key]] = int(parts[0]) // 1024
+    return found
+
+
+def collect_host_metadata() -> dict[str, Any]:
+    """What the numbers were measured on.
+
+    `os.cpu_count()` alone reports the same count for differently-binned chips
+    with another performance/efficiency split, and two machines were published
+    as one. Docker's allocation matters as much as the host's: the database and
+    API run inside the VM. Every field is best-effort (`None` when unavailable,
+    e.g. the chip fields off macOS, or the Docker fields with the stack down) so
+    a missing tool never aborts a sweep.
+    """
+    host: dict[str, Any] = {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "cpu_count": os.cpu_count(),
+        "chip_model": None,
+        "performance_cores": None,
+        "efficiency_cores": None,
+        "load_avg_at_finish": [round(v, 2) for v in os.getloadavg()],
+    }
+    if sys.platform == "darwin":
+        host["chip_model"] = _run_text(["sysctl", "-n", "machdep.cpu.brand_string"])
+        # perflevel0 is the performance cluster, perflevel1 the efficiency one.
+        host["performance_cores"] = _int_or_none(
+            _run_text(["sysctl", "-n", "hw.perflevel0.logicalcpu"])
+        )
+        host["efficiency_cores"] = _int_or_none(
+            _run_text(["sysctl", "-n", "hw.perflevel1.logicalcpu"])
+        )
+
+    docker: dict[str, Any] = {
+        "cpus": _int_or_none(_run_text(["docker", "info", "--format", "{{.NCPU}}"])),
+        "mem_total_mib": None,
+        "swap_total_mib": None,
+    }
+    # Read from inside the VM: `docker info` has no swap figure.
+    meminfo = _run_text(
+        ["docker", "compose", "-f", str(COMPOSE_FILE), "exec", "-T", "db", "cat", "/proc/meminfo"]
+    )
+    if meminfo:
+        docker.update(parse_meminfo(meminfo))
+    host["docker"] = docker
+    host["note"] = (
+        "Shared developer workstation, not an idle host. Every step carries "
+        "its own control measurement and load average; steps flagged "
+        "`contaminated` were measured while the host was busy and must not "
+        "be published as capacity numbers."
+    )
+    return host
+
+
 def _git_sha() -> str:
     """The commit the measured image was built from — a number without one is unrepeatable."""
     try:
@@ -655,13 +861,19 @@ def main() -> int:
 
     # Before any stack work: a missing credential should cost a second, not the
     # several minutes it takes to seed the first step and then fail to log in.
-    owner_password()
+    preflight_secrets()
 
     names = list(DIMENSIONS) if args.dimension == "all" else [args.dimension]
     results: list[dict[str, Any]] = []
     for name in names:
         print(f"\n=== {name} ===", flush=True)
-        result = DIMENSIONS[name]()
+        try:
+            result = DIMENSIONS[name]()
+        except InstrumentFault as fault:
+            # No result file: a sweep that hit an instrument fault has no
+            # trustworthy ceiling to record.
+            print(f"\nINSTRUMENT FAULT — aborting, nothing written.\n{fault}", file=sys.stderr)
+            return 2
         results.append(asdict(result))
 
     payload = {
@@ -670,18 +882,7 @@ def main() -> int:
             "error_rate": ERROR_RATE_GATE,
             "control_p95_ms": CONTROL_P95_GATE_MS,
         },
-        "host": {
-            "platform": platform.platform(),
-            "machine": platform.machine(),
-            "cpu_count": os.cpu_count(),
-            "load_avg_at_finish": [round(v, 2) for v in os.getloadavg()],
-            "note": (
-                "Shared developer workstation, not an idle host. Every step carries "
-                "its own control measurement and load average; steps flagged "
-                "`contaminated` were measured while the host was busy and must not "
-                "be published as capacity numbers."
-            ),
-        },
+        "host": collect_host_metadata(),
         "git_sha": _git_sha(),
         "base_url": BASE_URL,
         "dimensions": results,
