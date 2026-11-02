@@ -7008,18 +7008,17 @@ def _mc_zero_base_column(
     the instant :func:`_place_milestone` gives the deterministic pass, and links
     out of it measure from that instant (``instant_runs``). It keeps the fraction
     it rounded away, as work does: its successors carry it, so a chain of such tasks
-    still adds up. A larger draw is work that starts no earlier than the instant,
-    because an FF link would back-solve its start over the draw and put an SS
-    successor ahead of the plan the draw can only delay.
+    still adds up. A larger draw is ordinary work, exactly as a task with a duration
+    of that length: an FF or SF link back-solves its start over the draw, which can
+    put an SS successor ahead of the instant's plan (#4822).
 
     ``position`` is the instant's offset. ``actual`` is the task's non-working
     recorded start, if any: it floors the finish, as for a milestone, when every
-    instant run is shown on that day (:func:`_mc_forward_pass`). Work starts no
-    earlier than it, so the other runs never finish before that date.
+    instant run is shown on that day (:func:`_mc_forward_pass`). The other runs are
+    floored at the same recorded start, so none finishes before that date.
 
     Returns ``(es, ef, (is_instant, excess), actual_day)``.
     """
-    es = np.where(np.rint(es) < position, position, es)
     ef = es + eff_dur
     is_instant = np.rint(ef) == np.rint(es)
     excess = ef - np.rint(ef)
@@ -7653,7 +7652,7 @@ def monte_carlo(
     milestones are instants exactly as in :func:`schedule` (#4079) — a fully
     deterministic project (no estimates, no velocity signal) simulates to
     precisely the CPM finish date. A zero-duration task with an estimate is that
-    instant in the runs whose draw rounds away, and work from it otherwise
+    instant in the runs whose draw rounds away, and ordinary work otherwise
     (:func:`_mc_zero_base_column`, #4698). **Never before is the invariant on an FS/SS
     network**, and it holds for an uncertain one too: the early-start floors bind
     the start dates (see :func:`_mc_es_floors`) and the duration floor above binds

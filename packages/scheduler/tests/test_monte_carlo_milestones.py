@@ -7,7 +7,8 @@ ruler cannot say which midnight a start sits on, so a draw that rounds away woul
 as work ending the working day *before* its start, and that network finishes before
 its CPM date whenever a lag or a floor is involved (373 of 1,728 networks measured) or
 after it when an SS link reads the next working day (102). A run whose draw rounds away
-therefore has to be the instant ``schedule()`` places.
+therefore has to be the instant ``schedule()`` places. A larger draw is ordinary work,
+the same as a task of that length with the same link.
 
 The class is ``CELLS``: M state (3) x link into M (4) x link out of M (4) x calendar
 scope (3), 144 cells, each run over the five lag/hold variants in ``VARIANTS``, so 720
@@ -15,6 +16,10 @@ networks. ``test_instant_runs_match_a_real_milestone`` then generalizes it to ra
 networks.
 
 Most cases draw an exact zero so they say nothing about how a fractional finish rounds.
+
+An FF or SF link into the task back-solves a work-sized draw, as it does for any task, so
+an SS or SF link out of it can read ahead of the instant (#4822). "Never before CPM" is
+scoped accordingly: see ``_BACK_SOLVES_AHEAD``.
 """
 
 from __future__ import annotations
@@ -22,9 +27,10 @@ from __future__ import annotations
 import random
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import date, timedelta
 from itertools import product
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import patch
 
 import numpy as np
@@ -32,6 +38,7 @@ import pytest
 
 from trueppm_scheduler import (
     Calendar,
+    DeliveryMode,
     Dependency,
     DependencyType,
     MonteCarloResult,
@@ -47,6 +54,7 @@ START = date(2026, 3, 2)
 WEEKDAYS = 0b0011111
 SIX_DAY = 0b0111111
 HELD_TO_A_MONDAY = date(2026, 3, 16)
+VELOCITY_FF_P50 = date(2026, 4, 3)
 
 STATES = ("live", "started", "predecessor_in_progress")
 LINKS = (DependencyType.FS, DependencyType.SS, DependencyType.FF, DependencyType.SF)
@@ -59,6 +67,12 @@ VARIANTS = (
     (3, 1, None),
     (0, 0, HELD_TO_A_MONDAY),
     (1, 3, HELD_TO_A_MONDAY),
+)
+
+
+# Link into M, link out of M: a work-sized draw can finish before CPM (#4822).
+_BACK_SOLVES_AHEAD = list(
+    product((DependencyType.FF, DependencyType.SF), (DependencyType.SS, DependencyType.SF))
 )
 
 
@@ -207,14 +221,39 @@ class TestTheClass:
                 mc = _run(project)
             assert (mc.p50, min(mc.distribution)) == (cpm, cpm), variant
 
-    def test_no_real_draw_finishes_before_the_cpm_date(
+    def test_no_round_away_draw_finishes_before_the_cpm_date(
         self, state: str, link_in: DependencyType, link_out: DependencyType, scope: str
     ) -> None:
         for variant in VARIANTS:
             project = _cell(state, link_in, link_out, scope, variant)
             cpm = schedule(project).project_finish
+            with _draws(_constant(0.3)):
+                mc = _run(project)
+            assert min(mc.distribution) >= cpm, variant
+
+    def test_no_real_draw_finishes_before_the_cpm_date(
+        self, state: str, link_in: DependencyType, link_out: DependencyType, scope: str
+    ) -> None:
+        if (link_in, link_out) in _BACK_SOLVES_AHEAD:
+            pytest.skip("a work-sized draw can back-solve ahead of CPM here (#4822)")
+        for variant in VARIANTS:
+            project = _cell(state, link_in, link_out, scope, variant)
+            cpm = schedule(project).project_finish
             mc = _run(project, runs=500)
             assert min(mc.distribution) >= cpm, variant
+
+    def test_crossing_into_work_does_not_finish_earlier(
+        self, state: str, link_in: DependencyType, link_out: DependencyType, scope: str
+    ) -> None:
+        if (link_in, link_out) in _BACK_SOLVES_AHEAD:
+            pytest.skip("this is the backward step #4822 tracks")
+        for variant in VARIANTS:
+            project = _cell(state, link_in, link_out, scope, variant)
+            with _draws(_constant(0.49)):
+                rounds_away = _run(project)
+            with _draws(_constant(0.51)):
+                work = _run(project)
+            assert work.p50 >= rounds_away.p50, variant
 
 
 class TestWhatARunIs:
@@ -286,13 +325,6 @@ class TestWhatARunIs:
         with _draws(_constant(2.0)):
             assert _run(project).p50 == date(2026, 3, 17)
 
-    def test_ff_cannot_back_solve_work_ahead_of_the_instant(self) -> None:
-        """Back-solved over a 0.7 draw, M would start Friday and let B start before CPM."""
-        project = _cell("live", DependencyType.FF, DependencyType.SS, "project")
-        with _draws(_constant(0.7)):
-            mc = _run(project)
-        assert min(mc.distribution) >= schedule(project).project_finish
-
     def test_a_task_with_work_keeps_its_one_day_floor(self) -> None:
         tasks = [
             Task(id="A", name="A", duration=_days(1), **_estimate()),
@@ -302,6 +334,81 @@ class TestWhatARunIs:
         with _draws(_constant(0.2)):
             assert _run(project).p50 == date(2026, 3, 9) == schedule(project).project_finish
         assert engine._mc_effective_duration(np.array([0.2]), "A", {}).tolist() == [1.0]
+
+
+def _work_network(
+    link_in: DependencyType,
+    link_out: DependencyType,
+    m_days: int,
+    **m_fields: Any,
+) -> Project:
+    return _project(
+        [
+            Task(id="A", name="A", duration=_days(5)),
+            Task(id="M", name="M", duration=_days(m_days), **m_fields),
+            Task(id="B", name="B", duration=_days(5)),
+        ],
+        [_link("A", "M", link_in), _link("M", "B", link_out)],
+    )
+
+
+def _same_result(left: MonteCarloResult, right: MonteCarloResult) -> None:
+    assert (left.p50, left.p80, left.p95) == (right.p50, right.p80, right.p95)
+    assert left.distribution == right.distribution
+
+
+class TestAWorkSizedDrawIsOrdinaryWork:
+    """A draw of a day or more back-solves over FF/SF like a real task of that length."""
+
+    @pytest.mark.parametrize(
+        ("estimate", "link_in", "p50"),
+        [
+            ((3, 5, 8), DependencyType.FF, date(2026, 3, 13)),
+            ((3, 5, 8), DependencyType.SF, date(2026, 3, 6)),
+            ((1, 1, 1), DependencyType.FF, date(2026, 3, 13)),
+            ((1, 1, 1), DependencyType.SF, date(2026, 3, 6)),
+        ],
+    )
+    def test_pinned_to_main(
+        self, estimate: tuple[int, int, int], link_in: DependencyType, p50: date
+    ) -> None:
+        project = _work_network(link_in, DependencyType.FS, 0, **_estimate(*estimate))
+        assert monte_carlo(project, runs=2000, seed=1).p50 == p50
+
+    @pytest.mark.parametrize("link_in", [DependencyType.FF, DependencyType.SF])
+    @pytest.mark.parametrize("link_out", LINKS)
+    @pytest.mark.parametrize("estimate", [(1, 1, 1), (2, 2, 2), (3, 5, 8)])
+    def test_equal_to_a_real_task_of_that_length(
+        self, estimate: tuple[int, int, int], link_in: DependencyType, link_out: DependencyType
+    ) -> None:
+        fields = _estimate(*estimate)
+        zero_base = _work_network(link_in, link_out, 0, **fields)
+        real = _work_network(link_in, link_out, estimate[0], **fields)
+        _same_result(
+            monte_carlo(zero_base, runs=500, seed=1),
+            monte_carlo(real, runs=500, seed=1),
+        )
+
+
+class TestVelocityPath:
+    """A 0-day SCRUM task with story points samples work, with no PERT fields at all."""
+
+    SCRUM: ClassVar[dict[str, Any]] = {"delivery_mode": DeliveryMode.SCRUM, "story_points": 20}
+
+    def _network(self, link_in: DependencyType, m_days: int) -> Project:
+        base = _work_network(link_in, DependencyType.FS, m_days, **self.SCRUM)
+        return replace(base, velocity_samples=[8.0, 10.0, 12.0], sprint_length_days=10)
+
+    @pytest.mark.parametrize("link_in", LINKS)
+    def test_equal_to_a_real_task_with_the_same_points(self, link_in: DependencyType) -> None:
+        _same_result(
+            monte_carlo(self._network(link_in, 0), runs=500, seed=1),
+            monte_carlo(self._network(link_in, 1), runs=500, seed=1),
+        )
+
+    def test_ff_in_is_pinned_to_main(self) -> None:
+        project = self._network(DependencyType.FF, 0)
+        assert monte_carlo(project, runs=2000, seed=1).p50 == VELOCITY_FF_P50
 
 
 def _random_network(seed: int, *, estimates: bool) -> Project:

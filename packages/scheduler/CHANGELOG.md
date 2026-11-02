@@ -18,6 +18,24 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A zero-duration task with a small estimate no longer costs a full working day
+  in Monte Carlo, and seeded results for such tasks change.** A 0-day task with a
+  `(0, 0, 1)` estimate, mean 1/6 day and mode 0, was floored at one working day in
+  every run, so P50 moved a working day past the CPM finish. A run whose draw rounds
+  away is now the instant `schedule()` places, links and lags included, and hands
+  the fraction to its successors. A larger draw stays ordinary work, the same as a
+  task of that length with the same link. This applies to any zero-duration task
+  with a sampled duration, including story points on the velocity path, though
+  velocity draws are whole-sprint work and we measured no change on them. Tasks with
+  a duration of one day or more and zero-duration tasks with no estimate or velocity
+  signal are unchanged
+  ([#4698](https://gitlab.com/trueppm/trueppm/-/issues/4698)).
+
+  Known limit: an FF or SF link into the task back-solves a work-sized draw, so with
+  an SS or SF link out of it a run can finish before the CPM finish, and a draw just
+  past the rounding point can finish earlier than one just below it
+  ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)).
+
 - **`perturb_task_duration` no longer completes a task, and its results change.**
   A pull-in that used up a task's remaining work set `actual_finish` and
   `percent_complete=100` and could move `actual_start`, which cut the task off
