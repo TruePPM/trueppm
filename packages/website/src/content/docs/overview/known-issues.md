@@ -213,8 +213,8 @@ specific defects behind them.
 ## Findability and filtering
 
 Filtering matured on the Board first and will reach the other views unevenly. Label
-filtering lands on the Table/Grid and the Product Backlog with 0.4; the Schedule will
-not get it, and today no view except the Board can save a filter by name.
+filtering reached the Table/Grid and the Product Backlog in 0.4; the Schedule does
+not have it, and today no view except the Board can save a filter by name.
 
 | Issue | Symptom | Fix planned for |
 |---|---|---|

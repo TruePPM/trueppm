@@ -202,7 +202,7 @@ The latest-result endpoint (`GET .../monte-carlo/latest/`) also falls back to
 this persisted history once the 24-hour cache has expired, so your most recent
 forecast survives past the cache rather than disappearing.
 
-:::note[Attribution is Project Manager and above only]
+:::note[Attribution defaults to Project Manager and above]
 By default `triggered_by_name` is returned **only** to Project Managers and Project Admins. Every
 other member (Viewer and up) sees the drift values without the run-author
 name. A workspace, program, or project can widen this to Schedulers and above, or
@@ -248,7 +248,7 @@ Supply exactly one of:
 
 An optional `n_simulations` controls the iteration count (default and caps are the
 same as a normal run, including the runs × tasks cap; `runs` in the response reports
-the count simulated). The response will carry:
+the count simulated). The response carries:
 
 | Field | Meaning |
 |---|---|
@@ -366,7 +366,7 @@ progresses, the simulation:
   earlier than its own CPM finish — re-run those forecasts after upgrading.)*
 
 An optional `status_date` field on the project (`GET`/`PATCH
-/api/v1/projects/<id>/`, added in 0.4) sets that anchor — in the app, under
+/api/v1/projects/<id>/`) sets that anchor — in the app, under
 **Project settings → General → Status date (data date)**, not API-only. When it is left null the forecast
 defaults to today, so an actively-tracked project reads correctly with no extra
 configuration; a PM who wants a reproducible, frozen forecast for a report can
@@ -661,8 +661,7 @@ not 1.2× M.
 | Max tasks per project (`MC_TASK_CAP`) | 5,000 |
 | Max run history per project (`MC_HISTORY_CAP`, added in 0.3) | 100 |
 
-Both settings can be changed in `settings/base.py` (or a local override). Self-hosted OSS operators may set any integer or `None` in their local
-settings — the cap is advisory, not license-enforced.
+Both settings can be changed in `settings/base.py` (or a local override). Self-hosted OSS operators may set any integer or `None` for the run and task caps — the cap is advisory, not license-enforced. The run-history default is different: `MC_HISTORY_CAP = None` does not remove the limit in OSS, it falls back to 100, and a per-workspace limit is clamped to 500 (see [Retention](#retention)).
 
 Exceeding either cap returns HTTP 402 with a structured error body:
 
