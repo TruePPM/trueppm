@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
-import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN, canAuthorDependencies } from '@/lib/roles';
+import { ROLE_VIEWER, ROLE_ADMIN, canAuthorDependencies, canEditTaskRow } from '@/lib/roles';
 import { Button } from '@/components/Button';
 import { FieldHelp } from '@/components/FieldHelp';
 import { toast } from '@/components/Toast';
@@ -571,7 +571,7 @@ export function TaskFormModal({
   }, [mode, projectDetail]);
 
   const itl = useIterationLabel(projectId);
-  const { role, isError: roleError } = useCurrentUserRole(projectId);
+  const { role, isLoading: roleLoading, isError: roleError } = useCurrentUserRole(projectId);
   const { data: resourcePool } = useProjectResourcePool(projectId);
   const {
     predecessors: serverPredecessors,
@@ -680,9 +680,8 @@ export function TaskFormModal({
    *
    * Deliberately NOT `isReadOnly`. Edges are `IsProjectScheduler` and task
    * content is `IsProjectPlanAuthor` (ADR-0773 §7) — neither band contains the
-   * other, so one flag cannot answer both questions. `isReadOnly` below is also
-   * built on a predicate that never reads the current user, which made this
-   * editor's gate vacuous rather than merely wrong; that half is #3193.
+   * other, so one flag cannot answer both questions. `isReadOnly` below resolves
+   * the server's per-task verdict instead.
    *
    * A failed role read is OR'd back in as rights: `retry: false` makes one
    * dropped request terminal, and the server enforces regardless. Same rule as
@@ -690,11 +689,19 @@ export function TaskFormModal({
    * edit the same edges and must agree.
    */
   const canWriteDependencies = (roleError ?? false) || canAuthorDependencies(role);
-  const isReadOnly = isViewer || (mode === 'edit' && role === ROLE_MEMBER && task?.assignees.every(
-    // Member without ownership has read-only view (best-effort heuristic;
-    // server is the source of truth — if PATCH fails with 403 we surface it).
-    () => false,
-  ) === true);
+  // Edit mode asks the same question the schedule outline and canvas ask, through
+  // the same resolver, so the modal cannot disagree with the row that opened it.
+  // The server's per-task verdict wins; the role decides only when the server
+  // sent none. A role that is still loading or failed keeps the form editable: the
+  // server enforces on save, and locking an editor out on a dropped request is
+  // worse than one refused write. A settled null role (no membership) is NOT
+  // unsettled; it resolves exactly as the schedule row does, as not editable.
+  // Create mode has no task to ask about, so only a Viewer is locked out.
+  const roleUnsettled = roleLoading === true || roleError === true;
+  const isReadOnly =
+    mode === 'edit'
+      ? !canEditTaskRow(task?.canEdit, role, roleUnsettled)
+      : isViewer;
 
   // Candidate parents for create mode — every task that can author a child:
   // existing summaries AND leaf tasks. Picking a leaf parent will turn it
