@@ -18,12 +18,18 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
-- `perturb_task_duration` no longer completes a started milestone. A zero or
-  negative delta on a zero-duration task carrying a `percent_complete` used to
-  set `actual_finish`, move the finish earlier, and drop the task and its
-  predecessors off the critical path. Its duration, percentage and actuals now
-  stay as they were; on a negative delta its three-point estimate and story
-  points still shift. A zero delta now returns every task unchanged
+- **`perturb_task_duration` no longer completes a task, and its results change.**
+  A pull-in that used up a task's remaining work set `actual_finish` and
+  `percent_complete=100` and could move `actual_start`, which cut the task off
+  from its predecessors: the critical path fell to its successors, and the Monte
+  Carlo bands could move further than the pull-in (P80 by 4 working days on a
+  1-day pull-in) because the predecessors' risk dropped out. A zero or negative
+  delta on a started milestone did the same. The task now stays open at zero
+  duration with `percent_complete`, `actual_start` and `actual_finish` as they
+  were, and the finish and bands move by the days pulled in. Its three-point
+  estimate and story points are also lowered by its elapsed days, which Monte
+  Carlo stops subtracting at zero duration. This reverses the completion
+  behavior added with the #4432 fix. A zero delta now returns every task unchanged
   ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)).
 
 ## [0.4.0] - 2026-10-31

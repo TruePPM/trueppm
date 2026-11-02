@@ -326,6 +326,34 @@ class TestWhatIfMovesCpmAndBandsTogether:
         assert r.status_code == 200, r.data
         assert r.data["delta_vs_current"] == {"p50": 0, "p80": 0, "p95": 0, "cpm_finish": 0}
 
+    def test_pulling_in_all_remaining_work_keeps_the_critical_path(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """A pull-in of the last day must not read as completion. Pinning the task at
+        invented actuals moved the finish two working days on a one-day pull-in and
+        reported its predecessor as no longer critical."""
+        project.start_date = date(2027, 3, 1)  # Monday
+        project.status_date = date(2027, 3, 8)
+        project.save()
+        pred = Task.objects.create(project=project, name="Pred", duration=5)
+        target = Task.objects.create(project=project, name="Last", duration=1, percent_complete=50)
+        succ = Task.objects.create(project=project, name="Succ", duration=3)
+        Dependency.objects.create(predecessor=pred, successor=target, lag=0)
+        Dependency.objects.create(predecessor=target, successor=succ, lag=0)
+
+        r = member_client.get(
+            _url(project),
+            {"task_id": str(target.pk), "duration_delta": -1, "n_simulations": 100},
+        )
+
+        assert r.status_code == 200, r.data
+        assert r.data["critical_path_changed"] is False
+        assert str(pred.pk) in r.data["whatif"]["critical_path"]
+        assert r.data["delta_vs_current"]["cpm_finish"] == -1
+        task = Task.objects.get(pk=target.pk)
+        assert task.actual_finish is None
+        assert task.percent_complete == 50
+
 
 # ---------------------------------------------------------------------------
 # Non-mutation guarantee

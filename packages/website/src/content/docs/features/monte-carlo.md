@@ -272,12 +272,21 @@ pull-in of `-N` days moves it `N` working days earlier, whatever its percent
 complete. This holds when the task's outgoing links have no lag. A lag counted in
 calendar days can gain or lose weekend days, so the shift can then differ from `N`.
 A pull-in can move the finish less than this if another path becomes
-critical first. Completed work cannot be undone, so the largest possible pull-in equals
-the remaining working days. A bigger pull-in has the same effect as that one. The
-what-if then treats the task as finished on the working day before its remaining
-work would have started. With no lag on its outgoing links, the finish then moves
-earlier by exactly the remaining days.
-Its duration is never set below the days already completed. Before the fix
+critical first. The largest possible pull-in equals the remaining working days. A
+bigger pull-in has the same effect as that one. The what-if then treats the task as
+open with no work left. It does not record a finish for it, and its percent complete
+and actual start stay as they were. Its predecessors still drive what comes after it,
+so they stay on the critical path and their risk stays in the bands. With no lag on
+its outgoing links, the finish moves earlier by exactly the remaining days.
+
+:::note[Ships in 0.5]
+Keeping the task open ships in 0.5. Through 0.4, a pull-in of all remaining work marks
+the task finished on the working day before its remaining work would have started, so
+its predecessors can drop off the critical path and the bands can move further than
+the pull-in.
+:::
+
+Before the fix
 ([#4432](https://gitlab.com/trueppm/trueppm/-/issues/4432)), the change was spread
 over both the done and the remaining share of the task. A `+1` slip on a task that
 was 50% done could report no impact.

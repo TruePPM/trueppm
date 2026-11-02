@@ -5462,14 +5462,14 @@ def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
     return shifted if shifted > timedelta(0) else timedelta(0)
 
 
-def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task:
-    """Shift an in-progress task's remaining work, holding its elapsed days constant.
+def _shift_remaining_work(task: Task, delta_days: int) -> Task:
+    """Shift the remaining work of a task carrying a percentage, elapsed days held.
 
-    Returns ``task`` with a new ``duration`` and ``percent_complete`` (and, when the
-    shift consumes every remaining day, an ``actual_finish``). Elapsed working days
-    are ``floor(duration * pct / 100)`` — the rule :func:`_effective_duration_days`
-    and Monte Carlo both apply — and work already done cannot be undone by a
-    what-if, so the new duration is ``elapsed + max(0, remaining + delta_days)``.
+    Returns ``task`` with a new ``duration`` and ``percent_complete``. Elapsed working
+    days are ``floor(duration * pct / 100)`` — the rule
+    :func:`_effective_duration_days` and Monte Carlo both apply — and work already done
+    cannot be undone by a what-if, so while any work remains the new duration is
+    ``elapsed + remaining + delta_days``.
 
     The new percentage is placed at the *midpoint* of the band that floors to
     ``elapsed`` — ``(elapsed + 0.5) / new_duration`` — rather than at its lower
@@ -5478,57 +5478,30 @@ def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task
     100, so the task stays in progress. The original percentage is kept whenever it
     already yields the same elapsed count.
 
-    A task with no remaining work to begin with (a zero-duration milestone carrying a
-    percentage) is returned as it is unless the delta gives it some. Reaching zero
-    remaining days is only evidence of completion when a pull-in actually consumed
-    them; here it is just what zero duration means, and the milestone would otherwise
-    gain an ``actual_finish`` nobody recorded, leave the critical path, and drag its
-    successors earlier. A positive delta needs no special case: it creates remaining
-    work and takes the in-progress path above.
+    A pull-in that leaves no remaining work returns a zero-duration task, which is how
+    the engine expresses an open task with nothing left to do. No duration above zero
+    can say it, because the integer rule always leaves a day below 100%. Everything
+    else stays as recorded: the percentage and ``actual_start`` describe work the
+    what-if did not change, and a zero-duration task reads neither for layout.
 
-    A pull-in that consumes all remaining work cannot be expressed as an in-progress
-    task (the integer rule needs ``pct < 100`` and so always leaves a day), so the
-    task becomes complete. A bare 100% is not enough: the engine lays a completed
-    task out at its full duration *from its actuals or the project start* (ADR-0136),
-    which is a statement about history, not "finished as of now" — it moved the
-    finish *later* on a task whose elapsed days outran its ``actual_start``, or that
-    had none. The completed task is therefore pinned to finish on the working day
-    before the baseline's remaining-work window began: zero remaining days end
-    exactly where they would have started, so successors keep the start they would
-    have had with nothing left to do. ``actual_start`` is kept unless it falls after
-    that finish; when unset, the engine derives it from the finish.
+    The task stays open rather than becoming complete because a completed task is
+    pinned at its actuals and stops reading its predecessors. That would be a statement
+    about history the what-if has no evidence for, and it would cut the task's
+    predecessors off from its successors: they would leave the critical path and their
+    risk would drop out of the Monte Carlo bands, moving the forecast far more than the
+    pull-in asked for. Open, the task still sits behind its predecessors, so the finish
+    moves by the remaining days and nothing else changes.
     """
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
     elapsed = int(duration_days * pct / 100.0)
-    baseline_remaining = duration_days - elapsed
-    remaining = max(0, baseline_remaining + delta_days)
+    remaining = duration_days - elapsed + delta_days
+    if remaining <= 0:
+        return replace(task, duration=timedelta(0))
     new_days = elapsed + remaining
-    if remaining > 0:
-        if int(new_days * pct / 100.0) != elapsed:
-            pct = (elapsed + 0.5) * 100.0 / new_days
-        return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
-    if baseline_remaining == 0:
-        return task
-
-    # The remaining-work window's start in the unperturbed schedule. Only this task
-    # changes, so nothing upstream of it — its predecessors, the data-date floor —
-    # can move that start. Run once, only on this rare exhausting branch.
-    window_start = next(t for t in schedule(project).tasks if t.id == task.id).early_start
-    assert window_start is not None
-    calendars = _resolve_task_calendars(project)
-    cal = calendars[task.id] if calendars is not None else project.calendar
-    finish = _scan_for_working_day(window_start, cal, forward=False)
-    actual_start = task.actual_start
-    if actual_start is not None and actual_start > finish:
-        actual_start = finish
-    return replace(
-        task,
-        duration=timedelta(days=new_days),
-        percent_complete=100.0,
-        actual_start=actual_start,
-        actual_finish=finish,
-    )
+    if int(new_days * pct / 100.0) != elapsed:
+        pct = (elapsed + 0.5) * 100.0 / new_days
+    return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
 
 
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
@@ -5577,16 +5550,16 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     elapsed count from every sampled value, so shifting each leg by ``delta_days``
     shifts the sampled remaining work by ``delta_days``.
 
-    Completion is only ever a consequence of pulling in work that was still there. A
-    pull-in that consumes the last remaining day of a task carrying a
-    ``percent_complete`` completes it, because the engine cannot express an in-progress
-    task with nothing left. Without a percentage the task keeps no record of work done,
-    so it floors at zero duration and stays open. A milestone has no days to consume,
-    so no delta can complete it, whatever its ``actual_start`` or ``percent_complete``
-    say: a zero or negative delta leaves its duration, percentage and actuals as they
-    were, matching an unstarted milestone. A positive delta turns it into a task of
-    ``delta_days`` days, still open, so the finish moves as it would for that unstarted
-    milestone. A zero delta is an exact identity on every task.
+    A shift never records completion, because a what-if has no evidence about history.
+    A pull-in that consumes all remaining work, on any task, leaves it open at zero
+    duration with its percentage and actuals as they were, so its predecessors still
+    drive its successors (see :func:`_shift_remaining_work`). A task's elapsed days stop
+    being subtracted from its sampled duration at that point, because they are read off
+    ``duration``, so the sampled inputs are lowered by those days as well: the sampled
+    remaining work still moves by ``delta_days``. A milestone has no work to consume, so
+    a negative delta leaves its duration, percentage and actuals alone, and a positive
+    delta turns it into an open task of ``delta_days`` days. A zero delta is an exact
+    identity on every task.
 
     Sampling semantics are untouched: this only changes what the engine is asked
     about, never how it answers.
@@ -5596,20 +5569,18 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
             mutated; a new :class:`Project` with a new task list is returned.
         task_id: Id of the task to perturb.
         delta_days: Signed day offset. Positive slips the task later, negative pulls
-            it in. Durations floor at zero (on an in-progress task, at its elapsed
-            working days, since done work cannot be undone), and so do story
-            points — a shift that
-            would zero the remaining points drops the task to its deterministic
+            it in. Durations floor at zero, which is where a pull-in of all remaining
+            work lands whatever the elapsed days, and so do story points — a shift
+            that would zero the remaining points drops the task to its deterministic
             duration, the honest reading of "this work no longer takes a sprint".
             Zero returns a project equal to ``project``.
 
     Returns:
         A new :class:`Project`, identical to ``project`` except for the target
         task's shifted duration inputs. On a task carrying a ``percent_complete``
-        that includes a rescaled percentage; on a pull-in that consumes all remaining
-        work it also sets ``actual_finish`` and may move ``actual_start`` earlier
-        (see :func:`_shift_remaining_work`). A task with no remaining work to
-        consume, such as a started milestone, is never completed by a shift.
+        that includes a rescaled percentage while work remains. ``actual_start`` and
+        ``actual_finish`` are never changed, so a shift never completes a task (see
+        :func:`_shift_remaining_work`).
 
     Raises:
         InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent
@@ -5651,6 +5622,20 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
         # so returning here is what makes "nothing changed" true of any input.
         return replace(project, tasks=list(project.tasks))
 
+    if target.percent_complete and target.percent_complete > 0:
+        shifted = _shift_remaining_work(target, delta_days)
+    else:
+        # ``duration`` is non-optional on Task, so the shift is never None here.
+        new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
+        shifted = replace(target, duration=new_duration)
+    # Monte Carlo subtracts elapsed days, read off ``duration``, from every sampled value.
+    # A pull-in to zero duration ends that subtraction, so the sampled inputs must absorb
+    # those days or the task's remaining work would grow by them.
+    sampled_delta = delta_days - (
+        (target.duration.days - _effective_duration_days(target))
+        - (shifted.duration.days - _effective_duration_days(shifted))
+    )
+
     story_points = target.story_points
     # Gate the points conversion on the same predicate the sampler uses, so a task
     # that will NOT take the velocity branch keeps its points untouched.
@@ -5664,19 +5649,13 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
         mean = _velocity_mean(project)
         if mean is not None:
             points_per_working_day = mean / project.sprint_length_days
-            story_points = max(0.0, story_points + delta_days * points_per_working_day)
+            story_points = max(0.0, story_points + sampled_delta * points_per_working_day)
 
-    # ``duration`` is non-optional on Task, so the shift is never None here.
-    new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
-    if target.percent_complete and target.percent_complete > 0:
-        shifted = _shift_remaining_work(project, target, delta_days)
-    else:
-        shifted = replace(target, duration=new_duration)
     perturbed = replace(
         shifted,
-        optimistic_duration=_shift_duration(target.optimistic_duration, delta_days),
-        most_likely_duration=_shift_duration(target.most_likely_duration, delta_days),
-        pessimistic_duration=_shift_duration(target.pessimistic_duration, delta_days),
+        optimistic_duration=_shift_duration(target.optimistic_duration, sampled_delta),
+        most_likely_duration=_shift_duration(target.most_likely_duration, sampled_delta),
+        pessimistic_duration=_shift_duration(target.pessimistic_duration, sampled_delta),
         story_points=story_points,
     )
     return replace(
