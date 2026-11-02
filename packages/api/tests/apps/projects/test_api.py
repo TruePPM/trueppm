@@ -1086,6 +1086,70 @@ class TestDependencyTypeCollision:
             Dependency.objects.create(predecessor=extra[i], successor=extra[i + 1], dep_type="FS")
         assert _count(extra[10], extra[11]) == baseline
 
+    def _cross_project_collision_setup(
+        self, user: object, calendar: Calendar, *, readable_summary_project: bool
+    ) -> tuple[Task, Task, Task]:
+        """Program with P1 (summary S containing leaf A) and P2 (task C); S -FS-> C exists.
+
+        The caller always holds Scheduler on P2. On P1 they hold Scheduler only when
+        ``readable_summary_project``; otherwise just a program role, which lets them
+        reference A but does not make P1's other tasks readable.
+        """
+        program = Program.objects.create(name="Launch")
+        p1 = Project.objects.create(
+            name="P1", start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        p2 = Project.objects.create(
+            name="P2", start_date=date(2026, 3, 2), calendar=calendar, program=program
+        )
+        ProjectMembership.objects.create(project=p2, user=user, role=Role.SCHEDULER)
+        if readable_summary_project:
+            ProjectMembership.objects.create(project=p1, user=user, role=Role.SCHEDULER)
+        else:
+            ProgramMembership.objects.create(program=program, user=user, role=Role.VIEWER)
+        summary = Task.objects.create(
+            project=p1, name="Secret Phase Title", duration=0, wbs_path="1"
+        )
+        leaf = Task.objects.create(project=p1, name="Design", duration=2, wbs_path="1.1")
+        target = Task.objects.create(project=p2, name="Ship", duration=1, wbs_path="1")
+        Dependency.objects.create(predecessor=summary, successor=target, dep_type="FS")
+        return summary, leaf, target
+
+    def test_cross_project_collision_is_rejected_over_the_program_graph(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        _summary, leaf, target = self._cross_project_collision_setup(
+            user, calendar, readable_summary_project=True
+        )
+
+        r = self._post(client, leaf, target, "FF")
+
+        assert r.status_code == 400, r.data
+        message = " ".join(r.data["dep_type"])
+        assert "different types" in message
+        # Readable in P1, so the summary is named rather than redacted.
+        assert "Secret Phase Title" in message
+        assert Dependency.objects.filter(predecessor=leaf).count() == 0
+
+    def test_collision_message_redacts_tasks_in_projects_the_caller_cannot_read(
+        self, client: APIClient, user: object, calendar: Calendar
+    ) -> None:
+        summary, leaf, target = self._cross_project_collision_setup(
+            user, calendar, readable_summary_project=False
+        )
+
+        r = self._post(client, leaf, target, "FF")
+
+        assert r.status_code == 400, r.data
+        message = " ".join(r.data["dep_type"])
+        assert "another task" in message
+        assert "Secret Phase Title" not in message
+        for task in (summary, leaf, target):
+            assert str(task.pk) not in message
+        # The two tasks being linked are always named; they are the caller's own input.
+        assert "Design" in message
+        assert "Ship" in message
+
 
 @pytest.mark.django_db
 class TestCrossProjectDependency:
