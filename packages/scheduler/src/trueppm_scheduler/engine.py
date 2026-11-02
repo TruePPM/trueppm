@@ -5478,6 +5478,14 @@ def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task
     100, so the task stays in progress. The original percentage is kept whenever it
     already yields the same elapsed count, so a zero delta changes nothing.
 
+    A task with no remaining work to begin with (a zero-duration milestone carrying a
+    percentage) is returned as it is unless the delta gives it some. Reaching zero
+    remaining days is only evidence of completion when a pull-in actually consumed
+    them; here it is just what zero duration means, and the milestone would otherwise
+    gain an ``actual_finish`` nobody recorded, leave the critical path, and drag its
+    successors earlier. A positive delta needs no special case: it creates remaining
+    work and takes the in-progress path above.
+
     A pull-in that consumes all remaining work cannot be expressed as an in-progress
     task (the integer rule needs ``pct < 100`` and so always leaves a day), so the
     task becomes complete. A bare 100% is not enough: the engine lays a completed
@@ -5493,12 +5501,15 @@ def _shift_remaining_work(project: Project, task: Task, delta_days: int) -> Task
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
     elapsed = int(duration_days * pct / 100.0)
-    remaining = max(0, duration_days - elapsed + delta_days)
+    baseline_remaining = duration_days - elapsed
+    remaining = max(0, baseline_remaining + delta_days)
     new_days = elapsed + remaining
     if remaining > 0:
         if int(new_days * pct / 100.0) != elapsed:
             pct = (elapsed + 0.5) * 100.0 / new_days
         return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
+    if baseline_remaining == 0:
+        return task
 
     # The remaining-work window's start in the unperturbed schedule. Only this task
     # changes, so nothing upstream of it — its predecessors, the data-date floor —
@@ -5566,6 +5577,15 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
     elapsed count from every sampled value, so shifting each leg by ``delta_days``
     shifts the sampled remaining work by ``delta_days``.
 
+    Completion is only ever a consequence of pulling in work that was still there. A
+    pull-in that consumes the last remaining day of a task completes it, because the
+    engine cannot express an in-progress task with nothing left. A milestone has no
+    days to consume, so no delta can complete it, whatever its ``actual_start`` or
+    ``percent_complete`` say: a zero or negative delta leaves its duration, percentage
+    and actuals as they were, matching an unstarted milestone. A positive delta turns
+    it into a task of ``delta_days`` days, still open, so the finish moves as it would
+    for that unstarted milestone. A zero delta is an exact identity on every task.
+
     Sampling semantics are untouched: this only changes what the engine is asked
     about, never how it answers.
 
@@ -5579,13 +5599,15 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
             points — a shift that
             would zero the remaining points drops the task to its deterministic
             duration, the honest reading of "this work no longer takes a sprint".
+            Zero returns a project equal to ``project``.
 
     Returns:
         A new :class:`Project`, identical to ``project`` except for the target
         task's shifted duration inputs. On an in-progress task that includes a
         rescaled ``percent_complete``; on a pull-in that consumes all remaining
         work it also sets ``actual_finish`` and may move ``actual_start`` earlier
-        (see :func:`_shift_remaining_work`).
+        (see :func:`_shift_remaining_work`). A task with no remaining work to
+        consume, such as a started milestone, is never completed by a shift.
 
     Raises:
         InvalidScheduleInput: If ``task_id`` names no task in ``project``. A silent
