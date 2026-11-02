@@ -1078,6 +1078,9 @@ _ONE_DAY = timedelta(days=1)
 _START_ANCHORED = (DependencyType.FS, DependencyType.SS)
 """Dependency types whose successor constraint bounds the successor's *start*."""
 
+_FROM_PREDECESSOR_FINISH = (DependencyType.FS, DependencyType.FF)
+"""Dependency types measured from the predecessor's *finish*, not its start."""
+
 _Instant = tuple[date, bool]
 """A milestone's position: ``(instant, start_display)``.
 
@@ -6562,11 +6565,12 @@ def _mc_milestone_floors(
     return out
 
 
-_InstantRuns = tuple[np.ndarray, np.ndarray]
-"""``(is_instant, excess)`` of a zero-base column (:func:`_mc_zero_base_column`, #4698).
+_InstantRuns = tuple[np.ndarray, np.ndarray, np.ndarray]
+"""``(is_instant, start_excess, finish_excess)`` of a zero-base column (#4698).
 
-``is_instant`` flags the runs placed as an instant; ``excess`` is each run's EF less
-its nearest whole offset, the fraction those runs round away and hand to successors.
+``is_instant`` flags the runs placed as an instant (:func:`_mc_zero_base_column`). The
+excesses are each run's ES and EF less their nearest whole offsets: what those runs
+round away and hand to a successor, by the end of the task its link measures from.
 """
 
 _VerbatimActual = tuple[int, float, float]
@@ -7007,22 +7011,22 @@ def _mc_zero_base_column(
     hid that by charging a day nobody estimated. So a run whose draw rounds away is
     the instant :func:`_place_milestone` gives the deterministic pass, and links
     out of it measure from that instant (``instant_runs``). It keeps the fraction
-    it rounded away, as work does: its successors carry it, so a chain of such tasks
-    still adds up. A larger draw is ordinary work, exactly as a task with a duration
-    of that length: an FF or SF link back-solves its start over the draw, which can
-    put an SS successor ahead of the instant's plan (#4822).
+    it rounded away, as work does: an FS or FF successor carries the finish's
+    fraction, so a chain of such tasks still adds up, and an SS or SF successor only
+    the start's. A larger draw is ordinary work: an FF or SF link back-solves its start
+    over the draw, which can put a successor ahead of the instant's plan (#4822).
 
     ``position`` is the instant's offset. ``actual`` is the task's non-working
     recorded start, if any: it floors the finish, as for a milestone, when every
     instant run is shown on that day (:func:`_mc_forward_pass`). The other runs are
     floored at the same recorded start, so none finishes before that date.
 
-    Returns ``(es, ef, (is_instant, excess), actual_day)``.
+    Returns ``(es, ef, (is_instant, start_excess, finish_excess), actual_day)``.
     """
     ef = es + eff_dur
     is_instant = np.rint(ef) == np.rint(es)
-    excess = ef - np.rint(ef)
-    instant_es = position + excess
+    finish_excess = ef - np.rint(ef)
+    instant_es = position + finish_excess
     instant_ef = instant_es + start_display
     actual_day: date | None = None
     if (
@@ -7035,7 +7039,7 @@ def _mc_zero_base_column(
     return (
         np.where(is_instant, instant_es, es),
         np.where(is_instant, instant_ef, ef),
-        (is_instant, excess),
+        (is_instant, es - np.rint(es), finish_excess),
         actual_day,
     )
 
@@ -7293,7 +7297,7 @@ def _mc_edge_constraints(
     not started reaches the offset anchor below, where the start is a working day.
 
     A zero-base predecessor (#4698) is such an instant only in its ``instant_runs``,
-    and adds the fraction it rounded away; its other runs are work.
+    and adds the fraction the link's anchor rounded away; its other runs are work.
 
     Returns ``(es_constraints, ef_constraints, has_ef_constraint)``.
     """
@@ -7356,7 +7360,9 @@ def _mc_edge_constraints(
         pred_runs = (instant_runs or {}).get(pred_id)
         if pred_runs is not None:
             assert index is not None
-            at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index) + pred_runs[1]
+            # As work does: FS/FF hand on the finish's fraction, SS/SF the start's.
+            excess = pred_runs[2] if dep.dep_type in _FROM_PREDECESSOR_FINISH else pred_runs[1]
+            at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index) + excess
             constraint = np.where(pred_runs[0], at_instant, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)
@@ -7987,7 +7993,7 @@ def monte_carlo(
     if has_instants:
         wt_mat = ef_mat.copy()
         wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
-        for tid, (is_instant, _) in instant_runs.items():
+        for tid, (is_instant, *_) in instant_runs.items():
             col = task_idx[tid]
             wt_mat[is_instant, col] = es_mat[is_instant, col]
     # The floor wins over the index only when it is later; it is a start-of-day

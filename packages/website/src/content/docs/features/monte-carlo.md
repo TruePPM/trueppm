@@ -476,9 +476,9 @@ full tail of the estimate.
 :::note[Ships in 0.5]
 A zero-duration task with a three-point estimate is charged only what it samples.
 In a run where the sample rounds to no time at all, the task behaves as the
-milestone the CPM pass shows. A larger sample is ordinary work, the same as a task
-of that length with the same link. An O=0 / M=0 / P=1 estimate therefore leaves P50
-on the CPM finish. In 0.4 every run charges such a task at least one full working
+milestone the CPM pass shows. A larger sample is simulated as work: with no recorded
+start, the same as a task of that length with the same link. An O=0 / M=0 / P=1
+estimate therefore leaves P50 on the CPM finish. In 0.4 every run charges such a task at least one full working
 day.
 :::
 

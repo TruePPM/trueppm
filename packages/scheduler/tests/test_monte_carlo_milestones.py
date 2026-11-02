@@ -7,8 +7,8 @@ ruler cannot say which midnight a start sits on, so a draw that rounds away woul
 as work ending the working day *before* its start, and that network finishes before
 its CPM date whenever a lag or a floor is involved (373 of 1,728 networks measured) or
 after it when an SS link reads the next working day (102). A run whose draw rounds away
-therefore has to be the instant ``schedule()`` places. A larger draw is ordinary work,
-the same as a task of that length with the same link.
+therefore has to be the instant ``schedule()`` places. A larger draw is ordinary work:
+with no recorded start, the same as a task of that length with the same link.
 
 The class is ``CELLS``: M state (3) x link into M (4) x link out of M (4) x calendar
 scope (3), 144 cells, each run over the five lag/hold variants in ``VARIANTS``, so 720
@@ -18,8 +18,8 @@ networks.
 Most cases draw an exact zero so they say nothing about how a fractional finish rounds.
 
 An FF or SF link into the task back-solves a work-sized draw, as it does for any task, so
-an SS or SF link out of it can read ahead of the instant (#4822). "Never before CPM" is
-scoped accordingly: see ``_BACK_SOLVES_AHEAD``.
+some links out of it can read ahead of the instant (#4822). "Never before CPM" is scoped
+accordingly: see ``_BACK_SOLVES_AHEAD``.
 """
 
 from __future__ import annotations
@@ -70,10 +70,14 @@ VARIANTS = (
 )
 
 
-# Link into M, link out of M: a work-sized draw can finish before CPM (#4822).
-_BACK_SOLVES_AHEAD = list(
-    product((DependencyType.FF, DependencyType.SF), (DependencyType.SS, DependencyType.SF))
-)
+# Link into M, link out of M: on ``VARIANTS``, a work-sized draw can finish before CPM
+# (#4822). SF in, SF out belongs to the same class but needs lags ``VARIANTS`` lacks:
+# see ``test_sf_in_sf_out_back_solves_ahead_only_with_longer_lags``.
+_BACK_SOLVES_AHEAD = [
+    (DependencyType.FF, DependencyType.SS),
+    (DependencyType.FF, DependencyType.SF),
+    (DependencyType.SF, DependencyType.SS),
+]
 
 
 def _days(n: int) -> timedelta:
@@ -357,8 +361,18 @@ def _same_result(left: MonteCarloResult, right: MonteCarloResult) -> None:
     assert left.distribution == right.distribution
 
 
+def _with_m(project: Project, **fields: Any) -> Project:
+    return replace(
+        project, tasks=[replace(t, **fields) if t.id == "M" else t for t in project.tasks]
+    )
+
+
 class TestAWorkSizedDrawIsOrdinaryWork:
-    """A draw of a day or more back-solves over FF/SF like a real task of that length."""
+    """A draw of a day or more back-solves over FF/SF like a real task of that length.
+
+    With a recorded start the two can differ, on main as here: see
+    ``test_a_started_task_is_not_a_real_task_of_that_length``.
+    """
 
     @pytest.mark.parametrize(
         ("estimate", "link_in", "p50"),
@@ -388,6 +402,111 @@ class TestAWorkSizedDrawIsOrdinaryWork:
             monte_carlo(zero_base, runs=500, seed=1),
             monte_carlo(real, runs=500, seed=1),
         )
+
+    @pytest.mark.parametrize(
+        ("state", "link_in", "link_out", "scope"),
+        [cell for cell in CELLS if cell[0] != "started"],
+    )
+    def test_equal_across_the_class_without_a_recorded_start(
+        self, state: str, link_in: DependencyType, link_out: DependencyType, scope: str
+    ) -> None:
+        for variant in VARIANTS:
+            cell = _cell(state, link_in, link_out, scope, variant)
+            for estimate in ((1, 1, 1), (3, 5, 8)):
+                fields = _estimate(*estimate)
+                _same_result(
+                    monte_carlo(_with_m(cell, **fields), runs=64, seed=1),
+                    monte_carlo(
+                        _with_m(cell, duration=_days(estimate[0]), **fields), runs=64, seed=1
+                    ),
+                )
+
+    def test_sf_in_sf_out_back_solves_ahead_only_with_longer_lags(self) -> None:
+        project = _cell("live", DependencyType.SF, DependencyType.SF, "project", (3, 3, None))
+        assert schedule(project).project_finish == date(2026, 3, 9)
+        with _draws(_constant(0.49)):
+            assert _run(project).p50 == date(2026, 3, 9)
+        with _draws(_constant(0.51)):
+            assert _run(project).p50 == date(2026, 3, 6)
+
+    def test_a_started_task_is_not_a_real_task_of_that_length(self) -> None:
+        cell = _cell("started", DependencyType.FS, DependencyType.SS, "project")
+        fields = _estimate(1, 1, 1)
+        assert monte_carlo(_with_m(cell, **fields), runs=64, seed=1).p50 == date(2026, 3, 19)
+        real = _with_m(cell, duration=_days(1), **fields)
+        assert monte_carlo(real, runs=64, seed=1).p50 == date(2026, 3, 13)
+
+
+class TestTheFractionFollowsTheLinkAnchor:
+    """An instant hands on what its link measures from, as work does.
+
+    An SS or SF link measures from the start, so it never sees a draw. B has its own
+    estimate here because a whole-day B rounds the fraction away and hides the carry.
+    """
+
+    def _network(
+        self,
+        out: DependencyType,
+        *,
+        into: DependencyType = DependencyType.FS,
+        m_estimate: bool = True,
+        b_estimate: tuple[int, int, int] = (5, 5, 9),
+    ) -> Project:
+        return _project(
+            [
+                Task(id="A", name="A", duration=_days(5)),
+                Task(id="M", name="M", duration=_days(0), **(_estimate() if m_estimate else {})),
+                Task(id="B", name="B", duration=_days(5), **_estimate(*b_estimate)),
+            ],
+            [_link("A", "M", into), _link("M", "B", out)],
+        )
+
+    @contextmanager
+    def _m_draws(self, value: float, b_fixed: float | None = None) -> Iterator[None]:
+        """M, whose pessimistic is 1, draws ``value``; B draws ``b_fixed`` or for real."""
+        real = engine._sample_pert
+
+        def sample(opt: float, ml: float, pess: float, n: int, rng: Any) -> np.ndarray:
+            if pess <= 1:
+                return np.full(n, value)
+            return np.full(n, b_fixed) if b_fixed is not None else real(opt, ml, pess, n, rng)
+
+        with patch.object(engine, "_sample_pert", sample):
+            yield
+
+    def test_the_reported_ss_network_stays_on_main(self) -> None:
+        mc = monte_carlo(self._network(DependencyType.SS), runs=5000, seed=1)
+        assert (mc.p50, mc.p80, mc.p95) == (date(2026, 3, 13), date(2026, 3, 16), date(2026, 3, 17))
+
+    @pytest.mark.parametrize("out", [DependencyType.SS, DependencyType.SF])
+    @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS])
+    def test_a_start_anchored_link_never_sees_the_draw(
+        self, into: DependencyType, out: DependencyType
+    ) -> None:
+        with self._m_draws(0.4):
+            drawn = monte_carlo(self._network(out, into=into), runs=2000, seed=1)
+            milestone = monte_carlo(
+                self._network(out, into=into, m_estimate=False), runs=2000, seed=1
+            )
+        _same_result(drawn, milestone)
+
+    def test_a_finish_anchored_link_still_carries_it(self) -> None:
+        """M's 0.4 and B's 5.45 are 10.85 days of work on FS; B alone on SS is 10.45."""
+        with self._m_draws(0.4, b_fixed=5.45):
+            on_fs = monte_carlo(self._network(DependencyType.FS), runs=8, seed=1)
+            on_ss = monte_carlo(self._network(DependencyType.SS), runs=8, seed=1)
+        assert (on_fs.p50, on_ss.p50) == (date(2026, 3, 16), date(2026, 3, 13))
+
+    @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS, DependencyType.FF])
+    def test_crossing_into_work_does_not_finish_earlier_over_ss(self, into: DependencyType) -> None:
+        """A fractional B: the 0.49 draw used to finish 03-16 and the 0.51 draw 03-13."""
+        for b_fixed in (5.1, 5.2, 5.3, 5.4, 5.45, 5.6, 5.8):
+            project = self._network(DependencyType.SS, into=into)
+            with self._m_draws(0.49, b_fixed):
+                rounds_away = monte_carlo(project, runs=8, seed=1)
+            with self._m_draws(0.51, b_fixed):
+                work = monte_carlo(project, runs=8, seed=1)
+            assert work.p50 >= rounds_away.p50, b_fixed
 
 
 class TestVelocityPath:
