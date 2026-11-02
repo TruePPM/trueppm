@@ -889,6 +889,205 @@ class TestDependencyAPI:
 
 
 @pytest.mark.django_db
+class TestDependencyTypeCollision:
+    """A write whose summary expansion the CPM pass would refuse is a 400 at the door.
+
+    Two links of different types that expand onto one leaf pair make every later
+    recalculation raise, so the API must not answer 201 for the second one.
+    """
+
+    @pytest.fixture
+    def tree(self, project: Project, membership: ProjectMembership) -> dict[str, Task]:
+        # S(A, B) -> C: A and B are leaves under summary S.
+        s = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+        a = Task.objects.create(project=project, name="Design", duration=2, wbs_path="1.1")
+        b = Task.objects.create(project=project, name="Build", duration=2, wbs_path="1.2")
+        c = Task.objects.create(project=project, name="Ship", duration=1, wbs_path="2")
+        return {"s": s, "a": a, "b": b, "c": c}
+
+    @staticmethod
+    def _post(client: APIClient, pred: Task, succ: Task, dep_type: str, lag: int = 0) -> Any:
+        return client.post(
+            "/api/v1/dependencies/",
+            {
+                "predecessor": str(pred.pk),
+                "successor": str(succ.pk),
+                "dep_type": dep_type,
+                "lag": lag,
+            },
+        )
+
+    def test_leaf_link_of_a_different_type_beside_a_summary_link_is_rejected(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="FS")
+
+        r = self._post(client, tree["a"], tree["c"], "FF")
+
+        assert r.status_code == 400
+        # Field-keyed, so the form can mark the type control; named, not id-shaped.
+        message = " ".join(r.data["dep_type"])
+        assert "different types" in message
+        assert "Design" in message
+        assert "Ship" in message
+        assert str(tree["a"].pk) not in message
+        assert Dependency.objects.filter(predecessor=tree["a"]).count() == 0
+
+    def test_summary_link_of_a_different_type_beside_a_leaf_link_is_rejected(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        # Reverse creation order: the leaf link exists, the summary link arrives.
+        Dependency.objects.create(predecessor=tree["a"], successor=tree["c"], dep_type="FF")
+
+        r = self._post(client, tree["s"], tree["c"], "FS")
+
+        assert r.status_code == 400
+        assert "different types" in " ".join(r.data["dep_type"])
+
+    def test_same_type_overlap_is_accepted_and_schedulable(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        from datetime import timedelta
+
+        from trueppm_scheduler import Dependency as SchedDep
+        from trueppm_scheduler import DependencyType, expand_summary_dependencies
+
+        Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="FS")
+
+        r = self._post(client, tree["a"], tree["c"], "FS", lag=3)
+
+        assert r.status_code == 201
+        # The engine merges same-type overlap (largest lag wins), so the state the
+        # API accepted is one a recalculation can still expand.
+        from trueppm_api.apps.scheduling.services import build_children_map
+
+        db_tasks = list(Task.objects.filter(project=tree["a"].project))
+        sched_deps = [
+            SchedDep(
+                predecessor_id=str(d.predecessor_id),
+                successor_id=str(d.successor_id),
+                dep_type=DependencyType(d.dep_type),
+                lag=timedelta(days=d.lag),
+            )
+            for d in Dependency.objects.filter(is_deleted=False)
+        ]
+        expanded = expand_summary_dependencies([], sched_deps, build_children_map(db_tasks))
+        a_to_c = [
+            e
+            for e in expanded.dependencies
+            if (e.predecessor_id, e.successor_id) == (str(tree["a"].pk), str(tree["c"].pk))
+        ]
+        assert len(a_to_c) == 1 and a_to_c[0].lag.days == 3
+
+    def test_leaf_only_pair_with_no_summary_overlap_is_accepted(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        # A and B are under a summary but the links do not meet on one leaf pair.
+        Dependency.objects.create(predecessor=tree["a"], successor=tree["c"], dep_type="FS")
+
+        assert self._post(client, tree["b"], tree["c"], "FF").status_code == 201
+
+    def test_flat_project_never_collides(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        x = Task.objects.create(project=project, name="X", duration=1)
+        y = Task.objects.create(project=project, name="Y", duration=1)
+        z = Task.objects.create(project=project, name="Z", duration=1)
+        Dependency.objects.create(predecessor=x, successor=z, dep_type="FS")
+
+        assert self._post(client, y, z, "FF").status_code == 201
+
+    def test_patch_into_a_collision_is_rejected(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="FS")
+        edge = Dependency.objects.create(
+            predecessor=tree["a"], successor=tree["c"], dep_type="FS", lag=2
+        )
+
+        r = client.patch(f"/api/v1/dependencies/{edge.pk}/", {"dep_type": "FF"})
+
+        assert r.status_code == 400
+        assert "different types" in " ".join(r.data["dep_type"])
+        edge.refresh_from_db()
+        assert edge.dep_type == "FS"
+
+    def test_patch_repointing_into_a_collision_is_rejected(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="FS")
+        other = Task.objects.create(project=tree["a"].project, name="Other", duration=1)
+        edge = Dependency.objects.create(predecessor=other, successor=tree["c"], dep_type="FF")
+
+        r = client.patch(f"/api/v1/dependencies/{edge.pk}/", {"predecessor": str(tree["a"].pk)})
+
+        assert r.status_code == 400
+        assert "dep_type" in r.data
+
+    def test_noop_and_lag_only_patch_do_not_collide_with_themselves(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        summary_edge = Dependency.objects.create(
+            predecessor=tree["s"], successor=tree["c"], dep_type="FS"
+        )
+        leaf_edge = Dependency.objects.create(
+            predecessor=tree["a"], successor=tree["c"], dep_type="FS"
+        )
+
+        for edge in (summary_edge, leaf_edge):
+            same = client.patch(f"/api/v1/dependencies/{edge.pk}/", {"dep_type": "FS"})
+            assert same.status_code == 200, same.data
+            lag = client.patch(f"/api/v1/dependencies/{edge.pk}/", {"lag": 4})
+            assert lag.status_code == 200, lag.data
+
+    def test_a_project_already_in_collision_does_not_block_unrelated_edges(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        # Pre-existing bad state (e.g. from before this check): the recalculation is
+        # already failing, and refusing every later write would block the repair.
+        Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="FS")
+        Dependency.objects.create(predecessor=tree["a"], successor=tree["c"], dep_type="FF")
+        d = Task.objects.create(project=tree["a"].project, name="D", duration=1, wbs_path="3")
+        e = Task.objects.create(project=tree["a"].project, name="E", duration=1, wbs_path="4")
+
+        assert self._post(client, d, e, "FS").status_code == 201
+
+    def test_start_link_from_a_summary_is_refused_by_the_engines_own_rule(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        # Not this check's rule: the engine's expansion refuses an SS from a summary
+        # (ADR-0370), so it surfaces here too. Pinned so a change is deliberate.
+        r = self._post(client, tree["s"], tree["c"], "SS")
+
+        assert r.status_code == 400
+        assert "dep_type" in r.data
+
+    def test_query_count_does_not_grow_with_the_number_of_dependencies(
+        self,
+        client: APIClient,
+        tree: dict[str, Task],
+    ) -> None:
+        project = tree["a"].project
+        extra = [
+            Task.objects.create(project=project, name=f"T{i}", duration=1, wbs_path=str(10 + i))
+            for i in range(12)
+        ]
+
+        def _count(pred: Task, succ: Task) -> int:
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            with CaptureQueriesContext(connection) as ctx:
+                assert self._post(client, pred, succ, "FS").status_code == 201
+            return len(ctx)
+
+        baseline = _count(extra[0], extra[1])
+        for i in range(2, 10):
+            Dependency.objects.create(predecessor=extra[i], successor=extra[i + 1], dep_type="FS")
+        assert _count(extra[10], extra[11]) == baseline
+
+
+@pytest.mark.django_db
 class TestCrossProjectDependency:
     """ADR-0120 D1/D2/D5 — same-program cross-project dependency edges.
 

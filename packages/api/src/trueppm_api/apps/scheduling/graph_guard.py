@@ -34,9 +34,16 @@ graph is rejected before a single task is written.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from datetime import timedelta
 
-from trueppm_scheduler import find_cycle
+from trueppm_scheduler import (
+    Dependency,
+    DependencyType,
+    InvalidScheduleInput,
+    expand_summary_dependencies,
+    find_cycle,
+)
 
 #: Longest one node label may run in a labelled message before it is elided.
 MAX_LABEL_CHARS = 40
@@ -261,3 +268,68 @@ def validate_task_graph(
     result = find_cycle(edges, children_map=children_map)
     if result.cycle is not None:
         raise InfeasibleGraphError("cyclic_dependency", result.cycle)
+
+
+#: ``(predecessor_id, successor_id, dep_type, lag_days)`` — an edge with the type and
+#: lag the leaf expansion needs, in the same string-id space as :func:`validate_task_graph`.
+TypedEdge = tuple[str, str, str, int]
+
+
+def _expand(edges: Iterable[TypedEdge], children_map: dict[str, list[str]]) -> None:
+    """Run the engine's own summary expansion over ``edges``, discarding the result."""
+    expand_summary_dependencies(
+        [],
+        [
+            Dependency(
+                predecessor_id=p,
+                successor_id=s,
+                dep_type=DependencyType(t),
+                lag=timedelta(days=lag),
+            )
+            for p, s, t, lag in edges
+        ],
+        children_map,
+    )
+
+
+def validate_expansion_with_edge(
+    existing: list[TypedEdge],
+    proposed: TypedEdge,
+    *,
+    children_map: dict[str, list[str]],
+) -> None:
+    """Reject a proposed edge the engine would later refuse when it expands summaries.
+
+    :func:`validate_task_graph` only sees ``(predecessor, successor)`` pairs, so it
+    cannot know that ``A -FF-> C`` and ``S(A, B) -FS-> C`` land on the same leaf pair
+    with different types. The CPM pass then raises ``InvalidScheduleInput`` on every
+    recalculation. This runs the engine's real ``expand_summary_dependencies`` — never
+    a re-implementation of its collision rule — so the write boundary and the CPM pass
+    cannot disagree about what is schedulable.
+
+    Only a failure *introduced by* ``proposed`` is reported. When ``existing`` already
+    fails on its own, the project was broken before this write and the recalculation
+    is already failing; refusing an unrelated edge on that account would block the
+    very edits (re-typing or deleting the offending link) that repair it.
+
+    Args:
+        existing: The persisted edges the proposal joins, excluding the row being
+            edited on an update.
+        proposed: The edge as it would be after the write.
+        children_map: ``{summary_id: [child_id, ...]}``. Empty means no summaries,
+            so no expansion and nothing to collide.
+
+    Raises:
+        InvalidScheduleInput: The engine's own message — a mixed-type leaf-pair
+            collision, an SS/SF link from a summary, or an over-wide fan-out.
+    """
+    if not children_map:
+        return
+    try:
+        _expand([*existing, proposed], children_map)
+    except InvalidScheduleInput:
+        try:
+            _expand(existing, children_map)
+        except InvalidScheduleInput:
+            return
+        raise
