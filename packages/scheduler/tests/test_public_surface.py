@@ -604,7 +604,16 @@ class TestReleaseMetadataConsistency:
             "rather than raw calendar days",
             "deterministic for a fixed seed",
         )
-        for name in (".zenodo.json", "paper.md", "CITATION.cff", "PUBLISHING.md"):
+        present = [
+            n
+            for n in (".zenodo.json", "paper.md", "CITATION.cff", "PUBLISHING.md")
+            if (self._pkg_root() / n).exists()
+        ]
+        if not present:
+            # The wheel smoke run executes outside a checkout, where these
+            # repo-level metadata files are not shipped.
+            pytest.skip("scholarly metadata files are not present outside a checkout")
+        for name in present:
             text = " ".join((self._pkg_root() / name).read_text().lower().split())
             for phrase in forbidden:
                 assert phrase not in text, (
