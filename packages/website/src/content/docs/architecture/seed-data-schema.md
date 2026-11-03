@@ -352,7 +352,8 @@ Two further v2.1 sections are **sample-only**: `program.agent_actions` and
 other import path rejects the file. Seeded agent actions go through the real
 hash-chained audit log, marked as sample data in hashed fields
 (`actor_token_prefix: "sample"`, a `[Sample data]` summary prefix), and
-share-link tokens are generated at load, never read from the file. On the
+share-link tokens are generated at load, never read from the file (a link is skipped
+when the Public sharing policy is off — ships in 0.5; 0.4 always creates it). On the
 sample path the importer also synthesizes logged time on completed and
 in-flight work and submits each fully elapsed week; a generic import writes
 only the `time.log` beats the file authors.

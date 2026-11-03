@@ -27,6 +27,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.projects.sharing_settings import resolve_effective_sharing
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,25 @@ _PUBLIC_DEFAULT_STATUSES = (
 )
 
 
+class PublicSharingDisabledError(Exception):
+    """Raised by :func:`mint_share_link` when ADR-0135 ``public_sharing`` is off.
+
+    A domain error from a service with non-view callers (management command, seed
+    importer, future bulk paths), so it carries no HTTP semantics; the share view maps
+    it to its own 403.
+    """
+
+
+def public_sharing_allowed(project: Any) -> bool:
+    """Effective public-sharing policy (ADR-0135) for ``project``.
+
+    Resolved through workspace -> program -> project inheritance, honoring any
+    Enterprise org-wide enforcement lock. Both minting and serving a public link
+    require it, layered on top of the operator-level instance kill switch.
+    """
+    return resolve_effective_sharing(project, "public_sharing")
+
+
 def mint_share_link(
     project: Any,
     user: Any,
@@ -52,6 +72,7 @@ def mint_share_link(
     show_milestone_dates: bool = True,
     content_kind: str = ShareContentKind.BOARD,
     expires_at: Any = None,
+    raw_token: str | None = None,
 ) -> tuple[ShareLink, str]:
     """Create a share link and return ``(link, raw_token)``.
 
@@ -61,8 +82,21 @@ def mint_share_link(
     it passes, the public endpoint returns 410 exactly like a revoked link.
     ``show_milestone_dates`` (#2532, schedule links only) defaults **True** so a
     caller that omits it mints exactly the link it minted before the flag existed.
+    ``raw_token`` lets an operator pin a stable token (the demo deploy); the policy
+    gate still runs before any row is written.
+
+    Raises:
+        PublicSharingDisabledError: the ADR-0135 ``public_sharing`` policy resolves
+            to off for ``project``. Enforced here, at the point of mutation, so a
+            caller that is not the share view (a management command, importer,
+            future bulk or MCP path) cannot mint a link the policy forbids (#2781,
+            #3049). Callers that want a friendlier message may pre-check.
     """
-    raw = secrets.token_urlsafe(32)
+    if not public_sharing_allowed(project):
+        raise PublicSharingDisabledError(
+            f"Public sharing is turned off for project {getattr(project, 'id', None)}."
+        )
+    raw = raw_token or secrets.token_urlsafe(32)
     link = ShareLink.objects.create(
         project=project,
         content_kind=content_kind,

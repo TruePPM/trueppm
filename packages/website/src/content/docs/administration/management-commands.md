@@ -209,7 +209,7 @@ render without them.
 
 ### It turns public sharing on for the demo project
 
-Minting a link and *serving* it are two different gates. A link resolves only when the
+A link resolves only when the
 ["Public sharing" policy](/features/board-sharing/) is on for the project, and the
 workspace default is **off** — so the command enables it on the demo project as part of
 minting, or it would print URLs that answer `410 Gone`.
@@ -220,12 +220,16 @@ a real install does not loosen your sharing posture. The command picks its proje
 importer's internal `is_sample` flag, so it cannot touch a real project of the same name.
 
 Two things still outrank it, and the command reports either one instead of printing a URL
-it knows will not work:
+it knows will not work. **Ships in 0.5:** minting itself also refuses while the policy is
+off, so under an Enforce lock the command mints nothing on a fresh run and prints
+"Not minting…"; in 0.4 it mints and warns.
+
 
 - `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED=false` — the instance-wide kill switch. Share URLs
   return `404`. Set it to `true` to run a public demo.
-- A workspace **Enforce** sharing policy with public sharing off (Enterprise). Share URLs
-  return `410` until a workspace admin turns it on or relaxes the override policy.
+- A workspace **Enforce** sharing policy with public sharing off (Enterprise). In 0.4 the
+  URLs return `410` (in 0.5 a fresh run mints no link; a reused pinned link returns `410`)
+  until a workspace admin turns it on or relaxes the override policy.
 
 ## The "1.0 GA Launch" sample
 

@@ -35,10 +35,7 @@ from trueppm_api.apps.projects.share_serializers import (
     ShareLinkCreateSerializer,
     ShareLinkSerializer,
 )
-from trueppm_api.apps.projects.sharing_settings import (
-    public_sharing_instance_enabled,
-    resolve_effective_sharing,
-)
+from trueppm_api.apps.projects.sharing_settings import public_sharing_instance_enabled
 
 # Uniform 404 detail — the kill switch, an unknown token, and a policy-disabled
 # link must all be indistinguishable to the recipient.
@@ -68,14 +65,12 @@ def _sharing_enabled() -> bool:
 
 
 def _public_sharing_allowed(project: Project) -> bool:
-    """Effective public-sharing policy (ADR-0135) for ``project`` — resolved through
-    workspace → program → project inheritance, honoring any Enterprise org-wide
-    enforcement lock. This is the admin-level "Public sharing" toggle on the General
-    settings page; both minting and serving a public board link require it to be on,
-    layered on top of the operator-level instance kill switch above. Turning it off
-    therefore blocks new links AND immediately stops existing ones from resolving.
+    """View-side alias of ``share_services.public_sharing_allowed`` (ADR-0135).
+
+    The view keeps its own pre-check to return the specific 403 body; the service
+    enforces the same policy again at mint time as the backstop.
     """
-    return resolve_effective_sharing(project, "public_sharing")
+    return share_services.public_sharing_allowed(project)
 
 
 class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
@@ -145,15 +140,23 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
             )
         write = ShareLinkCreateSerializer(data=request.data)
         write.is_valid(raise_exception=True)
-        link, raw = share_services.mint_share_link(
-            project,
-            request.user,
-            label=write.validated_data["label"],
-            show_assignees=write.validated_data["show_assignees"],
-            show_milestone_dates=write.validated_data["show_milestone_dates"],
-            content_kind=write.validated_data["content_kind"],
-            expires_at=write.validated_data["expires_at"],
-        )
+        try:
+            link, raw = share_services.mint_share_link(
+                project,
+                request.user,
+                label=write.validated_data["label"],
+                show_assignees=write.validated_data["show_assignees"],
+                show_milestone_dates=write.validated_data["show_milestone_dates"],
+                content_kind=write.validated_data["content_kind"],
+                expires_at=write.validated_data["expires_at"],
+            )
+        except share_services.PublicSharingDisabledError:
+            # Policy flipped off between the pre-check above and the mint; the
+            # service refused. Same body as the pre-check, never a 500.
+            return Response(
+                {"detail": "Public sharing is turned off for this project."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         data: dict[str, Any] = dict(ShareLinkSerializer(link).data)
         # One-time reveal: the raw token and its relative path exist only here. The
         # web client composes the absolute URL from its own origin. The path segment

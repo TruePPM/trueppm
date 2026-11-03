@@ -154,6 +154,13 @@ def test_atlas_personas_see_the_layer_their_roles_allow() -> None:
 
 
 def test_aurora_share_link_is_visible_to_its_admins_only() -> None:
+    from trueppm_api.apps.workspace.models import Workspace
+
+    # mint_share_link enforces ADR-0135 (#3049): the authored link only exists
+    # when the workspace policy allows public sharing.
+    ws = Workspace.load()
+    ws.public_sharing = True
+    ws.save()
     program = _load("aurora-mobile-app")
     project = Project.objects.get(program=program)
     url = f"/api/v1/projects/{project.pk}/share-links/"

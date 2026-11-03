@@ -37,9 +37,10 @@ Read-only posture: this never touches the ``--with-personas`` /
 ``TRUEPPM_DEMO_PASSWORD`` path (#1350). The demo is reachable *only* through the
 unauthenticated share endpoints.
 
-**Minting and serving are two different gates** (#2781). ``mint_share_link()``
-writes a row; the *read* additionally requires the ADR-0135 "Public sharing"
-policy to resolve true for the project. Because ``Workspace.public_sharing``
+**Minting and serving share one policy gate** (#2781, #3049).
+``mint_share_link()`` refuses (``PublicSharingDisabledError``) when the ADR-0135
+"Public sharing" policy resolves false for the project, and the *read* requires
+the same policy. Because ``Workspace.public_sharing``
 defaults to ``False``, a demo built from default state minted links that every
 recipient saw as ``410 Gone`` — while this command printed a confident URL. So
 the command now turns sharing on for the project it publishes, and verifies the
@@ -56,7 +57,10 @@ from django.core.management.base import BaseCommand, CommandError
 
 from trueppm_api.apps.projects.authentication import sha256_hex
 from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLink
-from trueppm_api.apps.projects.share_services import mint_share_link
+from trueppm_api.apps.projects.share_services import (
+    PublicSharingDisabledError,
+    mint_share_link,
+)
 from trueppm_api.apps.projects.sharing_settings import (
     public_sharing_instance_enabled,
     resolve_effective_sharing,
@@ -292,10 +296,14 @@ class Command(BaseCommand):
 
         Returns ``None`` when there is nothing printable — today that is only the
         generated-mode case where a prior link exists but its raw token cannot be
-        recovered, which is a warning rather than an error.
+        recovered, or where the policy refuses the mint (both reported inline).
         """
         if pinned_token:
-            link, created = self._upsert_pinned_link(project, kind, pinned_token)
+            try:
+                link, created = self._upsert_pinned_link(project, kind, pinned_token)
+            except PublicSharingDisabledError:
+                self._report_policy_refusal(kind)
+                return None
             return ("Created" if created else "Reused"), link, pinned_token
 
         existing = (
@@ -319,14 +327,29 @@ class Command(BaseCommand):
             )
             return None
 
-        link, token = mint_share_link(
-            project,
-            user=None,
-            label=LABEL_BY_KIND[kind],
-            show_assignees=False,
-            content_kind=kind,
-        )
+        try:
+            link, token = mint_share_link(
+                project,
+                user=None,
+                label=LABEL_BY_KIND[kind],
+                show_assignees=False,
+                content_kind=kind,
+            )
+        except PublicSharingDisabledError:
+            self._report_policy_refusal(kind)
+            return None
         return "Created", link, token
+
+    def _report_policy_refusal(self, kind: Any) -> None:
+        """Say why a mint was refused. Still off after ``_enable_public_sharing`` means
+        a workspace ENFORCE lock outranks the project override — not ours to override."""
+        self.stdout.write(
+            self.style.ERROR(
+                f"Not minting the {kind} demo link: public sharing resolves to off "
+                "for this project (a workspace ENFORCE policy is locking it). "
+                "A workspace admin must turn 'Public sharing' on first."
+            )
+        )
 
     def _upsert_pinned_link(
         self,
@@ -356,13 +379,13 @@ class Command(BaseCommand):
                     "ShareLink.token_hash is globally unique. Use a different token."
                 )
             return link, False
-        link = ShareLink.objects.create(
-            project=project,
-            content_kind=kind,
-            token_prefix=token[:12],
-            token_hash=token_hash,
+        # Through the service so the ADR-0135 gate runs before the row is written.
+        link, _raw = mint_share_link(
+            project,
+            user=None,
             label=LABEL_BY_KIND[kind],
             show_assignees=False,
-            created_by=None,
+            content_kind=kind,
+            raw_token=token,
         )
         return link, True

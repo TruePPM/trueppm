@@ -375,3 +375,38 @@ def test_reports_the_instance_kill_switch_instead_of_printing_a_dead_url(
 
     assert "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED is false" in out.getvalue()
     assert APIClient().get("/api/v1/share/schedule/probe-token/").status_code == 404
+
+
+# --- ADR-0135 gate inside mint_share_link (#3049) --------------------------------
+
+
+@pytest.fixture
+def enforced_sharing_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enterprise ENFORCE lock active with the workspace value off: the project-scope
+    override the command writes is ignored, so the effective policy stays off."""
+    from trueppm_api.apps.workspace.models import TermOverridePolicy
+
+    ws = Workspace.load()
+    ws.public_sharing = False
+    ws.public_sharing_override_policy = TermOverridePolicy.ENFORCE
+    ws.save()
+    monkeypatch.setattr(
+        "trueppm_api.apps.projects.sharing_settings.sharing_enforcement_active",
+        lambda: True,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("token", [None, "pinned-demo-token"])
+def test_policy_refusal_mints_no_link_and_reports(
+    enforced_sharing_off: None, token: str | None
+) -> None:
+    project = _seed()
+    out = StringIO()
+    kwargs: dict[str, Any] = {"stdout": out}
+    if token:
+        kwargs["token"] = token
+    call_command("create_demo_share_link", **kwargs)
+
+    assert not ShareLink.objects.filter(project=project).exists()
+    assert "Not minting" in out.getvalue()
