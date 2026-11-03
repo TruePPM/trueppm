@@ -6732,13 +6732,11 @@ def _mc_milestone_floors(
     return out
 
 
-_InstantRuns = tuple[np.ndarray, np.ndarray]
-"""``(is_instant, start_excess)`` of a zero-base column (#4698, :func:`_mc_zero_base_column`).
+_InstantRuns = np.ndarray
+"""The runs of a zero-base column whose draw rounds away (#4698, :func:`_mc_zero_base_column`).
 
-``is_instant`` flags the runs whose draw rounds away. Their links measure from the
-instant as a milestone's do, and hand on no finish fraction (#4697). ``start_excess``
-is how far an FF or SF link back-solved the start ahead of the instant (never
-positive): an SS or SF successor measures from that start, as from work.
+Their links measure from the instant exactly as a milestone's do, and hand on no
+fraction (#4697).
 """
 
 _MilestoneReading = tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -7212,10 +7210,12 @@ def _mc_zero_base_column(
     :data:`_ZERO_BASE_ROUND_AWAY` — is the instant
     :func:`_place_milestone` gives the deterministic pass, and links out of it
     measure from that instant (``instant_runs``), exactly as from a milestone. It
-    hands on no finish fraction: carrying one past the task would cost every
-    whole-day successor a day under the day-it-falls-in reading (#4697). An SS or
-    SF successor still takes the start an FF or SF link back-solved over the draw
-    (``start_excess``), which is never later than the instant. A larger draw is
+    hands on no fraction (#4697). Not the finish's: carried past the task it would
+    cost every whole-day successor a day under the day-it-falls-in reading. Not the
+    start an FF or SF link back-solved over the draw either: added after a link's
+    lag and snap, that start pulled an SS successor back across a weekend its lag
+    landed on, ahead of CPM. The run is the milestone ``schedule()`` places, so a
+    draw that crosses the threshold back-solves like any work, the #4822 class. A larger draw is
     ordinary work. An FF or SF link back-solves its start over the draw, which can
     put a successor ahead of the instant's plan (#4822). An instant run is placed as
     a milestone is, its true point carried as the milestone's deficit
@@ -7226,12 +7226,11 @@ def _mc_zero_base_column(
     instant run is shown on that day (:func:`_mc_forward_pass`). The other runs are
     floored at the same recorded start, so none finishes before that date.
 
-    Returns ``(es, ef, (is_instant, start_excess), actual_day)``.
+    Returns ``(es, ef, is_instant, actual_day)``.
     """
     ef = es + eff_dur
     # Rounds away whole (#4698, #4697): see _ZERO_BASE_ROUND_AWAY.
     is_instant = eff_dur < _ZERO_BASE_ROUND_AWAY
-    start_excess = np.where(is_instant, np.minimum(es - position, 0.0), 0.0)
     instant_es = position
     instant_ef = instant_es + start_display
     actual_day: date | None = None
@@ -7245,7 +7244,7 @@ def _mc_zero_base_column(
     return (
         np.where(is_instant, instant_es, es),
         np.where(is_instant, instant_ef, ef),
-        (is_instant, start_excess),
+        is_instant,
         actual_day,
     )
 
@@ -7478,9 +7477,9 @@ def _mc_milestone_bounds(
             at_instant, at_display, at_deficit = _mc_instant_proposal(
                 dep, p, instant_mat, start_display_mat, index, deficit_mat
             )
-            proposal = np.where(pred_runs[0], at_instant, proposal)
-            display = np.where(pred_runs[0], at_display, display)
-            deficit = np.where(pred_runs[0], at_deficit, deficit)
+            proposal = np.where(pred_runs, at_instant, proposal)
+            display = np.where(pred_runs, at_display, display)
+            deficit = np.where(pred_runs, at_deficit, deficit)
         offer(proposal, display, deficit)
 
     def with_deficit(winner: np.ndarray) -> _MilestoneReading:
@@ -7689,10 +7688,7 @@ def _mc_edge_constraints(
         if pred_runs is not None:
             assert index is not None
             at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index, deficit_mat)
-            if dep.dep_type in (DependencyType.SS, DependencyType.SF):
-                # A start an FF/SF link back-solved ahead of the instant (#4698).
-                at_instant = at_instant + pred_runs[1]
-            constraint = np.where(pred_runs[0], at_instant, constraint)
+            constraint = np.where(pred_runs, at_instant, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)
         else:  # FF / SF
@@ -8339,7 +8335,7 @@ def monte_carlo(
     if has_instants:
         wt_mat = ef_mat.copy()
         wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
-        for tid, (is_instant, _) in instant_runs.items():
+        for tid, is_instant in instant_runs.items():
             col = task_idx[tid]
             wt_mat[is_instant, col] = es_mat[is_instant, col]
     # The floor wins over the index only when it is later; it is a start-of-day

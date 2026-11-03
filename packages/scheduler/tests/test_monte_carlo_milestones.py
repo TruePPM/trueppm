@@ -545,9 +545,14 @@ class TestTheFractionFollowsTheLinkAnchor:
             on_ss = monte_carlo(self._network(DependencyType.SS), runs=8, seed=1)
         assert (on_fs.p50, on_ss.p50) == (date(2026, 3, 17), date(2026, 3, 16))
 
-    @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS, DependencyType.FF])
+    @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS])
     def test_crossing_into_work_does_not_finish_earlier_over_ss(self, into: DependencyType) -> None:
-        """A fractional B: the 0.49 draw used to finish 03-16 and the 0.51 draw 03-13."""
+        """A fractional B: the 0.49 draw used to finish 03-16 and the 0.51 draw 03-13.
+
+        FF in is the #4822 back-solve class: a rounded-away draw is the milestone,
+        which back-solves nothing, and the work draw past the threshold back-solves
+        its start. See ``test_ff_in_ss_out_steps_back_only_at_the_threshold``.
+        """
         for b_fixed in (5.1, 5.2, 5.3, 5.4, 5.45, 5.6, 5.8):
             project = self._network(DependencyType.SS, into=into)
             with self._m_draws(0.49, b_fixed):
@@ -628,3 +633,99 @@ def test_instant_runs_match_a_real_milestone() -> None:
             milestones.p80_at_day_start,
         ), seed
         assert zero_draws.distribution[:-1] == milestones.distribution[:-1], seed
+
+
+# ---------------------------------------------------------------------------
+# A rounded-away draw hands on no back-solved start (#4697, round 2)
+# ---------------------------------------------------------------------------
+#
+# Keeping the start an FF link back-solved over a sub-half-day draw, added to an SS
+# successor's bound AFTER that link's lag and snap, pulled the successor back across
+# a weekend its lag landed on, ahead of CPM. ``A -FF-> M -SS+3-> B -SS+3-> C``: M sits
+# on Wednesday, so M's SS+3 lands on Saturday and B must start on Monday. The kept
+# start put B 0.7 into Friday, and B's own SS+3 carried that fraction on to C. A run
+# that rounds away is now the milestone itself.
+
+
+def _ff_ss_chain(
+    a_days: int,
+    link_in: DependencyType,
+    lag_in: int,
+    link_out: DependencyType,
+    lag_out: int,
+    third: DependencyType | None,
+    *,
+    m_estimate: bool = True,
+) -> Project:
+    tasks = [
+        Task(id="A", name="A", duration=_days(a_days)),
+        Task(id="M", name="M", duration=_days(0), **(_estimate() if m_estimate else {})),
+        Task(id="B", name="B", duration=_days(5)),
+    ]
+    deps = [_link("A", "M", link_in, lag_in), _link("M", "B", link_out, lag_out)]
+    if third is not None:
+        tasks.append(Task(id="C", name="C", duration=_days(5)))
+        deps.append(_link("B", "C", third, 3))
+    return _project(tasks, deps)
+
+
+def test_a_rounded_away_draw_does_not_cross_a_weekend_ahead_of_cpm() -> None:
+    """The reported network: P50 and P80 were 03-16 with 94.5% of runs before CPM 03-18."""
+    project = _project(
+        [
+            Task(id="t0", name="t0", duration=_days(3)),
+            Task(id="M", name="M", duration=_days(0), **_estimate()),
+            Task(id="t2", name="t2", duration=_days(5)),
+            Task(id="t4", name="t4", duration=_days(5)),
+        ],
+        [
+            _link("t0", "M", DependencyType.FF),
+            _link("M", "t2", DependencyType.SS, 3),
+            _link("t2", "t4", DependencyType.SS, 3),
+        ],
+    )
+    cpm = schedule(project).project_finish
+    assert cpm == date(2026, 3, 18)
+    mc = monte_carlo(project, runs=5000, seed=1)
+    assert (mc.p50, mc.p80) == (cpm, cpm)
+    assert min(mc.distribution) >= cpm
+
+
+@pytest.mark.parametrize("a_days", [2, 3, 4, 5])
+@pytest.mark.parametrize("link_in", [DependencyType.FF, DependencyType.SF])
+@pytest.mark.parametrize("link_out", [DependencyType.SS, DependencyType.SF])
+@pytest.mark.parametrize("lag_out", [0, 1, 2, 3])
+def test_ff_sf_in_rounded_away_runs_match_the_milestone(
+    a_days: int, link_in: DependencyType, link_out: DependencyType, lag_out: int
+) -> None:
+    """Across the class every rounded-away run is the plain-milestone network's run.
+
+    The draws are all 0.3, so every run rounds away and the drawn network must give
+    the plain-milestone network's result, lag landings included. The kept back-solved
+    start put 33 of 576 such cells' P50 before CPM.
+    """
+    for lag_in in (-1, 0, 1):
+        for third in (DependencyType.SS, None):
+            drawn = _ff_ss_chain(a_days, link_in, lag_in, link_out, lag_out, third)
+            plain = _ff_ss_chain(
+                a_days, link_in, lag_in, link_out, lag_out, third, m_estimate=False
+            )
+            with _draws(_constant(0.3)):
+                mc = monte_carlo(drawn, runs=4, seed=1)
+            assert mc.distribution == [schedule(plain).project_finish] * 4, (lag_in, third)
+
+
+def test_ff_in_ss_out_steps_back_only_at_the_threshold() -> None:
+    """The #4822 class: a draw past the threshold back-solves; one below it does not.
+
+    A rounded-away draw is the milestone, so every draw below half a day gives the
+    same finish, and the backward step, if any, sits at the threshold itself.
+    """
+    project = TestTheFractionFollowsTheLinkAnchor()._network(
+        DependencyType.SS, into=DependencyType.FF
+    )
+    finishes = []
+    for draw in (0.0, 0.1, 0.3, 0.49):
+        with _draws(_constant(draw)):
+            finishes.append(_run(project).p50)
+    assert len(set(finishes)) == 1

@@ -172,11 +172,29 @@ is a live task whose base `duration` is zero but which samples a positive durati
 a three-point estimate such as (0, 0, 1), or story points on the velocity path
 (`zero_base_ids` in `monte_carlo`). A plain milestone samples nothing and is
 already an instant. A zero-base draw under half a day (`_ZERO_BASE_ROUND_AWAY`)
-rounds away. The run is the instant `schedule()` places, links and lags included,
-and it hands no finish fraction on to the work after it. A start that an FF or SF
-link back-solved over the draw still reaches an SS or SF successor, because that can
-only move it earlier. A draw of half a day or more is ordinary work, so the task
-still matches a real task of that length.
+rounds away. The run is exactly the milestone `schedule()` places, links and lags
+included, and it hands no fraction on to the work after it. That covers the
+finish's fraction and also the start an FF or SF link back-solved over the draw. A
+draw of half a day or more is ordinary work, so the task still matches a real task
+of that length.
+
+*Why the back-solved start is not kept.* A first version kept it for SS and SF
+successors, on the reasoning that it could only move them earlier. Earlier than
+CPM is the failure that reasoning missed. The start was added to the successor's
+bound after that link's lag and snap, so it pulled the successor back across a
+non-working landing, which `_lagged_constraint` deliberately does not do. In
+`t0(3d) -FF-> M(0,0,1) -SS+3-> t2(5d) -SS+3-> t4(5d)`, M sits on Wednesday, its
+SS+3 lands on Saturday, and t2 must start on Monday. The kept start put t2 0.7 into
+Friday, and t2's own lag carried the fraction on to t4. P50 = P80 fell two days
+before CPM, with 94.5% of runs early. An audit sweep of 576 FF/SF-in, SS/SF-out
+cells found 33 with P50 off CPM, all earlier; with the start dropped there are none.
+The other fix applies the start to the anchor before the lag and snap, so the
+landing rule governs it. It was rejected because the start can lie more than a day
+before the instant's midnight, which the deficit's one-day landing test cannot
+represent. Dropping the start does not change how often FF/SF networks step
+backward as a draw grows (28 steps over 1,336 networks either way). It moves the
+backward steps that remain to the half-day threshold, the #4822 back-solve class.
+Without the kept start, no backward step falls inside the sub-half-day range.
 
 The exemption exists because the base estimate is zero, so the instant is what the
 plan says. A (0, 0, 1) Beta draw is never exactly zero (`alpha` is about 2/3). If
@@ -204,14 +222,18 @@ ruler (`_to_reference_offset`) carry deliberately.
 
 **Consequences.**
 
-- **Seeded percentiles move.** Measured over 600 seeded random networks of each
-  kind, against the merge-base engine:
-  - FS/SS-only networks: no percentile moved earlier. Most moved one working day
-    later. Lagged links moved some percentiles up to four working days later,
-    because the nearest-day reading could lose a day at each lagged link.
-  - Networks with FF or SF links: a percentile can also move earlier (2 of 600).
+- **Seeded percentiles move.** Measured over 1,000 seeded random networks of each
+  kind (seeds 40000–40999), against the merge-base engine:
+  - FS/SS-only networks: 930 of 1,000 changed. No percentile landed before the
+    CPM finish. Most moved one working day later, and lagged links moved some up
+    to four working days later, because the nearest-day reading could lose a day
+    at each lagged link. Two networks had a percentile one working day earlier: the
+    same reading could also add a day at a lagged link. An earlier 1,000-seed audit
+    run found 5.
+  - Networks with FF or SF links: a percentile can also move earlier (5 of 1,000,
+    by up to three working days), and three networks had a percentile before CPM.
     CPM itself is non-monotone there (#3806).
-  - Zero-variance runs matched CPM in all 1,500 sampled networks.
+  - Zero-variance runs matched CPM in all 1,000 sampled networks.
 
   Persisted forecast history (ADR-0175) shows a one-time step at the upgrade. That
   step is a change of reading, not a change of risk.

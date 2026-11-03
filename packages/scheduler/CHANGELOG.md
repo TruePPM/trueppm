@@ -24,8 +24,8 @@ change between releases. Pin an exact version (e.g.
   every run, so P50 moved a working day past the CPM finish. A run whose draw is under
   half a day now rounds away: it is the instant `schedule()` places, links and lags
   included, and hands no fraction on to the work after it, so P50 stays on the CPM
-  finish. An SS or SF successor still takes a start an FF or SF link back-solved
-  over the draw. A larger draw is simulated as work: with no recorded start, the
+  finish. A chain of such draws no longer adds up: three 0.2-day draws count
+  as three instants, not as 0.6 of a day. A larger draw is simulated as work: with no recorded start, the
   same as a task of that length with the same link. A started zero-duration task can differ from a started real task. This applies
   to any zero-duration task with a sampled duration, including story points on the
   velocity path, though velocity draws measured no change because they are work-sized.
@@ -48,9 +48,11 @@ change between releases. Pin an exact version (e.g.
   fractional work sits at that point in working time, so a milestone on a path
   neither adds nor drops time. A run with no spread still lands exactly on the CPM
   finish. A zero-duration task with an estimate is exempt: its draws under half a
-  day still round away (above). Seeded P50/P80/P95 move: on FS/SS networks never
-  earlier, usually one working day later, and up to four working days later where
-  lagged links each lost a day under the nearest-day reading (600 seeded random
+  day still round away (above). Seeded P50/P80/P95 move. On FS/SS networks no
+  percentile lands before the CPM finish; most move one working day later, lagged
+  links can move them up to four working days later, and in a few lagged cases a
+  percentile moves one working day earlier, because the nearest-day reading could
+  lose or add a day at each lagged link (measured over 1,000 seeded random
   networks). On FF/SF networks a percentile can also move earlier. A percentile
   interpolated between
   two whole-day positions is now read on the later day, where exact midpoints used
