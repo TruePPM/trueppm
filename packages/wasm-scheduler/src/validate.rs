@@ -351,14 +351,18 @@ fn check_actual_ordering(t: &Task) -> Result<(), String> {
 /// by the bounded calendar walk and drives the day-by-day walk into a
 /// multi-million-entry scan (#1086, mirrors Python #1068).
 fn check_planned_start_bound(t: &Task, project_start: NaiveDate) -> Result<(), String> {
-    if let Some(snet) = t.planned_start {
-        if (snet - project_start).num_days() > MAX_PROJECT_SPAN_DAYS {
-            return Err(format!(
-                "Task {:?} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days after the \
-                 project start; the schedule cannot be computed within a representable date range.",
-                t.id
-            ));
-        }
+    match t.planned_start {
+        Some(snet) => check_snet_bound(&t.id, snet, project_start),
+        None => Ok(()),
+    }
+}
+
+fn check_snet_bound(id: &str, snet: NaiveDate, project_start: NaiveDate) -> Result<(), String> {
+    if (snet - project_start).num_days() > MAX_PROJECT_SPAN_DAYS {
+        return Err(format!(
+            "Task {id:?} planned_start is more than {MAX_PROJECT_SPAN_DAYS} days after the \
+             project start; the schedule cannot be computed within a representable date range."
+        ));
     }
     Ok(())
 }
@@ -533,16 +537,125 @@ fn validate_span(project: &Project, status_offset: i64) -> Result<(), String> {
     // is far higher (~262143), so without matching the Python ceiling a year-9950
     // start is rejected by Python but scheduled here. Use the *same* conservative
     // estimate (span x 7 + one scan) against the Python date ceiling.
+    check_far_future_reach(project.start_date, total_span)
+}
+
+fn check_far_future_reach(start_date: NaiveDate, total_span: i64) -> Result<(), String> {
     let max_calendar_reach = total_span.saturating_mul(7) + MAX_CALENDAR_SCAN_DAYS;
-    if (py_date_max() - project.start_date).num_days() < max_calendar_reach {
+    if (py_date_max() - start_date).num_days() < max_calendar_reach {
         return Err(format!(
-            "Project start date {} is too close to the maximum representable date for a \
+            "Project start date {start_date} is too close to the maximum representable date for a \
              span of {total_span} working days; the schedule would overflow the date range. \
-             Use an earlier start date.",
-            project.start_date
+             Use an earlier start date."
         ));
     }
     Ok(())
+}
+
+/// Incremental re-validation for [`SchedulerSession::set_task_start`] (#4712).
+///
+/// A session validates the whole project once, at construction. Changing one
+/// task's `planned_start` can only affect the checks that read that field:
+/// the `date.min` floor, the per-task SNET bound, and the cumulative-span /
+/// far-future bounds (via `max_snet_days`, the furthest pin). Everything else
+/// (durations, lags, actuals, status date, calendars, edges) is untouched, so
+/// its contribution is captured once as `fixed_span` and `fixed_floor`. The
+/// furthest pin is kept in a multiset so a drag that moves the current maximum
+/// back down is handled in O(log n) rather than rescanning every task. The
+/// checks reuse the same helpers and messages as [`validate_project`].
+pub struct SessionBounds {
+    /// `task_days + sum(|lag|)`: the span terms independent of any pin.
+    base_span: i64,
+    /// `max(status_offset.max(0), max_actual_days)`: the other span "floor" term.
+    other_floor: i64,
+    /// Multiset of `planned_start - project.start_date` in days.
+    snet_offsets: std::collections::BTreeMap<i64, usize>,
+}
+
+impl SessionBounds {
+    /// Capture the pin-independent terms from an already-validated project.
+    pub fn new(project: &Project) -> Self {
+        let terms = span_terms(project);
+        let status_offset = checked_status_offset(project).unwrap_or(0);
+        let lags: i64 = project
+            .dependencies
+            .iter()
+            .map(|d| d.lag_days().abs())
+            .sum();
+        let mut snet_offsets = std::collections::BTreeMap::new();
+        for t in &project.tasks {
+            if let Some(d) = t.planned_start {
+                *snet_offsets
+                    .entry((d - project.start_date).num_days())
+                    .or_insert(0) += 1;
+            }
+        }
+        SessionBounds {
+            base_span: terms.task_days + lags,
+            other_floor: status_offset.max(0).max(terms.max_actual_days),
+            snet_offsets,
+        }
+    }
+
+    fn remove(&mut self, off: i64) {
+        if let Some(c) = self.snet_offsets.get_mut(&off) {
+            *c -= 1;
+            if *c == 0 {
+                self.snet_offsets.remove(&off);
+            }
+        }
+    }
+
+    /// Set `task.planned_start = Some(date)` if every bound that
+    /// `validate_project` would check still holds; otherwise leave the task and
+    /// the bookkeeping untouched and return the same error message.
+    pub fn try_set_planned_start(
+        &mut self,
+        project: &mut Project,
+        idx: usize,
+        date: NaiveDate,
+    ) -> Result<(), String> {
+        let min = py_date_min();
+        if date < min {
+            return Err(format!(
+                "Date {date} is before the earliest representable date {min}."
+            ));
+        }
+        check_snet_bound(&project.tasks[idx].id, date, project.start_date)?;
+        let prev = project.tasks[idx].planned_start;
+        let prev_off = prev.map(|d| (d - project.start_date).num_days());
+        let new_off = (date - project.start_date).num_days();
+        if let Some(o) = prev_off {
+            self.remove(o);
+        }
+        *self.snet_offsets.entry(new_off).or_insert(0) += 1;
+        let max_snet = self
+            .snet_offsets
+            .keys()
+            .next_back()
+            .copied()
+            .unwrap_or(0)
+            .max(0);
+        let total_span = self.base_span + max_snet.max(self.other_floor);
+        let checked = if total_span > MAX_PROJECT_SPAN_DAYS {
+            Err(format!(
+                "Total project span ({total_span} days across all task durations and lags) \
+                 exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days."
+            ))
+        } else {
+            check_far_future_reach(project.start_date, total_span)
+        };
+        if checked.is_err() {
+            // Roll the multiset back; the project was never mutated.
+            self.remove(new_off);
+            if let Some(o) = prev_off {
+                *self.snet_offsets.entry(o).or_insert(0) += 1;
+            }
+            return checked;
+        }
+        project.tasks[idx].planned_start = Some(date);
+        Ok(())
+    }
 }
 
 /// Reachability: a working day must exist within `MAX_CALENDAR_SCAN_DAYS` of the
