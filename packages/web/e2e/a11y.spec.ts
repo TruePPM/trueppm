@@ -62,8 +62,9 @@ import {
  * body text) and `aria-prohibited-attr` (mobile logo `.select-none`) debt
  * tracked by #2265 has been FIXED and its exclusions dropped — every scan below
  * now enforces `color-contrast`, so contrast regressions anywhere fail the
- * build. The one exclusion left anywhere in this file is `color-contrast` on the
- * Calendar scan, which is debt that scan FOUND and which #3879 tracks.
+ * build. The Calendar scan's exclusion (#3879: weekend mute via `opacity-60`)
+ * is gone too — the mute is now a solid text token — so no scan here excludes
+ * `color-contrast`.
  */
 
 /**
@@ -643,25 +644,8 @@ test.describe('accessibility @a11y — routes', () => {
       timeout: 10_000,
     });
 
-    // The one exclusion, and it is debt this scan FOUND rather than debt it
-    // hides: the two day-cell mutes both pushed the date number below 4.5:1.
-    // #4379 darkened `--neutral-text-disabled` itself (now #686663 light,
-    // clears 4.55:1 on the sunken #EAE5D9 out-of-month background — confirmed
-    // by re-running this scan with the exclusion removed: zero color-contrast
-    // violations attributed to the out-of-month cells), so that half of
-    // #3879 is closed. The remaining failure is the weekend mute: `opacity-60`
-    // over `text-neutral-text-primary` composites to #767F92 on white
-    // (4.02:1) — a different token and a different mechanism (`opacity-60`
-    // composites whatever sits under it, so #4379's token-level fix cannot
-    // reach it). Raising it changes how the Calendar looks (a documented
-    // visual behavior), which is a ux-design question and not #3241's markup
-    // fix. Every other rule runs live here, including the `aria-required-*`
-    // pair that is the whole point of the scan. SUPPRESSED-UNTIL(#3879) —
-    // delete the entry when that lands (the weekend mute is fixed), do not
-    // narrow it.
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
-      disableRules: ['color-contrast'],
     });
   });
 

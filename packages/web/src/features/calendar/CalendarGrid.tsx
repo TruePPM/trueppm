@@ -559,14 +559,14 @@ export function CalendarGrid({
                         `}
                         style={{ minHeight: rowMinHeight }}
                       >
-                        {/* The weekend mute is on the cell's OWN marks, not on
-                            the cell: chips live in the cell they start in now,
-                            so dimming the cell would dim a Saturday-starting
-                            bar and leave an identical Monday-starting one at
-                            full strength. It stays off the cell box for a
-                            second reason — a 60% focus ring is a weaker focus
-                            indicator on exactly two of seven columns. */}
-                        <div className={dayIdx >= 5 ? 'opacity-60' : ''}>
+                        {/* The weekend mute is a solid text token on the date number
+                            only — never `opacity` on the cell or its marks.
+                            Opacity composites whatever sits underneath, so
+                            `opacity-60` over the primary ink landed at 4.02:1
+                            (WCAG 1.4.3) and would dim a Saturday-starting bar
+                            but not an identical Monday-starting one. Milestone
+                            marks and "+N more" stay full strength on weekends. */}
+                        <div>
                           {/* Day number — aria-hidden because the cell's own
                               label already states the full date; without this
                               the number is read a second time, bare. */}
@@ -577,9 +577,11 @@ export function CalendarGrid({
                               ${
                                 isToday
                                   ? 'bg-sage-500 text-navy-900 font-semibold'
-                                  : isCurrentMonth
-                                    ? 'text-neutral-text-primary'
-                                    : 'text-neutral-text-disabled'
+                                  : !isCurrentMonth
+                                    ? 'text-neutral-text-disabled'
+                                    : dayIdx >= 5
+                                      ? 'text-neutral-text-secondary font-normal'
+                                      : 'text-neutral-text-primary'
                               }
                             `}
                           >
