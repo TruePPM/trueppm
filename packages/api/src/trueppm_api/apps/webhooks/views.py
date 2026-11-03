@@ -13,7 +13,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
     inline_serializer,
 )
-from kombu.exceptions import (  # type: ignore[import-untyped]
+from kombu.exceptions import (
     OperationalError as KombuOperationalError,
 )
 from rest_framework import serializers, status

@@ -384,6 +384,10 @@ module = [
     "jsonschema.*",
     "channels.*",
     "simple_history.*",
+    # kombu < 5.7 ships no py.typed; 5.7.0 does. An inline ignore flips between
+    # import-untyped and unused-ignore as the resolved version changes, so
+    # override the module instead (valid on either side).
+    "kombu.*",
     # django-allauth ships without a py.typed marker; socialaccount is used as a
     # library behind our own hardened SSO views (ADR-0517).
     "allauth.*",

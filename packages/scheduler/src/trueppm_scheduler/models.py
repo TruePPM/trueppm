@@ -96,6 +96,7 @@ class DateRange:
     end: date
 
     def __post_init__(self) -> None:
+        """Validate that both bounds are plain dates and ``end`` is not before ``start``."""
         # A string bound is otherwise accepted and only surfaces later as a bare
         # AttributeError ('str' has no 'toordinal') deep in schedule() (#4518).
         for name in ("start", "end"):
@@ -715,6 +716,7 @@ class Calendar:
     _exc_mask: int | None = field(default=None, init=False, repr=False, compare=False)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Set an attribute, normalizing ``exceptions`` to an immutable tuple."""
         # Normalize any accepted iterable to the immutable tuple the cache relies on.
         # Done in __setattr__ rather than __post_init__ so it covers *both* entry
         # points — the generated __init__ (which assigns through here) and a later
@@ -783,8 +785,10 @@ class Calendar:
         return None
 
     def _exception_intervals(self) -> tuple[list[int], list[int], list[int]]:
-        """Sorted, coalesced exception intervals as parallel ordinal lists, plus a
-        prefix sum of each run's mask-working-day count (#1206, #4176).
+        """Return sorted, coalesced exception intervals as parallel ordinal lists.
+
+        Also returns a prefix sum of each run's mask-working-day count
+        (#1206, #4176).
 
         Rebuilt only when a *new* exceptions object is assigned, or the same one is
         reread under a different ``working_days`` mask — the cache holds a strong
@@ -831,8 +835,9 @@ class Calendar:
         return self._exc_index
 
     def _exception_mask_days(self, lo: int, hi: int) -> int:
-        """Mask-working days inside any exception run overlapping ordinal span
-        ``[lo, hi)`` — the subtraction :func:`_working_days_between` needs.
+        """Count mask-working days inside exception runs overlapping ``[lo, hi)``.
+
+        This is the subtraction :func:`_working_days_between` needs.
 
         O(log E) via the prefix sum :meth:`_exception_intervals` builds over the
         coalesced runs (#4176): summing every overlapping run one at a time is

@@ -214,6 +214,13 @@ class CyclicDependencyError(SchedulerError):
     """
 
     def __init__(self, cycle: list[str]) -> None:
+        """Build the error from the offending cycle.
+
+        Args:
+            cycle: The full, canonical cycle path (first id repeated at the end).
+                Kept verbatim on :attr:`cycle`; the message is a bounded, escaped
+                rendering of it.
+        """
         self.cycle = cycle
         shown = [_short_repr(c, _CYCLE_MSG_ID_CHARS) for c in cycle[:_CYCLE_MSG_MAX_IDS]]
         ids = " → ".join(shown)
@@ -488,6 +495,7 @@ class ScheduleResult:
     driving_edges: list[DrivingEdge] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        """Copy the sequence fields and sort ``driving_edges`` deterministically."""
         # Defensive copy of the sequence containers (#826): the result owns its
         # lists, so a caller mutating the list it passed in — or the engine
         # reusing its internal working list — can't retroactively alter a returned
@@ -502,6 +510,7 @@ class ScheduleResult:
         )
 
     def __getstate__(self) -> dict[str, Any]:
+        """Return the pickle/copy state without the milestone replay cache."""
         # The milestone pass state schedule() keeps for derive_value (#4524) holds a
         # weak reference, which cannot be pickled; it is only a cache, so a pickled
         # or copied result drops it and derive_value replays the passes instead.
@@ -639,6 +648,35 @@ class MonteCarloResult:
         *,
         percentiles: dict[int, Percentile] | None = None,
     ) -> None:
+        """Build a Monte Carlo result from legacy keywords or ``percentiles=``.
+
+        Args:
+            project_id: The simulated project's id.
+            runs: Number of simulation runs.
+            p50: Completion date 50% of runs finished on or before. Required
+                unless ``percentiles`` is given.
+            p80: Completion date 80% of runs finished on or before. Required
+                unless ``percentiles`` is given.
+            p95: Completion date 95% of runs finished on or before. Required
+                unless ``percentiles`` is given.
+            distribution: Sorted distribution of simulated completion dates.
+                Defaults to an empty list.
+            sensitivity: Per-task duration-sensitivity entries. Defaults to an
+                empty list.
+            p50_at_day_start: Whether ``p50`` is the start of its day rather
+                than the end. Legacy form only.
+            p80_at_day_start: Whether ``p80`` is the start of its day. Legacy
+                form only.
+            p95_at_day_start: Whether ``p95`` is the start of its day. Legacy
+                form only.
+            percentiles: Confidence levels keyed by integer level; must include
+                50, 80 and 95. Keyword-only, and mutually exclusive with the
+                ``p50``/``p80``/``p95`` and ``*_at_day_start`` arguments.
+
+        Raises:
+            TypeError: If both forms are given, if neither is complete, or if
+                ``percentiles`` lacks level 50, 80 or 95.
+        """
         legacy = (p50, p80, p95)
         if percentiles is not None:
             if any(v is not None for v in legacy) or any(
@@ -2078,6 +2116,7 @@ class CycleCheck:
     cycle: list[str] | None
 
     def __bool__(self) -> bool:
+        """Return ``True`` when a cycle was found, ``False`` when the graph is acyclic."""
         return self.cycle is not None
 
     def to_dict(self) -> dict[str, Any]:
@@ -2108,6 +2147,7 @@ class SummaryExpansion:
     dependencies: list[Dependency]
 
     def __iter__(self) -> Iterator[Any]:
+        """Yield ``tasks`` then ``dependencies`` so the result unpacks as a pair."""
         yield self.tasks
         yield self.dependencies
 
@@ -6876,7 +6916,6 @@ def _mc_progress_state(
     ``date`` space precisely so it is calendar-neutral and can cross an edge into
     a successor on a different working week.
     """
-
     es_floor = _mc_es_floors(
         project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal, sf_linked
     )

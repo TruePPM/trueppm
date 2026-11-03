@@ -440,6 +440,21 @@ class TestSerializationDocstrings:
         )
 
     @pytest.mark.parametrize(
+        "cls",
+        [ts.MonteCarloResult, ts.CyclicDependencyError],
+    )
+    def test_documented_constructor_has_a_docstring(self, cls: type) -> None:
+        """``__init__`` is skipped by the ``_``-prefix filter above, yet it IS the API.
+
+        ``MonteCarloResult.__init__`` takes eleven parameters and a hand-written
+        dual-form contract (legacy ``p50``/``p80``/``p95`` or ``percentiles=``), so
+        it must say so (#4735). ruff ``D107`` guards the source tree; this guards
+        the runtime object.
+        """
+        init = vars(cls)["__init__"]
+        assert (init.__doc__ or "").strip(), f"{cls.__name__}.__init__ lacks a docstring"
+
+    @pytest.mark.parametrize(
         ("name", "expected"),
         [
             # The exact members that broke the stats pass under mutmut 3.8.0.

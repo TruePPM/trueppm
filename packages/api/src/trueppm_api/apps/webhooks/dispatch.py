@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 import redis as redis_lib
-from kombu.exceptions import (  # type: ignore[import-untyped]
+from kombu.exceptions import (
     OperationalError as KombuOperationalError,
 )
 
