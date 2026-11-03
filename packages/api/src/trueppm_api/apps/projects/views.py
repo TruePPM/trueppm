@@ -18129,6 +18129,16 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # anonymous callers earlier in the request lifecycle.
         user_pk = self.request.user.pk or -1
         today = timezone.localdate()
+        # ``?open=1`` (#4783) drops COMPLETE tasks server-side. It only ever
+        # NARROWS the caller's own assignment set — it is applied on top of the
+        # assignee/membership scope above, never in place of it — so it cannot
+        # widen whose tasks are returned. Without it, COMPLETE tasks from all time
+        # sort ahead of upcoming open work (``_sort_date`` ascending), and a
+        # client that walks a bounded number of pages (the timesheet) fills its
+        # budget with finished history before reaching the work it needs.
+        excluded_statuses = [TaskStatus.BACKLOG]
+        if _is_truthy(self.request.query_params.get("open", "")):
+            excluded_statuses.append(TaskStatus.COMPLETE)
         return (
             Task.objects.filter(
                 assignee_id=user_pk,
@@ -18137,7 +18147,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 project__memberships__user_id=user_pk,
                 project__memberships__is_deleted=False,
             )
-            .exclude(status=TaskStatus.BACKLOG)
+            .exclude(status__in=excluded_statuses)
             # ``project__program`` joins the program in the same query so the
             # serializer's program_name/program_color (#964) don't fire a
             # per-row lookup (N+1). project + sprint were already joined.
@@ -18189,6 +18199,21 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # e2e schema-guard failures on the real keys). Declare the whole
         # response by hand so the published contract matches what list()
         # actually returns.
+        parameters=[
+            OpenApiParameter(
+                name="open",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "`true`/`1` excludes COMPLETE tasks, returning only the caller's "
+                    "open work (#4783). Narrows the caller's own assignments; never "
+                    "widens whose tasks are returned. `due_today_count` already counts "
+                    "open tasks only and is unaffected; `server_version_high_water` "
+                    "reflects the filtered row set."
+                ),
+            ),
+        ],
         responses={
             200: _as_single_object_response(
                 inline_serializer(

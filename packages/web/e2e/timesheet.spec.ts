@@ -19,8 +19,18 @@ const TASK_A = { id: 'task-aaaa', short_id: 'RIV-1', name: 'Foundation pour', pr
 const TASK_B = { id: 'task-bbbb', short_id: 'RIV-2', name: 'Framing', project_id: 'proj-1', project_name: 'Riverside' };
 const TASK_C = { id: 'task-cccc', short_id: 'RIV-3', name: 'Roofing', project_id: 'proj-1', project_name: 'Riverside' };
 const TASKS = [TASK_A, TASK_B, TASK_C];
-// A completed assignment: no zero row (#4766), but reachable through the add-task picker.
+// A completed assignment: the timesheet asks `/me/work/?open=1`, so it is never read (#4783).
 const TASK_DONE = { id: 'task-dddd', short_id: 'RIV-4', name: 'Site survey', project_id: 'proj-1', project_name: 'Riverside', status: 'COMPLETE' };
+// An open assignment scheduled after the pinned week: no zero row, but one pick away (#4783).
+const TASK_LATER = {
+  id: 'task-eeee',
+  short_id: 'RIV-5',
+  name: 'Landscaping',
+  project_id: 'proj-1',
+  project_name: 'Riverside',
+  scheduled_start: '2026-07-06',
+  scheduled_finish: '2026-07-17',
+};
 
 // Seed as (task, day-offset-from-Monday, minutes): Mon = 5h(A) + 4h(B) = 9h (over 8h),
 // Tue = 2h(A). Week total = 11h.
@@ -64,7 +74,9 @@ interface TimesheetOpts {
   /** Seed the week's entries (default true). False = a week with nothing logged yet. */
   seedEntries?: boolean;
   /** Tasks `/me/work/` reports as assigned (default all three). */
-  assigned?: Array<(typeof TASKS)[number] & { status?: string }>;
+  assigned?: Array<
+    (typeof TASKS)[number] & { status?: string; scheduled_start?: string; scheduled_finish?: string }
+  >;
 }
 
 function seedFor(monday: string, seedEntries: boolean): MockEntry[] {
@@ -102,31 +114,38 @@ async function setupTimesheet(page: Page, opts: TimesheetOpts = {}): Promise<voi
     }
   }
 
-  // /me/work/ — the contributor's assignments. Since #4766 every one is a timesheet row
-  // (zeros until logged), the same source My Work renders.
-  await page.route('**/api/v1/me/work/**', (route) =>
-    route.fulfill({
+  // /me/work/ — the contributor's assignments, the same source My Work renders. Honors
+  // `?open=1` like the server (#4783): COMPLETE tasks are dropped when it is set, so a
+  // client that stopped sending it would visibly regress here.
+  await page.route('**/api/v1/me/work/**', (route) => {
+    const openOnly = new URL(route.request().url()).searchParams.get('open') === '1';
+    const rows = assigned
+      .map((t) => ({
+        status: 'IN_PROGRESS',
+        scheduled_start: null,
+        scheduled_finish: null,
+        ...t,
+        group: 'today',
+        is_critical: false,
+        is_blocked: false,
+        blocked_reason: '',
+        due: null,
+        due_source: null,
+        server_version: 1,
+      }))
+      .filter((t) => !openOnly || t.status !== 'COMPLETE');
+    return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        results: assigned.map((t) => ({
-          status: 'IN_PROGRESS',
-          ...t,
-          group: 'today',
-          is_critical: false,
-          is_blocked: false,
-          blocked_reason: '',
-          due: null,
-          due_source: null,
-          server_version: 1,
-        })),
+        results: rows,
         next: null,
         previous: null,
         active_sprints: [],
         due_today_count: 0,
       }),
-    }),
-  );
+    });
+  });
 
   // Weekly rollup + per-cell writes + submit marker.
   await page.route('**/api/v1/me/time-entries/**', async (route) => {
@@ -357,23 +376,24 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
     await expect(grid.getByRole('gridcell', { name: /edit on My Work/ })).toHaveCount(0);
   });
 
-  test('assigned tasks with no entries yet are rows of zeros, ready for the first hours (#4766)', async ({
+  test('open tasks scheduled this week with no entries yet are rows of zeros (#4766, #4783)', async ({
     page,
   }) => {
-    await setupTimesheet(page, { seedEntries: false, assigned: [...TASKS, TASK_DONE] });
+    await setupTimesheet(page, { seedEntries: false, assigned: [...TASKS, TASK_DONE, TASK_LATER] });
     await page.goto('/me/timesheet');
 
     const grid = page.getByRole('grid', { name: 'Weekly timesheet' });
     await expect(grid).toBeVisible();
     await expect(page.getByTestId('empty-state')).toHaveCount(0);
 
-    // Every My Work assignment is a row — nothing logged, nothing hidden.
+    // Every open, unscheduled assignment is a row — nothing logged, nothing hidden.
     for (const name of ['Foundation pour', 'Framing', 'Roofing']) {
       await expect(grid.getByRole('row').filter({ hasText: name })).toBeVisible();
     }
     await expect(page.getByLabel('Week total 0:00')).toBeVisible();
-    // Finished work is not padded in as a zero row…
+    // Finished work is never read, and work scheduled after this week is not a zero row.
     await expect(grid.getByRole('row').filter({ hasText: 'Site survey' })).toHaveCount(0);
+    await expect(grid.getByRole('row').filter({ hasText: 'Landscaping' })).toHaveCount(0);
 
     // Log the first hours of the week into a zero row: the POST lands and totals move.
     const row = grid.getByRole('row').filter({ hasText: 'Roofing' });
@@ -384,11 +404,11 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
     await expect(page.getByLabel('Week total 2:00')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Submit week' })).toBeEnabled();
 
-    // …but stays one pick away for a final hour: the picker offers exactly it.
+    // …and the later task stays one pick away: the picker offers exactly it.
     await page.getByRole('button', { name: /add project or task/i }).click();
     await expect(page.getByRole('option')).toHaveCount(1);
-    await page.getByRole('option', { name: /Site survey/ }).click();
-    await expect(grid.getByRole('row').filter({ hasText: 'Site survey' })).toBeVisible();
+    await page.getByRole('option', { name: /Landscaping/ }).click();
+    await expect(grid.getByRole('row').filter({ hasText: 'Landscaping' })).toBeVisible();
   });
 
   test('the empty state is reserved for a week with no assignments and nothing logged (#4766)', async ({

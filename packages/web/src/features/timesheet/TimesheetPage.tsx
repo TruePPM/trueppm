@@ -70,20 +70,22 @@ export function TimesheetPage() {
   const submitMutation = useSubmitWeek(monday);
 
   // Rows come from the same assignment source My Work renders (`GET /me/work/`), so a
-  // contributor with open assigned tasks and no entries yet gets rows of zeros to log
-  // into, not an empty grid (#4766). The read is bounded and stops at a failed page
-  // (`useTimesheetAssignments`); a partial read is flagged below, never silent.
+  // contributor with open assigned tasks scheduled this week and no entries yet gets rows
+  // of zeros to log into, not an empty grid (#4766, #4783). The read is bounded and stops
+  // at a failed page (`useTimesheetAssignments`); a partial read is flagged below.
   const assignments = useTimesheetAssignments();
 
   const days = useMemo(() => weekDays(monday, today), [monday, today]);
 
   const rows = useMemo(() => {
-    const open = zeroRowCandidates(assignedTasks(assignments.data?.tasks)).map(myWorkTaskMeta);
+    const open = zeroRowCandidates(assignedTasks(assignments.data?.tasks), monday, today).map(
+      myWorkTaskMeta,
+    );
     const base = buildWeekRows(data?.results ?? [], open);
     const present = new Set(base.map((r) => r.taskId));
     const extras = extraTasks.filter((t) => !present.has(t.taskId)).map(emptyRow);
     return [...base, ...extras];
-  }, [data, assignments.data, extraTasks]);
+  }, [data, assignments.data, extraTasks, monday, today]);
 
   const isCurrentWeek = monday === mondayOf(today);
   const emptyTitle = isCurrentWeek
@@ -248,7 +250,7 @@ export function TimesheetPage() {
         <EmptyState
           icon={ClockIcon}
           title={emptyTitle}
-          description="Your open assigned tasks appear here as rows, ready for your hours. When a task is assigned to you, or you log time against a task, it shows up in this grid."
+          description="Your open tasks scheduled this week appear here as rows, ready for your hours. When a task is assigned to you, or you log time against a task, it shows up in this grid."
           className="rounded-card border border-neutral-border bg-neutral-surface"
         />
       ) : (

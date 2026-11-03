@@ -64,6 +64,20 @@ export interface MyWorkTask {
   remaining_points: number | null;
   due: string | null;
   due_source: DueSource;
+  /**
+   * The task's schedule SPAN (ADR-0752, #4783): `scheduled_start` is the span start and
+   * `scheduled_finish` its end. The span start is the task's stored `scheduled_start`;
+   * only when that column is unset does the server substitute `early_start` (equal for a
+   * not-started task), so a scheduled task never arrives with a finish and no start. For
+   * an in-progress task whose `scheduled_start` is still unset (no CPM run since
+   * migration 0132), `early_start` is the remaining-work start, so the span start is
+   * approximate — the same `Coalesce("scheduled_start", "early_start")` the server-side
+   * span readers use. Both null for a task the engine has not scheduled. Lets a client ask "is this task
+   * scheduled during week W?" — `due` cannot, being one end-ish date. Optional so a
+   * fixture built before #4783 still type-checks; a real response always carries both.
+   */
+  scheduled_start?: string | null;
+  scheduled_finish?: string | null;
   is_critical: boolean;
   /**
    * Server-computed bucket (#484, ADR-0122): the section this task renders under.

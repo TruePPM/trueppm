@@ -197,6 +197,15 @@ Two changes landed in 0.3 to make the contributor experience quieter and less PM
 
 `GET /api/v1/me/work/` returns the same data the page consumes. Limit/offset paginated (default page size 100, max 200). The response is a deliberately flat shape with no CPM fields. See the [API reference](/api/reference/) for the schema.
 
+:::note[Ships in 0.5]
+Each row will also carry the task's schedule span, `scheduled_start` and `scheduled_finish`
+(both `null` for an unscheduled task), and the endpoint will accept `?open=1` to leave out
+completed tasks. `?open=1` only narrows your own list; it can't return anyone else's tasks.
+The weekly [timesheet](/features/timesheet/) uses both to pick which open tasks are rows for
+the week you're viewing. On 0.4 a row carries `due` as its only date, and completed tasks
+are always included.
+:::
+
 `GET /api/v1/projects/health-summary/` backs the **My projects** strip: one row per project you're a member of (archived excluded), each with a derived `health_band` and the same at-risk/critical task counts the single-project status summary uses. It is scoped server-side to your own projects.
 
 Status updates use the standard task PATCH endpoint with a `X-Source: my_work` header so downstream webhook subscribers can distinguish a status flip from My Work from a status flip from the schedule canvas.

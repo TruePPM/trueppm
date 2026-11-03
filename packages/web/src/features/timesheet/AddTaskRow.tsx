@@ -2,11 +2,14 @@
  * "Add a task" row for the weekly timesheet grid (#1435).
  *
  * Lets a contributor start logging against an assigned task that is not a row this week.
- * Candidates are the caller's assigned tasks (`GET /me/work/`, read through the same
- * timesheet-owned query the page uses) minus the tasks already shown as rows — in
- * practice the COMPLETE assignments, which get no zero row (#4766) but can still need a
- * final hour logged. When every candidate is already a row the picker renders nothing
- * rather than an empty dropdown. A broader cross-project task search is #1416.
+ * Candidates are the caller's open assigned tasks (`GET /me/work/?open=1`, read through
+ * the same timesheet-owned query the page uses) minus the tasks already shown as rows — in
+ * practice the open tasks scheduled outside the selected week, which get no zero row
+ * (#4783) but may still take an hour early or late. COMPLETE tasks are not read, so they
+ * are not offered here; one that carries time this week is a row from its entry, and the
+ * global "Log time" picker still reaches the rest. When every candidate is already a row
+ * the picker renders nothing rather than an empty dropdown. A broader cross-project task
+ * search is #1416.
  */
 import { useMemo } from 'react';
 import { EntitySelectCombobox, type EntityOption } from '@/components/EntitySelectCombobox';

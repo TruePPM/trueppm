@@ -6,7 +6,7 @@
  * the add-task picker so the two cannot drift on which tasks count as "assigned".
  */
 import type { MyWorkTask } from '@/hooks/useMyWork';
-import type { RowTaskMeta } from './weekModel';
+import { addDaysIso, type RowTaskMeta } from './weekModel';
 
 /** Row labels for one My Work task. */
 export function myWorkTaskMeta(t: MyWorkTask): RowTaskMeta {
@@ -40,17 +40,37 @@ export function assignedTasks(tasks: MyWorkTask[] | undefined): MyWorkTask[] {
 }
 
 /**
- * The assigned tasks that get a zero row in the grid without an entry: those still open.
+ * The assigned tasks that get a zero row in the week starting `monday`, without an entry:
+ * open tasks whose schedule span (ADR-0752 `scheduled_start`..`scheduled_finish`, #4783)
+ * overlaps that week.
  *
- * Why status and not dates: a zero row says "you could be logging here". A COMPLETE task
- * is finished work, so it would only pad every week with rows nobody logs into; it shows
- * when it actually carries time that week (an entry row) and stays reachable from the
- * add-task picker. Open work is current in any week the contributor looks at, so it is
- * not filtered by date: `/me/work/` carries no schedule span — its one date, `due`, is an
- * end-ish cascade (ADR-0065) — and an open task due before the selected week is overdue
- * work still being done, not work outside the week. Undated open tasks are rows too, so
- * unscheduled work stays loggable.
+ * - **COMPLETE** never gets a zero row: it is finished work and would only pad the grid.
+ *   The read already asks the server for open work only; this is the client half of the
+ *   same rule, so a payload that still carries one cannot pad the grid either.
+ * - **Overdue open work stays current until it is done.** A span that ended before `today`
+ *   is treated as running through `today`, so a late task is a row in the current week
+ *   (and every week since it was due) — it is still being worked — but not in future weeks.
+ * - **Undated** (no span at all, or a payload predating #4783) is a row in every week, so
+ *   unscheduled work stays loggable. A span with only one end is open on the other side;
+ *   the server already fills a missing `scheduled_start` from `early_start`, so this is a
+ *   last resort for a task that has neither, not the idle-project case.
+ *
+ * Dates are ISO `YYYY-MM-DD` strings, which order lexicographically.
  */
-export function zeroRowCandidates(tasks: MyWorkTask[]): MyWorkTask[] {
-  return tasks.filter((t) => t.status !== 'COMPLETE');
+export function zeroRowCandidates(
+  tasks: MyWorkTask[],
+  monday: string,
+  today: string,
+): MyWorkTask[] {
+  const sunday = addDaysIso(monday, 6);
+  return tasks.filter((t) => {
+    if (t.status === 'COMPLETE') return false;
+    const start = t.scheduled_start ?? null;
+    const finish = t.scheduled_finish ?? null;
+    if (start === null && finish === null) return true;
+    const effectiveFinish = finish === null ? null : finish < today ? today : finish;
+    return (
+      (start === null || start <= sunday) && (effectiveFinish === null || effectiveFinish >= monday)
+    );
+  });
 }

@@ -927,3 +927,174 @@ def test_program_fields_do_not_add_per_row_queries(calendar: Calendar, alice: ob
         "after adding 5 tasks on distinct programs — program serialization is "
         "firing a per-row query (missing select_related('project__program'))."
     )
+
+
+# ---------------------------------------------------------------------------
+# Span + ?open= filter (#4783)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_row_carries_adr_0752_span(calendar: Calendar, alice: object) -> None:
+    """``scheduled_start`` is the span start; ``scheduled_finish`` mirrors early_finish.
+
+    The span start must come from ``scheduled_start``, not ``early_start`` — for an
+    in-progress task the two differ (early_start is the remaining-work window).
+    """
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+    Task.objects.create(
+        project=proj,
+        name="In flight",
+        duration=10,
+        assignee=alice,
+        status=TaskStatus.IN_PROGRESS,
+        scheduled_start=date(2026, 4, 1),
+        early_start=date(2026, 4, 8),
+        early_finish=date(2026, 4, 14),
+    )
+    Task.objects.create(project=proj, name="Unscheduled", duration=1, assignee=alice)
+
+    rows = {r["name"]: r for r in _client(alice).get("/api/v1/me/work/").data["results"]}
+    assert rows["In flight"]["scheduled_start"] == "2026-04-01"
+    assert rows["In flight"]["scheduled_finish"] == "2026-04-14"
+    assert rows["Unscheduled"]["scheduled_start"] is None
+    assert rows["Unscheduled"]["scheduled_finish"] is None
+
+
+@pytest.mark.django_db
+def test_span_start_falls_back_to_early_start_when_unset(calendar: Calendar, alice: object) -> None:
+    """A task with no ``scheduled_start`` (never re-run since the column landed) uses
+    ``early_start``, so the span is never a finish with no start."""
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+    Task.objects.create(
+        project=proj,
+        name="Idle",
+        duration=5,
+        assignee=alice,
+        scheduled_start=None,
+        early_start=date(2026, 7, 6),
+        early_finish=date(2026, 7, 10),
+    )
+
+    row = _client(alice).get("/api/v1/me/work/").data["results"][0]
+    assert row["scheduled_start"] == "2026-07-06"
+    assert row["scheduled_finish"] == "2026-07-10"
+    # early_start itself still does not leak as a field of its own.
+    assert "early_start" not in row
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("value", ["1", "true", "True"])
+def test_open_param_excludes_complete_tasks(calendar: Calendar, alice: object, value: str) -> None:
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+    Task.objects.create(project=proj, name="Open", duration=1, assignee=alice)
+    Task.objects.create(
+        project=proj, name="Done", duration=1, assignee=alice, status=TaskStatus.COMPLETE
+    )
+
+    resp = _client(alice).get(f"/api/v1/me/work/?open={value}")
+    assert resp.status_code == 200
+    assert [t["name"] for t in resp.data["results"]] == ["Open"]
+    assert resp.data["count"] == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("query", ["", "?open=0", "?open=false", "?open=bogus"])
+def test_without_open_param_complete_tasks_still_returned(
+    calendar: Calendar, alice: object, query: str
+) -> None:
+    """Default behavior is unchanged: My Work still lists COMPLETE tasks."""
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+    Task.objects.create(project=proj, name="Open", duration=1, assignee=alice)
+    Task.objects.create(
+        project=proj, name="Done", duration=1, assignee=alice, status=TaskStatus.COMPLETE
+    )
+
+    resp = _client(alice).get(f"/api/v1/me/work/{query}")
+    assert sorted(t["name"] for t in resp.data["results"]) == ["Done", "Open"]
+
+
+@pytest.mark.django_db
+def test_open_param_still_excludes_backlog_and_others_tasks(
+    calendar: Calendar, alice: object, bob: object
+) -> None:
+    """``?open=1`` only narrows — it never drops the assignee/membership/BACKLOG scope."""
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+    _member(proj, bob)
+    Task.objects.create(project=proj, name="Mine", duration=1, assignee=alice)
+    Task.objects.create(
+        project=proj, name="Backlog", duration=1, assignee=alice, status=TaskStatus.BACKLOG
+    )
+    Task.objects.create(project=proj, name="Bob's", duration=1, assignee=bob)
+    # Assigned to alice but in a project she is not a member of.
+    other = _project(calendar, "P2")
+    Task.objects.create(project=other, name="No membership", duration=1, assignee=alice)
+
+    resp = _client(alice).get(f"/api/v1/me/work/?open=1&user={bob.pk}")  # type: ignore[attr-defined]
+    assert [t["name"] for t in resp.data["results"]] == ["Mine"]
+
+
+@pytest.mark.django_db
+def test_open_param_survives_pagination(calendar: Calendar, alice: object) -> None:
+    """The ``next`` link carries ``open=1`` so page 2 is filtered the same way."""
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+    for i in range(4):
+        Task.objects.create(
+            project=proj,
+            name=f"Open{i}",
+            duration=1,
+            assignee=alice,
+            planned_start=date(2026, 4, 10) + timedelta(days=i),
+        )
+        Task.objects.create(
+            project=proj,
+            name=f"Done{i}",
+            duration=1,
+            assignee=alice,
+            status=TaskStatus.COMPLETE,
+            planned_start=date(2026, 4, 1) + timedelta(days=i),
+        )
+
+    resp = _client(alice).get("/api/v1/me/work/?open=1&limit=2")
+    assert resp.data["count"] == 4
+    page2 = _client(alice).get(resp.data["next"])
+    names = [t["name"] for t in resp.data["results"] + page2.data["results"]]
+    assert names == ["Open0", "Open1", "Open2", "Open3"]
+
+
+@pytest.mark.django_db
+def test_span_fields_add_no_per_row_queries(calendar: Calendar, alice: object) -> None:
+    """The span is two columns on the fetched row — query count is flat in row count."""
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+
+    def _count() -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            assert _client(alice).get("/api/v1/me/work/?open=1").status_code == 200
+        return len(ctx.captured_queries)
+
+    Task.objects.create(
+        project=proj,
+        name="T0",
+        duration=1,
+        assignee=alice,
+        scheduled_start=date(2026, 4, 1),
+        early_finish=date(2026, 4, 2),
+    )
+    one = _count()
+    for i in range(1, 6):
+        Task.objects.create(
+            project=proj,
+            name=f"T{i}",
+            duration=1,
+            assignee=alice,
+            scheduled_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 2),
+        )
+    assert _count() == one

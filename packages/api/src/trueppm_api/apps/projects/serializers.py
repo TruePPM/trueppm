@@ -10940,6 +10940,12 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     ``due_source`` labels which step of the cascade produced the date so the
     UI can render "Due May 30 (planned)" vs "Ends with Sprint 12" — pure dates
     without their provenance erode contributor trust within a sprint.
+
+    ``scheduled_start`` / ``scheduled_finish`` are the task's SPAN (ADR-0752),
+    exposed so a client can ask "is this task scheduled during week W?" — the
+    timesheet's zero-row rule (#4783). ``due`` cannot answer that: it is one
+    end-ish date. They are the span, not the CPM remaining-work window
+    (``early_start``), so they carry no float/criticality vocabulary.
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -10974,6 +10980,13 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     remaining_points = serializers.IntegerField(read_only=True, allow_null=True)
     due = serializers.SerializerMethodField()
     due_source = serializers.SerializerMethodField()
+    # Task span (ADR-0752, #4783). ``scheduled_start`` falls back to ``early_start``
+    # (see ``get_scheduled_start``); ``scheduled_finish`` has no column — it is
+    # always ``early_finish`` — so it is read under the ADR-0752 name, as
+    # TaskSerializer does. All three are plain columns on the row already
+    # fetched: no extra query per row.
+    scheduled_start = serializers.SerializerMethodField()
+    scheduled_finish = serializers.DateField(source="early_finish", read_only=True, allow_null=True)
     is_critical = serializers.SerializerMethodField()
     # Explicit human blocker (#476/#855). On this contributor surface "blocked"
     # means the human flag (a teammate said this can't proceed) — the dependency-
@@ -11002,6 +11015,24 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
 
     def get_is_blocked(self, obj: Any) -> bool:
         return bool((getattr(obj, "blocked_reason", "") or "").strip())
+
+    @extend_schema_field(serializers.DateField(allow_null=True))
+    def get_scheduled_start(self, obj: Any) -> str | None:
+        """Span start, falling back to ``early_start`` when the column is unset.
+
+        ``scheduled_start`` is only written by a CPM run, and the column was added
+        without a backfill, so an idle project's tasks carry ``early_finish`` but a
+        null ``scheduled_start``. Sent as-is, that is a finish with no start, which
+        a span-overlap client reads as open-ended and matches every past week. For
+        a not-started task the two are equal (ADR-0752), and the server-side span
+        readers (utilization, resource views) already use the same
+        ``Coalesce("scheduled_start", "early_start")``, so this keeps one span rule.
+        For an in-progress task whose ``scheduled_start`` is still unset (no CPM run
+        since migration 0132), ``early_start`` is the remaining-work start, so the
+        span start is approximate, the same approximation those readers make.
+        """
+        start = obj.scheduled_start or obj.early_start
+        return start.isoformat() if start else None
 
     def get_blocked_age_seconds(self, obj: Any) -> int | None:
         """Whole seconds the task has been blocked (drives the My Work age badge)."""
