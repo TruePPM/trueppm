@@ -343,6 +343,7 @@ def _v21_reference_errors(payload: dict[str, Any], ctx: _RefContext, errors: lis
     _v21_depth_errors(payload, ctx, errors)
     _check_backlog_items(program.get("backlog_items", []), ctx, errors)
     _check_ceremonies(program.get("ceremonies", []), errors)
+    _check_decisions(payload, ctx, errors)
     _check_agent_actions(program.get("agent_actions", []), ctx, errors)
     for i, project in enumerate(payload.get("projects", [])):
         pbase = f"$.projects[{i}]"
@@ -494,6 +495,65 @@ def _check_backlog_items(items: list[dict[str, Any]], ctx: _RefContext, errors: 
         if target in pulled:
             errors.append(f"{base}.pulled_to: task {target!r} is already another item's pull")
         pulled.add(target)
+
+
+def _risk_ref_index(payload: dict[str, Any]) -> dict[str, set[str]]:
+    """Project slug -> the risk slugs declared in it, for ``<project>:<risk>`` refs.
+
+    Program-scoped ``risks`` are materialized on the first project (the importer's
+    ``_create_program_risks``), so they are indexed under that project's slug.
+    """
+    index: dict[str, set[str]] = {}
+    projects = payload.get("projects", [])
+    for project in projects:
+        index.setdefault(project.get("slug", ""), set()).update(
+            r.get("slug", "") for r in project.get("risks", [])
+        )
+    if projects:
+        index[projects[0].get("slug", "")].update(
+            r.get("slug", "") for r in payload.get("risks", [])
+        )
+    return index
+
+
+def _check_risk_ref(
+    ref: str | None, index: dict[str, set[str]], path: str, errors: list[str]
+) -> None:
+    """Resolve a ``<project-slug>:<risk-slug>`` ref against the per-project risk index."""
+    if ref is None:
+        return
+    project_slug, _, risk_slug = ref.partition(":")
+    risks = index.get(project_slug)
+    if risks is None:
+        errors.append(f"{path}: no project with slug {project_slug!r} for risk ref {ref!r}")
+    elif risk_slug not in risks:
+        errors.append(f"{path}: no risk {risk_slug!r} in project {project_slug!r}")
+
+
+def _check_decisions(payload: dict[str, Any], ctx: _RefContext, errors: list[str]) -> None:
+    """Program decision log (v2.2, #4776): slugs, accounts, links and status coherence.
+
+    Mirrors ``ProgramDecision``'s ``progdecision_one_link`` constraint so a file
+    that would violate it is refused here with a path, not as a 500 at insert.
+    """
+    items = payload.get("program", {}).get("decisions", [])
+    if not items:
+        return
+    _collect_slugs(items, "$.program.decisions", errors)
+    risk_index = _risk_ref_index(payload)
+    for i, item in enumerate(items):
+        base = f"$.program.decisions[{i}]"
+        for key in ("owner", "created_by"):
+            _check_ref(item.get(key), ctx.account_slugs, f"{base}.{key}", "account", errors)
+        if "linked_task" in item and "linked_risk" in item:
+            errors.append(f"{base}: give linked_task or linked_risk, not both")
+        _check_task_ref(item.get("linked_task"), "", ctx.task_index, f"{base}.linked_task", errors)
+        _check_risk_ref(item.get("linked_risk"), risk_index, f"{base}.linked_risk", errors)
+        if "decided_at" in item and item.get("status", "awaiting") != "made":
+            errors.append(
+                f"{base}.decided_at: only a made decision has a decision time "
+                f"(status {item.get('status', 'awaiting')!r})"
+            )
 
 
 def _check_ceremonies(items: list[dict[str, Any]], errors: list[str]) -> None:
@@ -834,6 +894,7 @@ def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
         # v2.1 program sections (#3603) each materialize one row per entry.
         + len(program.get("backlog_items", []))
         + len(program.get("ceremonies", []))
+        + len(program.get("decisions", []))
         + len(program.get("agent_actions", []))
     )
     for project in payload.get("projects", []):

@@ -21,6 +21,9 @@ and [ADR-0634](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0634-file
 Task `actual_start` and `actual_finish` round-trip through the seed in 0.5. The
 current release leaves them out of an export, so a project re-imported from its
 own export loses its in-flight schedule floor.
+
+Schema 2.2 and `program.decisions` also ship in 0.5. The current release leaves
+the program decision log out of a program export, and its schema rejects the key.
 :::
 
 ## The format
@@ -358,8 +361,22 @@ sample path the importer also synthesizes logged time on completed and
 in-flight work and submits each fully elapsed week; a generic import writes
 only the `time.log` beats the file authors.
 
+**v2.2 adds the program decision log** (`schema_version: "2.2"`, same
+`seed_v2.json`; every 2.0 and 2.1 document is still valid). `program.decisions`
+carries each decision's `title`, `owner` (an account slug), `due_date`, `status`
+(`awaiting`, `made` or `withdrawn`), `decided_at`, `impact_note` and the
+authored `created_by`, `created_at` and `updated_at`. `updated_at` is restored
+verbatim because the "as of" date on a decision derives from it. A decision links
+at most one of `linked_task` (`<project-slug>:<wbs-path>`) or `linked_risk`
+(`<project-slug>:<risk-slug>`, because a risk slug is only unique within its
+project); both must resolve inside the document, and `decided_at` is accepted
+only on a `made` decision. The exporter declares 2.2 only when the program has at
+least one decision, so a program without any still exports as 2.0 or 2.1 and
+stays importable by a build that predates 2.2. A link whose target is not in the
+export (a project the caller cannot read) is dropped rather than left dangling.
+
 The v2 exporter round-trips backlog items, ceremonies, criteria, notes,
-threads, reactions and acknowledgements. It never exports agent actions,
+threads, reactions, acknowledgements and program decisions. It never exports agent actions,
 share links or `time.log`: the first two are evidence and credentials, and
 per-person hours would reach anyone who can run an export.
 

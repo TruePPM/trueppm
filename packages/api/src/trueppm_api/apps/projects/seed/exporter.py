@@ -42,6 +42,7 @@ from trueppm_api.apps.projects.models import (
     Dependency,
     Label,
     Program,
+    ProgramDecision,
     Project,
     RetroActionItem,
     Risk,
@@ -130,6 +131,11 @@ _PROFICIENCY_NAME = {1: "beginner", 2: "intermediate", 3: "expert"}
 
 #: Task keys that only exist from schema 2.1.
 _V21_TASK_KEYS = ("acceptance_criteria", "is_subtask", "recurrence", "skill_requirements")
+
+
+def _uses_v22(doc: dict[str, Any]) -> bool:
+    """Whether an exported document carries any construct introduced in 2.2 (#4776)."""
+    return bool(doc.get("program", {}).get("decisions"))
 
 
 def _uses_v21(doc: dict[str, Any]) -> bool:
@@ -362,6 +368,9 @@ class _Exporter:
         # here so ``risk.note`` events can target them. Projects are serialized
         # before events, so this is populated by the time the timeline is built.
         self.risk_slugs: dict[Any, str] = {}
+        # risk pk -> (project_slug, risk_slug). Risk slugs are only unique within a
+        # project, so a program decision's ``linked_risk`` must be project-qualified.
+        self.risk_ref: dict[Any, tuple[str, str]] = {}
         # task pk -> [label slug, …], populated per project in ``_project_block``
         # (ADR-0400 labels folded into the seed, #1958). Label slugs are
         # project-scoped, matching the slug-based (no-UUID) seed contract.
@@ -446,6 +455,11 @@ class _Exporter:
             # with none still exports as 2.0 and stays importable by a 2.0 build.
             if _uses_v21(doc):
                 doc["schema_version"] = "2.1"
+            # 2.2 likewise only when a program decision exists (#4776), so a program
+            # with none keeps its 2.0/2.1 version string byte for byte and a 0.4
+            # build (whose schema enum stops at 2.1) can still import it.
+            if _uses_v22(doc):
+                doc["schema_version"] = "2.2"
         return doc
 
     def _backlog_item_entry(self, item: BacklogItem, allocator: _SlugAllocator) -> dict[str, Any]:
@@ -503,6 +517,48 @@ class _Exporter:
         ]
         if ceremonies:
             block["ceremonies"] = ceremonies
+
+        decisions = self._export_decisions()
+        if decisions:
+            block["decisions"] = decisions
+
+    def _decision_entry(
+        self, decision: ProgramDecision, allocator: _SlugAllocator
+    ) -> dict[str, Any]:
+        entry: dict[str, Any] = {"slug": allocator.take(decision.title), "title": decision.title}
+        if decision.owner_id in self._account_user_pks:
+            entry["owner"] = self._user_slug(decision.owner)
+        if decision.due_date is not None:
+            entry["due_date"] = self._date_str(decision.due_date)
+        entry["status"] = decision.status
+        if decision.decided_at is not None and decision.status == "made":
+            entry["decided_at"] = self._rel_ts(decision.decided_at)
+        # A link whose target is outside this export (a project the caller cannot
+        # read, or a deleted row) is dropped rather than dangled: the document
+        # would otherwise fail its own validator.
+        task_ref = self.task_ref.get(decision.linked_task_id) if decision.linked_task_id else None
+        risk_ref = self.risk_ref.get(decision.linked_risk_id) if decision.linked_risk_id else None
+        if task_ref is not None:
+            entry["linked_task"] = f"{task_ref[0]}:{task_ref[1]}"
+        elif risk_ref is not None:
+            entry["linked_risk"] = f"{risk_ref[0]}:{risk_ref[1]}"
+        _put(entry, "impact_note", decision.impact_note)
+        if decision.created_by_id in self._account_user_pks:
+            entry["created_by"] = self._user_slug(decision.created_by)
+        entry["created_at"] = self._rel_ts(decision.created_at)
+        # The "as of" date the UI shows derives from updated_at, so it travels too.
+        entry["updated_at"] = self._rel_ts(decision.updated_at)
+        return entry
+
+    def _export_decisions(self) -> list[dict[str, Any]]:
+        decisions = sorted(
+            ProgramDecision.objects.filter(program=self.program, is_deleted=False).select_related(
+                "owner", "created_by"
+            ),
+            key=lambda d: (d.due_date is None, d.due_date or date.min, d.created_at, d.title),
+        )
+        allocator = _SlugAllocator()
+        return [self._decision_entry(d, allocator) for d in decisions]
 
     # --- top-level blocks --------------------------------------------------
 
@@ -573,6 +629,20 @@ class _Exporter:
             if res.user_id is not None:
                 users[res.user_id] = res.user
         self._add_project_member_users(users)
+        # Decision owners come last, and only for a v2 program export (#4776): a
+        # decision owner is often outside the roster, and without an account slug
+        # the owner would silently re-import as nobody. Appended after every other
+        # source so no already-allocated slug moves; the v1 export emits no
+        # decisions, so it must not gain their accounts either.
+        if self.with_events and self.program is not None:
+            for decision in (
+                ProgramDecision.objects.filter(program=self.program, is_deleted=False)
+                .select_related("owner", "created_by")
+                .order_by("created_at", "pk")
+            ):
+                for person in (decision.owner, decision.created_by):
+                    if person is not None:
+                        users.setdefault(person.pk, person)
         return roles, users
 
     def _add_project_member_users(self, users: dict[Any, Any]) -> None:
@@ -1299,6 +1369,7 @@ class _Exporter:
         for risk in risks:
             risk_slug = slug_alloc.take(risk.title)
             self.risk_slugs[risk.pk] = risk_slug
+            self.risk_ref[risk.pk] = (pslug, risk_slug)
             block: dict[str, Any] = {
                 "slug": risk_slug,
                 "title": risk.title,

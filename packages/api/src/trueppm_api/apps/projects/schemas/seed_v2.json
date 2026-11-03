@@ -9,8 +9,8 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "description": "Schema major.minor. validate_seed() rejects unsupported majors. 2.1 is an additive minor (#3603): program backlog_items / ceremonies / agent_actions, project share_links, task acceptance_criteria, and the task.note / task.react / task.ack / time.log events. A 2.0 document is valid unchanged.",
-      "enum": ["2.0", "2.1"]
+      "description": "Schema major.minor. validate_seed() rejects unsupported majors. 2.1 is an additive minor (#3603): program backlog_items / ceremonies / agent_actions, project share_links, task acceptance_criteria, and the task.note / task.react / task.ack / time.log events. 2.2 is an additive minor (#4776): program decisions. A 2.0 or 2.1 document is valid unchanged.",
+      "enum": ["2.0", "2.1", "2.2"]
     },
     "anchor": {
       "type": "string",
@@ -119,6 +119,12 @@
           "description": "v2.1. Recurring program ceremonies (CeremonyTemplate, ADR-0079). Sprint events — standup, sprint review, retrospective — are team-level and rejected here, exactly as the API rejects them.",
           "items": { "$ref": "#/$defs/ceremony" }
         },
+        "decisions": {
+          "type": "array",
+          "maxItems": 5000,
+          "description": "v2.2. The program decision log (ProgramDecision, ADR-1310) — the questions a program is waiting on and the ones it has answered.",
+          "items": { "$ref": "#/$defs/programDecision" }
+        },
         "agent_actions": {
           "type": "array",
           "maxItems": 1000,
@@ -164,6 +170,42 @@
         "pulled_at": { "$ref": "#/$defs/seedTimestamp" },
         "created_by": { "$ref": "#/$defs/slug" },
         "created_at": { "$ref": "#/$defs/seedTimestamp" }
+      }
+    },
+    "programDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "title"],
+      "properties": {
+        "slug": { "$ref": "#/$defs/slug" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "owner": {
+          "$ref": "#/$defs/slug",
+          "description": "Account slug of the person who owns the call."
+        },
+        "due_date": { "$ref": "#/$defs/seedDate" },
+        "status": {
+          "enum": ["awaiting", "made", "withdrawn"],
+          "description": "Default awaiting. decided_at is meaningful only for made."
+        },
+        "decided_at": { "$ref": "#/$defs/seedTimestamp" },
+        "linked_task": {
+          "type": "string",
+          "description": "The task this decision is about, as \"<project-slug>:<wbs-path>\". At most one of linked_task / linked_risk.",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$"
+        },
+        "linked_risk": {
+          "type": "string",
+          "description": "The risk this decision is about, as \"<project-slug>:<risk-slug>\" (risk slugs are only unique within a project). At most one of linked_task / linked_risk.",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*:[a-z0-9]+(-[a-z0-9]+)*$"
+        },
+        "impact_note": { "type": "string", "maxLength": 100000 },
+        "created_by": { "$ref": "#/$defs/slug" },
+        "created_at": { "$ref": "#/$defs/seedTimestamp" },
+        "updated_at": {
+          "$ref": "#/$defs/seedTimestamp",
+          "description": "Restored verbatim: the UI's \"as of\" date derives from it."
+        }
       }
     },
     "ceremony": {
