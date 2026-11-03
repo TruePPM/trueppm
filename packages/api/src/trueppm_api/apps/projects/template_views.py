@@ -476,7 +476,9 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
             qs = qs.filter(program__isnull=True)
         elif not user.is_superuser:
             member_program_ids = (
-                ProgramMembership.live().filter(user=cast("Any", user)).values("program_id")
+                ProgramMembership.live()
+                .filter(user=cast("Any", user), program__is_deleted=False)
+                .values("program_id")
             )
             qs = qs.filter(Q(program__isnull=True) | Q(program_id__in=member_program_ids))
         program_id = self.request.query_params.get("program")

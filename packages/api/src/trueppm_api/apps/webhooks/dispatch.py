@@ -186,6 +186,7 @@ def _drop_program_webhooks_without_live_program_admin_owner(
             ProgramMembership.live()
             .filter(
                 program_id=program_id,
+                program__is_deleted=False,
                 user_id__in=owner_ids,
                 user__is_active=True,
                 role__gte=Role.ADMIN,

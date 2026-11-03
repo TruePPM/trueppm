@@ -186,6 +186,44 @@ def test_soft_deleted_program_becomes_tombstone(
 
 
 @pytest.mark.django_db
+def test_api_program_delete_delivers_tombstone_and_keeps_memberships(
+    authed_client: APIClient, program: Program, membership: ProgramMembership
+) -> None:
+    """``DELETE /programs/{id}/`` must not revoke the memberships the pull keys on."""
+    membership.role = Role.OWNER
+    membership.save(update_fields=["role"])
+    hwm = authed_client.get(URL).json()["timestamp"]
+    resp = authed_client.delete(f"/api/v1/programs/{program.pk}/")
+    assert resp.status_code == 204, resp.content
+
+    membership.refresh_from_db()
+    assert membership.is_deleted is False
+    changes = authed_client.get(f"{URL}?since={hwm}").json()["changes"]
+    assert str(program.pk) in changes["programs"]["deleted"]
+
+
+@pytest.mark.django_db
+def test_deleted_program_memberships_are_not_served_but_tombstone_reaches_co_members(
+    authed_client: APIClient, program: Program, membership: ProgramMembership
+) -> None:
+    """A deleted program's roster is not served as live rows; the tombstone still is."""
+    colleague = User.objects.create_user(username="co-member", password="pw")
+    ProgramMembership.objects.create(program=program, user=colleague, role=Role.OWNER)
+    program.soft_delete()  # memberships stay live, as after DELETE /programs/{id}/
+
+    body = authed_client.get(f"{URL}?since=0").json()["changes"]
+    assert str(program.pk) in body["programs"]["deleted"]
+    assert body["program_memberships"]["updated"] == []
+    assert body["program_memberships"]["deleted"] == []
+
+    colleague_client = APIClient()
+    colleague_client.force_authenticate(user=colleague)
+    co_body = colleague_client.get(f"{URL}?since=0").json()["changes"]
+    assert str(program.pk) in co_body["programs"]["deleted"]
+    assert co_body["program_memberships"]["updated"] == []
+
+
+@pytest.mark.django_db
 def test_soft_deleted_co_member_becomes_tombstone(
     authed_client: APIClient, program: Program, membership: ProgramMembership
 ) -> None:

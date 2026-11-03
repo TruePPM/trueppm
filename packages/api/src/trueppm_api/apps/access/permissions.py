@@ -1266,9 +1266,10 @@ def _resolve_program_scope(view: APIView) -> tuple[Any | None, ScopeResolution]:
     project resolver 404s an unknown or trashed id because #2745 gave ``<pk>``-routed
     project views a ``project_url_kwarg`` declaration and had to keep their existing
     404 (#3129); no program route declares an alias, so a program id either arrives
-    as ``program_pk`` and is checked, or the route names no program at all. Program
-    soft-delete also revokes every program membership synchronously
-    (``delete_program_cascade``), so a deleted program confers no role without one.
+    as ``program_pk`` and is checked, or the route names no program at all. A deleted
+    program confers no role because :func:`_program_membership_role` ignores
+    memberships on a soft-deleted program; the membership rows themselves stay live
+    on purpose (offline sync needs them to deliver the program tombstone).
     """
     program_pk = getattr(view, "kwargs", {}).get("program_pk")
     if program_pk is None:
@@ -1300,8 +1301,12 @@ def _program_membership_role(request: Request, program_id: Any) -> int | None:
         return cache[cache_key]
 
     try:
+        # ``program__is_deleted=False``: soft-deleting a program leaves its
+        # memberships live (the sync tombstone depends on it), so the program row
+        # state is the only thing that stops a former member holding a role on it.
         membership = ProgramMembership.live().get(
             program_id=program_id,
+            program__is_deleted=False,
             user=request.user,
         )
         role: int | None = membership.role
@@ -2248,7 +2253,11 @@ class IsTokenForProject(BasePermission):
                 None
                 if minter_id is None
                 else ProgramMembership.live()
-                .filter(program_id=token.program_id, user_id=minter_id)
+                .filter(
+                    program_id=token.program_id,
+                    program__is_deleted=False,
+                    user_id=minter_id,
+                )
                 .values_list("role", flat=True)
                 .first()
             )

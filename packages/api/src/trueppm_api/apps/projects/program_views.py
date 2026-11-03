@@ -723,7 +723,8 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
       retrieve  — IsProgramMember (Viewer+)
       create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``
       update    — IsProgramAdmin
-      destroy   — IsProgramOwner; cascade-removes memberships in one transaction
+      destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in
+                  one transaction (memberships are left in place)
     """
 
     # ADR-0678 (#2482): Program rows are filtered on the program's own denial, but

@@ -160,7 +160,10 @@ def readable_projects(request: Request) -> QuerySet[Project]:
             # #4584: a program token's reach ends with its minter's program
             # membership (same live rule as readable_programs below).
             if not ProgramMembership.objects.filter(
-                program_id=token.program_id, user=_user(request), is_deleted=False
+                program_id=token.program_id,
+                user=_user(request),
+                is_deleted=False,
+                program__is_deleted=False,
             ).exists():
                 return qs.none()
             qs = qs.filter(program_id=token.program_id)

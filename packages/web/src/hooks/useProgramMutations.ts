@@ -92,9 +92,10 @@ export function useUpdateProgram(): UseMutationResult<Program, Error, UpdateProg
 /**
  * DELETE /api/v1/programs/{id}/ — cascade delete (OWNER only).
  *
- * The API service layer removes all memberships in the same transaction so
- * the PROTECT FK does not block the delete. Caller-side: invalidate the list
- * and remove any cached per-program detail.
+ * The API soft-deletes the program and detaches its projects in one
+ * transaction; memberships are left in place so offline clients still receive
+ * the program tombstone. Caller-side: invalidate the list and remove any
+ * cached per-program detail.
  */
 export function useDeleteProgram(): UseMutationResult<void, Error, string> {
   const queryClient = useQueryClient();

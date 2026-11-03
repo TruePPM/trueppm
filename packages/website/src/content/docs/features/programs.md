@@ -251,16 +251,16 @@ Both are set under **General** settings (`/programs/:id/settings`):
 
 ## Deleting a program
 
-Only the **Program Admin** (Owner) can delete a program. The delete dialog
-explicitly shows the impact:
+Only the **Program Admin** (Owner) can delete a program. Deleting it:
 
-- All program members are removed.
-- All projects in the program are detached (they become standalone — project
-  data and project member lists are not affected).
-- The program itself is permanently deleted.
+- Detaches all projects in the program (they become standalone — project data
+  and project member lists are not affected).
+- Removes the program for everyone: it disappears from every member's program
+  list and its program pages stop opening.
 
-You must type the program name to confirm. The cascade is atomic — there is no
-intermediate state where some memberships are removed but not others.
+You must type the program code or name to confirm. Detaching the projects and
+deleting the program happen in one step — there is no intermediate state where
+only some projects are detached.
 
 ## Roles and permissions
 

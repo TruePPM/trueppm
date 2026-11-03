@@ -887,6 +887,30 @@ def test_demo_login_refuses_a_privileged_role_held_in_another_program(
     assert squatter.has_usable_password() is False
 
 
+@pytest.mark.parametrize("role", [Role.OWNER, Role.MEMBER])
+def test_demo_login_ignores_a_membership_on_a_deleted_program(
+    owner: Any, monkeypatch: Any, settings: Any, role: int
+) -> None:
+    """A role on a program deleted through the API must not fail the seed job.
+
+    Deleting a program leaves its memberships live, so both the privilege sweep
+    (OWNER) and the foreign-membership check (MEMBER) would otherwise refuse an
+    account whose only other membership is on a program nobody can open.
+    """
+    settings.DEMO_READ_ONLY = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    squatter = User.objects.create_user(username="atlas-visitor", email="visitor@atlas.example")
+    gone = Program.objects.create(name="Deleted", code="deleted-program")
+    ProgramMembership.objects.create(program=gone, user=squatter, role=role)
+    gone.soft_delete()
+    _demo_login_env(monkeypatch, "atlas-visitor", _DEMO_LOGIN_PASSWORD)
+
+    call_command("load_sample_project")
+
+    assert User.objects.get(username="atlas-visitor").check_password(_DEMO_LOGIN_PASSWORD) is True
+
+
 def test_demo_login_refuses_a_row_this_sample_did_not_seed(
     owner: Any, monkeypatch: Any, settings: Any
 ) -> None:

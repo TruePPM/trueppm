@@ -241,7 +241,9 @@ def _has_any_membership(user: Any) -> bool:
         ProjectMembership.objects.filter(
             user=user, is_deleted=False, project__is_deleted=False
         ).exists()
-        or ProgramMembership.objects.filter(user=user, is_deleted=False).exists()
+        or ProgramMembership.objects.filter(
+            user=user, is_deleted=False, program__is_deleted=False
+        ).exists()
     )
 
 

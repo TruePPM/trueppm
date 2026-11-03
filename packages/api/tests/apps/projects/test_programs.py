@@ -426,7 +426,7 @@ def test_delete_requires_owner(owner: object, other_user: object) -> None:
 
 
 @pytest.mark.django_db
-def test_delete_cascades_memberships_and_soft_deletes_program(
+def test_delete_soft_deletes_program_keeps_memberships_and_detaches_projects(
     owner: object,
     other_user: object,
     calendar: Calendar,
@@ -447,13 +447,52 @@ def test_delete_cascades_memberships_and_soft_deletes_program(
     program.refresh_from_db()
     assert program.is_deleted is True
 
-    # All memberships soft-deleted in the same transaction (PROTECT honored).
-    assert ProgramMembership.objects.filter(program=program, is_deleted=False).count() == 0
+    # Memberships stay live so the sync accessible-set still reaches the program
+    # tombstone; PROTECT only binds a hard DELETE.
+    assert ProgramMembership.objects.filter(program=program, is_deleted=False).count() == 2
 
     # Project survives with program=NULL (SET_NULL).
     project.refresh_from_db()
     assert project.program_id is None
     assert project.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_deleted_program_is_absent_from_directory(owner: object, other_user: object) -> None:
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    assert _client(owner).delete(f"/api/v1/programs/{program.pk}/").status_code == 204
+
+    for user in (owner, other_user):
+        resp = _client(user).get("/api/v1/programs/")
+        assert resp.status_code == 200
+        rows = resp.data["results"] if isinstance(resp.data, dict) else resp.data
+        assert str(program.pk) not in {str(r["id"]) for r in rows}
+        assert _client(user).get(f"/api/v1/programs/{program.pk}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_former_member_of_deleted_program_holds_no_role_on_program_pk_routes(
+    owner: object, other_user: object
+) -> None:
+    """Live membership rows on a soft-deleted program must confer nothing.
+
+    Memberships are kept live for sync, so the role lookup itself has to refuse
+    a deleted program; reads and writes on ``program_pk`` routes both fail.
+    """
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.ADMIN)
+    assert _client(owner).delete(f"/api/v1/programs/{program.pk}/").status_code == 204
+    assert ProgramMembership.objects.filter(
+        program=program, user=other_user, is_deleted=False
+    ).exists()
+
+    base = f"/api/v1/programs/{program.pk}"
+    for user in (owner, other_user):
+        c = _client(user)
+        for path in ("/members/", "/ceremonies/", "/external-stakeholders/"):
+            assert c.get(base + path).status_code in (403, 404), path
+            assert c.post(base + path, {}, format="json").status_code in (403, 404), path
 
 
 # ---------------------------------------------------------------------------

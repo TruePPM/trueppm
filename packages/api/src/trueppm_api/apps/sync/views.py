@@ -777,12 +777,14 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
 
     Scope is derived entirely from the caller's own live memberships, so — unlike
     the project endpoint — there is **no path parameter to tamper with**: no IDOR
-    surface. All co-members of the caller's programs are returned (parity with the
-    project endpoint, which returns every ``ProjectMembership`` for the project),
+    surface. All co-members of the caller's *live* programs are returned (parity with
+    the project endpoint, which returns every ``ProjectMembership`` for the project),
     which lets the client enforce offline program RBAC and render the roster.
 
-    Tombstones: a program soft-deleted while the caller is still a member, and any
-    co-member membership soft-deleted, are delivered as ``deleted`` ids.
+    Tombstones: a program soft-deleted while the caller is still a member is
+    delivered as a ``deleted`` id, as is any co-member membership soft-deleted on a
+    live program. A deleted program's own membership rows are not served at all
+    (its roster is withheld; the program tombstone is the only signal).
 
     Known v1 limitation (mirrors ``ProjectSyncView``): if the caller's *own*
     membership is soft-deleted (they are removed from a program), that row drops
@@ -889,8 +891,9 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
 
         # Program rows include soft-deleted ones so a program deleted while the
         # caller is still a member arrives as a tombstone. Memberships cover every
-        # co-member of the caller's programs (offline RBAC + roster), soft-deleted
-        # rows included. Order is fixed — do not reorder without a protocol bump.
+        # co-member of the caller's *live* programs (offline RBAC + roster),
+        # soft-deleted membership rows included. Order is fixed — do not reorder
+        # without a protocol bump.
         sources: list[SyncSource] = [
             (
                 "programs",
@@ -899,7 +902,15 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
             ),
             (
                 "program_memberships",
-                ProgramMembership.objects.filter(program_id__in=accessible_ids, sync_seq__gt=since),
+                # ``program__is_deleted=False``: a deleted program's memberships stay
+                # live so the program tombstone above reaches its members, but they
+                # must not be served as live roster/role rows for a program the
+                # caller can no longer open.
+                ProgramMembership.objects.filter(
+                    program_id__in=accessible_ids,
+                    program__is_deleted=False,
+                    sync_seq__gt=since,
+                ),
                 SyncProgramMembershipSerializer,
             ),
         ]

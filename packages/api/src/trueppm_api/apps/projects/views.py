@@ -1013,9 +1013,9 @@ def _calendar_reference_describer(user: Any) -> Callable[[db_models.Model], dict
         ).values_list("project_id", flat=True)
     )
     visible_program_ids = set(
-        ProgramMembership.objects.filter(user=user, is_deleted=False).values_list(
-            "program_id", flat=True
-        )
+        ProgramMembership.objects.filter(
+            user=user, is_deleted=False, program__is_deleted=False
+        ).values_list("program_id", flat=True)
     )
 
     def describe(obj: db_models.Model) -> dict[str, str]:
