@@ -186,6 +186,23 @@ def test_soft_deleted_program_becomes_tombstone(
 
 
 @pytest.mark.django_db
+def test_api_program_delete_delivers_tombstone_and_keeps_memberships(
+    authed_client: APIClient, program: Program, membership: ProgramMembership
+) -> None:
+    """``DELETE /programs/{id}/`` must not revoke the memberships the pull keys on."""
+    membership.role = Role.OWNER
+    membership.save(update_fields=["role"])
+    hwm = authed_client.get(URL).json()["timestamp"]
+    resp = authed_client.delete(f"/api/v1/programs/{program.pk}/")
+    assert resp.status_code == 204, resp.content
+
+    membership.refresh_from_db()
+    assert membership.is_deleted is False
+    changes = authed_client.get(f"{URL}?since={hwm}").json()["changes"]
+    assert str(program.pk) in changes["programs"]["deleted"]
+
+
+@pytest.mark.django_db
 def test_soft_deleted_co_member_becomes_tombstone(
     authed_client: APIClient, program: Program, membership: ProgramMembership
 ) -> None:

@@ -6960,8 +6960,8 @@ def soft_delete_program_subtree(
     unconditional hard delete of #2581. Each project lands in Trash individually
     and every offline client receives a real tombstone.
 
-    Three deviations from :func:`access.services.delete_program_cascade` are
-    load-bearing, not incidental:
+    Three properties, shared with :func:`access.services.delete_program_cascade`,
+    are load-bearing, not incidental:
 
     1. **Program memberships are left live.** ``UserProgramSyncView`` builds its
        accessible set from ``ProgramMembership(user=…, is_deleted=False)`` and
@@ -6969,7 +6969,8 @@ def soft_delete_program_subtree(
        the program out of that set and the tombstone would never be delivered —
        the same end state as the hard delete this replaces, one layer down.
        ``PROTECT`` on the membership FK binds only a real ``DELETE``, so keeping
-       the rows costs nothing here.
+       the rows costs nothing here; role lookups ignore memberships on a
+       soft-deleted program.
     2. **Projects are detached (``program = NULL``) before being tombstoned.**
        ``ProjectViewSet.restore`` has no notion of a soft-deleted parent, so a
        restored project still pointing at a tombstoned program would be exactly

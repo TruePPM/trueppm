@@ -226,14 +226,20 @@ def create_program(
 
 @transaction.atomic
 def delete_program_cascade(program_id: uuid.UUID | str) -> None:
-    """Soft-delete all memberships, detach all projects, soft-delete the program.
+    """Detach all projects and soft-delete the program, leaving memberships live.
 
-    Three things must happen atomically:
+    Three things must hold atomically:
 
-    1. **Memberships are soft-deleted.** ``ProgramMembership.program`` is ``PROTECT``,
-       so a naive ``program.delete()`` raises ``ProtectedError`` while any member
-       rows exist. The UX brief surfaces this as a combined "Remove all members
-       and delete" action; the cascade implements that intent server-side.
+    1. **Memberships are deliberately left live.** ``UserProgramSyncView`` builds
+       its accessible set from live ``ProgramMembership`` rows and only then reads
+       ``Program``; revoking the memberships would drop the program out of that
+       set and the tombstone below would never reach an offline client.
+       ``ProgramMembership.program`` is ``PROTECT``, but that binds only a hard
+       ``DELETE`` — a soft-delete needs the rows gone no more than
+       ``ProjectViewSet.perform_destroy`` does. Authorization does not rely on the
+       rows being revoked: :func:`~trueppm_api.apps.access.permissions._program_membership_role`
+       ignores a membership on a soft-deleted program. :func:`hard_delete_program`
+       still purges them.
     2. **Projects are detached.** Django's ``SET_NULL`` only fires on a hard DELETE,
        not on our soft-delete (``is_deleted=True``). Without an explicit detach
        step, ``Project.program_id`` would continue to reference a soft-deleted
@@ -258,11 +264,6 @@ def delete_program_cascade(program_id: uuid.UUID | str) -> None:
     # cannot land between the cascade steps and re-create a reference to the
     # program we're about to mark deleted.
     program = Program.objects.select_for_update().get(pk=program_id, is_deleted=False)
-
-    for membership in ProgramMembership.objects.select_for_update().filter(
-        program=program, is_deleted=False
-    ):
-        membership.soft_delete()
 
     # Detach projects — they hold a SET_NULL FK, but SET_NULL only fires on
     # hard delete. soft_delete() on the program would otherwise leave dangling
