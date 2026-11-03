@@ -1168,18 +1168,12 @@ mod tests {
     fn offsets_and_retreats_floor_at_date_min() {
         let cal = weekday_cal();
         let floor = py_date_min();
-        assert_eq!(
-            checked_offset_days(floor + Duration::days(3), -3),
-            Ok(floor)
-        );
+        assert_eq!(checked_offset_days(floor + Duration::days(3), -3), Ok(floor));
         assert!(checked_offset_days(floor, -1).is_err());
         // A lead (negative lag) retreat that lands one day below 0001-01-01.
         assert!(retreat_calendar_days(floor, 1, &cal).is_err());
         assert!(advance_calendar_days(floor, -1, &cal).is_err());
         // Landing exactly on the floor is allowed (0001-01-01 is a Monday).
-        assert_eq!(
-            retreat_calendar_days(floor + Duration::days(1), 1, &cal),
-            Ok(floor)
-        );
+        assert_eq!(retreat_calendar_days(floor + Duration::days(1), 1, &cal), Ok(floor));
     }
 }

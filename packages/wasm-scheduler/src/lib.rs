@@ -565,10 +565,7 @@ mod tests {
         let mut d = NaiveDate::from_ymd_opt(2026, 1, 12).unwrap();
         while d < end {
             let week_end = (d + chrono::Duration::days(4)).min(end);
-            ranges.push(DateRange {
-                start: d,
-                end: week_end,
-            });
+            ranges.push(DateRange { start: d, end: week_end });
             d += chrono::Duration::days(7);
         }
         ranges
@@ -627,16 +624,10 @@ mod tests {
                 let result = schedule_impl(&project).unwrap();
                 let elapsed = t0.elapsed();
                 let (y, m, dd) = finish;
-                assert_eq!(
-                    result.project_finish,
-                    NaiveDate::from_ymd_opt(y, m, dd).unwrap()
-                );
+                assert_eq!(result.project_finish, NaiveDate::from_ymd_opt(y, m, dd).unwrap());
                 // Debug build; before the #4161/#4176 fixes this took seconds per
                 // dependency type (and, for weekly-ranges, scaled with edge count).
-                assert!(
-                    elapsed.as_millis() < 500,
-                    "{cal_name}/{dep_type:?}: {elapsed:?}"
-                );
+                assert!(elapsed.as_millis() < 500, "{cal_name}/{dep_type:?}: {elapsed:?}");
             }
         }
     }
