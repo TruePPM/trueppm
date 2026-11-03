@@ -596,8 +596,10 @@ def _forward_floor_contribs(
     *,
     include_project_start: bool = True,
 ) -> list[DerivationContribution]:
-    """The non-network early-start candidates: project start, data date, SNET, and
-    — for in-progress work — the recorded ``actual_start`` floor.
+    """Return the non-network early-start candidates for a task.
+
+    These are project start, data date, SNET, and — for in-progress work — the
+    recorded ``actual_start`` floor.
 
     ``include_project_start`` is false for a task with an SF link, whose
     project-start floor is ``min(project start, SF placement)`` and never binds

@@ -156,6 +156,12 @@ def _make_stdout_safe() -> None:
 
 
 def main() -> None:
+    """Run the ``trueppm-scheduler`` command-line interface.
+
+    Builds the argument parser with its ``schedule`` and ``monte-carlo``
+    subcommands, parses ``sys.argv``, and dispatches to the selected subcommand's
+    handler.
+    """
     _make_stdout_safe()
     parser = argparse.ArgumentParser(
         prog="trueppm-scheduler",
