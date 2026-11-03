@@ -13,7 +13,7 @@ from typing import Any
 import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
-from trueppm_scheduler import InvalidScheduleInput
+from trueppm_scheduler import SchedulerError
 
 from trueppm_api.apps.projects.services import clear_uncommitted_cpm_output
 from trueppm_api.apps.scheduling.finish_reading import (
@@ -82,7 +82,9 @@ def recalculate_schedule(
             project_id=project_id,
             task_name="scheduling.recalculate",
         ) as tracker:
-            _run_schedule(project_id, tracker)
+            escalated = _run_schedule(project_id, tracker)
+        if escalated:
+            return
         # Stamp the successful CPM completion so the web Schedule view can show
         # the "recalculating" badge until the first post-import pass lands
         # (#1053). A bulk update avoids a save() + history row + server_version
@@ -98,8 +100,9 @@ def recalculate_schedule(
         # that can never succeed, and it is not in autoretry_for (#4751).
         logger.info("recalculate_schedule: project %s no longer exists; skipping", project_id)
         return
-    except InvalidScheduleInput as exc:
-        # Stored data the engine refuses (e.g. an SS/SF link from a summary, which
+    except SchedulerError as exc:
+        # Stored data the scheduler refuses (every SchedulerError is a deterministic
+        # verdict on the data, never a transient fault — e.g. an SS/SF link from a summary, which
         # older writes and the structural edits that turn a task into a summary can
         # still leave behind) fails identically on every attempt, so re-raising kills
         # the task, and leaving the outbox row DISPATCHED makes the drain's orphan
@@ -1379,8 +1382,13 @@ def _persist_driving_flags_and_shift_events(
 def _run_schedule(
     project_id: str,
     tracker: object = None,
-) -> None:
+) -> bool:
     """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion.
+
+    Returns:
+        ``True`` when the run handed off to the program-scoped pass and wrote
+        nothing, so the caller must not stamp ``recalculated_at`` (the program pass
+        stamps every member project itself, and only on success).
 
     CPM runs on the full project and every affected task's results are written
     back. The engine-level incremental recompute (recompute only the changed
@@ -1453,7 +1461,7 @@ def _run_schedule(
     except Project.DoesNotExist:
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
         _settle_empty()
-        return
+        return False
 
     # ADR-0752 §4/§7: resolve the floor once, up front, from the state this
     # project was loaded in — before anything below can mutate it. A project
@@ -1473,7 +1481,7 @@ def _run_schedule(
     # left for the program run to mark done.
     if _escalate_to_program(project_id, db_project.program_id):
         _settle_empty()
-        return
+        return True
 
     # Exclude recurrence templates and their generated occurrences from the CPM feed.
     # Recurring tasks are parallel, calendar-driven activities — admitting them to the
@@ -1511,7 +1519,7 @@ def _run_schedule(
         # program's project set itself.
         _clear_output_of_fully_groomed_project(project_id)
         _settle_empty()
-        return
+        return False
 
     _update(25, "Building schedule model…")
 
@@ -1688,7 +1696,7 @@ def _run_schedule(
     # program pass rather than persisting stale single-project dates. Cheap EXISTS.
     if _escalate_to_program(project_id, db_project.program_id):
         _settle_empty()
-        return
+        return True
 
     # Per-task schedule-shift activity events (ADR-0207, #1604), built from the
     # mutated in-memory tasks and the project's active baseline. Written inside the
@@ -1775,6 +1783,7 @@ def _run_schedule(
         event_type="schedule.recalculated",
         payload={"project": project_id, **cpm_payload},
     )
+    return False
 
 
 def _broadcast_cpm_complete(
@@ -2084,11 +2093,11 @@ def _register_program_broadcasts(
 
 
 def _end_refused_program_run(
-    task: object | None,
+    task: object,
     program_id: str,
     member_ids: list[Any],
     claimed_ids: list[Any],
-    exc: InvalidScheduleInput,
+    exc: SchedulerError,
 ) -> None:
     """End a program pass the scheduler refused, without a retry loop or a silent failure.
 
@@ -2099,30 +2108,43 @@ def _end_refused_program_run(
     recorded per member project, which is what each project's client already listens
     for. Only the rows this pass claimed are retired, as DONE, so a row dispatched by a
     concurrent edit still gets its own pass.
+
+    The retire comes first and each member is recorded independently: a member
+    deleted while the pass ran raises ``TaskRunProjectGone`` from its tracker, and that
+    must not strand the claimed rows or the other members' signals.
     """
+    from trueppm_api.apps.scheduling.deadletter import record_failed_task
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-    from trueppm_api.apps.taskruns.tracker import TaskRunTracker
+    from trueppm_api.apps.taskruns.tracker import TaskRunProjectGone, TaskRunTracker
 
     logger.warning(
         "recalculate_program_schedule: program %s holds input the scheduler refuses: %s",
         program_id,
         exc,
     )
-    # The tracker reads the Celery request id, so a direct (broker-less) call with no
-    # task object has nothing to record a run against.
-    for member_id in member_ids if task is not None else []:
+    ScheduleRequest.objects.filter(
+        id__in=claimed_ids, status=ScheduleRequestStatus.DISPATCHED
+    ).update(status=ScheduleRequestStatus.DONE)
+    for member_id in member_ids:
         try:
             with TaskRunTracker(
                 task, project_id=str(member_id), task_name="scheduling.recalculate"
             ):
                 raise exc
-        except InvalidScheduleInput:
+        except (SchedulerError, TaskRunProjectGone):
             pass
-    ScheduleRequest.objects.filter(
-        id__in=claimed_ids, status=ScheduleRequestStatus.DISPATCHED
-    ).update(status=ScheduleRequestStatus.DONE)
-    if task is not None:
-        _dead_letter_current(task, str(member_ids[0]), exc)
+    # The replay args must be the program id: a requeue re-runs the task with
+    # ``failed.args``, and a project id there is "program not found" with nothing
+    # recalculated. The failure belongs to the program, so no single member is blamed.
+    request = task.request  # type: ignore[attr-defined]
+    record_failed_task(
+        task_name=getattr(task, "name", "unknown"),
+        task_id=request.id or "unknown",
+        args=[program_id],
+        kwargs={},
+        exception=exc,
+        project_id=None,
+    )
 
 
 def _run_program_schedule(program_id: str, task: object | None = None) -> None:
@@ -2179,7 +2201,11 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
 
     try:
         graph = gather_program_schedule(program, enforce_max=False)
-    except InvalidScheduleInput as exc:
+    except SchedulerError as exc:
+        if task is None:
+            # A direct caller (the demo overlay) has no task to record against and
+            # used to get the exception; keep that rather than swallowing it.
+            raise
         _end_refused_program_run(task, program_id, member_ids, claimed_ids, exc)
         return
 

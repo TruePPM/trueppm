@@ -196,7 +196,7 @@ def test_retrieve_single_run(member_client: APIClient, project: Project, user: o
 
 
 def _project_with_summary_start_link(project: Project) -> Any:
-    """A project holding an SS edge from a summary, as written before the write gate."""
+    """A project holding an SS edge from a summary, as the structural edits can still leave it."""
     from trueppm_api.apps.projects.models import Dependency, Task
 
     s = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
@@ -220,7 +220,7 @@ def test_recalculate_with_a_preexisting_summary_start_link_fails_the_run_not_the
     project: Project,
     django_capture_on_commit_callbacks: Any,
 ) -> None:
-    """An SS edge from a summary that predates the write gate ends the task cleanly.
+    """A stored SS edge from a summary (the write path can still produce one) ends cleanly.
 
     The run is recorded FAILED with the engine's message in ``error_detail``, the
     ``task_run_failed`` event carries it, and the task itself neither raises nor
@@ -294,8 +294,12 @@ def test_repairing_the_edge_after_a_refused_run_schedules_again(
 
     edge = _project_with_summary_start_link(project)
     ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
-    _dispatched_request(project)
+    stale = _dispatched_request(project)
     recalculate_schedule.apply(args=[str(project.pk)])
+    # Asserted before the DELETE: a row left DISPATCHED makes the enqueue below block
+    # on the database instead of failing, so the precondition is checked directly.
+    stale.refresh_from_db()
+    assert stale.status == ScheduleRequestStatus.DONE
     client = APIClient()
     client.force_authenticate(user=user)
 
@@ -326,3 +330,26 @@ def test_a_refused_run_leaves_the_system_health_outbox_card_clean(project: Proje
     recalculate_schedule.apply(args=[str(project.pk)])
 
     assert _outbox_card()["status"] == STATUS_OK
+
+
+@pytest.mark.django_db
+def test_a_stored_cycle_ends_the_project_pass_cleanly(project: Project) -> None:
+    """Every scheduler refusal is deterministic, not only an invalid-input one."""
+    from trueppm_api.apps.projects.models import Dependency, Task
+    from trueppm_api.apps.scheduling.models import ScheduleRequestStatus
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    x = Task.objects.create(project=project, name="X", duration=1, wbs_path="1")
+    y = Task.objects.create(project=project, name="Y", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=x, successor=y, dep_type="FS")
+    Dependency.objects.create(predecessor=y, successor=x, dep_type="FS")
+    request = _dispatched_request(project)
+
+    result = recalculate_schedule.apply(args=[str(project.pk)])
+
+    assert result.successful()
+    assert TaskRun.objects.get(project=project).status == TaskRunStatus.FAILED
+    request.refresh_from_db()
+    assert request.status == ScheduleRequestStatus.DONE
+    project.refresh_from_db()
+    assert project.recalculated_at is None
