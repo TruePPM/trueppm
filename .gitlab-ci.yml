@@ -94,14 +94,14 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-a14c1db2f140"
+  CI_API_TAG: "py3.11-f0db0a735f32"
 
   # Same mechanism for the ci-scheduler image (#4791): `py3.11-<digest>` over
   # scheduler.Dockerfile plus packages/scheduler/pyproject.toml. A fixed tag let
   # dell-03 and nuc-03 run one SHA against different cached pytest versions
   # (#4787). Bump with `bash scripts/check-ci-api-tag.sh --image scheduler
   # --print-expected`; enforced by api:ci-api-tag. See contributing/ci-images.
-  CI_SCHEDULER_TAG: "py3.11-9410c86f1f86"
+  CI_SCHEDULER_TAG: "py3.11-e97ce6113aae"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
