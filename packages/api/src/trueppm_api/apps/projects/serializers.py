@@ -11027,6 +11027,9 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
         a not-started task the two are equal (ADR-0752), and the server-side span
         readers (utilization, resource views) already use the same
         ``Coalesce("scheduled_start", "early_start")``, so this keeps one span rule.
+        For an in-progress task whose ``scheduled_start`` is still unset (no CPM run
+        since migration 0132), ``early_start`` is the remaining-work start, so the
+        span start is approximate, the same approximation those readers make.
         """
         start = obj.scheduled_start or obj.early_start
         return start.isoformat() if start else None

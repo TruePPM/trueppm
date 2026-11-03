@@ -65,11 +65,14 @@ export interface MyWorkTask {
   due: string | null;
   due_source: DueSource;
   /**
-   * The task's schedule SPAN (ADR-0752, #4783): `scheduled_start` is the span start (not
-   * `early_start`, which is the remaining-work window) and `scheduled_finish` its end.
-   * The server falls back to `early_start` when `scheduled_start` is unset (equal for a
-   * not-started task), so a scheduled task never arrives with a finish and no start.
-   * Both null for a task the engine has not scheduled. Lets a client ask "is this task
+   * The task's schedule SPAN (ADR-0752, #4783): `scheduled_start` is the span start and
+   * `scheduled_finish` its end. The span start is the task's stored `scheduled_start`;
+   * only when that column is unset does the server substitute `early_start` (equal for a
+   * not-started task), so a scheduled task never arrives with a finish and no start. For
+   * an in-progress task whose `scheduled_start` is still unset (no CPM run since
+   * migration 0132), `early_start` is the remaining-work start, so the span start is
+   * approximate — the same `Coalesce("scheduled_start", "early_start")` the server-side
+   * span readers use. Both null for a task the engine has not scheduled. Lets a client ask "is this task
    * scheduled during week W?" — `due` cannot, being one end-ish date. Optional so a
    * fixture built before #4783 still type-checks; a real response always carries both.
    */
