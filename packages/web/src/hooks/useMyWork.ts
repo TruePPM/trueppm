@@ -67,6 +67,8 @@ export interface MyWorkTask {
   /**
    * The task's schedule SPAN (ADR-0752, #4783): `scheduled_start` is the span start (not
    * `early_start`, which is the remaining-work window) and `scheduled_finish` its end.
+   * The server falls back to `early_start` when `scheduled_start` is unset (equal for a
+   * not-started task), so a scheduled task never arrives with a finish and no start.
    * Both null for a task the engine has not scheduled. Lets a client ask "is this task
    * scheduled during week W?" — `due` cannot, being one end-ish date. Optional so a
    * fixture built before #4783 still type-checks; a real response always carries both.

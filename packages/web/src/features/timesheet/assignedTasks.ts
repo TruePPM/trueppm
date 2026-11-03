@@ -51,7 +51,9 @@ export function assignedTasks(tasks: MyWorkTask[] | undefined): MyWorkTask[] {
  *   is treated as running through `today`, so a late task is a row in the current week
  *   (and every week since it was due) — it is still being worked — but not in future weeks.
  * - **Undated** (no span at all, or a payload predating #4783) is a row in every week, so
- *   unscheduled work stays loggable. A span with only one end is open on the other side.
+ *   unscheduled work stays loggable. A span with only one end is open on the other side;
+ *   the server already fills a missing `scheduled_start` from `early_start`, so this is a
+ *   last resort for a task that has neither, not the idle-project case.
  *
  * Dates are ISO `YYYY-MM-DD` strings, which order lexicographically.
  */

@@ -58599,8 +58599,8 @@
                     "scheduled_start": {
                         "type": "string",
                         "format": "date",
-                        "readOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "readOnly": true
                     },
                     "scheduled_finish": {
                         "type": "string",

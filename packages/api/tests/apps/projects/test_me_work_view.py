@@ -963,6 +963,29 @@ def test_row_carries_adr_0752_span(calendar: Calendar, alice: object) -> None:
 
 
 @pytest.mark.django_db
+def test_span_start_falls_back_to_early_start_when_unset(calendar: Calendar, alice: object) -> None:
+    """A task with no ``scheduled_start`` (never re-run since the column landed) uses
+    ``early_start``, so the span is never a finish with no start."""
+    proj = _project(calendar, "P1")
+    _member(proj, alice)
+    Task.objects.create(
+        project=proj,
+        name="Idle",
+        duration=5,
+        assignee=alice,
+        scheduled_start=None,
+        early_start=date(2026, 7, 6),
+        early_finish=date(2026, 7, 10),
+    )
+
+    row = _client(alice).get("/api/v1/me/work/").data["results"][0]
+    assert row["scheduled_start"] == "2026-07-06"
+    assert row["scheduled_finish"] == "2026-07-10"
+    # early_start itself still does not leak as a field of its own.
+    assert "early_start" not in row
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("value", ["1", "true", "True"])
 def test_open_param_excludes_complete_tasks(calendar: Calendar, alice: object, value: str) -> None:
     proj = _project(calendar, "P1")
