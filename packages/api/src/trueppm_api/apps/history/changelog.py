@@ -44,7 +44,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import Q
+from django.db.models import F, Q, Window
+from django.db.models.functions import RowNumber
 from rest_framework.exceptions import ValidationError
 
 if TYPE_CHECKING:
@@ -240,18 +241,58 @@ def _fetch_source_rows(
     )
 
 
+def _fetch_seed_rows(source: ChangelogSource, project: Any, rows: list[Any]) -> list[Any]:
+    """Fetch the true predecessor of each object's oldest fetched row, in one query.
+
+    The diff treats a row with no predecessor in its batch as a creation and lists
+    every non-null field. A fetched batch is a filtered, bounded window
+    (``change_type``, ``since``, ``user`` and the page limit all cut it), so the
+    predecessor is routinely outside it and an ordinary one-field update would
+    render as a full-field creation. The seed supplies that predecessor.
+
+    The seed deliberately ignores the request filters: the predecessor is the
+    object's previous version whatever its type, date or author. It is still bound
+    to the project, and callers pass it only as the diff baseline and never render
+    it, so a ``user=`` filter cannot leak the other author's row into the results.
+    The clause count is bounded by ``page_size + 1`` distinct objects.
+    """
+    oldest: dict[Any, datetime] = {}
+    for row in rows:
+        if row.id not in oldest or row.history_date < oldest[row.id]:
+            oldest[row.id] = row.history_date
+    clause = Q()
+    for oid, date in oldest.items():
+        clause |= Q(id=oid, history_date__lt=date)
+    model = _historical_model(source.object_type)
+    return list(
+        model.objects.filter(**{source.project_filter: project.pk})
+        .filter(clause)
+        .annotate(
+            _pred_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("id")],
+                order_by=[F("history_date").desc(), F("history_id").desc()],
+            )
+        )
+        .filter(_pred_rank=1)
+    )
+
+
 def _source_entries(
     source: ChangelogSource,
     rows: list[Any],
     diff_fn: Any,
+    seeds: list[Any] | None = None,
 ) -> list[tuple[tuple[datetime, int, int], dict[str, Any]]]:
     """Pair one source's rows with their diffs and key each surviving entry.
 
     Diffs are computed within this source's batch (same model), so the
     ``history_id``-keyed dict never collides across tables. Rows whose entire diff
-    is redacted (:func:`_row_to_entry` returns ``None``) are dropped.
+    is redacted (:func:`_row_to_entry` returns ``None``) are dropped. ``seeds`` are
+    predecessor baselines only: the diff is computed for ``rows`` alone and the
+    loop below iterates ``rows``, so a seed can never become an entry.
     """
-    diffs = diff_fn(rows, all_records=rows)
+    diffs = diff_fn(rows, all_records=[*rows, *(seeds or [])])
     collected: list[tuple[tuple[datetime, int, int], dict[str, Any]]] = []
     for row in rows:
         entry = _row_to_entry(source, row, diffs)
@@ -312,7 +353,8 @@ def build_project_changelog(
             page_size=page_size,
         )
         if rows:
-            entries.extend(_source_entries(source, rows, diff_fn))
+            seeds = _fetch_seed_rows(source, project, rows)
+            entries.extend(_source_entries(source, rows, diff_fn, seeds))
 
     # Newest-first total order: history_date DESC, rank ASC, history_id DESC.
     entries.sort(key=lambda item: (item[0][0], -item[0][1], item[0][2]), reverse=True)
