@@ -60,11 +60,17 @@ The result crosses the boundary as columns, not a serialized object graph. A
 | `earlyFinish`   | `Int32Array`   | day ordinal relative to the session epoch           |
 | `lateStart`     | `Int32Array`   | day ordinal relative to the session epoch           |
 | `lateFinish`    | `Int32Array`   | day ordinal relative to the session epoch           |
+| `scheduledStart` | `Int32Array`  | span-start day ordinal relative to the session epoch (ADR-0752) |
+| `milestoneAtDayEnd` | `Uint8Array` | 1 = milestone at the end of its shown day (#4079), else 0 |
 | `totalFloat`    | `Float64Array` | **seconds** (parity with the JSON `TaskResult`)     |
 | `freeFloat`     | `Float64Array` | **seconds**                                         |
 | `isCritical`    | `Uint8Array`   | 1 = on critical path, else 0 (one byte per row)     |
 | `projectStart`  | `i32` scalar   | day ordinal relative to the session epoch           |
 | `projectFinish` | `i32` scalar   | day ordinal relative to the session epoch           |
+
+*Amended 2026-11-02 (#4709):* `scheduledStart` and `milestoneAtDayEnd` were added so the
+typed path matches the JSON `TaskResult`. The driving-edge set (`driving_edges`) stays
+JSON-only; a preview that draws the link hierarchy must read it from the JSON path.
 
 Handing back numeric `Vec`s copies one contiguous buffer per column into a JS typed
 array — cheap next to `serde_json` + `JSON.parse` of thousands of objects, with no

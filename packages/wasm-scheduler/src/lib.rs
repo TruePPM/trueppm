@@ -198,6 +198,20 @@ impl DragResult {
         self.inner.late_finish.clone()
     }
 
+    /// Span-start day ordinals relative to the session epoch (ADR-0752). Paint an
+    /// in-progress bar from this, not `earlyStart` (the remaining-work start).
+    #[wasm_bindgen(getter, js_name = scheduledStart)]
+    pub fn scheduled_start(&self) -> Vec<i32> {
+        self.inner.scheduled_start.clone()
+    }
+
+    /// 1 if a milestone sits at the end of its shown day (#4079), else 0 — one
+    /// byte per row.
+    #[wasm_bindgen(getter, js_name = milestoneAtDayEnd)]
+    pub fn milestone_at_day_end(&self) -> Vec<u8> {
+        self.inner.milestone_at_day_end.clone()
+    }
+
     /// Total float in seconds (divide by 86 400 for working days).
     #[wasm_bindgen(getter, js_name = totalFloat)]
     pub fn total_float(&self) -> Vec<f64> {
@@ -283,7 +297,9 @@ impl SchedulerSession {
     }
 
     /// Full CPM over the cached graph → typed-array [`DragResult`] (#1856). Same
-    /// per-task values as [`recalc`](SchedulerSession::recalc), with no per-frame
+    /// per-task values as [`recalc`](SchedulerSession::recalc) (dates, span start,
+    /// day-end milestone flag, floats, criticality) except the driving-edge set,
+    /// which only the JSON path returns; with no per-frame
     /// task clone and no JSON serialization/parse. Prefer this on the drag path.
     #[wasm_bindgen(js_name = recalcTyped)]
     pub fn recalc_typed(&self) -> Result<DragResult, JsValue> {
