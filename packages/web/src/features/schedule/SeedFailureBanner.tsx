@@ -41,10 +41,8 @@ const NO_REASON = "The server didn't record a reason.";
  * nothing to undo), and the copy states the emptiness as reassurance rather than
  * leaving the user to wonder what half-landed.
  *
- * Note ADR-0789 §Durable Execution 8 asserts the opposite — that partial rows are
- * "kept, not rolled back" and that `created_task_ids` records them. It contradicts
- * §7 of the same section and the implementation; the correction is tracked
- * separately. Do not design against §8.
+ * ADR-0789 §Durable Execution 8 once claimed the opposite (partial rows "kept");
+ * it was corrected on 2026-11-02 (#3421) and now agrees with §7 and this component.
  *
  * Deliberately a SIBLING of `SeedBanner` rather than a branch inside it: that
  * component's whole contract is summarizing a finished, successful apply and

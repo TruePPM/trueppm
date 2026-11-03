@@ -161,9 +161,10 @@ def apply_template(self: Any, application_id: str) -> dict[str, Any]:
         return {"failed": True, "tasks_created": 0}
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-            # Partially-written rows are deliberately KEPT (ADR-0789 §Durable
-            # Execution 8) — they are real, correctly-attributed tasks, and
-            # created_task_ids records exactly which, so undo stays exact.
+            # Nothing is kept: the claim and the seed share the one atomic block
+            # above, so every row written before this exception was rolled back
+            # with it, and created_task_ids (assigned only on success) stays
+            # empty. _mark_failed records the reason on a fresh transaction.
             _mark_failed(application_id, str(exc))
             return {"failed": True, "tasks_created": 0}
         raise self.retry(exc=exc, countdown=2**self.request.retries * 30) from exc
