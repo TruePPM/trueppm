@@ -556,15 +556,8 @@ class TestEmptyState:
 
 
 def _updated_task_fields(client: APIClient, project: Project) -> list[set[str]]:
-    """Field-name sets of every ``updated`` task row, newest first.
-
-    Reads the unfiltered stream and selects client-side on purpose: a
-    ``change_type=updated`` query fetches only ``~`` rows, so each object's first
-    row in the batch has no predecessor and renders as a creation-style full-field
-    diff — a separate, pre-existing seed defect (#3454: the changelog has no
-    #1889-style cap+1 seed), not what these tests pin.
-    """
-    resp = client.get(_url(project), {"object_type": "task"})
+    """Field-name sets of every ``updated`` task row, newest first."""
+    resp = client.get(_url(project), {"object_type": "task", "change_type": "updated"})
     assert resp.status_code == 200
     return [
         {c["field"] for c in r["changes"]}
@@ -723,3 +716,98 @@ class TestSharedDiffPolicy:
 
         rows = _updated_task_fields(owner_client, project)
         assert rows[0] == {"is_deleted"}
+
+
+@pytest.mark.django_db
+class TestUpdateDiffSeed:
+    """An update is diffed against its true predecessor, wherever the filters cut."""
+
+    @staticmethod
+    def _task_with_one_field_update(project: Project) -> Task:
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.name = "Renamed"
+        task.save()
+        return task
+
+    @staticmethod
+    def _updated(resp: Any) -> list[dict[str, Any]]:
+        assert resp.status_code == 200
+        return [r for r in resp.json()["results"] if r["change_type"] == "updated"]
+
+    def test_change_type_updated_renders_a_one_field_diff(
+        self, owner_client: APIClient, owner_membership: ProjectMembership, project: Project
+    ) -> None:
+        self._task_with_one_field_update(project)
+        rows = self._updated(
+            owner_client.get(_url(project), {"object_type": "task", "change_type": "updated"})
+        )
+        assert len(rows) == 1
+        assert {c["field"] for c in rows[0]["changes"]} == {"name"}
+
+    def test_since_window_excludes_predecessor_but_diff_is_one_field(
+        self, owner_client: APIClient, owner_membership: ProjectMembership, project: Project
+    ) -> None:
+        task = self._task_with_one_field_update(project)
+        created = task.history.filter(history_type="+").get()
+        since = (created.history_date + timedelta(microseconds=1)).isoformat()
+        resp = owner_client.get(_url(project), {"object_type": "task", "since": since})
+        results = resp.json()["results"]
+        assert [r["change_type"] for r in results] == ["updated"]
+        assert {c["field"] for c in results[0]["changes"]} == {"name"}
+
+    def test_user_filter_diffs_against_another_authors_row_without_leaking_it(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+        owner: Any,
+        viewer: Any,
+    ) -> None:
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        task.history.update(history_user=viewer)
+        task.name = "Renamed"
+        task._change_reason = None
+        task.save()
+        task.history.filter(history_type="~").update(history_user=owner)
+        resp = owner_client.get(_url(project), {"object_type": "task", "user": str(owner.pk)})
+        results = resp.json()["results"]
+        assert [r["change_type"] for r in results] == ["updated"]
+        assert {c["field"] for c in results[0]["changes"]} == {"name"}
+
+    def test_second_page_oldest_row_is_diffed_against_its_predecessor(
+        self, owner_client: APIClient, owner_membership: ProjectMembership, project: Project
+    ) -> None:
+        task = Task.objects.create(project=project, name="Design", duration=5)
+        for rank in (1, 2, 3):
+            task.name = f"Name {rank}"
+            task.save()
+        seen: list[dict[str, Any]] = []
+        params: dict[str, Any] = {
+            "object_type": "task",
+            "change_type": "updated",
+            "page_size": 1,
+        }
+        for _ in range(6):
+            body = owner_client.get(_url(project), params).json()
+            seen.extend(body["results"])
+            if not body.get("next_cursor"):
+                break
+            params["cursor"] = body["next_cursor"]
+        updates = [r for r in seen if r["change_type"] == "updated"]
+        assert len(updates) == 3
+        assert all({c["field"] for c in r["changes"]} == {"name"} for r in updates)
+
+    def test_seed_is_one_query_per_source_and_never_returned(
+        self, owner_client: APIClient, owner_membership: ProjectMembership, project: Project
+    ) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self._task_with_one_field_update(project)
+        with CaptureQueriesContext(connection) as ctx:
+            resp = owner_client.get(
+                _url(project), {"object_type": "task", "change_type": "updated"}
+            )
+        assert len([q for q in ctx.captured_queries if "ROW_NUMBER" in q["sql"]]) == 1
+        # The seed is the creation row; it informs the diff but is not rendered.
+        assert [r["change_type"] for r in resp.json()["results"]] == ["updated"]
