@@ -192,3 +192,31 @@ def test_retrieve_single_run(member_client: APIClient, project: Project, user: o
     resp = member_client.get(_url(project, f"{run.pk}/"))
     assert resp.status_code == 200
     assert resp.json()["id"] == str(run.pk)
+
+
+@pytest.mark.django_db
+def test_recalculate_with_a_preexisting_summary_start_link_records_a_failed_run(
+    project: Project,
+) -> None:
+    """An SS edge from a summary that predates the write gate must not vanish silently.
+
+    The run is recorded FAILED with the engine's message in ``error_detail`` (which the
+    ``task_run_failed`` event also carries), so the frozen schedule is explained on the
+    project's run history rather than leaving no trace.
+    """
+    from trueppm_scheduler import InvalidScheduleInput
+
+    from trueppm_api.apps.projects.models import Dependency, Task
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    s = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+    Task.objects.create(project=project, name="A", duration=2, wbs_path="1.1")
+    c = Task.objects.create(project=project, name="C", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=s, successor=c, dep_type="SS")
+
+    with pytest.raises(InvalidScheduleInput):
+        recalculate_schedule.apply(args=[str(project.pk)], throw=True)
+
+    run = TaskRun.objects.get(project=project, task_name="scheduling.recalculate")
+    assert run.status == TaskRunStatus.FAILED
+    assert "link to a specific leaf task instead" in run.error_detail

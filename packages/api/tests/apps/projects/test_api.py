@@ -1062,6 +1062,52 @@ class TestDependencyTypeCollision:
         assert r.status_code == 400
         assert "dep_type" in r.data
 
+    @pytest.mark.parametrize("dep_type", ["SS", "SF"])
+    def test_start_link_from_a_summary_is_refused_with_the_leaf_guidance(
+        self, client: APIClient, tree: dict[str, Task], dep_type: str
+    ) -> None:
+        r = self._post(client, tree["s"], tree["c"], dep_type)
+
+        assert r.status_code == 400
+        assert "link to a specific leaf task instead" in " ".join(r.data["dep_type"])
+        assert not Dependency.objects.filter(predecessor=tree["s"]).exists()
+
+    @pytest.mark.parametrize("dep_type", ["FS", "FF"])
+    def test_finish_link_from_a_summary_is_accepted(
+        self, client: APIClient, tree: dict[str, Task], dep_type: str
+    ) -> None:
+        assert self._post(client, tree["s"], tree["c"], dep_type).status_code == 201
+
+    @pytest.mark.parametrize("dep_type", ["FS", "FF", "SS", "SF"])
+    def test_every_link_type_from_a_leaf_is_accepted(
+        self, client: APIClient, tree: dict[str, Task], dep_type: str
+    ) -> None:
+        assert self._post(client, tree["a"], tree["c"], dep_type).status_code == 201
+
+    @pytest.mark.parametrize("dep_type", ["SS", "SF"])
+    def test_patch_retyping_a_summary_edge_to_a_start_link_is_rejected(
+        self, client: APIClient, tree: dict[str, Task], dep_type: str
+    ) -> None:
+        edge = Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="FS")
+
+        r = client.patch(f"/api/v1/dependencies/{edge.pk}/", {"dep_type": dep_type})
+
+        assert r.status_code == 400
+        assert "link to a specific leaf task instead" in " ".join(r.data["dep_type"])
+        edge.refresh_from_db()
+        assert edge.dep_type == "FS"
+
+    def test_patch_repointing_a_start_link_onto_a_summary_is_rejected(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        edge = Dependency.objects.create(predecessor=tree["a"], successor=tree["c"], dep_type="SS")
+
+        r = client.patch(f"/api/v1/dependencies/{edge.pk}/", {"predecessor": str(tree["s"].pk)})
+
+        assert r.status_code == 400
+        edge.refresh_from_db()
+        assert edge.predecessor_id == tree["a"].pk
+
     def test_query_count_does_not_grow_with_the_number_of_dependencies(
         self,
         client: APIClient,
