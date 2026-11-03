@@ -22,18 +22,18 @@ JOSS accepts software that represents a *substantial scholarly effort* and ships
 with documentation, tests, and an OSI-approved license. `trueppm-scheduler`
 clears the substantive bars:
 
-- **Scholarly substance.** ~3,300 lines of engine/model source implementing a
-  full CPM forward/backward pass (all four dependency types, calendar-aware lag,
+- **Scholarly substance.** Engine and model source implementing a
+  full CPM forward/backward pass (all four dependency types, calendar-day lag snapped to working days,
   total/free float, criticality), PERT-Beta Monte Carlo risk simulation with a
   sensitivity tornado, and velocity-based agile sampling — non-trivial
   project-scheduling mathematics, not a thin wrapper.
-- **Tests.** ~287 test functions across ~15 test modules, including
+- **Tests.** A broad pytest suite, including
   property-based contract fuzzing and a public-surface stability suite.
 - **Documentation.** README with quick-start, per-task-calendar guide, error
   and input-limit reference, API-stability policy, and runnable notebooks
   (`notebooks/`); hosted docs at docs.trueppm.com.
 - **License.** Apache-2.0 (OSI-approved).
-- **Packaging.** Independently installable from PyPI with a stable, typed
+- **Packaging.** Independently installable from PyPI with a typed
   (`py.typed`, `mypy --strict`) public API.
 
 **Caveat — the JOSS "obvious research application" and authorship bars.**

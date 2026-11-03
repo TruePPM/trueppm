@@ -53,7 +53,7 @@ inconsistently.
 
 `trueppm-scheduler` fills that gap with a small, dependency-light library that
 implements the scheduling semantics correctly and exposes them through a stable,
-typed API. It is intended for two audiences: software engineers who need to
+typed API (the package is currently Beta; see the stability policy in the README). It is intended for two audiences: software engineers who need to
 compute schedules inside their own applications without adopting a full platform,
 and researchers or analysts who need a scriptable, reproducible CPM and Monte
 Carlo engine for studying delivery risk.
@@ -65,10 +65,11 @@ Carlo engine for studying delivery risk.
   [@pmbok] — producing early/late dates, total and free float, and critical-path
   identification. Many lightweight schedulers implement only finish-to-start.
 - **Calendar-aware working-time arithmetic.** A configurable working-week
-  calendar with holiday exceptions means durations and lag resolve to real
-  delivery dates rather than raw calendar days. Lag on a dependency edge is
-  counted on the successor's calendar, and per-task calendars are supported for
-  schedules that span teams keeping different working weeks.
+  calendar with holiday exceptions means durations are counted in working days
+  and resolve to real delivery dates. Dependency lag is counted in calendar
+  days, and the resulting date is snapped to the successor's next working day on
+  the successor's calendar. Per-task calendars are supported for schedules that
+  span teams keeping different working weeks.
 - **Monte Carlo schedule-risk simulation** using a Beta distribution fitted by
   method of moments to the classic PERT mean and standard deviation
   [@malcolm1959] — not the λ=4 Beta-PERT parameterization some commercial risk
@@ -83,8 +84,10 @@ Carlo engine for studying delivery risk.
   explicit bounds, so the engine never silently returns a wrong answer or spins
   on a degenerate graph.
 - **Serialization and tooling.** Plans round-trip losslessly to and from JSON,
-  Monte Carlo runs are deterministic for a fixed seed (supporting reproducible
-  reports and regression baselines), and a `trueppm-scheduler` command-line
+  Monte Carlo runs are reproducible for a fixed seed on the same numpy and
+  `trueppm-scheduler` versions (supporting reproducible reports and regression
+  baselines; numpy guarantees a random stream only within one release, so
+  upgrading numpy can move seeded percentiles), and a `trueppm-scheduler` command-line
   interface exposes both the `schedule` and `monte-carlo` operations.
 
 The package is fully type-annotated (ships `py.typed`, checked under
