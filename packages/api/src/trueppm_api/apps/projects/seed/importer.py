@@ -65,6 +65,7 @@ from trueppm_api.apps.projects.models import (
     Label,
     ObjectKeySource,
     Program,
+    ProgramDecision,
     Project,
     Risk,
     RiskTask,
@@ -382,6 +383,10 @@ class _SeedImporter:
         self.authored_status_targets: set[tuple[str, str]] = self._index_authored_status_targets()
         self.working_calendars: dict[str, WorkingCalendar] = {}
         self.risks_by_slug: dict[str, Risk] = {}
+        # (project_slug, risk_slug) -> Risk, for a program decision's ``linked_risk``.
+        # Risk slugs are only unique within a project, so ``risks_by_slug`` (which
+        # replay keys by bare slug) cannot serve this lookup.
+        self.risks_by_ref: dict[tuple[str, str], Risk] = {}
         # Desired END states for replay — tasks/sprints are created at a base
         # state and walked forward to these by the timeline + synthesizer.
         self.final_status: dict[tuple[str, str], str] = {}
@@ -438,6 +443,7 @@ class _SeedImporter:
         # link a task in any project.
         self._create_backlog_items(program)
         self._create_ceremonies(program)
+        self._create_program_decisions(program)
 
         # Pass C (v2 only): replay the events timeline + synthesized fill so the
         # demo reads as a program that has run for months — backdated history,
@@ -2485,6 +2491,48 @@ class _SeedImporter:
                 # the seed says it was.
                 BacklogItem.objects.filter(pk=item.pk).update(created_at=created)
 
+    def _resolve_risk_ref(self, ref: str) -> Risk:
+        """Resolve a validated ``<project-slug>:<risk-slug>`` ref to its created risk."""
+        project_slug, _, risk_slug = ref.partition(":")
+        return self.risks_by_ref[(project_slug, risk_slug)]
+
+    def _create_program_decisions(self, program: Program) -> None:
+        """Seed the program decision log (ADR-1310, v2.2, #4776).
+
+        Runs after every task and risk exists so ``linked_task`` / ``linked_risk``
+        resolve. Validation already refused dangling links, both links at once and
+        a ``decided_at`` on a decision that is not ``made``. ``created_at`` and
+        ``updated_at`` are ``auto_now*`` fields that stamp import time on save, so
+        the authored values are restored with a queryset ``update()`` (which skips
+        ``auto_now``) — the UI's "as of" date reads ``updated_at``. Per-row saves:
+        a program carries a handful of decisions and the model is program-scoped.
+        """
+        for data in self.payload["program"].get("decisions", []):
+            task_ref = data.get("linked_task")
+            risk_ref = data.get("linked_risk")
+            decision = ProgramDecision(
+                program=program,
+                title=data["title"],
+                owner=self.users.get(data["owner"]) if data.get("owner") else None,
+                due_date=self._date_opt(data.get("due_date"), None, snap=False),
+                status=data.get("status", "awaiting"),
+                decided_at=self._ts(data.get("decided_at")),
+                linked_task=self._resolve_task_ref(task_ref, "") if task_ref else None,
+                linked_risk=self._resolve_risk_ref(risk_ref) if risk_ref else None,
+                impact_note=data.get("impact_note", ""),
+                created_by=(
+                    self.users.get(data["created_by"]) if data.get("created_by") else self.owner
+                ),
+            )
+            decision.save()
+            restored = {
+                field: stamp
+                for field in ("created_at", "updated_at")
+                if (stamp := self._ts(data.get(field))) is not None
+            }
+            if restored:
+                ProgramDecision.objects.filter(pk=decision.pk).update(**restored)
+
     def _create_ceremonies(self, program: Program) -> None:
         """Seed the program's recurring ceremonies (ADR-0079, #3603).
 
@@ -2771,6 +2819,9 @@ class _SeedImporter:
             # Slug map lets risk.status replay beats resolve their target.
             if data.get("slug"):
                 self.risks_by_slug[data["slug"]] = risk
+                owner_slug = next((s for s, p in self.projects.items() if p.pk == project.pk), None)
+                if owner_slug is not None:
+                    self.risks_by_ref[(owner_slug, data["slug"])] = risk
             # Risk itself stays a per-row save so the ``risk_changed`` signal
             # fires; risk counts are in the tens, so there is nothing to win.
             risk_task_rows = [
