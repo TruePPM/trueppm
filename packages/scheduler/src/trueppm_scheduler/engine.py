@@ -6155,6 +6155,17 @@ def _build_lag_delta_table(
     return delta_by_key
 
 
+# A zero-base column's draw below this many days is no work at all (#4698, #4697).
+# The task's base estimate is zero, so a CPM instant is what the plan says, and a
+# draw that rounds to no whole day must leave it that instant: links, lags and the
+# finish exactly as ``schedule()`` places them. It hands no fraction on. Ordinary
+# work reads a finish by the day it falls in, so a fraction carried past a
+# zero-base task would push any whole-day successor into the next working day in
+# every run: a (0, 0, 1) estimate, whose Beta draws are never exactly zero, would
+# cost the day #4698 removed. A draw at or above it is ordinary work, unchanged,
+# so the task matches a real task of that length.
+_ZERO_BASE_ROUND_AWAY = 0.5
+
 # Float slack when reading a fractional working-day offset as a day (#4697). Sampled
 # durations are continuous and are summed along each path, so an offset that is a
 # whole number of days can carry a few ulps of noise; reading 10.0000000001 as "a
@@ -6721,11 +6732,13 @@ def _mc_milestone_floors(
     return out
 
 
-_InstantRuns = np.ndarray
-"""The runs of a zero-base column placed as an instant (#4698, :func:`_mc_zero_base_column`).
+_InstantRuns = tuple[np.ndarray, np.ndarray]
+"""``(is_instant, start_excess)`` of a zero-base column (#4698, :func:`_mc_zero_base_column`).
 
-Only a run that draws no work is one (#4697), so it hands no fraction on: its links
-measure from the instant exactly as a milestone's do.
+``is_instant`` flags the runs whose draw rounds away. Their links measure from the
+instant as a milestone's do, and hand on no finish fraction (#4697). ``start_excess``
+is how far an FF or SF link back-solved the start ahead of the instant (never
+positive): an SS or SF successor measures from that start, as from work.
 """
 
 _MilestoneReading = tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -7042,9 +7055,9 @@ def _mc_forward_pass(
     show it there, the column keeps the next working day (later, never earlier).
 
     ``zero_base_ids`` (#4698) are live zero-duration tasks with a positive estimate.
-    Each of their runs is one or the other, because a draw of exactly zero leaves
-    the task the 0-day task ``schedule()`` placed and any positive one is work
-    (#4697): see :func:`_mc_zero_base_column`. Those instant runs come back per column.
+    Each of their runs is one or the other, because a draw that rounds away leaves
+    the task the 0-day task ``schedule()`` placed and only a larger one is work:
+    see :func:`_mc_zero_base_column`. Those instant runs come back per column.
 
     Returns ``(es_mat, ef_mat, finish_floor, instant_runs)``.
     """
@@ -7195,27 +7208,30 @@ def _mc_zero_base_column(
     draw, simulated as work, reads as work that ended the working day *before* its
     start: a lag would count from there, and a task held to a Monday would be shown
     on the Friday before. Flooring every draw at a day hid that by charging a day
-    nobody estimated. So a run that draws no work is the instant
+    nobody estimated. So a run whose draw rounds away — under
+    :data:`_ZERO_BASE_ROUND_AWAY` — is the instant
     :func:`_place_milestone` gives the deterministic pass, and links out of it
-    measure from that instant (``instant_runs``), exactly as from a milestone.
-
-    Any positive draw is ordinary work (#4697). Before, a draw that rounded away to
-    the nearest day was the instant too, and handed its fraction on; since finishes
-    are read by the day they fall in (:func:`_finish_day_key`), a draw of 0.2 days is
-    work on the day it starts, not nothing, and it no longer rounds away. An FF or SF
-    link back-solves its start over the draw, which can put a successor ahead of the
-    instant's plan (#4822). An instant run is placed as a milestone is, its true point
-    carried as the milestone's deficit (:func:`_mc_milestone_bounds`).
+    measure from that instant (``instant_runs``), exactly as from a milestone. It
+    hands on no finish fraction: carrying one past the task would cost every
+    whole-day successor a day under the day-it-falls-in reading (#4697). An SS or
+    SF successor still takes the start an FF or SF link back-solved over the draw
+    (``start_excess``), which is never later than the instant. A larger draw is
+    ordinary work. An FF or SF link back-solves its start over the draw, which can
+    put a successor ahead of the instant's plan (#4822). An instant run is placed as
+    a milestone is, its true point carried as the milestone's deficit
+    (:func:`_mc_milestone_bounds`).
 
     ``position`` is the instant's offset. ``actual`` is the task's non-working
     recorded start, if any: it floors the finish, as for a milestone, when every
     instant run is shown on that day (:func:`_mc_forward_pass`). The other runs are
     floored at the same recorded start, so none finishes before that date.
 
-    Returns ``(es, ef, is_instant, actual_day)``.
+    Returns ``(es, ef, (is_instant, start_excess), actual_day)``.
     """
     ef = es + eff_dur
-    is_instant = eff_dur <= _MC_DAY_EPS
+    # Rounds away whole (#4698, #4697): see _ZERO_BASE_ROUND_AWAY.
+    is_instant = eff_dur < _ZERO_BASE_ROUND_AWAY
+    start_excess = np.where(is_instant, np.minimum(es - position, 0.0), 0.0)
     instant_es = position
     instant_ef = instant_es + start_display
     actual_day: date | None = None
@@ -7229,7 +7245,7 @@ def _mc_zero_base_column(
     return (
         np.where(is_instant, instant_es, es),
         np.where(is_instant, instant_ef, ef),
-        is_instant,
+        (is_instant, start_excess),
         actual_day,
     )
 
@@ -7462,9 +7478,9 @@ def _mc_milestone_bounds(
             at_instant, at_display, at_deficit = _mc_instant_proposal(
                 dep, p, instant_mat, start_display_mat, index, deficit_mat
             )
-            proposal = np.where(pred_runs, at_instant, proposal)
-            display = np.where(pred_runs, at_display, display)
-            deficit = np.where(pred_runs, at_deficit, deficit)
+            proposal = np.where(pred_runs[0], at_instant, proposal)
+            display = np.where(pred_runs[0], at_display, display)
+            deficit = np.where(pred_runs[0], at_deficit, deficit)
         offer(proposal, display, deficit)
 
     def with_deficit(winner: np.ndarray) -> _MilestoneReading:
@@ -7673,7 +7689,10 @@ def _mc_edge_constraints(
         if pred_runs is not None:
             assert index is not None
             at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index, deficit_mat)
-            constraint = np.where(pred_runs, at_instant, constraint)
+            if dep.dep_type in (DependencyType.SS, DependencyType.SF):
+                # A start an FF/SF link back-solved ahead of the instant (#4698).
+                at_instant = at_instant + pred_runs[1]
+            constraint = np.where(pred_runs[0], at_instant, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)
         else:  # FF / SF
@@ -7973,7 +7992,7 @@ def monte_carlo(
     milestones are instants exactly as in :func:`schedule` (#4079) — a fully
     deterministic project (no estimates, no velocity signal) simulates to
     precisely the CPM finish date. A zero-duration task with an estimate is that
-    instant in the runs that draw exactly zero, and ordinary work otherwise
+    instant in the runs whose draw rounds away, and ordinary work otherwise
     (:func:`_mc_zero_base_column`, #4698). **Never before is the invariant on an FS/SS
     network**, and it holds for an uncertain one too: the early-start floors bind
     the start dates (see :func:`_mc_es_floors`) and the duration floor above binds
@@ -8320,7 +8339,7 @@ def monte_carlo(
     if has_instants:
         wt_mat = ef_mat.copy()
         wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
-        for tid, is_instant in instant_runs.items():
+        for tid, (is_instant, _) in instant_runs.items():
             col = task_idx[tid]
             wt_mat[is_instant, col] = es_mat[is_instant, col]
     # The floor wins over the index only when it is later; it is a start-of-day

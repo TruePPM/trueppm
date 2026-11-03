@@ -21,12 +21,12 @@ change between releases. Pin an exact version (e.g.
 - **A zero-duration task with a small estimate no longer costs a full working day
   in Monte Carlo, and seeded results for such tasks change.** A 0-day task with a
   `(0, 0, 1)` estimate, mean 1/6 day and mode 0, was floored at one working day in
-  every run, so P50 moved a working day past the CPM finish. A run that draws exactly
-  zero is now the instant `schedule()` places, links and lags included. Any positive
-  draw is simulated as work: with no recorded start, the same as a task of that
-  length with the same link. Whole-day work after a `(0, 0, 1)` task still ends
-  part-way into the next working day, so P50 is one working day past CPM for that
-  reason (#4697, below), not because the task is charged a day of its own. A started zero-duration task can differ from a started real task. This applies
+  every run, so P50 moved a working day past the CPM finish. A run whose draw is under
+  half a day now rounds away: it is the instant `schedule()` places, links and lags
+  included, and hands no fraction on to the work after it, so P50 stays on the CPM
+  finish. An SS or SF successor still takes a start an FF or SF link back-solved
+  over the draw. A larger draw is simulated as work: with no recorded start, the
+  same as a task of that length with the same link. A started zero-duration task can differ from a started real task. This applies
   to any zero-duration task with a sampled duration, including story points on the
   velocity path, though velocity draws measured no change because they are work-sized.
   Tasks with a duration of one day or more and zero-duration tasks with no estimate or
@@ -38,7 +38,7 @@ change between releases. Pin an exact version (e.g.
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)).
 
 - **Monte Carlo shows a fractional finish on the day it ends in, and seeded
-  percentiles move later by up to one working day.** Sampled durations are
+  percentiles move.** Sampled durations are
   continuous, but each run's finish was mapped to a day by rounding to the nearest
   integer, half to even. Work ending 0.3 of the way into a Monday counted as
   finishing the Friday before, so a 10-day task estimated `(10, 10, 11)` reported
@@ -47,7 +47,12 @@ change between releases. Pin an exact version (e.g.
   day and carry the fraction while the lag lands in working time. A milestone after
   fractional work sits at that point in working time, so a milestone on a path
   neither adds nor drops time. A run with no spread still lands exactly on the CPM
-  finish. Seeded P50/P80/P95 never move earlier. A percentile interpolated between
+  finish. A zero-duration task with an estimate is exempt: its draws under half a
+  day still round away (above). Seeded P50/P80/P95 move: on FS/SS networks never
+  earlier, usually one working day later, and up to four working days later where
+  lagged links each lost a day under the nearest-day reading (600 seeded random
+  networks). On FF/SF networks a percentile can also move earlier. A percentile
+  interpolated between
   two whole-day positions is now read on the later day, where exact midpoints used
   to round half to even. See the amendment to ADR-1245
   ([#4697](https://gitlab.com/trueppm/trueppm/-/issues/4697)).

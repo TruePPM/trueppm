@@ -143,7 +143,7 @@ in `_mc_percentiles`, `_lag_term`, `_McIndex.ordinal_at` and
 `_to_reference_offset`). Work ending 0.3 of the way into a day was therefore
 reported, and ranked, as finishing the day before. On a 10-day task estimated
 (10, 10, 11), P50 and P80 were the CPM finish although no run finished there, and
-the forecast under-stated the simulated risk by up to one working day.
+the forecast under-stated the simulated risk by a working day, more where lagged links each lost one.
 
 **Decision: read each position by the day it falls in.** An exclusive finish `e` is
 on day `ceil(e) - 1` and a start `s` on day `floor(s)`, each with a `1e-9` slack for
@@ -165,9 +165,31 @@ finish. Every place that turns a sampled offset into a day uses the same rule:
   every link out of it, measures from the true point (`_mc_milestone_bounds`,
   `_mc_instant_edge_bound`). Rounding milestones up to the midnight instead put each
   milestone on a path up to a day late, and the error compounded along a chain.
-- Zero-duration tasks with an estimate (#4698). Only a draw of exactly zero is the
-  CPM instant. Any positive draw is work on the day it starts. Before, a draw that
-  rounded away to the nearest day was the instant.
+- Zero-duration tasks with an estimate (#4698) are **exempt**; see below.
+
+**Exemption: a zero-base column keeps its CPM-instant semantics.** A zero-base column
+is a live task whose base `duration` is zero but which samples a positive duration:
+a three-point estimate such as (0, 0, 1), or story points on the velocity path
+(`zero_base_ids` in `monte_carlo`). A plain milestone samples nothing and is
+already an instant. A zero-base draw under half a day (`_ZERO_BASE_ROUND_AWAY`)
+rounds away. The run is the instant `schedule()` places, links and lags included,
+and it hands no finish fraction on to the work after it. A start that an FF or SF
+link back-solved over the draw still reaches an SS or SF successor, because that can
+only move it earlier. A draw of half a day or more is ordinary work, so the task
+still matches a real task of that length.
+
+The exemption exists because the base estimate is zero, so the instant is what the
+plan says. A (0, 0, 1) Beta draw is never exactly zero (`alpha` is about 2/3). If
+the task handed its fraction on, the day-it-falls-in reading would push every
+whole-day successor into the next working day in every run. That would restore the
+day of slip #4698 removed: the auditor's repro A(5d) → M(0, 0, 1) → B(5d) gave
+P50 = P80 = P95 one day past CPM in 100% of runs, and a milestone at the end of a
+path, A → M(0, 0, 1), was one day late in 100% of runs. #4698's acceptance
+criterion, that (0, 0, 1) gives P50 equal to CPM, is pinned by
+`test_a_small_estimate_does_not_cost_a_day`. With the exemption, 5.2% of runs land
+after CPM, matching the pre-#4697 engine. The cost of the exemption is that a chain
+of sub-half-day draws no longer adds up: three 0.2-day draws are three instants,
+where #4698 had read them as 0.6 of a day.
 
 **Alternative rejected: round each sampled duration up to whole days at sampling
 time.** That alternative keeps every offset whole, so no other rounding site would
@@ -182,14 +204,17 @@ ruler (`_to_reference_offset`) carry deliberately.
 
 **Consequences.**
 
-- Seeded percentiles move **later by up to one working day**, and never earlier,
-  wherever a run's finish carries a fraction under one half. Persisted forecast
-  history (ADR-0175) shows a one-time step at the upgrade. That step is a change of
-  reading, not a change of risk.
-- A zero-duration task estimated O=0 / M=0 / P=1 samples about a sixth of a day.
-  Whole-day work after it now ends part-way into the next day, so P50 is one working
-  day past CPM. #4698 removed the full working day such a task was charged. The
-  remaining shift is the successor's own work, which ends on that later day.
+- **Seeded percentiles move.** Measured over 600 seeded random networks of each
+  kind, against the merge-base engine:
+  - FS/SS-only networks: no percentile moved earlier. Most moved one working day
+    later. Lagged links moved some percentiles up to four working days later,
+    because the nearest-day reading could lose a day at each lagged link.
+  - Networks with FF or SF links: a percentile can also move earlier (2 of 600).
+    CPM itself is non-monotone there (#3806).
+  - Zero-variance runs matched CPM in all 1,500 sampled networks.
+
+  Persisted forecast history (ADR-0175) shows a one-time step at the upgrade. That
+  step is a change of reading, not a change of risk.
 - An interpolated percentile that falls strictly between two whole-day positions is
   read on the later day, because that is the day the interpolated position falls
   in. Exact midpoints used to round half to even. #4540 tracks the tie and low-N
