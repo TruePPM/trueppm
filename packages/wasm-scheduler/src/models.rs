@@ -676,7 +676,10 @@ mod date_serde_tests {
         for f in task_fields {
             let mut d = template();
             d["tasks"][0][f] = json!("2026-03-02");
-            assert!(serde_json::from_value::<super::Project>(d).is_ok(), "task.{f}");
+            assert!(
+                serde_json::from_value::<super::Project>(d).is_ok(),
+                "task.{f}"
+            );
         }
     }
 }

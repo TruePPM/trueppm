@@ -15,6 +15,11 @@
 //!   ordinals relative to the session epoch** (`project.start_date`). A JS caller
 //!   reconstructs a date as `epoch + ordinal` days, using the epoch exposed once
 //!   at session creation.
+//! - `scheduled_start` — `i32` day ordinal of the task's whole-span start
+//!   (ADR-0752); differs from `early_start` for in-progress tasks, so a bar must
+//!   be painted from this, not `early_start`.
+//! - `milestone_at_day_end` — `u8` (0/1): a milestone sitting at the end of its
+//!   shown day (#4079), needed to compute a slip correctly across a weekend.
 //! - `total_float` / `free_float` — `f64` **seconds** (the exact unit the JSON
 //!   `TaskResult` carries, so values are bit-for-bit comparable; JS divides by
 //!   86 400 for working days, as it already does for the JSON shape).
@@ -24,6 +29,9 @@
 //! - `node_indices` — the dense node position of each row. For a full recalc this
 //!   is `0..N`; for the downstream-only (incremental) recalc it is the subset of
 //!   nodes reachable from the dragged task — i.e. this array *is* the delta-emit.
+//!
+//! The driving-edge set (`ScheduleResult.driving_edges`) is deliberately not a
+//! column: a preview that draws the link hierarchy must take it from the JSON path.
 //!
 //! Task **ids never cross the boundary per frame**: the caller reads the id
 //! ordering **once** (via [`crate::SchedulerSession::task_ids`]) and maps
@@ -60,6 +68,12 @@ pub(crate) struct TypedResult {
     pub early_finish: Vec<i32>,
     pub late_start: Vec<i32>,
     pub late_finish: Vec<i32>,
+    /// Span-start day ordinals (ADR-0752): the task's whole-span start, which
+    /// differs from `early_start` (remaining-work start) for in-progress tasks.
+    pub scheduled_start: Vec<i32>,
+    /// 1 if a zero-duration milestone sits at the END of its shown day (#4079),
+    /// else 0 — one entry per row. Needed to compute slips across a weekend.
+    pub milestone_at_day_end: Vec<u8>,
     /// Float in seconds (parity with `TaskResult`), one entry per row.
     pub total_float: Vec<f64>,
     pub free_float: Vec<f64>,
@@ -78,6 +92,8 @@ impl TypedResult {
             early_finish: Vec::with_capacity(cap),
             late_start: Vec::with_capacity(cap),
             late_finish: Vec::with_capacity(cap),
+            scheduled_start: Vec::with_capacity(cap),
+            milestone_at_day_end: Vec::with_capacity(cap),
             total_float: Vec::with_capacity(cap),
             free_float: Vec::with_capacity(cap),
             is_critical: Vec::with_capacity(cap),
@@ -98,6 +114,10 @@ impl TypedResult {
             .push(to_ordinal(t.late_start.unwrap(), epoch));
         self.late_finish
             .push(to_ordinal(t.late_finish.unwrap(), epoch));
+        self.scheduled_start
+            .push(to_ordinal(t.scheduled_start.unwrap(), epoch));
+        self.milestone_at_day_end
+            .push(u8::from(t.milestone_at_day_end));
         self.total_float.push(t.total_float);
         self.free_float.push(t.free_float);
         self.is_critical.push(u8::from(t.is_critical));
@@ -366,6 +386,16 @@ mod tests {
                 jt.late_finish,
                 "{id} LF"
             );
+            assert_eq!(
+                ord_to_date(typed.scheduled_start[row], epoch),
+                jt.scheduled_start,
+                "{id} scheduled_start"
+            );
+            assert_eq!(
+                typed.milestone_at_day_end[row] == 1,
+                jt.milestone_at_day_end,
+                "{id} milestone_at_day_end"
+            );
             assert_eq!(typed.total_float[row], jt.total_float, "{id} TF");
             assert_eq!(typed.free_float[row], jt.free_float, "{id} FF");
             assert_eq!(typed.is_critical[row] == 1, jt.is_critical, "{id} crit");
@@ -414,9 +444,109 @@ mod tests {
                 jt.late_finish,
                 "{id} LF"
             );
+            assert_eq!(
+                ord_to_date(typed.scheduled_start[row], epoch),
+                jt.scheduled_start,
+                "{id} scheduled_start"
+            );
+            assert_eq!(
+                typed.milestone_at_day_end[row] == 1,
+                jt.milestone_at_day_end,
+                "{id} milestone_at_day_end"
+            );
             assert_eq!(typed.total_float[row], jt.total_float, "{id} TF");
             assert_eq!(typed.free_float[row], jt.free_float, "{id} FF");
             assert_eq!(typed.is_critical[row] == 1, jt.is_critical, "{id} crit");
+        }
+    }
+
+    /// Project with an in-progress task (`scheduled_start` != `early_start`) and
+    /// an end-of-day milestone, so the parity check on the two #4709 columns is
+    /// not vacuous (a plain not-started chain has scheduled_start == early_start
+    /// and no day-end milestone).
+    fn span_and_milestone_project() -> Project {
+        serde_json::from_value(serde_json::json!({
+            "id": "p",
+            "name": "p",
+            "start_date": "2026-03-02",
+            "status_date": "2026-03-09",
+            "tasks": [
+                {"id": "P", "name": "P", "duration": 20.0 * 86400.0, "percent_complete": 50.0},
+                {"id": "B", "name": "B", "duration": 30.0 * 86400.0},
+                {"id": "A", "name": "A", "duration": 86400.0,
+                 "planned_start": "2026-01-08"},
+                {"id": "M", "name": "M", "duration": 0.0},
+            ],
+            "dependencies": [
+                {"predecessor_id": "P", "successor_id": "B", "dep_type": "SS",
+                 "lag": 16.0 * 86400.0},
+                {"predecessor_id": "A", "successor_id": "M", "dep_type": "FS",
+                 "lag": 86400.0},
+            ],
+        }))
+        .expect("test project parses")
+    }
+
+    /// #4709: the typed path carries `scheduled_start` and `milestone_at_day_end`
+    /// with the same values as the JSON path, on both the full and downstream
+    /// emits, for inputs where each differs from its naive stand-in.
+    #[test]
+    fn typed_carries_scheduled_start_and_milestone_at_day_end() {
+        let project = span_and_milestone_project();
+        let epoch = project.start_date;
+        let pg = build_graph(&project).unwrap();
+        let json = compute_full(&project, &pg).unwrap();
+        let jp = json.tasks.iter().find(|t| t.id == "P").unwrap();
+        let jm = json.tasks.iter().find(|t| t.id == "M").unwrap();
+        // Preconditions that keep the parity below non-vacuous.
+        assert_ne!(jp.scheduled_start, jp.early_start);
+        assert!(jm.milestone_at_day_end);
+
+        let mut scratch = project.tasks.clone();
+        let full = compute_full_typed(&project, &pg, &mut scratch, epoch).unwrap();
+        let p = full
+            .node_indices
+            .iter()
+            .position(|&n| project.tasks[n as usize].id == "P")
+            .unwrap();
+        let m = full
+            .node_indices
+            .iter()
+            .position(|&n| project.tasks[n as usize].id == "M")
+            .unwrap();
+        assert_eq!(
+            ord_to_date(full.scheduled_start[p], epoch),
+            jp.scheduled_start
+        );
+        assert_ne!(full.scheduled_start[p], full.early_start[p]);
+        assert_eq!(full.milestone_at_day_end[m], 1);
+        for (row, &node) in full.node_indices.iter().enumerate() {
+            let jt = json
+                .tasks
+                .iter()
+                .find(|t| t.id == project.tasks[node as usize].id)
+                .unwrap();
+            assert_eq!(
+                ord_to_date(full.scheduled_start[row], epoch),
+                jt.scheduled_start
+            );
+            assert_eq!(full.milestone_at_day_end[row] == 1, jt.milestone_at_day_end);
+        }
+
+        let jd = compute_downstream(&project, &pg, "A").unwrap();
+        let down = compute_downstream_typed(&project, &pg, &mut scratch, epoch, "A").unwrap();
+        assert_eq!(down.node_indices.len(), jd.tasks.len());
+        for (row, &node) in down.node_indices.iter().enumerate() {
+            let jt = jd
+                .tasks
+                .iter()
+                .find(|t| t.id == project.tasks[node as usize].id)
+                .unwrap();
+            assert_eq!(
+                ord_to_date(down.scheduled_start[row], epoch),
+                jt.scheduled_start
+            );
+            assert_eq!(down.milestone_at_day_end[row] == 1, jt.milestone_at_day_end);
         }
     }
 
@@ -446,6 +576,8 @@ mod tests {
             assert_eq!(reused.early_finish, fresh.early_finish);
             assert_eq!(reused.late_start, fresh.late_start);
             assert_eq!(reused.late_finish, fresh.late_finish);
+            assert_eq!(reused.scheduled_start, fresh.scheduled_start);
+            assert_eq!(reused.milestone_at_day_end, fresh.milestone_at_day_end);
             assert_eq!(reused.total_float, fresh.total_float);
             assert_eq!(reused.free_float, fresh.free_float);
             assert_eq!(reused.is_critical, fresh.is_critical);
