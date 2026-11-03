@@ -797,17 +797,52 @@ class TestUpdateDiffSeed:
         assert len(updates) == 3
         assert all({c["field"] for c in r["changes"]} == {"name"} for r in updates)
 
-    def test_seed_is_one_query_per_source_and_never_returned(
-        self, owner_client: APIClient, owner_membership: ProjectMembership, project: Project
+    def test_seed_is_one_query_per_source_regardless_of_object_count(
+        self,
+        owner_client: APIClient,
+        owner_membership: ProjectMembership,
+        project: Project,
+        owner: Any,
+        django_assert_num_queries: Any,
     ) -> None:
+        """The seed costs one query per source, not one per row or per object.
+
+        Three sources return rows, so exactly three windowed seed queries run; and
+        the request's total query count is identical with one task or four, which
+        a per-row seed could not satisfy. The seed rows (the creations) are never
+        returned.
+        """
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
-        self._task_with_one_field_update(project)
-        with CaptureQueriesContext(connection) as ctx:
-            resp = owner_client.get(
-                _url(project), {"object_type": "task", "change_type": "updated"}
-            )
-        assert len([q for q in ctx.captured_queries if "ROW_NUMBER" in q["sql"]]) == 1
-        # The seed is the creation row; it informs the diff but is not rendered.
-        assert [r["change_type"] for r in resp.json()["results"]] == ["updated"]
+        sprint = Sprint.objects.create(
+            project=project, name="S1", start_date=date(2026, 1, 1), finish_date=date(2026, 1, 14)
+        )
+        sprint.name = "S1 renamed"
+        sprint.save()
+        risk = Risk.objects.create(
+            project=project, title="R1", probability=3, impact=4, created_by=owner
+        )
+        risk.title = "R1 renamed"
+        risk.save()
+        tasks = [self._task_with_one_field_update(project)]
+        params = {"object_type": "task,sprint,risk", "change_type": "updated"}
+
+        with CaptureQueriesContext(connection) as before:
+            resp = owner_client.get(_url(project), params)
+        assert len([q for q in before.captured_queries if "ROW_NUMBER" in q["sql"]]) == 3
+
+        tasks += [self._task_with_one_field_update(project) for _ in range(3)]
+        for t in tasks:
+            t.name = f"{t.name} again"
+            t.save()
+        expected = len(before.captured_queries)
+        with django_assert_num_queries(expected):
+            resp = owner_client.get(_url(project), params)
+
+        results = resp.json()["results"]
+        assert {r["change_type"] for r in results} == {"updated"}
+        assert sum(r["object_type"] == "task" for r in results) == 8
+        # Sprint and risk saves also bump ``updated_at``; a creation-style diff
+        # would list a dozen or more fields.
+        assert all(len(r["changes"]) <= 2 for r in results)
