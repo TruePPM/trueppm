@@ -463,9 +463,9 @@ def gather_program_schedule(
         # Only the on-read HTTP path (``enforce_max``) converts a degenerate-data
         # failure into a structured response. The persisted background pass
         # (``enforce_max=False``) must let the original ``SchedulerError``
-        # propagate to its ``TaskRunTracker``, which marks the run FAILED — a DRF
-        # ``APIException`` has no meaning in a Celery context and would corrupt
-        # that telemetry.
+        # propagate: a DRF ``APIException`` has no meaning in a Celery context. The
+        # pass catches it (``_end_refused_program_run``), records a failed run per
+        # member project and retires the rows it claimed.
         if not enforce_max:
             raise
         _raise_invalid_input(

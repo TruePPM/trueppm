@@ -1108,6 +1108,48 @@ class TestDependencyTypeCollision:
         edge.refresh_from_db()
         assert edge.predecessor_id == tree["a"].pk
 
+    @pytest.mark.parametrize("dep_type", ["SS", "SF"])
+    def test_a_new_start_link_from_a_summary_is_refused_on_an_already_broken_project(
+        self, client: APIClient, tree: dict[str, Task], dep_type: str
+    ) -> None:
+        Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="SS")
+        other = Task.objects.create(project=tree["a"].project, name="Other", duration=1)
+
+        r = self._post(client, tree["s"], other, dep_type)
+
+        assert r.status_code == 400
+        assert "link to a specific leaf task instead" in " ".join(r.data["dep_type"])
+
+    def test_retyping_a_good_edge_into_a_start_link_is_refused_on_a_broken_project(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="SS")
+        other = Task.objects.create(project=tree["a"].project, name="Other", duration=1)
+        good = Dependency.objects.create(predecessor=tree["s"], successor=other, dep_type="FS")
+
+        r = client.patch(f"/api/v1/dependencies/{good.pk}/", {"dep_type": "SS"})
+
+        assert r.status_code == 400
+        good.refresh_from_db()
+        assert good.dep_type == "FS"
+
+    @pytest.mark.parametrize("dep_type", ["FS", "FF"])
+    def test_retyping_the_bad_edge_to_a_finish_link_repairs_the_project(
+        self, client: APIClient, tree: dict[str, Task], dep_type: str
+    ) -> None:
+        bad = Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="SS")
+
+        r = client.patch(f"/api/v1/dependencies/{bad.pk}/", {"dep_type": dep_type})
+
+        assert r.status_code == 200, r.data
+
+    def test_deleting_the_bad_edge_repairs_the_project(
+        self, client: APIClient, tree: dict[str, Task]
+    ) -> None:
+        bad = Dependency.objects.create(predecessor=tree["s"], successor=tree["c"], dep_type="SS")
+
+        assert client.delete(f"/api/v1/dependencies/{bad.pk}/").status_code == 204
+
     def test_query_count_does_not_grow_with_the_number_of_dependencies(
         self,
         client: APIClient,

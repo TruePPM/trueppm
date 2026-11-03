@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import logging
 import operator
+import re
 import uuid
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
@@ -13,7 +14,7 @@ from typing import Any
 import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
-from trueppm_scheduler import InvalidScheduleInput
+from trueppm_scheduler import SchedulerError
 
 from trueppm_api.apps.projects.services import clear_uncommitted_cpm_output
 from trueppm_api.apps.scheduling.finish_reading import (
@@ -82,7 +83,9 @@ def recalculate_schedule(
             project_id=project_id,
             task_name="scheduling.recalculate",
         ) as tracker:
-            _run_schedule(project_id, tracker)
+            escalated = _run_schedule(project_id, tracker)
+        if escalated:
+            return
         # Stamp the successful CPM completion so the web Schedule view can show
         # the "recalculating" badge until the first post-import pass lands
         # (#1053). A bulk update avoids a save() + history row + server_version
@@ -98,17 +101,20 @@ def recalculate_schedule(
         # that can never succeed, and it is not in autoretry_for (#4751).
         logger.info("recalculate_schedule: project %s no longer exists; skipping", project_id)
         return
-    except InvalidScheduleInput as exc:
-        # Stored data the engine refuses (e.g. an SS/SF link from a summary that
-        # predates the write-boundary gate) fails identically on every attempt, so
-        # re-raising kills the task, and leaving the outbox row DISPATCHED makes the
-        # drain's orphan recovery re-dispatch it every ten minutes forever (a fresh
-        # FailedTask and alert each time). TaskRunTracker has already marked the run
-        # FAILED and broadcast task_run_failed with the engine's actionable message
-        # before we got here; retire the outbox row as DEAD so the drain stops, keep
-        # the dead-letter row so operators still see it, and end the task cleanly.
-        # Filtering on DISPATCHED leaves a newer PENDING row (a fresh edit) alone, so
-        # repairing the edge recovers the schedule on the next write.
+    except SchedulerError as exc:
+        # Stored data the scheduler refuses (every SchedulerError is a deterministic
+        # verdict on the data, never a transient fault — e.g. an SS/SF link from a summary, which
+        # older writes and the structural edits that turn a task into a summary can
+        # still leave behind) fails identically on every attempt, so re-raising kills
+        # the task, and leaving the outbox row DISPATCHED makes the drain's orphan
+        # recovery re-dispatch it every ten minutes forever (a fresh FailedTask and
+        # alert each time). TaskRunTracker has already marked the run FAILED and
+        # broadcast task_run_failed with the engine's actionable message before we
+        # got here; retire the outbox row as DONE (the drain's own "retired" state;
+        # DEAD would turn the System Health outbox card CRIT over a data problem),
+        # keep the dead-letter row so operators still see it, and end the task
+        # cleanly. Filtering on DISPATCHED leaves a newer PENDING row (a fresh edit)
+        # alone, so repairing the edge recovers the schedule on the next write.
         logger.warning(
             "recalculate_schedule: project %s holds input the scheduler refuses: %s",
             project_id,
@@ -118,7 +124,7 @@ def recalculate_schedule(
 
         ScheduleRequest.objects.filter(
             project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
-        ).update(status=ScheduleRequestStatus.DEAD)
+        ).update(status=ScheduleRequestStatus.DONE)
         _dead_letter_current(self, project_id, exc)
         return
     except SoftTimeLimitExceeded:
@@ -1377,8 +1383,13 @@ def _persist_driving_flags_and_shift_events(
 def _run_schedule(
     project_id: str,
     tracker: object = None,
-) -> None:
+) -> bool:
     """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion.
+
+    Returns:
+        ``True`` when the run handed off to the program-scoped pass and wrote
+        nothing, so the caller must not stamp ``recalculated_at`` (the program pass
+        stamps every member project itself, and only on success).
 
     CPM runs on the full project and every affected task's results are written
     back. The engine-level incremental recompute (recompute only the changed
@@ -1451,7 +1462,7 @@ def _run_schedule(
     except Project.DoesNotExist:
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
         _settle_empty()
-        return
+        return False
 
     # ADR-0752 §4/§7: resolve the floor once, up front, from the state this
     # project was loaded in — before anything below can mutate it. A project
@@ -1471,7 +1482,7 @@ def _run_schedule(
     # left for the program run to mark done.
     if _escalate_to_program(project_id, db_project.program_id):
         _settle_empty()
-        return
+        return True
 
     # Exclude recurrence templates and their generated occurrences from the CPM feed.
     # Recurring tasks are parallel, calendar-driven activities — admitting them to the
@@ -1509,7 +1520,7 @@ def _run_schedule(
         # program's project set itself.
         _clear_output_of_fully_groomed_project(project_id)
         _settle_empty()
-        return
+        return False
 
     _update(25, "Building schedule model…")
 
@@ -1686,7 +1697,7 @@ def _run_schedule(
     # program pass rather than persisting stale single-project dates. Cheap EXISTS.
     if _escalate_to_program(project_id, db_project.program_id):
         _settle_empty()
-        return
+        return True
 
     # Per-task schedule-shift activity events (ADR-0207, #1604), built from the
     # mutated in-memory tasks and the project's active baseline. Written inside the
@@ -1773,6 +1784,7 @@ def _run_schedule(
         event_type="schedule.recalculated",
         payload={"project": project_id, **cpm_payload},
     )
+    return False
 
 
 def _broadcast_cpm_complete(
@@ -1917,7 +1929,15 @@ def _escalate_to_program(project_id: str, program_id: object) -> bool:
     """
     if program_id is None:
         return False
+    from trueppm_api.apps.projects.lifecycle import visible_projects
+    from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.projects.program_schedule import program_has_accepted_cross_edges
+
+    # The program pass leaves drafts out of its graph, its claim and its stamp, so a
+    # draft that handed off would never be computed and its outbox row would stay
+    # DISPATCHED for the drain to re-run forever. A draft schedules itself.
+    if not visible_projects(Project.objects.filter(pk=project_id)).exists():
+        return False
 
     if not program_has_accepted_cross_edges(program_id):
         return False
@@ -1967,7 +1987,7 @@ def recalculate_program_schedule(self: object, program_id: str) -> None:
     but a per-project task can never *write* while escalation holds (it self-aborts
     at the pre-write guard), so the two never produce a torn write.
     """
-    _run_program_schedule(program_id)
+    _run_program_schedule(program_id, task=self)
 
 
 def _member_cpm_delta(moved_tasks: list[Any]) -> dict[str, object]:
@@ -2081,7 +2101,107 @@ def _register_program_broadcasts(
         transaction.on_commit(_capture)
 
 
-def _run_program_schedule(program_id: str) -> None:
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _offending_project_id(exc: SchedulerError, member_ids: list[Any]) -> str | None:
+    """The member project owning the task a scheduler refusal names, if it can tell.
+
+    Same attribution as the on-read path's ``_raise_invalid_input``: a cycle carries
+    its task ids, other refusals embed the task uuid in the message. Any uuid is
+    matched, not only ``Task '<uuid>'``, because the summary-link refusal words it
+    "summary task '<uuid>'".
+    """
+    from trueppm_scheduler import CyclicDependencyError
+
+    from trueppm_api.apps.projects.models import Task
+
+    if isinstance(exc, CyclicDependencyError):
+        task_ids = [str(t) for t in exc.cycle]
+    else:
+        task_ids = _UUID_RE.findall(str(exc))
+    if not task_ids:
+        return None
+    for task_id in task_ids:
+        project_id = (
+            Task.objects.filter(id=task_id, project_id__in=member_ids)
+            .values_list("project_id", flat=True)
+            .first()
+        )
+        if project_id is not None:
+            return str(project_id)
+    return None
+
+
+def _end_refused_program_run(
+    task: object,
+    program_id: str,
+    member_ids: list[Any],
+    claimed_ids: list[Any],
+    exc: SchedulerError,
+) -> None:
+    """End a program pass the scheduler refused, without a retry loop or a silent failure.
+
+    The program pass has no ``TaskRunTracker`` of its own, so without this the
+    refusal reached the worker as a bare exception: no TaskRun, no event for any
+    member project's client, and the claimed outbox rows stayed DISPATCHED for the
+    drain to re-dispatch every ten minutes. A failed ``scheduling.recalculate`` run is
+    recorded per member project, which is what each project's client already listens
+    for. Only the rows this pass claimed are retired, as DONE, so a row dispatched by a
+    concurrent edit still gets its own pass.
+
+    The retire comes first and each member is recorded independently: a member
+    deleted while the pass ran raises ``TaskRunProjectGone`` from its tracker, and that
+    must not strand the claimed rows or the other members' signals.
+    """
+    from trueppm_api.apps.scheduling.deadletter import record_failed_task
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+    from trueppm_api.apps.taskruns.tracker import TaskRunProjectGone, TaskRunTracker
+
+    logger.warning(
+        "recalculate_program_schedule: program %s holds input the scheduler refuses: %s",
+        program_id,
+        exc,
+    )
+    ScheduleRequest.objects.filter(
+        id__in=claimed_ids, status=ScheduleRequestStatus.DISPATCHED
+    ).update(status=ScheduleRequestStatus.DONE)
+    # ADR-0120 D5: the raw message embeds the offending task's id and estimate values,
+    # which the on-read path withholds from callers who cannot read that project. A run
+    # is readable by every member of its own project, so only the project that owns
+    # the offending task gets the actionable text; the rest get a generic one. The
+    # unredacted text stays on the operator-only FailedTask below. When the offender
+    # cannot be attributed, nobody gets the raw text.
+    owner_id = _offending_project_id(exc, member_ids)
+    generic = SchedulerError(
+        "The program schedule could not be recalculated because of a problem in "
+        "another project in this program. Ask a member of that project to resolve it."
+    )
+    for member_id in member_ids:
+        try:
+            with TaskRunTracker(
+                task, project_id=str(member_id), task_name="scheduling.recalculate"
+            ):
+                raise exc if str(member_id) == owner_id else generic
+        except (SchedulerError, TaskRunProjectGone):
+            pass
+    # The replay args must be the program id: a requeue re-runs the task with
+    # ``failed.args``, and a project id there is "program not found" with nothing
+    # recalculated. The failure belongs to the program, so no single member is blamed.
+    request = task.request  # type: ignore[attr-defined]
+    record_failed_task(
+        task_name=getattr(task, "name", "unknown"),
+        task_id=request.id or "unknown",
+        args=[program_id],
+        kwargs={},
+        exception=exc,
+        project_id=None,
+    )
+
+
+def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     """Gather, run, and persist the program-true schedule for ``program_id``.
 
     Extracted from the Celery task for testability — exercised directly by the
@@ -2133,7 +2253,15 @@ def _run_program_schedule(program_id: str) -> None:
         ).values_list("id", flat=True)
     )
 
-    graph = gather_program_schedule(program, enforce_max=False)
+    try:
+        graph = gather_program_schedule(program, enforce_max=False)
+    except SchedulerError as exc:
+        if task is None:
+            # A direct caller (the demo overlay) has no task to record against and
+            # used to get the exception; keep that rather than swallowing it.
+            raise
+        _end_refused_program_run(task, program_id, member_ids, claimed_ids, exc)
+        return
 
     now = timezone.now()
     tasks_to_update: list[Task] = []
