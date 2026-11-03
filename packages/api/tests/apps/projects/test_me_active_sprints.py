@@ -317,6 +317,9 @@ def test_active_sprints_query_count_constant_in_sprint_count(
             assert len(resp.data) == n
         return len(ctx.captured_queries)
 
+    # Warm-up: the composed-calendar fold (#3004) reads the workspace singleton,
+    # and the first read in a fresh test DB INSERTs it; measure steady state only.
+    _measure(1, "warmup")
     one = _measure(1, "solo")
     many = _measure(4, "multi")
     assert many == one, f"N+1 in /me/active-sprints/: {one} queries for 1 sprint, {many} for 4"

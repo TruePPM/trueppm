@@ -287,6 +287,24 @@ def _working_days(start: date, finish: date, working_days_mask: int = 31) -> int
     return total
 
 
+def _layered_working_days(cal: Any, start: date, finish: date) -> int:
+    """Working-day count in ``[start, finish]`` inclusive under a composed calendar.
+
+    Counts through the scheduler ``Calendar``'s ``is_working_day`` so holiday
+    exceptions, overlay layers and inherited calendars are honored — the same
+    answer CPM, Monte Carlo and sprint generation give for the same window (#3004).
+    """
+    total = 0
+    cur = start
+    while cur <= finish:
+        if cal.is_working_day(cur):
+            total += 1
+        if cur >= date.max:
+            break
+        cur += timedelta(days=1)
+    return total
+
+
 def working_day_duration(start: date, finish: date, calendar: Any | None) -> int:
     """Working-day count in ``[start, finish]`` inclusive under a project calendar.
 
@@ -329,12 +347,14 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
     capacity here; reading the raw default told a half-time person they had twice the
     hours the heat map credited them with.
 
-    Hours-per-day comes from the project calendar (8.0 default). Working
-    days honour the calendar's ``working_days`` bitmask. ``pto_days`` is a
+    Hours-per-day and working days come from the project's *composed* calendar
+    (#3004): the inherited base, overlay layers and every holiday exception, the
+    same fold CPM and sprint generation use (8.0 default hours). ``pto_days`` is a
     placeholder zero until a dedicated time-off model lands.
     """
     from trueppm_api.apps.resources.capacity import project_effective_units
     from trueppm_api.apps.resources.models import TaskResource
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
 
     # ``.active()`` (#3572): sprint capacity is a capacity read like the heat map —
     # a deactivated person must not appear as a sprint member with hours to give.
@@ -352,7 +372,10 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
         )
     )
     return _capacity_summary_from_rows(
-        sprint, assignment_rows, project_effective_units(sprint.project_id)
+        sprint,
+        assignment_rows,
+        project_effective_units(sprint.project_id),
+        sched_calendar=project_sched_calendars([sprint.project_id]).get(str(sprint.project_id)),
     )
 
 
@@ -367,15 +390,16 @@ def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
     totals are byte-identical to the per-sprint path — only the query count
     changes.
 
-    Callers should pass sprints with ``project__calendar`` already
-    ``select_related`` so the per-sprint calendar read in the shared helper does
-    not re-introduce a separate N+1.
+    The composed calendar (#3004) is built once per distinct project through
+    :func:`project_sched_calendars` — a fixed handful of queries however many
+    sprints share a project — so the layered fold does not reintroduce the N+1.
 
     Returns a ``{sprint_pk: summary_dict}`` map; a sprint with no assignments
     maps to the same empty-totals shape :func:`capacity_summary` returns.
     """
     from trueppm_api.apps.resources.capacity import projects_effective_units
     from trueppm_api.apps.resources.models import TaskResource
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
 
     sprint_list = list(sprints)
     pks = [s.pk for s in sprint_list]
@@ -401,19 +425,26 @@ def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
             rows_by_sprint.setdefault(sprint_id, []).append(tuple(core))
     # One roster query covering every project these sprints belong to, so applying
     # the per-project units_override (#3574) does not reintroduce the #1012 N+1.
-    roster_by_project = projects_effective_units({s.project_id for s in sprint_list})
+    project_ids = {s.project_id for s in sprint_list}
+    roster_by_project = projects_effective_units(project_ids)
+    calendars_by_project = project_sched_calendars(project_ids)
     return {
         sprint.pk: _capacity_summary_from_rows(
             sprint,
             rows_by_sprint.get(sprint.pk, []),
             roster_by_project.get(str(sprint.project_id), {}),
+            sched_calendar=calendars_by_project.get(str(sprint.project_id)),
         )
         for sprint in sprint_list
     }
 
 
 def _capacity_summary_from_rows(
-    sprint: Any, assignment_rows: Any, roster_units: dict[str, Decimal] | None = None
+    sprint: Any,
+    assignment_rows: Any,
+    roster_units: dict[str, Decimal] | None = None,
+    *,
+    sched_calendar: Any | None = None,
 ) -> dict[str, Any]:
     """Shared capacity math for :func:`capacity_summary` and its batched twin.
 
@@ -425,12 +456,22 @@ def _capacity_summary_from_rows(
     ``roster_units`` maps ``str(resource_id)`` to that resource's effective capacity
     on the sprint's project (#3574); a resource absent from it carries no roster row
     and falls back to the ``max_units`` on its own assignment row.
+
+    ``sched_calendar`` is the project's *composed* scheduler calendar (#3004) —
+    the base calendar resolved through program/workspace inheritance, plus overlay
+    layers and every holiday exception. The panel must count working days the way
+    CPM, Monte Carlo and sprint generation do; reading the raw ``project.calendar``
+    made the panel disagree with the sprint window it sits beside on any project
+    with a holiday or inherited calendar. Batched callers pass one per project;
+    when omitted it is composed here from ``sprint.project``.
     """
-    project = sprint.project
-    cal = project.calendar
-    hours_per_day = float(cal.hours_per_day) if cal else 8.0
-    wd_mask = cal.working_days if cal else 31
-    working_days = _working_days(sprint.start_date, sprint.finish_date, wd_mask)
+    cal = sched_calendar
+    if cal is None:
+        from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+        cal = compose_project_calendar(sprint.project)
+    hours_per_day = float(cal.hours_per_day)
+    working_days = _layered_working_days(cal, sprint.start_date, sprint.finish_date)
     if working_days <= 0:
         return {
             "members": [],
@@ -455,7 +496,7 @@ def _capacity_summary_from_rows(
         overlap_start = max(t_start, sprint.start_date)
         overlap_end = min(t_end, sprint.finish_date)
         task_days = (
-            _working_days(overlap_start, overlap_end, wd_mask)
+            _layered_working_days(cal, overlap_start, overlap_end)
             if overlap_start <= overlap_end
             else 0
         )

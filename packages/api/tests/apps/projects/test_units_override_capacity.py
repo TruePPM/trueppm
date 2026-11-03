@@ -427,6 +427,117 @@ class TestSprintCapacityUsesEffectiveCapacity:
         assert batched[sprint.pk]["members"][0]["available_hours"] == 20.0
 
 
+class TestCapacityReadsTheComposedCalendar:
+    """#3004: the panel counts working days through the same fold as sprint generation,
+    so a holiday overlay or inherited calendar cannot make the two disagree."""
+
+    def _generated_sprint(self, project: Project) -> tuple[Sprint, int]:
+        from trueppm_api.apps.projects.sprint_cadence import build_cadence
+
+        row = build_cadence(
+            project,
+            count=1,
+            start_date=date(2026, 3, 2),
+            length_days=10,
+            name_pattern="Sprint {n}",
+            first_index=1,
+            taken_names=set(),
+        )[0]
+        sprint = Sprint.objects.create(
+            project=project,
+            name=row.name,
+            start_date=row.start_date,
+            finish_date=row.finish_date,
+        )
+        return sprint, row.working_days
+
+    def _overlay(self, project: Project) -> None:
+        from trueppm_api.apps.projects.models import CalendarException, ProjectCalendarLayer
+
+        holidays = Calendar.objects.create(name="Shutdown", working_days=31)
+        # Wed 4 - Fri 6 March: inside the generated window.
+        CalendarException.objects.create(
+            calendar=holidays, exc_start=date(2026, 3, 4), exc_end=date(2026, 3, 6)
+        )
+        ProjectCalendarLayer.objects.create(project=project, calendar=holidays)
+
+    def test_holiday_overlay_day_count_agrees_with_the_generated_window(
+        self, project: Project
+    ) -> None:
+        self._overlay(project)
+        sprint, generated_days = self._generated_sprint(project)
+        # The shutdown pushed the finish out past the plain two-week window.
+        assert sprint.finish_date > date(2026, 3, 13)
+
+        summary = capacity_summary(sprint)
+        assert generated_days == 10
+        assert summary["working_days"] == generated_days
+
+    def test_batched_path_counts_the_overlay_too(self, project: Project) -> None:
+        self._overlay(project)
+        sprint, generated_days = self._generated_sprint(project)
+
+        batched = capacity_summaries_for_sprints(Sprint.objects.filter(pk=sprint.pk))
+        assert batched[sprint.pk]["working_days"] == generated_days
+
+    def test_committed_overlap_skips_the_holiday(self, project: Project) -> None:
+        """Task-window overlap days use the composed calendar as well as the sprint span."""
+        self._overlay(project)
+        sprint, _ = self._generated_sprint(project)
+        resource = _resource("Ada")
+        _roster(project, resource, None)
+        task = _task(project, days=5)
+        task.sprint = sprint
+        task.save(update_fields=["sprint"])
+        TaskResource.objects.filter(task=task).delete()
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+        Task.objects.filter(pk=task.pk).update(
+            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 6)
+        )
+
+        member = capacity_summary(sprint)["members"][0]
+        # Mon 2 - Fri 6 March holds only Mon + Tue as working days (Wed-Fri shut down).
+        assert member["committed_hours"] == 16.0
+
+    def test_inherited_program_calendar_is_honored(self, project: Project) -> None:
+        """A project with no calendar of its own inherits its program's (ADR-0441)."""
+        sat_sun = Calendar.objects.create(name="Six-day", working_days=63, hours_per_day=6.0)
+        program = Program.objects.create(name="Prog", calendar=sat_sun)
+        Project.objects.filter(pk=project.pk).update(calendar=None, program=program)
+        project.refresh_from_db()
+        sprint = Sprint.objects.create(
+            project=project,
+            name="S",
+            start_date=date(2026, 3, 2),
+            finish_date=date(2026, 3, 8),
+        )
+
+        summary = capacity_summary(sprint)
+        assert summary["working_days"] == 6  # Mon-Sat, not the raw (absent) calendar's 5
+        assert summary["hours_per_day"] == 6.0
+
+    def test_inherited_workspace_calendar_is_honored(self, project: Project) -> None:
+        """No own or program calendar: the workspace default supplies days and hours."""
+        from trueppm_api.apps.workspace.models import Workspace
+
+        ws_cal = Calendar.objects.create(name="WS six-day", working_days=63, hours_per_day=6.0)
+        workspace = Workspace.load()
+        workspace.calendar = ws_cal
+        workspace.save()
+        Project.objects.filter(pk=project.pk).update(calendar=None, program=None)
+        project.refresh_from_db()
+        sprint = Sprint.objects.create(
+            project=project,
+            name="S",
+            start_date=date(2026, 3, 2),
+            finish_date=date(2026, 3, 8),
+        )
+
+        summary = capacity_summary(sprint)
+        assert summary["working_days"] == 6
+        assert summary["hours_per_day"] == 6.0
+
+
 # ---------------------------------------------------------------------------
 # The deliberate exception: cross-project reads keep Resource.max_units
 # ---------------------------------------------------------------------------
@@ -520,6 +631,12 @@ class TestCapacityResolutionIsNotPerRow:
             return sprint
 
         first = _sprint(1)
+        # The composed-calendar fold reads the workspace singleton, and its very
+        # first read in a fresh test DB INSERTs that row (#3004). Warm it so the
+        # baseline measures steady state, not the one-off create.
+        capacity_summaries_for_sprints(
+            Sprint.objects.select_related("project__calendar").filter(pk=first.pk)
+        )
         with CaptureQueriesContext(connection) as captured:
             capacity_summaries_for_sprints(
                 Sprint.objects.select_related("project__calendar").filter(pk=first.pk)

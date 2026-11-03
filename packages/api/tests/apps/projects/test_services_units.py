@@ -247,12 +247,25 @@ def _sprint_ns(start: date, finish: date, *, calendar: Any = None) -> SimpleName
     )
 
 
+def _summary_from_rows(sprint: Any, rows: Any) -> dict[str, Any]:
+    """Run the shared helper with the composed calendar built from the stub's calendar."""
+    from trueppm_scheduler.models import Calendar as SchedCalendar
+
+    cal = sprint.project.calendar
+    sched = (
+        SchedCalendar(working_days=cal.working_days, hours_per_day=float(cal.hours_per_day))
+        if cal
+        else SchedCalendar()
+    )
+    return _capacity_summary_from_rows(sprint, rows, sched_calendar=sched)
+
+
 class TestCapacitySummaryFromRows:
     def test_zero_working_day_window_returns_the_empty_totals_shape(self) -> None:
         """A weekend-only sprint on a Mon–Fri calendar has no capacity at all."""
         saturday = date(2026, 1, 10)
         sprint = _sprint_ns(saturday, saturday + timedelta(days=1))
-        summary = _capacity_summary_from_rows(sprint, [])
+        summary = _summary_from_rows(sprint, [])
         assert summary["working_days"] == 0
         assert summary["members"] == []
         assert summary["totals"]["available_hours"] == 0.0
@@ -264,7 +277,7 @@ class TestCapacitySummaryFromRows:
         sprint = _sprint_ns(MONDAY, MONDAY + timedelta(days=4))
         rid = uuid.uuid4()
         rows = [(rid, "Priya Raman", Decimal("1.0"), Decimal("1.0"), MONDAY, MONDAY + timedelta(4))]
-        summary = _capacity_summary_from_rows(sprint, rows)
+        summary = _summary_from_rows(sprint, rows)
         member = summary["members"][0]
         assert member["committed_hours"] == 40.0
         assert member["available_hours"] == 40.0
@@ -278,7 +291,7 @@ class TestCapacitySummaryFromRows:
         sprint = _sprint_ns(MONDAY, MONDAY + timedelta(days=4))
         rid = uuid.uuid4()
         row = (rid, "Sam Lee", Decimal("1.0"), Decimal("1.0"), MONDAY, MONDAY + timedelta(4))
-        summary = _capacity_summary_from_rows(sprint, [row, row])
+        summary = _summary_from_rows(sprint, [row, row])
         member = summary["members"][0]
         assert member["committed_hours"] == 80.0
         assert member["available_hours"] == 40.0
@@ -299,7 +312,7 @@ class TestCapacitySummaryFromRows:
                 MONDAY - timedelta(days=16),
             )
         ]
-        summary = _capacity_summary_from_rows(sprint, rows)
+        summary = _summary_from_rows(sprint, rows)
         assert summary["members"][0]["committed_hours"] == 0.0
         assert summary["totals"]["ratio"] == 0.0
 
@@ -307,7 +320,7 @@ class TestCapacitySummaryFromRows:
         """Before CPM runs a task has no dates — it still books the whole sprint."""
         sprint = _sprint_ns(MONDAY, MONDAY + timedelta(days=4))
         rows = [(uuid.uuid4(), "No Dates", None, Decimal("1.0"), None, None)]
-        summary = _capacity_summary_from_rows(sprint, rows)
+        summary = _summary_from_rows(sprint, rows)
         assert summary["members"][0]["committed_hours"] == 40.0
         # max_units NULL falls back to 1.0, so availability matches the commitment.
         assert summary["members"][0]["available_hours"] == 40.0
@@ -318,14 +331,14 @@ class TestCapacitySummaryFromRows:
             (uuid.uuid4(), "Zoe", Decimal("1.0"), Decimal("0.5"), MONDAY, MONDAY),
             (uuid.uuid4(), "Adam", Decimal("1.0"), Decimal("0.5"), MONDAY, MONDAY),
         ]
-        summary = _capacity_summary_from_rows(sprint, rows)
+        summary = _summary_from_rows(sprint, rows)
         assert [m["member_name"] for m in summary["members"]] == ["Adam", "Zoe"]
 
     def test_calendar_hours_per_day_and_mask_are_honored(self) -> None:
         """A 7-day, 6-hour calendar changes both the divisor and the day count."""
         cal = SimpleNamespace(working_days=127, hours_per_day=Decimal("6.0"))
         sprint = _sprint_ns(MONDAY, MONDAY + timedelta(days=6), calendar=cal)
-        summary = _capacity_summary_from_rows(sprint, [])
+        summary = _summary_from_rows(sprint, [])
         assert summary["working_days"] == 7
         assert summary["hours_per_day"] == 6.0
 
