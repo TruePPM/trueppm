@@ -103,14 +103,18 @@ run_list
 check "bare issue reference near a suppression is not a marker" \
   "$([ "$RC" -eq 0 ] && grep -q 'no .* markers found' <<<"$OUT" && echo 0 || echo 1)"
 
-# --- The live tree's markers all parse --------------------------------------
-# Guards the premise: #2603 introduced markers in packages/web/e2e/a11y.spec.ts.
-# If a refactor drops or reshapes them, the gate goes quiet rather than red.
+# --- The live tree is scannable ---------------------------------------------
+# The fixtures above pin marker parsing. The live tree legitimately carries zero
+# markers once every suppression's issue has closed and the marker was removed,
+# so asserting a marker exists would go red on the healthy state. Assert only
+# that the scan itself runs and reports one of its two known shapes.
 set +e
 LIVE="$(bash "$GATE" "$REPO_ROOT" --list 2>&1)"
+LIVE_RC=$?
 set -e
-check "live tree still carries at least one marker" \
-  "$(grep -qE '[0-9]{3,4}' <<<"$LIVE" && echo 0 || echo 1)"
+check "live tree scan succeeds" "$([ "$LIVE_RC" -eq 0 ] && echo 0 || echo 1)"
+check "live tree scan reports markers or an explicit none" \
+  "$(grep -qE '[0-9]{3,4}|no .* markers found' <<<"$LIVE" && echo 0 || echo 1)"
 
 echo ""
 if [[ "$fail" -eq 0 ]]; then
