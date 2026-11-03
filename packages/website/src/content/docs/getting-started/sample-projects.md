@@ -282,7 +282,7 @@ round-trip counterpart to **Export to JSON**. The same dialog imports MS Project
 :::caution[Two sections only the sample loader accepts]
 A seed file can describe an agent-action trail (`program.agent_actions`) and
 public share links (`projects[].share_links`), but **only the bundled-sample
-loader honors them**. The web import, the dry run, the API and `import_seed` all
+loader honors them** (from 0.5 the sample share link is skipped when Public sharing is off). The web import, the dry run, the API and `import_seed` all
 reject a file that carries either one, naming the JSON path: the first would
 write audit history and the second would publish a board, and neither may be
 authored by a file you upload. Bundled sample files carry both, so to import a

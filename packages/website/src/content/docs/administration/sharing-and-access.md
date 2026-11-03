@@ -48,12 +48,13 @@ still lists them and **Revoke** still works — turning the workspace switch off
 links from *recipients* (below) but does not remove them, and closing them for good is
 still something you may want to do.
 
-The policy is enforced where a link is created, not only in the Share dialog or the
-share-link endpoint: the server-side mint routine itself refuses to create a link while
-the effective **Public sharing** policy is off. Any other path that creates links —
-a management command, the sample-data loader, or a future bulk or automation path —
-therefore cannot produce a link the policy forbids. The sample-data loader skips its
-sample share links on an instance where Public sharing is off.
+**Ships in 0.5:** the policy is enforced where a link is created, not only in the Share
+dialog and the share-link endpoint. The server-side mint routine itself will refuse to
+create a link while the effective **Public sharing** policy is off, so a management
+command, the sample-data loader, or a future bulk or automation path cannot produce a link
+the policy forbids. The sample-data loader will skip its sample share link on an instance
+where Public sharing is off. In 0.4 only the share endpoint checks the policy at creation
+time; the policy is still checked when a link is served.
 
 ### Turning Public sharing off revokes existing links
 

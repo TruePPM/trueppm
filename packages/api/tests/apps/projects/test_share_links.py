@@ -652,9 +652,12 @@ def test_the_defaulted_link_actually_serves_and_then_410s(admin_client, project)
 
 
 @pytest.mark.django_db
-def test_mint_race_policy_flips_after_precheck_returns_same_403(project, admin_client):
-    """Policy turns off between the view's pre-check and the service mint (#3049):
-    the service raises and the view answers the pre-check's 403, never a 500."""
+def test_view_maps_service_policy_refusal_to_the_same_403(project, admin_client):
+    """The view turns a service-raised PublicSharingDisabledError into the pre-check's 403 (#3049).
+
+    The service is patched out, so this proves the view's ``except`` branch only —
+    not an actual race between the pre-check and the mint.
+    """
     with patch.object(
         share_services,
         "mint_share_link",

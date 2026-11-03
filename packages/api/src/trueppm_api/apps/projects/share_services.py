@@ -47,10 +47,9 @@ _PUBLIC_DEFAULT_STATUSES = (
 class PublicSharingDisabledError(Exception):
     """Raised by :func:`mint_share_link` when ADR-0135 ``public_sharing`` is off.
 
-    A plain exception, deliberately not a DRF ``APIException``: DRF's exception
-    handler calls ``set_rollback()`` for every ``APIException`` under
-    ``ATOMIC_REQUESTS``, which would discard unrelated writes a non-view caller
-    (seed importer, management command) made in the same transaction.
+    A domain error from a service with non-view callers (management command, seed
+    importer, future bulk paths), so it carries no HTTP semantics; the share view maps
+    it to its own 403.
     """
 
 
