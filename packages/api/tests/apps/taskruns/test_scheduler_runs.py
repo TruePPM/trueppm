@@ -251,14 +251,14 @@ def test_recalculate_with_a_preexisting_summary_start_link_fails_the_run_not_the
     assert "task_run_failed" in events
     assert FailedTask.objects.filter(project_id=project.pk).exists()
     request.refresh_from_db()
-    assert request.status == ScheduleRequestStatus.DEAD
+    assert request.status == ScheduleRequestStatus.DONE
     project.refresh_from_db()
     assert project.recalculated_at is None
 
 
 @pytest.mark.django_db
 def test_drain_does_not_redispatch_a_run_the_scheduler_refused(project: Project) -> None:
-    """The outbox row is retired, so the drain neither re-runs nor re-alerts it."""
+    """The outbox row is retired as done, so the drain neither re-runs nor re-alerts it."""
     from unittest.mock import patch
 
     from trueppm_api.apps.scheduling.models import FailedTask
@@ -278,24 +278,51 @@ def test_drain_does_not_redispatch_a_run_the_scheduler_refused(project: Project)
 
 
 @pytest.mark.django_db
-def test_a_new_edit_after_a_refused_run_is_dispatched_again(project: Project) -> None:
-    """Retiring the old row must not wedge the project: the next write recovers it."""
+def test_repairing_the_edge_after_a_refused_run_schedules_again(
+    project: Project, user: object, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Retiring the refused row must not wedge the project: deleting the edge recovers it.
+
+    Goes through the real DELETE endpoint. A row left DISPATCHED would block the new
+    request from being promoted (one dispatched row per project), so the new request
+    reaching DISPATCHED is what discriminates.
+    """
     from unittest.mock import patch
 
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-    from trueppm_api.apps.scheduling.tasks import _do_drain, recalculate_schedule
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
     edge = _project_with_summary_start_link(project)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
     _dispatched_request(project)
     recalculate_schedule.apply(args=[str(project.pk)])
+    client = APIClient()
+    client.force_authenticate(user=user)
 
-    edge.delete()
-    ScheduleRequest.objects.create(project=project)
-    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay") as delay:
+    with (
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay") as delay,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         delay.return_value.id = "task-1"
-        _do_drain()
+        r = client.delete(f"/api/v1/dependencies/{edge.pk}/")
 
+    assert r.status_code == 204
     delay.assert_called_once_with(str(project.pk))
+    assert ScheduleRequest.objects.filter(
+        project=project, status=ScheduleRequestStatus.DISPATCHED
+    ).exists()
     assert not ScheduleRequest.objects.filter(
         project=project, status=ScheduleRequestStatus.PENDING
     ).exists()
+
+
+@pytest.mark.django_db
+def test_a_refused_run_leaves_the_system_health_outbox_card_clean(project: Project) -> None:
+    from trueppm_api.apps.observability.selectors import STATUS_OK, _outbox_card
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    _project_with_summary_start_link(project)
+    _dispatched_request(project)
+    recalculate_schedule.apply(args=[str(project.pk)])
+
+    assert _outbox_card()["status"] == STATUS_OK

@@ -310,7 +310,8 @@ def validate_expansion_with_edge(
     Only a failure *introduced by* ``proposed`` is reported. When ``existing`` already
     fails on its own, the project was broken before this write and the recalculation
     is already failing; refusing an unrelated edge on that account would block the
-    very edits (re-typing or deleting the offending link) that repair it.
+    very edits (re-typing or deleting the offending link) that repair it. A failure
+    the proposed edge causes by itself is still reported in that state.
 
     Args:
         existing: The persisted edges the proposal joins, excluding the row being
@@ -325,6 +326,10 @@ def validate_expansion_with_edge(
     """
     if not children_map:
         return
+    # The proposed edge alone first: a refusal intrinsic to it (an SS/SF link from a
+    # summary) is its own fault even when ``existing`` is already broken, so the
+    # "already failing" exemption below must not wave it through.
+    _expand([proposed], children_map)
     try:
         _expand([*existing, proposed], children_map)
     except InvalidScheduleInput:
