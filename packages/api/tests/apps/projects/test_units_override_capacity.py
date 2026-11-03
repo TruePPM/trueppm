@@ -516,6 +516,27 @@ class TestCapacityReadsTheComposedCalendar:
         assert summary["working_days"] == 6  # Mon-Sat, not the raw (absent) calendar's 5
         assert summary["hours_per_day"] == 6.0
 
+    def test_inherited_workspace_calendar_is_honored(self, project: Project) -> None:
+        """No own or program calendar: the workspace default supplies days and hours."""
+        from trueppm_api.apps.workspace.models import Workspace
+
+        ws_cal = Calendar.objects.create(name="WS six-day", working_days=63, hours_per_day=6.0)
+        workspace = Workspace.load()
+        workspace.calendar = ws_cal
+        workspace.save()
+        Project.objects.filter(pk=project.pk).update(calendar=None, program=None)
+        project.refresh_from_db()
+        sprint = Sprint.objects.create(
+            project=project,
+            name="S",
+            start_date=date(2026, 3, 2),
+            finish_date=date(2026, 3, 8),
+        )
+
+        summary = capacity_summary(sprint)
+        assert summary["working_days"] == 6
+        assert summary["hours_per_day"] == 6.0
+
 
 # ---------------------------------------------------------------------------
 # The deliberate exception: cross-project reads keep Resource.max_units

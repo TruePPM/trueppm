@@ -36,6 +36,9 @@ day length. It is used in three places:
   panel's working-day count uses the project's full calendar — inherited base,
   overlays and holiday exceptions — so it matches the sprint's own window and the
   schedule rather than a plain Monday-to-Friday count.
+  Hours per day follows the same inherited base calendar (project, then program, then
+  workspace), so a project with no calendar of its own uses its program's or the
+  workspace's day length.
 - **Estimates entered in hours.** An `#4h`-style estimate is divided by the project
   calendar's hours per day and rounded **up** to whole days when you enter it, so `7h` is
   two days on a 6-hour calendar and one day on an 8-hour one — see
