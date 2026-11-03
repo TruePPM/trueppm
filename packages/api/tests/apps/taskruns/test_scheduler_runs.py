@@ -195,6 +195,26 @@ def test_retrieve_single_run(member_client: APIClient, project: Project, user: o
     assert resp.json()["id"] == str(run.pk)
 
 
+def _project_with_summary_start_link(project: Project) -> Any:
+    """A project holding an SS edge from a summary, as written before the write gate."""
+    from trueppm_api.apps.projects.models import Dependency, Task
+
+    s = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+    Task.objects.create(project=project, name="A", duration=2, wbs_path="1.1")
+    c = Task.objects.create(project=project, name="C", duration=1, wbs_path="2")
+    return Dependency.objects.create(predecessor=s, successor=c, dep_type="SS")
+
+
+def _dispatched_request(project: Project) -> Any:
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    return ScheduleRequest.objects.create(
+        project=project,
+        status=ScheduleRequestStatus.DISPATCHED,
+        dispatched_at=datetime.now(UTC) - timedelta(minutes=30),
+    )
+
+
 @pytest.mark.django_db
 def test_recalculate_with_a_preexisting_summary_start_link_fails_the_run_not_the_task(
     project: Project,
@@ -203,19 +223,19 @@ def test_recalculate_with_a_preexisting_summary_start_link_fails_the_run_not_the
     """An SS edge from a summary that predates the write gate ends the task cleanly.
 
     The run is recorded FAILED with the engine's message in ``error_detail``, the
-    ``task_run_failed`` event carries it, and the task itself neither raises (which
-    would be retried and re-fail forever) nor loses its dead-letter record.
+    ``task_run_failed`` event carries it, and the task itself neither raises nor
+    loses its dead-letter record. The schedule is not stamped as recalculated.
     """
     from unittest.mock import patch
 
-    from trueppm_api.apps.projects.models import Dependency, Task
-    from trueppm_api.apps.scheduling.models import FailedTask
+    from trueppm_api.apps.scheduling.models import (
+        FailedTask,
+        ScheduleRequestStatus,
+    )
     from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
-    s = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
-    Task.objects.create(project=project, name="A", duration=2, wbs_path="1.1")
-    c = Task.objects.create(project=project, name="C", duration=1, wbs_path="2")
-    Dependency.objects.create(predecessor=s, successor=c, dep_type="SS")
+    _project_with_summary_start_link(project)
+    request = _dispatched_request(project)
 
     with (
         patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event") as bc,
@@ -227,8 +247,55 @@ def test_recalculate_with_a_preexisting_summary_start_link_fails_the_run_not_the
     run = TaskRun.objects.get(project=project, task_name="scheduling.recalculate")
     assert run.status == TaskRunStatus.FAILED
     assert "link to a specific leaf task instead" in run.error_detail
-    failed = [
-        c for c in bc.call_args_list if "task_run_failed" in c.args + tuple(c.kwargs.values())
-    ]
-    assert failed
+    events = [c.kwargs["event_type"] for c in bc.call_args_list]
+    assert "task_run_failed" in events
     assert FailedTask.objects.filter(project_id=project.pk).exists()
+    request.refresh_from_db()
+    assert request.status == ScheduleRequestStatus.DEAD
+    project.refresh_from_db()
+    assert project.recalculated_at is None
+
+
+@pytest.mark.django_db
+def test_drain_does_not_redispatch_a_run_the_scheduler_refused(project: Project) -> None:
+    """The outbox row is retired, so the drain neither re-runs nor re-alerts it."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.scheduling.models import FailedTask
+    from trueppm_api.apps.scheduling.tasks import _do_drain, recalculate_schedule
+
+    _project_with_summary_start_link(project)
+    _dispatched_request(project)
+    recalculate_schedule.apply(args=[str(project.pk)])
+    assert FailedTask.objects.filter(project_id=project.pk).count() == 1
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay") as delay:
+        _do_drain()
+        _do_drain()
+
+    delay.assert_not_called()
+    assert FailedTask.objects.filter(project_id=project.pk).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_new_edit_after_a_refused_run_is_dispatched_again(project: Project) -> None:
+    """Retiring the old row must not wedge the project: the next write recovers it."""
+    from unittest.mock import patch
+
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+    from trueppm_api.apps.scheduling.tasks import _do_drain, recalculate_schedule
+
+    edge = _project_with_summary_start_link(project)
+    _dispatched_request(project)
+    recalculate_schedule.apply(args=[str(project.pk)])
+
+    edge.delete()
+    ScheduleRequest.objects.create(project=project)
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay") as delay:
+        delay.return_value.id = "task-1"
+        _do_drain()
+
+    delay.assert_called_once_with(str(project.pk))
+    assert not ScheduleRequest.objects.filter(
+        project=project, status=ScheduleRequestStatus.PENDING
+    ).exists()

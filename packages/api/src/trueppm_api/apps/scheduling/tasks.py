@@ -101,15 +101,24 @@ def recalculate_schedule(
     except InvalidScheduleInput as exc:
         # Stored data the engine refuses (e.g. an SS/SF link from a summary that
         # predates the write-boundary gate) fails identically on every attempt, so
-        # re-raising only retries a doomed run and kills the task. TaskRunTracker has
-        # already marked the run FAILED and broadcast task_run_failed with the
-        # engine's actionable message before we got here; keep the dead-letter row so
-        # operators still see it, and end the task cleanly.
+        # re-raising kills the task, and leaving the outbox row DISPATCHED makes the
+        # drain's orphan recovery re-dispatch it every ten minutes forever (a fresh
+        # FailedTask and alert each time). TaskRunTracker has already marked the run
+        # FAILED and broadcast task_run_failed with the engine's actionable message
+        # before we got here; retire the outbox row as DEAD so the drain stops, keep
+        # the dead-letter row so operators still see it, and end the task cleanly.
+        # Filtering on DISPATCHED leaves a newer PENDING row (a fresh edit) alone, so
+        # repairing the edge recovers the schedule on the next write.
         logger.warning(
             "recalculate_schedule: project %s holds input the scheduler refuses: %s",
             project_id,
             exc,
         )
+        from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+        ScheduleRequest.objects.filter(
+            project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
+        ).update(status=ScheduleRequestStatus.DEAD)
         _dead_letter_current(self, project_id, exc)
         return
     except SoftTimeLimitExceeded:
