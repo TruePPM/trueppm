@@ -170,13 +170,20 @@ class TestReportedRepro:
     def _repro(self) -> Project:
         return _cell("live", DependencyType.FS, DependencyType.FS, "project")
 
-    def test_a_small_estimate_does_not_cost_a_day(self) -> None:
+    def test_a_small_estimate_costs_only_the_day_its_work_spills_into(self) -> None:
+        """M's ~0.17 day of work moves B's five days 0.17 into the next working day.
+
+        #4698 removed the full working day every run charged M. Before #4697 the
+        remaining fraction was also lost, because B's finish 0.17 into Monday was read
+        as the nearest day, Friday, so P50 equaled CPM. B's work does end on Monday,
+        and every run but an exact-zero draw shows it there. That M is not charged a
+        day of its own is pinned by ``test_a_chain_of_small_draws_still_adds_up``.
+        """
         project = self._repro()
         cpm = schedule(project).project_finish
         assert cpm == date(2026, 3, 13)
         mc = monte_carlo(project, runs=5000, seed=1)
-        assert mc.p50 == cpm
-        assert mc.p80 == cpm
+        assert (mc.p50, mc.p80, min(mc.distribution)) == (date(2026, 3, 16),) * 3
 
     def test_the_estimate_still_reaches_the_tail(self) -> None:
         project = _cell("live", DependencyType.FS, DependencyType.FS, "project")
@@ -377,7 +384,8 @@ class TestAWorkSizedDrawIsOrdinaryWork:
     @pytest.mark.parametrize(
         ("estimate", "link_in", "p50"),
         [
-            ((3, 5, 8), DependencyType.FF, date(2026, 3, 13)),
+            # Half the draws exceed 5 days, so B's work ends part-way into Monday (#4697).
+            ((3, 5, 8), DependencyType.FF, date(2026, 3, 16)),
             ((3, 5, 8), DependencyType.SF, date(2026, 3, 6)),
             ((1, 1, 1), DependencyType.FF, date(2026, 3, 13)),
             ((1, 1, 1), DependencyType.SF, date(2026, 3, 6)),
@@ -422,11 +430,18 @@ class TestAWorkSizedDrawIsOrdinaryWork:
                 )
 
     def test_sf_in_sf_out_back_solves_ahead_only_with_longer_lags(self) -> None:
+        """It takes a whole-day draw to back-solve M's start into an earlier day.
+
+        A sub-day draw back-solves M's start only part-way into the day before its
+        finish, and the SF link out of it reads that start in the day it falls in
+        (#4697), which keeps B on the CPM date. Before #4697 a 0.51 draw was
+        enough, because its start was read as the nearest day.
+        """
         project = _cell("live", DependencyType.SF, DependencyType.SF, "project", (3, 3, None))
         assert schedule(project).project_finish == date(2026, 3, 9)
-        with _draws(_constant(0.49)):
+        with _draws(_constant(0.9)):
             assert _run(project).p50 == date(2026, 3, 9)
-        with _draws(_constant(0.51)):
+        with _draws(_constant(1.0)):
             assert _run(project).p50 == date(2026, 3, 6)
 
     def test_a_started_task_is_not_a_real_task_of_that_length(self) -> None:
@@ -475,24 +490,32 @@ class TestTheFractionFollowsTheLinkAnchor:
             yield
 
     def test_the_reported_ss_network_stays_on_main(self) -> None:
+        """B's own draws over 5 days end part-way into Monday, so P50 is 03-16 (#4697).
+
+        Before #4697 they were read as the nearest day: (03-13, 03-16, 03-17).
+        """
         mc = monte_carlo(self._network(DependencyType.SS), runs=5000, seed=1)
-        assert (mc.p50, mc.p80, mc.p95) == (date(2026, 3, 13), date(2026, 3, 16), date(2026, 3, 17))
+        assert (mc.p50, mc.p80, mc.p95) == (date(2026, 3, 16), date(2026, 3, 17), date(2026, 3, 18))
 
     @pytest.mark.parametrize("out", [DependencyType.SS, DependencyType.SF])
     @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS])
     def test_a_start_anchored_link_never_sees_the_draw(
         self, into: DependencyType, out: DependencyType
     ) -> None:
+        """Two sub-day draws of M give B the same bound: the link reads only M's start.
+
+        A positive draw is work (#4697), and M's own 0.4 day can finish the project
+        on its own day, so the comparison is between two draws, not with a milestone.
+        """
         with self._m_draws(0.4):
-            drawn = monte_carlo(self._network(out, into=into), runs=2000, seed=1)
-            milestone = monte_carlo(
-                self._network(out, into=into, m_estimate=False), runs=2000, seed=1
-            )
-        _same_result(drawn, milestone)
+            short = monte_carlo(self._network(out, into=into), runs=2000, seed=1)
+        with self._m_draws(0.9):
+            long = monte_carlo(self._network(out, into=into), runs=2000, seed=1)
+        _same_result(short, long)
 
     def test_a_finish_anchored_link_still_carries_it(self) -> None:
-        """M's 0.4 and B's 5.45 are 10.85 days of work on FS; B alone on SS is 10.45."""
-        with self._m_draws(0.4, b_fixed=5.45):
+        """M's 0.4 and B's 5 are 10.4 days of work on FS, into Monday; B alone on SS is 10."""
+        with self._m_draws(0.4, b_fixed=5.0):
             on_fs = monte_carlo(self._network(DependencyType.FS), runs=8, seed=1)
             on_ss = monte_carlo(self._network(DependencyType.SS), runs=8, seed=1)
         assert (on_fs.p50, on_ss.p50) == (date(2026, 3, 16), date(2026, 3, 13))

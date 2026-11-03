@@ -59,7 +59,15 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from trueppm_scheduler import Calendar, Project, Task, monte_carlo
+from trueppm_scheduler import (
+    Calendar,
+    Dependency,
+    DependencyType,
+    Project,
+    Task,
+    monte_carlo,
+    schedule,
+)
 from trueppm_scheduler.engine import _sample_pert
 
 # ---------------------------------------------------------------------------
@@ -277,9 +285,9 @@ def test_monte_carlo_single_task_percentiles_converge_to_beta_quantiles() -> Non
     - The calendar is 7-day-working (`Calendar(working_days=0b1111111)`), so the
       working-day offset the engine samples in is calendar days 1:1 with no
       weekend-skipping — the only remaining transform between a sample and a date
-      is `_offset_to_date`'s `round(offset) - 1` day-rounding, which the (o, m, p)
-      scale below (~120-200 day quantiles) keeps under 0.5% of any quantile's
-      magnitude, far inside the 2% budget.
+      is `_offset_to_date`'s day reading (`ceil(offset) - 1`, #4697), which the
+      (o, m, p) scale below (~120-200 day quantiles) keeps under 1% of any
+      quantile's magnitude, inside the 2% budget.
 
     With those controlled, `completion_offsets` for this project *is* the raw
     `_sample_pert` output (verified empirically against a direct call using the
@@ -310,7 +318,7 @@ def test_monte_carlo_single_task_percentiles_converge_to_beta_quantiles() -> Non
     result = monte_carlo(project, runs=10_000, seed=42)
 
     def offset_of(d: date) -> int:
-        # Inverse of `_offset_to_date`'s `wd_index[round(offset) - 1]` under an
+        # Inverse of `_offset_to_date`'s `wd_index[ceil(offset) - 1]` under an
         # all-working calendar anchored at `start`.
         return (d - start).days + 1
 
@@ -326,3 +334,183 @@ def test_monte_carlo_single_task_percentiles_converge_to_beta_quantiles() -> Non
         f"engine P50/P80/P95 offsets {engine_offsets.tolist()} vs analytical "
         f"reference {reference.tolist()} (reldiff {(reldiff * 100).tolist()}%)"
     )
+
+
+# ---------------------------------------------------------------------------
+# 4. A fractional finish is shown on the day its work ends in (#4697)
+# ---------------------------------------------------------------------------
+#
+# The engine schedules whole days but samples continuous durations. A run whose work
+# ends 0.3 of the way into a day finishes ON that day. Reading the offset as the
+# nearest day put every fraction under one half on the day before, so P50 and P80
+# could sit on the CPM finish although no run finished there. The expected values
+# below follow from the sampler's support alone: with O equal to ``duration``, every
+# draw exceeds it, so every run's work ends part-way into the day after the CPM
+# finish (or later).
+
+_MON_FRI = Calendar(working_days=0b0011111)
+_START_4697 = date(2026, 3, 2)  # a Monday
+
+
+def _task_4697(
+    tid: str, days: int, estimate: tuple[int, int, int] | None = None, **kw: object
+) -> Task:
+    fields: dict[str, object] = {}
+    if estimate is not None:
+        o, m, p = estimate
+        fields = {
+            "optimistic_duration": timedelta(days=o),
+            "most_likely_duration": timedelta(days=m),
+            "pessimistic_duration": timedelta(days=p),
+        }
+    return Task(id=tid, name=tid, duration=timedelta(days=days), **fields, **kw)  # type: ignore[arg-type]
+
+
+def _project_4697(tasks: list[Task], deps: list[Dependency], **kw: object) -> Project:
+    return Project(
+        id="p",
+        name="p",
+        start_date=_START_4697,
+        tasks=tasks,
+        dependencies=deps,
+        calendar=_MON_FRI,
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def test_a_finish_part_way_into_a_day_is_shown_on_that_day() -> None:
+    """The issue's repro: 10 days, estimate (10, 10, 11). CPM is Friday 03-13.
+
+    About 95% of draws fall in (10, 10.5) and none is exactly 10, so every run ends
+    on Monday 03-16. Before #4697, P50 and P80 were the CPM Friday.
+    """
+    project = _project_4697([_task_4697("A", 10, (10, 10, 11))], [])
+    cpm = schedule(project).project_finish
+    assert cpm == date(2026, 3, 13)
+    mc = monte_carlo(project, runs=20_000, seed=1)
+    assert min(mc.distribution) == date(2026, 3, 16)
+    assert (mc.p50, mc.p80, mc.p95) == (date(2026, 3, 16),) * 3
+    assert mc.p50 > cpm
+
+
+def test_a_chain_of_fractions_adds_up_to_the_day_it_reaches() -> None:
+    """Three 5-day tasks at (5, 5, 6): 15+ days of work, so no run ends by CPM's 03-20.
+
+    The mean draw is 5.17, so a run's 15.5 days end part-way into day 16 (Monday 03-23).
+    Rounding each draw up instead would put every run on day 18; neither the nearest
+    day nor the per-task ceiling is the work the run simulated.
+    """
+    tasks = [_task_4697(t, 5, (5, 5, 6)) for t in "ABC"]
+    deps = [Dependency("A", "B"), Dependency("B", "C")]
+    project = _project_4697(tasks, deps)
+    cpm = schedule(project).project_finish
+    assert cpm == date(2026, 3, 20)
+    mc = monte_carlo(project, runs=20_000, seed=1)
+    assert min(mc.distribution) > cpm
+    assert mc.p50 == date(2026, 3, 23)
+    assert max(mc.distribution) <= date(2026, 3, 25)  # 18 days is the most the work can take
+
+
+@pytest.mark.parametrize("dep_type", list(DependencyType))
+@pytest.mark.parametrize("lag", [-2, 0, 1, 3])
+def test_zero_variance_still_lands_on_the_cpm_finish(dep_type: DependencyType, lag: int) -> None:
+    """A run with no spread has whole offsets, which the day reading leaves where CPM put them."""
+    tasks = [_task_4697(t, 5, (5, 5, 5)) for t in "ABC"]
+    deps = [
+        Dependency("A", "B", dep_type=dep_type, lag=timedelta(days=lag)),
+        Dependency("B", "C", dep_type=dep_type, lag=timedelta(days=lag)),
+    ]
+    project = _project_4697(tasks, deps)
+    mc = monte_carlo(project, runs=200, seed=1)
+    assert (mc.p50, mc.p80, mc.p95) == (schedule(project).project_finish,) * 3
+
+
+_SIX_DAY = Calendar(working_days=0b0111111)
+
+
+def _sweep_cell(state: str, dep_type: DependencyType) -> Project:
+    """``A`` (10 days, estimate 10/10/11) links to a 3-day ``B``; ``A`` ends the project."""
+    a_kw: dict[str, object] = {}
+    kw: dict[str, object] = {}
+    if state == "started":
+        a_kw["actual_start"] = _START_4697
+        kw["status_date"] = _START_4697
+    elif state == "in_progress":
+        a_kw["actual_start"] = _START_4697
+        a_kw["percent_complete"] = 30.0
+        kw["status_date"] = date(2026, 3, 5)
+    elif state == "per_task_calendar":
+        kw["calendars"] = {"six": _SIX_DAY}
+        a_kw["calendar_id"] = "six"
+    a = _task_4697("A", 10, (10, 10, 11), **a_kw)
+    b = _task_4697("B", 3)
+    return _project_4697([a, b], [Dependency("A", "B", dep_type=dep_type)], **kw)
+
+
+@pytest.mark.parametrize("dep_type", list(DependencyType))
+@pytest.mark.parametrize("state", ["live", "started", "in_progress", "per_task_calendar"])
+def test_the_class_reports_the_day_the_work_reaches(state: str, dep_type: DependencyType) -> None:
+    """The issue's sweep: every cell had P80 == CPM. Every draw exceeds 10, so none can."""
+    project = _sweep_cell(state, dep_type)
+    cpm = schedule(project).project_finish
+    mc = monte_carlo(project, runs=2_000, seed=1)
+    assert min(mc.distribution) > cpm
+    assert mc.p50 > cpm
+    assert mc.p80 > cpm
+
+
+@pytest.mark.parametrize("calendar_id", [None, "six"])
+def test_a_milestone_on_the_path_neither_adds_nor_drops_working_time(
+    calendar_id: str | None,
+) -> None:
+    """``A -> M -> B`` is ``A -> B`` run for run: M sits at A's fractional finish.
+
+    A milestone is placed at a midnight, so after work ending part-way into a day it
+    is held at the midnight closing that day, with the remainder of the day as its
+    deficit. Without the deficit each milestone rounded its path up to a day
+    boundary, a day late per milestone in the worst case; reading it as the nearest
+    day instead (before #4697) dropped up to half a day per milestone.
+    """
+    kw: dict[str, object] = {"calendar_id": calendar_id} if calendar_id else {}
+    a = _task_4697("A", 5, (5, 5, 8), **kw)
+    b = _task_4697("B", 5, (5, 5, 8), **kw)
+    m = _task_4697("M", 0, **kw)
+    extra: dict[str, object] = {"calendars": {"six": _SIX_DAY}} if calendar_id else {}
+    direct = _project_4697([a, b], [Dependency("A", "B")], **extra)
+    through = _project_4697([a, m, b], [Dependency("A", "M"), Dependency("M", "B")], **extra)
+    one = monte_carlo(direct, runs=2_000, seed=1)
+    two = monte_carlo(through, runs=2_000, seed=1)
+    assert one.distribution == two.distribution
+    assert (one.p50, one.p80, one.p95) == (two.p50, two.p80, two.p95)
+
+
+@pytest.mark.parametrize(
+    ("dep_type", "anchor", "expected"),
+    [
+        # FS +1d: work ending 0.3 into Wednesday admits B 0.3 into Thursday.
+        (DependencyType.FS, 2.3, 3.3),
+        # ...but 0.3 into Friday plus a day is Saturday: B waits for Monday's start.
+        (DependencyType.FS, 4.3, 5.0),
+        # A whole finish (end of Wednesday) is the deterministic answer: Friday's start.
+        (DependencyType.FS, 3.0, 4.0),
+        # SS +1d from a start 0.3 into Wednesday / Friday.
+        (DependencyType.SS, 2.3, 3.3),
+        (DependencyType.SS, 4.3, 5.0),
+        (DependencyType.SS, 2.0, 3.0),
+        # FF +1d bounds a finish: the fraction only moves it within its snapped day.
+        (DependencyType.FF, 2.3, 3.3),
+        (DependencyType.FF, 4.3, 5.3),
+    ],
+)
+def test_a_lag_carries_the_fraction_only_into_working_time(
+    dep_type: DependencyType, anchor: float, expected: float
+) -> None:
+    """``_lagged_constraint`` on a Mon-Fri ruler, two weeks from Monday 03-02 (#4697)."""
+    from trueppm_scheduler.engine import _build_lag_delta, _lagged_constraint
+
+    days = [_START_4697 + timedelta(days=i) for i in (0, 1, 2, 3, 4, 7, 8, 9, 10, 11)]
+    wd = np.array([d.toordinal() for d in days], dtype=np.int64)
+    k = np.arange(len(wd), dtype=np.float64)
+    delta = _build_lag_delta(dep_type, timedelta(days=1), wd, wd, k, len(wd), len(wd) - 1, 0)
+    out = _lagged_constraint(dep_type, delta, np.array([anchor]), 1, wd, wd)
+    assert out.tolist() == pytest.approx([expected])

@@ -132,3 +132,70 @@ single calendar, because there a run is shown at most one working day past its
 position, so no run below the percentile is shown past it. This was checked against
 1,200 seeded single-calendar forecasts, with no change. The sampler convention this
 ADR records is unaffected.
+
+## Amendment: a fractional finish is shown on the day it falls in (#4697, 2026-11-02)
+
+**Context.** The engine schedules whole days, but `_sample_pert` returns continuous
+durations, and the forward pass carries each run's offsets as continuous
+working-time positions. The positions were mapped back to days by rounding to the
+nearest integer, half to even (`round(offset) - 1` in `_offset_to_date`, `np.rint`
+in `_mc_percentiles`, `_lag_term`, `_McIndex.ordinal_at` and
+`_to_reference_offset`). Work ending 0.3 of the way into a day was therefore
+reported, and ranked, as finishing the day before. On a 10-day task estimated
+(10, 10, 11), P50 and P80 were the CPM finish although no run finished there, and
+the forecast under-stated the simulated risk by up to one working day.
+
+**Decision: read each position by the day it falls in.** An exclusive finish `e` is
+on day `ceil(e) - 1` and a start `s` on day `floor(s)`, each with a `1e-9` slack for
+float noise (`_finish_day_key`, `_start_day_index`). A whole offset maps exactly as
+the deterministic pass maps it, so a run with no spread still lands on the CPM
+finish. Every place that turns a sampled offset into a day uses the same rule:
+
+- The finish date and the percentile keys (`_offset_to_date`, `_mc_percentiles`)
+  and the mixed-calendar reference ruler (`_to_reference_offset`).
+- The anchor cell of a lagged link (`_lag_term`). FS/FF read the predecessor's
+  finish, and SS/SF its start. The link carries the anchor's fraction while the
+  lagged point lands in the successor's working time. When the point lands on a day
+  the successor does not work, the successor starts when its next working day
+  begins, with no fraction (`_lagged_constraint`). Carrying it there would start an
+  FS successor before its lag on the snapped day.
+- Milestones. The date space holds only midnights, so a milestone after work ending
+  part-way into a day is placed at the midnight closing that day. It carries the
+  working time it lies short of that midnight as a **deficit**. Its position, and
+  every link out of it, measures from the true point (`_mc_milestone_bounds`,
+  `_mc_instant_edge_bound`). Rounding milestones up to the midnight instead put each
+  milestone on a path up to a day late, and the error compounded along a chain.
+- Zero-duration tasks with an estimate (#4698). Only a draw of exactly zero is the
+  CPM instant. Any positive draw is work on the day it starts. Before, a draw that
+  rounded away to the nearest day was the instant.
+
+**Alternative rejected: round each sampled duration up to whole days at sampling
+time.** That alternative keeps every offset whole, so no other rounding site would
+need to change, and it also keeps a zero-variance run on CPM. But it charges each
+task the unused rest of its last day. On a chain this adds about half a day per
+task. Three tasks estimated (5, 5, 6) simulate about 15.5 days of work, and
+rounding each one up reports 18 days in every run, where the day-the-work-falls-in
+reading reports 16. The rejected rule moves the error from under-stating the
+finish to over-stating it, and the over-statement grows with path length. It also
+discards the fraction that this record's sampler convention and the reference
+ruler (`_to_reference_offset`) carry deliberately.
+
+**Consequences.**
+
+- Seeded percentiles move **later by up to one working day**, and never earlier,
+  wherever a run's finish carries a fraction under one half. Persisted forecast
+  history (ADR-0175) shows a one-time step at the upgrade. That step is a change of
+  reading, not a change of risk.
+- A zero-duration task estimated O=0 / M=0 / P=1 samples about a sixth of a day.
+  Whole-day work after it now ends part-way into the next day, so P50 is one working
+  day past CPM. #4698 removed the full working day such a task was charged. The
+  remaining shift is the successor's own work, which ends on that later day.
+- An interpolated percentile that falls strictly between two whole-day positions is
+  read on the later day, because that is the day the interpolated position falls
+  in. Exact midpoints used to round half to even. #4540 tracks the tie and low-N
+  conventions and should take this as its new baseline.
+- SF and FF links carry the start's or finish's fraction without the landing test.
+  An FF bound only moves within its snapped day. An SF bound whose lagged point
+  lands in non-working time can read up to a day late. That is a conservative
+  approximation and never reads early.
+- `packages/wasm-scheduler` has no Monte Carlo path, so conformance is unaffected.

@@ -479,11 +479,12 @@ full tail of the estimate.
 
 :::note[Ships in 0.5]
 A zero-duration task with a three-point estimate is charged only what it samples.
-In a run where the sample rounds to no time at all, the task behaves as the
-milestone the CPM pass shows. A larger sample is simulated as work: with no recorded
-start, the same as a task of that length with the same link. An O=0 / M=0 / P=1
-estimate therefore leaves P50 on the CPM finish. In 0.4 every run charges such a task at least one full working
-day.
+In a run where the sample is exactly zero, the task behaves as the milestone the
+CPM pass shows. Any larger sample is simulated as work: with no recorded start, the
+same as a task of that length with the same link. An O=0 / M=0 / P=1 estimate
+samples about a sixth of a day, so whole-day work after it ends part-way into the
+next working day, and P50 is one working day after the CPM finish. In 0.4 every run
+charges such a task at least one full working day.
 :::
 
 :::caution[Networks with Finish-to-Finish or Start-to-Finish links]
@@ -553,6 +554,21 @@ sampled durations for all runs — using vectorized NumPy operations. It then
 evaluates the CPM forward pass `n_runs` times in parallel, respecting all four
 dependency types (FS, FF, SS, SF) and lead/lag offsets. Working-day calendars
 are applied when converting numeric offsets back to finish dates.
+
+Sampled durations are continuous, so a run's work can end part-way into a working
+day. That run is shown on the day its work ends in: work that ends 0.3 of the way
+into a Monday finishes on Monday, not on the Friday before. A link carries the same
+fraction, so a successor starts part-way into a day unless its lag lands it on a
+day it does not work, in which case it starts when its next working day begins. A
+run with no spread lands exactly on the CPM finish. When every sample exceeds a
+task's `duration`, P50 is at least one working day past the CPM finish: a 10-day
+task estimated at O=10 / M=10 / P=11 shows P50 on its 11th working day.
+
+:::note[Ships in 0.5]
+In 0.4 a run's finish is shown on the nearest day, so a finish less than half a
+day into a day reads as the day before. That under-states the finish by up to one
+working day: in 0.4 the example above shows P50 on the CPM finish.
+:::
 
 Project finish for each run is `max(early_finish)` across all tasks. The full
 set of simulated finish dates is sorted to produce the percentile output.

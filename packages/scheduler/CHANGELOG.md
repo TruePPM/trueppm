@@ -21,24 +21,35 @@ change between releases. Pin an exact version (e.g.
 - **A zero-duration task with a small estimate no longer costs a full working day
   in Monte Carlo, and seeded results for such tasks change.** A 0-day task with a
   `(0, 0, 1)` estimate, mean 1/6 day and mode 0, was floored at one working day in
-  every run, so P50 moved a working day past the CPM finish. A run whose draw rounds
-  away is now the instant `schedule()` places, links and lags included, and hands on
-  what it rounded away as work does: an FS or FF successor takes the finish's
-  fraction, an SS or SF successor only the start's. A larger draw is still simulated
-  as work: with no recorded start, the same as a task of that length with the same
-  link. A started zero-duration task can differ from a started real task. This applies
+  every run, so P50 moved a working day past the CPM finish. A run that draws exactly
+  zero is now the instant `schedule()` places, links and lags included. Any positive
+  draw is simulated as work: with no recorded start, the same as a task of that
+  length with the same link. Whole-day work after a `(0, 0, 1)` task still ends
+  part-way into the next working day, so P50 is one working day past CPM for that
+  reason (#4697, below), not because the task is charged a day of its own. A started zero-duration task can differ from a started real task. This applies
   to any zero-duration task with a sampled duration, including story points on the
   velocity path, though velocity draws measured no change because they are work-sized.
   Tasks with a duration of one day or more and zero-duration tasks with no estimate or
   velocity signal are unchanged
   ([#4698](https://gitlab.com/trueppm/trueppm/-/issues/4698)).
 
-  Known limits. An FF or SF link in with an SS or SF link out back-solves a work-sized
-  draw, so a run can finish before the CPM finish, and a draw just past the rounding point can finish earlier than one just below it
-  ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)). On an FS link out, when
-  the successor's own draw is fractional and a lag, a hold or a calendar puts a
-  non-working gap between them, the same crossing can finish a day earlier: nearest-day
-  rounding does this to ordinary work too
+  Known limit. An FF or SF link in with an SS or SF link out back-solves the draw,
+  so a run can finish before the CPM finish
+  ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)).
+
+- **Monte Carlo shows a fractional finish on the day it ends in, and seeded
+  percentiles move later by up to one working day.** Sampled durations are
+  continuous, but each run's finish was mapped to a day by rounding to the nearest
+  integer, half to even. Work ending 0.3 of the way into a Monday counted as
+  finishing the Friday before, so a 10-day task estimated `(10, 10, 11)` reported
+  P50 and P80 on the CPM finish although no run finished there. A finish is now on
+  `ceil(offset) - 1` and a start on `floor(offset)`. Lagged links read the same
+  day and carry the fraction while the lag lands in working time. A milestone after
+  fractional work sits at that point in working time, so a milestone on a path
+  neither adds nor drops time. A run with no spread still lands exactly on the CPM
+  finish. Seeded P50/P80/P95 never move earlier. A percentile interpolated between
+  two whole-day positions is now read on the later day, where exact midpoints used
+  to round half to even. See the amendment to ADR-1245
   ([#4697](https://gitlab.com/trueppm/trueppm/-/issues/4697)).
 
 - **`perturb_task_duration` no longer completes a task, and its results change.**
