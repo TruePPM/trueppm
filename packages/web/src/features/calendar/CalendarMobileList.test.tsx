@@ -144,6 +144,24 @@ describe('CalendarMobileList', () => {
     ).toBeInTheDocument();
   });
 
+  it('opens week mode on the given week start, matching the toolbar range', () => {
+    render(
+      <CalendarMobileList
+        anchorIso={ANCHOR}
+        calView="week"
+        weekStartDay={0}
+        tasks={[
+          task({ id: 'in', name: 'In Window', start: '2026-05-02', finish: '2026-05-02' }),
+          // The Sunday after the anchor: inside a Mon-first week, outside a Sun-first one.
+          task({ id: 'out', name: 'Past Window', start: '2026-05-03', finish: '2026-05-03' }),
+        ]}
+        onTaskClick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('In Window')).toBeInTheDocument();
+    expect(screen.queryByText('Past Window')).not.toBeInTheDocument();
+  });
+
   it('month mode keeps its empty copy byte-identical', () => {
     render(
       <CalendarMobileList

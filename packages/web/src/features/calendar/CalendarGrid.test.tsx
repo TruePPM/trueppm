@@ -69,7 +69,9 @@ describe('CalendarGrid today tint (#3242)', () => {
     render(<CalendarGrid anchorIso="2026-08-01" tasks={[]} onTaskClick={vi.fn()} />);
     const todays = screen.getAllByLabelText(/, today$/);
     expect(todays).toHaveLength(1);
-    expect(todays[0].getAttribute('aria-label')).toBe('Sunday, August 30, 2026, today');
+    expect(todays[0].getAttribute('aria-label')).toBe(
+      'Sunday, August 30, 2026, non-working day, today',
+    );
   });
 });
 
@@ -456,7 +458,9 @@ describe('CalendarGrid', () => {
       // ANCHOR 2026-05-01 is a Friday → the Apr 27 – May 3 week.
       expect(screen.getByRole('gridcell', { name: 'Monday, April 27, 2026' })).toBeInTheDocument();
       expect(screen.getByRole('gridcell', { name: 'Friday, May 1, 2026' })).toBeInTheDocument();
-      expect(screen.getByRole('gridcell', { name: 'Sunday, May 3, 2026' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('gridcell', { name: 'Sunday, May 3, 2026, non-working day' }),
+      ).toBeInTheDocument();
     });
 
     it('names the column headers in full, not as abbreviations', () => {
@@ -482,11 +486,11 @@ describe('CalendarGrid', () => {
       expect(document.activeElement).toBe(cell('Friday, May 1, 2026'));
 
       await userEvent.keyboard('{ArrowRight}');
-      expect(document.activeElement).toBe(cell('Saturday, May 2, 2026'));
+      expect(document.activeElement).toBe(cell('Saturday, May 2, 2026, non-working day'));
 
       // Down is a week, not a day.
       await userEvent.keyboard('{ArrowDown}');
-      expect(document.activeElement).toBe(cell('Saturday, May 9, 2026'));
+      expect(document.activeElement).toBe(cell('Saturday, May 9, 2026, non-working day'));
 
       await userEvent.keyboard('{ArrowLeft}');
       expect(document.activeElement).toBe(cell('Friday, May 8, 2026'));
@@ -498,11 +502,11 @@ describe('CalendarGrid', () => {
       await userEvent.keyboard('{Home}');
       expect(document.activeElement).toBe(cell('Monday, April 27, 2026'));
       await userEvent.keyboard('{End}');
-      expect(document.activeElement).toBe(cell('Sunday, May 3, 2026'));
+      expect(document.activeElement).toBe(cell('Sunday, May 3, 2026, non-working day'));
 
       // Ctrl+Home / Ctrl+End are the ends of the whole window.
       await userEvent.keyboard('{Control>}{End}{/Control}');
-      expect(document.activeElement).toBe(cell('Sunday, May 31, 2026'));
+      expect(document.activeElement).toBe(cell('Sunday, May 31, 2026, non-working day'));
       await userEvent.keyboard('{Control>}{Home}{/Control}');
       expect(document.activeElement).toBe(cell('Monday, April 27, 2026'));
 
@@ -521,11 +525,11 @@ describe('CalendarGrid', () => {
       await userEvent.keyboard('{ArrowUp}');
       expect(document.activeElement).toBe(cell('Monday, April 27, 2026'));
 
-      await userEvent.click(cell('Sunday, May 3, 2026'));
+      await userEvent.click(cell('Sunday, May 3, 2026, non-working day'));
       await userEvent.keyboard('{ArrowRight}');
-      expect(document.activeElement).toBe(cell('Sunday, May 3, 2026'));
+      expect(document.activeElement).toBe(cell('Sunday, May 3, 2026, non-working day'));
       await userEvent.keyboard('{ArrowDown}');
-      expect(document.activeElement).toBe(cell('Sunday, May 3, 2026'));
+      expect(document.activeElement).toBe(cell('Sunday, May 3, 2026, non-working day'));
     });
 
     it('does not steal focus when the rendered day set changes', async () => {
@@ -627,7 +631,9 @@ describe('CalendarGrid', () => {
       expect(chip?.closest('.opacity-60')).toBeNull();
       // ...while the Saturday date number is muted by a SOLID token (opacity
       // composites to 4.02:1 and fails WCAG 1.4.3; #3879)...
-      const satCell = screen.getByRole('gridcell', { name: 'Saturday, May 2, 2026' });
+      const satCell = screen.getByRole('gridcell', {
+        name: 'Saturday, May 2, 2026, non-working day',
+      });
       expect(satCell.querySelector('.opacity-60')).toBeNull();
       expect(satCell.querySelector('span.text-neutral-text-secondary')).not.toBeNull();
       // ...and a weekday cell keeps the primary ink.
@@ -642,7 +648,7 @@ describe('CalendarGrid', () => {
       render(
         <CalendarGrid anchorIso="2026-04-01" calView="month" tasks={[]} onTaskClick={vi.fn()} />,
       );
-      const sat = screen.getByRole('gridcell', { name: 'Saturday, May 2, 2026' });
+      const sat = screen.getByRole('gridcell', { name: 'Saturday, May 2, 2026, non-working day' });
       const mon = screen.getByRole('gridcell', { name: 'Monday, March 30, 2026' });
       for (const c of [sat, mon]) {
         expect(c.querySelector('span.text-neutral-text-disabled')).not.toBeNull();
@@ -654,6 +660,387 @@ describe('CalendarGrid', () => {
       // aria-label on a role-less <div> names nothing at all.
       render(<CalendarGrid anchorIso={ANCHOR} tasks={[]} onTaskClick={vi.fn()} />);
       expect(screen.getByRole('group', { name: 'Calendar legend' })).toBeInTheDocument();
+    });
+  });
+
+  describe('working time', () => {
+    const SUN_THU = 64 + 1 + 2 + 4 + 8;
+    // 2026-12-16 is a Wednesday; its Sunday-first week is Dec 13-19.
+    const DEC = '2026-12-16';
+    const sunThu = { mask: SUN_THU, calendars: [], previewByDate: new Map(), exceptions: [] };
+    const cell = (name: string) => screen.getByRole('gridcell', { name });
+
+    it('rotates the headers and day cells together to the given week start', () => {
+      render(
+        <CalendarGrid
+          anchorIso={DEC}
+          calView="week"
+          weekStartDay={0}
+          workingTime={sunThu}
+          tasks={[]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      const headers = screen.getAllByRole('columnheader');
+      expect(headers.map((h) => h.textContent)).toEqual([
+        'Sun',
+        'Mon',
+        'Tue',
+        'Wed',
+        'Thu',
+        'Fri',
+        'Sat',
+      ]);
+      expect(headers[0].getAttribute('aria-colindex')).toBe('1');
+      const sunday = cell('Sunday, December 13, 2026');
+      expect(sunday.getAttribute('aria-colindex')).toBe('1');
+      expect(
+        cell('Saturday, December 19, 2026, non-working day').getAttribute('aria-colindex'),
+      ).toBe('7');
+    });
+
+    it('mutes the days the calendar blocks, wherever their column falls', () => {
+      render(
+        <CalendarGrid
+          anchorIso={DEC}
+          calView="week"
+          weekStartDay={0}
+          workingTime={sunThu}
+          tasks={[]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      // Sunday is a working day here, in the column a Mon-first grid muted.
+      expect(
+        cell('Sunday, December 13, 2026').querySelector('span.text-neutral-text-primary'),
+      ).not.toBeNull();
+      // Friday is not, in a column a Mon-first grid drew as normal.
+      const friday = cell('Friday, December 18, 2026, non-working day');
+      expect(friday.querySelector('span.text-neutral-text-secondary')).not.toBeNull();
+      expect(friday.getAttribute('style')).toContain('--cal-weekend');
+    });
+
+    it('labels an exception in the cell and names it and its calendar to AT', () => {
+      render(
+        <CalendarGrid
+          anchorIso={DEC}
+          calView="week"
+          weekStartDay={0}
+          workingTime={{
+            ...sunThu,
+            exceptions: [
+              {
+                start: '2026-12-15',
+                end: '2026-12-16',
+                name: 'Plant closed',
+                calendarName: 'Workspace',
+                type: 'shutdown',
+              },
+            ],
+          }}
+          tasks={[]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      const closed = cell('Tuesday, December 15, 2026, Plant closed, Workspace, non-working day');
+      expect(closed).toHaveTextContent('Plant closed');
+      expect(closed.getAttribute('style')).toContain('--cal-shutdown');
+      expect(closed.querySelector('[data-cal-multi-source]')).toBeNull();
+      expect(cell('Monday, December 14, 2026')).not.toHaveTextContent('Plant closed');
+    });
+
+    it('does not repeat a name that is also the calendar, and marks a multi-source day', () => {
+      const shared = { start: '2026-12-15', end: '2026-12-15', type: 'holiday' as const };
+      render(
+        <CalendarGrid
+          anchorIso={DEC}
+          calView="week"
+          weekStartDay={0}
+          workingTime={{
+            ...sunThu,
+            exceptions: [
+              { ...shared, name: 'UK Holidays', calendarName: 'UK Holidays' },
+              { ...shared, name: 'Company', calendarName: 'Company' },
+            ],
+          }}
+          tasks={[]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      const day = cell('Tuesday, December 15, 2026, UK Holidays, Company, non-working day');
+      expect(day.getAttribute('style')).toContain('--cal-holiday');
+      expect(day.querySelector('[data-cal-multi-source]')).not.toBeNull();
+    });
+
+    it('homes to the first and last columns of the rotated week', async () => {
+      render(
+        <CalendarGrid
+          anchorIso={DEC}
+          calView="week"
+          weekStartDay={0}
+          workingTime={sunThu}
+          tasks={[]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      cell('Wednesday, December 16, 2026').focus();
+      await userEvent.keyboard('{Home}');
+      expect(document.activeElement).toBe(cell('Sunday, December 13, 2026'));
+      await userEvent.keyboard('{End}');
+      expect(document.activeElement).toBe(cell('Saturday, December 19, 2026, non-working day'));
+    });
+
+    it('draws a chip in the rotated cell it starts in', () => {
+      render(
+        <CalendarGrid
+          anchorIso={DEC}
+          calView="week"
+          weekStartDay={0}
+          workingTime={sunThu}
+          tasks={[baseTask({ name: 'Sunday Start', start: '2026-12-13', finish: '2026-12-14' })]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      const chip = screen.getByRole('button', { name: /Sunday Start/ });
+      expect(chip.closest('[role="gridcell"]')?.getAttribute('aria-colindex')).toBe('1');
+    });
+
+    it('legends the three day types and says so when holidays could not be read', () => {
+      const { rerender } = render(
+        <CalendarGrid anchorIso={ANCHOR} tasks={[]} onTaskClick={vi.fn()} />,
+      );
+      expect(screen.getByText('Non-working day')).toBeInTheDocument();
+      expect(screen.getByText('Holiday')).toBeInTheDocument();
+      expect(screen.getByText('Shutdown')).toBeInTheDocument();
+      expect(
+        screen.queryByText(/Couldn't load this project's full working calendar/),
+      ).not.toBeInTheDocument();
+
+      rerender(
+        <CalendarGrid anchorIso={ANCHOR} workingTimeIncomplete tasks={[]} onTaskClick={vi.fn()} />,
+      );
+      expect(
+        screen.getByText(/Couldn't load this project's full working calendar/),
+      ).toBeInTheDocument();
+    });
+
+    it('names the calendars behind a pattern block and marks a multi-source day', () => {
+      const calendars = [
+        { name: 'Gulf Office', workingDays: SUN_THU },
+        { name: 'UK Holidays', workingDays: 31 },
+      ];
+      render(
+        <CalendarGrid
+          anchorIso={DEC}
+          calView="week"
+          weekStartDay={0}
+          workingTime={{
+            ...sunThu,
+            mask: SUN_THU & 31,
+            calendars,
+            exceptions: [
+              {
+                start: '2026-12-18',
+                end: '2026-12-18',
+                name: 'Plant closed',
+                calendarName: 'Workspace',
+                type: 'shutdown',
+              },
+            ],
+          }}
+          tasks={[]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      // Sunday: only the overlay's pattern blocks it, so one source and no mark.
+      const sunday = cell('Sunday, December 13, 2026, UK Holidays, non-working day');
+      expect(sunday.querySelector('[data-cal-multi-source]')).toBeNull();
+      // Saturday: both patterns block it.
+      const saturday = cell(
+        'Saturday, December 19, 2026, Gulf Office, UK Holidays, non-working day',
+      );
+      expect(saturday.querySelector('[data-cal-multi-source]')).not.toBeNull();
+      // Friday: a pattern plus an exception still counts as two calendars.
+      const friday = cell(
+        'Friday, December 18, 2026, Plant closed, Workspace, Gulf Office, non-working day',
+      );
+      expect(friday.querySelector('[data-cal-multi-source]')).not.toBeNull();
+      // Monday works under both.
+      expect(cell('Monday, December 14, 2026').querySelector('[data-cal-multi-source]')).toBeNull();
+    });
+
+    describe('layering the day state with a fill', () => {
+      const holiday = (iso: string) => ({
+        start: iso,
+        end: iso,
+        name: 'Founders Day',
+        calendarName: 'Company',
+        type: 'holiday' as const,
+      });
+      const TODAY_TINT = '--brand-primary';
+      const SUNKEN = '--neutral-surface-sunken';
+
+      afterEach(() => vi.useRealTimers());
+
+      it('keeps the today tint on a filled day and leaves it off other filled days', () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-12-15T12:00:00Z'));
+        render(
+          <CalendarGrid
+            anchorIso={DEC}
+            calView="week"
+            weekStartDay={0}
+            workingTime={{ ...sunThu, exceptions: [holiday('2026-12-15')] }}
+            tasks={[]}
+            onTaskClick={vi.fn()}
+          />,
+        );
+        const today = cell(
+          'Tuesday, December 15, 2026, Founders Day, Company, non-working day, today',
+        );
+        const style = today.getAttribute('style') ?? '';
+        expect(style).toContain(TODAY_TINT);
+        expect(style).toContain('--cal-holiday-line');
+        const friday = cell('Friday, December 18, 2026, non-working day');
+        expect(friday.getAttribute('style')).not.toContain(TODAY_TINT);
+      });
+
+      it('keeps the today tint on an ordinary non-working day', () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-12-18T12:00:00Z'));
+        render(
+          <CalendarGrid
+            anchorIso={DEC}
+            calView="week"
+            weekStartDay={0}
+            workingTime={sunThu}
+            tasks={[]}
+            onTaskClick={vi.fn()}
+          />,
+        );
+        const style =
+          cell('Friday, December 18, 2026, non-working day, today').getAttribute('style') ?? '';
+        expect(style).toContain(TODAY_TINT);
+        expect(style).toContain('--cal-weekend-line');
+      });
+
+      it('dims a neighboring-month holiday and non-working day but not an in-month one', () => {
+        // December 2026 on a Sun-first grid opens on Nov 29 and closes on Jan 2.
+        render(
+          <CalendarGrid
+            anchorIso={DEC}
+            weekStartDay={0}
+            workingTime={{
+              ...sunThu,
+              exceptions: [holiday('2026-11-30'), holiday('2026-12-15')],
+            }}
+            tasks={[]}
+            onTaskClick={vi.fn()}
+          />,
+        );
+        const neighbor =
+          cell('Monday, November 30, 2026, Founders Day, Company, non-working day').getAttribute(
+            'style',
+          ) ?? '';
+        expect(neighbor).toContain(SUNKEN);
+        expect(neighbor).toContain('--cal-holiday-bg');
+        expect(neighbor).toContain('--cal-holiday-line');
+
+        const inMonth =
+          cell('Tuesday, December 15, 2026, Founders Day, Company, non-working day').getAttribute(
+            'style',
+          ) ?? '';
+        expect(inMonth).not.toContain(SUNKEN);
+
+        const neighborSaturday =
+          cell('Saturday, January 2, 2027, non-working day').getAttribute('style') ?? '';
+        expect(neighborSaturday).toContain(SUNKEN);
+        expect(neighborSaturday).toContain('--cal-weekend-line');
+        expect(neighborSaturday).not.toContain('rgb(var(--cal-weekend-bg))');
+      });
+    });
+
+    describe('solid backing for text on a fill', () => {
+      const BACKING = 'bg-neutral-surface';
+      const milestone = (start: string) =>
+        milestoneTask({ id: `m-${start}`, name: `Gate ${start}`, start, finish: start });
+
+      it('backs a milestone name on a filled day and not on a working day', () => {
+        render(
+          <CalendarGrid
+            anchorIso={DEC}
+            calView="week"
+            weekStartDay={0}
+            workingTime={sunThu}
+            tasks={[milestone('2026-12-18'), milestone('2026-12-14')]}
+            onTaskClick={vi.fn()}
+          />,
+        );
+        expect(screen.getByRole('button', { name: 'Milestone: Gate 2026-12-18' })).toHaveClass(
+          BACKING,
+        );
+        expect(screen.getByRole('button', { name: 'Milestone: Gate 2026-12-14' })).not.toHaveClass(
+          BACKING,
+        );
+      });
+
+      it('backs "+N more" on a filled day and not on a working day', () => {
+        const stack = (start: string) =>
+          Array.from({ length: 5 }, (_, i) =>
+            baseTask({ id: `${start}-${i}`, name: `T${i}`, start, finish: start }),
+          );
+        render(
+          <CalendarGrid
+            anchorIso={DEC}
+            weekStartDay={0}
+            workingTime={sunThu}
+            tasks={[...stack('2026-12-18'), ...stack('2026-12-14')]}
+            onTaskClick={vi.fn()}
+          />,
+        );
+        const labels = screen.getAllByText('+1 more');
+        expect(labels).toHaveLength(2);
+        const onFriday = labels.find(
+          (l) => l.closest('[role="gridcell"]')?.getAttribute('aria-colindex') === '6',
+        );
+        const onMonday = labels.find(
+          (l) => l.closest('[role="gridcell"]')?.getAttribute('aria-colindex') === '2',
+        );
+        expect(onFriday).toHaveClass(BACKING);
+        expect(onMonday).not.toHaveClass(BACKING);
+      });
+
+      it('backs the date line on every fill, and the empty-week hint over the columns', () => {
+        render(
+          <CalendarGrid
+            anchorIso={DEC}
+            calView="week"
+            weekStartDay={0}
+            workingTime={sunThu}
+            tasks={[]}
+            onTaskClick={vi.fn()}
+          />,
+        );
+        const dateLine = (name: string) =>
+          cell(name).querySelector('span[aria-hidden]')?.parentElement;
+        expect(dateLine('Friday, December 18, 2026, non-working day')).toHaveClass(BACKING);
+        expect(dateLine('Monday, December 14, 2026')).not.toHaveClass(BACKING);
+        expect(screen.getByText(/^No tasks in the week of/)).toHaveClass(BACKING);
+      });
+    });
+
+    it('omits the day-type legend and its notice from the phone agenda, which has no such cells', () => {
+      breakpointMock.mockReturnValue('sm');
+      render(
+        <CalendarGrid
+          anchorIso={ANCHOR}
+          workingTimeIncomplete
+          tasks={[baseTask()]}
+          onTaskClick={vi.fn()}
+        />,
+      );
+      expect(screen.queryByText('Non-working day')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Couldn't load this project's/)).not.toBeInTheDocument();
     });
   });
 

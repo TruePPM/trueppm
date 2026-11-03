@@ -491,3 +491,7 @@ while this split was open.
 - **281** — [A view's Label facet is the shared LabelFacet + labelFilter.ts — do not hand-roll a fourth label filter, and do not re-declare the ?fl= param key (ADR-0620)](281-a-view-s-label-facet-is-the-shared-labelfacet-labelfilter-ts.md)
 - **282** — [Every Grid toolbar facet is the shared MultiSelectFacet, all three are multi-select, and their params are comma-separated lists parsed by one codec (ADR-0624)](282-every-grid-toolbar-facet-is-the-shared-multiselectfacet-all.md)
 - **285** — [A grid cell that is empty at rest sizes to its own content (self-start), and a board-wide count rendered above lane-scoped content names its scope (#2427)](285-a-grid-cell-that-is-empty-at-rest-sizes-to-its-own-content-s.md)
+
+### Calendar grid day types on a full-size cell (Issue #3239)
+
+- **438** — [A full-size calendar day cell sets text on a solid backing, because rule 229's fills are too busy to carry it, and its day type never comes from the preview alone](438-a-full-size-calendar-day-cell-sets-text-on-a-solid-backing.md)

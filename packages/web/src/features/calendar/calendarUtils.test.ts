@@ -19,7 +19,12 @@ import {
   formatWeekRangeLabel,
   formatViewLabel,
   formatWindowNoun,
+  deriveWeekStartDay,
+  resolveDayAvailability,
+  DEFAULT_WORKING_TIME,
+  type NamedException,
 } from './calendarUtils';
+import type { PreviewDay } from '@/hooks/useProjectCalendars';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -423,5 +428,237 @@ describe('formatViewLabel / formatWindowNoun', () => {
     expect(formatWindowNoun(parseUTCDate('2026-08-26'), 'week')).toBe(
       'the week of Aug 24 \u2013 30, 2026',
     );
+  });
+});
+
+// Working_days bits: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64.
+const MON_FRI = 31;
+const SUN_THU = 64 + 1 + 2 + 4 + 8;
+const SAT_WED = 32 + 64 + 1 + 2 + 4;
+const SUNDAY = 0;
+const MONDAY = 1;
+const SATURDAY = 6;
+
+describe('deriveWeekStartDay', () => {
+  it.each([
+    ['Mon-Fri', MON_FRI, MONDAY],
+    ['Sun-Thu', SUN_THU, SUNDAY],
+    ['Sat-Wed', SAT_WED, SATURDAY],
+    ['Tue-Sat', 2 + 4 + 8 + 16 + 32, 2],
+    ['Mon-Thu', 15, MONDAY],
+    ['a split week, from the first boundary after Monday', 1 + 2 + 8 + 16 + 64, 4],
+  ])('%s', (_name, mask, expected) => {
+    expect(deriveWeekStartDay(mask)).toBe(expected);
+  });
+
+  it.each([
+    ['every day working', 127],
+    ['no day working', 0],
+    ['null', null],
+    ['undefined', undefined],
+  ])('falls back to Monday for %s', (_name, mask) => {
+    expect(deriveWeekStartDay(mask)).toBe(MONDAY);
+  });
+});
+
+describe('week arithmetic with a calendar-derived start', () => {
+  it('weekStart retreats to the start day, and a start-day date is its own week', () => {
+    // 2026-03-11 is a Wednesday; 2026-03-08 the Sunday before it.
+    expect(formatISODate(weekStart(parseUTCDate('2026-03-11'), SUNDAY))).toBe('2026-03-08');
+    expect(formatISODate(weekStart(parseUTCDate('2026-03-08'), SUNDAY))).toBe('2026-03-08');
+    expect(formatISODate(weekStart(parseUTCDate('2026-03-07'), SUNDAY))).toBe('2026-03-01');
+    expect(formatISODate(weekStart(parseUTCDate('2026-03-11'), SATURDAY))).toBe('2026-03-07');
+  });
+
+  it('weekDays runs seven days from the start day', () => {
+    const days = weekDays(parseUTCDate('2026-03-11'), SUNDAY).map(formatISODate);
+    expect(days[0]).toBe('2026-03-08');
+    expect(days[6]).toBe('2026-03-14');
+  });
+
+  it('monthWeekStarts covers the whole month from the start day', () => {
+    // March 2026 opens on a Sunday, so a Sunday-first month needs 5 rows where a
+    // Monday-first one needs 6 — the row count itself follows the calendar.
+    const anchor = parseUTCDate('2026-03-15');
+    expect(monthWeekStarts(anchor, SUNDAY).map(formatISODate)).toEqual([
+      '2026-03-01',
+      '2026-03-08',
+      '2026-03-15',
+      '2026-03-22',
+      '2026-03-29',
+    ]);
+    expect(monthWeekStarts(anchor).length).toBe(6);
+  });
+
+  it('buildChips and buildMilestoneMarks place offsets against the start day', () => {
+    const anchor = parseUTCDate('2026-03-11');
+    const chips = buildChips(
+      [makeTask({ id: 'a', start: '2026-03-08', finish: '2026-03-09' })],
+      anchor,
+      'week',
+      SUNDAY,
+    );
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toMatchObject({ weekStart: '2026-03-08', chipStartOffset: 0, chipDays: 2 });
+
+    const marks = buildMilestoneMarks(
+      [makeTask({ id: 'm', start: '2026-03-14', finish: '2026-03-14', isMilestone: true })],
+      anchor,
+      'week',
+      SUNDAY,
+    );
+    expect(marks[0]).toMatchObject({ weekStart: '2026-03-08', dayOffset: 6 });
+  });
+
+  it('the week labels state the rotated range', () => {
+    const anchor = parseUTCDate('2026-03-11');
+    expect(formatWeekRangeLabel(anchor, SUNDAY)).toBe('Mar 8 \u2013 14, 2026');
+    expect(formatViewLabel(anchor, 'week', SUNDAY)).toBe('Mar 8 \u2013 14, 2026');
+    expect(formatWindowNoun(anchor, 'week', SUNDAY)).toBe('the week of Mar 8 \u2013 14, 2026');
+  });
+});
+
+describe('resolveDayAvailability', () => {
+  // 2026-12-04 is a Friday, -05 a Saturday, -06 a Sunday, -07 a Monday.
+  const FRI = '2026-12-04';
+  const SAT = '2026-12-05';
+  const SUN = '2026-12-06';
+  const MON = '2026-12-07';
+
+  const exception = (over: Partial<NamedException> = {}): NamedException => ({
+    start: MON,
+    end: MON,
+    name: 'Founders Day',
+    calendarName: 'Company',
+    type: 'holiday',
+    ...over,
+  });
+  const previewOf = (...days: PreviewDay[]) => new Map(days.map((d) => [d.date, d]));
+  const blocked = (date: string, role: 'project' | 'holidays' | 'workspace'): PreviewDay => ({
+    date,
+    working: false,
+    sources: [{ role, calendar_id: 'c', name: 'Blocking Calendar' }],
+  });
+
+  it('reads the weekly pattern from the mask, not a column or a fixed weekend', () => {
+    const inputs = { ...DEFAULT_WORKING_TIME, mask: SUN_THU };
+    expect(resolveDayAvailability(FRI, inputs).kind).toBe('non-working');
+    expect(resolveDayAvailability(SAT, inputs).kind).toBe('non-working');
+    expect(resolveDayAvailability(SUN, inputs).kind).toBe('working');
+  });
+
+  it('assumes Mon-Fri with nothing else known', () => {
+    expect(resolveDayAvailability(SAT, DEFAULT_WORKING_TIME).kind).toBe('non-working');
+    expect(resolveDayAvailability(FRI, DEFAULT_WORKING_TIME).kind).toBe('working');
+  });
+
+  it('does not let a preview "working" overrule the mask on an inherited base', () => {
+    // A project with no calendar override: the preview evaluates no base at all
+    // and so reports Saturday as working, while the engine skips it.
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      previewByDate: previewOf({ date: SAT, working: true, sources: [] }),
+    };
+    expect(resolveDayAvailability(SAT, inputs).kind).toBe('non-working');
+  });
+
+  it('names a dated exception, including one on a day the pattern already blocks', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      exceptions: [exception(), exception({ start: SAT, end: SUN, name: 'Offsite' })],
+    };
+    expect(resolveDayAvailability(MON, inputs)).toEqual({
+      kind: 'exception',
+      type: 'holiday',
+      name: 'Founders Day',
+      calendars: ['Company'],
+    });
+    expect(resolveDayAvailability(SUN, inputs)).toMatchObject({ name: 'Offsite' });
+  });
+
+  it('covers both ends of a range and nothing past them', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      exceptions: [exception({ start: '2026-12-24', end: '2026-12-31', name: 'Shutdown' })],
+    };
+    expect(resolveDayAvailability('2026-12-23', inputs).kind).toBe('working');
+    expect(resolveDayAvailability('2026-12-24', inputs).kind).toBe('exception');
+    expect(resolveDayAvailability('2026-12-31', inputs).kind).toBe('exception');
+    expect(resolveDayAvailability('2027-01-01', inputs).kind).toBe('working');
+  });
+
+  it('lets a shutdown lead an overlapping holiday and reports both calendars', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      exceptions: [
+        exception(),
+        exception({ name: 'Plant closed', calendarName: 'Workspace', type: 'shutdown' }),
+      ],
+    };
+    expect(resolveDayAvailability(MON, inputs)).toEqual({
+      kind: 'exception',
+      type: 'shutdown',
+      name: 'Plant closed',
+      calendars: ['Company', 'Workspace'],
+    });
+  });
+
+  it('does not call an overlay mask block a holiday', () => {
+    // A holidays overlay on the default Mon-Fri mask blocks every Sunday of a
+    // Sun-Thu project, and the preview reports role `holidays` for it. With that
+    // mask composed in, the day is ordinary non-working time.
+    const inputs = {
+      mask: SUN_THU & MON_FRI,
+      calendars: [],
+      previewByDate: previewOf(blocked(SUN, 'holidays')),
+      exceptions: [],
+    };
+    expect(resolveDayAvailability(SUN, inputs).kind).toBe('non-working');
+  });
+
+  it('falls back to the blocking calendar when the exceptions could not be read', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      previewByDate: previewOf(blocked(MON, 'workspace')),
+    };
+    expect(resolveDayAvailability(MON, inputs)).toEqual({
+      kind: 'exception',
+      type: 'shutdown',
+      name: 'Blocking Calendar',
+      calendars: ['Blocking Calendar'],
+    });
+  });
+
+  it('names every calendar whose pattern blocks a day', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      mask: SUN_THU & MON_FRI,
+      calendars: [
+        { name: 'Gulf Office', workingDays: SUN_THU },
+        { name: 'UK Holidays', workingDays: MON_FRI },
+      ],
+    };
+    expect(resolveDayAvailability(SUN, inputs)).toEqual({
+      kind: 'non-working',
+      calendars: ['UK Holidays'],
+    });
+    expect(resolveDayAvailability(SAT, inputs)).toEqual({
+      kind: 'non-working',
+      calendars: ['Gulf Office', 'UK Holidays'],
+    });
+  });
+
+  it('counts a pattern block alongside an exception, once per calendar', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      calendars: [{ name: 'Company', workingDays: MON_FRI }],
+      exceptions: [
+        exception({ start: SAT, end: SAT }),
+        exception({ start: SAT, end: SAT, calendarName: 'Workspace', type: 'shutdown' }),
+      ],
+    };
+    expect(resolveDayAvailability(SAT, inputs)).toMatchObject({
+      calendars: ['Company', 'Workspace'],
+    });
   });
 });

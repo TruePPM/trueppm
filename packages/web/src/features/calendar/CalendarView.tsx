@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { Methodology, Task, TaskStatus } from '@/types';
 import { useCalendarFilter } from './useCalendarFilter';
+import { useCalendarWorkingTime } from './useCalendarWorkingTime';
 import { CalendarGrid } from './CalendarGrid';
 import {
   parseUTCDate,
@@ -29,6 +30,8 @@ import {
   formatDayLabel,
   buildChips,
   buildMilestoneMarks,
+  type WeekStartDay,
+  type WorkingTimeInputs,
 } from './calendarUtils';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -157,6 +160,9 @@ function CalendarGridArea({
   projectId,
   itl,
   calView,
+  weekStartDay,
+  workingTime,
+  workingTimeIncomplete,
   canCreate,
   onAddTask,
   onRetry,
@@ -171,6 +177,9 @@ function CalendarGridArea({
   projectId: string | undefined;
   itl: ReturnType<typeof useIterationLabel>;
   calView: 'month' | 'week';
+  weekStartDay: WeekStartDay;
+  workingTime: WorkingTimeInputs;
+  workingTimeIncomplete: boolean;
   canCreate: boolean;
   onAddTask: () => void;
   onRetry: () => void;
@@ -233,6 +242,9 @@ function CalendarGridArea({
     <CalendarGrid
       anchorIso={anchorIso}
       calView={calView}
+      weekStartDay={weekStartDay}
+      workingTime={workingTime}
+      workingTimeIncomplete={workingTimeIncomplete}
       tasks={tasks}
       onTaskClick={onTaskClick}
       sprintBoundaries={sprintBoundaries}
@@ -248,7 +260,8 @@ export function CalendarView() {
   // Server-resolved preset (web-rule 196) — AGILE hides this view's nav entry
   // (methodologyTabs.ts), but the route stays reachable by direct URL on purpose
   // (issue #2619). Drives the explanatory empty state below.
-  const { data: projectDetail } = useProject(projectId);
+  const projectRead = useProject(projectId);
+  const projectDetail = projectRead.data;
   const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
   const { role } = useCurrentUserRole(projectId);
   const breakpoint = useBreakpoint();
@@ -267,7 +280,17 @@ export function CalendarView() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const anchor = parseUTCDate(anchorIso);
-  const label = formatViewLabel(anchor, calView);
+  const { workingTime, weekStartDay, layoutSettling, workingTimeIncomplete } =
+    useCalendarWorkingTime({
+      projectId,
+      effectiveCalendar: projectDetail?.effective_calendar,
+      calendarSource: projectDetail?.calendar_source,
+      projectLoading: projectRead.isLoading && projectRead.failureCount === 0,
+      projectFailed: !!projectRead.error && !projectDetail,
+      anchor,
+      calView,
+    });
+  const label = formatViewLabel(anchor, calView, weekStartDay);
 
   // WCAG 4.1.3 — switching mode or stepping the window swaps grid content with
   // no focus change, so a screen-reader user gets nothing. The region is mounted
@@ -283,20 +306,27 @@ export function CalendarView() {
   // region of its own (web rule 354).
   const windowIsEmpty =
     tasks.length > 0 &&
-    buildChips(tasks, anchor, calView).length === 0 &&
-    buildMilestoneMarks(tasks, anchor, calView).length === 0;
+    buildChips(tasks, anchor, calView, weekStartDay).length === 0 &&
+    buildMilestoneMarks(tasks, anchor, calView, weekStartDay).length === 0;
 
   const [announcement, setAnnouncement] = useState('');
   const firstRender = useRef(true);
+  const announcedWeekStartDay = useRef(weekStartDay);
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
+    // The week start settling when the project's calendar resolves is not a change
+    // the user made, so it must not narrate a view they never moved.
+    if (announcedWeekStartDay.current !== weekStartDay) {
+      announcedWeekStartDay.current = weekStartDay;
+      return;
+    }
     const mode = calView === 'week' ? 'Week' : 'Month';
-    const window = formatViewLabel(parseUTCDate(anchorIso), calView);
+    const window = formatViewLabel(parseUTCDate(anchorIso), calView, weekStartDay);
     setAnnouncement(`${mode} view, ${window}${windowIsEmpty ? ', no tasks' : ''}`);
-  }, [calView, anchorIso, windowIsEmpty]);
+  }, [calView, anchorIso, windowIsEmpty, weekStartDay]);
 
   // The clicked task is already loaded for chip rendering — resolve it by id
   // rather than re-fetching. Falls back to null if it scrolled out of the window.
@@ -434,12 +464,15 @@ export function CalendarView() {
       <div className="flex-1 min-h-0 overflow-hidden">
         <CalendarGridArea
           error={error}
-          isLoading={isLoading}
+          isLoading={isLoading || layoutSettling}
           tasks={tasks}
           effectiveMethodology={effectiveMethodology}
           projectId={projectId}
           itl={itl}
           calView={calView}
+          weekStartDay={weekStartDay}
+          workingTime={workingTime}
+          workingTimeIncomplete={workingTimeIncomplete}
           canCreate={canCreate}
           onAddTask={() => setShowAddForm(true)}
           onRetry={refetch}
