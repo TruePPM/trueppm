@@ -24,17 +24,18 @@ change between releases. Pin an exact version (e.g.
   every run, so P50 moved a working day past the CPM finish. A run whose draw is under
   half a day now rounds away: it is the instant `schedule()` places, links and lags
   included, and hands no fraction on to the work after it, so P50 stays on the CPM
-  finish. A chain of such draws no longer adds up: three 0.2-day draws count
-  as three instants, not as 0.6 of a day. A larger draw is simulated as work: with no recorded start, the
-  same as a task of that length with the same link. A started zero-duration task can differ from a started real task. This applies
-  to any zero-duration task with a sampled duration, including story points on the
-  velocity path, though velocity draws measured no change because they are work-sized.
-  Tasks with a duration of one day or more and zero-duration tasks with no estimate or
+  finish. Three 0.2-day draws in a chain therefore cost nothing, although they add
+  up to 0.6 of a day of work. A larger draw is simulated as work: with no recorded
+  start, the same as a task of that length with the same link. A started
+  zero-duration task can differ from a started real task. This applies to any
+  zero-duration task with a sampled duration, including story points on the velocity
+  path, though velocity draws measured no change because they are work-sized. Tasks
+  with a duration of one day or more and zero-duration tasks with no estimate or
   velocity signal are unchanged
   ([#4698](https://gitlab.com/trueppm/trueppm/-/issues/4698)).
 
-  Known limit. An FF or SF link in with an SS or SF link out back-solves the draw,
-  so a run can finish before the CPM finish
+  Known limit. On a network with FF or SF links a work-sized draw can back-solve a
+  start, so a run can finish before the CPM finish
   ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)).
 
 - **Monte Carlo shows a fractional finish on the day it ends in, and seeded

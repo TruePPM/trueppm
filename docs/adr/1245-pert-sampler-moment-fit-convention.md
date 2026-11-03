@@ -192,7 +192,7 @@ The other fix applies the start to the anchor before the lag and snap, so the
 landing rule governs it. It was rejected because the start can lie more than a day
 before the instant's midnight, which the deficit's one-day landing test cannot
 represent. Dropping the start does not change how often FF/SF networks step
-backward as a draw grows (28 steps over 1,336 networks either way). It moves the
+backward as a draw grows (28 of 1,336 networks, 43 steps, either way). It moves the
 backward steps that remain to the half-day threshold, the #4822 back-solve class.
 Without the kept start, no backward step falls inside the sub-half-day range.
 
@@ -205,9 +205,9 @@ P50 = P80 = P95 one day past CPM in 100% of runs, and a milestone at the end of 
 path, A → M(0, 0, 1), was one day late in 100% of runs. #4698's acceptance
 criterion, that (0, 0, 1) gives P50 equal to CPM, is pinned by
 `test_a_small_estimate_does_not_cost_a_day`. With the exemption, 5.2% of runs land
-after CPM, matching the pre-#4697 engine. The cost of the exemption is that a chain
-of sub-half-day draws no longer adds up: three 0.2-day draws are three instants,
-where #4698 had read them as 0.6 of a day.
+after CPM, matching the pre-#4697 engine. The cost of the exemption is that sub-half-day draws in a chain cost nothing
+together: three 0.2-day draws are three instants, although they add up to 0.6 of a
+day of work, which #4698 had carried.
 
 **Alternative rejected: round each sampled duration up to whole days at sampling
 time.** That alternative keeps every offset whole, so no other rounding site would

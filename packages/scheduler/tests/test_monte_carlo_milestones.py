@@ -718,14 +718,35 @@ def test_ff_sf_in_rounded_away_runs_match_the_milestone(
 def test_ff_in_ss_out_steps_back_only_at_the_threshold() -> None:
     """The #4822 class: a draw past the threshold back-solves; one below it does not.
 
-    A rounded-away draw is the milestone, so every draw below half a day gives the
-    same finish, and the backward step, if any, sits at the threshold itself.
+    ``A -FF+1-> M -SS-> B`` with ``A -SF-> B`` (the audit's seed 420). A and B draw
+    fixed fractional durations; only M's draw varies. When a rounded-away run handed
+    on its back-solved start, M's start moved with every sub-half-day draw, and the
+    finish stepped back from 03-10 to 03-09 between 0.05 and 0.2. A rounded-away run
+    is now the milestone, so every draw below half a day gives one finish, and the
+    backward step sits at the threshold itself.
     """
-    project = TestTheFractionFollowsTheLinkAnchor()._network(
-        DependencyType.SS, into=DependencyType.FF
+    project = _project(
+        [
+            Task(id="A", name="A", duration=_days(3), **_estimate(3, 3, 9)),
+            Task(id="M", name="M", duration=_days(0), **_estimate()),
+            Task(id="B", name="B", duration=_days(1), **_estimate(1, 1, 8)),
+        ],
+        [
+            _link("A", "M", DependencyType.FF, 1),
+            _link("A", "B", DependencyType.SF),
+            _link("M", "B", DependencyType.SS),
+        ],
     )
-    finishes = []
-    for draw in (0.0, 0.1, 0.3, 0.49):
-        with _draws(_constant(draw)):
-            finishes.append(_run(project).p50)
-    assert len(set(finishes)) == 1
+
+    def finish_at(draw: float) -> date:
+        by_pessimistic = {9.0: 3.763938007233175, 8.0: 1.3255072048685355, 1.0: draw}
+
+        def sample(_o: float, _m: float, pess: float, n: int, _rng: Any) -> np.ndarray:
+            return np.full(n, by_pessimistic[float(pess)])
+
+        with patch.object(engine, "_sample_pert", sample):
+            return monte_carlo(project, runs=2, seed=1).p50
+
+    below = [finish_at(d) for d in (0.0, 0.05, 0.2, 0.4, 0.49, 0.4999)]
+    assert below == [date(2026, 3, 10)] * len(below)
+    assert finish_at(0.5) == date(2026, 3, 9)  # the threshold step (#4822)

@@ -7214,12 +7214,12 @@ def _mc_zero_base_column(
     cost every whole-day successor a day under the day-it-falls-in reading. Not the
     start an FF or SF link back-solved over the draw either: added after a link's
     lag and snap, that start pulled an SS successor back across a weekend its lag
-    landed on, ahead of CPM. The run is the milestone ``schedule()`` places, so a
-    draw that crosses the threshold back-solves like any work, the #4822 class. A larger draw is
-    ordinary work. An FF or SF link back-solves its start over the draw, which can
-    put a successor ahead of the instant's plan (#4822). An instant run is placed as
-    a milestone is, its true point carried as the milestone's deficit
-    (:func:`_mc_milestone_bounds`).
+    landed on, ahead of CPM. An instant run is placed as a milestone is, its true
+    point carried as the milestone's deficit (:func:`_mc_milestone_bounds`).
+
+    A larger draw is ordinary work. An FF or SF link back-solves its start over the
+    draw, which can put a successor ahead of the instant's plan; the step at the
+    threshold is that class (#4822).
 
     ``position`` is the instant's offset. ``actual`` is the task's non-working
     recorded start, if any: it floors the finish, as for a milestone, when every

@@ -478,13 +478,14 @@ above `duration` passes through untouched, so P80 and P95 continue to carry the
 full tail of the estimate.
 
 :::note[Ships in 0.5]
-A zero-duration task with a three-point estimate is charged only what it samples.
-In a run where the sample is under half a day, it rounds away: the task behaves as
-the milestone the CPM pass shows and hands no fraction of a day on to the work
-after it. A chain of such draws no longer adds up: three 0.2-day draws count as three instants, not as 0.6 of a day. A larger sample is simulated as work: with no recorded
-start, the same as a task of that length with the same link. An O=0 / M=0 / P=1
-estimate therefore leaves P50 on the CPM finish. In 0.4 every run charges such a task at least one
-full working day.
+A zero-duration task with a three-point estimate is charged only what it samples. In
+a run where the sample is under half a day, it rounds away: the task behaves as the
+milestone the CPM pass shows and hands no fraction of a day on to the work after it.
+Three 0.2-day draws in a chain therefore cost nothing, although they add up to 0.6
+of a day of work. A larger sample is simulated as work: with no recorded start, the
+same as a task of that length with the same link. An O=0 / M=0 / P=1 estimate
+therefore leaves P50 on the CPM finish. In 0.4 every run charges such a task at
+least one full working day.
 :::
 
 :::caution[Networks with Finish-to-Finish or Start-to-Finish links]
@@ -570,10 +571,15 @@ a lone 10-day task estimated at O=10 / M=10 / P=11 shows P50 on its 11th working
 day.
 
 :::note[Ships in 0.5]
-In 0.4 a run's finish is shown on the nearest day, so a finish less than half a
-day into a day reads as the day before, and a lagged link can lose another day. In
-0.4 the example above shows P50 on the CPM finish. Upgrading moves seeded
-percentiles. On networks built from FS and SS links no percentile lands before the CPM finish. Most percentiles move one working day later, and lagged links can move them up to four working days later, because the nearest-day reading could lose a day at each lagged link. In a few lagged cases a percentile moves one working day earlier, because that reading could also add a day at a lagged link. On networks with FF or SF links a percentile can also move earlier.
+In 0.4 a run's finish is shown on the nearest day, so a finish less than half a day
+into a day reads as the day before, and a lagged link can lose another day. In 0.4
+the example above shows P50 on the CPM finish. Upgrading moves seeded percentiles.
+On networks built from FS and SS links no percentile lands before the CPM finish.
+Most percentiles move one working day later, and lagged links can move them up to
+four working days later, because the nearest-day reading could lose a day at each
+lagged link. In a few lagged cases a percentile moves one working day earlier,
+because that reading could also add a day at a lagged link. On networks with FF or
+SF links a percentile can also move earlier.
 :::
 
 Project finish for each run is `max(early_finish)` across all tasks. The full
