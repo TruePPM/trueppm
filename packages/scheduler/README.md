@@ -113,6 +113,37 @@ before it — it lands on the Monday after:
 # Not Fri 2026-01-09 — the engine never snaps a lead or lag backward.
 ```
 
+### Holidays and other non-working dates
+
+A holiday, shutdown or any other run of non-working dates is a `DateRange`. Pass
+them as `Calendar.exceptions`. Both ends are **inclusive**, and a single day is a
+range whose `start` and `end` are the same date:
+
+```python
+from datetime import date, timedelta
+from trueppm_scheduler import Calendar, DateRange, Project, Task, schedule
+
+calendar = Calendar(
+    exceptions=[
+        DateRange(start=date(2026, 1, 6), end=date(2026, 1, 7)),  # Tue-Wed shutdown
+        DateRange(start=date(2026, 1, 9), end=date(2026, 1, 9)),  # one day: Fri
+    ]
+)
+project = Project(
+    id="p-2",
+    name="With holidays",
+    start_date=date(2026, 1, 5),  # Monday
+    tasks=[Task(id="t-1", name="Build", duration=timedelta(days=3))],
+    calendar=calendar,
+)
+build = schedule(project).tasks[0]
+print(build.early_finish)  # 2026-01-12 (Mon, Thu, then Mon: Jan 6-7 and 9 are skipped)
+```
+
+A `DateRange` is immutable. To change a calendar's holidays, build new ranges and
+assign a new `Calendar.exceptions`. Both bounds must be plain `date`s (not
+`datetime`s or strings), or `InvalidScheduleInput` is raised.
+
 ### Per-task calendars
 
 By default every task is scheduled on the single `Project.calendar`. A task can
@@ -255,6 +286,16 @@ The same framing, with the underlying math, is in
 > independent reference CPM written from the conventions below. The fields that
 > comparison covers exactly, and the ones it does not, are listed in
 > [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md#the-independent-cpm-oracle).
+
+## Helpers and result types
+
+Smaller exported names that the sections above do not cover:
+
+- `find_cycle(edges)` returns a `CycleCheck`. Its `.cycle` is the offending task ids in order, with the first repeated at the end (`["A", "B", "C", "A"]`), or `None` when the graph is acyclic. It is truthy only when a cycle exists.
+- `expand_summary_dependencies(tasks, deps, children_map)` returns a `SummaryExpansion`: `.tasks` is the input with summary tasks removed (leaves only) and `.dependencies` is every dependency fanned out to leaf-level edges. It still unpacks as `leaf_tasks, deps = ...`.
+- `ScheduleResult.driving_edges` is a list of `DrivingEdge`: the links whose relationship free float is zero, so the successor's early date sits exactly on the date that link imposes. Slipping that predecessor a working day would push the successor.
+- `MonteCarloResult.sensitivity` is a list of `TaskSensitivity` (`task_id`, `index`). `index` is the absolute Spearman rank correlation, from 0 to 1, between the task's sampled duration and the project finish. Tasks whose duration cannot vary the finish are omitted rather than reported as 0.
+- `perturb_task_duration(project, task_id, delta_days)` returns a copy of the project with one task's duration shifted, for what-if runs. It moves the fixed duration, the three-point estimate and the story points together, so the CPM finish and the Monte Carlo bands stay consistent. The input project is not mutated.
 
 ## Conventions
 
