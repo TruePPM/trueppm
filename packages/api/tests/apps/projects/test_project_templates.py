@@ -583,6 +583,52 @@ def test_apply_records_a_failure_rather_than_hanging_at_running(
     assert "Unsupported structure version" in application.error_detail
 
 
+@pytest.mark.django_db(transaction=True)
+def test_a_failure_after_rows_are_written_keeps_no_partial_rows(
+    source_project: Project, target_project: Project
+) -> None:
+    """A mid-apply failure rolls the whole seed back; nothing is kept (ADR-0789 §7, §8).
+
+    The two sibling failure tests raise before ``materialize_structure`` writes
+    anything, so neither can tell "rolled back" from "never written". This one
+    fails *after* ``bulk_create_tasks`` has inserted the skeleton, at the dependency
+    insert, and asserts the rows are gone: claim and seed share one
+    ``transaction.atomic()``, so the exception discards both. ``created_task_ids`` is
+    only assigned on success, so it stays empty — there is nothing to undo.
+    """
+    from trueppm_api.apps.projects import models as project_models
+    from trueppm_api.apps.projects.template_tasks import apply_template
+
+    _shape(source_project)
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+    application = TemplateApplication.objects.create(template=template, project=target_project)
+    before = Task.objects.filter(project=target_project).count()
+    real_bulk_create_tasks = project_models.bulk_create_tasks
+
+    with (
+        patch.object(
+            project_models, "bulk_create_tasks", side_effect=real_bulk_create_tasks
+        ) as spy_tasks,
+        patch.object(
+            Dependency.objects, "bulk_create", side_effect=RuntimeError("edge insert failed")
+        ),
+    ):
+        # retries=3 puts the task on its final attempt so the terminal branch runs
+        # instead of scheduling another retry.
+        result = apply_template.apply(args=[str(application.pk)], retries=3).get()
+
+    assert spy_tasks.called, "the failure must land after rows were written"
+    assert result == {"failed": True, "tasks_created": 0}
+    assert Task.objects.filter(project=target_project).count() == before
+    assert not Dependency.objects.filter(successor__project=target_project).exists()
+    application.refresh_from_db()
+    assert application.status == TemplateApplicationStatus.FAILED
+    assert "edge insert failed" in application.error_detail
+    assert application.created_task_ids == []
+
+
 @pytest.mark.django_db
 def test_templates_cannot_be_minted_or_renamed_outside_publish(
     admin_client: APIClient, source_project: Project

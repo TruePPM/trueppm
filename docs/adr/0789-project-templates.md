@@ -225,6 +225,17 @@ be able to see what skeletons exist without being able to fire one.
    transaction, so a mid-apply failure rolls the claim back for a clean retry.
 8. **Dead-letter / failure handling**: `max_retries=3` with exponential backoff; on
    exhaustion the application row goes to `failed` with the reason, which the Start
-   sheet surfaces. The partially-written rows are **kept**, not rolled back — they
-   are real, correctly-attributed tasks, and `created_task_ids` records exactly
-   which, so undo remains exact after a failure.
+   sheet surfaces. **No partial rows are kept** — a failed apply leaves the project
+   exactly as it was, and `created_task_ids` stays empty because it is assigned only
+   on success. There is nothing to undo after a failure.
+
+   > **Corrected 2026-11-02 (#3421).** This item originally read: "The
+   > partially-written rows are **kept**, not rolled back — they are real,
+   > correctly-attributed tasks, and `created_task_ids` records exactly which, so
+   > undo remains exact after a failure." That was wrong, and contradicted item 7.
+   > `apply_template` runs the claim and `materialize_structure` in one
+   > `transaction.atomic()` (all nested writes are savepoints; nothing defers to
+   > `on_commit`), so any exception rolls the whole seed back; only `_mark_failed`
+   > writes, on its own transaction. The Start sheet surfaces `error_detail` via
+   > `SeedFailureBanner` (#3348). Pinned by
+   > `test_a_failure_after_rows_are_written_keeps_no_partial_rows`.
