@@ -20,7 +20,7 @@ stack is tested with a conventional pyramid.
 | **API** | pytest + pytest-django | `packages/api/tests/` | Endpoints, serializers, permission gates (the 5-role RBAC model), object-level access, and edge/error cases against a real PostgreSQL. |
 | **Web units** | vitest | `packages/web/src/**/*.test.{ts,tsx}` | Hooks, utility functions, client-side logic, Zustand stores, and component behavior in jsdom. |
 | **Web E2E** | Playwright | `packages/web/e2e/**/*.spec.ts` | Golden-path plus one error/empty state for every user-visible flow or API-backed component, against the built app with mocked API/WS. |
-| **Scheduler** | pytest | `packages/scheduler/tests/` | Mathematical correctness of the CPM passes, Monte Carlo sampling, float calculations, and calendar-aware lag — the standalone `trueppm-scheduler` library. |
+| **Scheduler** | pytest | `packages/scheduler/tests/` | Mathematical correctness of the CPM passes, Monte Carlo sampling, float calculations, and calendar-day lag snapped to working days — the standalone `trueppm-scheduler` library. |
 | **WASM scheduler** | Rust (`wasm:test`) + `wasm:conformance` | `packages/wasm-scheduler/` | The Rust/petgraph CPM engine, kept in conformance with the Python library so browser/offline recompute matches server recompute. Both engines assert against one shared oracle — the `fixtures/expected/` snapshots — from their own side: Rust in `wasm:test`, Python in `wasm:conformance`. |
 
 Every feature that touches a layer must add tests at that layer — a new endpoint
