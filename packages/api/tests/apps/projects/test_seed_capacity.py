@@ -258,3 +258,13 @@ def test_member_email_matching_the_owner_is_not_double_granted() -> None:
     )
 
     assert ProjectMembership.objects.filter(user__email=CAPACITY_OWNER_EMAIL).count() == 1
+
+
+@pytest.mark.django_db
+def test_seeded_rows_carry_the_insert_path_server_version() -> None:
+    """bulk_create skips save(), so the seeder must set the lock token itself."""
+    call_command("seed_capacity", tasks=25, projects=1)
+
+    assert set(Task.objects.values_list("server_version", flat=True)) == {1}
+    assert Dependency.objects.exists()
+    assert set(Dependency.objects.values_list("server_version", flat=True)) == {1}

@@ -269,9 +269,14 @@ def _import_labels(
         # collection, so it needs the same one-value-per-import treatment the task
         # rows get above (ADR-0686). The post-import recalculation cannot stand in
         # for this: it writes through bulk_update and allocates nothing.
+        #
+        # server_version is the SECOND counter save() would have set (INSERT path
+        # -> 1). Left at 0 it publishes a lock token no client can echo back as
+        # X-Base-Version, so both are set together.
         seq = allocate_for_projects([project_id])
         for label in new_labels:
             label.sync_seq = seq
+            label.server_version = 1
         Label.objects.bulk_create(new_labels, batch_size=batch_size)
         summary["labels_created"] = len(new_labels)
         existing.update({label.name.lower(): label for label in new_labels})
@@ -310,7 +315,8 @@ def _import_resources(
             resource_uid_to_pk[rd.uid] = str(existing[name_lower].pk)
             summary["resources_matched"] += 1
         else:
-            new_resources.append(Resource(name=rd.name, max_units=rd.max_units))
+            # server_version=1: bulk_create skips save(), the only place that sets it.
+            new_resources.append(Resource(name=rd.name, max_units=rd.max_units, server_version=1))
 
     if new_resources:
         Resource.objects.bulk_create(new_resources, batch_size=batch_size)
@@ -748,6 +754,7 @@ def _import_dependencies(
         seq = allocate_for_projects([project_id])
         for dep in dep_objects:
             dep.sync_seq = seq
+            dep.server_version = 1
         Dependency.objects.bulk_create(dep_objects, ignore_conflicts=True, batch_size=batch_size)
         summary["dependencies_created"] = len(dep_objects)
 

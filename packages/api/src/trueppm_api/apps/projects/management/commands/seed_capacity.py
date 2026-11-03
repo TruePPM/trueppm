@@ -343,6 +343,7 @@ class Command(BaseCommand):
         edges = self._make_edges(tasks, edge_ratio, rng)
         for edge in edges:
             edge.sync_seq = seq
+            edge.server_version = 1
         Dependency.objects.bulk_create(edges, batch_size=1000, ignore_conflicts=True)
 
         return len(tasks), len(edges)
