@@ -4912,6 +4912,10 @@ def _milestone_replay(
             cached.link_instants,
             cached.free_instants,
         )
+    # An uncached ``project`` never went through schedule()'s guard, so refuse here
+    # exactly what schedule() refuses (NaN percent_complete, bad calendars, ...)
+    # before any graph pass turns it into a bare ValueError/TypeError (#4836).
+    _validate_project(project)
     instants, late_instants, finish_instant, link_instants = _milestone_instants(project)
     free_instants = (
         _project_free_instants(project, result.tasks, instants, link_instants) if instants else {}
