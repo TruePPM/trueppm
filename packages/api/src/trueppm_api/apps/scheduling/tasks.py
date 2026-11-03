@@ -13,6 +13,7 @@ from typing import Any
 import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
+from trueppm_scheduler import InvalidScheduleInput
 
 from trueppm_api.apps.projects.services import clear_uncommitted_cpm_output
 from trueppm_api.apps.scheduling.finish_reading import (
@@ -96,6 +97,29 @@ def recalculate_schedule(
         # lock-retry loop). Return normally: raising would dead-letter a task
         # that can never succeed, and it is not in autoretry_for (#4751).
         logger.info("recalculate_schedule: project %s no longer exists; skipping", project_id)
+        return
+    except InvalidScheduleInput as exc:
+        # Stored data the engine refuses (e.g. an SS/SF link from a summary that
+        # predates the write-boundary gate) fails identically on every attempt, so
+        # re-raising kills the task, and leaving the outbox row DISPATCHED makes the
+        # drain's orphan recovery re-dispatch it every ten minutes forever (a fresh
+        # FailedTask and alert each time). TaskRunTracker has already marked the run
+        # FAILED and broadcast task_run_failed with the engine's actionable message
+        # before we got here; retire the outbox row as DEAD so the drain stops, keep
+        # the dead-letter row so operators still see it, and end the task cleanly.
+        # Filtering on DISPATCHED leaves a newer PENDING row (a fresh edit) alone, so
+        # repairing the edge recovers the schedule on the next write.
+        logger.warning(
+            "recalculate_schedule: project %s holds input the scheduler refuses: %s",
+            project_id,
+            exc,
+        )
+        from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+        ScheduleRequest.objects.filter(
+            project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
+        ).update(status=ScheduleRequestStatus.DEAD)
+        _dead_letter_current(self, project_id, exc)
         return
     except SoftTimeLimitExceeded:
         logger.error(
