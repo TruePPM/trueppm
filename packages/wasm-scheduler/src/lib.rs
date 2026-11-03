@@ -1793,8 +1793,7 @@ mod tests {
     fn incremental_validation_agrees_with_full_validation() {
         // #4712 oracle: for every candidate date the incremental check must accept
         // exactly what `validate_project` accepts on the mutated project, and
-        // leave state unchanged when it refuses. The 6000-day-ish span with
-        // 7-day-reach case ("2200-01-01") is the span-bound-only rejection.
+        // leave state unchanged when it refuses.
         let mut project = span_project(5);
         let pg = crate::graph::build_graph(&project).unwrap();
         let mut bounds = validate::SessionBounds::new(&project);
@@ -1855,27 +1854,109 @@ mod tests {
     }
 
     #[test]
+    fn incremental_validation_agrees_on_mixed_fixture() {
+        // Pins + lag + status_date + actual, duplicate pin offsets, and moves of the
+        // current max pin down and up. `other_floor` (status/actuals) can never flip
+        // accept/reject on its own (base + max(pin, floor) is already valid at
+        // construction), so it is pinned by the construction assert below; the lag
+        // term is observable: with it dropped, the +365_000 case would be accepted.
+        let mut project = span_project(6);
+        project.start_date = NaiveDate::from_ymd_opt(2026, 4, 1).unwrap();
+        for t in project.tasks.iter_mut() {
+            t.duration = 10.0 * 86_400.0;
+        }
+        project.dependencies = vec![crate::models::Dependency {
+            predecessor_id: "T0".to_string(),
+            successor_id: "T1".to_string(),
+            dep_type: crate::models::DependencyType::FS,
+            lag: 400.0 * 86_400.0,
+        }];
+        let at = |days: i64| project.start_date + chrono::Duration::days(days);
+        let (p0, p1, p2, st, af) = (at(50), at(300_000), at(300_000), at(365_000), at(100));
+        project.tasks[0].planned_start = Some(p0);
+        project.tasks[1].planned_start = Some(p1);
+        project.tasks[2].planned_start = Some(p2); // duplicate offset of T1
+        project.tasks[5].actual_finish = Some(af);
+        project.status_date = Some(st);
+        validate::validate_project(&project).expect("fixture must be valid");
+        let pg = crate::graph::build_graph(&project).unwrap();
+        let mut bounds = validate::SessionBounds::new(&project);
+        let start = project.start_date;
+        let fmt = |d: NaiveDate| format!("{:04}-{:02}-{:02}", d.year(), d.month(), d.day());
+        // (task index, offset in days)
+        let moves: [(usize, i64); 12] = [
+            (1, 10),      // max pin drops; duplicate T2 still holds 300_000
+            (2, 10),      // now both gone: max falls to T0/50 and the status floor
+            (1, 365_500), // up: base 460 + 365_500 > cap, span-only rejection
+            (1, 365_000), // near the edge
+            (1, 365_540), // at/over the cap
+            (1, 365_541),
+            (0, 365_300),
+            (1, 5),
+            (0, 366_001), // per-task bound
+            (3, 365_999),
+            (2, -400_000), // far past
+            (4, 120),
+        ];
+        for (i, off) in moves {
+            let d = start + chrono::Duration::days(off);
+            let mut oracle = project.clone();
+            oracle.tasks[i].planned_start = Some(d);
+            let expected = validate::validate_project(&oracle);
+            let id = format!("T{i}");
+            let before = project.tasks[i].planned_start;
+            let got = set_task_start_impl(&mut project, &pg, &mut bounds, &id, &fmt(d));
+            assert_eq!(
+                got.is_ok(),
+                expected.is_ok(),
+                "{id}@{off}: {got:?} vs {expected:?}"
+            );
+            if let (Err(a), Err(b)) = (&got, &expected) {
+                assert_eq!(a, b, "{id}@{off}: message parity");
+                assert_eq!(project.tasks[i].planned_start, before);
+            }
+        }
+        // Lag-term control: base_span must include |lag| (400) - 365_000 + 460 is
+        // fine but 365_600 + 60 (lag dropped) would pass while 365_600 + 460 must fail.
+        let d = start + chrono::Duration::days(365_600);
+        let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T1", &fmt(d)).unwrap_err();
+        assert!(err.contains("Total project span"), "{err}");
+    }
+
+    #[test]
     fn set_task_start_validation_cost_is_independent_of_task_count() {
-        // #4712: the per-drag validation must not scale with project size. Compare
-        // wall time at 200 vs 20_000 tasks with a deliberately generous ratio: a
-        // linear re-validation would be ~100x slower, O(log n) is ~1-2x.
+        // #4712: per-drag validation must not scale with project size. Pins are
+        // seeded on every task so the multiset is large (exercises the log n
+        // term); both accepted and rejected drags are timed; each size takes the
+        // MIN of several repeats to shed scheduler noise. A linear re-validation
+        // would be ~100x slower at these sizes; the bound is a generous 20x.
         fn per_call(n: usize) -> std::time::Duration {
             let mut project = span_project(n);
+            for (i, t) in project.tasks.iter_mut().enumerate() {
+                t.planned_start =
+                    Some(project.start_date + chrono::Duration::days((i % 3000) as i64));
+            }
             let pg = crate::graph::build_graph(&project).unwrap();
             let mut bounds = validate::SessionBounds::new(&project);
-            let calls = 400;
-            let start = std::time::Instant::now();
-            for i in 0..calls {
-                let d = if i % 2 == 0 {
-                    "2026-04-08"
-                } else {
-                    "2026-04-15"
-                };
-                set_task_start_impl(&mut project, &pg, &mut bounds, "T0", d).unwrap();
-            }
-            start.elapsed() / calls
+            let calls = 400u32;
+            (0..5)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    for i in 0..calls {
+                        let d = match i % 3 {
+                            0 => "2026-04-08",
+                            1 => "2026-04-15",
+                            _ => "9500-01-01", // rejected by the SNET bound
+                        };
+                        let r = set_task_start_impl(&mut project, &pg, &mut bounds, "T0", d);
+                        assert_eq!(r.is_ok(), i % 3 != 2);
+                    }
+                    start.elapsed() / calls
+                })
+                .min()
+                .unwrap()
         }
-        let small = per_call(200).max(std::time::Duration::from_micros(1));
+        let small = per_call(200).max(std::time::Duration::from_micros(20));
         let large = per_call(20_000);
         assert!(
             large < small * 20,

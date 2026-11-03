@@ -559,7 +559,7 @@ fn check_far_future_reach(start_date: NaiveDate, total_span: i64) -> Result<(), 
 /// the `date.min` floor, the per-task SNET bound, and the cumulative-span /
 /// far-future bounds (via `max_snet_days`, the furthest pin). Everything else
 /// (durations, lags, actuals, status date, calendars, edges) is untouched, so
-/// its contribution is captured once as `fixed_span` and `fixed_floor`. The
+/// its contribution is captured once as `base_span` and `other_floor`. The
 /// furthest pin is kept in a multiset so a drag that moves the current maximum
 /// back down is handled in O(log n) rather than rescanning every task. The
 /// checks reuse the same helpers and messages as [`validate_project`].
@@ -573,8 +573,10 @@ pub struct SessionBounds {
 }
 
 impl SessionBounds {
-    /// Capture the pin-independent terms from an already-validated project.
-    pub fn new(project: &Project) -> Self {
+    /// Capture the pin-independent terms. The project must already have passed
+    /// [`validate_project`]: the status-offset error is swallowed (`unwrap_or(0)`)
+    /// on that assumption.
+    pub(crate) fn new(project: &Project) -> Self {
         let terms = span_terms(project);
         let status_offset = checked_status_offset(project).unwrap_or(0);
         let lags: i64 = project
