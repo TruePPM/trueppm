@@ -203,6 +203,27 @@ def test_api_program_delete_delivers_tombstone_and_keeps_memberships(
 
 
 @pytest.mark.django_db
+def test_deleted_program_memberships_are_not_served_but_tombstone_reaches_co_members(
+    authed_client: APIClient, program: Program, membership: ProgramMembership
+) -> None:
+    """A deleted program's roster is not served as live rows; the tombstone still is."""
+    colleague = User.objects.create_user(username="co-member", password="pw")
+    ProgramMembership.objects.create(program=program, user=colleague, role=Role.OWNER)
+    program.soft_delete()  # memberships stay live, as after DELETE /programs/{id}/
+
+    body = authed_client.get(f"{URL}?since=0").json()["changes"]
+    assert str(program.pk) in body["programs"]["deleted"]
+    assert body["program_memberships"]["updated"] == []
+    assert body["program_memberships"]["deleted"] == []
+
+    colleague_client = APIClient()
+    colleague_client.force_authenticate(user=colleague)
+    co_body = colleague_client.get(f"{URL}?since=0").json()["changes"]
+    assert str(program.pk) in co_body["programs"]["deleted"]
+    assert co_body["program_memberships"]["updated"] == []
+
+
+@pytest.mark.django_db
 def test_soft_deleted_co_member_becomes_tombstone(
     authed_client: APIClient, program: Program, membership: ProgramMembership
 ) -> None:

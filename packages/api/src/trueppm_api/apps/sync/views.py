@@ -889,8 +889,9 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
 
         # Program rows include soft-deleted ones so a program deleted while the
         # caller is still a member arrives as a tombstone. Memberships cover every
-        # co-member of the caller's programs (offline RBAC + roster), soft-deleted
-        # rows included. Order is fixed — do not reorder without a protocol bump.
+        # co-member of the caller's *live* programs (offline RBAC + roster),
+        # soft-deleted membership rows included. Order is fixed — do not reorder
+        # without a protocol bump.
         sources: list[SyncSource] = [
             (
                 "programs",
@@ -899,7 +900,15 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
             ),
             (
                 "program_memberships",
-                ProgramMembership.objects.filter(program_id__in=accessible_ids, sync_seq__gt=since),
+                # ``program__is_deleted=False``: a deleted program's memberships stay
+                # live so the program tombstone above reaches its members, but they
+                # must not be served as live roster/role rows for a program the
+                # caller can no longer open.
+                ProgramMembership.objects.filter(
+                    program_id__in=accessible_ids,
+                    program__is_deleted=False,
+                    sync_seq__gt=since,
+                ),
                 SyncProgramMembershipSerializer,
             ),
         ]

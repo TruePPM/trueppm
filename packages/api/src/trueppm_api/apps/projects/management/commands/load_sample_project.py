@@ -368,7 +368,10 @@ class Command(BaseCommand):
                 user=user, is_deleted=False, role__gte=Role.ADMIN
             ).exists()
             or ProgramMembership.objects.filter(
-                user=user, is_deleted=False, role__gte=Role.ADMIN
+                user=user,
+                is_deleted=False,
+                program__is_deleted=False,
+                role__gte=Role.ADMIN,
             ).exists()
         ):
             raise CommandError(
@@ -397,7 +400,9 @@ class Command(BaseCommand):
             ProjectMembership.objects.filter(user=user, is_deleted=False)
             .exclude(project__program=program)
             .exists()
-            or ProgramMembership.objects.filter(user=user, is_deleted=False)
+            or ProgramMembership.objects.filter(
+                user=user, is_deleted=False, program__is_deleted=False
+            )
             .exclude(program=program)
             .exists()
         )

@@ -1047,6 +1047,21 @@ class TestProgramScopedVisibility:
         assert resp.status_code == 200
         assert str(program_a_template.pk) not in {r["id"] for r in resp.data["results"]}
 
+    def test_member_of_a_deleted_program_no_longer_sees_its_template(
+        self, program_a: Program, program_a_template: ProjectTemplate
+    ) -> None:
+        """Memberships survive a program soft-delete, so the template scope must not."""
+        member = User.objects.create_user(username="former-member", password="pw")
+        ProgramMembership.objects.create(program=program_a, user=member, role=Role.MEMBER)
+        listed = self._as(member).get("/api/v1/project-templates/")
+        assert str(program_a_template.pk) in {r["id"] for r in listed.data["results"]}  # control
+
+        program_a.soft_delete()
+
+        resp = self._as(member).get("/api/v1/project-templates/")
+        assert resp.status_code == 200
+        assert str(program_a_template.pk) not in {r["id"] for r in resp.data["results"]}
+
     def test_non_member_gets_404_on_retrieve(self, program_a_template: ProjectTemplate) -> None:
         outsider = User.objects.create_user(username="outsider-retrieve", password="pw")
 

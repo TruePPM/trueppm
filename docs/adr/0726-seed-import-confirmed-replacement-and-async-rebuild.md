@@ -425,6 +425,9 @@ wrong.
   memberships the sync accessible-set depends on. This ADR's path avoids it by keeping
   memberships live; the pre-existing defect on `DELETE /programs/{id}/` is filed as
   follow-up #2588 rather than fixed here.
+  *Update 2026-11-03:* fixed — `delete_program_cascade` now keeps memberships live, so
+  `DELETE /programs/{id}/` delivers the tombstone like this ADR's path does. Role lookups
+  and the program-memberships sync source exclude memberships on a soft-deleted program.
 - *The seed path never ran the ADR-0259 `validate_task_graph` guard*, so a hand-edited
   seed can write a cyclic dependency graph straight into CPM. Pre-existing, orthogonal to
   both issues, and filed as follow-up #2589 — batching the `Dependency` writes makes this

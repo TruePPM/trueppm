@@ -9082,7 +9082,7 @@
         "/api/v1/programs/": {
             "get": {
                 "operationId": "v1_programs_list",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -9170,7 +9170,7 @@
             },
             "post": {
                 "operationId": "v1_programs_create",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "tags": [
                     "programs"
                 ],
@@ -9272,7 +9272,7 @@
         "/api/v1/programs/{id}/": {
             "get": {
                 "operationId": "v1_programs_retrieve",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
@@ -9334,7 +9334,7 @@
             },
             "put": {
                 "operationId": "v1_programs_update",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
@@ -9446,7 +9446,7 @@
             },
             "patch": {
                 "operationId": "v1_programs_partial_update",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
@@ -9557,7 +9557,7 @@
             },
             "delete": {
                 "operationId": "v1_programs_destroy",
-                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; soft-deletes the program and detaches its projects in\n              one transaction (memberships are left in place)",
                 "parameters": [
                     {
                         "in": "path",
