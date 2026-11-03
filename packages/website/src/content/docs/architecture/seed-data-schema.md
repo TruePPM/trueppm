@@ -24,6 +24,8 @@ own export loses its in-flight schedule floor.
 
 Schema 2.2 and `program.decisions` also ship in 0.5. The current release leaves
 the program decision log out of a program export, and its schema rejects the key.
+Seed timestamps are minute precision, so the seconds of a decision's `created_at`,
+`updated_at` and `decided_at` are not preserved by a round trip.
 :::
 
 ## The format

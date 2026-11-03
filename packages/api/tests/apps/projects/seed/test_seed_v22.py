@@ -235,3 +235,92 @@ def test_v1_export_never_carries_decisions(owner: Any) -> None:
     exported = export_program(program)
     assert exported["schema_version"] == "1.0"
     assert "decisions" not in exported["program"]
+
+
+# --- completeness: accounts, dropped links, budget, cap, unchanged exports ----------
+
+
+def _strip_decisions(doc: dict[str, Any], version: str) -> dict[str, Any]:
+    out = copy.deepcopy(doc)
+    del out["program"]["decisions"]
+    out["schema_version"] = version
+    return out
+
+
+def test_owner_outside_the_program_roster_still_gets_an_account(owner: Any) -> None:
+    doc = _doc()
+    # Neither person has a ``role`` -> no ProgramMembership is created for them.
+    doc["accounts"] += [
+        {"slug": "carol", "username": "v22-carol"},
+        {"slug": "dan", "username": "v22-dan"},
+    ]
+    doc["program"]["decisions"][2].update({"owner": "carol", "created_by": "dan"})
+    program = import_seed(doc, owner=owner, create_users=True)
+
+    exported = export_program(program, with_events=True)
+    by_username = {a["username"]: a for a in exported["accounts"]}
+    carol, dan = by_username["v22-carol"], by_username["v22-dan"]
+    assert "role" not in carol and "role" not in dan
+    entry = next(d for d in exported["program"]["decisions"] if d["title"] == "Drop SSO from beta")
+    assert entry["owner"] == carol["slug"]
+    assert entry["created_by"] == dan["slug"]
+    validate_seed(exported)
+
+    reimported = import_seed(
+        json.loads(dump_seed(exported)), owner=owner, create_users=True, replace=True
+    )
+    row = ProgramDecision.objects.get(program=reimported, title="Drop SSO from beta")
+    assert row.owner is not None and row.owner.username == "v22-carol"
+    assert row.created_by is not None and row.created_by.username == "v22-dan"
+
+
+def test_unresolved_links_are_dropped_on_export(owner: Any) -> None:
+    from trueppm_api.apps.projects.models import Risk, Task
+
+    program = import_seed(_doc(), owner=owner, create_users=True)
+    Task.objects.filter(project__program=program).update(is_deleted=True)
+    Risk.objects.filter(project__program=program).update(is_deleted=True)
+
+    exported = export_program(program, with_events=True)
+    decisions = exported["program"]["decisions"]
+    assert len(decisions) == 3
+    assert all("linked_task" not in d and "linked_risk" not in d for d in decisions)
+    validate_seed(exported)
+
+
+def test_decisions_count_toward_the_node_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    from trueppm_api.apps.projects.seed import validation
+
+    without = _strip_decisions(_doc(), "2.1")
+    monkeypatch.setattr(validation, "MAX_SEED_NODES", 5)
+    validate_seed(without)  # 1 project + 2 accounts + 1 task + 1 risk = 5, at the limit
+    assert any("seed too large" in e for e in _errors(_doc()))
+
+
+def test_decisions_array_is_capped_at_5000() -> None:
+    doc = _doc()
+    doc["program"]["decisions"] = [{"slug": f"d{i}", "title": f"Decision {i}"} for i in range(5001)]
+    assert any(e.startswith("$.program.decisions:") for e in _errors(doc))
+
+
+def test_export_without_decisions_differs_only_in_decision_data(owner: Any) -> None:
+    with_decisions = import_seed(_doc(), owner=owner, create_users=True)
+    with_doc = export_program(with_decisions, with_events=True)
+
+    plain = _strip_decisions(_doc(), "2.1")
+    plain["program"]["backlog_items"] = [{"slug": "idea", "title": "An idea"}]
+    plain_program = import_seed(plain, owner=owner, create_users=True, replace=True)
+    plain_doc = export_program(plain_program, with_events=True)
+
+    # A 2.1 construct keeps the document at 2.1 and adds no decision-owner accounts.
+    assert plain_doc["schema_version"] == "2.1"
+    assert "decisions" not in plain_doc["program"]
+    plain_users = [a["username"] for a in plain_doc["accounts"]]
+    assert "v22-carol" not in plain_users
+
+    # Differential: removing the decision data from the 2.2 export recovers the same
+    # shape (accounts and projects untouched) — the feature adds nothing elsewhere.
+    assert with_doc["schema_version"] == "2.2"
+    assert [a["username"] for a in with_doc["accounts"]] == plain_users
+    assert with_doc["projects"] == plain_doc["projects"]
+    assert {k for k in with_doc["program"] if k != "decisions"} >= {"slug", "name"}

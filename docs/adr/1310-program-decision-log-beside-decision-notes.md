@@ -71,6 +71,11 @@ decision to hang off a task, which is not how a program states an open question.
   The program seed export does not yet: the seed v2 schema rejects unknown keys, so
   adding decisions needs a schema minor (2.2) with validation and import. Tracked in
   #4776.
+
+  > **Superseded 2026-11-03 (#4776):** seed schema 2.2 now carries the decision log.
+  > A program export includes `program.decisions` and import restores them, so the
+  > limitation above no longer holds. The paragraph is kept as the record of why the
+  > schema minor was needed.
 - Writes are reachable by a `legacy:full` personal access token, the same as
   `backlog-items/` (recorded in `token_write_surface.txt`). An `mcp:read` agent token
   gets a 401 here: the view is not MCP-wrapped, so `OwnerScopedApiTokenAuthentication`
