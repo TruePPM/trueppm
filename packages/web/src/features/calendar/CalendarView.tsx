@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { Methodology, Task, TaskStatus } from '@/types';
 import { useCalendarFilter } from './useCalendarFilter';
+import { useCalendarWorkingTime } from './useCalendarWorkingTime';
 import { CalendarGrid } from './CalendarGrid';
 import {
   parseUTCDate,
@@ -29,6 +30,12 @@ import {
   formatDayLabel,
   buildChips,
   buildMilestoneMarks,
+  deriveWeekStartDay,
+  viewWeekStarts,
+  addDays,
+  formatISODate,
+  type WeekStartDay,
+  type WorkingTimeInputs,
 } from './calendarUtils';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -157,6 +164,9 @@ function CalendarGridArea({
   projectId,
   itl,
   calView,
+  weekStartDay,
+  workingTime,
+  holidaysUnavailable,
   canCreate,
   onAddTask,
   onRetry,
@@ -171,6 +181,9 @@ function CalendarGridArea({
   projectId: string | undefined;
   itl: ReturnType<typeof useIterationLabel>;
   calView: 'month' | 'week';
+  weekStartDay: WeekStartDay;
+  workingTime: WorkingTimeInputs;
+  holidaysUnavailable: boolean;
   canCreate: boolean;
   onAddTask: () => void;
   onRetry: () => void;
@@ -233,6 +246,9 @@ function CalendarGridArea({
     <CalendarGrid
       anchorIso={anchorIso}
       calView={calView}
+      weekStartDay={weekStartDay}
+      workingTime={workingTime}
+      holidaysUnavailable={holidaysUnavailable}
       tasks={tasks}
       onTaskClick={onTaskClick}
       sprintBoundaries={sprintBoundaries}
@@ -267,7 +283,17 @@ export function CalendarView() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const anchor = parseUTCDate(anchorIso);
-  const label = formatViewLabel(anchor, calView);
+  const weekStartDay = deriveWeekStartDay(projectDetail?.effective_calendar?.working_days);
+  const label = formatViewLabel(anchor, calView, weekStartDay);
+
+  const windowWeeks = viewWeekStarts(anchor, calView, weekStartDay);
+  const { workingTime, holidaysUnavailable } = useCalendarWorkingTime({
+    projectId,
+    effectiveCalendar: projectDetail?.effective_calendar,
+    calendarSource: projectDetail?.calendar_source,
+    startIso: formatISODate(windowWeeks[0]),
+    endIso: formatISODate(addDays(windowWeeks[windowWeeks.length - 1], 6)),
+  });
 
   // WCAG 4.1.3 — switching mode or stepping the window swaps grid content with
   // no focus change, so a screen-reader user gets nothing. The region is mounted
@@ -283,20 +309,27 @@ export function CalendarView() {
   // region of its own (web rule 354).
   const windowIsEmpty =
     tasks.length > 0 &&
-    buildChips(tasks, anchor, calView).length === 0 &&
-    buildMilestoneMarks(tasks, anchor, calView).length === 0;
+    buildChips(tasks, anchor, calView, weekStartDay).length === 0 &&
+    buildMilestoneMarks(tasks, anchor, calView, weekStartDay).length === 0;
 
   const [announcement, setAnnouncement] = useState('');
   const firstRender = useRef(true);
+  const announcedWeekStartDay = useRef(weekStartDay);
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
+    // The week start settling when the project's calendar resolves is not a change
+    // the user made, so it must not narrate a view they never moved.
+    if (announcedWeekStartDay.current !== weekStartDay) {
+      announcedWeekStartDay.current = weekStartDay;
+      return;
+    }
     const mode = calView === 'week' ? 'Week' : 'Month';
-    const window = formatViewLabel(parseUTCDate(anchorIso), calView);
+    const window = formatViewLabel(parseUTCDate(anchorIso), calView, weekStartDay);
     setAnnouncement(`${mode} view, ${window}${windowIsEmpty ? ', no tasks' : ''}`);
-  }, [calView, anchorIso, windowIsEmpty]);
+  }, [calView, anchorIso, windowIsEmpty, weekStartDay]);
 
   // The clicked task is already loaded for chip rendering — resolve it by id
   // rather than re-fetching. Falls back to null if it scrolled out of the window.
@@ -440,6 +473,9 @@ export function CalendarView() {
           projectId={projectId}
           itl={itl}
           calView={calView}
+          weekStartDay={weekStartDay}
+          workingTime={workingTime}
+          holidaysUnavailable={holidaysUnavailable}
           canCreate={canCreate}
           onAddTask={() => setShowAddForm(true)}
           onRetry={refetch}

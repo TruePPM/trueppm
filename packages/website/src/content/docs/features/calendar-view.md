@@ -1,10 +1,14 @@
 ---
 title: Calendar view
-description: Reference for the project Calendar view — month and week modes, task chips, milestone diamonds, sprint boundaries, and the phone agenda reflow.
-documentedFor: "0.4"
+description: Reference for the project Calendar view — month and week modes, working and non-working days, task chips, milestone diamonds, sprint boundaries, and the phone agenda reflow.
+documentedFor: "0.5"
 ---
 
-The **Calendar view** is for anyone on the team who needs a familiar week- or month-view answer to "what's happening when" — a PM prepping for a status meeting, or a team member checking their week. It lays your project's dated work over an ordinary Mon–Sun calendar. Where the Schedule view answers "what depends on what", the Calendar answers "what is happening the week of the 24th" — the question you get asked in a status meeting.
+The **Calendar view** is for anyone on the team who needs a familiar week- or month-view answer to "what's happening when" — a PM prepping for a status meeting, or a team member checking their week. It lays your project's dated work over a calendar that follows your project's working week. Where the Schedule view answers "what depends on what", the Calendar answers "what is happening the week of the 24th" — the question you get asked in a status meeting.
+
+:::note[Ships in 0.5]
+Everything this page says about the week start, non-working days, holidays and shutdowns lands in 0.5. In the current release the grid always runs Monday to Sunday, mutes the Saturday and Sunday date numbers whatever the project's working calendar says, shows no holidays or shutdowns, and its legend names only the first six marks.
+:::
 
 It lives in the **Plan** group of the project view bar, at `/projects/{projectId}/calendar`.
 
@@ -18,12 +22,12 @@ Every task whose date span overlaps the window on screen is drawn. Dates come fr
 
 ## Month mode
 
-Month is the default. The grid runs from the Monday on or before the 1st to the Sunday on or after the last day of the anchored month, which is **four to six week rows** depending on how the month falls.
+Month is the default. The grid runs from the [first day of the week](#non-working-days-and-the-week-start) on or before the 1st through the row holding the last day of the anchored month, which is **four to six week rows** depending on how the month falls.
 
 ![The Calendar view in Month mode showing task chips spanning days with a critical-path legend](../../../assets/screenshots/calendar.webp)
 
 - Days that belong to the neighboring months are **dimmed** — sunken cell background, muted date number — so the month's own shape stays legible.
-- In-month Saturday and Sunday date numbers are muted relative to the working week (neighboring-month days use the dimmed treatment above instead) — a lighter weight in the secondary text color, still above the 4.5:1 contrast minimum. Milestones and chips on a weekend are drawn at full strength.
+- [Non-working days](#non-working-days-and-the-week-start) carry a pattern fill, and their in-month date numbers are muted — a lighter weight in the secondary text color, still above the 4.5:1 contrast minimum. Milestones and chips on those days are drawn at full strength.
 - **Today** gets a tinted cell and its date number in a filled circle.
 
 ### The four-lane cap
@@ -36,7 +40,7 @@ The cap is there because a month packs four to six rows into one screen, so each
 
 ## Week mode
 
-Week mode draws the single Mon–Sun week containing the anchor date, and the toolbar heading becomes that week's date range instead of a month name. The range takes one of three shapes, so it never repeats information it doesn't need and never drops information you do:
+Week mode draws the single week containing the anchor date, and the toolbar heading becomes that week's date range instead of a month name. The range takes one of three shapes, so it never repeats information it doesn't need and never drops information you do:
 
 | The week | Heading |
 | --- | --- |
@@ -47,9 +51,25 @@ Week mode draws the single Mon–Sun week containing the anchor date, and the to
 Two things change besides the row count:
 
 - **There is no lane cap.** Every task touching the week is drawn, and the row grows taller to fit however many lanes it needs. There is no `+N more` in week mode, because nothing is being hidden. The row never shrinks below a month row's height, so a quiet week doesn't collapse into a strip.
-- **Nothing is dimmed for being out of month.** Every day in a week row is inside the window by definition, so the out-of-month graying is a month-mode concept only. The weekend muting and the Today tint still apply.
+- **Nothing is dimmed for being out of month.** Every day in a week row is inside the window by definition, so the out-of-month graying is a month-mode concept only. The non-working fills and the Today tint still apply.
 
 A week with nothing scheduled in it says **"No tasks in the week of Aug 24 – 30, 2026."** across the row — a tall empty row would otherwise read as a failed render rather than as an empty week.
+
+## Non-working days and the week start
+
+The grid reads each day from your project's working calendars: the base calendar the project uses, whether its own or inherited from its program or workspace, plus any holiday or workspace calendars applied on top. These are the same calendars the scheduling engine uses, so when a bar crosses a gap in working time, the Calendar shows why.
+
+| The day is | On the grid | Read by a screen reader as |
+| --- | --- | --- |
+| Outside the working week | Diagonal hatch, muted date number | `Friday, December 18, 2026, non-working day` |
+| A holiday | Dotted fill, with its name beside the date | `Tuesday, December 15, 2026, Founders Day, Gulf Office, non-working day` |
+| A shutdown (from a workspace calendar) | Cross-hatch fill, with its name beside the date | `Friday, December 25, 2026, Year-end shutdown, Workspace Closures, non-working day` |
+
+A holiday or shutdown with no description of its own shows its calendar's name instead. A holiday on a day that is already outside the working week still shows as the holiday. When more than one calendar blocks a day, its bottom-right corner carries a small triangle, and a shutdown takes precedence over a holiday.
+
+The **first column follows the working week** too: it is the first working day that follows a non-working day, walking the week from Monday. A Monday–Friday project opens on Monday and a Sunday–Thursday project on Sunday. A calendar that works all seven days stays on Monday. Calendars have no separate week-start setting.
+
+Add holidays and working-day patterns through [Calendars](/features/calendars/).
 
 ## Reading the marks
 
@@ -78,7 +98,7 @@ Two small dots carry information the bars can't:
 
 ### Legend
 
-A legend strip is pinned along the bottom of the view in both modes and on the phone, naming all six marks: **Critical path**, **At risk**, **On track**, **Milestone**, **Due**, **Sprint boundary**. The at-risk color marks tasks in **Review**, which you'll meet on the phone agenda rows and on the task-detail banner's status dot.
+A legend strip is pinned along the bottom of the view in both modes and on the phone, naming six marks: **Critical path**, **At risk**, **On track**, **Milestone**, **Due**, **Sprint boundary**. Above the phone breakpoint it also names the three day fills: **Non-working day**, **Holiday**, **Shutdown**. The at-risk color marks tasks in **Review**, which you'll meet on the phone agenda rows and on the task-detail banner's status dot.
 
 Nothing here depends on color alone: milestones carry a diamond shape and a name, the due marker is a distinct dot, and every chip's screen-reader label spells out its state — `Design review, on critical path, due`.
 
@@ -93,7 +113,7 @@ Both pieces of state live in the URL, so a calendar you are looking at is a link
 | `calView` | `month` or `week` | `month` |
 | `calAnchor` | A date, `YYYY-MM-DD` | Today |
 
-`…/calendar?calView=week&calAnchor=2026-08-26` opens the week of August 24th for whoever you send it to. Both parameters are bookmarkable and survive navigating away and back. A link with a value the calendar can't read (a truncated or mistyped date, or an unknown mode) still opens: an unparseable `calAnchor` opens on today, and an unknown `calView` opens the month view.
+`…/calendar?calView=week&calAnchor=2026-08-26` opens the week of August 24th on a Monday–Friday calendar, for whoever you send it to. Both parameters are bookmarkable and survive navigating away and back. A link with a value the calendar can't read (a truncated or mistyped date, or an unknown mode) still opens: an unparseable `calAnchor` opens on today, and an unknown `calView` opens the month view.
 
 Switching mode or stepping the window replaces the grid without moving focus, so both are announced to screen readers — *"Week view, Aug 24 – 30, 2026"* — and the grid itself is a labeled region naming the mode and window.
 
@@ -105,7 +125,7 @@ The date grid is a real grid, not a stack of boxes that happens to look like one
 | --- | --- |
 | <kbd>←</kbd> / <kbd>→</kbd> | The previous / next day |
 | <kbd>↑</kbd> / <kbd>↓</kbd> | The same weekday one week earlier / later |
-| <kbd>Home</kbd> / <kbd>End</kbd> | The Monday / Sunday of the week you are on |
+| <kbd>Home</kbd> / <kbd>End</kbd> | The first / last day of the week you are on |
 | <kbd>Ctrl</kbd>+<kbd>Home</kbd> / <kbd>Ctrl</kbd>+<kbd>End</kbd> | The first / last day the window draws |
 
 The grid is a **single stop** in the page's tab order — <kbd>Tab</kbd> brings you into it once, at today if today is on screen and at the anchored day otherwise, and <kbd>Tab</kbd> again takes you on to the tasks in that day. From there, tasks tab in the order you see them: down the rows, left to right across each week, and top to bottom within a day.
@@ -129,7 +149,7 @@ Below **768px** the seven-column grid would give each day about 60px — far too
 - Within a day, tasks are sorted by name.
 - Each row is a full-width, ≥44px target that opens the same detail banner a chip does. Milestones show a diamond; everything else shows a status color bar — red for critical, green for complete, blue for in progress, amber for review, gray otherwise.
 
-The list follows whichever mode you are in, so week mode narrows the agenda to that week.
+The list follows whichever mode you are in, so week mode narrows the agenda to that week, starting on the same day as the grid's first column. The agenda lists only days with tasks and does not mark non-working days.
 
 ## Empty and error states
 
@@ -137,6 +157,7 @@ The list follows whichever mode you are in, so week mode narrows the agenda to t
 | --- | --- |
 | Loading | A skeleton grid, announced as busy |
 | The request failed | **"Couldn't load the calendar."** with a **Retry** |
+| Holidays could not be loaded | The grid still draws, using the project's weekly working pattern, and the legend says **"Couldn't load holidays. Showing the weekly working pattern only."** |
 | The project has no tasks | **"No tasks yet"** with **+ Add task** — the button appears for Member and above, and is withheld from Viewers |
 | No tasks, and the project is Agile | **"Calendar isn't part of this project's workflow"**, with a link to your iterations and a pointer to the methodology setting |
 | Tasks exist, but none in this window | **"No tasks in {window}."** — named explicitly on the phone list and in a week row, and conveyed by the month grid's empty dated cells |

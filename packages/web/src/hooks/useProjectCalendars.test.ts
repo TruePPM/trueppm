@@ -1,10 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { createElement, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
 import {
   calendarKeys,
   buildUpdatePayload,
+  useCalendarDetail,
   type Calendar,
   type ProjectCalendars,
 } from './useProjectCalendars';
+
+const apiGet = vi.hoisted(() => vi.fn());
+vi.mock('@/api/client', () => ({ apiClient: { get: apiGet } }));
 
 function cal(id: string, over: Partial<Calendar> = {}): Calendar {
   return {
@@ -92,5 +99,28 @@ describe('buildUpdatePayload', () => {
       { calendar_id: 'hol', role: 'holidays' },
       { calendar_id: 'x', role: 'holidays' },
     ]);
+  });
+});
+
+describe('useCalendarDetail', () => {
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(
+      QueryClientProvider,
+      { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+      children,
+    );
+
+  it('reads one calendar with its exceptions', async () => {
+    apiGet.mockResolvedValue({ data: BASE });
+    const { result } = renderHook(() => useCalendarDetail('base'), { wrapper });
+    await waitFor(() => expect(result.current.data).toEqual(BASE));
+    expect(apiGet).toHaveBeenCalledWith('/calendars/base/');
+  });
+
+  it('issues no request without an id', () => {
+    apiGet.mockClear();
+    const { result } = renderHook(() => useCalendarDetail(null), { wrapper });
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(apiGet).not.toHaveBeenCalled();
   });
 });

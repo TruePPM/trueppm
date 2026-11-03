@@ -20,7 +20,9 @@ import {
   formatWindowNoun,
   weekStart,
   addDays,
+  DEFAULT_WEEK_START_DAY,
   type CalViewMode,
+  type WeekStartDay,
 } from './calendarUtils';
 
 /**
@@ -62,6 +64,8 @@ interface CalendarMobileListProps {
    * until #3167, so the default preserves every existing caller's meaning.
    */
   calView?: CalViewMode;
+  /** The weekday week mode's window opens on, so it matches the toolbar's range. */
+  weekStartDay?: WeekStartDay;
   tasks: Task[];
   onTaskClick: (taskId: string) => void;
 }
@@ -69,6 +73,7 @@ interface CalendarMobileListProps {
 export function CalendarMobileList({
   anchorIso,
   calView = 'month',
+  weekStartDay = DEFAULT_WEEK_START_DAY,
   tasks,
   onTaskClick,
 }: CalendarMobileListProps) {
@@ -79,12 +84,13 @@ export function CalendarMobileList({
   // ISO strings are zero-padded YYYY-MM-DD, so lexical comparison == date order.
   // The window is the anchored week in week mode, the anchored month otherwise —
   // the rest of the grouping is identical, so only these two bounds branch.
-  const mon = weekStart(anchor);
-  const windowStartIso = calView === 'week' ? formatISODate(mon) : `${year}-${pad(month + 1)}-01`;
+  const firstOfWeek = weekStart(anchor, weekStartDay);
+  const windowStartIso =
+    calView === 'week' ? formatISODate(firstOfWeek) : `${year}-${pad(month + 1)}-01`;
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const windowEndIso =
     calView === 'week'
-      ? formatISODate(addDays(mon, 6))
+      ? formatISODate(addDays(firstOfWeek, 6))
       : `${year}-${pad(month + 1)}-${pad(lastDay)}`;
 
   const groupsByIso = new Map<string, Task[]>();
@@ -116,7 +122,7 @@ export function CalendarMobileList({
     return (
       <div role="status" className="flex flex-1 items-center justify-center px-6 py-16 text-center">
         <p className="text-sm text-neutral-text-secondary">
-          No tasks in {formatWindowNoun(anchor, calView)}.
+          No tasks in {formatWindowNoun(anchor, calView, weekStartDay)}.
         </p>
       </div>
     );

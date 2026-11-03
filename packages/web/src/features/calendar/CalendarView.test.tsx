@@ -22,6 +22,16 @@ vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => 'lg' }));
 // Server-resolved methodology (#2619) — drives the explanatory empty state.
 // Default (no data) lets the component's own `?? 'HYBRID'` fallback apply.
 vi.mock('@/hooks/useProject', () => ({ useProject: projectMock }));
+const workingTimeSpy = vi.hoisted(() => vi.fn());
+vi.mock('./useCalendarWorkingTime', () => ({
+  useCalendarWorkingTime: (args: unknown) => {
+    workingTimeSpy(args);
+    return {
+      workingTime: { mask: 31, previewByDate: new Map(), exceptions: [] },
+      holidaysUnavailable: false,
+    };
+  },
+}));
 vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({
     singular: 'Sprint',
@@ -208,7 +218,7 @@ describe('CalendarView state branches (#2161)', () => {
     expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
   });
 
-  it('shows no banner on an EMPTY calendar under AGILE — that is the empty state\'s job', () => {
+  it("shows no banner on an EMPTY calendar under AGILE — that is the empty state's job", () => {
     projectMock.mockReturnValue({
       data: { effective_methodology: 'AGILE' },
       isLoading: false,
@@ -398,5 +408,58 @@ describe('CalendarView week mode (#3167)', () => {
     calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
     rerender(<CalendarView />);
     expect(await screen.findByText(/, no tasks$/)).toBeInTheDocument();
+  });
+
+  describe('calendar-derived week start', () => {
+    const SUN_THU = 64 + 1 + 2 + 4 + 8;
+    const onCalendar = (working_days: number) => ({
+      data: { effective_calendar: { id: 'c', name: 'C', working_days, holiday_count: 0 } },
+      isLoading: false,
+      error: null,
+    });
+
+    beforeEach(() => {
+      calendarTasksMock.mockReturnValue({
+        tasks: [sampleTask],
+        isLoading: false,
+        error: null,
+        refetch,
+      });
+    });
+
+    it('heads the week and requests the working time for the rotated window', () => {
+      calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+      projectMock.mockReturnValue(onCalendar(SUN_THU));
+      renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('May 3 \u2013 9, 2026');
+      expect(workingTimeSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ startIso: '2026-05-03', endIso: '2026-05-09' }),
+      );
+    });
+
+    it('requests the whole drawn month, spilling past the month on both sides', () => {
+      projectMock.mockReturnValue(onCalendar(31));
+      renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+      expect(workingTimeSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ startIso: '2026-04-27', endIso: '2026-05-31' }),
+      );
+    });
+
+    it('stays on Monday without a resolved calendar', () => {
+      calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+      renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('May 4 \u2013 10, 2026');
+    });
+
+    it('does not announce the week start settling when the calendar resolves', () => {
+      calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+      const { rerender } = renderWithRouter(<CalendarView />, {
+        initialEntries: ['/projects/proj-1?view=calendar'],
+      });
+      projectMock.mockReturnValue(onCalendar(SUN_THU));
+      rerender(<CalendarView />);
+      expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('May 3 \u2013 9, 2026');
+      expect(screen.queryByText(/^Week view/)).not.toBeInTheDocument();
+    });
   });
 });

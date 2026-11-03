@@ -108,6 +108,8 @@ export const calendarKeys = {
     [...calendarKeys.all, 'applied', projectId] as const,
   preview: (projectId: string | null | undefined, start: string, end: string) =>
     [...calendarKeys.all, 'preview', projectId, start, end] as const,
+  detail: (calendarId: string | null | undefined) =>
+    [...calendarKeys.all, 'detail', calendarId] as const,
 };
 
 /** GET /calendars/ — the shared org calendar library (pickable in the picker). */
@@ -122,6 +124,18 @@ export function useCalendarLibrary() {
       return Array.isArray(data) ? data : (data.results ?? []);
     },
     staleTime: 5 * 60 * 1000, // library changes rarely
+  });
+}
+
+/** GET /calendars/{id}/ — one library calendar with its exceptions. Pass null to skip. */
+export function useCalendarDetail(calendarId: string | null | undefined) {
+  return useQuery<Calendar>({
+    queryKey: calendarKeys.detail(calendarId),
+    queryFn: async () => {
+      const res = await apiClient.get<Calendar>(`/calendars/${calendarId}/`);
+      return res.data;
+    },
+    enabled: !!calendarId,
   });
 }
 
