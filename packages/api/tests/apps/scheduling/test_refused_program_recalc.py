@@ -84,7 +84,10 @@ def test_refused_program_pass_ends_cleanly_and_signals_every_member(
     for project in (a, b):
         run = TaskRun.objects.get(project=project, task_name="scheduling.recalculate")
         assert run.status == TaskRunStatus.FAILED
-        assert "link to a specific leaf task instead" in run.error_detail
+    # The project owning the offending summary is told what to fix; the other member
+    # only learns that another project blocked the program.
+    assert "link to a specific leaf task instead" in TaskRun.objects.get(project=a).error_detail
+    assert "another project" in TaskRun.objects.get(project=b).error_detail
     failed_for = {
         c.kwargs["project_id"]
         for c in bc.call_args_list
@@ -200,9 +203,10 @@ def test_escalating_to_a_program_pass_does_not_stamp_recalculated_at(
 
     _program_obj, a, _b = program_with_bad_edge
 
-    with patch("trueppm_api.apps.scheduling.tasks.recalculate_program_schedule.delay"):
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_program_schedule.delay") as delay:
         recalculate_schedule.apply(args=[str(a.pk)])
 
+    delay.assert_called_once_with(str(a.program_id))
     a.refresh_from_db()
     assert a.recalculated_at is None
 
@@ -247,3 +251,104 @@ def test_a_refused_program_pass_leaves_the_system_health_outbox_card_clean(
     recalculate_program_schedule.apply(args=[str(program.pk)])
 
     assert _outbox_card()["status"] == STATUS_OK
+
+
+@pytest.mark.django_db
+def test_repairing_the_edge_lets_the_program_pass_succeed_and_stamp() -> None:
+    program, a, _b = _program("summary")
+    first = _dispatched(a)
+    recalculate_program_schedule.apply(args=[str(program.pk)])
+    first.refresh_from_db()
+    assert first.status == ScheduleRequestStatus.DONE
+    a.refresh_from_db()
+    assert a.recalculated_at is None
+
+    Dependency.objects.filter(dep_type="SS").update(is_deleted=True)
+    second = _dispatched(a)
+    recalculate_program_schedule.apply(args=[str(program.pk)])
+
+    second.refresh_from_db()
+    a.refresh_from_db()
+    assert second.status == ScheduleRequestStatus.DONE
+    assert a.recalculated_at is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", ["summary", "none"])
+def test_a_draft_member_schedules_itself_instead_of_escalating(bad: str) -> None:
+    """The program pass leaves drafts out, so a draft that escalated would loop forever."""
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    program, a, _b = _program(bad)
+    draft = Project.objects.create(
+        name="Draft",
+        start_date=date(2026, 3, 2),
+        calendar=a.calendar,
+        program=program,
+        lifecycle="draft",
+    )
+    Task.objects.create(project=draft, name="D1", duration=1, wbs_path="1")
+    row = _dispatched(draft)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_program_schedule.delay") as pd:
+        recalculate_schedule.apply(args=[str(draft.pk)])
+    pd.assert_not_called()
+    recalculate_program_schedule.apply(args=[str(program.pk)])
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay") as delay:
+        _do_drain()
+        _do_drain()
+
+    row.refresh_from_db()
+    draft.refresh_from_db()
+    assert row.status == ScheduleRequestStatus.DONE
+    assert draft.recalculated_at is not None
+    delay.assert_not_called()
+    assert not FailedTask.objects.filter(project_id=draft.pk).exists()
+
+
+@pytest.mark.django_db
+def test_a_refusal_in_one_project_is_not_disclosed_to_another_projects_members(
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """ADR-0120 D5: B's members must not read A's task id or estimate values."""
+    from django.contrib.auth import get_user_model
+    from rest_framework.test import APIClient
+
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    program, a, b = _program("none")
+    offender = Task.objects.get(project=a, name="Other")
+    Task.objects.filter(pk=offender.pk).update(duration=40000)
+    user_model = get_user_model()
+    viewer_b = user_model.objects.create_user("viewer_b", password="x")
+    owner_a = user_model.objects.create_user("owner_a", password="x")
+    ProjectMembership.objects.create(project=b, user=viewer_b, role=Role.VIEWER)
+    ProjectMembership.objects.create(project=a, user=owner_a, role=Role.OWNER)
+
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event") as bc,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        recalculate_program_schedule.apply(args=[str(program.pk)])
+
+    secrets = (str(offender.pk), "40000")
+    client = APIClient()
+    client.force_authenticate(user=viewer_b)
+    for url in (
+        f"/api/v1/projects/{b.pk}/scheduler-runs/",
+        f"/api/v1/projects/{b.pk}/task-runs/",
+    ):
+        response = client.get(url)
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "FAILED" in body.upper()
+        assert not any(secret in body for secret in secrets)
+    b_events = [c.kwargs for c in bc.call_args_list if c.kwargs["project_id"] == str(b.pk)]
+    assert b_events
+    assert not any(secret in str(event) for event in b_events for secret in secrets)
+
+    a_run = TaskRun.objects.get(project=a)
+    assert str(offender.pk) in a_run.error_detail
+    client.force_authenticate(user=owner_a)
+    assert str(offender.pk) in client.get(f"/api/v1/projects/{a.pk}/task-runs/").content.decode()
+    assert str(offender.pk) in FailedTask.objects.get().exception_message

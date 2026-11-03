@@ -1,7 +1,7 @@
 ---
 title: System Health
 description: The workspace-admin System Health console — inspect durable-execution health, the Celery Beat heartbeat, and the dead-letter queue from the UI, without shelling into the cluster.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 
@@ -56,6 +56,18 @@ green (healthy), amber (needs attention), red (broken), or a **gray hollow ring
 | Dead-letter alerting | permanently-failed Celery tasks | no parked (`dead`) tasks |
 | Notification dispatcher | outbound email delivery | no permanent failures in the last hour, no aging queue, credential usable |
 | Retention purge | the most recent purge run | last run succeeded (`ok`) |
+
+:::note[Ships in 0.5]
+**A refused recalculation.** A recalculation the scheduler refuses because of stored data (a
+Start-to-Start link from a summary task, a dependency cycle) ends cleanly: its outbox
+request is retired as done, so the **Outbox dispatcher** card stays healthy and the run is
+not re-dispatched every ten minutes. The failure is kept as a `dead` row on the
+**Dead-letter alerting** card instead. That row stays parked after the data is repaired,
+reads `warn` while fresh and `crit` once it is about a day old, until an operator
+dismisses it. In 0.4 the same refusal fails the task and leaves the outbox row to be
+re-dispatched.
+:::
+
 
 **Notification dispatcher.** The card watches three independent signals, so a dead
 SMTP relay cannot go unreported:

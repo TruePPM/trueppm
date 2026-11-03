@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import logging
 import operator
+import re
 import uuid
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
@@ -1928,7 +1929,15 @@ def _escalate_to_program(project_id: str, program_id: object) -> bool:
     """
     if program_id is None:
         return False
+    from trueppm_api.apps.projects.lifecycle import visible_projects
+    from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.projects.program_schedule import program_has_accepted_cross_edges
+
+    # The program pass leaves drafts out of its graph, its claim and its stamp, so a
+    # draft that handed off would never be computed and its outbox row would stay
+    # DISPATCHED for the drain to re-run forever. A draft schedules itself.
+    if not visible_projects(Project.objects.filter(pk=project_id)).exists():
+        return False
 
     if not program_has_accepted_cross_edges(program_id):
         return False
@@ -2092,6 +2101,40 @@ def _register_program_broadcasts(
         transaction.on_commit(_capture)
 
 
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _offending_project_id(exc: SchedulerError, member_ids: list[Any]) -> str | None:
+    """The member project owning the task a scheduler refusal names, if it can tell.
+
+    Same attribution as the on-read path's ``_raise_invalid_input``: a cycle carries
+    its task ids, other refusals embed the task uuid in the message. Any uuid is
+    matched, not only ``Task '<uuid>'``, because the summary-link refusal words it
+    "summary task '<uuid>'".
+    """
+    from trueppm_scheduler import CyclicDependencyError
+
+    from trueppm_api.apps.projects.models import Task
+
+    if isinstance(exc, CyclicDependencyError):
+        task_ids = [str(t) for t in exc.cycle]
+    else:
+        task_ids = _UUID_RE.findall(str(exc))
+    if not task_ids:
+        return None
+    for task_id in task_ids:
+        project_id = (
+            Task.objects.filter(id=task_id, project_id__in=member_ids)
+            .values_list("project_id", flat=True)
+            .first()
+        )
+        if project_id is not None:
+            return str(project_id)
+    return None
+
+
 def _end_refused_program_run(
     task: object,
     program_id: str,
@@ -2125,12 +2168,23 @@ def _end_refused_program_run(
     ScheduleRequest.objects.filter(
         id__in=claimed_ids, status=ScheduleRequestStatus.DISPATCHED
     ).update(status=ScheduleRequestStatus.DONE)
+    # ADR-0120 D5: the raw message embeds the offending task's id and estimate values,
+    # which the on-read path withholds from callers who cannot read that project. A run
+    # is readable by every member of its own project, so only the project that owns
+    # the offending task gets the actionable text; the rest get a generic one. The
+    # unredacted text stays on the operator-only FailedTask below. When the offender
+    # cannot be attributed, nobody gets the raw text.
+    owner_id = _offending_project_id(exc, member_ids)
+    generic = SchedulerError(
+        "The program schedule could not be recalculated because of a problem in "
+        "another project in this program. Ask a member of that project to resolve it."
+    )
     for member_id in member_ids:
         try:
             with TaskRunTracker(
                 task, project_id=str(member_id), task_name="scheduling.recalculate"
             ):
-                raise exc
+                raise exc if str(member_id) == owner_id else generic
         except (SchedulerError, TaskRunProjectGone):
             pass
     # The replay args must be the program id: a requeue re-runs the task with

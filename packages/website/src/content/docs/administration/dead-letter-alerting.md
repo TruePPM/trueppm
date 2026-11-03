@@ -1,7 +1,7 @@
 ---
 title: Dead-letter Alerting
 description: How TruePPM surfaces permanently-failed background tasks via a structured alert log, a Prometheus gauge, and an Enterprise signal for off-box paging.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 
@@ -58,7 +58,22 @@ run again. At that point, three things happen exactly once per failed task:
 
 The alert fires **once per newly dead-lettered task**: a re-delivered failure for a
 task id that is already parked does not re-alert, so you do not get an alert storm
-from a single stuck task.
+from a single stuck task. The dedupe is by task id, so it does not cover separate
+runs: each run that fails gets its own task id, and therefore its own row and alert.
+A project that keeps producing refused recalculations (below) alerts once per
+refused run, for example once per edit that triggers a recalculation.
+
+:::note[Ships in 0.5]
+**Refused recalculations.** When the scheduler refuses a project's stored data (a
+Start-to-Start link from a summary task, a dependency cycle), the recalculation ends
+cleanly and is recorded here instead of being retried. Two things differ from other
+dead-lettered tasks:
+
+- The row stays `dead` after the data is repaired. It reads `warn` while fresh and
+  `crit` once it is about a day old, until an operator dismisses it.
+- For a program-wide recalculation the row has a null `project_id`, and its `args`
+  are the program id, so a requeue re-runs the program pass.
+:::
 
 :::note
 The alert `WARNING` is deliberately a distinct, lower-severity line from the
