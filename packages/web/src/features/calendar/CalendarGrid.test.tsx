@@ -636,6 +636,20 @@ describe('CalendarGrid', () => {
       expect(friCell.querySelector('span.text-neutral-text-secondary')).toBeNull();
     });
 
+    it('gives an out-of-month Saturday the same disabled token as an out-of-month weekday', () => {
+      // The out-of-month dimming wins over the weekend mute for the number.
+      // April 2026: the last row is Apr 27 – May 3, so Sat May 2 is out of month.
+      render(
+        <CalendarGrid anchorIso="2026-04-01" calView="month" tasks={[]} onTaskClick={vi.fn()} />,
+      );
+      const sat = screen.getByRole('gridcell', { name: 'Saturday, May 2, 2026' });
+      const mon = screen.getByRole('gridcell', { name: 'Monday, March 30, 2026' });
+      for (const c of [sat, mon]) {
+        expect(c.querySelector('span.text-neutral-text-disabled')).not.toBeNull();
+        expect(c.querySelector('span.text-neutral-text-secondary')).toBeNull();
+      }
+    });
+
     it('exposes the legend label by giving it a role that can carry one', () => {
       // aria-label on a role-less <div> names nothing at all.
       render(<CalendarGrid anchorIso={ANCHOR} tasks={[]} onTaskClick={vi.fn()} />);
