@@ -777,12 +777,14 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
 
     Scope is derived entirely from the caller's own live memberships, so — unlike
     the project endpoint — there is **no path parameter to tamper with**: no IDOR
-    surface. All co-members of the caller's programs are returned (parity with the
-    project endpoint, which returns every ``ProjectMembership`` for the project),
+    surface. All co-members of the caller's *live* programs are returned (parity with
+    the project endpoint, which returns every ``ProjectMembership`` for the project),
     which lets the client enforce offline program RBAC and render the roster.
 
-    Tombstones: a program soft-deleted while the caller is still a member, and any
-    co-member membership soft-deleted, are delivered as ``deleted`` ids.
+    Tombstones: a program soft-deleted while the caller is still a member is
+    delivered as a ``deleted`` id, as is any co-member membership soft-deleted on a
+    live program. A deleted program's own membership rows are not served at all
+    (its roster is withheld; the program tombstone is the only signal).
 
     Known v1 limitation (mirrors ``ProjectSyncView``): if the caller's *own*
     membership is soft-deleted (they are removed from a program), that row drops
