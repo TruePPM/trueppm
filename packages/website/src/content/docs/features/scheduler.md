@@ -153,10 +153,13 @@ naming them apart:
   move. It is bounded by the nearest downstream early start, not by the project
   end.
 
-`free_float <= total_float` always holds. The two are equal when nothing
-downstream absorbs slack ahead of the task: when it has no live successor, or when
-its successors have no float of their own (in an A → B chain where B is critical,
-A has both at zero). The gap between them is where the practical answer
+`free_float <= total_float` always holds. They are equal when the task has no
+live successor, or when every successor that bounds it has no float of its own: in
+an A → B chain where B is critical, A has both at zero, and a critical successor
+that starts days after A leaves A with the same free and total float. They differ
+when a bounding successor has float of its own: the slack is shared with that
+successor, so A → C where C has six days of float gives A six days of total float
+but none of free float, because C starts the moment A finishes. The gap between them is where the practical answer
 lives: a task carrying eight days of total float and two of free float has eight
 days of room in the plan overall, and can only take two of them before the next
 task is pushed. Spending the other six is a decision about somebody else's start
