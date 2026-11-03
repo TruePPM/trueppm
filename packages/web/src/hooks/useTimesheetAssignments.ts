@@ -1,13 +1,18 @@
 /**
- * The contributor's assigned tasks for the weekly timesheet grid (#4766).
+ * The contributor's OPEN assigned tasks for the weekly timesheet grid (#4766, #4783).
  *
  * Same source My Work renders (`GET /me/work/`), read through a timesheet-owned query
  * rather than My Work's shared `['me', 'work']` infinite query. That choice is about cost:
- * the grid needs *every* assignment, and draining all pages of the shared infinite query
- * would make every later `refetchOnWindowFocus` on that key re-fetch every loaded page for
- * every My Work observer. Here the whole read is one bounded query function — at most
- * `MAX_PAGES` pages of `PAGE_LIMIT`, no window-focus refetch — and a page that fails stops
- * the walk instead of being re-requested in a loop.
+ * the grid needs *every* open assignment, and draining all pages of the shared infinite
+ * query would make every later `refetchOnWindowFocus` on that key re-fetch every loaded
+ * page for every My Work observer. Here the whole read is one bounded query function — at
+ * most `MAX_PAGES` pages of `PAGE_LIMIT`, no window-focus refetch — and a page that fails
+ * stops the walk instead of being re-requested in a loop.
+ *
+ * The read asks for `?open=1`, so the server drops COMPLETE tasks before paginating.
+ * Without it, finished history from all time sorts ahead of upcoming open work and fills
+ * the page budget first. Which of these open tasks get a row in a given week is decided
+ * by their schedule span (`zeroRowCandidates`), not here.
  */
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
@@ -18,15 +23,12 @@ import { TIMESHEET_ASSIGNMENTS_KEY } from '@/hooks/myWorkQueryKeys';
 /** Rows per page — the server's `MeWorkPagination.max_limit`. */
 export const PAGE_LIMIT = 200;
 /**
- * Page cap: 2,000 rows. Not a comfortable margin — `/me/work/` returns COMPLETE tasks from
- * all time and sorts by `_sort_date` ascending, so a long-tenured contributor's finished
- * history fills the early pages before their upcoming open work. Hitting the cap therefore
- * drops the rows that matter most, which is why it flags the read `partial` (the page
- * shows a notice) rather than truncating silently.
- * TODO(#4783): once the server offers an open-only filter and a schedule span, request
- * open work only and lower this cap.
+ * Page cap: 1,000 open rows. The read excludes COMPLETE tasks server-side (`?open=1`), so
+ * the budget is spent on open work only; a contributor with more than this many open
+ * assignments is past what a weekly grid can usefully show. Hitting the cap still flags the
+ * read `partial` (the page shows a notice) rather than truncating silently.
  */
-export const MAX_PAGES = 10;
+export const MAX_PAGES = 5;
 
 export interface TimesheetAssignments {
   tasks: MyWorkTask[];
@@ -48,7 +50,7 @@ export interface TimesheetAssignments {
 export async function fetchTimesheetAssignments(): Promise<TimesheetAssignments> {
   const tasks: MyWorkTask[] = [];
   let url: string | null = '/me/work/';
-  let params: Record<string, number> | undefined = { limit: PAGE_LIMIT };
+  let params: Record<string, number> | undefined = { limit: PAGE_LIMIT, open: 1 };
   for (let page = 0; url !== null; page++) {
     if (page >= MAX_PAGES) return { tasks, partial: true };
     let data: MyWorkPage;
@@ -60,12 +62,12 @@ export async function fetchTimesheetAssignments(): Promise<TimesheetAssignments>
     }
     tasks.push(...data.results);
     url = data.next ? toApiRelativePath(data.next) : null;
-    params = undefined; // `next` already carries limit/offset
+    params = undefined; // `next` already carries limit/offset/open
   }
   return { tasks, partial: false };
 }
 
-/** The caller's assigned tasks for the timesheet (bounded, no window-focus refetch). */
+/** The caller's open assigned tasks for the timesheet (bounded, no window-focus refetch). */
 export function useTimesheetAssignments() {
   return useQuery({
     queryKey: TIMESHEET_ASSIGNMENTS_KEY,

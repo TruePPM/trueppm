@@ -64,6 +64,15 @@ export interface MyWorkTask {
   remaining_points: number | null;
   due: string | null;
   due_source: DueSource;
+  /**
+   * The task's schedule SPAN (ADR-0752, #4783): `scheduled_start` is the span start (not
+   * `early_start`, which is the remaining-work window) and `scheduled_finish` its end.
+   * Both null for a task the engine has not scheduled. Lets a client ask "is this task
+   * scheduled during week W?" — `due` cannot, being one end-ish date. Optional so a
+   * fixture built before #4783 still type-checks; a real response always carries both.
+   */
+  scheduled_start?: string | null;
+  scheduled_finish?: string | null;
   is_critical: boolean;
   /**
    * Server-computed bucket (#484, ADR-0122): the section this task renders under.

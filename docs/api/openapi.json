@@ -8380,6 +8380,14 @@
                         }
                     },
                     {
+                        "in": "query",
+                        "name": "open",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "`true`/`1` excludes COMPLETE tasks, returning only the caller's open work (#4783). Narrows the caller's own assignments; never widens whose tasks are returned. `due_today_count` already counts open tasks only and is unaffected; `server_version_high_water` reflects the filtered row set."
+                    },
+                    {
                         "name": "ordering",
                         "required": false,
                         "in": "query",
@@ -58501,7 +58509,7 @@
             },
             "MeWorkTask": {
                 "type": "object",
-                "description": "Flat, contributor-facing task row for ``GET /me/work/``.\n\nDeliberately omits every CPM field (``early_start``, ``late_finish``,\n``total_float``, ``wbs_path``, ``phase_id``) so the response carries no\nproject-management vocabulary into a contributor's surface. ``is_critical``\nis the one CPM-derived signal exposed — but as a single boolean the UI\nrenders as an icon with a plain-English tooltip (\"delays here delay the\nproject end date\"), not as the words \"critical path\".\n\n``due`` follows the ADR-0065 cascade:\n    actual_finish → planned_start → early_finish → sprint.finish_date.\n``due_source`` labels which step of the cascade produced the date so the\nUI can render \"Due May 30 (planned)\" vs \"Ends with Sprint 12\" — pure dates\nwithout their provenance erode contributor trust within a sprint.",
+                "description": "Flat, contributor-facing task row for ``GET /me/work/``.\n\nDeliberately omits every CPM field (``early_start``, ``late_finish``,\n``total_float``, ``wbs_path``, ``phase_id``) so the response carries no\nproject-management vocabulary into a contributor's surface. ``is_critical``\nis the one CPM-derived signal exposed — but as a single boolean the UI\nrenders as an icon with a plain-English tooltip (\"delays here delay the\nproject end date\"), not as the words \"critical path\".\n\n``due`` follows the ADR-0065 cascade:\n    actual_finish → planned_start → early_finish → sprint.finish_date.\n``due_source`` labels which step of the cascade produced the date so the\nUI can render \"Due May 30 (planned)\" vs \"Ends with Sprint 12\" — pure dates\nwithout their provenance erode contributor trust within a sprint.\n\n``scheduled_start`` / ``scheduled_finish`` are the task's SPAN (ADR-0752),\nexposed so a client can ask \"is this task scheduled during week W?\" — the\ntimesheet's zero-row rule (#4783). ``due`` cannot answer that: it is one\nend-ish date. They are the span, not the CPM remaining-work window\n(``early_start``), so they carry no float/criticality vocabulary.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -58588,6 +58596,18 @@
                         "nullable": true,
                         "readOnly": true
                     },
+                    "scheduled_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "scheduled_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "is_critical": {
                         "type": "boolean",
                         "readOnly": true
@@ -58641,6 +58661,8 @@
                     "project_name",
                     "qualified_id",
                     "remaining_points",
+                    "scheduled_finish",
+                    "scheduled_start",
                     "server_version",
                     "short_id",
                     "short_id_display",

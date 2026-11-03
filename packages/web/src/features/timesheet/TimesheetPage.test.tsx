@@ -230,10 +230,23 @@ describe('TimesheetPage', () => {
     expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
   });
 
-  it('adds a completed assigned task through the picker as a row (#4766)', () => {
+  it('scopes zero rows to tasks whose span overlaps the selected week (#4783)', () => {
+    setAssignments([
+      myWorkTask('t2', 'This week', { scheduled_start: '2026-06-16', scheduled_finish: '2026-06-18' }),
+      myWorkTask('t5', 'Next month', { scheduled_start: '2026-07-06', scheduled_finish: '2026-07-10' }),
+    ]);
+    setWeek({ data: weekData(false, []) });
+    render(<TimesheetPage />);
+
+    const grid = screen.getByRole('grid', { name: 'Weekly timesheet' });
+    expect(within(grid).getByText('This week')).toBeInTheDocument();
+    expect(within(grid).queryByText('Next month')).not.toBeInTheDocument();
+  });
+
+  it('adds an open task scheduled outside the week through the picker as a row (#4783)', () => {
     setAssignments([
       myWorkTask('t2', 'Wire the hook'),
-      myWorkTask('t4', 'Shipped work', { status: 'COMPLETE' }),
+      myWorkTask('t5', 'Next month', { scheduled_start: '2026-07-06', scheduled_finish: '2026-07-10' }),
     ]);
     setWeek({ data: weekData(false, []) });
     render(<TimesheetPage />);
@@ -241,9 +254,9 @@ describe('TimesheetPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /add project or task/i }));
     // The picker offers exactly the assigned tasks that are not rows.
     expect(screen.getAllByRole('option')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('option', { name: /shipped work/i }));
+    fireEvent.click(screen.getByRole('option', { name: /next month/i }));
     const grid = screen.getByRole('grid', { name: 'Weekly timesheet' });
-    expect(within(grid).getByText('Shipped work')).toBeInTheDocument();
+    expect(within(grid).getByText('Next month')).toBeInTheDocument();
   });
 
   it('shows the empty state only when nothing is assigned and nothing is logged (#4766)', () => {

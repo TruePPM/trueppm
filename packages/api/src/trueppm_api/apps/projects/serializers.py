@@ -10940,6 +10940,12 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     ``due_source`` labels which step of the cascade produced the date so the
     UI can render "Due May 30 (planned)" vs "Ends with Sprint 12" — pure dates
     without their provenance erode contributor trust within a sprint.
+
+    ``scheduled_start`` / ``scheduled_finish`` are the task's SPAN (ADR-0752),
+    exposed so a client can ask "is this task scheduled during week W?" — the
+    timesheet's zero-row rule (#4783). ``due`` cannot answer that: it is one
+    end-ish date. They are the span, not the CPM remaining-work window
+    (``early_start``), so they carry no float/criticality vocabulary.
     """
 
     id = serializers.UUIDField(read_only=True)
@@ -10974,6 +10980,12 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     remaining_points = serializers.IntegerField(read_only=True, allow_null=True)
     due = serializers.SerializerMethodField()
     due_source = serializers.SerializerMethodField()
+    # Task span (ADR-0752, #4783). ``scheduled_start`` is a stored column on Task;
+    # ``scheduled_finish`` has no column — it is always ``early_finish`` — so it is
+    # read under the ADR-0752 name, as TaskSerializer does. Both are plain columns
+    # on the row already fetched: no extra query per row.
+    scheduled_start = serializers.DateField(read_only=True, allow_null=True)
+    scheduled_finish = serializers.DateField(source="early_finish", read_only=True, allow_null=True)
     is_critical = serializers.SerializerMethodField()
     # Explicit human blocker (#476/#855). On this contributor surface "blocked"
     # means the human flag (a teammate said this can't proceed) — the dependency-

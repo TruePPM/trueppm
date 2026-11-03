@@ -87,12 +87,23 @@ Step between weeks with the `‹ … ›` stepper, and start logging against a t
 :::note[Ships in 0.5]
 In the current release the grid lists only tasks you've already logged time against that
 week; a task with no time yet is added with **Add project or task**. That changes when 0.5 lands:
-your open assigned tasks — every task in your [My Work](/features/my-work/) list that isn't complete — will
-already be rows, even before you've logged anything against them: a row of empty cells ready
-for your first hours. Tasks you logged time on that week will still appear, even if they're
-complete or no longer assigned to you, and **Add project or task** will offer the assigned
-tasks that aren't rows yet, such as a completed task that needs a final hour. If nothing
-is assigned to you and nothing is logged for the week, the grid will say so instead of
+your open assigned tasks scheduled during the week you're viewing will already be rows, even
+before you've logged anything against them: a row of empty cells ready for your first hours.
+A task counts as scheduled that week when its scheduled start-to-finish span overlaps it. Three
+cases will be handled on purpose:
+
+- **Late work stays visible.** An open task whose scheduled finish has already passed will
+  be a row in the current week (and every week since it was due), because you're still
+  working on it. It won't appear in future weeks.
+- **Unscheduled work stays loggable.** An open task with no scheduled dates at all will be a
+  row in every week.
+- **Completed tasks aren't rows** unless you logged time on them that week.
+
+Tasks you logged time on that week will still appear, even if they're complete or no longer
+assigned to you. **Add project or task** will offer your open assigned tasks that aren't rows
+yet, such as one scheduled for a later week that you've started early. To log time on a
+completed task you haven't logged against that week, use the quick-log popover. If nothing
+is assigned to you for the week and nothing is logged, the grid will say so instead of
 showing an empty table.
 :::
 
