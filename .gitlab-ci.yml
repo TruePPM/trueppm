@@ -756,7 +756,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh}
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -805,7 +805,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh}
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -837,6 +837,7 @@ scripts:test:
     - bash scripts/tests/helm-sentinel-schema-experimental.test.sh
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
+    - bash scripts/tests/check-bulk-create-server-version.test.sh
     - bash scripts/tests/check-schema-breaking.test.sh
     - bash scripts/tests/pip-floor.test.sh
 
@@ -3675,6 +3676,28 @@ api:migration-constraint-safety:
     # gate still rejects one, and that all four safe shapes still pass (#3195).
     - python3 scripts/check-migration-constraint-safety.py --self-test
     - python3 scripts/check-migration-constraint-safety.py
+
+api:bulk-create-server-version:
+  # `bulk_create` never calls `save()`, so the INSERT path that sets
+  # `server_version = 1` does not run and the row publishes 0: a lock token no client
+  # can echo back as `X-Base-Version`. Nothing else sees it -- ruff cannot, and
+  # api:migration-check never opens a database. Pure static analysis: no Django, no
+  # database, seconds. A `VersionedModel` bulk_create must set `server_version` in its
+  # scope or carry `# safe-bulk-create: <reason>`.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    # Self-test FIRST: prove the gate still rejects a violation and accepts the
+    # correct shapes before trusting its verdict on the tree.
+    - python3 scripts/check-bulk-create-server-version.py --self-test
+    - python3 scripts/check-bulk-create-server-version.py
 
 api:schema-breaking:
   # stability.md promises a deprecation window for every Breaking change (field

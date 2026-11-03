@@ -64,6 +64,7 @@ trueppm-suite/
 - Docstrings: Google style
 - All models use UUID primary keys
 - All synced models include `server_version = models.BigIntegerField()`
+- `bulk_create` skips `save()`, so a `VersionedModel` inserted that way publishes `server_version = 0` unless you set `server_version=1` yourself (and `sync_seq`, ADR-0686). `make bulk-create-server-version-check` / `api:bulk-create-server-version` fails the push otherwise; opt out with `# safe-bulk-create: <reason>`. It cannot see a receiver held in a variable (`model.objects`) — it prints that count
 - Django apps: one app per domain (projects, resources, scheduling, sync, auth)
 
 ### TypeScript (packages/web)

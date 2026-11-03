@@ -3121,6 +3121,12 @@ def bulk_create_tasks(
             f"sweep is only meaningful within one ({len(project_ids)} seen)."
         )
     project_id = next(iter(project_ids))
+    # The funnel owns the INSERT-path ``server_version = 1`` that ``save()`` would
+    # have set, so no caller (or a future one) can publish a zero lock token. A row
+    # a caller already versioned is left alone.
+    for row in rows:
+        if not row.server_version:
+            row.server_version = 1
     with transaction.atomic():
         outside = declare_containers_in_batch(rows)
         if insert is not None:

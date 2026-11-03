@@ -2828,6 +2828,8 @@ class ProjectViewSet(
                         calendar_id=o["calendar_id"],
                         role=o["role"],
                         sort_order=idx,
+                        # bulk_create skips save(), which is what sets this on INSERT.
+                        server_version=1,
                     )
                     for idx, o in enumerate(overlays)
                 ]

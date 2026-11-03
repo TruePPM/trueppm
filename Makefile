@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check api-scheduler-lock-check \
+        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -138,6 +138,12 @@ migrations-constraint-safety: ## Detect an AddConstraint on a table that may alr
 	@# no gate at all. Pure static analysis: no Django, no DB, no fetch.
 	@python3 scripts/check-migration-constraint-safety.py --self-test
 	@python3 scripts/check-migration-constraint-safety.py
+
+bulk-create-server-version-check: ## Detect a VersionedModel bulk_create that leaves server_version = 0 (no DB)
+	@# bulk_create skips save(), the only place the INSERT path sets server_version = 1;
+	@# a row left at 0 publishes a lock token no client can echo back. Pure static analysis.
+	@python3 scripts/check-bulk-create-server-version.py --self-test
+	@python3 scripts/check-bulk-create-server-version.py
 
 schema-breaking-check: ## Run the api:schema-breaking CI job locally (#4594): Breaking API changes vs the latest v* tag
 	@python3 scripts/check-schema-breaking.py --self-test
@@ -697,6 +703,7 @@ pre-push-checks: web-typecheck
 pre-push-checks: migrations-check
 pre-push-checks: migrations-numbering
 pre-push-checks: migrations-constraint-safety
+pre-push-checks: bulk-create-server-version-check
 pre-push-checks: schema-check
 pre-push-checks: schema-breaking-check
 pre-push-checks: sonar-exclusions-check

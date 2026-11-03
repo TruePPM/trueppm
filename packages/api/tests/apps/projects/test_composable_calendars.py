@@ -192,6 +192,8 @@ def test_put_replaces_applied_set_and_enqueues_recompute(
         (str(holidays_calendar.id), "holidays", 0),
         (str(shutdown.id), "workspace", 1),
     ]
+    # bulk_create skips save(); a layer published at 0 is a lock token no client can echo.
+    assert {layer.server_version for layer in layers} == {1}
     # Applying calendars must fan out a CPM recompute (composed mask changed).
     assert ScheduleRequest.objects.filter(project=project).exists()
 
