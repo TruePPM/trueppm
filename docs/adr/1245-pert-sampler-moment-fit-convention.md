@@ -132,3 +132,117 @@ single calendar, because there a run is shown at most one working day past its
 position, so no run below the percentile is shown past it. This was checked against
 1,200 seeded single-calendar forecasts, with no change. The sampler convention this
 ADR records is unaffected.
+
+## Amendment: a fractional finish is shown on the day it falls in (#4697, 2026-11-02)
+
+**Context.** The engine schedules whole days, but `_sample_pert` returns continuous
+durations, and the forward pass carries each run's offsets as continuous
+working-time positions. The positions were mapped back to days by rounding to the
+nearest integer, half to even (`round(offset) - 1` in `_offset_to_date`, `np.rint`
+in `_mc_percentiles`, `_lag_term`, `_McIndex.ordinal_at` and
+`_to_reference_offset`). Work ending 0.3 of the way into a day was therefore
+reported, and ranked, as finishing the day before. On a 10-day task estimated
+(10, 10, 11), P50 and P80 were the CPM finish although no run finished there, and
+the forecast under-stated the simulated risk by a working day, more where lagged links each lost one.
+
+**Decision: read each position by the day it falls in.** An exclusive finish `e` is
+on day `ceil(e) - 1` and a start `s` on day `floor(s)`, each with a `1e-9` slack for
+float noise (`_finish_day_key`, `_start_day_index`). A whole offset maps exactly as
+the deterministic pass maps it, so a run with no spread still lands on the CPM
+finish. Every place that turns a sampled offset into a day uses the same rule:
+
+- The finish date and the percentile keys (`_offset_to_date`, `_mc_percentiles`)
+  and the mixed-calendar reference ruler (`_to_reference_offset`).
+- The anchor cell of a lagged link (`_lag_term`). FS/FF read the predecessor's
+  finish, and SS/SF its start. The link carries the anchor's fraction while the
+  lagged point lands in the successor's working time. When the point lands on a day
+  the successor does not work, the successor starts when its next working day
+  begins, with no fraction (`_lagged_constraint`). Carrying it there would start an
+  FS successor before its lag on the snapped day.
+- Milestones. The date space holds only midnights, so a milestone after work ending
+  part-way into a day is placed at the midnight closing that day. It carries the
+  working time it lies short of that midnight as a **deficit**. Its position, and
+  every link out of it, measures from the true point (`_mc_milestone_bounds`,
+  `_mc_instant_edge_bound`). Rounding milestones up to the midnight instead put each
+  milestone on a path up to a day late, and the error compounded along a chain.
+- Zero-duration tasks with an estimate (#4698) are **exempt**; see below.
+
+**Exemption: a zero-base column keeps its CPM-instant semantics.** A zero-base column
+is a live task whose base `duration` is zero but which samples a positive duration:
+a three-point estimate such as (0, 0, 1), or story points on the velocity path
+(`zero_base_ids` in `monte_carlo`). A plain milestone samples nothing and is
+already an instant. A zero-base draw under half a day (`_ZERO_BASE_ROUND_AWAY`)
+rounds away. The run is exactly the milestone `schedule()` places, links and lags
+included, and it hands no fraction on to the work after it. That covers the
+finish's fraction and also the start an FF or SF link back-solved over the draw. A
+draw of half a day or more is ordinary work, so the task still matches a real task
+of that length.
+
+*Why the back-solved start is not kept.* A first version kept it for SS and SF
+successors, on the reasoning that it could only move them earlier. Earlier than
+CPM is the failure that reasoning missed. The start was added to the successor's
+bound after that link's lag and snap, so it pulled the successor back across a
+non-working landing, which `_lagged_constraint` deliberately does not do. In
+`t0(3d) -FF-> M(0,0,1) -SS+3-> t2(5d) -SS+3-> t4(5d)`, M sits on Wednesday, its
+SS+3 lands on Saturday, and t2 must start on Monday. The kept start put t2 0.7 into
+Friday, and t2's own lag carried the fraction on to t4. P50 = P80 fell two days
+before CPM, with 94.5% of runs early. An audit sweep of 576 FF/SF-in, SS/SF-out
+cells found 33 with P50 off CPM, all earlier; with the start dropped there are none.
+The other fix applies the start to the anchor before the lag and snap, so the
+landing rule governs it. It was rejected because the start can lie more than a day
+before the instant's midnight, which the deficit's one-day landing test cannot
+represent. Dropping the start does not change how often FF/SF networks step
+backward as a draw grows (28 of 1,336 networks, 43 steps, either way). It moves the
+backward steps that remain to the half-day threshold, the #4822 back-solve class.
+Without the kept start, no backward step falls inside the sub-half-day range.
+
+The exemption exists because the base estimate is zero, so the instant is what the
+plan says. A (0, 0, 1) Beta draw is never exactly zero (`alpha` is about 2/3). If
+the task handed its fraction on, the day-it-falls-in reading would push every
+whole-day successor into the next working day in every run. That would restore the
+day of slip #4698 removed: the auditor's repro A(5d) → M(0, 0, 1) → B(5d) gave
+P50 = P80 = P95 one day past CPM in 100% of runs, and a milestone at the end of a
+path, A → M(0, 0, 1), was one day late in 100% of runs. #4698's acceptance
+criterion, that (0, 0, 1) gives P50 equal to CPM, is pinned by
+`test_a_small_estimate_does_not_cost_a_day`. With the exemption, 5.2% of runs land
+after CPM, matching the pre-#4697 engine. The cost of the exemption is that sub-half-day draws in a chain cost nothing
+together: three 0.2-day draws are three instants, although they add up to 0.6 of a
+day of work, which #4698 had carried.
+
+**Alternative rejected: round each sampled duration up to whole days at sampling
+time.** That alternative keeps every offset whole, so no other rounding site would
+need to change, and it also keeps a zero-variance run on CPM. But it charges each
+task the unused rest of its last day. On a chain this adds about half a day per
+task. Three tasks estimated (5, 5, 6) simulate about 15.5 days of work, and
+rounding each one up reports 18 days in every run, where the day-the-work-falls-in
+reading reports 16. The rejected rule moves the error from under-stating the
+finish to over-stating it, and the over-statement grows with path length. It also
+discards the fraction that this record's sampler convention and the reference
+ruler (`_to_reference_offset`) carry deliberately.
+
+**Consequences.**
+
+- **Seeded percentiles move.** Measured over 1,000 seeded random networks of each
+  kind (seeds 40000–40999), against the merge-base engine:
+  - FS/SS-only networks: 930 of 1,000 changed. No percentile landed before the
+    CPM finish. Most moved one working day later, and lagged links moved some up
+    to four working days later, because the nearest-day reading could lose a day
+    at each lagged link. Two networks had a percentile one working day earlier: the
+    same reading could also add a day at a lagged link. An earlier 1,000-seed audit
+    run found 5.
+  - Networks with FF or SF links: a percentile can also move earlier (5 of 1,000,
+    by up to three working days), and three networks had a percentile before CPM.
+    CPM itself is non-monotone there (#3806).
+  - Zero-variance runs matched CPM in all 1,000 sampled networks.
+
+  Persisted forecast history (ADR-0175) shows a one-time step at the upgrade. That
+  step is a change of reading, not a change of risk.
+- An interpolated percentile that falls strictly between two whole-day positions is
+  read on the later day, because that is the day the interpolated position falls
+  in. Exact midpoints used to round half to even. #4540 tracks the tie and low-N
+  conventions and should take this as its new baseline.
+- SF and FF links carry the start's or finish's fraction without the landing test.
+  An FF bound only moves within its snapped day. An SF bound whose lagged point
+  lands in non-working time can read up to a day late. That is a conservative
+  approximation and never reads early.
+- `packages/wasm-scheduler` has no Monte Carlo path, so conformance is unaffected.

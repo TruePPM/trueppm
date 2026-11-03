@@ -113,8 +113,10 @@ def test_work_ending_on_the_shown_day_makes_it_the_end_of_that_day() -> None:
 @pytest.mark.parametrize(
     ("lag_days", "estimates", "p50_at_day_start"),
     [
-        # A mostly samples under 5.5 days: the median run shows M at the start of Monday.
-        (1, (5.0, 5.0, 6.0), True),
+        # A samples above 5 days in every run, so its work runs into Monday and the
+        # lag lands M at the end of Tuesday. Before #4697 a draw under 5.5 days was
+        # read as a Friday finish, and the median run showed M at the start of Monday.
+        (1, (5.0, 5.0, 6.0), False),
         (1, (5.0, 6.0, 12.0), None),
         (2, (5.0, 6.0, 12.0), None),
         (3, (5.0, 6.0, 12.0), None),
@@ -179,18 +181,19 @@ def _simulate(project: Project) -> MonteCarloResult | None:
 def _mixed_reading_project(most_likely_days: int = 5) -> Project:
     """Runs at one working-time position split between the end of Friday and the start of Monday.
 
-    ``W`` always ends Friday. ``A`` samples 4..5 days: at 4 it ends Thursday and the
-    1-day lag lands ``M`` at the end of Friday; at 5 it ends Friday and the lag lands
-    ``M`` on Sunday, shown at the start of Monday. Every run finishes at the same
-    working-time position. With ``A``'s most-likely at 5 about 96% of runs are shown
-    on the Monday; at 4, about 96% on the Friday.
+    ``W`` always ends Friday. ``A`` samples 3..5 days: under 4 its work ends on
+    Thursday and the 1-day lag lands ``M`` at the end of Friday; over 4 it ends on
+    Friday and the lag lands ``M`` on Sunday, shown at the start of Monday. Every run
+    finishes at the same working-time position. A finish is read by the day its work
+    ends in (#4697), so the split is at 4 days, not at the 4.5 a nearest-day reading
+    put it at.
     """
     w = Task(id="W", name="W", duration=timedelta(days=5))
     a = Task(
         id="A",
         name="A",
-        duration=timedelta(days=4),
-        optimistic_duration=timedelta(days=4),
+        duration=timedelta(days=3),
+        optimistic_duration=timedelta(days=3),
         most_likely_duration=timedelta(days=most_likely_days),
         pessimistic_duration=timedelta(days=5),
     )
@@ -262,7 +265,7 @@ def test_a_few_monday_runs_do_not_drag_the_percentiles_onto_the_monday() -> None
     Taking the latest reading at the position put P95 on the Monday with 96.5% of
     runs strictly before it.
     """
-    mc = monte_carlo(_mixed_reading_project(most_likely_days=4), runs=200, seed=1)
+    mc = monte_carlo(_mixed_reading_project(most_likely_days=3), runs=200, seed=1)
     fri, mon = date(2026, 8, 7), date(2026, 8, 10)
     assert set(mc.distribution) == {fri, mon}
     assert mc.distribution.count(mon) < 0.05 * len(mc.distribution)
@@ -276,7 +279,7 @@ def test_a_few_monday_runs_do_not_drag_the_percentiles_onto_the_monday() -> None
 
 @pytest.mark.fuzz
 @example(project=_mixed_reading_project())
-@example(project=_mixed_reading_project(most_likely_days=4))
+@example(project=_mixed_reading_project(most_likely_days=3))
 @example(project=_outranked_start_of_day_project())
 @given(project=_plausible_projects())
 def test_each_percentile_is_a_quantile_of_the_distribution(project: Project) -> None:
@@ -308,15 +311,15 @@ def test_an_outranked_start_of_day_milestone_does_not_move_the_percentile() -> N
     """Known answer for the #4786 counterexample: P95 is ranked in working time.
 
     Run 61 of 64 finishes with ``t3`` partway into Monday 03-30 and ``join`` at the
-    start of that Monday. Its working-time position is ``t3``'s, so interpolating at
-    rank 59.85 lands before the middle of that day and P95 is the end of Friday
-    03-27. The pre-#4204 rule interpolated over the milestone's whole-day shown
-    offset instead and reported 03-30 — a day picked by a milestone that does not
-    finish the run.
+    start of that Monday. Its working-time position is ``t3``'s, so P95 is read from
+    ``t3``'s finish: the END of Monday 03-30, not the start-of-day reading the
+    milestone's whole-day shown offset would give. Before #4697 a position partway
+    into Monday was read as the nearest day, the end of Friday 03-27; it is now the
+    day the work ends in, and P50 moves from 03-18 to 03-19 for the same reason.
     """
     mc = _simulate(_outranked_start_of_day_project())
     assert mc is not None
-    assert [mc.p50, mc.p80, mc.p95] == [date(2026, 3, 18), date(2026, 3, 25), date(2026, 3, 27)]
+    assert [mc.p50, mc.p80, mc.p95] == [date(2026, 3, 19), date(2026, 3, 25), date(2026, 3, 30)]
     assert not (mc.p50_at_day_start or mc.p80_at_day_start or mc.p95_at_day_start)
 
 
@@ -389,9 +392,14 @@ class TestIndexOverrunIsRefused:
 
     def test_lag_term_refuses_past_the_end(self) -> None:
         delta = np.zeros(5, dtype=np.int32)
-        assert engine._lag_term(delta, np.array([4.0])).tolist() == [0.0]
+        assert engine._lag_term(delta, np.array([4.0]), from_finish=True).tolist() == [0.0]
         with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
-            engine._lag_term(delta, np.array([1.0, 5.0]))
+            engine._lag_term(delta, np.array([1.0, 5.0]), from_finish=True)
+        # A start falls in its day's cell: 4.5 starts on day 4, the last one.
+        assert engine._lag_term(delta, np.array([4.5]), from_finish=False).tolist() == [0.0]
+        with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
+            # A finish 0.5 into day 4 has exclusive key 5, one past the end.
+            engine._lag_term(delta, np.array([4.5]), from_finish=True)
 
     def test_reference_offset_refuses_past_the_end(self) -> None:
         with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
@@ -434,7 +442,7 @@ class TestIndexOverrunIsRefused:
         )
         assert (delta == engine._LAG_DELTA_OVERRUN).any()
         with pytest.raises(engine.InvalidScheduleInput, match="engine bug"):
-            engine._lag_term(delta, np.array([4.0]))
+            engine._lag_term(delta, np.array([4.0]), from_finish=True)
 
     def test_floor_snaps_refuse_past_the_end(self) -> None:
         offset_of = {d: i for i, d in enumerate(_WD)}
@@ -602,6 +610,11 @@ class TestPercentileOnAReferenceGapDay:
     which neither task works, so run positions jump over it. P95 interpolated onto
     Friday and was reported as its end — 2026-03-06 — although every run, P50 and
     the CPM finish are the start of Monday 2026-03-09.
+
+    The seeded case puts P95 between the start-of-Monday milestone runs and the few
+    runs whose ``A`` ends part-way into that Monday. Since #4697 a draw over 4 days
+    is such a run; ``A``'s pessimistic estimate and the seed are chosen so the
+    interpolated P95 still lands on the Friday gap.
     """
 
     START = date(2026, 3, 2)  # Monday
@@ -619,7 +632,7 @@ class TestPercentileOnAReferenceGapDay:
                     duration=timedelta(days=2),
                     optimistic_duration=timedelta(days=2),
                     most_likely_duration=timedelta(days=3),
-                    pessimistic_duration=timedelta(days=6),
+                    pessimistic_duration=timedelta(days=5),
                     calendar_id="fourday",
                 ),
                 Task(id="M", name="M", duration=timedelta(0), calendar_id="fourday"),
@@ -629,7 +642,7 @@ class TestPercentileOnAReferenceGapDay:
 
     def test_p95_is_not_before_p50_or_any_run(self) -> None:
         project = self._project()
-        mc = monte_carlo(project, runs=1000, seed=3146)
+        mc = monte_carlo(project, runs=1000, seed=21)
         finish = schedule(project).project_finish
         assert finish == date(2026, 3, 9)
         assert mc.p50 <= mc.p80 <= mc.p95

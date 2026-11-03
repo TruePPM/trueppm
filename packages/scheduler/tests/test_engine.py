@@ -864,9 +864,11 @@ class TestMonteCarlo:
         assert r.p80 == r.distribution[i80]
         assert r.p95 == r.distribution[i95]
         # Pinned seed=0 snapshot (fat-tailed spread ⇒ the three are distinct dates).
+        # P95 moved from 03-20 when a finish part-way into a day stopped being read
+        # as the nearest day (#4697).
         assert r.p50 == date(2026, 3, 11)
         assert r.p80 == date(2026, 3, 19)
-        assert r.p95 == date(2026, 3, 20)
+        assert r.p95 == date(2026, 3, 23)
 
     def test_percentiles_are_strictly_increasing_on_wide_spread(self) -> None:
         """P95 > P80 > P50 — strict, not the ``<=`` every existing test allows (#1517).
