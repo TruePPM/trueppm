@@ -82,17 +82,49 @@ function dayCellName(dayLabel: string, isToday: boolean, availability: DayAvaila
   if (availability.kind === 'exception') {
     parts.push(...new Set([availability.name, ...availability.calendars]));
   }
+  if (availability.kind === 'non-working') parts.push(...availability.calendars);
   if (availability.kind !== 'working') parts.push('non-working day');
   if (isToday) parts.push('today');
   return parts.join(', ');
 }
 
-/** The cell's pattern fill, shared with the settings preview so a day type reads alike. */
-function dayFillStyle(availability: DayAvailability): CSSProperties | undefined {
-  if (availability.kind === 'exception') return dayTypeFillStyle(availability.type);
-  if (availability.kind === 'non-working') return dayTypeFillStyle('weekend');
-  return undefined;
+const flatLayer = (color: string) => `linear-gradient(${color}, ${color})`;
+const TODAY_TINT = flatLayer('rgb(var(--brand-primary) / 0.05)');
+
+/**
+ * The cell's pattern fill, shared with the settings preview so a day type reads alike.
+ *
+ * An inline background beats the cell's today and out-of-month utility classes, so a
+ * filled cell states those itself as layers: the today tint over the pattern, and the
+ * fill's color over the sunken surface. The hatch alone marks an out-of-month ordinary
+ * non-working day, because its own opaque color would hide the dimming beneath it.
+ */
+function dayFillStyle(
+  availability: DayAvailability,
+  isToday: boolean,
+  isCurrentMonth: boolean,
+): CSSProperties | undefined {
+  if (availability.kind === 'working') return undefined;
+  const type = availability.kind === 'exception' ? availability.type : 'weekend';
+  const fill = dayTypeFillStyle(type);
+  const tint = isToday ? [TODAY_TINT] : [];
+  if (isCurrentMonth && !isToday) return fill;
+
+  const colorLayers =
+    !isCurrentMonth && type !== 'weekend' ? [flatLayer(String(fill.backgroundColor))] : [];
+  return {
+    ...fill,
+    backgroundColor: isCurrentMonth ? fill.backgroundColor : 'rgb(var(--neutral-surface-sunken))',
+    backgroundImage: [...tint, fill.backgroundImage, ...colorLayers].join(', '),
+    // Only the holiday dots carry a size, and a size list pairs with images by position.
+    backgroundSize:
+      fill.backgroundSize &&
+      [...tint.map(() => 'auto'), fill.backgroundSize, ...colorLayers.map(() => 'auto')].join(', '),
+  };
 }
+
+/** A solid backing for text on a pattern fill, which is too busy to carry it directly. */
+const ON_FILL_BACKING = 'rounded-sm bg-neutral-surface';
 
 /** A chip plus the lane it was assigned, carried together (see visibleChips). */
 interface PlacedChip {
@@ -147,11 +179,11 @@ function LegendSwatch({ className, style }: { className: string; style?: CSSProp
 
 function CalendarLegend({
   showWorkingTime = false,
-  holidaysUnavailable = false,
+  workingTimeIncomplete = false,
 }: {
   /** The day-type fills exist only on the grid, not the phone agenda. */
   showWorkingTime?: boolean;
-  holidaysUnavailable?: boolean;
+  workingTimeIncomplete?: boolean;
 }) {
   return (
     // role="group" is load-bearing, not decoration: an aria-label on a role-less
@@ -223,9 +255,10 @@ function CalendarLegend({
         ))}
       {/* A failed read and a calendar with no holidays draw identical grids, so
           the failure has to be stated or it reads as "nothing is off". */}
-      {showWorkingTime && holidaysUnavailable && (
+      {showWorkingTime && workingTimeIncomplete && (
         <span className="text-xs text-neutral-text-secondary">
-          Couldn&apos;t load holidays. Showing the weekly working pattern only.
+          Couldn&apos;t load this project&apos;s full working calendar, so the days shown as
+          non-working may be wrong.
         </span>
       )}
     </div>
@@ -241,9 +274,11 @@ function CalendarLegend({
  */
 function MilestoneMarkButton({
   mark,
+  onFill,
   onTaskClick,
 }: {
   mark: MilestoneMark;
+  onFill: boolean;
   onTaskClick: (taskId: string) => void;
 }) {
   return (
@@ -252,9 +287,10 @@ function MilestoneMarkButton({
       onClick={() => onTaskClick(mark.taskId)}
       aria-label={`Milestone: ${mark.taskName}`}
       title={mark.taskName}
-      className="flex items-center gap-1 mt-0.5 w-full text-left
+      className={`flex items-center gap-1 mt-0.5 w-full text-left
         focus-visible:outline-none focus-visible:ring-2
-        focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+        focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded
+        ${onFill ? ON_FILL_BACKING : ''}`}
     >
       <svg
         aria-hidden="true"
@@ -333,8 +369,8 @@ interface CalendarGridProps {
   weekStartDay?: WeekStartDay;
   /** The project's working time. Optional; absent reads as Mon–Fri with no exceptions. */
   workingTime?: WorkingTimeInputs;
-  /** True when holidays could not be read, so the grid's silence about them means nothing. */
-  holidaysUnavailable?: boolean;
+  /** True when a calendar could not be read, so the day types drawn may be wrong. */
+  workingTimeIncomplete?: boolean;
   tasks: Task[];
   onTaskClick: (taskId: string) => void;
   /**
@@ -349,7 +385,7 @@ export function CalendarGrid({
   calView = 'month',
   weekStartDay = DEFAULT_WEEK_START_DAY,
   workingTime = DEFAULT_WORKING_TIME,
-  holidaysUnavailable = false,
+  workingTimeIncomplete = false,
   tasks,
   onTaskClick,
   sprintBoundaries,
@@ -609,6 +645,7 @@ export function CalendarGrid({
                     const dayMarks = marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? [];
                     const isSprintBoundary = sprintBoundaries?.has(iso) ?? false;
                     const availability = resolveDayAvailability(iso, workingTime);
+                    const onFill = availability.kind !== 'working';
 
                     return (
                       <div
@@ -632,7 +669,10 @@ export function CalendarGrid({
                           ${isToday ? 'bg-brand-primary/5' : ''}
                           ${!isCurrentMonth ? 'bg-neutral-surface-sunken' : ''}
                         `}
-                        style={{ minHeight: rowMinHeight, ...dayFillStyle(availability) }}
+                        style={{
+                          minHeight: rowMinHeight,
+                          ...dayFillStyle(availability, isToday, isCurrentMonth),
+                        }}
                       >
                         {/* The non-working mute is a solid text token on the date number
                             only — never `opacity` on the cell or its marks.
@@ -646,14 +686,10 @@ export function CalendarGrid({
                               label already states the full date; without this
                               the number is read a second time, bare. */}
                           <div className="flex pr-2">
-                            {/* An exception's fill is too busy to set text on, so
-                                its date line gets a solid backing. */}
                             <div
                               className={`flex items-center gap-1 min-w-0 ${
-                                availability.kind === 'exception'
-                                  ? 'rounded-sm bg-neutral-surface pr-1'
-                                  : ''
-                              }`}
+                                onFill ? ON_FILL_BACKING : ''
+                              } ${availability.kind === 'exception' ? 'pr-1' : ''}`}
                             >
                               <span
                                 aria-hidden="true"
@@ -702,18 +738,23 @@ export function CalendarGrid({
                             <MilestoneMarkButton
                               key={mark.taskId}
                               mark={mark}
+                              onFill={onFill}
                               onTaskClick={onTaskClick}
                             />
                           ))}
 
                           {overflow > 0 && (
-                            <span className="absolute bottom-1 left-1 text-xs text-neutral-text-secondary">
+                            <span
+                              className={`absolute bottom-1 left-1 text-xs text-neutral-text-secondary ${
+                                onFill ? `${ON_FILL_BACKING} px-0.5` : ''
+                              }`}
+                            >
                               +{overflow} more
                             </span>
                           )}
                         </div>
 
-                        {availability.kind === 'exception' && availability.calendars.length > 1 && (
+                        {availability.kind !== 'working' && availability.calendars.length > 1 && (
                           <span
                             aria-hidden="true"
                             data-cal-multi-source=""
@@ -743,7 +784,7 @@ export function CalendarGrid({
             `role="row"` owns nothing but `gridcell`s. */}
         {windowIsEmpty && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <p className="text-sm text-neutral-text-secondary">
+            <p className={`text-sm text-neutral-text-secondary ${ON_FILL_BACKING} px-2`}>
               No tasks in {formatWindowNoun(anchor, calView, weekStartDay)}.
             </p>
           </div>
@@ -751,7 +792,7 @@ export function CalendarGrid({
       </div>
 
       {/* Legend */}
-      <CalendarLegend showWorkingTime holidaysUnavailable={holidaysUnavailable} />
+      <CalendarLegend showWorkingTime workingTimeIncomplete={workingTimeIncomplete} />
     </div>
   );
 }

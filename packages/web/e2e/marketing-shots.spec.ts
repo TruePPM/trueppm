@@ -240,6 +240,16 @@ const UTILIZATION = {
   ],
 };
 
+const HOLIDAY_CALENDAR = {
+  id: 'mkt-cal-holidays',
+  server_version: 1,
+  name: 'US Holidays',
+  working_days: 127,
+  hours_per_day: 8,
+  timezone: 'UTC',
+  exceptions: [{ id: 'mkt-exc-1', exc_start: '2026-05-25', exc_end: '2026-05-25', description: 'Memorial Day' }],
+};
+
 async function setup(page: import('@playwright/test').Page) {
   // Pin the wall-clock before any navigation so every date-relative surface is
   // reproducible (Schedule today-line, Resources rolling window, relative copy).
@@ -255,6 +265,31 @@ async function setup(page: import('@playwright/test').Page) {
     overview: OVERVIEW,
     statusSummary: STATUS_SUMMARY,
     user: { id: 'u1', username: 'sarah', display_name: 'Sarah Chen', initials: 'SC', email: 'sarah@northgate.test' },
+  });
+  // The Calendar reads working time from these. Left to the catch-all, the failed
+  // reads would print the legend's "couldn't load" notice into the shot.
+  await page.route('**/api/v1/projects/*/calendars/preview/**', (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const start = params.get('start') ?? '';
+    const end = params.get('end') ?? '';
+    const days = [];
+    for (let t = Date.parse(`${start}T00:00:00Z`); t <= Date.parse(`${end}T00:00:00Z`); t += 86_400_000) {
+      const date = new Date(t).toISOString().slice(0, 10);
+      const holiday = date === HOLIDAY_CALENDAR.exceptions[0].exc_start;
+      const sources = holiday
+        ? [{ role: 'holidays', calendar_id: HOLIDAY_CALENDAR.id, name: HOLIDAY_CALENDAR.name }]
+        : [];
+      days.push({ date, working: !holiday, sources });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ start, end, days }) });
+  });
+  await page.route('**/api/v1/projects/*/calendars/', (route) => {
+    const overlay = { layer_id: 'mkt-layer', role: 'holidays', sort_order: 1, calendar: HOLIDAY_CALENDAR };
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ base: null, overlays: [overlay], applied: [overlay] }),
+    });
   });
   // Override the empty defaults for attention + my-tasks with rich content.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/attention/`, (route) =>

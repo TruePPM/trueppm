@@ -609,6 +609,7 @@ describe('resolveDayAvailability', () => {
     // mask composed in, the day is ordinary non-working time.
     const inputs = {
       mask: SUN_THU & MON_FRI,
+      calendars: [],
       previewByDate: previewOf(blocked(SUN, 'holidays')),
       exceptions: [],
     };
@@ -625,6 +626,39 @@ describe('resolveDayAvailability', () => {
       type: 'shutdown',
       name: 'Blocking Calendar',
       calendars: ['Blocking Calendar'],
+    });
+  });
+
+  it('names every calendar whose pattern blocks a day', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      mask: SUN_THU & MON_FRI,
+      calendars: [
+        { name: 'Gulf Office', workingDays: SUN_THU },
+        { name: 'UK Holidays', workingDays: MON_FRI },
+      ],
+    };
+    expect(resolveDayAvailability(SUN, inputs)).toEqual({
+      kind: 'non-working',
+      calendars: ['UK Holidays'],
+    });
+    expect(resolveDayAvailability(SAT, inputs)).toEqual({
+      kind: 'non-working',
+      calendars: ['Gulf Office', 'UK Holidays'],
+    });
+  });
+
+  it('counts a pattern block alongside an exception, once per calendar', () => {
+    const inputs = {
+      ...DEFAULT_WORKING_TIME,
+      calendars: [{ name: 'Company', workingDays: MON_FRI }],
+      exceptions: [
+        exception({ start: SAT, end: SAT }),
+        exception({ start: SAT, end: SAT, calendarName: 'Workspace', type: 'shutdown' }),
+      ],
+    };
+    expect(resolveDayAvailability(SAT, inputs)).toMatchObject({
+      calendars: ['Company', 'Workspace'],
     });
   });
 });

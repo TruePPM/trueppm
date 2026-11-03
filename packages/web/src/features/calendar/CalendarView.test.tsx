@@ -23,15 +23,23 @@ vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => 'lg' }));
 // Default (no data) lets the component's own `?? 'HYBRID'` fallback apply.
 vi.mock('@/hooks/useProject', () => ({ useProject: projectMock }));
 const workingTimeSpy = vi.hoisted(() => vi.fn());
-vi.mock('./useCalendarWorkingTime', () => ({
-  useCalendarWorkingTime: (args: unknown) => {
-    workingTimeSpy(args);
-    return {
-      workingTime: { mask: 31, previewByDate: new Map(), exceptions: [] },
-      holidaysUnavailable: false,
-    };
-  },
-}));
+const workingTimeState = vi.hoisted(() => ({ layoutSettling: false, incomplete: false }));
+vi.mock('./useCalendarWorkingTime', async () => {
+  const { deriveWeekStartDay } =
+    await vi.importActual<typeof import('./calendarUtils')>('./calendarUtils');
+  return {
+    useCalendarWorkingTime: (args: { effectiveCalendar?: { working_days: number } }) => {
+      workingTimeSpy(args);
+      return {
+        workingTime: { mask: 31, calendars: [], previewByDate: new Map(), exceptions: [] },
+        weekStartDay: deriveWeekStartDay(args.effectiveCalendar?.working_days),
+        layoutSettling: workingTimeState.layoutSettling,
+        workingTimeIncomplete: workingTimeState.incomplete,
+      };
+    },
+  };
+});
+
 vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({
     singular: 'Sprint',
@@ -61,8 +69,18 @@ vi.mock('./useCalendarFilter', () => ({
 // Stub the heavy grid + modal — this suite exercises CalendarView's state
 // branching, not their internals.
 vi.mock('./CalendarGrid', () => ({
-  CalendarGrid: ({ calView }: { calView?: string }) => (
-    <div data-testid="calendar-grid" data-cal-view={calView} />
+  CalendarGrid: ({
+    calView,
+    workingTimeIncomplete,
+  }: {
+    calView?: string;
+    workingTimeIncomplete?: boolean;
+  }) => (
+    <div
+      data-testid="calendar-grid"
+      data-cal-view={calView}
+      data-incomplete={String(workingTimeIncomplete)}
+    />
   ),
 }));
 vi.mock('@/features/board/TaskFormModal', () => ({
@@ -100,6 +118,8 @@ beforeEach(() => {
   roleMock.mockReturnValue({ role: ROLE_MEMBER, roleLabel: null, isLoading: false });
   projectMock.mockReturnValue({ data: undefined, isLoading: false, error: null });
   calFilterMock.state = { calView: 'month', anchorIso: '2026-05-01' };
+  workingTimeState.layoutSettling = false;
+  workingTimeState.incomplete = false;
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -427,22 +447,40 @@ describe('CalendarView week mode (#3167)', () => {
       });
     });
 
-    it('heads the week and requests the working time for the rotated window', () => {
+    it('heads the week from the week start the working time resolves', () => {
       calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
       projectMock.mockReturnValue(onCalendar(SUN_THU));
       renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
       expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('May 3 \u2013 9, 2026');
+    });
+
+    it('holds the skeleton while the layout settles, never a grid about to rotate', () => {
+      workingTimeState.layoutSettling = true;
+      renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+      expect(screen.getByRole('status', { name: 'Loading calendar' })).toBeInTheDocument();
+      expect(screen.queryByTestId('calendar-grid')).not.toBeInTheDocument();
+    });
+
+    it('reports a failed project read to the working time', () => {
+      projectMock.mockReturnValue({ data: undefined, isLoading: false, error: new Error('boom') });
+      renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
       expect(workingTimeSpy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ startIso: '2026-05-03', endIso: '2026-05-09' }),
+        expect.objectContaining({ projectFailed: true }),
       );
     });
 
-    it('requests the whole drawn month, spilling past the month on both sides', () => {
-      projectMock.mockReturnValue(onCalendar(31));
+    it('does not call a failed refetch of a project it already holds a failure', () => {
+      projectMock.mockReturnValue({ ...onCalendar(31), error: new Error('boom') });
       renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
       expect(workingTimeSpy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ startIso: '2026-04-27', endIso: '2026-05-31' }),
+        expect.objectContaining({ projectFailed: false }),
       );
+    });
+
+    it('hands an incomplete working calendar to the grid', () => {
+      workingTimeState.incomplete = true;
+      renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+      expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-incomplete', 'true');
     });
 
     it('stays on Monday without a resolved calendar', () => {

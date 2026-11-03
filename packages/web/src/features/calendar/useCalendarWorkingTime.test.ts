@@ -43,7 +43,7 @@ const exc = (description: string) => ({
   description,
 });
 
-const empty = { data: undefined, isError: false };
+const empty = { data: undefined, isError: false, isLoading: false, failureCount: 0 };
 
 function run(over: Partial<Parameters<typeof useCalendarWorkingTime>[0]> = {}) {
   return renderHook(() =>
@@ -51,8 +51,10 @@ function run(over: Partial<Parameters<typeof useCalendarWorkingTime>[0]> = {}) {
       projectId: 'p',
       effectiveCalendar: effective(),
       calendarSource: 'project',
-      startIso: '2026-12-01',
-      endIso: '2026-12-31',
+      projectLoading: false,
+      projectFailed: false,
+      anchor: new Date(Date.UTC(2026, 11, 16)),
+      calView: 'week',
       ...over,
     }),
   ).result.current;
@@ -67,19 +69,122 @@ describe('useCalendarWorkingTime', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('falls back to the effective mask while everything is loading', () => {
-    const { workingTime, holidaysUnavailable } = run();
+    const { workingTime, workingTimeIncomplete } = run();
     expect(workingTime.mask).toBe(SUN_THU);
     expect(workingTime.exceptions).toEqual([]);
-    expect(holidaysUnavailable).toBe(false);
+    expect(workingTimeIncomplete).toBe(false);
   });
 
   it('falls back to Mon-Fri when no calendar resolves', () => {
     expect(run({ effectiveCalendar: null, calendarSource: undefined }).workingTime.mask).toBe(31);
   });
 
-  it('requests the preview for the window it was given', () => {
+  it('requests the preview for the rotated week it will draw', () => {
     run();
-    expect(previewMock).toHaveBeenCalledWith('p', '2026-12-01', '2026-12-31');
+    expect(previewMock).toHaveBeenLastCalledWith('p', '2026-12-13', '2026-12-19');
+  });
+
+  it('requests the whole drawn month, spilling past the month on both sides', () => {
+    run({ calView: 'month' });
+    expect(previewMock).toHaveBeenLastCalledWith('p', '2026-11-29', '2027-01-02');
+  });
+
+  describe('week start', () => {
+    const withOverlay = (working_days: number) => ({
+      isError: false,
+      data: {
+        base: null,
+        overlays: [
+          {
+            layer_id: 'l1',
+            role: 'holidays',
+            sort_order: 1,
+            calendar: calendar({ working_days }),
+          },
+        ],
+        applied: [],
+      },
+    });
+
+    it('follows the base pattern while the applied stack is unknown', () => {
+      expect(run().weekStartDay).toBe(0);
+    });
+
+    it('follows the composed pattern once overlays load, so it never opens on a blocked day', () => {
+      // Sun-Thu base AND a Mon-Fri overlay leaves Mon-Thu: Sunday is not a working day.
+      appliedMock.mockReturnValue(withOverlay(31));
+      const { weekStartDay, workingTime } = run();
+      expect(workingTime.mask).toBe(SUN_THU & 31);
+      expect(weekStartDay).toBe(1);
+      expect(previewMock).toHaveBeenLastCalledWith('p', '2026-12-14', '2026-12-20');
+    });
+
+    it('keeps the base pattern when an overlay does not narrow it', () => {
+      appliedMock.mockReturnValue(withOverlay(127));
+      expect(run().weekStartDay).toBe(0);
+    });
+
+    it('keeps the base pattern when the applied read fails', () => {
+      appliedMock.mockReturnValue({ data: undefined, isError: true });
+      expect(run().weekStartDay).toBe(0);
+    });
+  });
+
+  describe('layout settling', () => {
+    it('holds the grid and the preview until the first applied attempt answers', () => {
+      appliedMock.mockReturnValue({
+        data: undefined,
+        isError: false,
+        isLoading: true,
+        failureCount: 0,
+      });
+      expect(run().layoutSettling).toBe(true);
+      expect(previewMock).toHaveBeenLastCalledWith(null, expect.any(String), expect.any(String));
+    });
+
+    it('holds for the project read too', () => {
+      expect(run({ projectLoading: true }).layoutSettling).toBe(true);
+    });
+
+    it('releases at the first failed attempt rather than after the retries', () => {
+      appliedMock.mockReturnValue({
+        data: undefined,
+        isError: false,
+        isLoading: true,
+        failureCount: 1,
+      });
+      expect(run().layoutSettling).toBe(false);
+      expect(previewMock).toHaveBeenLastCalledWith('p', expect.any(String), expect.any(String));
+    });
+
+    it('does not hold once the reads have answered', () => {
+      expect(run().layoutSettling).toBe(false);
+    });
+  });
+
+  it('carries each calendar pattern so a blocked day can name its source', () => {
+    appliedMock.mockReturnValue({
+      isError: false,
+      data: {
+        base: null,
+        overlays: [
+          {
+            layer_id: 'l1',
+            role: 'holidays',
+            sort_order: 1,
+            calendar: calendar({ name: 'UK', working_days: 31 }),
+          },
+        ],
+        applied: [],
+      },
+    });
+    expect(run().workingTime.calendars).toEqual([
+      { name: 'Base', workingDays: SUN_THU },
+      { name: 'UK', workingDays: 31 },
+    ]);
+    expect(
+      run({ effectiveCalendar: null, calendarSource: undefined }).workingTime.calendars,
+    ).toEqual([{ name: 'UK', workingDays: 31 }]);
   });
 
   it('AND-composes overlay masks and types overlay exceptions by role', () => {
@@ -149,11 +254,24 @@ describe('useCalendarWorkingTime', () => {
     ['the applied stack alone', { applied: true }, false],
     ['both the preview and the applied stack', { preview: true, applied: true }, true],
     ['the inherited base', { detail: true }, true],
-  ])('reports holidays unavailable when %s failed: %#', (_name, failed, expected) => {
+  ])('reports the working time incomplete when %s failed: %#', (_name, failed, expected) => {
     const f = failed as { preview?: boolean; applied?: boolean; detail?: boolean };
     previewMock.mockReturnValue({ data: undefined, isError: !!f.preview });
     appliedMock.mockReturnValue({ data: undefined, isError: !!f.applied });
     detailMock.mockReturnValue({ data: undefined, isError: !!f.detail });
-    expect(run().holidaysUnavailable).toBe(expected);
+    expect(run().workingTimeIncomplete).toBe(expected);
+  });
+
+  it('reports the working time incomplete when the project read failed', () => {
+    expect(run({ projectFailed: true }).workingTimeIncomplete).toBe(true);
+  });
+
+  it('does not report a failed background refetch that still holds data', () => {
+    previewMock.mockReturnValue({ data: { days: [] }, isError: true });
+    appliedMock.mockReturnValue({
+      data: { base: null, overlays: [], applied: [] },
+      isError: true,
+    });
+    expect(run().workingTimeIncomplete).toBe(false);
   });
 });

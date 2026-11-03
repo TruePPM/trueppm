@@ -8,20 +8,41 @@ import {
   type Calendar,
   type PreviewDay,
 } from '@/hooks/useProjectCalendars';
-import type { ExceptionType, NamedException, WorkingTimeInputs } from './calendarUtils';
+import {
+  addDays,
+  deriveWeekStartDay,
+  formatISODate,
+  viewWeekStarts,
+  type CalViewMode,
+  type ExceptionType,
+  type NamedException,
+  type WeekStartDay,
+  type WorkingTimeInputs,
+} from './calendarUtils';
 
 interface UseCalendarWorkingTimeArgs {
   projectId: string | null | undefined;
   effectiveCalendar: EffectiveCalendar | null | undefined;
   calendarSource: ProjectCalendarSource | undefined;
-  startIso: string;
-  endIso: string;
+  /** The project read has not answered yet. */
+  projectLoading: boolean;
+  /** The project read failed, so the base calendar above is unknown. */
+  projectFailed: boolean;
+  anchor: Date;
+  calView: CalViewMode;
 }
 
 interface UseCalendarWorkingTimeResult {
   workingTime: WorkingTimeInputs;
-  /** True when a failed read means holidays in force may be missing from `workingTime`. */
-  holidaysUnavailable: boolean;
+  /** Read off the composed pattern, so the first column is never a day the mask blocks. */
+  weekStartDay: WeekStartDay;
+  /**
+   * True until the reads that decide the column layout have first answered. Drawing
+   * before then would rebuild every row under the user when the week start moves.
+   */
+  layoutSettling: boolean;
+  /** True when a failed read means `workingTime` may not be the calendars in force. */
+  workingTimeIncomplete: boolean;
 }
 
 function namedExceptions(calendar: Calendar, type: ExceptionType): NamedException[] {
@@ -46,17 +67,22 @@ function namedExceptions(calendar: Calendar, type: ExceptionType): NamedExceptio
  *  - the detail read fills in an inherited base. `effective_calendar` carries only a
  *    `holiday_count`, so it is skipped when that count says there is nothing to fetch.
  *
- * Every read degrades independently: while any is loading, or if it fails, the grid
- * still draws from what remains, down to the Mon–Fri default.
+ * Every read degrades independently: if one fails, the grid still draws from what
+ * remains, down to the Mon–Fri default. `layoutSettling` ends at a read's first failed
+ * attempt rather than after its retries, so a failing read never holds the grid back.
+ *
+ * The preview waits for `layoutSettling` because its window depends on the week start,
+ * which depends on the applied stack; asking sooner would fetch a window nobody draws.
  */
 export function useCalendarWorkingTime({
   projectId,
   effectiveCalendar,
   calendarSource,
-  startIso,
-  endIso,
+  projectLoading,
+  projectFailed,
+  anchor,
+  calView,
 }: UseCalendarWorkingTimeArgs): UseCalendarWorkingTimeResult {
-  const preview = useCalendarPreview(projectId, startIso, endIso);
   const applied = useProjectCalendars(projectId);
   const baseIsOverride = calendarSource === 'project';
   const inheritedBase = useCalendarDetail(
@@ -66,26 +92,49 @@ export function useCalendarWorkingTime({
   );
 
   const baseMask = effectiveCalendar?.working_days ?? MON_FRI_MASK;
-  const days = preview.data?.days;
+  const baseName = effectiveCalendar?.name;
   const overlays = applied.data?.overlays;
   const base = baseIsOverride ? applied.data?.base : inheritedBase.data;
 
+  const mask = (overlays ?? []).reduce((m, o) => m & o.calendar.working_days, baseMask);
+  const weekStartDay = deriveWeekStartDay(mask);
+  const layoutSettling = projectLoading || (applied.isLoading && applied.failureCount === 0);
+
+  const weeks = viewWeekStarts(anchor, calView, weekStartDay);
+  const preview = useCalendarPreview(
+    layoutSettling ? null : projectId,
+    formatISODate(weeks[0]),
+    formatISODate(addDays(weeks[weeks.length - 1], 6)),
+  );
+  const days = preview.data?.days;
+
   const workingTime = useMemo<WorkingTimeInputs>(() => {
-    const applied = overlays ?? [];
+    const layers = overlays ?? [];
     return {
-      mask: applied.reduce((mask, o) => mask & o.calendar.working_days, baseMask),
+      mask,
+      calendars: [
+        ...(baseName === undefined ? [] : [{ name: baseName, workingDays: baseMask }]),
+        ...layers.map((o) => ({ name: o.calendar.name, workingDays: o.calendar.working_days })),
+      ],
       previewByDate: new Map<string, PreviewDay>((days ?? []).map((d) => [d.date, d])),
       exceptions: [
         ...(base ? namedExceptions(base, 'holiday') : []),
-        ...applied.flatMap((o) =>
+        ...layers.flatMap((o) =>
           namedExceptions(o.calendar, o.role === 'workspace' ? 'shutdown' : 'holiday'),
         ),
       ],
     };
-  }, [baseMask, days, overlays, base]);
+  }, [mask, baseMask, baseName, days, overlays, base]);
+
+  // A failed background refetch still holds good data, so only an empty failure counts.
+  const previewFailed = preview.isError && preview.data === undefined;
+  const appliedFailed = applied.isError && applied.data === undefined;
+  const baseFailed = inheritedBase.isError && inheritedBase.data === undefined;
 
   return {
     workingTime,
-    holidaysUnavailable: inheritedBase.isError || (preview.isError && applied.isError),
+    weekStartDay,
+    layoutSettling,
+    workingTimeIncomplete: projectFailed || baseFailed || (previewFailed && appliedFailed),
   };
 }

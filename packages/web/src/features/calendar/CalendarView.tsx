@@ -30,10 +30,6 @@ import {
   formatDayLabel,
   buildChips,
   buildMilestoneMarks,
-  deriveWeekStartDay,
-  viewWeekStarts,
-  addDays,
-  formatISODate,
   type WeekStartDay,
   type WorkingTimeInputs,
 } from './calendarUtils';
@@ -166,7 +162,7 @@ function CalendarGridArea({
   calView,
   weekStartDay,
   workingTime,
-  holidaysUnavailable,
+  workingTimeIncomplete,
   canCreate,
   onAddTask,
   onRetry,
@@ -183,7 +179,7 @@ function CalendarGridArea({
   calView: 'month' | 'week';
   weekStartDay: WeekStartDay;
   workingTime: WorkingTimeInputs;
-  holidaysUnavailable: boolean;
+  workingTimeIncomplete: boolean;
   canCreate: boolean;
   onAddTask: () => void;
   onRetry: () => void;
@@ -248,7 +244,7 @@ function CalendarGridArea({
       calView={calView}
       weekStartDay={weekStartDay}
       workingTime={workingTime}
-      holidaysUnavailable={holidaysUnavailable}
+      workingTimeIncomplete={workingTimeIncomplete}
       tasks={tasks}
       onTaskClick={onTaskClick}
       sprintBoundaries={sprintBoundaries}
@@ -264,7 +260,8 @@ export function CalendarView() {
   // Server-resolved preset (web-rule 196) — AGILE hides this view's nav entry
   // (methodologyTabs.ts), but the route stays reachable by direct URL on purpose
   // (issue #2619). Drives the explanatory empty state below.
-  const { data: projectDetail } = useProject(projectId);
+  const projectRead = useProject(projectId);
+  const projectDetail = projectRead.data;
   const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
   const { role } = useCurrentUserRole(projectId);
   const breakpoint = useBreakpoint();
@@ -283,17 +280,17 @@ export function CalendarView() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const anchor = parseUTCDate(anchorIso);
-  const weekStartDay = deriveWeekStartDay(projectDetail?.effective_calendar?.working_days);
+  const { workingTime, weekStartDay, layoutSettling, workingTimeIncomplete } =
+    useCalendarWorkingTime({
+      projectId,
+      effectiveCalendar: projectDetail?.effective_calendar,
+      calendarSource: projectDetail?.calendar_source,
+      projectLoading: projectRead.isLoading && projectRead.failureCount === 0,
+      projectFailed: !!projectRead.error && !projectDetail,
+      anchor,
+      calView,
+    });
   const label = formatViewLabel(anchor, calView, weekStartDay);
-
-  const windowWeeks = viewWeekStarts(anchor, calView, weekStartDay);
-  const { workingTime, holidaysUnavailable } = useCalendarWorkingTime({
-    projectId,
-    effectiveCalendar: projectDetail?.effective_calendar,
-    calendarSource: projectDetail?.calendar_source,
-    startIso: formatISODate(windowWeeks[0]),
-    endIso: formatISODate(addDays(windowWeeks[windowWeeks.length - 1], 6)),
-  });
 
   // WCAG 4.1.3 — switching mode or stepping the window swaps grid content with
   // no focus change, so a screen-reader user gets nothing. The region is mounted
@@ -467,7 +464,7 @@ export function CalendarView() {
       <div className="flex-1 min-h-0 overflow-hidden">
         <CalendarGridArea
           error={error}
-          isLoading={isLoading}
+          isLoading={isLoading || layoutSettling}
           tasks={tasks}
           effectiveMethodology={effectiveMethodology}
           projectId={projectId}
@@ -475,7 +472,7 @@ export function CalendarView() {
           calView={calView}
           weekStartDay={weekStartDay}
           workingTime={workingTime}
-          holidaysUnavailable={holidaysUnavailable}
+          workingTimeIncomplete={workingTimeIncomplete}
           canCreate={canCreate}
           onAddTask={() => setShowAddForm(true)}
           onRetry={refetch}

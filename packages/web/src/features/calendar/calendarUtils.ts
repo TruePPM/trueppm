@@ -148,6 +148,8 @@ export type ExceptionType = 'holiday' | 'shutdown';
 export interface WorkingTimeInputs {
   /** Weekly pattern of every calendar in force, AND-composed like the engine's. */
   mask: number;
+  /** Those calendars individually, so a blocked day can name what blocked it. */
+  calendars: readonly { name: string; workingDays: number }[];
   /** The server's per-day answer for the visible window; empty until it resolves. */
   previewByDate: ReadonlyMap<string, PreviewDay>;
   exceptions: readonly NamedException[];
@@ -156,6 +158,7 @@ export interface WorkingTimeInputs {
 /** The working time a grid assumes when it is given none: Mon–Fri, no exceptions. */
 export const DEFAULT_WORKING_TIME: WorkingTimeInputs = {
   mask: MON_FRI_MASK,
+  calendars: [],
   previewByDate: new Map(),
   exceptions: [],
 };
@@ -163,13 +166,13 @@ export const DEFAULT_WORKING_TIME: WorkingTimeInputs = {
 /** How one day reads on the grid. */
 export type DayAvailability =
   | { kind: 'working' }
-  | { kind: 'non-working' }
+  | { kind: 'non-working'; calendars: string[] }
   | {
       kind: 'exception';
       type: ExceptionType;
       /** The line the cell prints. */
       name: string;
-      /** Every calendar blocking the day; more than one earns the split-corner mark. */
+      /** Every calendar blocking the day, by pattern or by exception. */
       calendars: string[];
     };
 
@@ -192,6 +195,9 @@ const UNNAMED_EXCEPTION = 'Holiday or shutdown';
 export function resolveDayAvailability(iso: string, inputs: WorkingTimeInputs): DayAvailability {
   // ISO dates are zero-padded, so lexical comparison is date order.
   const covering = inputs.exceptions.filter((e) => e.start <= iso && iso <= e.end);
+  const blockedByPattern = inputs.calendars
+    .filter((c) => !isWorkingDay(iso, c.workingDays))
+    .map((c) => c.name);
   if (covering.length > 0) {
     // A shutdown outranks a holiday on the same day, as it does in the settings preview.
     const lead = covering.find((e) => e.type === 'shutdown') ?? covering[0];
@@ -199,10 +205,12 @@ export function resolveDayAvailability(iso: string, inputs: WorkingTimeInputs): 
       kind: 'exception',
       type: lead.type,
       name: lead.name,
-      calendars: [...new Set(covering.map((e) => e.calendarName))],
+      calendars: [...new Set([...covering.map((e) => e.calendarName), ...blockedByPattern])],
     };
   }
-  if (!isWorkingDay(iso, inputs.mask)) return { kind: 'non-working' };
+  if (!isWorkingDay(iso, inputs.mask)) {
+    return { kind: 'non-working', calendars: [...new Set(blockedByPattern)] };
+  }
   const previewDay = inputs.previewByDate.get(iso);
   if (previewDay && !previewDay.working) {
     const calendars = previewDay.sources.map((s) => s.name);

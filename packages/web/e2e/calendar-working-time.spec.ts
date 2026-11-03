@@ -143,8 +143,12 @@ test.describe('Calendar working time', () => {
     );
     await expect(cells.nth(3)).toHaveAccessibleName('Wednesday, December 16, 2026');
     await expect(cells.nth(4)).toHaveAccessibleName('Thursday, December 17, 2026');
-    await expect(cells.nth(5)).toHaveAccessibleName('Friday, December 18, 2026, non-working day');
-    await expect(cells.nth(6)).toHaveAccessibleName('Saturday, December 19, 2026, non-working day');
+    await expect(cells.nth(5)).toHaveAccessibleName(
+      'Friday, December 18, 2026, Gulf Office, non-working day',
+    );
+    await expect(cells.nth(6)).toHaveAccessibleName(
+      'Saturday, December 19, 2026, Gulf Office, non-working day',
+    );
 
     // A holiday states its name on screen; an ordinary non-working day does not.
     await expect(cells.nth(2)).toContainText('Founders Day');
@@ -182,12 +186,50 @@ test.describe('Calendar working time', () => {
     // Friday the 25th is non-working twice over and still reads as the shutdown.
     await expect(
       grid.getByRole('gridcell', {
-        name: 'Friday, December 25, 2026, Year-end shutdown, Workspace Closures, non-working day',
+        name: 'Friday, December 25, 2026, Year-end shutdown, Workspace Closures, Gulf Office, non-working day',
         exact: true,
       }),
     ).toBeVisible();
     await expect(
       page.getByRole('group', { name: 'Calendar legend' }).getByText('Shutdown'),
+    ).toBeVisible();
+  });
+
+  test('an overlay that narrows the working week moves the first column', async ({ page }) => {
+    await setup(page, 'project', 0);
+    await mockCalendarReads(
+      page,
+      {
+        base: { ...BASE_CALENDAR, exceptions: [] },
+        overlays: [
+          {
+            layer_id: 'l-1',
+            role: 'holidays',
+            sort_order: 1,
+            calendar: {
+              ...SHUTDOWN_CALENDAR,
+              name: 'UK Holidays',
+              working_days: 31,
+              exceptions: [],
+            },
+          },
+        ],
+      },
+      () => [],
+    );
+
+    await page.goto(url('week'));
+    // Sun-Thu AND Mon-Fri leaves Mon-Thu, so the week opens on Monday, not a blocked Sunday.
+    await expect(page.getByRole('heading', { level: 2, name: 'Dec 14 – 20, 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const grid = page.getByRole('grid', { name: 'Calendar dates' });
+    await expect(grid.getByRole('columnheader').first()).toHaveAccessibleName('Monday');
+    await expect(
+      grid.getByRole('gridcell', {
+        name: 'Sunday, December 20, 2026, UK Holidays, non-working day',
+        exact: true,
+      }),
     ).toBeVisible();
   });
 
@@ -203,7 +245,9 @@ test.describe('Calendar working time', () => {
     const grid = page.getByRole('grid', { name: 'Calendar dates' });
     await expect(grid).toBeVisible({ timeout: 10_000 });
     await expect(
-      grid.getByRole('gridcell', { name: 'Saturday, December 19, 2026, non-working day' }),
+      grid.getByRole('gridcell', {
+        name: 'Saturday, December 19, 2026, Gulf Office, non-working day',
+      }),
     ).toBeVisible();
     await expect(
       grid.getByRole('gridcell', {
@@ -226,10 +270,30 @@ test.describe('Calendar working time', () => {
 
     await expect(grid.getByRole('columnheader').first()).toHaveAccessibleName('Sunday');
     await expect(
-      grid.getByRole('gridcell', { name: 'Friday, December 18, 2026, non-working day' }),
+      grid.getByRole('gridcell', {
+        name: 'Friday, December 18, 2026, Gulf Office, non-working day',
+      }),
     ).toBeVisible();
     await expect(grid.getByRole('button', { name: /^Fit-out,/ })).toBeVisible();
-    await expect(page.getByText(/Couldn't load holidays/)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Couldn't load this project's full working calendar/)).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test('error: a failed project read draws the default week and says so', async ({ page }) => {
+    await setup(page, 'project', 0);
+    await mockCalendarReads(page, { base: null, overlays: [] }, () => []);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+      route.fulfill({ status: 500, json: { detail: 'project service unavailable' } }),
+    );
+
+    await page.goto(url('week'));
+    await expect(page.getByText(/Couldn't load this project's full working calendar/)).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByRole('grid', { name: 'Calendar dates' }).getByRole('columnheader').first(),
+    ).toHaveAccessibleName('Monday');
   });
 
   test('empty: a project with no resolved calendar stays Monday-first on Mon-Fri', async ({
@@ -251,7 +315,9 @@ test.describe('Calendar working time', () => {
     const grid = page.getByRole('grid', { name: 'Calendar dates' });
     await expect(grid.getByRole('columnheader').first()).toHaveAccessibleName('Monday');
     await expect(
-      grid.getByRole('gridcell', { name: 'Saturday, December 19, 2026, non-working day' }),
+      grid.getByRole('gridcell', {
+        name: 'Saturday, December 19, 2026, non-working day',
+      }),
     ).toBeVisible();
     await expect(
       grid.getByRole('gridcell', { name: 'Friday, December 18, 2026', exact: true }),
