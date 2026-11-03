@@ -500,7 +500,7 @@ distribution. Do not confuse it with the deterministic single-date output of
 ## Status and roadmap
 
 **0.4 — the current release.** The CPM pass (all four dependency types,
-calendar-aware lag, cycle detection) and Monte Carlo simulation (PERT-Beta,
+calendar-day lag snapped to working days, cycle detection) and Monte Carlo simulation (PERT-Beta,
 velocity sampling, `derive_value()` explainability) are stable and exercised
 by the fuzz, mutation, and MS-Project-parity suites described in
 [CONTRIBUTING.md](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/CONTRIBUTING.md).

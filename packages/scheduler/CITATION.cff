@@ -4,7 +4,8 @@ title: "trueppm-scheduler: A pure-Python critical-path and Monte Carlo schedule-
 abstract: >-
   A dependency-light, Apache-2.0 Python library for project scheduling. Computes
   a full critical-path method (CPM) schedule with all four dependency types,
-  calendar-aware lag, total and free float, and cycle detection, and forecasts
+  dependency lag counted in calendar days (the resulting date is
+  snapped to the successor's next working day), total and free float, and cycle detection, and forecasts
   delivery risk with PERT-Beta Monte Carlo simulation producing P50/P80/P95
   completion dates.
 type: software

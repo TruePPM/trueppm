@@ -588,3 +588,28 @@ class TestReleaseMetadataConsistency:
             f"README.md pins {sorted(pins)} but pyproject declares {version} — the "
             f"copy-paste install line would give the reader the wrong release."
         )
+
+    def test_scholarly_metadata_does_not_call_lag_working_time(self) -> None:
+        """Lag is calendar days snapped forward, not working time (#4722, #2534).
+
+        ``.zenodo.json`` is published verbatim by a Zenodo archive action and
+        ``paper.md`` is the JOSS submission, so a wrong lag claim becomes a
+        permanent record. The README table is the oracle for the real rule.
+        """
+        forbidden = (
+            "working-time lag",
+            "working time lag",
+            "calendar-aware lag",
+            "calendar-aware working-time lag",
+            "rather than raw calendar days",
+            "deterministic for a fixed seed",
+        )
+        for name in (".zenodo.json", "paper.md", "CITATION.cff", "PUBLISHING.md"):
+            text = " ".join((self._pkg_root() / name).read_text().lower().split())
+            for phrase in forbidden:
+                assert phrase not in text, (
+                    f"{name} contains '{phrase}'. Lag is counted in calendar days and "
+                    f"only the resulting date is snapped to a working day (README "
+                    f"'Duration and lag are counted in different units'); seeded runs "
+                    f"are reproducible only on the same numpy and scheduler versions."
+                )
