@@ -469,9 +469,11 @@ Two consequences worth stating plainly:
   padded above its own estimates reports no upside. Model finishing ahead of
   plan by lowering `duration`, not by lowering the optimistic estimate.
 - **Ordering the estimate is not a substitute.** A triple that brackets its
-  duration — O=1 / M=1 / P=20 against a 20-day task — still piles the PERT mass
-  onto the most-likely value and lands P95 well before the CPM finish. Only the
-  comparison against `duration` itself binds the two passes.
+  duration — O=1 / M=1 / P=20 against a 20-day task — piles the PERT mass onto
+  the most-likely value, and before the floor existed that landed P95 well before
+  the CPM finish. The engine now clamps each sample at `duration`, so for that
+  task P95 equals the CPM finish. Only the comparison against `duration` itself
+  binds the two passes.
 
 The simulation still expresses risk in the direction that matters: any sample
 above `duration` passes through untouched, so P80 and P95 continue to carry the
