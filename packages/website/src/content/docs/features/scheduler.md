@@ -112,7 +112,7 @@ behavior is calendar-day lag, as described above.
 :::note
 `free_float`, `total_float`, and `is_critical` all account for **all four**
 dependency types — an SS, FF, or SF successor pins a task's free float exactly as
-an FS successor does. Two behaviors are worth knowing:
+an FS successor does. Four behaviors are worth knowing:
 
 - **Completed successors are skipped.** A successor with an `actual_finish` is out
   of network logic (ADR-0136) and cannot bound its predecessor's slip, so it does
@@ -153,8 +153,13 @@ naming them apart:
   move. It is bounded by the nearest downstream early start, not by the project
   end.
 
-`free_float <= total_float` always holds, with equality only when the task has no
-live successor to bound it. The gap between them is where the practical answer
+`free_float <= total_float` always holds. They are equal when the task has no
+live successor, or when every successor that bounds it has no float of its own: in
+an A → B chain where B is critical, A has both at zero, and a critical successor
+that starts days after A leaves A with the same free and total float. They differ
+when a bounding successor has float of its own: the slack is shared with that
+successor, so A → C where C has six days of float gives A six days of total float
+but none of free float, because C starts the moment A finishes. The gap between them is where the practical answer
 lives: a task carrying eight days of total float and two of free float has eight
 days of room in the plan overall, and can only take two of them before the next
 task is pushed. Spending the other six is a decision about somebody else's start
@@ -376,7 +381,7 @@ The CPM deterministic finish is typically close to P50 — meaning there is only
 # Summary output
 trueppm-scheduler monte-carlo project.json
 
-# JSON output with full weekly distribution (for frontend histograms)
+# JSON output with full per-run distribution (for frontend histograms)
 trueppm-scheduler monte-carlo project.json --json --distribution
 ```
 
