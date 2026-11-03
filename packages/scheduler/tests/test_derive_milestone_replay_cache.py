@@ -282,3 +282,28 @@ def test_a_pickled_or_copied_result_drops_the_kept_state() -> None:
         assert derive_value(project, "B", Quantity.LATE_START, clone) == derive_value(
             project, "B", Quantity.LATE_START, result
         )
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_replay_refuses_input_schedule_would_refuse(bad: float) -> None:
+    """The replay validates ``project`` like schedule() does (#4836): a non-finite
+    percent_complete is an InvalidScheduleInput, not a bare ValueError."""
+    good = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[Task(id="t0", name="t0", duration=timedelta(0))],
+        dependencies=[],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    result = schedule(good)
+    bad_project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[Task(id="t0", name="t0", duration=timedelta(0), percent_complete=bad)],
+        dependencies=[],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    with pytest.raises(InvalidScheduleInput):
+        derive_value(bad_project, "t0", Quantity.EARLY_START, result=result)

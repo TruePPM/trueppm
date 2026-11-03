@@ -1256,6 +1256,18 @@ _BASELINE_RESULT = schedule(_BASELINE)
     task_id="t1",
     quantity=Quantity.LATE_FINISH,
 )
+@example(
+    project=Project(
+        id="p",
+        name="p",
+        start_date=date(2000, 1, 1),
+        tasks=[Task(id="t0", name="t0", duration=timedelta(0), percent_complete=float("nan"))],
+        dependencies=[],
+        calendar=Calendar(working_days=1, hours_per_day=0.0),
+    ),
+    task_id="t0",
+    quantity=Quantity.EARLY_START,
+)  # #4836: NaN percent_complete reached the replay unvalidated
 @given(
     project=_projects(),
     task_id=st.sampled_from(_BASELINE_IDS) | _ids,

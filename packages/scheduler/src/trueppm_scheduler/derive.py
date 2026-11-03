@@ -1391,6 +1391,10 @@ def derive_value(
         InvalidScheduleInput: If ``project`` is not a :class:`Project`, or
             ``quantity`` is not a known quantity (the message lists the allowed
             values), or ``result`` is neither a :class:`ScheduleResult` nor ``None``.
+            Also raised when a supplied ``result`` reaches the milestone replay over a
+            ``project`` that :func:`schedule` would reject (for example a non-finite
+            ``percent_complete``): the replay validates ``project`` as :func:`schedule`
+            does.
         SchedulerError: Propagated from :func:`schedule` for a degenerate project,
             or from the milestone replay when a supplied ``result`` no longer
             matches ``project``.
