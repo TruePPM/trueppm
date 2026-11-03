@@ -538,7 +538,22 @@ def test_non_sample_record_still_dispatches_the_extension_signal(
     assert received[0].actor_token_prefix == ""
 
 
+def _enable_workspace_sharing() -> None:
+    from trueppm_api.apps.workspace.models import Workspace
+
+    ws = Workspace.load()
+    ws.public_sharing = True
+    ws.save()
+
+
+def test_sample_share_link_skipped_when_public_sharing_off(owner: Any) -> None:
+    """mint_share_link enforces ADR-0135 (#3049); the sample load skips, not crashes."""
+    import_seed(_sample_doc(), owner=owner, create_users=True, is_sample=True)
+    assert ShareLink.objects.count() == 0
+
+
 def test_sample_share_link_token_is_minted_not_read(owner: Any) -> None:
+    _enable_workspace_sharing()
     doc = _sample_doc()
     import_seed(doc, owner=owner, create_users=True, is_sample=True)
     link = ShareLink.objects.get()

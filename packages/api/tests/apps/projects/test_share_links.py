@@ -507,6 +507,44 @@ def test_mint_blocked_when_public_sharing_policy_off(project, admin_client):
 
 
 @pytest.mark.django_db
+def test_mint_service_refuses_when_project_policy_off(project):
+    """The service enforces ADR-0135 itself — a non-view caller cannot bypass it (#3049)."""
+    project.public_sharing = False
+    project.save()
+    with pytest.raises(share_services.PublicSharingDisabledError):
+        share_services.mint_share_link(project, None)
+    assert not ShareLink.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_mint_service_refuses_when_workspace_policy_off(project):
+    """An inherited (workspace-level) off also blocks the mint."""
+    from trueppm_api.apps.workspace.models import Workspace
+
+    project.public_sharing = None  # inherit
+    project.save()
+    ws = Workspace.load()
+    ws.public_sharing = False
+    ws.save()
+    with pytest.raises(share_services.PublicSharingDisabledError):
+        share_services.mint_share_link(project, None)
+    assert not ShareLink.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_mint_service_succeeds_when_workspace_policy_on(project):
+    from trueppm_api.apps.workspace.models import Workspace
+
+    project.public_sharing = None
+    project.save()
+    ws = Workspace.load()
+    ws.public_sharing = True
+    ws.save()
+    link, raw = share_services.mint_share_link(project, None)
+    assert link.project_id == project.id and raw
+
+
+@pytest.mark.django_db
 def test_public_link_410_when_policy_turned_off_after_mint(project):
     """Turning 'Public sharing' off after a link exists immediately stops it resolving."""
     _link, raw = share_services.mint_share_link(project, None)

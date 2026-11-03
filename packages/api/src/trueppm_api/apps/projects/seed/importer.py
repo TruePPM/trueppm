@@ -2517,22 +2517,34 @@ class _SeedImporter:
         """
         if not self.is_sample:
             return
-        from trueppm_api.apps.projects.share_services import mint_share_link
+        from trueppm_api.apps.projects.share_services import (
+            PublicSharingDisabledError,
+            mint_share_link,
+        )
 
         for project_data in self.payload["projects"]:
             project = self.projects[project_data["slug"]]
             for data in project_data.get("share_links", []):
                 days = data.get("expires_in_days")
                 creator = self.users.get(data["created_by"]) if data.get("created_by") else None
-                mint_share_link(
-                    project,
-                    creator or self.owner,
-                    label=data.get("label", ""),
-                    show_assignees=data.get("show_assignees", False),
-                    show_milestone_dates=data.get("show_milestone_dates", True),
-                    content_kind=data.get("content_kind", "board"),
-                    expires_at=timezone.now() + timedelta(days=days) if days else None,
-                )
+                try:
+                    mint_share_link(
+                        project,
+                        creator or self.owner,
+                        label=data.get("label", ""),
+                        show_assignees=data.get("show_assignees", False),
+                        show_milestone_dates=data.get("show_milestone_dates", True),
+                        content_kind=data.get("content_kind", "board"),
+                        expires_at=timezone.now() + timedelta(days=days) if days else None,
+                    )
+                except PublicSharingDisabledError:
+                    # ADR-0135: sharing is opt-in and a sample load must not loosen
+                    # the workspace policy, so a policy-off instance gets no link
+                    # (it would only serve 410 anyway).
+                    logger.warning(
+                        "seed.share_link_skipped project=%s: public sharing is off",
+                        project_data["slug"],
+                    )
 
     def _agent_action_refs(self, data: dict[str, Any]) -> tuple[Task | None, Project | None]:
         """Resolve the task and project an authored agent action points at."""

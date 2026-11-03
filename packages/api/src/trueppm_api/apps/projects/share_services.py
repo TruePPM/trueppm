@@ -27,6 +27,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.projects.sharing_settings import resolve_effective_sharing
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,26 @@ _PUBLIC_DEFAULT_STATUSES = (
     TaskStatus.REVIEW,
     TaskStatus.COMPLETE,
 )
+
+
+class PublicSharingDisabledError(Exception):
+    """Raised by :func:`mint_share_link` when ADR-0135 ``public_sharing`` is off.
+
+    A plain exception, deliberately not a DRF ``APIException``: DRF's exception
+    handler calls ``set_rollback()`` for every ``APIException`` under
+    ``ATOMIC_REQUESTS``, which would discard unrelated writes a non-view caller
+    (seed importer, management command) made in the same transaction.
+    """
+
+
+def public_sharing_allowed(project: Any) -> bool:
+    """Effective public-sharing policy (ADR-0135) for ``project``.
+
+    Resolved through workspace -> program -> project inheritance, honoring any
+    Enterprise org-wide enforcement lock. Both minting and serving a public link
+    require it, layered on top of the operator-level instance kill switch.
+    """
+    return resolve_effective_sharing(project, "public_sharing")
 
 
 def mint_share_link(
@@ -61,7 +82,18 @@ def mint_share_link(
     it passes, the public endpoint returns 410 exactly like a revoked link.
     ``show_milestone_dates`` (#2532, schedule links only) defaults **True** so a
     caller that omits it mints exactly the link it minted before the flag existed.
+
+    Raises:
+        PublicSharingDisabledError: the ADR-0135 ``public_sharing`` policy resolves
+            to off for ``project``. Enforced here, at the point of mutation, so a
+            caller that is not the share view (a management command, importer,
+            future bulk or MCP path) cannot mint a link the policy forbids (#2781,
+            #3049). Callers that want a friendlier message may pre-check.
     """
+    if not public_sharing_allowed(project):
+        raise PublicSharingDisabledError(
+            f"Public sharing is turned off for project {getattr(project, 'id', None)}."
+        )
     raw = secrets.token_urlsafe(32)
     link = ShareLink.objects.create(
         project=project,
