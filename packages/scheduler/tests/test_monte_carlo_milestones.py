@@ -171,12 +171,22 @@ class TestReportedRepro:
         return _cell("live", DependencyType.FS, DependencyType.FS, "project")
 
     def test_a_small_estimate_does_not_cost_a_day(self) -> None:
+        """#4698's acceptance criterion: a (0, 0, 1) estimate leaves P50 and P80 on CPM.
+
+        Its Beta draws are never exactly zero, so this holds only because a zero-base
+        draw under half a day rounds away whole and hands no fraction on. Without
+        that, B's five days would end part-way into Monday in every run, since a
+        finish is read by the day it falls in (#4697).
+        """
         project = self._repro()
         cpm = schedule(project).project_finish
         assert cpm == date(2026, 3, 13)
         mc = monte_carlo(project, runs=5000, seed=1)
         assert mc.p50 == cpm
         assert mc.p80 == cpm
+        # Only the draws of half a day or more are work, about 5% of runs.
+        late = sum(1 for d in mc.distribution if d > cpm) / len(mc.distribution)
+        assert 0.02 < late < 0.1
 
     def test_the_estimate_still_reaches_the_tail(self) -> None:
         project = _cell("live", DependencyType.FS, DependencyType.FS, "project")
@@ -186,9 +196,16 @@ class TestReportedRepro:
 
 class TestSensitivity:
     def test_a_driving_task_is_credited_with_its_variance(self) -> None:
+        """M alone moves the finish, but only by its draws of half a day or more.
+
+        Draws below that round away (#4697), so the rank correlation is partial,
+        not the 1.0 a fraction handed on to B produced.
+        """
         project = _cell("live", DependencyType.FS, DependencyType.FS, "project")
         mc = monte_carlo(project, runs=2000, seed=1)
-        assert {s.task_id: s.index for s in mc.sensitivity} == {"M": pytest.approx(1.0)}
+        indexes = {s.task_id: s.index for s in mc.sensitivity}
+        assert set(indexes) == {"M"}
+        assert 0.3 < indexes["M"] < 0.5
 
     def test_it_shares_the_finish_with_other_uncertain_work(self) -> None:
         project = _project(
@@ -200,7 +217,8 @@ class TestSensitivity:
             [_link("A", "M"), _link("M", "B")],
         )
         indexes = {s.task_id: s.index for s in monte_carlo(project, runs=5000, seed=1).sensitivity}
-        assert indexes["A"] > indexes["M"] > 0.1
+        # M's draws under half a day round away (#4697), so its share is small.
+        assert indexes["A"] > indexes["M"] > 0.05
 
     def test_a_task_off_the_driving_path_moves_nothing(self) -> None:
         project = _project(
@@ -306,8 +324,13 @@ class TestWhatARunIs:
             mc = _run(project)
         assert mc.p50 == schedule(project).project_finish == date(2026, 3, 13)
 
-    def test_a_chain_of_small_draws_still_adds_up(self) -> None:
-        """Three 0.2-day draws are 0.6 of a day of work, however each one reads alone."""
+    def test_a_chain_of_small_draws_each_rounds_away(self) -> None:
+        """Three 0.2-day draws are three instants, so B stays on CPM (#4697).
+
+        Before #4697 each handed its 0.2 on and the chain read 0.6 of a day of work.
+        Under the day-it-falls-in reading a handed-on fraction costs any whole-day
+        successor a day, so a draw that rounds away now hands nothing on.
+        """
         project = _project(
             [
                 *(
@@ -320,7 +343,10 @@ class TestWhatARunIs:
         )
         assert schedule(project).project_finish == date(2026, 3, 6)
         with _draws(_constant(0.2)):
-            assert _run(project).p50 == date(2026, 3, 9)
+            assert _run(project).p50 == date(2026, 3, 6)
+        with _draws(_constant(0.6)):
+            # 1.8 days of work: B's five days end part-way into Tuesday 03-10.
+            assert _run(project).p50 == date(2026, 3, 10)
 
     def test_a_whole_day_draw_is_a_day_of_work(self) -> None:
         project = _cell("live", DependencyType.FS, DependencyType.FS, "project")
@@ -377,7 +403,8 @@ class TestAWorkSizedDrawIsOrdinaryWork:
     @pytest.mark.parametrize(
         ("estimate", "link_in", "p50"),
         [
-            ((3, 5, 8), DependencyType.FF, date(2026, 3, 13)),
+            # Half the draws exceed 5 days, so B's work ends part-way into Monday (#4697).
+            ((3, 5, 8), DependencyType.FF, date(2026, 3, 16)),
             ((3, 5, 8), DependencyType.SF, date(2026, 3, 6)),
             ((1, 1, 1), DependencyType.FF, date(2026, 3, 13)),
             ((1, 1, 1), DependencyType.SF, date(2026, 3, 6)),
@@ -422,11 +449,18 @@ class TestAWorkSizedDrawIsOrdinaryWork:
                 )
 
     def test_sf_in_sf_out_back_solves_ahead_only_with_longer_lags(self) -> None:
+        """It takes a whole-day draw to back-solve M's start into an earlier day.
+
+        A sub-day draw back-solves M's start only part-way into the day before its
+        finish, and the SF link out of it reads that start in the day it falls in
+        (#4697), which keeps B on the CPM date. Before #4697 a 0.51 draw was
+        enough, because its start was read as the nearest day.
+        """
         project = _cell("live", DependencyType.SF, DependencyType.SF, "project", (3, 3, None))
         assert schedule(project).project_finish == date(2026, 3, 9)
-        with _draws(_constant(0.49)):
+        with _draws(_constant(0.9)):
             assert _run(project).p50 == date(2026, 3, 9)
-        with _draws(_constant(0.51)):
+        with _draws(_constant(1.0)):
             assert _run(project).p50 == date(2026, 3, 6)
 
     def test_a_started_task_is_not_a_real_task_of_that_length(self) -> None:
@@ -475,8 +509,12 @@ class TestTheFractionFollowsTheLinkAnchor:
             yield
 
     def test_the_reported_ss_network_stays_on_main(self) -> None:
+        """B's own draws over 5 days end part-way into Monday, so P50 is 03-16 (#4697).
+
+        Before #4697 they were read as the nearest day: (03-13, 03-16, 03-17).
+        """
         mc = monte_carlo(self._network(DependencyType.SS), runs=5000, seed=1)
-        assert (mc.p50, mc.p80, mc.p95) == (date(2026, 3, 13), date(2026, 3, 16), date(2026, 3, 17))
+        assert (mc.p50, mc.p80, mc.p95) == (date(2026, 3, 16), date(2026, 3, 17), date(2026, 3, 18))
 
     @pytest.mark.parametrize("out", [DependencyType.SS, DependencyType.SF])
     @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS])
@@ -490,16 +528,31 @@ class TestTheFractionFollowsTheLinkAnchor:
             )
         _same_result(drawn, milestone)
 
-    def test_a_finish_anchored_link_still_carries_it(self) -> None:
-        """M's 0.4 and B's 5.45 are 10.85 days of work on FS; B alone on SS is 10.45."""
+    def test_a_finish_anchored_link_carries_only_work(self) -> None:
+        """A 0.4 draw rounds away and hands FS nothing; a 0.6 draw is work it carries.
+
+        B's 5.45 days alone end part-way into Monday 03-16 on FS and SS alike. M's
+        0.6 adds to that on FS, into Tuesday. Before #4697 a 0.4 draw handed its
+        fraction on too; under the day-it-falls-in reading that would cost a whole-day
+        successor a day for a draw that rounds away.
+        """
         with self._m_draws(0.4, b_fixed=5.45):
             on_fs = monte_carlo(self._network(DependencyType.FS), runs=8, seed=1)
             on_ss = monte_carlo(self._network(DependencyType.SS), runs=8, seed=1)
-        assert (on_fs.p50, on_ss.p50) == (date(2026, 3, 16), date(2026, 3, 13))
+        assert (on_fs.p50, on_ss.p50) == (date(2026, 3, 16), date(2026, 3, 16))
+        with self._m_draws(0.6, b_fixed=5.45):
+            on_fs = monte_carlo(self._network(DependencyType.FS), runs=8, seed=1)
+            on_ss = monte_carlo(self._network(DependencyType.SS), runs=8, seed=1)
+        assert (on_fs.p50, on_ss.p50) == (date(2026, 3, 17), date(2026, 3, 16))
 
-    @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS, DependencyType.FF])
+    @pytest.mark.parametrize("into", [DependencyType.FS, DependencyType.SS])
     def test_crossing_into_work_does_not_finish_earlier_over_ss(self, into: DependencyType) -> None:
-        """A fractional B: the 0.49 draw used to finish 03-16 and the 0.51 draw 03-13."""
+        """A fractional B: the 0.49 draw used to finish 03-16 and the 0.51 draw 03-13.
+
+        FF in is the #4822 back-solve class: a rounded-away draw is the milestone,
+        which back-solves nothing, and the work draw past the threshold back-solves
+        its start. See ``test_ff_in_ss_out_steps_back_only_at_the_threshold``.
+        """
         for b_fixed in (5.1, 5.2, 5.3, 5.4, 5.45, 5.6, 5.8):
             project = self._network(DependencyType.SS, into=into)
             with self._m_draws(0.49, b_fixed):
@@ -580,3 +633,120 @@ def test_instant_runs_match_a_real_milestone() -> None:
             milestones.p80_at_day_start,
         ), seed
         assert zero_draws.distribution[:-1] == milestones.distribution[:-1], seed
+
+
+# ---------------------------------------------------------------------------
+# A rounded-away draw hands on no back-solved start (#4697, round 2)
+# ---------------------------------------------------------------------------
+#
+# Keeping the start an FF link back-solved over a sub-half-day draw, added to an SS
+# successor's bound AFTER that link's lag and snap, pulled the successor back across
+# a weekend its lag landed on, ahead of CPM. ``A -FF-> M -SS+3-> B -SS+3-> C``: M sits
+# on Wednesday, so M's SS+3 lands on Saturday and B must start on Monday. The kept
+# start put B 0.7 into Friday, and B's own SS+3 carried that fraction on to C. A run
+# that rounds away is now the milestone itself.
+
+
+def _ff_ss_chain(
+    a_days: int,
+    link_in: DependencyType,
+    lag_in: int,
+    link_out: DependencyType,
+    lag_out: int,
+    third: DependencyType | None,
+    *,
+    m_estimate: bool = True,
+) -> Project:
+    tasks = [
+        Task(id="A", name="A", duration=_days(a_days)),
+        Task(id="M", name="M", duration=_days(0), **(_estimate() if m_estimate else {})),
+        Task(id="B", name="B", duration=_days(5)),
+    ]
+    deps = [_link("A", "M", link_in, lag_in), _link("M", "B", link_out, lag_out)]
+    if third is not None:
+        tasks.append(Task(id="C", name="C", duration=_days(5)))
+        deps.append(_link("B", "C", third, 3))
+    return _project(tasks, deps)
+
+
+def test_a_rounded_away_draw_does_not_cross_a_weekend_ahead_of_cpm() -> None:
+    """The reported network: P50 and P80 were 03-16 with 94.5% of runs before CPM 03-18."""
+    project = _project(
+        [
+            Task(id="t0", name="t0", duration=_days(3)),
+            Task(id="M", name="M", duration=_days(0), **_estimate()),
+            Task(id="t2", name="t2", duration=_days(5)),
+            Task(id="t4", name="t4", duration=_days(5)),
+        ],
+        [
+            _link("t0", "M", DependencyType.FF),
+            _link("M", "t2", DependencyType.SS, 3),
+            _link("t2", "t4", DependencyType.SS, 3),
+        ],
+    )
+    cpm = schedule(project).project_finish
+    assert cpm == date(2026, 3, 18)
+    mc = monte_carlo(project, runs=5000, seed=1)
+    assert (mc.p50, mc.p80) == (cpm, cpm)
+    assert min(mc.distribution) >= cpm
+
+
+@pytest.mark.parametrize("a_days", [2, 3, 4, 5])
+@pytest.mark.parametrize("link_in", [DependencyType.FF, DependencyType.SF])
+@pytest.mark.parametrize("link_out", [DependencyType.SS, DependencyType.SF])
+@pytest.mark.parametrize("lag_out", [0, 1, 2, 3])
+def test_ff_sf_in_rounded_away_runs_match_the_milestone(
+    a_days: int, link_in: DependencyType, link_out: DependencyType, lag_out: int
+) -> None:
+    """Across the class every rounded-away run is the plain-milestone network's run.
+
+    The draws are all 0.3, so every run rounds away and the drawn network must give
+    the plain-milestone network's result, lag landings included. The kept back-solved
+    start put 33 of 576 such cells' P50 before CPM.
+    """
+    for lag_in in (-1, 0, 1):
+        for third in (DependencyType.SS, None):
+            drawn = _ff_ss_chain(a_days, link_in, lag_in, link_out, lag_out, third)
+            plain = _ff_ss_chain(
+                a_days, link_in, lag_in, link_out, lag_out, third, m_estimate=False
+            )
+            with _draws(_constant(0.3)):
+                mc = monte_carlo(drawn, runs=4, seed=1)
+            assert mc.distribution == [schedule(plain).project_finish] * 4, (lag_in, third)
+
+
+def test_ff_in_ss_out_steps_back_only_at_the_threshold() -> None:
+    """The #4822 class: a draw past the threshold back-solves; one below it does not.
+
+    ``A -FF+1-> M -SS-> B`` with ``A -SF-> B`` (the audit's seed 420). A and B draw
+    fixed fractional durations; only M's draw varies. When a rounded-away run handed
+    on its back-solved start, M's start moved with every sub-half-day draw, and the
+    finish stepped back from 03-10 to 03-09 between 0.05 and 0.2. A rounded-away run
+    is now the milestone, so every draw below half a day gives one finish, and the
+    backward step sits at the threshold itself.
+    """
+    project = _project(
+        [
+            Task(id="A", name="A", duration=_days(3), **_estimate(3, 3, 9)),
+            Task(id="M", name="M", duration=_days(0), **_estimate()),
+            Task(id="B", name="B", duration=_days(1), **_estimate(1, 1, 8)),
+        ],
+        [
+            _link("A", "M", DependencyType.FF, 1),
+            _link("A", "B", DependencyType.SF),
+            _link("M", "B", DependencyType.SS),
+        ],
+    )
+
+    def finish_at(draw: float) -> date:
+        by_pessimistic = {9.0: 3.763938007233175, 8.0: 1.3255072048685355, 1.0: draw}
+
+        def sample(_o: float, _m: float, pess: float, n: int, _rng: Any) -> np.ndarray:
+            return np.full(n, by_pessimistic[float(pess)])
+
+        with patch.object(engine, "_sample_pert", sample):
+            return monte_carlo(project, runs=2, seed=1).p50
+
+    below = [finish_at(d) for d in (0.0, 0.05, 0.2, 0.4, 0.49, 0.4999)]
+    assert below == [date(2026, 3, 10)] * len(below)
+    assert finish_at(0.5) == date(2026, 3, 9)  # the threshold step (#4822)

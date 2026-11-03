@@ -89,6 +89,14 @@ class TestExportedNames:
         assert "SchedulerError" in ts.__all__
         assert ts.SchedulerError is SchedulerError
 
+    def test_every_exported_name_appears_in_readme(self) -> None:
+        # The README is the PyPI long description. DateRange, the type you build to
+        # populate Calendar.exceptions, went unmentioned while the README promised
+        # holiday support, so a name can ship exported yet undiscoverable.
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+        missing = [n for n in ts.__all__ if not re.search(rf"\b{re.escape(n)}\b", readme)]
+        assert not missing, f"Exported but never mentioned in README.md: {missing}"
+
 
 class TestExceptionHierarchy:
     def test_scheduler_error_subclasses_value_error(self) -> None:

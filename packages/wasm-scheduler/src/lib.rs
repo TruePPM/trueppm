@@ -105,10 +105,12 @@ pub fn wasm_incremental_update(
 /// ([`set_task_start`](SchedulerSession::set_task_start)) and reruns the passes
 /// over the cached graph
 /// ([`recalc_incremental`](SchedulerSession::recalc_incremental)). Each mutation
-/// *does* re-validate the project (#1858) — without that, a crafted start date
-/// reaches unchecked date arithmetic that the stateless entry points' validation
-/// rejects — but validation is linear in the input, not the dominant per-frame
-/// cost the session exists to avoid.
+/// *does* re-validate (#1858) — without that, a crafted start date reaches
+/// unchecked date arithmetic that the stateless entry points' validation
+/// rejects — but only the bounds that read the mutated `planned_start` (the
+/// `date.min` floor, the per-task SNET bound, and the cumulative-span /
+/// far-future bounds), incrementally, so the cost does not grow with project
+/// size (#4712). Everything else was validated once at construction.
 ///
 /// Reusing the graph across the session is sound because a drag moves a bar's
 /// *date*, not the network *topology* — the nodes, edges, and topological order
@@ -148,6 +150,9 @@ pub struct SchedulerSession {
     /// date. Constant for the session (a drag moves dates, not the anchor), so it
     /// crosses to JS once via [`SchedulerSession::epoch`].
     epoch: NaiveDate,
+    /// Pin-independent span terms + pin multiset for O(log n) `set_task_start`
+    /// re-validation (#4712).
+    bounds: validate::SessionBounds,
 }
 
 /// Columnar typed-array drag-preview result handed to JS (#1856).
@@ -264,11 +269,13 @@ impl SchedulerSession {
         // frame reuses it, so the per-frame deep clone the JSON paths pay is gone.
         let scratch = RefCell::new(project.tasks.clone());
         let epoch = project.start_date;
+        let bounds = validate::SessionBounds::new(&project);
         Ok(SchedulerSession {
             project,
             graph,
             scratch,
             epoch,
+            bounds,
         })
     }
 
@@ -339,8 +346,14 @@ impl SchedulerSession {
     /// date the mutation is rolled back, so the session stays valid and usable.
     #[wasm_bindgen(js_name = setTaskStart)]
     pub fn set_task_start(&mut self, task_id: &str, new_start: &str) -> Result<(), JsValue> {
-        set_task_start_impl(&mut self.project, &self.graph, task_id, new_start)
-            .map_err(|e| JsValue::from_str(&e))
+        set_task_start_impl(
+            &mut self.project,
+            &self.graph,
+            &mut self.bounds,
+            task_id,
+            new_start,
+        )
+        .map_err(|e| JsValue::from_str(&e))
     }
 
     /// Full CPM over the cached graph → `ScheduleResult` JSON. Identical to
@@ -370,13 +383,15 @@ impl SchedulerSession {
 /// `compute_downstream` do not re-validate, so a crafted `set_task_start`
 /// (e.g. `NaiveDate::MAX`) used to panic the working-day counter build and trap
 /// the whole WASM module (or freeze the main thread for a merely-large date).
-/// Mutate tentatively, re-run `validate_project`, and roll back on failure so a
-/// rejected drag leaves the session exactly as it was. The re-validation is
-/// O(tasks + dependencies) — the same order as the recalc that follows every
-/// frame — so the session's per-frame savings (parse + graph build) are kept.
+/// The bounds that read `planned_start` are re-checked incrementally through
+/// [`validate::SessionBounds`] (O(log n), reusing `validate.rs`'s own helpers and
+/// messages), and the task is only mutated once they pass, so a rejected drag
+/// leaves the session exactly as it was. Re-running `validate_project` here was
+/// 30-57% of a drag frame above ~5k tasks (#4712).
 fn set_task_start_impl(
     project: &mut Project,
     graph: &ProjectGraph,
+    bounds: &mut validate::SessionBounds,
     task_id: &str,
     new_start: &str,
 ) -> Result<(), String> {
@@ -388,13 +403,7 @@ fn set_task_start_impl(
         .node_index
         .get(task_id)
         .ok_or_else(|| format!("task_id {task_id:?} does not exist in the project."))?;
-    let prev = project.tasks[idx.index()].planned_start;
-    project.tasks[idx.index()].planned_start = Some(date);
-    if let Err(e) = validate::validate_project(project) {
-        project.tasks[idx.index()].planned_start = prev;
-        return Err(e);
-    }
-    Ok(())
+    bounds.try_set_planned_start(project, idx.index(), date)
 }
 
 /// Internal implementation of the full CPM schedule (no wasm-bindgen dependency).
@@ -1212,6 +1221,7 @@ mod tests {
         // Same acceptance gate as `SchedulerSession::new`.
         crate::validate::validate_project(&project).unwrap();
         let pg = crate::graph::build_graph(&project).unwrap();
+        let mut bounds = validate::SessionBounds::new(&project);
 
         // The issue's crafted input: NaiveDate::MAX (262142-12-31), fed as the
         // ISO string a JS caller would pass — chrono's `%Y` needs an explicit
@@ -1228,7 +1238,7 @@ mod tests {
         // Since #4707 the strict parse refuses this non-canonical form before
         // validation runs (Python refuses it too); the validation-bound path is
         // still covered by the in-range 9500-01-01 cases below.
-        let err = set_task_start_impl(&mut project, &pg, "T", &max_start).unwrap_err();
+        let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T", &max_start).unwrap_err();
         assert!(
             err.contains("invalid start date"),
             "MAX string must be refused by the strict date parse: {err}"
@@ -1241,14 +1251,15 @@ mod tests {
         // A merely-large date beyond MAX_PROJECT_SPAN_DAYS (the freeze variant,
         // and a parseable 4-digit year, so this provably exercises the
         // validation guard rather than date parsing).
-        assert!(set_task_start_impl(&mut project, &pg, "T", "9500-01-01").is_err());
+        assert!(set_task_start_impl(&mut project, &pg, &mut bounds, "T", "9500-01-01").is_err());
         assert_eq!(
             project.tasks[0].planned_start, None,
             "rejected drag must not mutate"
         );
 
         // The largest string the strict parse accepts: validation must still refuse it.
-        let err = set_task_start_impl(&mut project, &pg, "T", "9999-12-31").unwrap_err();
+        let err =
+            set_task_start_impl(&mut project, &pg, &mut bounds, "T", "9999-12-31").unwrap_err();
         assert!(
             !err.contains("invalid start date"),
             "9999-12-31 parses; validation must be what refuses it: {err}"
@@ -1260,14 +1271,14 @@ mod tests {
 
         // A sane drag still lands, and the session stays fully usable — the
         // rejected mutations must not have poisoned the resident project.
-        set_task_start_impl(&mut project, &pg, "T", "2026-04-08").unwrap();
+        set_task_start_impl(&mut project, &pg, &mut bounds, "T", "2026-04-08").unwrap();
         assert_eq!(
             project.tasks[0].planned_start,
             Some(NaiveDate::from_ymd_opt(2026, 4, 8).unwrap())
         );
 
         // A rejected drag rolls back to the previous *set* value, not to None.
-        assert!(set_task_start_impl(&mut project, &pg, "T", "9500-01-01").is_err());
+        assert!(set_task_start_impl(&mut project, &pg, &mut bounds, "T", "9500-01-01").is_err());
         assert_eq!(
             project.tasks[0].planned_start,
             Some(NaiveDate::from_ymd_opt(2026, 4, 8).unwrap())
@@ -1293,12 +1304,13 @@ mod tests {
             sprint_length_days: None,
         };
         let pg = crate::graph::build_graph(&project).unwrap();
-        assert!(set_task_start_impl(&mut project, &pg, "NOPE", "2026-04-08").is_err());
-        assert!(set_task_start_impl(&mut project, &pg, "T", "not-a-date").is_err());
+        let mut bounds = validate::SessionBounds::new(&project);
+        assert!(set_task_start_impl(&mut project, &pg, &mut bounds, "NOPE", "2026-04-08").is_err());
+        assert!(set_task_start_impl(&mut project, &pg, &mut bounds, "T", "not-a-date").is_err());
         // Non-canonical forms chrono's lenient parse accepted (#4707).
         for bad in ["2026-3-2", "+2026-03-02", " 2026-03-02", "0000-12-28"] {
             assert!(
-                set_task_start_impl(&mut project, &pg, "T", bad).is_err(),
+                set_task_start_impl(&mut project, &pg, &mut bounds, "T", bad).is_err(),
                 "{bad:?} must be refused"
             );
         }
@@ -1760,5 +1772,195 @@ mod tests {
             .driving_edges
             .iter()
             .any(|e| e.predecessor_id == "A" && e.successor_id == "M"));
+    }
+
+    fn span_project(n: usize) -> Project {
+        Project {
+            id: "p-4712".to_string(),
+            name: "span".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: (0..n).map(|i| make_task(&format!("T{i}"), 1)).collect(),
+            dependencies: vec![],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        }
+    }
+
+    #[test]
+    fn incremental_validation_agrees_with_full_validation() {
+        // #4712 oracle: for every candidate date the incremental check must accept
+        // exactly what `validate_project` accepts on the mutated project, and
+        // leave state unchanged when it refuses.
+        let mut project = span_project(5);
+        let pg = crate::graph::build_graph(&project).unwrap();
+        let mut bounds = validate::SessionBounds::new(&project);
+        let dates = [
+            "2026-04-08",
+            "2026-01-01",
+            "1900-01-01",
+            "0001-01-01",
+            "2500-01-01",
+            "3000-01-01",
+            "5026-04-01",
+            "5500-01-01",
+            "9500-01-01",
+            "9999-12-31",
+            "2026-04-08",
+            "2027-01-01",
+            "1999-01-01",
+        ];
+        for (i, d) in dates.iter().enumerate() {
+            let id = format!("T{}", i % 5);
+            let mut oracle = project.clone();
+            let date = models::date_serde::parse_strict(d).unwrap();
+            oracle.tasks[i % 5].planned_start = Some(date);
+            let expected = validate::validate_project(&oracle);
+            let before = project.tasks[i % 5].planned_start;
+            let got = set_task_start_impl(&mut project, &pg, &mut bounds, &id, d);
+            assert_eq!(
+                got.is_ok(),
+                expected.is_ok(),
+                "{d}: {got:?} vs {expected:?}"
+            );
+            if let (Err(a), Err(b)) = (&got, &expected) {
+                assert_eq!(a, b, "{d}: message parity");
+                assert_eq!(project.tasks[i % 5].planned_start, before);
+            }
+        }
+    }
+
+    #[test]
+    fn set_task_start_span_bound_alone_still_rejects() {
+        // Negative control (#4712): a date within the SNET per-task bound and
+        // above date.min, rejected only by the cumulative-span / far-future
+        // bound. 366*1000 days after 2026 is year ~3026; with 5 one-day tasks,
+        // a pin just inside the per-task cap pushes total_span over the max.
+        let mut project = span_project(5);
+        let pg = crate::graph::build_graph(&project).unwrap();
+        let mut bounds = validate::SessionBounds::new(&project);
+        // 365_999 days after the start: under the SNET cap (366_000) but
+        // base_span (5) + 365_999 > 366_000.
+        let pin = project.start_date + chrono::Duration::days(365_999);
+        let s = format!("{:04}-{:02}-{:02}", pin.year(), pin.month(), pin.day());
+        let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T0", &s).unwrap_err();
+        assert!(err.contains("Total project span"), "{err}");
+        assert_eq!(project.tasks[0].planned_start, None);
+        // Dropping the furthest pin back down frees the bound again.
+        let ok = set_task_start_impl(&mut project, &pg, &mut bounds, "T0", "2026-04-08");
+        assert!(ok.is_ok());
+    }
+
+    #[test]
+    fn incremental_validation_agrees_on_mixed_fixture() {
+        // Pins + lag + status_date + actual, duplicate pin offsets, and moves of the
+        // current max pin down and up. `other_floor` (status/actuals) can never flip
+        // accept/reject on its own (base + max(pin, floor) is already valid at
+        // construction), so it is pinned by the construction assert below; the lag
+        // term is observable: with it dropped, the +365_000 case would be accepted.
+        let mut project = span_project(6);
+        project.start_date = NaiveDate::from_ymd_opt(2026, 4, 1).unwrap();
+        for t in project.tasks.iter_mut() {
+            t.duration = 10.0 * 86_400.0;
+        }
+        project.dependencies = vec![crate::models::Dependency {
+            predecessor_id: "T0".to_string(),
+            successor_id: "T1".to_string(),
+            dep_type: crate::models::DependencyType::FS,
+            lag: 400.0 * 86_400.0,
+        }];
+        let at = |days: i64| project.start_date + chrono::Duration::days(days);
+        let (p0, p1, p2, st, af) = (at(50), at(300_000), at(300_000), at(365_000), at(100));
+        project.tasks[0].planned_start = Some(p0);
+        project.tasks[1].planned_start = Some(p1);
+        project.tasks[2].planned_start = Some(p2); // duplicate offset of T1
+        project.tasks[5].actual_finish = Some(af);
+        project.status_date = Some(st);
+        validate::validate_project(&project).expect("fixture must be valid");
+        let pg = crate::graph::build_graph(&project).unwrap();
+        let mut bounds = validate::SessionBounds::new(&project);
+        let start = project.start_date;
+        let fmt = |d: NaiveDate| format!("{:04}-{:02}-{:02}", d.year(), d.month(), d.day());
+        // (task index, offset in days)
+        let moves: [(usize, i64); 12] = [
+            (1, 10),      // max pin drops; duplicate T2 still holds 300_000
+            (2, 10),      // now both gone: max falls to T0/50 and the status floor
+            (1, 365_500), // up: base 460 + 365_500 > cap, span-only rejection
+            (1, 365_000), // near the edge
+            (1, 365_540), // at/over the cap
+            (1, 365_541),
+            (0, 365_300),
+            (1, 5),
+            (0, 366_001), // per-task bound
+            (3, 365_999),
+            (2, -400_000), // far past
+            (4, 120),
+        ];
+        for (i, off) in moves {
+            let d = start + chrono::Duration::days(off);
+            let mut oracle = project.clone();
+            oracle.tasks[i].planned_start = Some(d);
+            let expected = validate::validate_project(&oracle);
+            let id = format!("T{i}");
+            let before = project.tasks[i].planned_start;
+            let got = set_task_start_impl(&mut project, &pg, &mut bounds, &id, &fmt(d));
+            assert_eq!(
+                got.is_ok(),
+                expected.is_ok(),
+                "{id}@{off}: {got:?} vs {expected:?}"
+            );
+            if let (Err(a), Err(b)) = (&got, &expected) {
+                assert_eq!(a, b, "{id}@{off}: message parity");
+                assert_eq!(project.tasks[i].planned_start, before);
+            }
+        }
+        // Lag-term control: base_span must include |lag| (400) - 365_000 + 460 is
+        // fine but 365_600 + 60 (lag dropped) would pass while 365_600 + 460 must fail.
+        let d = start + chrono::Duration::days(365_600);
+        let err = set_task_start_impl(&mut project, &pg, &mut bounds, "T1", &fmt(d)).unwrap_err();
+        assert!(err.contains("Total project span"), "{err}");
+    }
+
+    #[test]
+    fn set_task_start_validation_cost_is_independent_of_task_count() {
+        // #4712: per-drag validation must not scale with project size. Pins are
+        // seeded on every task so the multiset is large (exercises the log n
+        // term); both accepted and rejected drags are timed; each size takes the
+        // MIN of several repeats to shed scheduler noise. A linear re-validation
+        // would be ~100x slower at these sizes; the bound is a generous 20x.
+        fn per_call(n: usize) -> std::time::Duration {
+            let mut project = span_project(n);
+            for (i, t) in project.tasks.iter_mut().enumerate() {
+                t.planned_start =
+                    Some(project.start_date + chrono::Duration::days((i % 3000) as i64));
+            }
+            let pg = crate::graph::build_graph(&project).unwrap();
+            let mut bounds = validate::SessionBounds::new(&project);
+            let calls = 400u32;
+            (0..5)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    for i in 0..calls {
+                        let d = match i % 3 {
+                            0 => "2026-04-08",
+                            1 => "2026-04-15",
+                            _ => "9500-01-01", // rejected by the SNET bound
+                        };
+                        let r = set_task_start_impl(&mut project, &pg, &mut bounds, "T0", d);
+                        assert_eq!(r.is_ok(), i % 3 != 2);
+                    }
+                    start.elapsed() / calls
+                })
+                .min()
+                .unwrap()
+        }
+        let small = per_call(200).max(std::time::Duration::from_micros(20));
+        let large = per_call(20_000);
+        assert!(
+            large < small * 20,
+            "setTaskStart cost grew with task count: {small:?} -> {large:?}"
+        );
     }
 }

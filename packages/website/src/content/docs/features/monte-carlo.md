@@ -469,21 +469,25 @@ Two consequences worth stating plainly:
   padded above its own estimates reports no upside. Model finishing ahead of
   plan by lowering `duration`, not by lowering the optimistic estimate.
 - **Ordering the estimate is not a substitute.** A triple that brackets its
-  duration — O=1 / M=1 / P=20 against a 20-day task — still piles the PERT mass
-  onto the most-likely value and lands P95 well before the CPM finish. Only the
-  comparison against `duration` itself binds the two passes.
+  duration — O=1 / M=1 / P=20 against a 20-day task — piles the PERT mass onto
+  the most-likely value, and before the floor existed that landed P95 well before
+  the CPM finish. The engine now clamps each sample at `duration`, so for that
+  task P95 equals the CPM finish. Only the comparison against `duration` itself
+  binds the two passes.
 
 The simulation still expresses risk in the direction that matters: any sample
 above `duration` passes through untouched, so P80 and P95 continue to carry the
 full tail of the estimate.
 
 :::note[Ships in 0.5]
-A zero-duration task with a three-point estimate is charged only what it samples.
-In a run where the sample rounds to no time at all, the task behaves as the
-milestone the CPM pass shows. A larger sample is simulated as work: with no recorded
-start, the same as a task of that length with the same link. An O=0 / M=0 / P=1
-estimate therefore leaves P50 on the CPM finish. In 0.4 every run charges such a task at least one full working
-day.
+A zero-duration task with a three-point estimate is charged only what it samples. In
+a run where the sample is under half a day, it rounds away: the task behaves as the
+milestone the CPM pass shows and hands no fraction of a day on to the work after it.
+Three 0.2-day draws in a chain therefore cost nothing, although they add up to 0.6
+of a day of work. A larger sample is simulated as work: with no recorded start, the
+same as a task of that length with the same link. An O=0 / M=0 / P=1 estimate
+therefore leaves P50 on the CPM finish. In 0.4 every run charges such a task at
+least one full working day.
 :::
 
 :::caution[Networks with Finish-to-Finish or Start-to-Finish links]
@@ -491,7 +495,9 @@ On a network containing an FF or SF dependency, CPM itself is not monotone in
 duration — those links pin a task's *finish*, so a longer task starts earlier,
 and an SS successor keyed on that start inherits the earlier start. A percentile
 can therefore still land before the deterministic finish on such a network, with
-the simulation reproducing CPM faithfully on every sampled scenario. FS and SS
+every run being the CPM schedule of its sampled durations, read by the day each
+finish falls in, with a zero-duration task's sample under half a day read as no
+work. FS and SS
 networks are unaffected — every percentile lands at or after the CPM finish
 there. This is a decided convention, not a defect
 ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806)): a task driven by an FF
@@ -553,6 +559,30 @@ sampled durations for all runs — using vectorized NumPy operations. It then
 evaluates the CPM forward pass `n_runs` times in parallel, respecting all four
 dependency types (FS, FF, SS, SF) and lead/lag offsets. Working-day calendars
 are applied when converting numeric offsets back to finish dates.
+
+Sampled durations are continuous, so a run's work can end part-way into a working
+day. That run is shown on the day its work ends in: work that ends 0.3 of the way
+into a Monday finishes on Monday, not on the Friday before. A link carries the same
+fraction, so a successor starts part-way into a day unless its lag lands it on a
+day it does not work, in which case it starts when its next working day begins. A
+run with no spread lands exactly on the CPM finish. A zero-duration task's sample
+under half a day is the exception: it rounds away and hands nothing on (see
+above). When every sample exceeds `duration` for a task that sets the finish on a
+network of FS and SS links, P50 is at least one working day past the CPM finish:
+a lone 10-day task estimated at O=10 / M=10 / P=11 shows P50 on its 11th working
+day.
+
+:::note[Ships in 0.5]
+In 0.4 a run's finish is shown on the nearest day, so a finish less than half a day
+into a day reads as the day before, and a lagged link can lose another day. In 0.4
+the example above shows P50 on the CPM finish. Upgrading moves seeded percentiles.
+On networks built from FS and SS links no percentile lands before the CPM finish.
+Most percentiles move one working day later, and lagged links can move them up to
+four working days later, because the nearest-day reading could lose a day at each
+lagged link. In a few lagged cases a percentile moves one working day earlier,
+because that reading could also add a day at a lagged link. On networks with FF or
+SF links a percentile can also move earlier.
+:::
 
 Project finish for each run is `max(early_finish)` across all tasks. The full
 set of simulated finish dates is sorted to produce the percentile output.

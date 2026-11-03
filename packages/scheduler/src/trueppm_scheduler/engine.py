@@ -6069,7 +6069,7 @@ def _build_lag_delta(
     computed owns the snap of every incoming constraint. The delta therefore
     carries the whole cross-calendar hop, which is what lets the vectorised
     forward pass stay calendar-agnostic: it still evaluates ``anchor +
-    delta[round(anchor)]`` and lands in successor space. When both calendars are
+    delta[day(anchor)]`` and lands in successor space. When both calendars are
     the same object the two arrays are identical and the arithmetic is
     byte-for-byte what it was before per-task calendars existed.
     """
@@ -6195,8 +6195,58 @@ def _build_lag_delta_table(
     return delta_by_key
 
 
-def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
-    """Per-run lag delta gathered at each run's (rounded) anchor offset.
+# A zero-base column's draw below this many days is no work at all (#4698, #4697).
+# The task's base estimate is zero, so a CPM instant is what the plan says, and a
+# draw that rounds to no whole day must leave it that instant: links, lags and the
+# finish exactly as ``schedule()`` places them. It hands no fraction on. Ordinary
+# work reads a finish by the day it falls in, so a fraction carried past a
+# zero-base task would push any whole-day successor into the next working day in
+# every run: a (0, 0, 1) estimate, whose Beta draws are never exactly zero, would
+# cost the day #4698 removed. A draw at or above it is ordinary work, unchanged,
+# so the task matches a real task of that length.
+_ZERO_BASE_ROUND_AWAY = 0.5
+
+# Float slack when reading a fractional working-day offset as a day (#4697). Sampled
+# durations are continuous and are summed along each path, so an offset that is a
+# whole number of days can carry a few ulps of noise; reading 10.0000000001 as "a
+# tenth of a nanoday into day 10" would move a zero-variance run off its CPM date.
+_MC_DAY_EPS = 1e-9
+
+
+def _finish_day_key(offsets: np.ndarray) -> np.ndarray:
+    """The exclusive offset of the day each finish position falls in (#4697).
+
+    Monte Carlo offsets are continuous working-time positions: ``e = 10.3`` is work
+    that ends 0.3 of the way into working day 10 (zero-based), so it finishes ON day
+    10 and its exclusive key is 11. A whole ``e = 10`` ends at the close of day 9 and
+    keeps key 10, which is what keeps a zero-variance run on its CPM date. This is
+    the ceiling, not the nearest integer: rounding half-to-even read every fraction
+    below one half as the previous day, so a run whose work spilled into day 10 was
+    reported, and ranked, as finishing on day 9.
+    """
+    return np.ceil(np.asarray(offsets, dtype=np.float64) - _MC_DAY_EPS)
+
+
+def _start_day_index(offsets: np.ndarray) -> np.ndarray:
+    """The zero-based working day each start position falls in (#4697).
+
+    The start-side twin of :func:`_finish_day_key`: ``s = 10.3`` starts 0.3 into day
+    10 and ``s = 10`` at its very beginning, so both are day 10 — the floor. A start
+    and a finish at the same fractional position fall in the same day; they differ
+    only on a whole offset, which closes one day and opens the next.
+    """
+    return np.floor(np.asarray(offsets, dtype=np.float64) + _MC_DAY_EPS)
+
+
+def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray, *, from_finish: bool) -> np.ndarray:
+    """Per-run lag delta gathered at the cell of the day each run's anchor falls in.
+
+    ``from_finish`` says how the anchor is read (#4697): an FS/FF anchor is an
+    exclusive finish, whose cell is :func:`_finish_day_key`, and an SS/SF anchor an
+    inclusive start, whose cell is :func:`_start_day_index`. Both agree with the
+    deterministic pass on a whole offset; on a fractional one they pick the day the
+    work actually ends or starts in, which is the day the lag counts from. The
+    fraction itself is carried by the caller (``anchor + delta``).
 
     Lag-free edges (``delta_by_key[key] is None``) never reach here: the constraint
     loop uses the anchor directly, skipping a runs-sized zeros allocation plus a
@@ -6208,13 +6258,70 @@ def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
     anchor whose lagged snap ran off the successor's index (a cell holding
     :data:`_LAG_DELTA_OVERRUN`).
     """
-    idx = np.rint(anchor).astype(np.int64)
+    cell = _finish_day_key(anchor) if from_finish else _start_day_index(anchor)
+    idx = cell.astype(np.int64)
     if idx.size and int(idx.max()) > len(delta_arr) - 1:
         _raise_mc_index_overrun()
     picked = delta_arr[np.maximum(idx, 0)]
     if (picked == _LAG_DELTA_OVERRUN).any():
         _raise_mc_index_overrun()
     return np.asarray(picked, dtype=np.float64)
+
+
+def _lagged_constraint(
+    dep_type: DependencyType,
+    delta_arr: np.ndarray,
+    anchor: np.ndarray,
+    lag_days: int,
+    wd_ord_pred: np.ndarray | None,
+    wd_ord_succ: np.ndarray | None,
+) -> np.ndarray:
+    """Per-run bound of a link with a lag-delta array, its fraction carried (#4697).
+
+    ``anchor + delta`` keeps the anchor's fraction: work that ends 0.3 into a day,
+    with a lag of a day, admits a successor 0.3 into the day after. That holds only
+    while the lagged instant lands in working time. When it lands on a day the
+    successor does not work, the successor waits for the next working day to open,
+    and the bound is that day's start, with no fraction. Carrying the fraction there
+    would be wrong in both directions: for FS it falls *before* the snapped day,
+    because an exclusive finish's fraction is measured from the close of the
+    previous one, so the successor would start ahead of its lag; for SS it lands a
+    fraction late.
+
+    The landing is ``anchor day + lag`` on the predecessor's ruler, and it is a
+    working day of the successor iff the successor's working day just before the
+    whole-day bound (FS) or at it (SS) is that very date. FF and SF bound a finish:
+    the snapped day already holds the fraction (it can only move the finish within
+    that day), so they keep ``anchor + delta``. Whole anchors are never touched, so
+    a zero-variance run reproduces the deterministic pass exactly. Without the
+    working-day arrays (a direct caller with no index) the bound is ``anchor +
+    delta`` unchanged.
+    """
+    constraint: np.ndarray = anchor + _lag_term(
+        delta_arr, anchor, from_finish=dep_type in _FROM_PREDECESSOR_FINISH
+    )
+    if dep_type not in _START_ANCHORED or wd_ord_pred is None or wd_ord_succ is None:
+        return constraint
+    if dep_type == DependencyType.FS:
+        day = _finish_day_key(anchor) - 1.0
+        frac = anchor - day  # (0, 1]; 1 is a whole offset
+        partial = frac < 1.0 - _MC_DAY_EPS
+        base = constraint + (1.0 - frac)  # the deterministic start: the snapped day
+        slot = base - 1.0
+    else:  # SS
+        day = _start_day_index(anchor)
+        frac = anchor - day  # [0, 1); 0 is a whole offset
+        partial = frac > _MC_DAY_EPS
+        base = constraint - frac
+        slot = base
+    if not partial.any():
+        return constraint
+    day_i = np.clip(day.astype(np.int64), 0, len(wd_ord_pred) - 1)
+    slot_i = np.rint(slot).astype(np.int64)
+    landing = wd_ord_pred[day_i] + lag_days
+    lands = (slot_i >= 0) & (wd_ord_succ[np.clip(slot_i, 0, len(wd_ord_succ) - 1)] == landing)
+    out: np.ndarray = np.where(partial & ~lands, base, constraint)
+    return out
 
 
 def _raise_mc_index_overrun() -> NoReturn:
@@ -6665,12 +6772,18 @@ def _mc_milestone_floors(
     return out
 
 
-_InstantRuns = tuple[np.ndarray, np.ndarray, np.ndarray]
-"""``(is_instant, start_excess, finish_excess)`` of a zero-base column (#4698).
+_InstantRuns = np.ndarray
+"""The runs of a zero-base column whose draw rounds away (#4698, :func:`_mc_zero_base_column`).
 
-``is_instant`` flags the runs placed as an instant (:func:`_mc_zero_base_column`). The
-excesses are each run's ES and EF less their nearest whole offsets: what those runs
-round away and hand to a successor, by the end of the task its link measures from.
+Their links measure from the instant exactly as a milestone's do, and hand on no
+fraction (#4697).
+"""
+
+_MilestoneReading = tuple[np.ndarray, np.ndarray, np.ndarray]
+"""``(instant ordinal, start_display, deficit)`` of a milestone, per run (#4697).
+
+The deficit is the working time the true point lies before the midnight it is
+placed at (:func:`_mc_milestone_bounds`).
 """
 
 _VerbatimActual = tuple[int, float, float]
@@ -6899,9 +7012,24 @@ class _McIndex:
         return out
 
     def ordinal_at(self, col: int, offsets: np.ndarray) -> np.ndarray:
-        """The working day at each (rounded) offset in ``col``'s space."""
+        """The working day each start position falls in, in ``col``'s space.
+
+        A fractional start is on the day it falls in (:func:`_start_day_index`,
+        #4697), not the nearest one: 10.7 starts on day 10.
+        """
+        return self._ordinal_of_day(col, _start_day_index(offsets))
+
+    def finish_ordinal(self, col: int, offsets: np.ndarray) -> np.ndarray:
+        """The working day each exclusive finish position falls in (#4697).
+
+        ``e = 10.3`` ends on day 10 and a whole ``e = 10`` on day 9
+        (:func:`_finish_day_key`).
+        """
+        return self._ordinal_of_day(col, _finish_day_key(offsets) - 1.0)
+
+    def _ordinal_of_day(self, col: int, days: np.ndarray) -> np.ndarray:
         wd = self.wd_ord_of_col[col]
-        idx = np.rint(offsets).astype(np.int64)
+        idx = days.astype(np.int64)
         if idx.size and int(idx.max()) > len(wd) - 1:
             _raise_mc_index_overrun()  # #4429: never clamp past the index end
         return np.asarray(wd[np.maximum(idx, 0)], dtype=np.int64)
@@ -6976,6 +7104,8 @@ def _mc_forward_pass(
     # Milestone instants: date ordinal and start-of-day display, per run.
     instant_mat = np.zeros((runs, n_tasks), dtype=np.int64)
     start_display_mat = np.zeros((runs, n_tasks), dtype=bool)
+    # How far each link instant's true point lies before its midnight (#4697).
+    deficit_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     verbatim_actuals = verbatim_actuals or {}
     milestone_floors = milestone_floors or {}
     finish_floor: date | None = None
@@ -6996,23 +7126,28 @@ def _mc_forward_pass(
 
         if tid in milestone_ids:
             assert index is not None
-            (link, link_display), (instant, start_display) = _mc_milestone_bounds(
-                tid,
-                col,
-                g,
-                task_idx,
-                (es_mat, ef_mat, instant_mat, start_display_mat),
-                milestone_floors.get(tid, (None, None)),
-                completed_edge,
-                milestone_ids,
-                index,
-                runs,
-                span_elapsed,
-                instant_runs,
+            (link, link_display, link_def), (instant, start_display, shown_def) = (
+                _mc_milestone_bounds(
+                    tid,
+                    col,
+                    g,
+                    task_idx,
+                    (es_mat, ef_mat, instant_mat, start_display_mat, deficit_mat),
+                    milestone_floors.get(tid, (None, None)),
+                    completed_edge,
+                    milestone_ids,
+                    index,
+                    runs,
+                    span_elapsed,
+                    instant_runs,
+                )
             )
             instant_mat[:, col] = link
             start_display_mat[:, col] = link_display
-            position = index.next_wd_offset(col, instant)
+            deficit_mat[:, col] = link_def
+            # The instant's working-time position: its midnight's offset, less the
+            # working time its true point lies before it (#4697).
+            position = index.next_wd_offset(col, instant) - shown_def
             es_mat[:, col] = position
             # The day it is shown on (engine._instant_day), as an exclusive offset:
             # the first working day at or after the instant for a start-of-day
@@ -7039,7 +7174,7 @@ def _mc_forward_pass(
             es_floor if actual is None else {tid: actual[2]},
             completed_edge,
             runs,
-            (milestone_ids, instant_mat, index, col),
+            (milestone_ids, instant_mat, index, col, deficit_mat),
             span_elapsed,
             instant_runs,
         )
@@ -7060,28 +7195,31 @@ def _mc_forward_pass(
 
         if tid in zero_base_ids:
             assert index is not None
-            (link, link_display), (instant, start_display) = _mc_milestone_bounds(
-                tid,
-                col,
-                g,
-                task_idx,
-                (es_mat, ef_mat, instant_mat, start_display_mat),
-                milestone_floors.get(tid, (None, None)),
-                completed_edge,
-                milestone_ids,
-                index,
-                runs,
-                span_elapsed,
-                instant_runs,
+            (link, link_display, link_def), (instant, start_display, shown_def) = (
+                _mc_milestone_bounds(
+                    tid,
+                    col,
+                    g,
+                    task_idx,
+                    (es_mat, ef_mat, instant_mat, start_display_mat, deficit_mat),
+                    milestone_floors.get(tid, (None, None)),
+                    completed_edge,
+                    milestone_ids,
+                    index,
+                    runs,
+                    span_elapsed,
+                    instant_runs,
+                )
             )
             instant_mat[:, col] = link
             start_display_mat[:, col] = link_display
+            deficit_mat[:, col] = link_def
             es, ef, instant_runs[tid], actual_day = _mc_zero_base_column(
                 es,
                 eff_dur,
                 instant,
                 start_display,
-                index.next_wd_offset(col, instant).astype(np.float64),
+                index.next_wd_offset(col, instant).astype(np.float64) - shown_def,
                 actual,
             )
             if actual_day is not None:
@@ -7103,29 +7241,36 @@ def _mc_zero_base_column(
 ) -> tuple[np.ndarray, np.ndarray, _InstantRuns, date | None]:
     """ES/EF of a zero-duration task with a positive estimate, run by run (#4698).
 
-    The working-day offsets cannot say which midnight a start sits on, so a draw
-    too small to survive rounding, simulated as work, reads as work that ended the
-    working day *before* its start: a lag would count from there, and a task held
-    to a Monday would be shown on the Friday before. Flooring every draw at a day
-    hid that by charging a day nobody estimated. So a run whose draw rounds away is
-    the instant :func:`_place_milestone` gives the deterministic pass, and links
-    out of it measure from that instant (``instant_runs``). It keeps the fraction
-    it rounded away, as work does: an FS or FF successor carries the finish's
-    fraction, so a chain of such tasks still adds up, and an SS or SF successor only
-    the start's. A larger draw is ordinary work: an FF or SF link back-solves its start
-    over the draw, which can put a successor ahead of the instant's plan (#4822).
+    The working-day offsets cannot say which midnight a start sits on, so a zero
+    draw, simulated as work, reads as work that ended the working day *before* its
+    start: a lag would count from there, and a task held to a Monday would be shown
+    on the Friday before. Flooring every draw at a day hid that by charging a day
+    nobody estimated. So a run whose draw rounds away — under
+    :data:`_ZERO_BASE_ROUND_AWAY` — is the instant
+    :func:`_place_milestone` gives the deterministic pass, and links out of it
+    measure from that instant (``instant_runs``), exactly as from a milestone. It
+    hands on no fraction (#4697). Not the finish's: carried past the task it would
+    cost every whole-day successor a day under the day-it-falls-in reading. Not the
+    start an FF or SF link back-solved over the draw either: added after a link's
+    lag and snap, that start pulled an SS successor back across a weekend its lag
+    landed on, ahead of CPM. An instant run is placed as a milestone is, its true
+    point carried as the milestone's deficit (:func:`_mc_milestone_bounds`).
+
+    A larger draw is ordinary work. An FF or SF link back-solves its start over the
+    draw, which can put a successor ahead of the instant's plan; the step at the
+    threshold is that class (#4822).
 
     ``position`` is the instant's offset. ``actual`` is the task's non-working
     recorded start, if any: it floors the finish, as for a milestone, when every
     instant run is shown on that day (:func:`_mc_forward_pass`). The other runs are
     floored at the same recorded start, so none finishes before that date.
 
-    Returns ``(es, ef, (is_instant, start_excess, finish_excess), actual_day)``.
+    Returns ``(es, ef, is_instant, actual_day)``.
     """
     ef = es + eff_dur
-    is_instant = np.rint(ef) == np.rint(es)
-    finish_excess = ef - np.rint(ef)
-    instant_es = position + finish_excess
+    # Rounds away whole (#4698, #4697): see _ZERO_BASE_ROUND_AWAY.
+    is_instant = eff_dur < _ZERO_BASE_ROUND_AWAY
+    instant_es = position
     instant_ef = instant_es + start_display
     actual_day: date | None = None
     if (
@@ -7138,7 +7283,7 @@ def _mc_zero_base_column(
     return (
         np.where(is_instant, instant_es, es),
         np.where(is_instant, instant_ef, ef),
-        (is_instant, es - np.rint(es), finish_excess),
+        is_instant,
         actual_day,
     )
 
@@ -7150,7 +7295,7 @@ def _mc_span_link(
     es_mat: np.ndarray,
     elapsed: int,
     index: _McIndex,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Per-run bound of an SS/SF link out of live work with a *derived* span start (#4523).
 
     The link measures from the predecessor's span start (:func:`_link_start`),
@@ -7161,31 +7306,47 @@ def _mc_span_link(
     task whose progress reaches back past the project start), where an offset
     anchor would clamp to the first cell and land the bound late.
 
-    Returns ``(offset, proposal, start_display)``: the constraint in column
-    ``col``'s offset space (an exclusive EF offset for SF), and the instant and
-    reading the same link proposes to a milestone successor
-    (:func:`_milestone_proposal`).
+    Returns ``(offset, proposal, start_display, deficit)``: the constraint in column
+    ``col``'s offset space (an exclusive EF offset for SF), and the instant, reading
+    and deficit (:func:`_mc_milestone_bounds`) the same link proposes to a milestone
+    successor (:func:`_milestone_proposal`).
     """
     pred_cal = index.cal_of_col[p]
     succ_cal = index.cal_of_col[col]
-    es_ord = index.ordinal_at(p, es_mat[:, p])
+    es = es_mat[:, p]
+    es_ord = index.ordinal_at(p, es)
+    # The remaining window can open part-way into its day (#4697); the span start is
+    # then that far into its own day, and the link carries the fraction as the
+    # offset path does (_lagged_constraint).
+    frac = es - _start_day_index(es)
+    partial = frac > _MC_DAY_EPS
     uniq, inverse = np.unique(es_ord, return_inverse=True)
     offsets = np.empty(len(uniq), dtype=np.float64)
     proposals = np.empty(len(uniq), dtype=np.int64)
     displays = np.empty(len(uniq), dtype=bool)
+    lands = np.empty(len(uniq), dtype=bool)
+    span_ords = np.empty(len(uniq), dtype=np.int64)
     finish_bound = dep.dep_type not in _START_ANCHORED
     for k, o in enumerate(uniq.tolist()):
         span = _start_from_finish(date.fromordinal(int(o)), elapsed + 1, pred_cal)
         anchor = _edge_anchor(dep.dep_type, span, span, None, pred_cal, dep.lag)
-        imposed = _next_working_day(_safe_offset(anchor, dep.lag), succ_cal)
+        landing = _safe_offset(anchor, dep.lag)
+        imposed = _next_working_day(landing, succ_cal)
         off = index.next_wd_offset(col, np.array([imposed.toordinal()], dtype=np.int64))
         offsets[k] = float(off[0]) + (1.0 if finish_bound else 0.0)
+        lands[k] = finish_bound or imposed == landing
         raw, display = _milestone_proposal(
             dep.dep_type, dep.lag, span, span, None, pred_cal, succ_cal
         )
         proposals[k] = raw.toordinal()
         displays[k] = display
-    return offsets[inverse], proposals[inverse], displays[inverse]
+        span_ords[k] = span.toordinal()
+    run_offsets = offsets[inverse] + np.where(partial & lands[inverse], frac, 0.0)
+    # A start part-way into its day proposes the midnight closing that day, with
+    # the working time it lies short of it as the deficit (#4697).
+    run_proposals = np.where(partial, span_ords[inverse] + 1 + dep.lag.days, proposals[inverse])
+    run_displays = np.where(partial, False, displays[inverse])
+    return run_offsets, run_proposals, run_displays, np.where(partial, 1.0 - frac, 0.0)
 
 
 def _mc_instant_proposal(
@@ -7194,20 +7355,29 @@ def _mc_instant_proposal(
     instant_mat: np.ndarray,
     start_display_mat: np.ndarray,
     index: _McIndex,
-) -> tuple[np.ndarray, np.ndarray | bool]:
-    """Per-run ``(raw midnight, start_display)`` a link out of an instant proposes."""
+    deficit_mat: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray | bool, np.ndarray]:
+    """Per-run ``(raw midnight, start_display, deficit)`` a link out of an instant proposes.
+
+    The predecessor's deficit (:func:`_mc_milestone_bounds`) carries over: the lag
+    moves the true instant with its midnight. A run with a deficit is an end-of-day
+    reading; if the lag lands it after non-working time, the reading turns to the
+    start of the next day and the deficit is dropped where the winner is read.
+    """
     lag = dep.lag.days
+    deficit = deficit_mat[:, p]
+    carried = deficit > 0.0
     if dep.dep_type in _START_ANCHORED:
         # Mirrors engine._place_milestone (#4079 fuzz regression): the
         # predecessor's own reading only carries over at zero lag, the
         # same midnight it occupies; a nonzero lag proposes a different
         # midnight and reads fresh, like an ordinary FS/SS predecessor.
         base_display = start_display_mat[:, p] if lag == 0 else dep.dep_type == DependencyType.SS
-        return instant_mat[:, p] + lag, base_display
+        return instant_mat[:, p] + lag, np.where(carried, False, base_display), deficit
     # A positive SF lag counts from the day the instant closes (#4333).
     anchor = instant_mat[:, p] - 1 if lag > 0 else index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
     # SF proposes the raw midnight closing its anchor day, plus the lag (#4272).
-    return anchor + 1 + lag, False
+    return anchor + 1 + lag, False, deficit
 
 
 def _mc_work_proposal(
@@ -7218,23 +7388,46 @@ def _mc_work_proposal(
     ef_mat: np.ndarray,
     index: _McIndex,
     elapsed: int,
-) -> tuple[np.ndarray, np.ndarray | bool]:
-    """Per-run ``(raw midnight, start_display)`` a link out of work proposes."""
+) -> tuple[np.ndarray, np.ndarray | bool, np.ndarray]:
+    """Per-run ``(raw midnight, start_display, deficit)`` a link out of work proposes.
+
+    A fractional finish or start proposes the midnight closing the day it falls in
+    (#4697), plus the lag, with the working time it lies short of that midnight as
+    the deficit (:func:`_mc_milestone_bounds`). A whole one has none and keeps the
+    deterministic proposal.
+    """
     lag = dep.lag.days
     if dep.dep_type == DependencyType.FS:
-        return index.ordinal_at(p, ef_mat[:, p] - 1.0) + 1 + lag, False
+        ef = ef_mat[:, p]
+        return (
+            index.finish_ordinal(p, ef) + 1 + lag,
+            False,
+            np.maximum(_finish_day_key(ef) - ef, 0.0),
+        )
     if elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF):
         # Measured from a derived span start (#4523, _mc_span_link).
-        _, proposal, display = _mc_span_link(dep, p, col, es_mat, elapsed, index)
-        return proposal, display
+        _, proposal, display, deficit = _mc_span_link(dep, p, col, es_mat, elapsed, index)
+        return proposal, display, deficit
+    es = es_mat[:, p]
+    start_ord = index.ordinal_at(p, es)
     if dep.dep_type == DependencyType.SS:
-        return index.ordinal_at(p, es_mat[:, p]) + lag, True
-    if lag > 0:  # SF — the day the start instant closes (#4333)
-        anchor = index.ordinal_at(p, es_mat[:, p]) - 1
-    else:  # SF — the working day before the predecessor's start (#4145)
-        anchor = index.prev_wd_ordinal(p, index.ordinal_at(p, es_mat[:, p]) - 1)
-    # SF proposes the raw midnight closing its anchor day, plus the lag (#4272).
-    return anchor + 1 + lag, False
+        proposal, display = start_ord + lag, np.ones(len(es), dtype=bool)
+    else:
+        # SF anchors on the day the start instant closes with a positive lag (#4333),
+        # else on the working day before the predecessor's start (#4145), and
+        # proposes the raw midnight closing that day, plus the lag (#4272).
+        anchor = start_ord - 1 if lag > 0 else index.prev_wd_ordinal(p, start_ord - 1)
+        proposal, display = anchor + 1 + lag, np.zeros(len(es), dtype=bool)
+    # Work that starts part-way into its day proposes the midnight closing that
+    # day, plus the lag, for SS and SF alike: the first midnight at or after the
+    # start instant.
+    frac = es - _start_day_index(es)
+    partial = frac > _MC_DAY_EPS
+    deficit = np.where(partial, 1.0 - frac, 0.0)
+    if partial.any():
+        proposal = np.where(partial, start_ord + 1 + lag, proposal)
+        display = np.where(partial, False, display)
+    return proposal, display, deficit
 
 
 def _mc_milestone_bounds(
@@ -7242,7 +7435,7 @@ def _mc_milestone_bounds(
     col: int,
     g: nx.DiGraph[str],
     task_idx: dict[str, int],
-    mats: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+    mats: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray],
     floors: _MilestoneFloors,
     completed_edge: dict[tuple[str, str], _FixedEdge],
     milestone_ids: frozenset[str],
@@ -7250,15 +7443,28 @@ def _mc_milestone_bounds(
     runs: int,
     span_elapsed: dict[str, int] | None = None,
     instant_runs: dict[str, _InstantRuns] | None = None,
-) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
-    """Per-run ``(link, shown)`` of a live milestone, each ``(instant ordinal, start_display)``.
+) -> tuple[_MilestoneReading, _MilestoneReading]:
+    """Per-run ``(link, shown)`` of a live milestone, each ``(ordinal, start_display, deficit)``.
 
     The vectorised :func:`_place_milestone`: every floor and incoming link proposes
     a raw midnight and the latest wins, a start-of-day reading winning a tie. The
     ``key = 2 * ordinal + start_display`` encoding makes that one ``maximum``, and
     :func:`_start_reading` is applied to the winner.
-    ``mats`` is ``(es, ef, instant, start_display)`` for the columns filled so far;
-    its instant columns hold each earlier milestone's *link* instant.
+    ``mats`` is ``(es, ef, instant, start_display, deficit)`` for the columns filled
+    so far; its instant columns hold each earlier milestone's *link* instant.
+
+    The **deficit** (#4697) is how far, in working time, the true instant lies
+    before the midnight it is shown at. A milestone after work that ends 0.3 into a
+    day sits at that point, but the date space holds only midnights, so it is placed
+    at the one closing the day (the first at or after it) with a deficit of 0.7. Its
+    position is that midnight's offset less the deficit, and links out of it measure
+    from the true point (:func:`_mc_instant_edge_bound`), so a milestone on a path
+    neither drops nor adds working time. Rounding it up to the midnight instead put
+    each milestone on a path up to a day late, compounding along a chain. A deficit
+    only exists on an end-of-day reading of a working day: a lag that lands the
+    instant in non-working time leaves it at the start of the next working day,
+    with none. Of proposals at one key the latest true instant, the least deficit,
+    wins; a floor proposes a midnight exactly and has none.
 
     ``floors`` is ``(hard, start)`` (:func:`_mc_milestone_floors`), both date
     ordinals in date space. ``hard`` — data date, SNET, the VERBATIM recorded actual
@@ -7269,16 +7475,26 @@ def _mc_milestone_bounds(
     lands a weekend later. An SS or SF link from started work measures from its
     verbatim actual too, and arrives as a constant in ``completed_edge`` (#4523).
     """
-    es_mat, ef_mat, instant_mat, start_display_mat = mats
+    es_mat, ef_mat, instant_mat, start_display_mat, deficit_mat = mats
     hard, start = floors
     # The links alone first, from -1, below any key a proposal can produce: a floor
     # that only ties the latest of them in working time leaves the link instant
     # where they put it (engine._equivalent_link, #4690). An SF-linked milestone
     # with no hard floor always has an SF link that offers a candidate.
     pred_key = np.full(runs, -1, dtype=np.int64)
+    pred_def = np.zeros(runs, dtype=np.float64)
 
-    def offer(ordinals: np.ndarray, start_display: np.ndarray | bool) -> None:
-        np.maximum(pred_key, ordinals * 2 + np.asarray(start_display, dtype=np.int64), out=pred_key)
+    def offer(
+        ordinals: np.ndarray, start_display: np.ndarray | bool, deficit: np.ndarray | float = 0.0
+    ) -> None:
+        new_key = ordinals * 2 + np.asarray(start_display, dtype=np.int64)
+        new_def = np.broadcast_to(np.asarray(deficit, dtype=np.float64), (runs,))
+        np.copyto(
+            pred_def,
+            np.where(new_key > pred_key, new_def, np.minimum(pred_def, new_def)),
+            where=new_key >= pred_key,
+        )
+        np.maximum(pred_key, new_key, out=pred_key)
 
     for pred_id in g.predecessors(tid):
         # FF into a milestone is FS (engine._milestone_link, #4272).
@@ -7289,20 +7505,28 @@ def _mc_milestone_bounds(
             continue
         p = task_idx[pred_id]
         if pred_id in milestone_ids:
-            offer(*_mc_instant_proposal(dep, p, instant_mat, start_display_mat, index))
+            offer(*_mc_instant_proposal(dep, p, instant_mat, start_display_mat, index, deficit_mat))
             continue
-        proposal, display = _mc_work_proposal(
+        proposal, display, deficit = _mc_work_proposal(
             dep, p, col, es_mat, ef_mat, index, (span_elapsed or {}).get(pred_id, 0)
         )
         # A zero-base predecessor is an instant in some runs (#4698).
         pred_runs = (instant_runs or {}).get(pred_id)
         if pred_runs is not None:
-            at_instant, at_display = _mc_instant_proposal(
-                dep, p, instant_mat, start_display_mat, index
+            at_instant, at_display, at_deficit = _mc_instant_proposal(
+                dep, p, instant_mat, start_display_mat, index, deficit_mat
             )
-            proposal = np.where(pred_runs[0], at_instant, proposal)
-            display = np.where(pred_runs[0], at_display, display)
-        offer(proposal, display)
+            proposal = np.where(pred_runs, at_instant, proposal)
+            display = np.where(pred_runs, at_display, display)
+            deficit = np.where(pred_runs, at_deficit, deficit)
+        offer(proposal, display, deficit)
+
+    def with_deficit(winner: np.ndarray) -> _MilestoneReading:
+        # The winner's deficit if a link proposed it, none for a floor; a start-of-day
+        # reading lies after non-working time and has none either.
+        instant, start_display = read(winner)
+        deficit = np.where((winner == pred_key) & ~start_display, pred_def, 0.0)
+        return instant, start_display, deficit
 
     def read(winner: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # _start_reading (#4173): an end-of-day reading needs a working day before
@@ -7321,14 +7545,14 @@ def _mc_milestone_bounds(
     key = pred_key if hard is None else np.maximum(pred_key, hard * 2 + 1)
     shown_key = key if start is None else np.maximum(key, start * 2 + 1)
     # Nothing but the project start proposed: the link instant is the shown one.
-    link, link_display = read(np.where(key < 0, shown_key, key))
+    link, link_display, link_def = with_deficit(np.where(key < 0, shown_key, key))
     if hard is not None:
         # engine._equivalent_link: the latest link, from an earlier midnight, is
         # shown at the start of the hard floor's own day — held below the project
         # start when that is the floor, or read as the start of the day it is
         # shown on. The floor and the link are then one working-time point.
         safe = np.where(pred_key < 0, hard * 2 + 1, pred_key)
-        p_instant, p_display = read(safe)
+        p_instant, p_display, p_def = with_deficit(safe)
         if start is None:
             held = np.zeros(runs, dtype=bool)
         else:
@@ -7341,13 +7565,28 @@ def _mc_milestone_bounds(
         equivalent = (pred_key >= 0) & (p_instant < hard) & on_floor
         link = np.where(equivalent, p_instant, link)
         link_display = np.where(equivalent, p_display, link_display)
-    return (link, link_display), read(shown_key)
+        link_def = np.where(equivalent, p_def, link_def)
+    return (link, link_display, link_def), with_deficit(shown_key)
 
 
 def _mc_instant_edge_bound(
-    dep: Dependency, p: int, col: int, instant_mat: np.ndarray, index: _McIndex
+    dep: Dependency,
+    p: int,
+    col: int,
+    instant_mat: np.ndarray,
+    index: _McIndex,
+    deficit_mat: np.ndarray,
 ) -> np.ndarray:
-    """Per-run bound a link out of an instant puts on work: ES for FS/SS, exclusive EF else."""
+    """Per-run bound a link out of an instant puts on work: ES for FS/SS, exclusive EF else.
+
+    The instant's deficit (:func:`_mc_milestone_bounds`, #4697) is subtracted, so
+    work measures from its true point. For FS/SS only while the lagged point still
+    lands in the successor's working time — the day before the bound's midnight is
+    the bound's own previous working day — as for work (:func:`_lagged_constraint`);
+    otherwise the successor waits for the next working day to open. An FF/SF bound
+    is a finish, and the deficit only moves it within its snapped day.
+    """
+    deficit = deficit_mat[:, p]
     if dep.dep_type in _START_ANCHORED:
         anchor_ord = instant_mat[:, p]
     elif dep.lag > timedelta(0):
@@ -7356,8 +7595,17 @@ def _mc_instant_edge_bound(
         anchor_ord = instant_mat[:, p] - 1
     else:
         anchor_ord = index.prev_wd_ordinal(p, instant_mat[:, p] - 1)
-    bound = index.next_wd_offset(col, anchor_ord + dep.lag.days).astype(np.float64)
-    return bound if dep.dep_type in _START_ANCHORED else bound + 1.0
+    landing = anchor_ord + dep.lag.days
+    bound = index.next_wd_offset(col, landing).astype(np.float64)
+    if dep.dep_type not in _START_ANCHORED:
+        finish_bound: np.ndarray = bound + 1.0 - deficit
+        return finish_bound
+    if not (deficit > 0.0).any():
+        return bound
+    wd = index.wd_ord_of_col[col]
+    slot = bound.astype(np.int64) - 1
+    lands = (slot >= 0) & (wd[np.clip(slot, 0, len(wd) - 1)] == landing - 1)
+    return bound - np.where(lands, deficit, 0.0)
 
 
 def _mc_edge_constraints(
@@ -7370,7 +7618,7 @@ def _mc_edge_constraints(
     es_floor: dict[str, float],
     completed_edge: dict[tuple[str, str], _FixedEdge],
     runs: int,
-    milestones: tuple[frozenset[str], np.ndarray, _McIndex | None, int] | None = None,
+    milestones: tuple[frozenset[str], np.ndarray, _McIndex | None, int, np.ndarray] | None = None,
     span_elapsed: dict[str, int] | None = None,
     instant_runs: dict[str, _InstantRuns] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
@@ -7383,7 +7631,7 @@ def _mc_edge_constraints(
     actual and lands a day off.
 
     A live milestone predecessor (#4079) is read from its per-run instant —
-    ``milestones`` is ``(milestone_ids, instant_mat, index, this_col)``: FS/SS
+    ``milestones`` is ``(milestone_ids, instant_mat, index, this_col, deficit_mat)``: FS/SS
     measure from the instant, an FF or SF with a positive lag from the day it closes
     (#4273, #4333), and an FF or SF with no lag or a lead from the last working day
     before it (:func:`_edge_anchor`), then ``next_wd(anchor + lag)`` on this task's
@@ -7396,14 +7644,23 @@ def _mc_edge_constraints(
     not started reaches the offset anchor below, where the start is a working day.
 
     A zero-base predecessor (#4698) is such an instant only in its ``instant_runs``,
-    and adds the fraction the link's anchor rounded away; its other runs are work.
+    the runs that drew no work (#4697); its other runs are work.
+
+    A link with a lag-delta array carries the anchor's fraction only while the
+    lagged instant lands in working time (:func:`_lagged_constraint`, #4697).
 
     Returns ``(es_constraints, ef_constraints, has_ef_constraint)``.
     """
     es_constraints = np.full(runs, es_floor.get(tid, 0.0))
     ef_constraints = np.zeros(runs)
     has_ef_constraint = False
-    milestone_ids, instant_mat, index, col = milestones or (frozenset(), es_mat, None, 0)
+    milestone_ids, instant_mat, index, col, deficit_mat = milestones or (
+        frozenset(),
+        es_mat,
+        None,
+        0,
+        np.zeros_like(es_mat),
+    )
 
     for pred_id in g.predecessors(tid):
         fixed = completed_edge.get((pred_id, tid))
@@ -7421,7 +7678,7 @@ def _mc_edge_constraints(
 
         if pred_id in milestone_ids:
             assert index is not None
-            bound = _mc_instant_edge_bound(dep, p, col, instant_mat, index)
+            bound = _mc_instant_edge_bound(dep, p, col, instant_mat, index, deficit_mat)
             if dep.dep_type in _START_ANCHORED:
                 np.maximum(es_constraints, bound, out=es_constraints)
             else:
@@ -7433,7 +7690,7 @@ def _mc_edge_constraints(
         if elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF):
             # Measured from a derived span start (#4523, _mc_span_link).
             assert index is not None
-            bound, _, _ = _mc_span_link(dep, p, col, es_mat, elapsed, index)
+            bound, _, _, _ = _mc_span_link(dep, p, col, es_mat, elapsed, index)
             if dep.dep_type == DependencyType.SS:
                 np.maximum(es_constraints, bound, out=es_constraints)
             else:
@@ -7455,14 +7712,22 @@ def _mc_edge_constraints(
         # because es/ef_constraints are freshly allocated owned arrays per
         # task (never views aliasing the anchor's matrix) and both start
         # fully initialized (SNET/status floors and zeros respectively).
-        constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
+        if delta_arr is None:
+            constraint = anchor
+        else:
+            constraint = _lagged_constraint(
+                dep.dep_type,
+                delta_arr,
+                anchor,
+                dep.lag.days,
+                None if index is None else index.wd_ord_of_col[p],
+                None if index is None else index.wd_ord_of_col[col],
+            )
         pred_runs = (instant_runs or {}).get(pred_id)
         if pred_runs is not None:
             assert index is not None
-            # As work does: FS/FF hand on the finish's fraction, SS/SF the start's.
-            excess = pred_runs[2] if dep.dep_type in _FROM_PREDECESSOR_FINISH else pred_runs[1]
-            at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index) + excess
-            constraint = np.where(pred_runs[0], at_instant, constraint)
+            at_instant = _mc_instant_edge_bound(dep, p, col, instant_mat, index, deficit_mat)
+            constraint = np.where(pred_runs, at_instant, constraint)
         if dep.dep_type in (DependencyType.FS, DependencyType.SS):
             np.maximum(es_constraints, constraint, out=es_constraints)
         else:  # FF / SF
@@ -7511,9 +7776,11 @@ def _to_reference_offset(ef: np.ndarray, wd_ord_own: np.ndarray, ref_ord: np.nda
 
     The fractional part of the offset is carried through untouched: sampled PERT
     durations are continuous, and dropping the fraction would quantise the
-    distribution the percentiles interpolate over.
+    distribution the percentiles interpolate over. It is carried relative to the
+    day the finish falls in (:func:`_finish_day_key`, #4697), so the converted
+    offset falls in the same date's day on the reference ruler.
     """
-    k = np.rint(ef)
+    k = _finish_day_key(ef)
     ki = k.astype(np.int64)
     # An exclusive EF past the index end is an undersized index; refuse it rather
     # than clamp it onto the last indexed day (#4429).
@@ -7579,8 +7846,10 @@ def _offset_to_date(
     task happened to land on an offset (#2461).
     """
     # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1 to get the
-    # last working day of the task, matching CPM's inclusive EF.
-    idx = round(offset) - 1
+    # last working day of the task, matching CPM's inclusive EF. A fractional offset
+    # is shown on the day it falls in, the ceiling, never the nearest day (#4697):
+    # work ending 0.3 into a day has not finished by the day before.
+    idx = math.ceil(offset - _MC_DAY_EPS) - 1
     if idx > len(wd_index) - 1:
         _raise_mc_index_overrun()
     idx = max(0, idx)
@@ -7651,13 +7920,14 @@ def _mc_percentiles(
     either side of it, so it stays inside the distribution's range.
     """
     n = len(completion_offsets)
-    shown_rounded = np.rint(shown_offsets)
-    rounded_positions = np.rint(completion_offsets)
+    # Every position is keyed by the day it falls in (#4697, :func:`_finish_day_key`).
+    shown_rounded = _finish_day_key(shown_offsets)
+    rounded_positions = _finish_day_key(completion_offsets)
     out: list[tuple[date, bool]] = []
     for q, pct in zip(
         (50, 80, 95), np.percentile(completion_offsets, [50, 80, 95]).tolist(), strict=True
     ):
-        k = round(pct)
+        k = math.ceil(pct - _MC_DAY_EPS)
         at_k = rounded_positions == k
         if at_k.any():
             candidates = np.unique(shown_rounded[at_k])  # ascending
@@ -8104,7 +8374,7 @@ def monte_carlo(
     if has_instants:
         wt_mat = ef_mat.copy()
         wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
-        for tid, (is_instant, *_) in instant_runs.items():
+        for tid, is_instant in instant_runs.items():
             col = task_idx[tid]
             wt_mat[is_instant, col] = es_mat[is_instant, col]
     # The floor wins over the index only when it is later; it is a start-of-day
