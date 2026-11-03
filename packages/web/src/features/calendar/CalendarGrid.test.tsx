@@ -1029,10 +1029,18 @@ describe('CalendarGrid', () => {
       });
     });
 
-    it('omits the day-type legend from the phone agenda, which has no such cells', () => {
+    it('omits the day-type legend and its notice from the phone agenda, which has no such cells', () => {
       breakpointMock.mockReturnValue('sm');
-      render(<CalendarGrid anchorIso={ANCHOR} tasks={[baseTask()]} onTaskClick={vi.fn()} />);
+      render(
+        <CalendarGrid
+          anchorIso={ANCHOR}
+          workingTimeIncomplete
+          tasks={[baseTask()]}
+          onTaskClick={vi.fn()}
+        />,
+      );
       expect(screen.queryByText('Non-working day')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Couldn't load this project's/)).not.toBeInTheDocument();
     });
   });
 

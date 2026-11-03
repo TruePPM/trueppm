@@ -79,12 +79,19 @@ describe('useCalendarWorkingTime', () => {
     expect(run({ effectiveCalendar: null, calendarSource: undefined }).workingTime.mask).toBe(31);
   });
 
-  it('requests the preview for the rotated week it will draw', () => {
+  it('does not request the preview while the applied stack answers', () => {
+    run();
+    expect(previewMock).toHaveBeenLastCalledWith(null, '2026-12-13', '2026-12-19');
+  });
+
+  it('falls back to the preview for the rotated week when the applied stack failed', () => {
+    appliedMock.mockReturnValue({ ...empty, isError: true });
     run();
     expect(previewMock).toHaveBeenLastCalledWith('p', '2026-12-13', '2026-12-19');
   });
 
-  it('requests the whole drawn month, spilling past the month on both sides', () => {
+  it('requests the whole drawn month in that fallback, spilling past it on both sides', () => {
+    appliedMock.mockReturnValue({ ...empty, isError: true });
     run({ calView: 'month' });
     expect(previewMock).toHaveBeenLastCalledWith('p', '2026-11-29', '2027-01-02');
   });
@@ -116,7 +123,6 @@ describe('useCalendarWorkingTime', () => {
       const { weekStartDay, workingTime } = run();
       expect(workingTime.mask).toBe(SUN_THU & 31);
       expect(weekStartDay).toBe(1);
-      expect(previewMock).toHaveBeenLastCalledWith('p', '2026-12-14', '2026-12-20');
     });
 
     it('keeps the base pattern when an overlay does not narrow it', () => {
@@ -130,8 +136,55 @@ describe('useCalendarWorkingTime', () => {
     });
   });
 
+  describe('composition matches the engine', () => {
+    const overlay = (working_days: number) => ({
+      layer_id: `l-${working_days}`,
+      role: 'holidays',
+      sort_order: 1,
+      calendar: calendar({ working_days }),
+    });
+    const stack = (...masks: number[]) => {
+      appliedMock.mockReturnValue({
+        ...empty,
+        data: { base: null, overlays: masks.map(overlay), applied: [] },
+      });
+    };
+    const noBase = { effectiveCalendar: null, calendarSource: 'system_default' as const };
+
+    it('uses Mon-Fri only when no calendar applies', () => {
+      stack();
+      const { workingTime, weekStartDay } = run(noBase);
+      expect(workingTime.mask).toBe(31);
+      expect(weekStartDay).toBe(1);
+    });
+
+    it('takes a lone seven-day overlay as it is, not ANDed with Mon-Fri', () => {
+      stack(127);
+      const { workingTime, weekStartDay } = run(noBase);
+      expect(workingTime.mask).toBe(127);
+      expect(weekStartDay).toBe(1);
+    });
+
+    it('takes a lone Sun-Thu overlay as it is, and opens on Sunday', () => {
+      stack(SUN_THU);
+      const { workingTime, weekStartDay } = run(noBase);
+      expect(workingTime.mask).toBe(SUN_THU);
+      expect(weekStartDay).toBe(0);
+    });
+
+    it('folds several overlays with no base', () => {
+      stack(127, SUN_THU, 31);
+      expect(run(noBase).workingTime.mask).toBe(SUN_THU & 31);
+    });
+
+    it('seeds from the base when one exists', () => {
+      stack(127);
+      expect(run().workingTime.mask).toBe(SUN_THU);
+    });
+  });
+
   describe('layout settling', () => {
-    it('holds the grid and the preview until the first applied attempt answers', () => {
+    it('holds the grid until the first applied attempt answers', () => {
       appliedMock.mockReturnValue({
         data: undefined,
         isError: false,
@@ -139,7 +192,6 @@ describe('useCalendarWorkingTime', () => {
         failureCount: 0,
       });
       expect(run().layoutSettling).toBe(true);
-      expect(previewMock).toHaveBeenLastCalledWith(null, expect.any(String), expect.any(String));
     });
 
     it('holds for the project read too', () => {
@@ -154,7 +206,6 @@ describe('useCalendarWorkingTime', () => {
         failureCount: 1,
       });
       expect(run().layoutSettling).toBe(false);
-      expect(previewMock).toHaveBeenLastCalledWith('p', expect.any(String), expect.any(String));
     });
 
     it('does not hold once the reads have answered', () => {
@@ -251,7 +302,7 @@ describe('useCalendarWorkingTime', () => {
 
   it.each([
     ['the preview alone', { preview: true }, false],
-    ['the applied stack alone', { applied: true }, false],
+    ['the applied stack alone', { applied: true }, true],
     ['both the preview and the applied stack', { preview: true, applied: true }, true],
     ['the inherited base', { detail: true }, true],
   ])('reports the working time incomplete when %s failed: %#', (_name, failed, expected) => {

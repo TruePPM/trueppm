@@ -266,23 +266,8 @@ async function setup(page: import('@playwright/test').Page) {
     statusSummary: STATUS_SUMMARY,
     user: { id: 'u1', username: 'sarah', display_name: 'Sarah Chen', initials: 'SC', email: 'sarah@northgate.test' },
   });
-  // The Calendar reads working time from these. Left to the catch-all, the failed
-  // reads would print the legend's "couldn't load" notice into the shot.
-  await page.route('**/api/v1/projects/*/calendars/preview/**', (route) => {
-    const params = new URL(route.request().url()).searchParams;
-    const start = params.get('start') ?? '';
-    const end = params.get('end') ?? '';
-    const days = [];
-    for (let t = Date.parse(`${start}T00:00:00Z`); t <= Date.parse(`${end}T00:00:00Z`); t += 86_400_000) {
-      const date = new Date(t).toISOString().slice(0, 10);
-      const holiday = date === HOLIDAY_CALENDAR.exceptions[0].exc_start;
-      const sources = holiday
-        ? [{ role: 'holidays', calendar_id: HOLIDAY_CALENDAR.id, name: HOLIDAY_CALENDAR.name }]
-        : [];
-      days.push({ date, working: !holiday, sources });
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ start, end, days }) });
-  });
+  // The Calendar reads working time from this. Left to the catch-all, the failed
+  // read would print the legend's "couldn't load" notice into the shot.
   await page.route('**/api/v1/projects/*/calendars/', (route) => {
     const overlay = { layer_id: 'mkt-layer', role: 'holidays', sort_order: 1, calendar: HOLIDAY_CALENDAR };
     return route.fulfill({

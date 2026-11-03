@@ -67,7 +67,7 @@ The grid reads each day from your project's working calendars: the base calendar
 
 A holiday or shutdown with no description of its own shows its calendar's name instead. A holiday on a day that is already outside the working week still shows as the holiday. An exception on the base calendar reads as a holiday, even when that base is inherited from the workspace. When more than one calendar blocks a day, by its weekly pattern or by a dated exception, its bottom-right corner carries a small triangle, and a shutdown takes precedence over a holiday.
 
-The **first column follows the working week** too: it is the first working day that follows a non-working day, walking the week from Monday. It reads the pattern left once every applied calendar is combined: a Monday–Friday project opens on Monday, a Sunday–Thursday project on Sunday, and a Sunday–Thursday project with a Monday–Friday holiday calendar applied works Monday–Thursday and so opens on Monday. A calendar that works all seven days stays on Monday. Calendars have no separate week-start setting.
+The **first column follows the working week** too: it is the first working day that follows a non-working day, walking the week from Monday. It reads the pattern left once every applied calendar is combined: a Monday–Friday project opens on Monday, a Sunday–Thursday project on Sunday, and a Sunday–Thursday project with a Monday–Friday holiday calendar applied works Monday–Thursday and so opens on Monday. A project with no base calendar anywhere uses the pattern of whatever is applied, so a Sunday–Thursday holiday calendar alone opens the week on Sunday; with nothing applied at all it works Monday–Friday. A calendar that works all seven days stays on Monday. Calendars have no separate week-start setting.
 
 Add holidays and working-day patterns through [Calendars](/features/calendars/).
 
@@ -157,7 +157,7 @@ The list follows whichever mode you are in, so week mode narrows the agenda to t
 | --- | --- |
 | Loading | A skeleton grid, announced as busy |
 | The request failed | **"Couldn't load the calendar."** with a **Retry** |
-| A working calendar could not be loaded | The grid still draws from whatever did load, down to a Monday–Friday week, and the legend says **"Couldn't load this project's full working calendar, so the days shown as non-working may be wrong."** |
+| A working calendar could not be loaded | The grid still draws from whatever did load, down to a Monday–Friday week, and its legend says **"Couldn't load this project's full working calendar, so the days shown as non-working may be wrong."** The phone agenda marks no non-working days, so it carries no such notice |
 | The project has no tasks | **"No tasks yet"** with **+ Add task** — the button appears for Member and above, and is withheld from Viewers |
 | No tasks, and the project is Agile | **"Calendar isn't part of this project's workflow"**, with a link to your iterations and a pointer to the methodology setting |
 | Tasks exist, but none in this window | **"No tasks in {window}."** — named explicitly on the phone list and in a week row, and conveyed by the month grid's empty dated cells |

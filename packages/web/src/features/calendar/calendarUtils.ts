@@ -150,7 +150,7 @@ export interface WorkingTimeInputs {
   mask: number;
   /** Those calendars individually, so a blocked day can name what blocked it. */
   calendars: readonly { name: string; workingDays: number }[];
-  /** The server's per-day answer for the visible window; empty until it resolves. */
+  /** The server's per-day answer, read only when the applied stack failed; else empty. */
   previewByDate: ReadonlyMap<string, PreviewDay>;
   exceptions: readonly NamedException[];
 }
@@ -181,16 +181,13 @@ const UNNAMED_EXCEPTION = 'Holiday or shutdown';
 /**
  * Decide how one day reads, from everything known about the project's working time.
  *
- * A preview day cannot do this alone. `working: false` does not say whether the
- * weekly pattern or a dated exception blocked the day, and an overlay's own mask
- * blocks weekdays too — a holiday calendar on the default Mon–Fri mask reports
- * every Sunday of a Sun–Thu project with the source role `holidays`, so the role
- * proves nothing. And the preview evaluates only the project's own calendar
- * override, so on a project that inherits its base it has no opinion about that
- * base: `working: true` must never overrule the mask. The mask and the named
- * exceptions therefore decide first, and a preview block on a day neither of them
- * explains is a dated exception this client could not name, which is what remains
- * when the applied-calendar read has failed.
+ * Named exceptions and the composed mask decide. `previewByDate` is empty unless the
+ * applied stack failed, and then a preview block on a day neither of them explains is
+ * read as a dated exception this client could not name. That reading is a best guess,
+ * which is why the grid also states that its working time is incomplete: `working: false`
+ * does not say whether a pattern or a date blocked the day, and an overlay's own mask
+ * blocks weekdays too. A preview `working: true` never overrules the mask, because the
+ * preview evaluates only the project's own calendar override, not an inherited base.
  */
 export function resolveDayAvailability(iso: string, inputs: WorkingTimeInputs): DayAvailability {
   // ISO dates are zero-padded, so lexical comparison is date order.

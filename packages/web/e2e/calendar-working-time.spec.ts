@@ -68,7 +68,12 @@ const task = {
   assignments: [],
 };
 
-async function setup(page: Page, source: 'project' | 'workspace', holidayCount: number) {
+async function setup(
+  page: Page,
+  source: 'project' | 'workspace' | 'system_default',
+  holidayCount: number,
+  effective: ReturnType<typeof effectiveCalendar> | null = effectiveCalendar(holidayCount),
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -78,7 +83,7 @@ async function setup(page: Page, source: 'project' | 'workspace', holidayCount: 
         id: PROJECT_ID,
         name: 'Gulf Fit-out',
         start_date: '2026-12-01',
-        effective_calendar: effectiveCalendar(holidayCount),
+        effective_calendar: effective,
         calendar_source: source,
       },
     ],
@@ -86,13 +91,18 @@ async function setup(page: Page, source: 'project' | 'workspace', holidayCount: 
   });
 }
 
-/** Serve the applied stack, and a preview that blocks only what `blockedBy` names. */
+/**
+ * Serve the applied stack, and a preview that blocks only what `blockedBy` names.
+ * Returns a count of preview requests, which only a failed applied read should make.
+ */
 async function mockCalendarReads(
   page: Page,
   applied: { base: typeof BASE_CALENDAR | null; overlays: unknown[] },
-  blockedBy: (iso: string) => { role: string; calendar_id: string; name: string }[],
+  blockedBy: (iso: string) => { role: string; calendar_id: string; name: string }[] = () => [],
 ) {
+  let previewRequests = 0;
   await page.route('**/api/v1/projects/*/calendars/preview/**', async (route) => {
+    previewRequests += 1;
     const params = new URL(route.request().url()).searchParams;
     const start = params.get('start') ?? '';
     const end = params.get('end') ?? '';
@@ -111,18 +121,13 @@ async function mockCalendarReads(
   await page.route('**/api/v1/projects/*/calendars/', async (route) => {
     await route.fulfill({ json: { ...applied, applied: applied.overlays } });
   });
+  return () => previewRequests;
 }
 
 test.describe('Calendar working time', () => {
   test('golden path: a Sun-Thu project renders its own non-working columns', async ({ page }) => {
     await setup(page, 'project', 1);
-    await mockCalendarReads(page, { base: BASE_CALENDAR, overlays: [] }, (iso) => {
-      const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
-      const isBlocked = dow === 5 || dow === 6 || iso === '2026-12-15';
-      return isBlocked
-        ? [{ role: 'project', calendar_id: BASE_CALENDAR.id, name: BASE_CALENDAR.name }]
-        : [];
-    });
+    const previewRequests = await mockCalendarReads(page, { base: BASE_CALENDAR, overlays: [] });
 
     await page.goto(url('week'));
     await expect(page.getByRole('heading', { level: 2, name: 'Dec 13 – 19, 2026' })).toBeVisible({
@@ -155,29 +160,17 @@ test.describe('Calendar working time', () => {
     await expect(cells.nth(5)).not.toContainText('Founders Day');
     // The chip starts in the first column, on the Sunday this calendar works.
     await expect(cells.nth(0).getByRole('button', { name: /^Fit-out,/ })).toBeVisible();
+    expect(previewRequests()).toBe(0);
   });
 
   test('a shutdown overlay reads as a shutdown, across every day it covers', async ({ page }) => {
     await setup(page, 'project', 0);
-    await mockCalendarReads(
-      page,
-      {
-        base: { ...BASE_CALENDAR, exceptions: [] },
-        overlays: [
-          { layer_id: 'l-1', role: 'workspace', sort_order: 1, calendar: SHUTDOWN_CALENDAR },
-        ],
-      },
-      (iso) =>
-        iso >= '2026-12-24' && iso <= '2026-12-31'
-          ? [
-              {
-                role: 'workspace',
-                calendar_id: SHUTDOWN_CALENDAR.id,
-                name: SHUTDOWN_CALENDAR.name,
-              },
-            ]
-          : [],
-    );
+    await mockCalendarReads(page, {
+      base: { ...BASE_CALENDAR, exceptions: [] },
+      overlays: [
+        { layer_id: 'l-1', role: 'workspace', sort_order: 1, calendar: SHUTDOWN_CALENDAR },
+      ],
+    });
 
     await page.goto(url('month'));
     const grid = page.getByRole('grid', { name: 'Calendar dates' });
@@ -231,6 +224,121 @@ test.describe('Calendar working time', () => {
         exact: true,
       }),
     ).toBeVisible();
+  });
+
+  test('no base calendar: a seven-day overlay alone decides, so the weekend works', async ({
+    page,
+  }) => {
+    await setup(page, 'system_default', 0, null);
+    await mockCalendarReads(page, {
+      base: null,
+      overlays: [
+        {
+          layer_id: 'l-1',
+          role: 'holidays',
+          sort_order: 1,
+          calendar: { ...SHUTDOWN_CALENDAR, name: 'Every Day', working_days: 127, exceptions: [] },
+        },
+      ],
+    });
+
+    await page.goto(url('week'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Dec 14 – 20, 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const cells = page.getByRole('grid', { name: 'Calendar dates' }).getByRole('gridcell');
+    await expect(cells.nth(5)).toHaveAccessibleName('Saturday, December 19, 2026');
+    await expect(cells.nth(6)).toHaveAccessibleName('Sunday, December 20, 2026');
+  });
+
+  test('no base calendar: a Sun-Thu overlay alone opens the week on Sunday', async ({ page }) => {
+    await setup(page, 'system_default', 0, null);
+    await mockCalendarReads(page, {
+      base: null,
+      overlays: [
+        {
+          layer_id: 'l-1',
+          role: 'holidays',
+          sort_order: 1,
+          calendar: {
+            ...SHUTDOWN_CALENDAR,
+            name: 'Gulf Holidays',
+            working_days: SUN_THU,
+            exceptions: [],
+          },
+        },
+      ],
+    });
+
+    await page.goto(url('week'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Dec 13 – 19, 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const cells = page.getByRole('grid', { name: 'Calendar dates' }).getByRole('gridcell');
+    await expect(cells.nth(0)).toHaveAccessibleName('Sunday, December 13, 2026');
+    await expect(cells.nth(5)).toHaveAccessibleName(
+      'Friday, December 18, 2026, Gulf Holidays, non-working day',
+    );
+  });
+
+  test('a workspace lock: a stale override reaches neither the grid nor a preview read', async ({
+    page,
+  }) => {
+    const staleOverride = {
+      ...BASE_CALENDAR,
+      name: 'Stale Override',
+      working_days: 15,
+      exceptions: [],
+    };
+    await setup(page, 'workspace', 0, {
+      ...effectiveCalendar(0),
+      name: 'Workspace Standard',
+      working_days: 31,
+    });
+    // The server's preview evaluates the override, so it would block every Friday.
+    const previewRequests = await mockCalendarReads(
+      page,
+      { base: staleOverride, overlays: [] },
+      (iso) =>
+        new Date(`${iso}T00:00:00Z`).getUTCDay() === 5
+          ? [{ role: 'project', calendar_id: staleOverride.id, name: staleOverride.name }]
+          : [],
+    );
+
+    await page.goto(url('week'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Dec 14 – 20, 2026' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const cells = page.getByRole('grid', { name: 'Calendar dates' }).getByRole('gridcell');
+    await expect(cells.nth(4)).toHaveAccessibleName('Friday, December 18, 2026');
+    await expect(cells.nth(4)).not.toContainText('Stale Override');
+    expect(previewRequests()).toBe(0);
+  });
+
+  test('error: a failed applied read falls back to the preview and says so', async ({ page }) => {
+    await setup(page, 'project', 1);
+    const previewRequests = await mockCalendarReads(page, { base: null, overlays: [] }, (iso) =>
+      iso === '2026-12-15'
+        ? [{ role: 'workspace', calendar_id: 'c-1', name: 'Workspace Closures' }]
+        : [],
+    );
+    await page.route('**/api/v1/projects/*/calendars/', (route) =>
+      route.fulfill({ status: 500, json: { detail: 'calendar service unavailable' } }),
+    );
+
+    await page.goto(url('week'));
+    const grid = page.getByRole('grid', { name: 'Calendar dates' });
+    await expect(grid).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Couldn't load this project's full working calendar/)).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      grid.getByRole('gridcell', {
+        name: 'Tuesday, December 15, 2026, Workspace Closures, non-working day',
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(previewRequests()).toBeGreaterThan(0);
   });
 
   test('an inherited base still applies though the preview cannot see it', async ({ page }) => {
