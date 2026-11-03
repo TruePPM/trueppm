@@ -140,15 +140,23 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
             )
         write = ShareLinkCreateSerializer(data=request.data)
         write.is_valid(raise_exception=True)
-        link, raw = share_services.mint_share_link(
-            project,
-            request.user,
-            label=write.validated_data["label"],
-            show_assignees=write.validated_data["show_assignees"],
-            show_milestone_dates=write.validated_data["show_milestone_dates"],
-            content_kind=write.validated_data["content_kind"],
-            expires_at=write.validated_data["expires_at"],
-        )
+        try:
+            link, raw = share_services.mint_share_link(
+                project,
+                request.user,
+                label=write.validated_data["label"],
+                show_assignees=write.validated_data["show_assignees"],
+                show_milestone_dates=write.validated_data["show_milestone_dates"],
+                content_kind=write.validated_data["content_kind"],
+                expires_at=write.validated_data["expires_at"],
+            )
+        except share_services.PublicSharingDisabledError:
+            # Policy flipped off between the pre-check above and the mint; the
+            # service refused. Same body as the pre-check, never a 500.
+            return Response(
+                {"detail": "Public sharing is turned off for this project."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         data: dict[str, Any] = dict(ShareLinkSerializer(link).data)
         # One-time reveal: the raw token and its relative path exist only here. The
         # web client composes the absolute URL from its own origin. The path segment

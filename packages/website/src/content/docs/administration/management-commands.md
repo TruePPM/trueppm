@@ -209,9 +209,10 @@ render without them.
 
 ### It turns public sharing on for the demo project
 
-Minting a link and *serving* it are two different gates. A link resolves only when the
-["Public sharing" policy](/features/board-sharing/) is on for the project, and the
-workspace default is **off** — so the command enables it on the demo project as part of
+Minting and serving a link share one policy: the
+["Public sharing" policy](/features/board-sharing/) must be on for the project (the
+server refuses to mint otherwise), and serving additionally honors the instance kill
+switch. The workspace default is **off** — so the command enables it on the demo project as part of
 minting, or it would print URLs that answer `410 Gone`.
 
 The override is written on the **demo project only**, never on the workspace. Every other

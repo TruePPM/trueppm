@@ -299,7 +299,11 @@ class Command(BaseCommand):
         recovered, or where the policy refuses the mint (both reported inline).
         """
         if pinned_token:
-            link, created = self._upsert_pinned_link(project, kind, pinned_token)
+            try:
+                link, created = self._upsert_pinned_link(project, kind, pinned_token)
+            except PublicSharingDisabledError:
+                self._report_policy_refusal(kind)
+                return None
             return ("Created" if created else "Reused"), link, pinned_token
 
         existing = (
@@ -332,17 +336,20 @@ class Command(BaseCommand):
                 content_kind=kind,
             )
         except PublicSharingDisabledError:
-            # Still off after _enable_public_sharing: a workspace ENFORCE lock
-            # outranks the project override. Not ours to override — report it.
-            self.stdout.write(
-                self.style.ERROR(
-                    f"Not minting the {kind} demo link: public sharing resolves to off "
-                    "for this project (a workspace ENFORCE policy is locking it). "
-                    "A workspace admin must turn 'Public sharing' on first."
-                )
-            )
+            self._report_policy_refusal(kind)
             return None
         return "Created", link, token
+
+    def _report_policy_refusal(self, kind: Any) -> None:
+        """Say why a mint was refused. Still off after ``_enable_public_sharing`` means
+        a workspace ENFORCE lock outranks the project override — not ours to override."""
+        self.stdout.write(
+            self.style.ERROR(
+                f"Not minting the {kind} demo link: public sharing resolves to off "
+                "for this project (a workspace ENFORCE policy is locking it). "
+                "A workspace admin must turn 'Public sharing' on first."
+            )
+        )
 
     def _upsert_pinned_link(
         self,
@@ -372,13 +379,13 @@ class Command(BaseCommand):
                     "ShareLink.token_hash is globally unique. Use a different token."
                 )
             return link, False
-        link = ShareLink.objects.create(
-            project=project,
-            content_kind=kind,
-            token_prefix=token[:12],
-            token_hash=token_hash,
+        # Through the service so the ADR-0135 gate runs before the row is written.
+        link, _raw = mint_share_link(
+            project,
+            user=None,
             label=LABEL_BY_KIND[kind],
             show_assignees=False,
-            created_by=None,
+            content_kind=kind,
+            raw_token=token,
         )
         return link, True

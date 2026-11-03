@@ -649,3 +649,17 @@ def test_the_defaulted_link_actually_serves_and_then_410s(admin_client, project)
     link.expires_at = timezone.now() - timedelta(seconds=1)
     link.save(update_fields=["expires_at"])
     assert client.get(_public_url(token)).status_code == 410
+
+
+@pytest.mark.django_db
+def test_mint_race_policy_flips_after_precheck_returns_same_403(project, admin_client):
+    """Policy turns off between the view's pre-check and the service mint (#3049):
+    the service raises and the view answers the pre-check's 403, never a 500."""
+    with patch.object(
+        share_services,
+        "mint_share_link",
+        side_effect=share_services.PublicSharingDisabledError("flipped"),
+    ):
+        resp = admin_client.post(_links_url(project), {}, format="json")
+    assert resp.status_code == 403
+    assert resp.data["detail"] == "Public sharing is turned off for this project."

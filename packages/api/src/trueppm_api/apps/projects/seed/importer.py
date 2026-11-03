@@ -2511,8 +2511,10 @@ class _SeedImporter:
 
         The token comes from ``mint_share_link`` here, at load; nothing in any file
         can choose it, and the raw value is discarded — only its hash is stored, as
-        for every link. The link is live and revocable from the project's share
-        settings, so the share surface is populated; ``create_demo_share_link`` is
+        for every link. When the ADR-0135 public-sharing policy is on, the link is live
+        and revocable from the project's share settings; when it is off (the
+        default) the link is skipped with a logged warning, because the sample
+        load does not loosen policy; ``create_demo_share_link`` is
         still how an operator obtains an openable URL.
         """
         if not self.is_sample:

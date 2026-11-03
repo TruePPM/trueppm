@@ -73,6 +73,7 @@ def mint_share_link(
     show_milestone_dates: bool = True,
     content_kind: str = ShareContentKind.BOARD,
     expires_at: Any = None,
+    raw_token: str | None = None,
 ) -> tuple[ShareLink, str]:
     """Create a share link and return ``(link, raw_token)``.
 
@@ -82,6 +83,8 @@ def mint_share_link(
     it passes, the public endpoint returns 410 exactly like a revoked link.
     ``show_milestone_dates`` (#2532, schedule links only) defaults **True** so a
     caller that omits it mints exactly the link it minted before the flag existed.
+    ``raw_token`` lets an operator pin a stable token (the demo deploy); the policy
+    gate still runs before any row is written.
 
     Raises:
         PublicSharingDisabledError: the ADR-0135 ``public_sharing`` policy resolves
@@ -94,7 +97,7 @@ def mint_share_link(
         raise PublicSharingDisabledError(
             f"Public sharing is turned off for project {getattr(project, 'id', None)}."
         )
-    raw = secrets.token_urlsafe(32)
+    raw = raw_token or secrets.token_urlsafe(32)
     link = ShareLink.objects.create(
         project=project,
         content_kind=content_kind,

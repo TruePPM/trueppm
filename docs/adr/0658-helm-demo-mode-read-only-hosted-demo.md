@@ -194,6 +194,8 @@ app, and 404s every share URL — a silent, hard-to-diagnose failure.
 
 ### D12 — `create_demo_share_link` enables sharing on the demo *project*, and verifies before printing (#2781)
 
+> **Superseded in part by #3049 (2026-11-02).** `mint_share_link()` now enforces the ADR-0135 `public_sharing` policy itself and refuses when it is off, so the "does not consult it at all" statement below no longer holds. The command's project-scope enablement and pre-print verification still apply.
+
 D8 above caught one half of "the demo deploys cleanly and every share URL fails": the
 ADR-0245 instance kill switch. It missed the other half. `Workspace.public_sharing` is
 `default=False`, and the ADR-0135 policy resolution (workspace → program → project) gates
