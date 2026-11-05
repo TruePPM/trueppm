@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 import * as client from '@/api/client';
 import { RequireAuth, resetSilentDemoAttempt } from './RequireAuth';
 import * as demoSession from './demoSession';
+import { clearDemoSessionMarker, markDemoSession } from './demoMarker';
 
 // Render RequireAuth as a layout route with a protected child and a /login
 // route, so we can assert on whether the Outlet (protected content) renders,
@@ -30,6 +31,7 @@ describe('RequireAuth', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resetSilentDemoAttempt();
+    clearDemoSessionMarker();
     // Default: not a demo host, so the silent login declines.
     vi.spyOn(demoSession, 'silentDemoLogin').mockResolvedValue(false);
     useAuthStore.setState({
@@ -105,7 +107,23 @@ describe('RequireAuth', () => {
   });
 
   describe('silent demo re-login (#4500)', () => {
-    it('re-logs in on a failed reload bootstrap and never shows the expired outlet first', async () => {
+    it('does NOT swap a real (unmarked) session whose refresh failed — the modal path stays', async () => {
+      vi.spyOn(client, 'bootstrapAccessToken').mockImplementation(() => {
+        useAuthStore.getState().markSessionExpired();
+        return Promise.resolve(false);
+      });
+      const silent = vi.spyOn(demoSession, 'silentDemoLogin');
+      useAuthStore.setState({ isAuthenticated: true, accessToken: null });
+
+      renderGuard();
+
+      await waitFor(() => expect(screen.getByText('Protected content')).toBeInTheDocument());
+      expect(silent).not.toHaveBeenCalled();
+      expect(useAuthStore.getState().sessionExpired).toBe(true);
+    });
+
+    it('renews a demo-marked session whose refresh failed, with no expired outlet first', async () => {
+      markDemoSession();
       vi.spyOn(client, 'bootstrapAccessToken').mockImplementation(() => {
         useAuthStore.getState().markSessionExpired();
         return Promise.resolve(false);

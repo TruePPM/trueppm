@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/stores/authStore';
-import { requestSession, silentDemoLogin, SILENT_EDITION_TIMEOUT_MS } from './demoSession';
+import { hasDemoSessionMarker, clearDemoSessionMarker } from './demoMarker';
+import {
+  requestSession,
+  silentDemoLogin,
+  SILENT_EDITION_TIMEOUT_MS,
+  SILENT_TOKEN_TIMEOUT_MS,
+} from './demoSession';
 
 const mocked = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('axios', () => ({ default: mocked }));
@@ -12,6 +18,7 @@ describe('silentDemoLogin (#4500)', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     queryClient.clear();
+    clearDemoSessionMarker();
     useAuthStore.setState({ accessToken: null, isAuthenticated: false });
   });
 
@@ -22,11 +29,11 @@ describe('silentDemoLogin (#4500)', () => {
     mocked.post.mockResolvedValue({ data: { access: 'tok' } });
 
     await expect(silentDemoLogin()).resolves.toBe(true);
-    expect(mocked.post).toHaveBeenCalledWith('/api/v1/auth/token/', {
-      username: HINT.username,
-      password: HINT.password,
-      remember_me: false,
-    });
+    expect(mocked.post).toHaveBeenCalledWith(
+      '/api/v1/auth/token/',
+      { username: HINT.username, password: HINT.password, remember_me: false },
+      { timeout: SILENT_TOKEN_TIMEOUT_MS },
+    );
     expect(useAuthStore.getState().accessToken).toBe('tok');
   });
 
@@ -61,6 +68,29 @@ describe('silentDemoLogin (#4500)', () => {
       timeout: SILENT_EDITION_TIMEOUT_MS,
     });
     expect(mocked.post).not.toHaveBeenCalled();
+  });
+
+  it('bounds the token POST with a timeout and resolves false when it hangs', async () => {
+    mocked.get.mockResolvedValue({
+      data: { edition: 'community', demo_read_only: true, demo_login_hint: HINT },
+    });
+    mocked.post.mockRejectedValue(Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }));
+    await expect(silentDemoLogin()).resolves.toBe(false);
+    expect(mocked.post).toHaveBeenCalledWith(
+      '/api/v1/auth/token/',
+      { username: HINT.username, password: HINT.password, remember_me: false },
+      { timeout: SILENT_TOKEN_TIMEOUT_MS },
+    );
+    expect(hasDemoSessionMarker()).toBe(false);
+  });
+
+  it('marks the browser as holding a demo session after a silent login', async () => {
+    mocked.get.mockResolvedValue({
+      data: { edition: 'community', demo_read_only: true, demo_login_hint: HINT },
+    });
+    mocked.post.mockResolvedValue({ data: { access: 'tok' } });
+    await silentDemoLogin();
+    expect(hasDemoSessionMarker()).toBe(true);
   });
 
   it('resolves false when the login is refused', async () => {

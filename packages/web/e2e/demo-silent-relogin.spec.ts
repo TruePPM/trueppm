@@ -1,10 +1,13 @@
 /**
- * The read-only demo survives a reload and a pasted deep link (#4500).
+ * The read-only demo lands a deep link, and renews a lapsed demo session (#4500).
  *
- * "Explore the demo" signs in session-only (ADR-1197 Amendment 2026-09-26), so the
- * refresh cookie dies with the tab. On a demo host the route guard re-submits the
- * published credential instead of showing the signed-out modal; on any other host the
- * existing behavior is unchanged.
+ * "Explore the demo" signs in with `remember_me: false` (ADR-1197 Amendment
+ * 2026-09-26). A plain reload keeps that session (the browser-session refresh cookie
+ * survives it); what is left is a fresh visitor pasting a deep link, and a returning
+ * demo visitor whose refresh has genuinely failed (browser restart, long idle, sample
+ * reset). On a demo host the route guard re-submits the published credential for those
+ * instead of showing the signed-out modal. A session that was NOT the demo account
+ * (the marker is absent) and every non-demo host keep the existing behavior.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -27,11 +30,18 @@ async function expectShellRendered(page: Page) {
   await expect(page.getByRole('navigation').getByText('Photon Cell').first()).toBeVisible();
 }
 
-async function setup(page: Page, opts: { demo: boolean; loginOk?: boolean; hadSession: boolean }) {
+async function setup(
+  page: Page,
+  opts: { demo: boolean; loginOk?: boolean; hadSession: boolean; demoMarked?: boolean },
+) {
   const tokenPosts: unknown[] = [];
   if (opts.hadSession) {
-    // A reload: the persisted hint says authenticated, but no access token in memory.
+    // A returning visitor: the persisted hint says authenticated, but no access token
+    // in memory, and (below) the refresh is refused.
     await setupAuth(page, { accessToken: null });
+  }
+  if (opts.demoMarked) {
+    await page.addInitScript(() => localStorage.setItem('trueppm-demo-session', '1'));
   }
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -40,7 +50,7 @@ async function setup(page: Page, opts: { demo: boolean; loginOk?: boolean; hadSe
     demoReadOnly: opts.demo,
     demoLoginHint: opts.demo ? DEMO_HINT : null,
   });
-  // The session-only cookie is gone, so the refresh is refused.
+  // Simulates a refresh that genuinely fails: browser restart, expired cookie, or reset.
   await page.route('**/api/v1/auth/token/refresh/', (route) =>
     route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
   );
@@ -60,8 +70,10 @@ async function setup(page: Page, opts: { demo: boolean; loginOk?: boolean; hadSe
 }
 
 test.describe('Demo silent re-login (#4500)', () => {
-  test('a reload keeps the view and shows no signed-out modal', async ({ page }) => {
-    const posts = await setup(page, { demo: true, hadSession: true });
+  test('a demo session whose refresh failed is renewed with no signed-out modal', async ({
+    page,
+  }) => {
+    const posts = await setup(page, { demo: true, hadSession: true, demoMarked: true });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
 
     // Wait for the silent login to land before asserting absence, or the modal check
@@ -84,13 +96,29 @@ test.describe('Demo silent re-login (#4500)', () => {
   });
 
   test('a refused silent login falls back to the modal, once', async ({ page }) => {
-    const posts = await setup(page, { demo: true, hadSession: true, loginOk: false });
+    const posts = await setup(page, {
+      demo: true,
+      hadSession: true,
+      demoMarked: true,
+      loginOk: false,
+    });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
 
     await expect(page.getByRole('dialog', { name: /You've been signed out/ })).toBeVisible();
     // Settle past any slower second attempt before counting: the cap is per page load.
     await page.waitForTimeout(1000);
     expect(posts).toHaveLength(1);
+  });
+
+  test('a real (unmarked) session on the demo host is never swapped to the demo user', async ({
+    page,
+  }) => {
+    const posts = await setup(page, { demo: true, hadSession: true });
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+
+    await expect(page.getByRole('dialog', { name: /You've been signed out/ })).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(posts).toHaveLength(0);
   });
 
   test('a non-demo host still shows the modal and never posts a credential', async ({ page }) => {

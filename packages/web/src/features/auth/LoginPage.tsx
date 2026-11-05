@@ -10,6 +10,7 @@ import { discoverSsoProviders, ssoLoginUrl, type SsoProviderSummary } from '@/ho
 import { useDemoMode } from '@/hooks/useDemoMode';
 import { DemoLoginHint } from './DemoLoginHint';
 import { requestSession } from './demoSession';
+import { clearDemoSessionMarker, markDemoSession } from './demoMarker';
 import { DemoModePanelNote } from './DemoModePanelNote';
 
 /**
@@ -183,6 +184,10 @@ export function LoginPage() {
 
     try {
       const access = await requestSession(username, pass, remember);
+      // Remember whether THIS browser now holds the shared demo account, so a later
+      // failed refresh renews only a demo session and never swaps a real one (#4500).
+      if (source === 'demo') markDemoSession();
+      else clearDemoSessionMarker();
 
       // Resolve the server-decided front door (ADR-0129) for the no-`next` case.
       // Use bare axios with the just-minted access token (apiClient's interceptor

@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation } from 'react-router';
 import { bootstrapAccessToken } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
 import { silentDemoLogin } from './demoSession';
+import { hasDemoSessionMarker } from './demoMarker';
 
 /** One silent demo re-login per page load, across remounts — a failed one must not loop (#4500). */
 let silentDemoAttempted = false;
@@ -39,16 +40,20 @@ export function RequireAuth() {
     };
   }, [needsBootstrap, bootstrapAttempted]);
 
-  // Silent demo re-login (#4500). The demo signs in session-only, so a reload or a
-  // pasted deep link finds no session — either an expired one (bootstrap refresh
-  // failed) or none at all. On a read-only demo host `silentDemoLogin` re-submits the
-  // published credential so the visitor lands on the page the URL names instead of the
-  // signed-out modal. Eligibility excludes an explicit sign-out and the bare origin
-  // (the demo's front door keeps its Explore button); the module flag caps it at one
-  // attempt per page load, and a failure falls through to the existing modal/redirect.
+  // Silent demo re-login (#4500). Two cases, on a read-only demo host only (the server
+  // decides that inside `silentDemoLogin`): a fresh visitor who pastes a deep link and
+  // has no session, and a returning visitor whose refresh genuinely failed (browser
+  // restart, long idle, sample reset) AND whose browser holds the demo-session marker.
+  // The marker is what stops a real account on the demo host being swapped to the demo
+  // user. A plain reload needs neither: the browser-session refresh cookie survives it.
+  // Excluded: an explicit sign-out this page load and the bare origin (the demo's front
+  // door keeps its Explore button). The module flag caps it at one attempt per page
+  // load, and a failure falls through to the existing modal/redirect.
   const signedOut = useAuthStore((s) => s.signedOut);
   const [silent, setSilent] = useState<'idle' | 'running' | 'done'>('idle');
-  const lostSession = sessionExpired || (!isAuthenticated && location.pathname !== '/');
+  const lostSession =
+    (sessionExpired && hasDemoSessionMarker()) ||
+    (!sessionExpired && !isAuthenticated && location.pathname !== '/');
   const silentEligible =
     hasHydrated && lostSession && !signedOut && !needsBootstrap && silent !== 'done';
   const silentPending = silentEligible && (silent === 'running' || !silentDemoAttempted);

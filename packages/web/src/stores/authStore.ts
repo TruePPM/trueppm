@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { useLastTaskStore } from './lastTaskStore';
+import { clearDemoSessionMarker } from '@/features/auth/demoMarker';
 
 interface AuthState {
   /** Short-lived JWT access token. Held in memory only and never persisted to
@@ -76,6 +77,7 @@ export const useAuthStore = create<AuthState>()(
         // (#1211). Cleared on the store, not in a component, because RequireAuth
         // unmounts the shell on sign-out and a component-held guard would reset.
         useLastTaskStore.setState({ opened: null });
+        clearDemoSessionMarker();
         set({
           accessToken: null,
           isAuthenticated: false,
