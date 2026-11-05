@@ -533,3 +533,48 @@ Task ID,WBS,Task,Days,Depends On
     )
     assert kept == [("Phase", "Later", "FS")]
     assert any("SS link to 'Next' skipped" in w for w in summary["warnings"]), summary["warnings"]
+
+
+# ---------------------------------------------------------------------------
+# Trash restore — the parent half refuses, the edge half retires what it revives
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_restoring_a_child_under_a_parent_that_now_drives_ss_is_refused(
+    project: Project, owner_client: APIClient
+) -> None:
+    """P lost its only child to the trash, became a leaf, and gained an SS link since."""
+    parent = _task(project, "Parent", "1")
+    child = _task(project, "Child", "1.1")
+    other = _task(project, "Other", "2")
+    child.soft_delete()
+    Dependency.objects.create(predecessor=parent, successor=other, dep_type="SS")
+
+    response = _post(owner_client, f"/api/v1/tasks/{child.pk}/restore/")
+
+    assert response.status_code == 400, response.data
+    assert response.json()["code"] == "summary_start_link"
+    child.refresh_from_db()
+    assert child.is_deleted is True
+
+
+@pytest.mark.django_db
+def test_restoring_a_successor_does_not_revive_an_ss_link_from_a_new_summary(
+    project: Project, owner_client: APIClient
+) -> None:
+    """P (leaf) -SS-> T; T trashed; P gains a child; restoring T must not revive the link."""
+    pred = _task(project, "Pred", "1")
+    succ = _task(project, "Succ", "2")
+    ss = Dependency.objects.create(predecessor=pred, successor=succ, dep_type="SS")
+    fs = Dependency.objects.create(predecessor=pred, successor=succ, dep_type="FS")
+    succ.soft_delete()
+    _task(project, "Pred child", "1.1")
+
+    response = _post(owner_client, f"/api/v1/tasks/{succ.pk}/restore/")
+
+    assert response.status_code == 200, response.data
+    ss.refresh_from_db()
+    fs.refresh_from_db()
+    assert ss.is_deleted is True
+    assert fs.is_deleted is False

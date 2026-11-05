@@ -140,6 +140,51 @@ def skipped_link_warning(predecessor_name: str, successor_name: str, dep_type: s
     )
 
 
+def retire_revived_summary_start_links(task: Task) -> list[Any]:
+    """Re-remove SS/SF links out of a summary that un-trashing ``task`` just revived.
+
+    Restoring a task revives the tombstoned edges touching its subtree. One of them
+    can be a link out of a task that was a leaf when ``task`` was deleted and has
+    become a summary since — legal then, forbidden now (ADR-0370, #4830). Every live
+    edge touching the subtree right after the restore was revived by it (an edge
+    cannot be created against a deleted task), so retiring the offending ones takes
+    back only what this restore wrote; the rest of the restore stands.
+
+    Returns the retired rows so the caller can report them.
+    """
+    import re
+
+    from django.db.models import Q
+
+    from trueppm_api.apps.projects.models import Dependency, Task
+
+    scope = Q(pk=task.pk)
+    if task.wbs_path:
+        scope |= Q(wbs_path__startswith=f"{task.wbs_path}.")
+    subtree = Task.objects.filter(scope, project_id=task.project_id, is_deleted=False)
+    candidates = list(
+        Dependency.live.filter(
+            Q(predecessor__in=subtree) | Q(successor__in=subtree),
+            dep_type__in=sorted(SUMMARY_FORBIDDEN_LINK_TYPES),
+        ).select_related("predecessor")
+    )
+    retired: list[Any] = []
+    for dep in candidates:
+        pred = dep.predecessor
+        if not pred.wbs_path:
+            continue
+        # A live direct child, the CPM's own notion of a summary.
+        has_child = Task.objects.filter(
+            project_id=pred.project_id,
+            is_deleted=False,
+            wbs_path__regex=rf"^{re.escape(str(pred.wbs_path))}\.\d+$",
+        ).exists()
+        if has_child:
+            dep.soft_delete()
+            retired.append(dep)
+    return retired
+
+
 def summary_start_link_block(task: Task) -> SummaryStartLinkBlock | None:
     """The refusal for making ``task`` a summary, or ``None`` when it may become one.
 

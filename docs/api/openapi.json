@@ -47003,6 +47003,60 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "summary_start_link"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
+                                        },
+                                        "blocking_dependencies": {
+                                            "type": "array",
+                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "dep_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "SS",
+                                                            "SF"
+                                                        ],
+                                                        "x-trueppm-enum": "open"
+                                                    },
+                                                    "successor_id": {
+                                                        "type": "string",
+                                                        "format": "uuid",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "dep_type",
+                                                    "successor_id"
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The task's parent has no other live child and drives a Start-to-Start or Start-to-Finish link: restoring the task would make that parent a summary, which ADR-0370 forbids to drive one (#4830)."
+                    },
                     "409": {
                         "description": "The task's WBS position was allocated to another live task while it was deleted. The body names the occupant (#3071)."
                     },

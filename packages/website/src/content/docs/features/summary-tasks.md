@@ -105,7 +105,7 @@ Finish-to-Start and Finish-to-Finish links from a summary are fine.
 
 So any move that would give such a task its first child is refused, and nothing
 moves: indenting a task under it, outdenting the task itself when it would adopt
-the tasks below it, reparenting or dragging a task onto it, and creating a task or
+the tasks below it, reparenting or dragging a task onto it, restoring its last child from the trash, and creating a task or
 a subtask inside it. The message names the links in the way:
 
 > “Design” cannot become a summary task: it drives “Build” (SS) with a
@@ -115,6 +115,9 @@ a subtask inside it. The message names the links in the way:
 
 Retype or delete those links, or move them to one of the subtasks, then try the
 move again. A task that is already a summary is not affected by this check.
+Restoring a deleted task also leaves behind any of its old Start-to-Start or
+Start-to-Finish links whose predecessor has become a summary in the meantime; its
+other links come back.
 
 Over the API, the indent, outdent and reparent endpoints answer `400` with
 `code: "summary_start_link"` and a `blocking_dependencies` list. Each entry gives

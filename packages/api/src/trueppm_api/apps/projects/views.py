@@ -314,6 +314,8 @@ from trueppm_api.apps.projects.structural_operation_services import StructuralCa
 from trueppm_api.apps.projects.summary_link_guard import (
     BLOCKING_DEPENDENCIES_SCHEMA,
     SUMMARY_START_LINK_CODE,
+    SummaryStartLinkBlock,
+    retire_revived_summary_start_links,
     summary_start_link_block,
 )
 from trueppm_api.apps.projects.task_bulk import (
@@ -6954,6 +6956,13 @@ class TaskViewSet(
         request=None,
         responses={
             200: TaskSerializer,
+            400: state_refusal_400(
+                "The task's parent has no other live child and drives a Start-to-Start "
+                "or Start-to-Finish link: restoring the task would make that parent a "
+                "summary, which ADR-0370 forbids to drive one (#4830).",
+                codes=(SUMMARY_START_LINK_CODE,),
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+            ),
             409: OpenApiResponse(
                 description=(
                     "The task's WBS position was allocated to another live task while "
@@ -6993,8 +7002,20 @@ class TaskViewSet(
         task_id = str(task.pk)
         try:
             with transaction.atomic():
+                # ADR-0370 (#4830): the parent may have lost its last child when this
+                # row was deleted and gained an SS/SF link since. Restoring the row
+                # would make it a summary again with that link — refuse, unwritten.
+                block = _restore_parent_summary_start_link_block(task)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
                 task.restore()
                 cascade_task_children_restore(task)
+                for retired in retire_revived_summary_start_links(task):
+                    logger.warning(
+                        "task.restore: SS/SF link %s from summary %s not revived (ADR-0370)",
+                        retired.pk,
+                        retired.predecessor_id,
+                    )
                 cross_edges = cross_project_edge_rows(tasks=task_subtree(task))
         except WbsPathOccupied as exc:
             # Refuse rather than re-path (#3071). This is the one restore path with a
@@ -9365,6 +9386,30 @@ def _get_parent_path(wbs_path: str) -> str:
     """Return the parent's wbs_path by stripping the last label, or '' for root."""
     parts = wbs_path.split(".")
     return ".".join(parts[:-1]) if len(parts) > 1 else ""
+
+
+def _restore_parent_summary_start_link_block(task: Task) -> SummaryStartLinkBlock | None:
+    """The ADR-0370 refusal for un-trashing ``task``, or ``None`` when it may return.
+
+    Resolves the parent by path rather than through ``structural_parent``, which
+    skips subtasks: a restored drawer subtask makes its parent a summary to the CPM
+    just as a structural child does. Only a parent with no live child is checked —
+    one that already has children is already a summary, and its links are not this
+    restore's doing.
+    """
+    if not task.wbs_path:
+        return None
+    parent_path, _, _ = str(task.wbs_path).rpartition(".")
+    if not parent_path:
+        return None
+    parent = (
+        Task.objects.select_for_update()
+        .filter(project_id=task.project_id, wbs_path=parent_path, is_deleted=False)
+        .first()
+    )
+    if parent is None or _get_siblings(str(task.project_id), parent_path):
+        return None
+    return summary_start_link_block(parent)
 
 
 def _get_siblings(project_id: str, parent_path: str, *, lock: bool = False) -> list[Task]:
