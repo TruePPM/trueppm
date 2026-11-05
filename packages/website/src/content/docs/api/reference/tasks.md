@@ -59,11 +59,22 @@ becomes a checklist item or a WBS node, which are different objects with differe
 rollup and delete semantics, so a value the server cannot interpret is refused rather
 than defaulted.
 
-Three placement guards reject a structurally impossible parent with a `400` on
+Four placement guards reject a structurally impossible parent with a `400` on
 `parent_id`: a milestone cannot have children (it is a zero-duration gate, not a
 container); nothing may be created under a subtask (subtasks are leaves, ADR-0060);
-and a phase that already has a structural child will not accept drawer subtasks,
-which would conflate the two decomposition models.
+a phase that already has a structural child will not accept drawer subtasks,
+which would conflate the two decomposition models; and — shipping in 0.5 — a task
+with no children yet that drives a Start-to-Start or Start-to-Finish link cannot
+take its first child, task or subtask, because that would make it a summary and a
+summary may not drive such a link
+([ADR-0370](/features/scheduler-conventions/), #4830).
+
+The create refusal body is field-keyed, `{"parent_id": ["…"]}`, with the message
+naming the links and **no `code` key** — the same as the other three guards here, and
+the same field-keyed shape #2550 describes. The structural endpoints that refuse the
+same condition (indent, outdent, reparent, reorder, and task restore) answer `400`
+with `code: "summary_start_link"` and a `blocking_dependencies` list instead, and
+structural undo answers `409` with the same two keys.
 
 **Dependencies are not part of this body.** There is no `predecessors` field on the
 task serializer — create each edge with `POST /api/v1/dependencies/` after the task

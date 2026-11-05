@@ -1,7 +1,7 @@
 ---
 title: Inbound Task Sync
 description: Push tasks into TruePPM from Jira, Linear, GitHub Issues, or any custom source via a project-scoped API token.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 This page is for whoever sets up integrations for the team — a PM, an admin, or a
@@ -126,6 +126,35 @@ Response on first push:
 
 Same payload re-pushed: `created: false`, same `task_id`. The task name, description, status, and story points are updated; the assignee is **not** overwritten if it was previously resolved (this prevents a compromised token from silently rewriting human ownership decisions).
 
+#### Parents that cannot take a child
+
+:::note[Ships in 0.5]
+This behavior and the `warnings` field ship in 0.5. In the current release the
+task is attached under the parent regardless, and the project's schedule then stops
+recalculating until the parent's Start-to-Start or Start-to-Finish link is deleted
+or retyped.
+:::
+
+A parent that has no children yet and drives a Start-to-Start or Start-to-Finish
+link will not be given one, because that would make it a summary and a summary may
+not drive such a link ([ADR-0370](/features/scheduler-conventions/)). The push still
+succeeds: the task lands flat in the backlog, as it would for a parent that matched
+nothing, and the response carries an extra `warnings` list saying why:
+
+```json
+{
+  "task_id": "f8c0...",
+  "short_id": "00000028",
+  "created": true,
+  "assignee_resolved": true,
+  "warnings": [
+    "Not attached under its parent; added to the backlog instead. “Epic” cannot become a summary task: …"
+  ]
+}
+```
+
+`warnings` is absent when there is nothing to report.
+
 ### 3. Revoke a token
 
 ```bash
@@ -147,7 +176,7 @@ Revocation is immediate and append-only — the revoke event appears in the audi
 | `assignee_email` | no | If the email matches a current project member, the assignee is set; otherwise parked in `pending_assignee_email` |
 | `story_points` | no | Integer 0–999 |
 | `external_url` | no | Canonical URL of the external task (used by future UI surfaces) |
-| `parent_external_id` | no | The external system's parent identifier. If a previous push with that `external_id` exists *for the same source*, the new task is attached as a subtask under it. Cross-source parents are rejected. |
+| `parent_external_id` | no | The external system's parent identifier. If a previous push with that `external_id` exists *for the same source*, the new task is attached as a subtask under it. Cross-source parents are rejected. Starting with 0.5, a parent that cannot take the task will be skipped instead — see [Parents that cannot take a child](#parents-that-cannot-take-a-child). |
 
 ## Source of truth
 

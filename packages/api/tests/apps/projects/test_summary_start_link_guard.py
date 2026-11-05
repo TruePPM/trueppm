@@ -794,3 +794,100 @@ def test_an_ss_link_write_locks_its_predecessor_row(project: Project) -> None:
 
     assert locked_sql("SS"), "an SS write must lock the predecessor row"
     assert not locked_sql("FS")
+
+
+# ---------------------------------------------------------------------------
+# Final round (#4830): reorder, and refusals that leave no trace
+# ---------------------------------------------------------------------------
+
+REORDER_URL = "/api/v1/projects/{pk}/tasks/reorder/"
+
+
+@pytest.mark.django_db
+def test_reorder_that_would_hand_an_ss_driver_another_tasks_children_is_refused(
+    project: Project, owner_client: APIClient
+) -> None:
+    """Reorder moves only the siblings, so B landing on "1" would inherit A's child A1."""
+    a = _task(project, "A", "1")
+    _task(project, "A1", "1.1")
+    b = _task(project, "B", "2")
+    c = _task(project, "C", "3")
+    Dependency.objects.create(predecessor=b, successor=c, dep_type="SS")
+    before = _outline(project)
+
+    response = _post(
+        owner_client,
+        REORDER_URL.format(pk=project.pk),
+        {"parent_path": "", "ordered_ids": [str(b.pk), str(a.pk), str(c.pk)]},
+    )
+
+    assert response.status_code == 400, response.data
+    assert response.json()["code"] == "summary_start_link"
+    assert "“B”" in response.json()["detail"]
+    assert _outline(project) == before
+
+
+@pytest.mark.django_db
+def test_reordering_phases_that_already_have_children_still_works(
+    project: Project, owner_client: APIClient
+) -> None:
+    """Moving a phase among its siblings is everyday; the guard must not touch it."""
+    a = _task(project, "A", "1")
+    _task(project, "A1", "1.1")
+    b = _task(project, "B", "2")
+    _task(project, "B1", "2.1")
+    c = _task(project, "C", "3")
+    Dependency.objects.create(predecessor=c, successor=a, dep_type="SS")  # C stays a leaf
+
+    response = _post(
+        owner_client,
+        REORDER_URL.format(pk=project.pk),
+        {"parent_path": "", "ordered_ids": [str(b.pk), str(a.pk), str(c.pk)]},
+    )
+
+    assert response.status_code == 200, response.data
+
+
+@pytest.mark.django_db
+def test_an_ordinary_reorder_at_a_level_with_no_children_still_works(
+    project: Project, owner_client: APIClient
+) -> None:
+    a = _task(project, "A", "1")
+    b = _task(project, "B", "2")
+    Dependency.objects.create(predecessor=a, successor=b, dep_type="SS")
+
+    response = _post(
+        owner_client,
+        REORDER_URL.format(pk=project.pk),
+        {"parent_path": "", "ordered_ids": [str(b.pk), str(a.pk)]},
+    )
+
+    assert response.status_code == 200, response.data
+    assert _outline(project) == {"B": "1", "A": "2"}
+
+
+@pytest.mark.django_db
+def test_a_refused_indent_bumps_no_version_and_broadcasts_nothing(
+    project: Project, owner_client: APIClient
+) -> None:
+    a = _task(project, "A", "1")
+    b = _task(project, "B", "2")
+    c = _task(project, "C", "3")
+    Dependency.objects.create(predecessor=a, successor=c, dep_type="SS")
+    versions = dict(Task.objects.filter(project=project).values_list("pk", "server_version"))
+
+    with (
+        patch("django.db.transaction.on_commit", side_effect=lambda fn, *a, **kw: fn()),
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as recalc,
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+    ):
+        response = owner_client.post(
+            INDENT_URL.format(pk=project.pk, task_id=b.pk), {}, format="json"
+        )
+
+    assert response.status_code == 400
+    assert dict(Task.objects.filter(project=project).values_list("pk", "server_version")) == (
+        versions
+    )
+    broadcast.assert_not_called()
+    recalc.assert_not_called()

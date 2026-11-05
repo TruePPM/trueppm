@@ -9266,7 +9266,19 @@ class TaskReorderView(IdempotencyMixin, APIView):
     @extend_schema(
         summary="Reorder sibling tasks within a WBS level",
         request=TaskReorderSerializer,
-        responses={200: TaskReorderResponseSerializer},
+        responses={
+            200: TaskReorderResponseSerializer,
+            400: validation_envelope_400(
+                "The reorder is refused: ``ordered_ids`` names a task that is not a live "
+                "sibling under ``parent_path``, or omits one (field-keyed "
+                "``ordered_ids`` errors); or (``summary_start_link``, #4830) a sibling "
+                "would land on a position whose children stay in place, giving it its "
+                "first child while it drives a Start-to-Start or Start-to-Finish link — "
+                "a summary may not drive one (ADR-0370). The last carries "
+                "``blocking_dependencies``.",
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+            ),
+        },
     )
     def post(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -9335,6 +9347,14 @@ class TaskReorderView(IdempotencyMixin, APIView):
         for task in siblings_by_id.values():
             _require_wbs_restructure_permission(request, task)
 
+        # ADR-0370 (#4830). Rows are already locked (`siblings_qs` is FOR UPDATE and
+        # ATOMIC_REQUESTS holds the transaction), so the check and the write agree.
+        block = _reorder_summary_start_link_block(
+            str(project.pk), parent_path, ordered_ids, siblings_by_id
+        )
+        if block is not None:
+            return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+
         updated: list[dict[str, Any]] = []
 
         with transaction.atomic():
@@ -9348,12 +9368,18 @@ class TaskReorderView(IdempotencyMixin, APIView):
                     task.save(update_fields=["wbs_path"])
                 updated.append({"id": str(task_id), "wbs_path": new_path})
 
-            # Reorder is the one restructure that provably cannot change any parent's
-            # child SET — it permutes one level in place — so this is convergence only:
-            # it repairs a parent whose declaration drifted on an earlier act, and it
-            # keeps the four structural endpoints from disagreeing about whether
-            # declaring a container is part of restructuring (#3010). One row, so the
-            # cost is a refresh and, almost always, no UPDATE at all.
+            # The level's PARENT keeps the same child set — the reorder permutes its
+            # children in place — so for it this is convergence only: it repairs a
+            # parent whose declaration drifted on an earlier act, and keeps the
+            # structural endpoints agreeing that declaring a container is part of
+            # restructuring (#3010). One row, so the cost is a refresh and, almost
+            # always, no UPDATE at all. The SIBLINGS' child sets are another matter:
+            # this loop rewrites only the siblings' own paths, never their
+            # descendants', so a sibling can land on a path whose old occupant's
+            # children still hang under it, and inherit them. That WBS-integrity
+            # defect is tracked separately; the one consequence #4830 guards — a
+            # task driving an SS/SF link inheriting children — is refused above by
+            # `_reorder_summary_start_link_block`.
             resync_container_declarations(parent_row, already_locked=True)
 
             # Reorder is the one structural endpoint that already gates every sibling
@@ -9373,6 +9399,56 @@ class TaskReorderView(IdempotencyMixin, APIView):
             {"updated": updated, "operation_id": str(operation.pk)},
             status=status.HTTP_200_OK,
         )
+
+
+def _reorder_summary_start_link_block(
+    project_id: str,
+    parent_path: str,
+    ordered_ids: list[uuid.UUID],
+    siblings_by_id: dict[uuid.UUID, Task],
+) -> SummaryStartLinkBlock | None:
+    """The ADR-0370 refusal for a reorder, or ``None`` when it is safe (#4830).
+
+    A reorder rewrites each sibling's own ``wbs_path`` and leaves every descendant
+    where it was, so a sibling moved onto a position whose old occupant had children
+    becomes the parent of those children. When that sibling had no children before
+    and drives an SS/SF link, the reorder would make it a summary the engine refuses.
+
+    Deliberately narrower than refusing any reorder at a level with children:
+    moving a phase up or down among its siblings (Alt+Arrow in build mode, outline
+    drag) is an everyday act and must keep working. Only a sibling gaining its
+    *first* child is checked, matching every other structural guard, so a sibling
+    that was already a summary is not this reorder's to refuse. One query reads
+    which positions at this level have children; the link lookup runs only for a
+    sibling that would gain them.
+    """
+    import re
+
+    prefix = f"{parent_path}." if parent_path else ""
+    child_re = re.compile(rf"^{re.escape(prefix)}(\d+)\.\d+$")
+    positions_with_children: set[str] = set()
+    for path in Task.objects.filter(
+        project_id=project_id,
+        is_deleted=False,
+        wbs_path__regex=rf"^{re.escape(prefix)}\d+\.\d+$",
+    ).values_list("wbs_path", flat=True):
+        match = child_re.match(str(path))
+        if match:
+            positions_with_children.add(f"{prefix}{match.group(1)}")
+    if not positions_with_children:
+        return None
+    for position, task_id in enumerate(ordered_ids, start=1):
+        task = siblings_by_id[task_id]
+        new_path = _build_wbs_path(parent_path, position)
+        old_path = str(task.wbs_path)
+        if old_path == new_path or new_path not in positions_with_children:
+            continue
+        if old_path in positions_with_children:
+            continue  # already a summary before the reorder
+        block = summary_start_link_block(task)
+        if block is not None:
+            return block
+    return None
 
 
 def _get_parent_path(wbs_path: str) -> str:

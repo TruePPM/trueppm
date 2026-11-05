@@ -176,6 +176,21 @@ def retire_revived_summary_start_links(scope: QuerySet[Task]) -> list[Any]:
     )
     if not candidates:
         return []
+    # Same row lock the structural guards and the SS/SF dependency write take on the
+    # would-be summary, held before its children are read, so a concurrent indent
+    # under one of these predecessors cannot slip between the read and the retire.
+    # Ordered by pk so two restores sharing predecessors lock them in one order.
+    from django.db import transaction
+
+    from trueppm_api.apps.projects.models import Task as TaskModel
+
+    if transaction.get_connection().in_atomic_block:
+        list(
+            TaskModel.objects.select_for_update()
+            .filter(pk__in={dep.predecessor_id for dep in candidates})
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
     summaries: set[str] = set()
     for project_id in {dep.predecessor.project_id for dep in candidates}:
         _, children_map = _load_project_tasks_and_children_map(project_id)

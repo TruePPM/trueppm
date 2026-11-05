@@ -8268,19 +8268,29 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
     ) -> None:
         """Hold the predecessor's row lock before reading its children, for SS/SF links.
 
-        The ADR-0370 check reads whether the predecessor has children. Every structural
-        path that can give a task its first child (indent, outdent, reparent, create
-        or restore under a parent, inbound sync) locks that would-be parent row before
-        deciding, so taking the same row lock here first serializes the two: whichever
-        commits second re-reads the other's write and refuses (#4830). Without it, an
-        indent and an SS link on the same leaf can both validate against the pre-state
-        and both commit the forbidden combination.
+        The ADR-0370 check reads whether the predecessor has children. The structural
+        paths that can give a task its first child lock that would-be parent row before
+        they decide: indent (the previous-sibling level, ``FOR UPDATE``), outdent (the
+        task itself), reparent (the target), create and ``tasks/bulk`` create under a
+        parent, task restore (the parent), inbound sync (the parent), reorder (every
+        sibling at the level), the trash cascades' retire step, and structural undo
+        (every row of the recorded region, which includes the old parent — capture is
+        "at or under" each region root). Taking the same row lock here first makes the
+        two serialize: whichever commits second re-reads the other's write under READ
+        COMMITTED and refuses (#4830). The lock is effective because
+        ``ATOMIC_REQUESTS`` is on (``settings/base.py``), so it is held to commit.
+
+        What it does **not** do: guarantee freedom from deadlock. This path locks one
+        row before its INSERT, but the INSERT then takes FK key-share locks on both
+        endpoints, and a structural edit holding a sibling row ``FOR UPDATE`` can be
+        waiting on the predecessor at the same time — a lock cycle is possible.
+        ``tasks/bulk`` can already deadlock across parents in the same way; that is
+        pre-existing, not introduced here. PostgreSQL detects such a cycle and aborts
+        one transaction, so the outcome is a failed request, never the forbidden state
+        committed.
 
         Only SS/SF writes pay for it — no other type is affected by summary status.
-        This path takes this one row lock and nothing else before its INSERT, so it
-        cannot form a lock cycle with a restructure on its own; the INSERT's own FK
-        key-share locks are unchanged from before. Skipped outside a transaction,
-        where ``select_for_update`` is illegal and nothing could be serialized anyway.
+        Skipped outside a transaction, where ``select_for_update`` is illegal.
         """
         from django.db import transaction
 
