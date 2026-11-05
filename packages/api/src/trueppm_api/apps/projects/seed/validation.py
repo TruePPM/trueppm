@@ -868,9 +868,8 @@ def _check_event_target(
             errors.append(f"{base}.target: no sprint {sprint_slug!r} in project {project_slug!r}")
     elif kind == "project" and ref not in project_slugs:
         errors.append(f"{base}.target: no project with slug {ref!r}")
-    elif kind == "risk":
-        if ref not in risk_slugs:
-            errors.append(f"{base}.target: no risk with slug {ref!r}")
+    elif kind == "risk" and ref not in risk_slugs:
+        errors.append(f"{base}.target: no risk with slug {ref!r}")
 
 
 def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
