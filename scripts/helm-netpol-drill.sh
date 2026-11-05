@@ -290,6 +290,10 @@ fi
 # postgresql.enabled && networkPolicy.enabled, and this drill is what earns that.
 secret_key="$(head -c 50 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-60)"
 integration_key="$(head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
+# Per-run demo login for the later demo.interactive upgrade. Generated, not
+# a literal, so no credential lives in the tree. Alphanumeric plus a fixed
+# "Aa1" suffix stays inside the chart's loginHint.password charset (8-128 chars).
+visitor_password="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-20)Aa1"
 # ALLOWED_HOSTS is concrete here for the same reason as the install drill
 # (#3183): a wildcard makes every drill prove the chart boots under a config
 # configuration.md marks :::danger, and it is what let a missing probe Host
@@ -652,7 +656,7 @@ helm upgrade "$RELEASE" "$CHART" \
   --set demo.interactive=true \
   --set persistence.media.enabled=false \
   --set demo.loginHint.username=netpol-drill-visitor \
-  --set demo.loginHint.password="NetpolDrill1Pw" \
+  --set demo.loginHint.password="$visitor_password" \
   --wait --timeout "$INSTALL_TIMEOUT"
 
 kubectl get networkpolicy "${RELEASE}-api-egress-demo" >/dev/null 2>&1 \
