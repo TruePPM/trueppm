@@ -55,7 +55,7 @@ What remains after that is the API surface, which is why this entry is separate.
   it. Ask for a what-if at program scope over MCP and the tool cannot answer.
 - **Workaround:** run Monte Carlo per member project and reason about the
   combination manually — this understates joint risk and is not a substitute.
-- **Stretch goal for 0.5, not committed** — [#2467](https://gitlab.com/trueppm/trueppm/-/issues/2467). It ships in 0.5 only if there is time.
+- **Stretch goal for 0.5, not committed** — [#2467](https://gitlab.com/trueppm/trueppm/-/issues/2467). It lands only if there is time.
 
 ### The risk register does not affect the forecast — planned for 0.5
 
@@ -137,7 +137,7 @@ as a fixed Mon–Fri week.
   authoritative server CPM reconciles exact dates on commit, so a committed schedule
   is always correct — but a preview can differ from what lands.
 - **Stretch goal for 0.6, not committed** — [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) wires
-  the WASM engine in, or retires the parity claim. It ships in 0.6 only if there is time.
+  the WASM engine in, or retires the parity claim. It lands only if there is time.
 
 ### The Rust engine has no Monte Carlo — not scheduled
 

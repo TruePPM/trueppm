@@ -60,11 +60,22 @@ set -euo pipefail
 ACK_MARKER='<!-- known-issues-ack:closed -->'
 PAGE_DEFAULT="packages/website/src/content/docs/overview/known-issues.md"
 D=packages/website/src/content/docs
-MILESTONE_ONLY_PAGES_DEFAULT="$D/features/monte-carlo.md $D/administration/backup-restore.md $D/administration/durability.md $D/administration/admin-password.md"
-# Knowingly unchecked: lines with 0 issue refs (ref-less headings, "per ADR-NNNN"
-# prose, milestone-column tables) are skipped, and lines with 2+ distinct refs
-# get the closed-state check only, since a claim cannot be pinned to one issue.
-CLAIM_RE='(planned for|stretch goal for|targeted at) 0\.[0-9]+'
+MILESTONE_ONLY_PAGES_DEFAULT="$D/getting-started/bring-your-plan-in.md $D/features/monte-carlo.md $D/administration/backup-restore.md $D/administration/durability.md $D/administration/admin-password.md"
+# Knowingly unchecked (this is a docs-claim gate, not a markdown parser):
+#   - lines with 0 issue refs ("per ADR-NNNN" prose, milestone-column tables);
+#     headings are covered separately by heading_consistency (no tracker call);
+#   - lines with 2+ distinct refs get the closed-state check only, since a claim
+#     cannot be pinned to one issue;
+#   - a claim wrapped onto the line after its link (reference and claim must
+#     share a physical line);
+#   - a closed issue with a MATCHING claim still passes on the milestone-only
+#     pages and when ack-marked (the closed rule owns that case);
+#   - only trueppm/trueppm issue URLs resolve; links into other projects
+#     (e.g. trueppm-enterprise) are ignored, never read as OSS numbers.
+# Emphasis markers (`*`), repeated spaces and a `v` prefix are normalized away
+# before matching, and EVERY claim on a line must agree with the issue.
+CLAIM_RE='(planned for|stretch goal for|targeted at|ships in) v?0\.[0-9]+'
+ISSUE_URL_RE='trueppm/trueppm/-/issues/[0-9]+'
 
 if [ "${1:-}" = "--self-test" ]; then
   tmp=$(mktemp -d)
@@ -208,6 +219,86 @@ EOF
   fi
   echo "SELF-TEST OK: a capitalized 'Stretch goal for' claim is checked, not skipped."
 
+  # --- #4724 review round: branch coverage and phrasing variants ---
+  # Two distinct refs on one line: the claim cannot be pinned, so it is not judged.
+  cat >"$tmp/two_refs.md" <<'EOF'
+- Planned for 0.9 — [#108](https://gitlab.com/trueppm/trueppm/-/issues/108) and [#109](https://gitlab.com/trueppm/trueppm/-/issues/109).
+EOF
+  if ! KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.5 bash "$0" "$tmp/two_refs.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a claim on a two-reference line was judged against one issue." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a claim on a two-distinct-reference line is not attributed to either issue."
+
+  printf 'No references here.\n' >"$tmp/empty.md"
+  # Milestone-only pages: no closed check, but the claim is judged.
+  cat >"$tmp/extra_closed.md" <<'EOF'
+Cited at [#110](https://gitlab.com/trueppm/trueppm/-/issues/110), planned for 0.5.
+EOF
+  if ! KNOWN_ISSUES_MOCK_MODE=closed KNOWN_ISSUES_MOCK_MILESTONE=0.5 \
+      KNOWN_ISSUES_MILESTONE_ONLY_PAGES="$tmp/extra_closed.md" bash "$0" "$tmp/empty.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a milestone-only page got the closed-reference check." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a milestone-only page is not subject to the closed-reference rule."
+  if KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.6 \
+      KNOWN_ISSUES_MILESTONE_ONLY_PAGES="$tmp/extra_closed.md" bash "$0" "$tmp/empty.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a wrong claim on a milestone-only page was accepted." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a wrong claim on a milestone-only page is rejected."
+
+  # Phrasing variants, each paired with a mismatching mock milestone (0.5).
+  n=0
+  while IFS= read -r variant; do
+    n=$((n + 1))
+    printf '%s\n' "$variant [#111](https://gitlab.com/trueppm/trueppm/-/issues/111)." >"$tmp/variant.md"
+    if KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.5 bash "$0" "$tmp/variant.md" >/dev/null 2>&1; then
+      echo "SELF-TEST FAILED: phrasing variant was not judged: ${variant}" >&2
+      exit 1
+    fi
+  done <<'EOF'
+Fix planned for **0.6**
+Fix *planned for* 0.6
+Fix planned  for 0.6
+Fix planned for v0.6
+**Ships in 0.6**
+Fix planned for 0.5 and stretch goal for 0.6
+EOF
+  echo "SELF-TEST OK: ${n} phrasing variants (emphasis, spacing, v-prefix, ships in, second claim) are judged."
+
+  # Links into another project are not read as OSS issue numbers.
+  cat >"$tmp/foreign.md" <<'EOF'
+See [#112](https://gitlab.com/trueppm/trueppm-enterprise/-/issues/112), planned for 0.9.
+EOF
+  if ! KNOWN_ISSUES_MOCK_MODE=closed KNOWN_ISSUES_MOCK_MILESTONE=0.5 bash "$0" "$tmp/foreign.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: another project's issue link was resolved as an OSS issue." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a link to another project's issue is ignored."
+
+  # Heading claim must match its section's claim bullet (no tracker call).
+  cat >"$tmp/head_bad.md" <<'EOF'
+### Thing is broken — planned for 0.6
+
+- **Fix planned for 0.5** — [#113](https://gitlab.com/trueppm/trueppm/-/issues/113).
+EOF
+  if KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.5 bash "$0" "$tmp/head_bad.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a heading contradicting its section's claim was accepted." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a heading whose claim differs from its section's bullet is rejected."
+  cat >"$tmp/head_ok.md" <<'EOF'
+### Thing is broken — planned for 0.5
+
+- **Fix planned for 0.5** — [#114](https://gitlab.com/trueppm/trueppm/-/issues/114).
+EOF
+  if ! KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.5 bash "$0" "$tmp/head_ok.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a consistent heading was rejected." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a heading matching its section's bullet passes."
+
   echo "ALL SELF-TESTS PASSED"
   exit 0
 fi
@@ -250,30 +341,60 @@ ref_rows=""
 # The claim is only taken from a line with exactly one distinct reference, so a
 # claim is never attributed to the wrong issue.
 scan_page() {
-  local file="$1" check_closed="$2" ln=0 line refs distinct marker claim kind ver iid
+  local file="$1" check_closed="$2" ln=0 line refs distinct marker norm claims iid
   while IFS= read -r line || [ -n "$line" ]; do
     ln=$((ln + 1))
-    refs=$(printf '%s' "$line" | grep -oE '/-/issues/[0-9]+' | grep -oE '[0-9]+' || true)
+    refs=$(printf '%s' "$line" | grep -oE "$ISSUE_URL_RE" | grep -oE '[0-9]+$' || true)
     [ -z "$refs" ] && continue
     marker=0
     case "$line" in *"$ACK_MARKER"*) marker=1 ;; esac
     [ "$check_closed" = "0" ] && marker=1
-    kind="-"
-    ver="-"
+    claims="-"
     distinct=$(printf '%s\n' "$refs" | sort -u | wc -l | tr -d ' ')
     if [ "$distinct" = "1" ]; then
-      claim=$(printf '%s' "$line" | grep -oiE "$CLAIM_RE" | sed -n 1p || true)
-      if [ -n "$claim" ]; then
-        ver="${claim##* }"
-        kind="$(printf '%s' "${claim% 0.*}" | tr '[:upper:]' '[:lower:]')"
-        kind="${kind// /_}"
-      fi
+      # Normalize emphasis markers and runs of spaces, lowercase, then take
+      # EVERY claim as `kind:version` (underscores for spaces, no `v`).
+      norm=$(printf '%s' "$line" | tr -d '*' | tr -s ' ' | tr '[:upper:]' '[:lower:]')
+      claims=$(printf '%s' "$norm" | grep -oE "$CLAIM_RE" | sed -e 's/ v\{0,1\}0\./:0./' -e 's/ /_/g' | paste -sd, - || true)
+      [ -z "$claims" ] && claims="-"
     fi
     while IFS= read -r iid; do
       [ -z "$iid" ] && continue
-      ref_rows+="${file}"$'\t'"${ln}"$'\t'"${iid}"$'\t'"${marker}"$'\t'"${kind}"$'\t'"${ver}"$'\n'
+      ref_rows+="${file}"$'\t'"${ln}"$'\t'"${iid}"$'\t'"${marker}"$'\t'"${claims}"$'\n'
     done <<<"$refs"
   done <"$file"
+}
+
+# heading_consistency <file>: a heading carrying a release claim must agree with
+# the claim(s) in its own section's issue-linked bullets. Needs no tracker call,
+# so a re-milestoned issue turns the bullet red and cannot leave the heading
+# silently stale. A section with no issue-linked claim is not judged.
+heading_consistency() {
+  awk -v f="$1" -v cre="$CLAIM_RE" '
+    function norm(x) { gsub(/\*/, "", x); gsub(/[ \t]+/, " ", x); return tolower(x) }
+    function vers(x, out,   n, c) {
+      n = 0
+      while (match(x, cre)) {
+        c = substr(x, RSTART, RLENGTH); x = substr(x, RSTART + RLENGTH)
+        match(c, /0\.[0-9]+/); out[++n] = substr(c, RSTART, RLENGTH)
+      }
+      return n
+    }
+    function flush(   i, ok) {
+      if (hver != "" && nsec > 0) {
+        ok = 0
+        for (i = 1; i <= nsec; i++) if (sec[i] == hver) ok = 1
+        if (!ok) {
+          printf "ERROR: %s:%d heading says %s but its section claims %s — edit the heading to match the section bullet (docs-vs-tracker drift).\n", f, hline, hver, sec[1] > "/dev/stderr"
+          bad++
+        }
+      }
+      hver = ""; nsec = 0
+    }
+    /^#+ / { flush(); h = norm($0); n = vers(h, a); if (n > 0) { hver = a[1]; hline = NR } ; next }
+    /trueppm\/trueppm\/-\/issues\/[0-9]+/ { n = vers(norm($0), a); for (i = 1; i <= n; i++) sec[++nsec] = a[i] }
+    END { flush(); exit(bad > 0) }
+  ' "$1"
 }
 
 scan_page "$PAGE" 1
@@ -281,6 +402,7 @@ for extra in $MILESTONE_ONLY_PAGES; do
   [ -f "$extra" ] || { echo "ERROR: page not found: $extra" >&2; exit 2; }
   scan_page "$extra" 0
 done
+heading_consistency "$PAGE" || violations=$((violations + 1))
 
 if [ -n "$ref_rows" ]; then
   unique_iids=$(printf '%s' "$ref_rows" | cut -f3 | sort -un)
@@ -288,7 +410,7 @@ if [ -n "$ref_rows" ]; then
   # shellcheck disable=SC2086
   states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $unique_iids) || states_ok=0
 
-  while IFS=$'\t' read -r file line_no iid has_marker claim_kind claim_ver; do
+  while IFS=$'\t' read -r file line_no iid has_marker claims; do
     [ -z "$iid" ] && continue
     if [ "$states_ok" -ne 1 ]; then
       if [ "$ALLOW_UNRESOLVED" = "1" ]; then
@@ -314,25 +436,31 @@ if [ -n "$ref_rows" ]; then
       echo "  ${ACK_MARKER} to the SAME line." >&2
       violations=$((violations + 1))
     fi
-    if [ "$claim_kind" != "-" ]; then
+    if [ "$claims" != "-" ]; then
       ms=$(printf '%s' "$row" | cut -f4)
       labels=$(printf '%s' "$row" | cut -f5)
-      if [ "$ms" != "$claim_ver" ]; then
-        echo "ERROR: ${file}:${line_no} says '${claim_kind//_/ } ${claim_ver}' but #${iid} is in milestone '${ms}' on the tracker." >&2
-        violations=$((violations + 1))
-      elif [ "$claim_kind" = "planned_for" ] && [[ ",${labels}," == *",release::stretch,"* ]]; then
-        echo "ERROR: ${file}:${line_no} says 'planned for ${claim_ver}' but #${iid} is release::stretch — word it 'stretch goal for ${claim_ver}'." >&2
-        violations=$((violations + 1))
-      fi
+      for claim in ${claims//,/ }; do
+        claim_kind="${claim%%:*}"
+        claim_ver="${claim##*:}"
+        if [ "$ms" != "$claim_ver" ]; then
+          echo "ERROR: ${file}:${line_no} says '${claim_kind//_/ } ${claim_ver}' but #${iid} is in milestone '${ms}' on the tracker." >&2
+          echo "  Docs-vs-tracker drift: if the issue was re-milestoned, edit that claim on ${file}:${line_no} (and its section heading) to match." >&2
+          violations=$((violations + 1))
+        elif [ "$claim_kind" != "targeted_at" ] && [[ ",${labels}," == *",release::stretch,"* ]] &&
+          { [ "$claim_kind" = "planned_for" ] || [ "$claim_kind" = "ships_in" ]; }; then
+          echo "ERROR: ${file}:${line_no} says '${claim_kind//_/ } ${claim_ver}' but #${iid} is release::stretch — word it 'stretch goal for ${claim_ver}'." >&2
+          violations=$((violations + 1))
+        fi
+      done
     fi
   done <<<"$ref_rows"
 fi
 
 if [ "$violations" -gt 0 ]; then
   echo "" >&2
-  echo "${violations} known-issues.md reference(s) need attention (see CLAUDE.md" >&2
+  echo "${violations} docs reference(s) need attention (see CLAUDE.md" >&2
   echo "'do not delete on issue state alone' before removing any entry)." >&2
   exit 1
 fi
 
-echo "OK: every issue reference on ${PAGE} is open, or ack-marked as a deliberate closed-issue citation."
+echo "OK: every issue reference on ${PAGE} is open or ack-marked, and every release claim on it${MILESTONE_ONLY_PAGES:+ and on ${MILESTONE_ONLY_PAGES}} matches the tracker."

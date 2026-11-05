@@ -1468,6 +1468,10 @@ docs:known-issues-freshness:
   # runner job and 429'd main. Same for lint:todo-grep, lint:mr-followups and
   # the suppression gate.
   #
+  # NOTE: re-milestoning a cited issue (e.g. the feature-freeze bulk move of
+  # release::stretch) turns this job red with no code change — that is the
+  # point. Edit the named file:line (and its heading) in the same breath.
+  #
   # Milestone claims (#4724): a line with one issue reference and "planned for
   # 0.X" / "stretch goal for 0.X" must match that issue's tracker milestone
   # (and "planned for" may not cite a release::stretch issue). Also scans
