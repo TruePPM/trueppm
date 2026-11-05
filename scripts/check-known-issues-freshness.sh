@@ -59,7 +59,11 @@ set -euo pipefail
 
 ACK_MARKER='<!-- known-issues-ack:closed -->'
 PAGE_DEFAULT="packages/website/src/content/docs/overview/known-issues.md"
-MILESTONE_ONLY_PAGES_DEFAULT="packages/website/src/content/docs/features/monte-carlo.md"
+D=packages/website/src/content/docs
+MILESTONE_ONLY_PAGES_DEFAULT="$D/features/monte-carlo.md $D/administration/backup-restore.md $D/administration/durability.md $D/administration/admin-password.md"
+# Knowingly unchecked: lines with 0 issue refs (ref-less headings, "per ADR-NNNN"
+# prose, milestone-column tables) are skipped, and lines with 2+ distinct refs
+# get the closed-state check only, since a claim cannot be pinned to one issue.
 CLAIM_RE='(planned for|stretch goal for|targeted at) 0\.[0-9]+'
 
 if [ "${1:-}" = "--self-test" ]; then
@@ -193,6 +197,17 @@ EOF
   fi
   echo "SELF-TEST OK: a 'stretch goal for' claim on a matching release::stretch issue passes."
 
+  # Capitalized sentence-initial claim must still be checked (case-insensitive).
+  cat >"$tmp/claim_cap.md" <<'EOF'
+- **Stretch goal for 0.6, not committed** — [#107](https://gitlab.com/trueppm/trueppm/-/issues/107).
+EOF
+  if KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.5 KNOWN_ISSUES_MOCK_LABEL=release::stretch \
+      bash "$0" "$tmp/claim_cap.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a capitalized claim naming the wrong milestone was skipped." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a capitalized 'Stretch goal for' claim is checked, not skipped."
+
   echo "ALL SELF-TESTS PASSED"
   exit 0
 fi
@@ -247,10 +262,10 @@ scan_page() {
     ver="-"
     distinct=$(printf '%s\n' "$refs" | sort -u | wc -l | tr -d ' ')
     if [ "$distinct" = "1" ]; then
-      claim=$(printf '%s' "$line" | grep -oE "$CLAIM_RE" | sed -n 1p || true)
+      claim=$(printf '%s' "$line" | grep -oiE "$CLAIM_RE" | sed -n 1p || true)
       if [ -n "$claim" ]; then
         ver="${claim##* }"
-        kind="${claim% 0.*}"
+        kind="$(printf '%s' "${claim% 0.*}" | tr '[:upper:]' '[:lower:]')"
         kind="${kind// /_}"
       fi
     fi
@@ -292,7 +307,7 @@ if [ -n "$ref_rows" ]; then
     fi
     state=$(printf '%s' "$row" | cut -f2)
     if [ "$state" = "closed" ] && [ "$has_marker" -ne 1 ]; then
-      title=$(printf '%s' "$row" | cut -f3-)
+      title=$(printf '%s' "$row" | cut -f3)
       echo "ERROR: ${file}:${line_no} references closed issue #${iid} (${title}) with no ack marker." >&2
       echo "  Either verify the entry against main and remove/reword it, or — only if the" >&2
       echo "  reference is a deliberate closed-issue citation, verified against main — add" >&2
