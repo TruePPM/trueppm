@@ -1468,6 +1468,11 @@ docs:known-issues-freshness:
   # runner job and 429'd main. Same for lint:todo-grep, lint:mr-followups and
   # the suppression gate.
   #
+  # Milestone claims (#4724): a line with one issue reference and "planned for
+  # 0.X" / "stretch goal for 0.X" must match that issue's tracker milestone
+  # (and "planned for" may not cite a release::stretch issue). Also scans
+  # features/monte-carlo.md for that rule.
+  #
   # Runs on every MR pipeline and on main. ~2-5s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc

@@ -20,6 +20,14 @@
 #
 #   ACK_MARKER: <!-- known-issues-ack:closed -->
 #
+# Second rule (#4724): a line that carries ONE issue reference and a release
+# claim ("planned for 0.X", "stretch goal for 0.X", "targeted at 0.X") must agree
+# with that issue's tracker milestone. A mismatch, an issue with no milestone, or
+# "planned for" on a `release::stretch` issue (stretch is not a plan) fails. The
+# claim and the reference must share a physical line, so write them together.
+# Pages scanned only for this rule (not for closed references) are listed in
+# MILESTONE_ONLY_PAGES; a file passed explicitly gets both rules.
+#
 # Exit codes:
 #   0  no violations
 #   1  a reference resolves to a closed issue with no ack marker on its own
@@ -51,6 +59,8 @@ set -euo pipefail
 
 ACK_MARKER='<!-- known-issues-ack:closed -->'
 PAGE_DEFAULT="packages/website/src/content/docs/overview/known-issues.md"
+MILESTONE_ONLY_PAGES_DEFAULT="packages/website/src/content/docs/features/monte-carlo.md"
+CLAIM_RE='(planned for|stretch goal for|targeted at) 0\.[0-9]+'
 
 if [ "${1:-}" = "--self-test" ]; then
   tmp=$(mktemp -d)
@@ -72,7 +82,8 @@ case "${KNOWN_ISSUES_MOCK_MODE:-open}" in
   open | closed)
     state=opened
     [ "$KNOWN_ISSUES_MOCK_MODE" = closed ] && state=closed
-    printf '%s\n' $iids | jq -R --arg s "$state" '{iid: tonumber, state: $s, title: "an issue"}' | jq -sc .
+    printf '%s\n' $iids | jq -R --arg s "$state" --arg m "${KNOWN_ISSUES_MOCK_MILESTONE:-0.5}" --arg l "${KNOWN_ISSUES_MOCK_LABEL:-release::committed}" \
+      '{iid: tonumber, state: $s, title: "an issue", milestone: (if $m == "-" then null else {title: $m} end), labels: [$l]}' | jq -sc .
     printf '200 \n'
     ;;
   unfetchable)
@@ -144,11 +155,54 @@ EOF
   fi
   echo "SELF-TEST OK: KNOWN_ISSUES_ALLOW_UNRESOLVED=1 opts out of an unresolvable lookup."
 
+  # --- Cases 7-11: the milestone-claim rule (#4724) ---
+  cat >"$tmp/claim_ok.md" <<'EOF'
+- **Fix planned for 0.5** — [#105](https://gitlab.com/trueppm/trueppm/-/issues/105).
+EOF
+  if ! KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.5 bash "$0" "$tmp/claim_ok.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a claim matching the issue milestone was rejected." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a release claim matching the tracker milestone passes."
+
+  if KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.6 bash "$0" "$tmp/claim_ok.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a claim naming the wrong milestone was accepted." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a release claim contradicting the tracker milestone is rejected."
+
+  if KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=- bash "$0" "$tmp/claim_ok.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a claim on a milestone-less issue was accepted." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a release claim on an issue with no milestone is rejected."
+
+  if KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_LABEL=release::stretch bash "$0" "$tmp/claim_ok.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: 'planned for' on a release::stretch issue was accepted." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: 'planned for' on a release::stretch issue is rejected."
+
+  cat >"$tmp/claim_stretch.md" <<'EOF'
+- **Stretch goal for 0.6, not committed** — [#106](https://gitlab.com/trueppm/trueppm/-/issues/106).
+EOF
+  if ! KNOWN_ISSUES_MOCK_MODE=open KNOWN_ISSUES_MOCK_MILESTONE=0.6 KNOWN_ISSUES_MOCK_LABEL=release::stretch \
+      bash "$0" "$tmp/claim_stretch.md" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: an honest stretch-goal claim was rejected." >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a 'stretch goal for' claim on a matching release::stretch issue passes."
+
   echo "ALL SELF-TESTS PASSED"
   exit 0
 fi
 
 PAGE="${1:-$PAGE_DEFAULT}"
+if [ -n "${1:-}" ]; then
+  MILESTONE_ONLY_PAGES="${KNOWN_ISSUES_MILESTONE_ONLY_PAGES:-}"
+else
+  MILESTONE_ONLY_PAGES="${KNOWN_ISSUES_MILESTONE_ONLY_PAGES:-$MILESTONE_ONLY_PAGES_DEFAULT}"
+fi
 
 if [ ! -f "$PAGE" ]; then
   echo "ERROR: page not found: $PAGE" >&2
@@ -169,36 +223,57 @@ TOKEN="${KNOWN_ISSUES_TOKEN:-${ISSUES_API_TOKEN:-}}"
 
 ALLOW_UNRESOLVED="${KNOWN_ISSUES_ALLOW_UNRESOLVED:-0}"
 
+export GITLAB_ISSUES_WITH_PLAN=1
 violations=0
 line_no=0
 # One `line<TAB>iid<TAB>has_marker` row per reference, resolved in one batched
 # call below rather than one request per reference (#4452).
 ref_rows=""
 
-while IFS= read -r line || [ -n "$line" ]; do
-  line_no=$((line_no + 1))
+# scan_page <file> <check_closed 1|0>: append rows
+# `file<TAB>line<TAB>iid<TAB>has_marker<TAB>claim_kind<TAB>claim_version`.
+# The claim is only taken from a line with exactly one distinct reference, so a
+# claim is never attributed to the wrong issue.
+scan_page() {
+  local file="$1" check_closed="$2" ln=0 line refs distinct marker claim kind ver iid
+  while IFS= read -r line || [ -n "$line" ]; do
+    ln=$((ln + 1))
+    refs=$(printf '%s' "$line" | grep -oE '/-/issues/[0-9]+' | grep -oE '[0-9]+' || true)
+    [ -z "$refs" ] && continue
+    marker=0
+    case "$line" in *"$ACK_MARKER"*) marker=1 ;; esac
+    [ "$check_closed" = "0" ] && marker=1
+    kind="-"
+    ver="-"
+    distinct=$(printf '%s\n' "$refs" | sort -u | wc -l | tr -d ' ')
+    if [ "$distinct" = "1" ]; then
+      claim=$(printf '%s' "$line" | grep -oE "$CLAIM_RE" | head -n1 || true)
+      if [ -n "$claim" ]; then
+        ver="${claim##* }"
+        kind="${claim% 0.*}"
+        kind="${kind// /_}"
+      fi
+    fi
+    while IFS= read -r iid; do
+      [ -z "$iid" ] && continue
+      ref_rows+="${file}"$'\t'"${ln}"$'\t'"${iid}"$'\t'"${marker}"$'\t'"${kind}"$'\t'"${ver}"$'\n'
+    done <<<"$refs"
+  done <"$file"
+}
 
-  refs=$(printf '%s' "$line" | grep -oE '/-/issues/[0-9]+' | grep -oE '[0-9]+' || true)
-  [ -z "$refs" ] && continue
-
-  has_marker=0
-  case "$line" in
-    *"$ACK_MARKER"*) has_marker=1 ;;
-  esac
-
-  while IFS= read -r iid; do
-    [ -z "$iid" ] && continue
-    ref_rows+="${line_no}"$'\t'"${iid}"$'\t'"${has_marker}"$'\n'
-  done <<<"$refs"
-done <"$PAGE"
+scan_page "$PAGE" 1
+for extra in $MILESTONE_ONLY_PAGES; do
+  [ -f "$extra" ] || { echo "ERROR: page not found: $extra" >&2; exit 2; }
+  scan_page "$extra" 0
+done
 
 if [ -n "$ref_rows" ]; then
-  unique_iids=$(printf '%s' "$ref_rows" | cut -f2 | sort -un)
+  unique_iids=$(printf '%s' "$ref_rows" | cut -f3 | sort -un)
   states_ok=1
   # shellcheck disable=SC2086
   states=$(gitlab_issue_states "$API" "$PROJECT" "$TOKEN" $unique_iids) || states_ok=0
 
-  while IFS=$'\t' read -r line_no iid has_marker; do
+  while IFS=$'\t' read -r file line_no iid has_marker claim_kind claim_ver; do
     [ -z "$iid" ] && continue
     if [ "$states_ok" -ne 1 ]; then
       if [ "$ALLOW_UNRESOLVED" = "1" ]; then
@@ -218,11 +293,22 @@ if [ -n "$ref_rows" ]; then
     state=$(printf '%s' "$row" | cut -f2)
     if [ "$state" = "closed" ] && [ "$has_marker" -ne 1 ]; then
       title=$(printf '%s' "$row" | cut -f3-)
-      echo "ERROR: line ${line_no} references closed issue #${iid} (${title}) with no ack marker." >&2
+      echo "ERROR: ${file}:${line_no} references closed issue #${iid} (${title}) with no ack marker." >&2
       echo "  Either verify the entry against main and remove/reword it, or — only if the" >&2
       echo "  reference is a deliberate closed-issue citation, verified against main — add" >&2
       echo "  ${ACK_MARKER} to the SAME line." >&2
       violations=$((violations + 1))
+    fi
+    if [ "$claim_kind" != "-" ]; then
+      ms=$(printf '%s' "$row" | cut -f4)
+      labels=$(printf '%s' "$row" | cut -f5)
+      if [ "$ms" != "$claim_ver" ]; then
+        echo "ERROR: ${file}:${line_no} says '${claim_kind//_/ } ${claim_ver}' but #${iid} is in milestone '${ms}' on the tracker." >&2
+        violations=$((violations + 1))
+      elif [ "$claim_kind" = "planned_for" ] && [[ ",${labels}," == *",release::stretch,"* ]]; then
+        echo "ERROR: ${file}:${line_no} says 'planned for ${claim_ver}' but #${iid} is release::stretch — word it 'stretch goal for ${claim_ver}'." >&2
+        violations=$((violations + 1))
+      fi
     fi
   done <<<"$ref_rows"
 fi
