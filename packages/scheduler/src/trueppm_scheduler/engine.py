@@ -5020,8 +5020,7 @@ def _sample_pert(
     wider (#4133). Switching conventions would move every seeded percentile, so it
     is a semantics change with a migration, not a bugfix (ADR-1245).
 
-    When opt == pess (degenerate task), returns the constant value.
-    When estimates are missing, falls back to ml.
+    When opt == pess (degenerate task), returns the constant ``ml``.
     """
     if pess - opt < 1e-9:
         return np.full(n, ml)
@@ -5031,19 +5030,18 @@ def _sample_pert(
     sigma = (pess - opt) / 6.0
     sigma2 = sigma**2
 
-    # Normalize mu to [0, 1] for the Beta parameterisation.
+    # Normalize mu to [0, 1] for the Beta parameterisation. For an ordered triple
+    # (opt <= ml <= pess) mu_norm lies in [1/6, 5/6] and kappa >= 4, so alpha and
+    # beta are both >= 2/3: no clip and no non-positive-parameter fallback is needed.
+    # (alpha or beta < 1 is reachable when ml == opt or ml == pess; ADR-1245.)
     range_ = pess - opt
-    mu_norm = np.clip((mu - opt) / range_, 1e-4, 1.0 - 1e-4)
+    mu_norm = (mu - opt) / range_
     var_norm = sigma2 / (range_**2)
 
     # Method-of-moments Beta parameters.
     kappa = mu_norm * (1.0 - mu_norm) / var_norm - 1.0
     alpha = mu_norm * kappa
     beta_param = (1.0 - mu_norm) * kappa
-
-    # Both parameters must be positive; fall back to constant if degenerate.
-    if alpha <= 0 or beta_param <= 0:
-        return np.full(n, ml)
 
     samples = rng.beta(alpha, beta_param, size=n)
     return opt + samples * range_
