@@ -586,3 +586,37 @@ def test_key_rotation_does_not_touch_a_token(alice: Any) -> None:
     token.refresh_from_db()
     assert token.revoked_at is None
     assert ApiToken.objects.filter(token_hash=token.token_hash, revoked_at__isnull=True).exists()
+
+
+@pytest.mark.django_db
+def test_user_scope_cuts_access_jwts_and_says_so(alice: Any, bob: Any) -> None:
+    """``--user`` stamps the credential cutoff (#4499): the closing line must not
+    tell the operator that JWTs need a separate key rotation for that account."""
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.tokens import AccessToken
+
+    _mint(owner=alice, created_by=alice)
+    alice_jwt = str(AccessToken.for_user(alice))
+    bob_jwt = str(AccessToken.for_user(bob))
+
+    output = _run("--user", "alice", "--commit", "--yes")
+
+    assert "signed out everywhere" in output
+    assert "separate credential class" not in output
+
+    def _me(raw: str) -> int:
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        return int(client.get("/api/v1/auth/me/").status_code)
+
+    assert _me(alice_jwt) == 401
+    assert _me(bob_jwt) == 200  # out of scope, untouched
+
+
+@pytest.mark.django_db
+def test_all_scope_still_points_at_key_rotation(alice: Any, project: Project) -> None:
+    """``--all`` sweeps no account's sessions, so the rotation advice stays."""
+    _mint(project=project, created_by=alice)
+    output = _run("--all", "--commit", "--yes")
+    assert "separate credential class" in output
+    assert "signed out everywhere" not in output

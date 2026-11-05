@@ -525,7 +525,20 @@ class Command(BaseCommand):
                     f"Revoked {invites_matched} pending workspace invite(s) {scope}."
                 )
             )
-        self.stdout.write(
-            "Sessions and JWTs are a separate credential class — rotate JWT_SIGNING_KEY "
-            "as well if you have not already (administration/security.md)."
-        )
+        # Per-mode, because only the per-account sweep reaches sessions: it runs
+        # revoke_all_refresh_tokens, which also stamps the credential cutoff (#4499)
+        # and so refuses those accounts' existing access JWTs. ``--all`` sweeps no
+        # account's sessions, and no mode reaches accounts outside its scope.
+        if options["all"] or not affected_users:
+            self.stdout.write(
+                "Sessions and JWTs are a separate credential class — rotate "
+                "JWT_SIGNING_KEY as well if you have not already "
+                "(administration/security.md)."
+            )
+        else:
+            self.stdout.write(
+                "The targeted account(s) are signed out everywhere: their refresh "
+                "tokens are revoked and their existing access tokens are refused. "
+                "Other accounts' sessions are untouched — rotate JWT_SIGNING_KEY to "
+                "sign everyone out (administration/security.md)."
+            )

@@ -230,6 +230,30 @@ def test_no_cutoff_never_refuses_and_missing_iat_refuses_under_one() -> None:
 
 
 @pytest.mark.django_db
+def test_cutoff_carries_a_forward_clock_skew_margin(user: Any) -> None:
+    from trueppm_api.core.credential_cutoff import CLOCK_SKEW_MARGIN
+
+    at = timezone.now()
+    assert mark_credentials_revoked(user, at=at) == at + CLOCK_SKEW_MARGIN
+    stored = UserProfile.objects.get(user=user).credentials_revoked_at
+    assert stored == at + CLOCK_SKEW_MARGIN
+
+
+@pytest.mark.django_db
+def test_token_from_a_replica_whose_clock_runs_ahead_is_refused(user: Any) -> None:
+    """A token minted just BEFORE the reset by a pod whose clock is ~1 s fast carries
+    an ``iat`` in the second AFTER the reset. The margin is what refuses it."""
+    # In the past, so neither probe token has a future ``iat`` (PyJWT rejects that).
+    at = timezone.now() - timedelta(seconds=10)
+    mark_credentials_revoked(user, at=at)
+    skewed = _access_issued_at(user, int(at.timestamp()) + 1)
+    assert _bearer(skewed).get(_ME_URL).status_code == 401
+    # ...and the window is bounded: two seconds past the margin is accepted.
+    later = _access_issued_at(user, int(at.timestamp()) + 3)
+    assert _bearer(later).get(_ME_URL).status_code == 200
+
+
+@pytest.mark.django_db
 def test_authenticator_adds_no_query(user: Any, django_assert_num_queries: Any) -> None:
     """The cutoff rides on the user lookup the stock authenticator already runs."""
     mark_credentials_revoked(user, at=timezone.now() - timedelta(seconds=10))
@@ -272,38 +296,39 @@ def _set_cutoff(user: Any, at: Any) -> None:
     UserProfile.objects.update_or_create(user=user, defaults={"credentials_revoked_at": at})
 
 
+def _claim(user: Any, issued_at: float | None) -> ws_auth.TicketClaim:
+    return ws_auth.TicketClaim(user_id=str(user.pk), issued_at=issued_at)
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_ticket_minted_before_cutoff_is_refused(user: Any) -> None:
     from channels.db import database_sync_to_async
 
-    issued = time.time() - 5
     await database_sync_to_async(_set_cutoff)(user, timezone.now())
-    value = f"{user.pk}|{issued!r}"
-    with patch.object(ws_auth, "consume_ticket", return_value=value):
+    with patch.object(ws_auth, "consume_ticket", return_value=_claim(user, time.time() - 5)):
         result = await ws_auth.authenticate_scope(_scope("ticket=tk"))
     assert result.user is None
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_ticket_minted_after_cutoff_and_legacy_ticket_connect(user: Any) -> None:
+async def test_ticket_minted_after_cutoff_connects(user: Any) -> None:
     from channels.db import database_sync_to_async
 
     await database_sync_to_async(_set_cutoff)(user, timezone.now() - timedelta(seconds=5))
-    for value in (f"{user.pk}|{time.time()!r}", str(user.pk)):
-        with patch.object(ws_auth, "consume_ticket", return_value=value):
-            result = await ws_auth.authenticate_scope(_scope("ticket=tk"))
-        assert result.user is not None and result.user.pk == user.pk, value
+    with patch.object(ws_auth, "consume_ticket", return_value=_claim(user, time.time())):
+        result = await ws_auth.authenticate_scope(_scope("ticket=tk"))
+    assert result.user is not None and result.user.pk == user.pk
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_unparseable_ticket_time_is_refused_under_a_cutoff(user: Any) -> None:
+async def test_ticket_of_unknowable_age_is_refused_under_a_cutoff(user: Any) -> None:
     from channels.db import database_sync_to_async
 
     await database_sync_to_async(_set_cutoff)(user, timezone.now() - timedelta(seconds=5))
-    with patch.object(ws_auth, "consume_ticket", return_value=f"{user.pk}|garbage"):
+    with patch.object(ws_auth, "consume_ticket", return_value=_claim(user, float("-inf"))):
         result = await ws_auth.authenticate_scope(_scope("ticket=tk"))
     assert result.user is None
 

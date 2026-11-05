@@ -490,20 +490,25 @@ automatic triggers.
 :::note[Ships in 0.5]
 A password reset, a member off-boarding, and `revoke_api_tokens --user` /
 `--all-personal` will also stamp a per-account **credential cutoff**. From
-then on, every access token, refresh token, and WebSocket ticket issued
-before the cutoff is refused with a `401` on its next use, instead of staying
-valid for the rest of its lifetime. This closes the reconnect window described
+then on, every access token and refresh token issued before the cutoff is
+refused with a `401` on its next use, and every WebSocket ticket issued before
+it is refused by closing the socket with code `4001`, instead of staying valid
+for the rest of its lifetime. This closes the reconnect window described
 above: a stolen access token can no longer open a new socket or mint a WebSocket
 ticket, personal token, project token, or share link after the reset. It also
 reaches refresh tokens issued before the blacklist recorded every session (see
 [Blacklist tables and cleanup](#blacklist-tables-and-cleanup)), which the
 blacklist alone cannot revoke.
 
-The comparison is strict to the second, because a token's issue time is only
-recorded in whole seconds: a token issued in the same second as the cutoff is
-refused too. A sign-in that completes in that same second has to sign in once
-more. Nothing needs configuring, and accounts that never had a cutoff are
-unaffected. On 0.4, a pre-reset access token keeps working until it expires
+The cutoff is set one second after the reset, and the comparison is strict to
+the second, because a token's issue time is only recorded in whole seconds. The
+extra second absorbs clock skew between replicas: a token minted just before the
+reset by a pod whose clock runs slightly fast is still refused. Together they
+refuse anything issued up to about two seconds after the reset, so a sign-in
+that completes that soon has to sign in once more. This assumes your nodes'
+clocks are kept in sync with NTP to well within a second; larger skew reopens
+the window by the excess. Nothing needs configuring, and accounts that never had
+a cutoff are unaffected. On 0.4, a pre-reset access token keeps working until it expires
 (15 minutes at most).
 :::
 

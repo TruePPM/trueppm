@@ -21,16 +21,34 @@ token with ``iat <= floor(cutoff)`` is refused. The cost is that a *legitimate*
 login completing inside the same wall-clock second as the reset is refused once
 and has to sign in again — a human cannot type a new password into the sign-in
 form that fast, so the fail-closed side is the right one to land on.
+
+**Clock skew between replicas.** A token's ``iat`` and a ticket's issue time come
+from the clock of the pod that minted it; the cutoff comes from the clock of the
+pod that ran the reset. Those are different processes, often on different nodes.
+If the minting pod's clock runs ahead, a token minted *before* the reset can carry
+an ``iat`` *after* the cutoff and be accepted. So :func:`mark_credentials_revoked`
+stamps the cutoff :data:`CLOCK_SKEW_MARGIN` into the future — fail-closed, like the
+same-second rule. Together the two refuse everything issued up to roughly 1–2 s
+after the reset: a sign-in completing that soon after a reset is refused once and
+has to sign in again. This assumes the replicas' clocks are NTP-synchronized to
+well within the margin — an assumption about the operator's hosts, not something
+this code can verify. Skew larger than the margin reopens the window by the excess.
 """
 
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
+
+#: Forward margin added to every stored cutoff to absorb clock skew between the
+#: replica that runs the reset and the replicas that minted tokens (see the
+#: module docstring). One second plus the whole-second ``iat`` rule gives a
+#: 1–2 s refusal window after a reset.
+CLOCK_SKEW_MARGIN = timedelta(seconds=1)
 
 
 def mark_credentials_revoked(user: Any, *, at: datetime | None = None) -> datetime:
@@ -43,14 +61,15 @@ def mark_credentials_revoked(user: Any, *, at: datetime | None = None) -> dateti
 
     Args:
         user: The account whose existing credentials are being cut off.
-        at: The cutoff instant. Defaults to now.
+        at: The revocation instant. Defaults to now. :data:`CLOCK_SKEW_MARGIN` is
+            added either way, so the stored cutoff is always ``at + margin``.
 
     Returns:
-        The cutoff that was stored.
+        The cutoff that was stored (including the margin).
     """
     from trueppm_api.apps.profiles.models import UserProfile
 
-    cutoff = at or timezone.now()
+    cutoff = (at or timezone.now()) + CLOCK_SKEW_MARGIN
     UserProfile.objects.update_or_create(user=user, defaults={"credentials_revoked_at": cutoff})
     return cutoff
 

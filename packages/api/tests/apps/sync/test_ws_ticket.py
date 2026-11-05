@@ -7,6 +7,7 @@ Covers the REST mint endpoint, the issue/consume single-use semantics, and
 from __future__ import annotations
 
 import secrets
+import time
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -35,22 +36,69 @@ def user(db: object) -> object:
 
 
 class _FakeSyncRedis:
-    def __init__(self, store: dict[str, str]) -> None:
+    """Writes into a shared store; ``ttls`` records each key's expiry (epoch s)."""
+
+    def __init__(self, store: dict[str, str], ttls: dict[str, float] | None = None) -> None:
         self._store = store
+        self._ttls = ttls if ttls is not None else {}
 
     def set(self, key: str, value: str, ex: int | None = None) -> None:
         self._store[key] = value
+        if ex is not None:
+            self._ttls[key] = time.time() + ex
 
     def close(self) -> None:
         pass
 
 
+class _FakePipeline:
+    """The queue-then-execute shape of ``redis.asyncio``'s transactional pipeline."""
+
+    def __init__(self, redis: _FakeAsyncRedis) -> None:
+        self._redis = redis
+        self._ops: list[tuple[str, str]] = []
+
+    async def __aenter__(self) -> _FakePipeline:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        pass
+
+    def pttl(self, key: str) -> _FakePipeline:
+        self._ops.append(("pttl", key))
+        return self
+
+    def getdel(self, key: str) -> _FakePipeline:
+        self._ops.append(("getdel", key))
+        return self
+
+    async def execute(self) -> list[Any]:
+        out: list[Any] = []
+        for op, key in self._ops:
+            if op == "pttl":
+                if key not in self._redis.store:
+                    out.append(-2)
+                elif key not in self._redis.ttls:
+                    out.append(-1)
+                else:
+                    out.append(int((self._redis.ttls[key] - time.time()) * 1000))
+            else:
+                self._redis.ttls.pop(key, None)
+                out.append(self._redis.store.pop(key, None))
+        return out
+
+
 class _FakeAsyncRedis:
-    def __init__(self, store: dict[str, str]) -> None:
-        self._store = store
+    def __init__(self, store: dict[str, str], ttls: dict[str, float] | None = None) -> None:
+        self.store = store
+        self.ttls = ttls if ttls is not None else {}
 
     async def getdel(self, key: str) -> str | None:
-        return self._store.pop(key, None)
+        self.ttls.pop(key, None)
+        return self.store.pop(key, None)
+
+    def pipeline(self, transaction: bool = True) -> _FakePipeline:
+        return _FakePipeline(self)
 
     async def aclose(self) -> None:
         pass
@@ -131,20 +179,22 @@ def test_ticket_refused_for_personal_access_token(user: object) -> None:
 @pytest.mark.asyncio
 async def test_issue_then_consume_is_single_use() -> None:
     store: dict[str, str] = {}
+    ttls: dict[str, float] = {}
     with (
-        patch("redis.from_url", return_value=_FakeSyncRedis(store)),
-        patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis(store)),
+        patch("redis.from_url", return_value=_FakeSyncRedis(store, ttls)),
+        patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis(store, ttls)),
     ):
+        before = time.time()
         ticket = ws_auth.issue_ticket("user-42")
         assert ticket  # opaque, non-empty
-        # The stored value carries the issue time beside the user id (#4499).
-        stored = store[f"ws:ticket:{ticket}"]
-        user_id, issued_at = ws_auth.parse_ticket_value(stored)
-        assert user_id == "user-42"
-        assert issued_at is not None
+        assert store[f"ws:ticket:{ticket}"] == "user-42"
 
         first = await ws_auth.consume_ticket(ticket)
-        assert first == stored
+        assert first is not None
+        assert first.user_id == "user-42"
+        # Issue time is derived from the key's remaining TTL (#4499), not stored.
+        assert first.issued_at is not None
+        assert before - 1 <= first.issued_at <= time.time()
         # Second consume of the same ticket sees nothing (GETDEL removed it).
         second = await ws_auth.consume_ticket(ticket)
         assert second is None
@@ -154,6 +204,52 @@ async def test_issue_then_consume_is_single_use() -> None:
 async def test_consume_unknown_ticket_returns_none() -> None:
     with patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis({})):
         assert await ws_auth.consume_ticket("does-not-exist") is None
+
+
+@pytest.mark.asyncio
+async def test_a_ticket_with_no_ttl_has_no_trustworthy_issue_time() -> None:
+    """Only a bug writes a ticket without a TTL; its age is unknowable — fail closed."""
+    store = {"ws:ticket:tk": "user-42"}
+    with patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis(store)):
+        claim = await ws_auth.consume_ticket("tk")
+    assert claim is not None
+    assert claim.issued_at == float("-inf")
+
+
+# ---------------------------------------------------------------------------
+# Mixed-version rolling deploy (#4499): old and new pods share one Valkey
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_the_stored_value_is_what_an_old_pod_can_resolve(user: object) -> None:
+    """New pod mints, old pod consumes.
+
+    The previous release's consumer runs ``User.objects.get(pk=<stored value>)``.
+    Any change to the stored value's format makes that raise, which it turns into
+    a 4001 close — and the web client's second 4001 shows a false
+    "session expired" modal to users reconnecting mid-rollout.
+    """
+    store: dict[str, str] = {}
+    with patch("redis.from_url", return_value=_FakeSyncRedis(store)):
+        ticket = ws_auth.issue_ticket(str(user.pk))
+    stored = store[f"ws:ticket:{ticket}"]
+    # The old pod's exact lookup (pre-#4499 _resolve_active_user).
+    assert User.objects.get(pk=stored, is_active=True).pk == user.pk
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_new_pod_accepts_an_old_pods_ticket(user: object) -> None:
+    """Old pod mints (bare user id, 30 s TTL), new pod consumes."""
+    store: dict[str, str] = {}
+    ttls: dict[str, float] = {}
+    # What the previous release's issue_ticket wrote, byte for byte.
+    _FakeSyncRedis(store, ttls).set("ws:ticket:old", str(user.pk), ex=30)
+    with patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis(store, ttls)):
+        result = await ws_auth.authenticate_scope(_scope("ticket=old"))
+    assert result.user is not None
+    assert result.user.pk == user.pk
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +266,8 @@ def _scope(query: str) -> dict[str, object]:
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_authenticate_scope_ticket_path(user: object) -> None:
-    with patch.object(ws_auth, "consume_ticket", new=AsyncMock(return_value=str(user.pk))):
+    claim = ws_auth.TicketClaim(user_id=str(user.pk), issued_at=time.time())
+    with patch.object(ws_auth, "consume_ticket", new=AsyncMock(return_value=claim)):
         result = await ws_auth.authenticate_scope(_scope("ticket=tk"))
     assert result.via == "ticket"
     assert result.user is not None

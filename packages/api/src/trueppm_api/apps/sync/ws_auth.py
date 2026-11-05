@@ -44,9 +44,6 @@ TICKET_TTL_SECONDS = 30
 
 _TICKET_PREFIX = "ws:ticket:"
 
-#: Separates the user id from the ticket's issue time in the stored value.
-_TICKET_SEP = "|"
-
 
 def _ticket_key(ticket: str) -> str:
     return f"{_TICKET_PREFIX}{ticket}"
@@ -59,57 +56,70 @@ def issue_ticket(user_id: str) -> str:
     WebSocket URL. The value is unguessable (256 bits of entropy) and expires
     after :data:`TICKET_TTL_SECONDS`.
 
-    The stored value carries the issue time next to the user id (#4499) so the
-    handshake can refuse a ticket minted before the account's credential cutoff:
-    a ticket minted moments before a password reset and spent after the reset's
-    socket eviction ran would otherwise open a socket nothing ever closes.
+    **The stored value is the bare user id, and must stay that way.** Old and new
+    pods share one Valkey during a rolling deploy, and the previous release's
+    consumer resolves the value with ``User.objects.get(pk=value)``: any other
+    format makes that raise, which closes the socket with 4001, and the web client
+    treats a second 4001 as an expired session. The issue time the credential
+    cutoff needs (#4499) is derived from the key's remaining TTL at consume time
+    instead — see :func:`consume_ticket`.
     """
     from trueppm_api.core import valkey
 
     ticket = secrets.token_urlsafe(32)
-    value = f"{user_id}{_TICKET_SEP}{time.time()!r}"
     client = valkey.client(valkey.DB_CELERY)
     try:
-        client.set(_ticket_key(ticket), value, ex=TICKET_TTL_SECONDS)
+        client.set(_ticket_key(ticket), str(user_id), ex=TICKET_TTL_SECONDS)
     finally:
         client.close()
     return ticket
 
 
-async def consume_ticket(ticket: str) -> str | None:
-    """Atomically read-and-delete a ticket, returning its stored value or ``None``.
+@dataclass(frozen=True)
+class TicketClaim:
+    """A consumed ticket: whose it was, and when it was issued.
 
-    The value is ``"<user_id>|<issued_at>"`` (see :func:`issue_ticket`); split it
-    with :func:`parse_ticket_value`. ``GETDEL`` makes the ticket single-use: a
-    concurrent or replayed consume sees ``None``. ``None`` is also returned for an
+    ``issued_at`` is epoch seconds on the consuming pod's clock, derived from the
+    key's remaining TTL. ``-inf`` means the age is unknowable (a key with no TTL,
+    which only a bug writes): it predates any cutoff, so it fails closed.
+    """
+
+    user_id: str
+    issued_at: float
+
+
+async def consume_ticket(ticket: str) -> TicketClaim | None:
+    """Atomically read-and-delete a ticket, returning its claim or ``None``.
+
+    ``PTTL`` and ``GETDEL`` run in one ``MULTI`` transaction, so the ticket is
+    single-use (a concurrent or replayed consume sees ``None``) and the TTL read
+    belongs to the same key that was deleted. ``None`` is also returned for an
     expired or never-issued ticket.
+
+    The issue time is ``now - (TTL - remaining)``. Valkey measures the elapsed
+    part, so only the consuming pod's clock is involved — the cutoff margin in
+    ``core.credential_cutoff`` absorbs that pod's skew against the resetting pod.
+    Deriving it rather than storing it keeps the value format the previous
+    release reads (see :func:`issue_ticket`), and gives tickets minted by an
+    old pod mid-rollout a real issue time too.
     """
     from trueppm_api.core import valkey
 
+    key = _ticket_key(ticket)
     client = valkey.async_client(valkey.DB_CELERY, decode_responses=True)
     try:
-        return await client.getdel(_ticket_key(ticket))  # type: ignore[no-any-return]
+        async with client.pipeline(transaction=True) as pipe:
+            pipe.pttl(key)
+            pipe.getdel(key)
+            remaining_ms, user_id = await pipe.execute()
     finally:
         await client.aclose()
-
-
-def parse_ticket_value(value: str) -> tuple[str, float | None]:
-    """Split a stored ticket value into ``(user_id, issued_at)``.
-
-    ``issued_at`` is ``None`` for a value with no issue time — a ticket minted by
-    the previous release and still inside its 30-second TTL when this one rolled
-    out. That ticket is accepted on the user id alone: the window is bounded by the
-    TTL, and refusing it would fail every socket mid-deploy.
-    """
-    user_id, sep, issued = value.partition(_TICKET_SEP)
-    if not sep:
-        return value, None
-    try:
-        return user_id, float(issued)
-    except ValueError:
-        # Only this module writes the value; an unparseable time is not a legacy
-        # ticket, so it must not be treated as one. -inf predates any cutoff.
-        return user_id, float("-inf")
+    if user_id is None:
+        return None
+    if not isinstance(remaining_ms, int) or remaining_ms < 0:
+        return TicketClaim(user_id=user_id, issued_at=float("-inf"))
+    elapsed = TICKET_TTL_SECONDS - remaining_ms / 1000
+    return TicketClaim(user_id=user_id, issued_at=time.time() - elapsed)
 
 
 @dataclass
@@ -129,13 +139,13 @@ def _parse_query(query_string: bytes) -> dict[bytes, bytes]:
     return dict(pair.split(b"=", 1) for pair in query_string.split(b"&") if b"=" in pair)
 
 
-async def _resolve_active_user(user_id: str, issued_at: float | None = None) -> Any | None:
+async def _resolve_active_user(user_id: str, issued_at: float) -> Any | None:
     """Return the active user for ``user_id``, or ``None``.
 
     Mirrors the JWT path's ``is_active`` filter: a user deactivated inside the
     ticket's short lifetime must not connect. Also mirrors its credential cutoff
     (#4499): a ticket issued at or before the account's cutoff is refused. The
-    ticket's issue time is recorded at full precision, so the comparison is exact.
+    ticket's issue time is derived to the millisecond, so the comparison is exact.
     """
     from channels.db import database_sync_to_async
 
@@ -153,9 +163,7 @@ async def _resolve_active_user(user_id: str, issued_at: float | None = None) -> 
             user = User.objects.select_related("profile").get(pk=uid, is_active=True)
         except (User.DoesNotExist, ValueError, TypeError):
             return None
-        if issued_at is not None and issued_before_cutoff(
-            issued_at, credentials_revoked_at(user), whole_seconds=False
-        ):
+        if issued_before_cutoff(issued_at, credentials_revoked_at(user), whole_seconds=False):
             return None
         return user
 
@@ -213,11 +221,8 @@ async def authenticate_scope(scope: dict[str, Any]) -> WsAuthResult:
 
     ticket_bytes = params.get(b"ticket")
     if ticket_bytes:
-        value = await consume_ticket(ticket_bytes.decode("utf-8"))
-        user = None
-        if value:
-            user_id, issued_at = parse_ticket_value(value)
-            user = await _resolve_active_user(user_id, issued_at)
+        claim = await consume_ticket(ticket_bytes.decode("utf-8"))
+        user = await _resolve_active_user(claim.user_id, claim.issued_at) if claim else None
         return WsAuthResult(user=user, via="ticket")
 
     token_bytes = params.get(b"token")
