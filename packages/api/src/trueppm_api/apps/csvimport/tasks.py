@@ -263,7 +263,11 @@ def _finalize_summary(summary: dict[str, Any], parsed: Any, filename: str) -> No
     summary["warning_count"] = parsed.warning_count
     summary["rows_read"] = parsed.total_rows
     summary["rows_skipped"] = parsed.truncated_rows
-    summary["warnings"] = list(parsed.warnings)
+    # Parser warnings first, then the ones the shared persistence step recorded —
+    # assigning only the parser's used to discard the latter, so a link
+    # ``import_project`` skipped (an SS/SF predecessor on a summary row, #4830)
+    # was dropped with no trace in the result.
+    summary["warnings"] = [*parsed.warnings, *summary.get("warnings", [])]
     summary["filename"] = filename
     # Rows parked in the Import review branch rather than dropped (#2732).
     # ``tasks_created`` counts every row written, review branch included, so

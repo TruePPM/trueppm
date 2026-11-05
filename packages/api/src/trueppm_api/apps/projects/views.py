@@ -311,6 +311,11 @@ from trueppm_api.apps.projects.services import (
     soft_delete_task_with_cross_fanout,
 )
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
+from trueppm_api.apps.projects.summary_link_guard import (
+    BLOCKING_DEPENDENCIES_SCHEMA,
+    SUMMARY_START_LINK_CODE,
+    summary_start_link_block,
+)
 from trueppm_api.apps.projects.task_bulk import (
     BulkOutcome,
 )
@@ -329,6 +334,7 @@ from trueppm_api.core.openapi import (
     ownership_refusal_403,
     state_refusal_400,
     suppress_list_pagination,
+    validation_envelope_400,
 )
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 from trueppm_api.core.request_body import object_body
@@ -5531,6 +5537,15 @@ def _resolve_create_parent(project: Any, parent_id: Any, *, is_subtask: bool) ->
                 ]
             }
         )
+    if not children:
+        # ADR-0370 (#4830): the parent's first child makes it a summary — a drawer
+        # subtask included, since the CPM children map counts every child — and a
+        # summary may not drive an SS/SF link.
+        block = summary_start_link_block(parent)
+        if block is not None:
+            raise DRFValidationError(
+                {"parent_id": [ErrorDetail(block.detail, code=SUMMARY_START_LINK_CODE)]}
+            )
     return parent, _build_wbs_path(str(parent.wbs_path), len(children) + 1)
 
 
@@ -9436,8 +9451,12 @@ def _require_wbs_restructure_permission(request: Request, task: Task) -> None:
                 "carries no ``wbs_path``, or the sibling that would become its "
                 "parent is a milestone — a milestone is a single point in time and "
                 "cannot acquire children. Verified against the three guards in "
-                "``post`` (#3319).",
-                codes=("child_of_milestone",),
+                "``post`` (#3319). Also refused with ``summary_start_link`` when that "
+                "sibling is a leaf that drives a Start-to-Start or Start-to-Finish link: "
+                "its first child would make it a summary, which ADR-0370 forbids to drive "
+                "one (#4830).",
+                codes=("child_of_milestone", SUMMARY_START_LINK_CODE),
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
     )
@@ -9517,6 +9536,12 @@ class TaskIndentView(IdempotencyMixin, APIView):
 
             # Count existing children of previous sibling to determine insertion position.
             prev_children = _get_siblings(str(project.pk), prev_sibling.wbs_path, lock=True)
+            # ADR-0370 guard (#4830): a leaf gaining its first child becomes a summary,
+            # and a summary may not drive an SS/SF link. Checked before any row moves.
+            if not prev_children:
+                block = summary_start_link_block(prev_sibling)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
             new_position = len(prev_children) + 1
             old_path = task.wbs_path
             new_path = _build_wbs_path(prev_sibling.wbs_path, new_position)
@@ -9585,7 +9610,13 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 "already at root level (nowhere to promote to), it carries no "
                 "``wbs_path``, or it is not found among its own siblings — the "
                 "``wbs_path`` corruption case #3319's sibling guard catches. "
-                "Verified against the three guards in ``post``."
+                "Verified against the three guards in ``post``. Also refused with "
+                "``summary_start_link`` when the task is a leaf that drives a "
+                "Start-to-Start or Start-to-Finish link and has following siblings to "
+                "adopt: adopting them would make it a summary, which ADR-0370 forbids to "
+                "drive one (#4830).",
+                codes=(SUMMARY_START_LINK_CODE,),
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
     )
@@ -9689,6 +9720,12 @@ class TaskOutdentView(IdempotencyMixin, APIView):
 
             # Count existing children of the task.
             existing_children = _get_siblings(str(project.pk), task.wbs_path, lock=True)
+            # ADR-0370 guard (#4830): adopting its following siblings makes a leaf a
+            # summary, which may not drive an SS/SF link. Checked before any row moves.
+            if following_siblings and not existing_children:
+                block = summary_start_link_block(task)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
             next_child_pos = len(existing_children) + 1
 
             all_updated: list[dict[str, Any]] = []
@@ -9847,7 +9884,18 @@ def _resolve_reparent_target(
                 )
             },
         ),
-        responses={200: TaskRestructureResponseSerializer},
+        responses={
+            200: TaskRestructureResponseSerializer,
+            400: validation_envelope_400(
+                "The move is refused: the target is the task itself or one of its "
+                "descendants, the task or the target has no ``wbs_path``, the target is "
+                "a milestone (``child_of_milestone``), or the target is a leaf that "
+                "drives a Start-to-Start or Start-to-Finish link (``summary_start_link``, "
+                "#4830) — its first child would make it a summary, which ADR-0370 "
+                "forbids to drive one. The last carries ``blocking_dependencies``.",
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+            ),
+        },
     )
 )
 class TaskReparentView(IdempotencyMixin, APIView):
@@ -9928,6 +9976,12 @@ class TaskReparentView(IdempotencyMixin, APIView):
             descendants = _get_descendants(str(project.pk), old_path, lock=True)
             old_siblings = _get_siblings(str(project.pk), old_parent_path, lock=True)
             new_children = _get_siblings(str(project.pk), new_parent_path, lock=True)
+            # ADR-0370 guard (#4830): a leaf target gaining its first child becomes a
+            # summary, which may not drive an SS/SF link. Checked before any row moves.
+            if new_parent is not None and not new_children:
+                block = summary_start_link_block(new_parent)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
 
             # Unlike indent/outdent the two levels can be anywhere in the tree, so both
             # bound the region; reduce_region_roots collapses them when one contains

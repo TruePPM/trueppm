@@ -158,8 +158,10 @@ class StructuralOperationUndoSerializer(StructuralOperationSerializer):
             deleted_restored="Rows the forward act soft-deleted and the undo revived.",
             dependencies_restored="Dependency edges the undo re-created.",
             dependencies_skipped=(
-                "Edges NOT re-created because the other end no longer exists — a "
-                "non-zero value means the restored graph is incomplete."
+                "Edges NOT re-created because the other end no longer exists, or "
+                "because the edge is a Start-to-Start or Start-to-Finish link out of a "
+                "task the undo makes a summary again (ADR-0370, #4830) — a non-zero "
+                "value means the restored graph is incomplete."
             ),
         )
     )

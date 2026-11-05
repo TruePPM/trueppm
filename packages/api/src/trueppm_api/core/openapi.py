@@ -883,7 +883,9 @@ _VALIDATION_RESPONSE = {
 }
 
 
-def validation_envelope_400(description: str) -> Any:
+def validation_envelope_400(
+    description: str, *, extra_properties: dict[str, Any] | None = None
+) -> Any:
     """Declare a 400 with a site-specific description and the shared error envelope.
 
     The #3286 injection uses ``setdefault``, so an operation that declares its own 400
@@ -891,15 +893,19 @@ def validation_envelope_400(description: str) -> Any:
     silently dropping the ``application/json`` schema every other 400 carries. Use this
     where an endpoint wants its own wording but the standard ``detail``/``code``/
     field-keyed body.
+
+    ``extra_properties`` names further envelope keys a refusal of this endpoint adds
+    (e.g. ``blocking_dependencies``, #4830). Without it such a key would fall to
+    ``additionalProperties`` and be read as field validation of a field of that name.
     """
     from drf_spectacular.utils import OpenApiResponse
 
-    return OpenApiResponse(
-        response=deepcopy(
-            cast("dict[str, Any]", _VALIDATION_RESPONSE["content"])[_JSON_MEDIA_TYPE]["schema"]
-        ),
-        description=description,
+    schema = deepcopy(
+        cast("dict[str, Any]", _VALIDATION_RESPONSE["content"])[_JSON_MEDIA_TYPE]["schema"]
     )
+    if extra_properties:
+        schema["properties"].update(deepcopy(extra_properties))
+    return OpenApiResponse(response=schema, description=description)
 
 
 # ---------------------------------------------------------------------------
@@ -937,6 +943,7 @@ def state_refusal_400(
     *,
     shape: str = "detail",
     codes: tuple[str, ...] = (),
+    extra_properties: dict[str, Any] | None = None,
 ) -> Any:
     """Declare the 400 a **bodyless** write returns when it refuses on state (#3319).
 
@@ -958,6 +965,10 @@ def state_refusal_400(
             **body**. Pass one only where the handler writes it into a literal
             response dict — a ``ValidationError(..., code=...)`` keyword never
             reaches the client (#2550), so declaring that would invert this fix.
+        extra_properties: Further keys some refusal of this endpoint adds to the
+            object body (e.g. ``blocking_dependencies`` on the ADR-0370 summary
+            refusal, #4830). Optional keys — declared so a client can read them, not
+            required, because the endpoint's other refusals omit them.
 
     Returns:
         The ``OpenApiResponse`` to hang off ``responses={400: ...}``.
@@ -972,6 +983,8 @@ def state_refusal_400(
             "enum": list(codes),
             "description": "Stable refusal code — branch on this, not on ``detail``.",
         }
+    if extra_properties:
+        schema["properties"].update(deepcopy(extra_properties))
     return OpenApiResponse(response=schema, description=description)
 
 

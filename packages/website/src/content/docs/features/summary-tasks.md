@@ -1,7 +1,7 @@
 ---
 title: "Summary Tasks and WBS Rollup"
 description: "Hierarchical task grouping with duration, date, and percent-complete rollup from children."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 This is for anyone building or reading a project plan who wants to group related tasks into phases or deliverables. A **summary task** is a parent row in the Work Breakdown Structure (WBS) — the tree of phases and tasks that makes up the plan. A summary's duration, dates, and progress are computed automatically from its children; you never edit them directly on the summary itself.
@@ -89,6 +89,38 @@ change and needs no toggle.
 A newly-inserted phase with no task inside it yet shows a small dashed hint
 beside its name ("This phase has no items yet"); the hint disappears the
 moment the row gains a real child, because at that point it already is one.
+
+### A task that drives a Start-to-Start or Start-to-Finish link cannot become a summary
+
+:::note[Ships in 0.5]
+This refusal ships in 0.5. In the current release the move succeeds, and the
+project's schedule then stops recalculating until the link is deleted or retyped.
+:::
+
+A summary task cannot be the predecessor of a Start-to-Start (SS) or
+Start-to-Finish (SF) link: a summary starts when its earliest subtask starts,
+but the scheduler applies the link to every subtask, so the successor would wait
+for the *latest* one ([scheduler conventions](/features/scheduler-conventions/)).
+Finish-to-Start and Finish-to-Finish links from a summary are fine.
+
+So any move that would give such a task its first child is refused, and nothing
+moves: indenting a task under it, outdenting the task itself when it would adopt
+the tasks below it, reparenting or dragging a task onto it, and creating a task or
+a subtask inside it. The message names the links in the way:
+
+> “Design” cannot become a summary task: it drives “Build” (SS) with a
+> Start-to-Start or Start-to-Finish link, and a summary cannot drive a successor
+> from its start. Change those links to Finish-to-Start or Finish-to-Finish, or
+> delete them, first.
+
+Retype or delete those links, or move them to one of the subtasks, then try the
+move again. A task that is already a summary is not affected by this check.
+
+Over the API, the indent, outdent and reparent endpoints answer `400` with
+`code: "summary_start_link"` and a `blocking_dependencies` list. Each entry gives
+the link's `id` and `dep_type`, plus the `successor_id`, which is `null` when the
+successor is in another project. Creating a task with `parent_id` answers `400`
+with the message under `parent_id`.
 
 ### Phases and sprints
 

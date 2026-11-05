@@ -1,7 +1,7 @@
 ---
 title: MS Project import & export
 description: Create a project from a Microsoft Project file, import tasks into an existing project, export to MS Project XML, round-trip three-point / PERT estimates, review import history, and see exactly which fields do not survive the trip.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 :::note[Added in 0.2 (alpha)]
@@ -460,6 +460,16 @@ The import summary includes a `warnings` list for non-fatal issues:
 | A constraint type TruePPM cannot express | `"Not imported: '{MS Project name}' constraints — set on {n} of {total} tasks. TruePPM models only start-no-earlier-than, so these tasks are scheduled from their dependencies alone."` |
 | A Must Start On constraint | `"Partially imported: 'Must Start On' constraints on {n} of {total} tasks became start-no-earlier-than dates. The start is pinned; TruePPM cannot also stop the task starting later."` |
 | An actual date would fail ordering, the project's span, or the future bound, or a finish is set on a task not in review or complete | `"'{task name}': dropped actual start — {reason}"` or `"'{task name}': dropped actual finish — {reason}"`, one line per offending task. Only the offending field is dropped; the row still imports. |
+| A Start-to-Start or Start-to-Finish link whose predecessor is a summary task | `"Task '{summary}': {SS or SF} link to '{successor}' skipped — a summary task cannot drive a Start-to-Start or Start-to-Finish link. Re-add it from one of the summary's subtasks, or as Finish-to-Start or Finish-to-Finish."`, one line per link. The rest of the import, including that task's other links, still lands. |
+
+:::note[Ships in 0.5]
+The summary-link row above ships in 0.5. In the current release such a link is
+imported as written, and the project's schedule then stops recalculating until the
+link is deleted or changed to Finish-to-Start or Finish-to-Finish. MS Project allows
+the link; TruePPM does not, because a summary's start is its earliest subtask and the
+scheduler would otherwise hold the successor for the latest one
+([scheduler conventions](/features/scheduler-conventions/)).
+:::
 
 The import summary also includes counts you can use to confirm coverage at a glance:
 
