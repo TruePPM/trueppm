@@ -866,6 +866,21 @@ def test_an_ordinary_reorder_at_a_level_with_no_children_still_works(
     assert _outline(project) == {"B": "1", "A": "2"}
 
 
+def _indent_with_side_effect_mocks(client: APIClient, project: Project, task: Task) -> Any:
+    """Indent with the recalc and broadcast hooks mocked where the view actually binds them.
+
+    ``views`` imports ``enqueue_recalculate`` as ``_enqueue_recalculate`` at module load,
+    so patching it on ``scheduling.services`` never reaches the view.
+    """
+    with (
+        patch("django.db.transaction.on_commit", side_effect=lambda fn, *a, **kw: fn()),
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as recalc,
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+    ):
+        response = client.post(INDENT_URL.format(pk=project.pk, task_id=task.pk), {}, format="json")
+    return response, recalc, broadcast
+
+
 @pytest.mark.django_db
 def test_a_refused_indent_bumps_no_version_and_broadcasts_nothing(
     project: Project, owner_client: APIClient
@@ -876,14 +891,7 @@ def test_a_refused_indent_bumps_no_version_and_broadcasts_nothing(
     Dependency.objects.create(predecessor=a, successor=c, dep_type="SS")
     versions = dict(Task.objects.filter(project=project).values_list("pk", "server_version"))
 
-    with (
-        patch("django.db.transaction.on_commit", side_effect=lambda fn, *a, **kw: fn()),
-        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as recalc,
-        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
-    ):
-        response = owner_client.post(
-            INDENT_URL.format(pk=project.pk, task_id=b.pk), {}, format="json"
-        )
+    response, recalc, broadcast = _indent_with_side_effect_mocks(owner_client, project, b)
 
     assert response.status_code == 400
     assert dict(Task.objects.filter(project=project).values_list("pk", "server_version")) == (
@@ -891,3 +899,19 @@ def test_a_refused_indent_bumps_no_version_and_broadcasts_nothing(
     )
     broadcast.assert_not_called()
     recalc.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_the_side_effect_mocks_do_see_a_successful_indent(
+    project: Project, owner_client: APIClient
+) -> None:
+    """Positive control: the same mocks record a successful indent, so the
+    ``assert_not_called`` above has teeth."""
+    _task(project, "A", "1")
+    b = _task(project, "B", "2")
+
+    response, recalc, broadcast = _indent_with_side_effect_mocks(owner_client, project, b)
+
+    assert response.status_code == 200, response.data
+    assert recalc.call_count >= 1
+    assert broadcast.call_count >= 1

@@ -69,12 +69,12 @@ take its first child, task or subtask, because that would make it a summary and 
 summary may not drive such a link
 ([ADR-0370](/features/scheduler-conventions/), #4830).
 
-The create refusal body is field-keyed, `{"parent_id": ["…"]}`, with the message
-naming the links and **no `code` key** — the same as the other three guards here, and
-the same field-keyed shape #2550 describes. The structural endpoints that refuse the
-same condition (indent, outdent, reparent, reorder, and task restore) answer `400`
-with `code: "summary_start_link"` and a `blocking_dependencies` list instead, and
-structural undo answers `409` with the same two keys.
+From 0.5, that create refusal will be field-keyed, `{"parent_id": ["…"]}`, with the
+message naming the links and **no `code` key** — the same as the other three guards
+here, and the same field-keyed shape #2550 describes. The structural endpoints that
+will refuse the same condition (indent, outdent, reparent, reorder, and task restore)
+will answer `400` with `code: "summary_start_link"` and a `blocking_dependencies` list
+instead, and structural undo will answer `409` with the same two keys.
 
 **Dependencies are not part of this body.** There is no `predecessors` field on the
 task serializer — create each edge with `POST /api/v1/dependencies/` after the task
