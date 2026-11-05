@@ -39,7 +39,7 @@ web worker for the duration of the simulation.
 - **Fix planned for 0.5** — [#2273](https://gitlab.com/trueppm/trueppm/-/issues/2273) moves
   it into Celery.
 
-### Program-scoped Monte Carlo is not exposed — planned for 0.5
+### Program-scoped Monte Carlo is not exposed — stretch goal for 0.5
 
 The program schedule view computes a **program-true critical path** across member
 projects, but only deterministically. There is no program-scoped Monte Carlo
@@ -55,7 +55,7 @@ What remains after that is the API surface, which is why this entry is separate.
   it. Ask for a what-if at program scope over MCP and the tool cannot answer.
 - **Workaround:** run Monte Carlo per member project and reason about the
   combination manually — this understates joint risk and is not a substitute.
-- **Fix planned for 0.5** — [#2467](https://gitlab.com/trueppm/trueppm/-/issues/2467).
+- **Stretch goal for 0.5, not committed** — [#2467](https://gitlab.com/trueppm/trueppm/-/issues/2467). It lands only if there is time.
 
 ### The risk register does not affect the forecast — planned for 0.5
 
@@ -82,13 +82,13 @@ relationship for a human to read; it does not reach the engine.
   (nothing records which risk it was for, so it is never removed when the risk
   closes) and uncorrelated (one risk affecting five tasks becomes five independent
   spreads, which understates the tail rather than overstating it).
-- **Fix planned for 0.5**, per [ADR-0711](/architecture/decisions/): risks become
+- **Fix planned for 0.5** — [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660) tracks the build,
+  per [ADR-0711](/architecture/decisions/): risks become
   first-class simulation inputs, with one shared draw per risk per iteration across
   every task it touches. The design closed as
   [#2556](https://gitlab.com/trueppm/trueppm/-/issues/2556) <!-- known-issues-ack:closed -->
   (that issue tracked the ADR, not the build — verified against `main` for #3628:
-  `engine.py` still has no `RiskDriver` concept). **The implementation has no open
-  tracking issue as of this writing**; filing one is follow-up from #3628.
+  `engine.py` still has no `RiskDriver` concept).
 - **Cost impact is a separate axis and lands later.** ADR-0711 treats schedule and
   cost as the two axes a simulation can answer. TruePPM has no cost data model yet.
   0.5 plans a labor cost model
@@ -100,7 +100,7 @@ relationship for a human to read; it does not reach the engine.
   quality, safety, and compliance is recorded but deliberately never simulated or
   folded into a combined score.
 
-### Velocity-driven P80/P95 is a lower bound — planned for 0.6
+### Velocity-driven P80/P95 is a lower bound — planned for 0.5
 
 For sprint-delivered work sampled from team velocity, each run's sprint horizon is
 clamped. Runs that have not burned down by that horizon are clamped to it rather
@@ -118,7 +118,7 @@ same way, so the same caveat applies to the throughput forecast.
   percentile" qualifier and a help icon explaining the clamp — on the backlog
   forecast, the sprint release-horizon chips, and the board's flow analytics card.
   See [Interpreting results](/features/monte-carlo/#velocity-and-throughput-forecasts-are-a-floor).
-- **Fix planned for 0.6** — [#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469).
+- **Fix planned for 0.5** — [#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469).
 
 ## The second engine (Rust / WASM)
 
@@ -127,7 +127,7 @@ TruePPM ships two coordinated CPM implementations: the Python library
 **They are not yet at parity**, and the gap is wider than the architecture diagram
 suggests.
 
-### The WASM engine is not wired into the browser — planned for 0.5
+### The WASM engine is not wired into the browser — stretch goal for 0.6
 
 The Rust engine ships as a CI-validated conformance reference. The browser's
 drag-preview path still uses a TypeScript CPM worker that approximates the calendar
@@ -136,8 +136,8 @@ as a fixed Mon–Fri week.
 - **Impact:** the sub-100 ms in-browser drag preview is calendar-approximate. The
   authoritative server CPM reconciles exact dates on commit, so a committed schedule
   is always correct — but a preview can differ from what lands.
-- **Fix planned for 0.5** — [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) wires
-  the WASM engine in, or retires the parity claim.
+- **Stretch goal for 0.6, not committed** — [#1777](https://gitlab.com/trueppm/trueppm/-/issues/1777) wires
+  the WASM engine in, or retires the parity claim. It lands only if there is time.
 
 ### The Rust engine has no Monte Carlo — not scheduled
 

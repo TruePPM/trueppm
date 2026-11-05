@@ -752,7 +752,7 @@ estimates, which is unclamped. For a date you must commit to externally, estimat
 that work with PERT durations rather than reading it off a velocity forecast.
 
 The estimator fix is tracked as
-[#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469), planned for 0.6.
+[#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469), planned for 0.5.
 
 **Read the distribution, not just the percentiles.** The `distribution` field
 contains every simulated finish date. A bimodal distribution — two clusters of
