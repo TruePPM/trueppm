@@ -247,7 +247,7 @@ scan_page() {
     ver="-"
     distinct=$(printf '%s\n' "$refs" | sort -u | wc -l | tr -d ' ')
     if [ "$distinct" = "1" ]; then
-      claim=$(printf '%s' "$line" | grep -oE "$CLAIM_RE" | head -n1 || true)
+      claim=$(printf '%s' "$line" | grep -oE "$CLAIM_RE" | sed -n 1p || true)
       if [ -n "$claim" ]; then
         ver="${claim##* }"
         kind="${claim% 0.*}"
