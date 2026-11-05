@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +44,9 @@ TICKET_TTL_SECONDS = 30
 
 _TICKET_PREFIX = "ws:ticket:"
 
+#: Separates the user id from the ticket's issue time in the stored value.
+_TICKET_SEP = "|"
+
 
 def _ticket_key(ticket: str) -> str:
     return f"{_TICKET_PREFIX}{ticket}"
@@ -54,23 +58,31 @@ def issue_ticket(user_id: str) -> str:
     Returns the opaque ticket string the client passes as ``?ticket=`` on the
     WebSocket URL. The value is unguessable (256 bits of entropy) and expires
     after :data:`TICKET_TTL_SECONDS`.
+
+    The stored value carries the issue time next to the user id (#4499) so the
+    handshake can refuse a ticket minted before the account's credential cutoff:
+    a ticket minted moments before a password reset and spent after the reset's
+    socket eviction ran would otherwise open a socket nothing ever closes.
     """
     from trueppm_api.core import valkey
 
     ticket = secrets.token_urlsafe(32)
+    value = f"{user_id}{_TICKET_SEP}{time.time()!r}"
     client = valkey.client(valkey.DB_CELERY)
     try:
-        client.set(_ticket_key(ticket), str(user_id), ex=TICKET_TTL_SECONDS)
+        client.set(_ticket_key(ticket), value, ex=TICKET_TTL_SECONDS)
     finally:
         client.close()
     return ticket
 
 
 async def consume_ticket(ticket: str) -> str | None:
-    """Atomically read-and-delete a ticket, returning its ``user_id`` or ``None``.
+    """Atomically read-and-delete a ticket, returning its stored value or ``None``.
 
-    ``GETDEL`` makes the ticket single-use: a concurrent or replayed consume sees
-    ``None``. ``None`` is also returned for an expired or never-issued ticket.
+    The value is ``"<user_id>|<issued_at>"`` (see :func:`issue_ticket`); split it
+    with :func:`parse_ticket_value`. ``GETDEL`` makes the ticket single-use: a
+    concurrent or replayed consume sees ``None``. ``None`` is also returned for an
+    expired or never-issued ticket.
     """
     from trueppm_api.core import valkey
 
@@ -79,6 +91,25 @@ async def consume_ticket(ticket: str) -> str | None:
         return await client.getdel(_ticket_key(ticket))  # type: ignore[no-any-return]
     finally:
         await client.aclose()
+
+
+def parse_ticket_value(value: str) -> tuple[str, float | None]:
+    """Split a stored ticket value into ``(user_id, issued_at)``.
+
+    ``issued_at`` is ``None`` for a value with no issue time — a ticket minted by
+    the previous release and still inside its 30-second TTL when this one rolled
+    out. That ticket is accepted on the user id alone: the window is bounded by the
+    TTL, and refusing it would fail every socket mid-deploy.
+    """
+    user_id, sep, issued = value.partition(_TICKET_SEP)
+    if not sep:
+        return value, None
+    try:
+        return user_id, float(issued)
+    except ValueError:
+        # Only this module writes the value; an unparseable time is not a legacy
+        # ticket, so it must not be treated as one. -inf predates any cutoff.
+        return user_id, float("-inf")
 
 
 @dataclass
@@ -98,11 +129,13 @@ def _parse_query(query_string: bytes) -> dict[bytes, bytes]:
     return dict(pair.split(b"=", 1) for pair in query_string.split(b"&") if b"=" in pair)
 
 
-async def _resolve_active_user(user_id: str) -> Any | None:
+async def _resolve_active_user(user_id: str, issued_at: float | None = None) -> Any | None:
     """Return the active user for ``user_id``, or ``None``.
 
     Mirrors the JWT path's ``is_active`` filter: a user deactivated inside the
-    ticket's short lifetime must not connect.
+    ticket's short lifetime must not connect. Also mirrors its credential cutoff
+    (#4499): a ticket issued at or before the account's cutoff is refused. The
+    ticket's issue time is recorded at full precision, so the comparison is exact.
     """
     from channels.db import database_sync_to_async
 
@@ -110,11 +143,21 @@ async def _resolve_active_user(user_id: str) -> Any | None:
     def _query(uid: str) -> Any | None:
         from django.contrib.auth import get_user_model
 
+        from trueppm_api.core.credential_cutoff import (
+            credentials_revoked_at,
+            issued_before_cutoff,
+        )
+
         User = get_user_model()
         try:
-            return User.objects.get(pk=uid, is_active=True)
+            user = User.objects.select_related("profile").get(pk=uid, is_active=True)
         except (User.DoesNotExist, ValueError, TypeError):
             return None
+        if issued_at is not None and issued_before_cutoff(
+            issued_at, credentials_revoked_at(user), whole_seconds=False
+        ):
+            return None
+        return user
 
     return await _query(user_id)
 
@@ -133,15 +176,25 @@ async def authenticate_token(token: str) -> Any | None:
         from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
         from rest_framework_simplejwt.tokens import AccessToken
 
+        from trueppm_api.core.credential_cutoff import (
+            credentials_revoked_at,
+            issued_before_cutoff,
+        )
+
         User = get_user_model()
         try:
             access = AccessToken(tok)  # type: ignore[arg-type]
             # is_active filter (#888): a deactivated user may still hold a JWT
             # that has not yet expired; treat it as a failed resolve (4001),
             # mirroring DRF's JWTAuthentication.
-            return User.objects.get(pk=access["user_id"], is_active=True)
+            user = User.objects.select_related("profile").get(pk=access["user_id"], is_active=True)
         except (TokenError, InvalidToken, User.DoesNotExist):
             return None
+        # Credential cutoff (#4499), mirroring CredentialCutoffJWTAuthentication:
+        # a JWT issued at or before a password reset must not open a socket.
+        if issued_before_cutoff(access.get("iat"), credentials_revoked_at(user)):
+            return None
+        return user
 
     return await _validate(token)
 
@@ -160,8 +213,11 @@ async def authenticate_scope(scope: dict[str, Any]) -> WsAuthResult:
 
     ticket_bytes = params.get(b"ticket")
     if ticket_bytes:
-        user_id = await consume_ticket(ticket_bytes.decode("utf-8"))
-        user = await _resolve_active_user(user_id) if user_id else None
+        value = await consume_ticket(ticket_bytes.decode("utf-8"))
+        user = None
+        if value:
+            user_id, issued_at = parse_ticket_value(value)
+            user = await _resolve_active_user(user_id, issued_at)
         return WsAuthResult(user=user, via="ticket")
 
     token_bytes = params.get(b"token")

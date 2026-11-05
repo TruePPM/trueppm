@@ -384,7 +384,9 @@ class PasswordResetConfirmView(APIView):
         description=(
             "Validates the uid + token from the reset link and sets the new "
             "password. On success, every other active session for the account is "
-            "revoked (all refresh tokens are blacklisted), the account's Personal "
+            "revoked (all refresh tokens are blacklisted, and every access token "
+            "issued before the reset is refused immediately rather than at its "
+            "expiry), the account's Personal "
             "Access Tokens are revoked, and its public share links and "
             "git-automation webhook secret are revoked/cleared. Returns 400 with "
             "`code: invalid_token` for an invalid or expired link, or `code: "
@@ -451,6 +453,10 @@ class PasswordResetConfirmView(APIView):
             # nosemgrep: unvalidated-password
             user.set_password(new_password)
             user.save(update_fields=["password"])
+            # Also stamps the credential cutoff (#4499): an access JWT issued before
+            # this point is refused from now on, so a stolen one cannot spend the
+            # rest of its 15-minute lifetime minting a WS ticket, PAT, project token
+            # or share link that would outlive the reset.
             revoke_all_refresh_tokens(user)
             # A password change also invalidates the user's Personal Access Tokens
             # (ADR-0214): a PAT bears the user's full authority, so a "my credentials

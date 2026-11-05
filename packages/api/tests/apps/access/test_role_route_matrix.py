@@ -152,7 +152,12 @@ _MIN_ROLE_DISCRIMINATING_PROGRAM = 20
 #: The token-reachable surface is pinned separately, by ``token_write_surface.txt`` in
 #: this directory. This file is the human 5-role oracle and says nothing about tokens.
 _HUMAN_AUTHENTICATORS = frozenset(
-    {"JWTAuthentication", "SessionAuthentication", "BasicAuthentication"}
+    {
+        "JWTAuthentication",
+        "CredentialCutoffJWTAuthentication",
+        "SessionAuthentication",
+        "BasicAuthentication",
+    }
 )
 
 #: One entry per discovery shape. If any of these drops out, a single narrowing has

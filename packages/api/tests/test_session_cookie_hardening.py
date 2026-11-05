@@ -18,7 +18,7 @@ from django.conf import settings
 
 from trueppm_api.settings import base
 
-_JWT = "rest_framework_simplejwt.authentication.JWTAuthentication"
+_JWT = "trueppm_api.core.authentication.CredentialCutoffJWTAuthentication"
 _SESSION = "rest_framework.authentication.SessionAuthentication"
 _OWNER_TOKEN = "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication"
 

@@ -137,10 +137,14 @@ async def test_issue_then_consume_is_single_use() -> None:
     ):
         ticket = ws_auth.issue_ticket("user-42")
         assert ticket  # opaque, non-empty
-        assert store[f"ws:ticket:{ticket}"] == "user-42"
+        # The stored value carries the issue time beside the user id (#4499).
+        stored = store[f"ws:ticket:{ticket}"]
+        user_id, issued_at = ws_auth.parse_ticket_value(stored)
+        assert user_id == "user-42"
+        assert issued_at is not None
 
         first = await ws_auth.consume_ticket(ticket)
-        assert first == "user-42"
+        assert first == stored
         # Second consume of the same ticket sees nothing (GETDEL removed it).
         second = await ws_auth.consume_ticket(ticket)
         assert second is None

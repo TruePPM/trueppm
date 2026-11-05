@@ -255,7 +255,7 @@ def test_prod_authenticates_with_jwt_and_owner_token_only() -> None:
     prod = _load_prod(backend=_S3, allow_local=False)
     assert prod.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] == [
         "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication",
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "trueppm_api.core.authentication.CredentialCutoffJWTAuthentication",
     ]
 
 

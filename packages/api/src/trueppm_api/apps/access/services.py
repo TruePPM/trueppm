@@ -552,10 +552,15 @@ def revoke_all_refresh_tokens(user: Any) -> int:
     (and, later, any explicit account-security action) must invalidate all of the
     user's existing sessions, not just the one that triggered the change. The
     SPA's session lives entirely in a JWT access token (in-memory, 15-min TTL) plus
-    an httpOnly refresh cookie (#897), so revoking every *refresh* token is the
-    complete server-side session revocation: a blacklisted refresh token can no
-    longer be exchanged for a new access token, and the old access token self-
-    expires within its short TTL.
+    an httpOnly refresh cookie (#897). Blacklisting every *refresh* token stops a
+    session minting new access tokens, but an already-issued access token is
+    stateless and would otherwise keep working — minting WebSocket tickets, PATs,
+    project tokens and share links — for the rest of its TTL. So this also stamps
+    the account's credential cutoff (#4499, ``core.credential_cutoff``): every
+    authenticator refuses a token issued at or before it, which makes the
+    revocation immediate for access tokens too. The cutoff is set **before** the
+    blacklist import below so a lean deploy without the blacklist app still gets
+    it — and, since the refresh view checks it as well, still gets a real cut.
 
     Django sessions are intentionally left untouched — the SPA never authenticates
     via ``django.contrib.sessions`` (that framework backs only the admin site and
@@ -583,10 +588,14 @@ def revoke_all_refresh_tokens(user: Any) -> int:
         counted). Zero when the account had no outstanding tokens (e.g. it has
         never logged in on this deployment).
     """
+    from trueppm_api.core.credential_cutoff import mark_credentials_revoked
+
+    mark_credentials_revoked(user)
+
     # Local import: the blacklist app's models are only importable once apps are
     # loaded, and keeping the import lazy lets a lean deploy that removes the
     # token_blacklist app degrade gracefully (the ImportError is swallowed → the
-    # password is still reset, sessions just fall back to TTL-only expiry).
+    # password is still reset, and the cutoff above still refuses old tokens).
     try:
         from rest_framework_simplejwt.token_blacklist.models import (
             BlacklistedToken,
