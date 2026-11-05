@@ -22,6 +22,11 @@ const PROJECTS = [
   },
 ];
 
+/** Something only the signed-in shell around the target project renders. */
+async function expectShellRendered(page: Page) {
+  await expect(page.getByRole('navigation').getByText('Photon Cell').first()).toBeVisible();
+}
+
 async function setup(page: Page, opts: { demo: boolean; loginOk?: boolean; hadSession: boolean }) {
   const tokenPosts: unknown[] = [];
   if (opts.hadSession) {
@@ -62,6 +67,7 @@ test.describe('Demo silent re-login (#4500)', () => {
     // Wait for the silent login to land before asserting absence, or the modal check
     // would pass vacuously in the window before the guard has decided.
     await expect.poll(() => posts.length).toBe(1);
+    await expectShellRendered(page);
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule$`));
     await expect(page.getByRole('dialog', { name: /You've been signed out/ })).toHaveCount(0);
     expect(posts).toEqual([{ ...DEMO_HINT, remember_me: false }]);
@@ -71,6 +77,7 @@ test.describe('Demo silent re-login (#4500)', () => {
     const posts = await setup(page, { demo: true, hadSession: false });
     await page.goto(`/projects/${PROJECT_ID}/sprints`);
 
+    await expectShellRendered(page);
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/sprints$`));
     await expect(page.getByRole('dialog', { name: /You've been signed out/ })).toHaveCount(0);
     expect(posts).toHaveLength(1);
@@ -81,6 +88,8 @@ test.describe('Demo silent re-login (#4500)', () => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
 
     await expect(page.getByRole('dialog', { name: /You've been signed out/ })).toBeVisible();
+    // Settle past any slower second attempt before counting: the cap is per page load.
+    await page.waitForTimeout(1000);
     expect(posts).toHaveLength(1);
   });
 

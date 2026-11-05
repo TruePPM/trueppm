@@ -528,6 +528,30 @@ drops to the secondary style, so there is one primary action on the page.
 throttles the shared username at 5/min and that the method fence was "MR 2"; both were
 overtaken by #3925 MR 2 and #3998 and are corrected in the same change.
 
+## Amendment 2026-11-05 — silent re-login on reload and deep link (#4500)
+
+**Decision.** On a demo host, the route guard re-submits the published credential once
+per page load (session-only, `remember_me: false`) when a reload or a pasted deep link
+finds no session, instead of showing the signed-out modal. Real installs never do this:
+the trigger requires `/edition/` to report `demo_read_only` **and** publish a
+`demo_login_hint`. Explicit sign-out, the bare origin, and mid-app expiry are excluded.
+
+**Premise changed: consent (Amendment 2026-09-26).** That amendment argued the click is
+the decision to proceed. A fresh deep-link visitor is now signed in without seeing the
+button or its copy. This is acceptable because the credential is already public on the
+login screen, the account is read-only, nothing a visitor changes is saved, and the
+persistent "Read-only demo" bar names the shared account on every screen after the
+session starts. The session stays cookie-less beyond the tab, which was the point of
+`remember_me: false`.
+
+**Premise changed: throttle sizing (T2/D6).** "One token request per visitor" no longer
+holds: every reload or deep-link tab now costs one `POST /api/v1/auth/token/` against the
+per-IP `login` bucket (10/min). Many evaluators behind one NAT can therefore draw a 429.
+It degrades safely: the silent login resolves false and the existing signed-out modal
+shows, whose Sign in button reaches the form. The attempt is capped at one per page load
+so a refusal cannot loop. No throttle value changes here; revisit `login` if demo traffic
+shows 429s.
+
 ## Amendment 2026-09-27 — Access gate removed from the hosted demo (#4182)
 
 **Decision.** The Cloudflare Access (email) gate in front of `try.trueppm.com` is

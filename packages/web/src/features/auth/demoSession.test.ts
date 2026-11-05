@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/stores/authStore';
-import { requestSession, silentDemoLogin } from './demoSession';
+import { requestSession, silentDemoLogin, SILENT_EDITION_TIMEOUT_MS } from './demoSession';
 
 const mocked = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('axios', () => ({ default: mocked }));
@@ -49,6 +49,17 @@ describe('silentDemoLogin (#4500)', () => {
   it('resolves false when the edition read fails', async () => {
     mocked.get.mockRejectedValue(new Error('offline'));
     await expect(silentDemoLogin()).resolves.toBe(false);
+    expect(mocked.post).not.toHaveBeenCalled();
+  });
+
+  it('bounds the edition read with a timeout and resolves false when it fails', async () => {
+    mocked.get.mockRejectedValue(
+      Object.assign(new Error('timeout of 4000ms exceeded'), { code: 'ECONNABORTED' }),
+    );
+    await expect(silentDemoLogin()).resolves.toBe(false);
+    expect(mocked.get).toHaveBeenCalledWith('/api/v1/edition/', {
+      timeout: SILENT_EDITION_TIMEOUT_MS,
+    });
     expect(mocked.post).not.toHaveBeenCalled();
   });
 

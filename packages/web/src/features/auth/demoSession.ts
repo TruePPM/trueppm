@@ -1,7 +1,10 @@
 import axios from 'axios';
 import { queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/stores/authStore';
-import { editionQueryOptions } from '@/hooks/useEdition';
+import { editionQueryOptions, type EditionResponse } from '@/hooks/useEdition';
+
+/** The route guard renders nothing while this read is pending, so it must be short. */
+export const SILENT_EDITION_TIMEOUT_MS = 4000;
 
 interface TokenResponse {
   access: string;
@@ -48,7 +51,18 @@ export async function requestSession(
  */
 export async function silentDemoLogin(): Promise<boolean> {
   try {
-    const edition = await queryClient.fetchQuery({ ...editionQueryOptions, retry: false });
+    const edition = await queryClient.fetchQuery({
+      ...editionQueryOptions,
+      // Same key and shape as the shared query, but bounded: on a hung API the guard
+      // would otherwise hold a blank screen where it used to redirect or show the modal.
+      queryFn: async (): Promise<EditionResponse> =>
+        (
+          await axios.get<EditionResponse>('/api/v1/edition/', {
+            timeout: SILENT_EDITION_TIMEOUT_MS,
+          })
+        ).data,
+      retry: false,
+    });
     const hint = edition.demo_read_only === true ? edition.demo_login_hint : null;
     if (!hint) return false;
     await requestSession(hint.username, hint.password, false);
