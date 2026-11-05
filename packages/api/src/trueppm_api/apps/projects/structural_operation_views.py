@@ -232,7 +232,11 @@ class StructuralOperationViewSet(
                     '``{"code": ..., "detail": ..., ...}`` with ``code`` one of '
                     "``too_large``, ``not_top_of_stack`` (extra: ``blocking_operation_id``) "
                     "or ``shape_changed`` (extra: ``changed``), matching "
-                    "``StructuralUndoBlockedReason``."
+                    "``StructuralUndoBlockedReason``. A reversal whose result the graph "
+                    "guard would refuse is also a 409: ``summary_start_link`` (extra: "
+                    "``blocking_dependencies``) when it would make a task that has since "
+                    "gained a Start-to-Start or Start-to-Finish link a summary again "
+                    "(ADR-0370, #4830), or the guard's cycle codes (extra: ``offending``)."
                 )
             ),
         },

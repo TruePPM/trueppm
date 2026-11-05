@@ -18,6 +18,7 @@ it — the same differential rule ``assert_graph_feasible`` follows.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
@@ -29,7 +30,11 @@ from trueppm_api.apps.scheduling.graph_guard import (
 )
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
     from trueppm_api.apps.projects.models import Task
+
+logger = logging.getLogger(__name__)
 
 
 class _EdgeLike(Protocol):
@@ -140,47 +145,50 @@ def skipped_link_warning(predecessor_name: str, successor_name: str, dep_type: s
     )
 
 
-def retire_revived_summary_start_links(task: Task) -> list[Any]:
-    """Re-remove SS/SF links out of a summary that un-trashing ``task`` just revived.
+def retire_revived_summary_start_links(scope: QuerySet[Task]) -> list[Any]:
+    """Re-remove SS/SF links out of a summary that a trash restore just revived.
 
-    Restoring a task revives the tombstoned edges touching its subtree. One of them
-    can be a link out of a task that was a leaf when ``task`` was deleted and has
-    become a summary since — legal then, forbidden now (ADR-0370, #4830). Every live
-    edge touching the subtree right after the restore was revived by it (an edge
-    cannot be created against a deleted task), so retiring the offending ones takes
-    back only what this restore wrote; the rest of the restore stands.
+    Restoring a task (its subtree) or a whole project revives the tombstoned edges
+    touching the restored rows. One of them can be a link out of a task that was a
+    leaf when the rows were deleted and has become a summary since — legal then,
+    forbidden now (ADR-0370, #4830). ``scope`` is the restored rows. Every live edge
+    touching them right after the restore was revived by it (an edge cannot be
+    created against a deleted task, and deleting a task or a project tombstones every
+    edge touching it), so retiring the offending ones takes back only what this
+    restore wrote; the rest of the restore stands.
+
+    Summary status is read from each predecessor's own project's children map —
+    the CPM's notion of a summary — once per project, not once per edge, so a project
+    restore with many SS links stays a bounded number of queries.
 
     Returns the retired rows so the caller can report them.
     """
-    import re
-
     from django.db.models import Q
 
-    from trueppm_api.apps.projects.models import Dependency, Task
+    from trueppm_api.apps.projects.models import Dependency
+    from trueppm_api.apps.projects.serializers import _load_project_tasks_and_children_map
 
-    scope = Q(pk=task.pk)
-    if task.wbs_path:
-        scope |= Q(wbs_path__startswith=f"{task.wbs_path}.")
-    subtree = Task.objects.filter(scope, project_id=task.project_id, is_deleted=False)
     candidates = list(
         Dependency.live.filter(
-            Q(predecessor__in=subtree) | Q(successor__in=subtree),
+            Q(predecessor__in=scope) | Q(successor__in=scope),
             dep_type__in=sorted(SUMMARY_FORBIDDEN_LINK_TYPES),
         ).select_related("predecessor")
     )
+    if not candidates:
+        return []
+    summaries: set[str] = set()
+    for project_id in {dep.predecessor.project_id for dep in candidates}:
+        _, children_map = _load_project_tasks_and_children_map(project_id)
+        summaries.update(children_map)
     retired: list[Any] = []
     for dep in candidates:
-        pred = dep.predecessor
-        if not pred.wbs_path:
-            continue
-        # A live direct child, the CPM's own notion of a summary.
-        has_child = Task.objects.filter(
-            project_id=pred.project_id,
-            is_deleted=False,
-            wbs_path__regex=rf"^{re.escape(str(pred.wbs_path))}\.\d+$",
-        ).exists()
-        if has_child:
+        if str(dep.predecessor_id) in summaries:
             dep.soft_delete()
+            logger.warning(
+                "restore: SS/SF link %s from summary %s not revived (ADR-0370)",
+                dep.pk,
+                dep.predecessor_id,
+            )
             retired.append(dep)
     return retired
 

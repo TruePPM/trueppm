@@ -8,7 +8,7 @@ public entry point is :func:`upsert_inbound_task`, called from
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth import get_user_model
@@ -56,6 +56,9 @@ class UpsertResult:
     link: InboundTaskLink
     created: bool
     assignee_resolved: bool
+    #: Non-fatal notes about this push — today only a parent the task could not be
+    #: attached under (ADR-0370, #4830). Empty on the common clean push.
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,32 @@ def _resolve_payload(
     )
 
 
+def _parent_refusal(project: Project, parent_wbs: str) -> str | None:
+    """Why the task may not attach under ``parent_wbs``, or ``None`` when it may.
+
+    Attaching gives a leaf parent its first child, which makes it a summary; a
+    summary may not drive a Start-to-Start or Start-to-Finish link (ADR-0370), and a
+    project holding one fails every recalculation (#4830). The parent row is locked
+    so a concurrent restructure cannot make the same decision against it.
+    """
+    from trueppm_api.apps.projects.summary_link_guard import summary_start_link_block
+
+    parent = (
+        Task.objects.select_for_update()
+        .filter(project=project, wbs_path=parent_wbs, is_deleted=False)
+        .first()
+    )
+    if parent is None:
+        return None
+    has_child = Task.objects.filter(
+        project=project, is_deleted=False, wbs_path__startswith=f"{parent_wbs}."
+    ).exists()
+    if has_child:
+        return None
+    block = summary_start_link_block(parent)
+    return block.detail if block is not None else None
+
+
 def _allocate_wbs(project: Project, parent_wbs: str | None) -> tuple[str | None, bool]:
     """Pick the WBS path for a newly-created inbound task.
 
@@ -137,10 +166,24 @@ def _allocate_wbs(project: Project, parent_wbs: str | None) -> tuple[str | None,
 
 
 def _create_inbound_task(
-    project: Project, token: ProjectApiToken, resolved: _Resolved
+    project: Project, token: ProjectApiToken, resolved: _Resolved, warnings: list[str]
 ) -> tuple[Task, InboundTaskLink]:
-    """Create the Task and its link row for a first-time external id."""
-    wbs_path, is_subtask = _allocate_wbs(project, resolved.parent_wbs)
+    """Create the Task and its link row for a first-time external id.
+
+    A parent the task may not attach under lands the task flat in the backlog —
+    the same outcome as a ``parent_external_id`` that matches nothing — and says so
+    in ``warnings`` rather than refusing the push: a refusal would make an external
+    sync loop retry the same item forever over a link nobody on its side can see.
+    """
+    parent_wbs = resolved.parent_wbs
+    if parent_wbs is not None:
+        refusal = _parent_refusal(project, parent_wbs)
+        if refusal is not None:
+            warnings.append(
+                f"Not attached under its parent; added to the backlog instead. {refusal}"
+            )
+            parent_wbs = None
+    wbs_path, is_subtask = _allocate_wbs(project, parent_wbs)
 
     # Hybrid-by-construction note (#1665): this agent write path creates only
     # Tasks — never Dependency edges — so there is no dependency graph to
@@ -524,8 +567,9 @@ def upsert_inbound_task(
     )
 
     created = link is None
+    warnings: list[str] = []
     if link is None:
-        task, link = _create_inbound_task(project, token, resolved)
+        task, link = _create_inbound_task(project, token, resolved, warnings)
     else:
         task = _update_inbound_task(link, token, resolved)
 
@@ -552,4 +596,5 @@ def upsert_inbound_task(
         link=link,
         created=created,
         assignee_resolved=resolved.assignee is not None,
+        warnings=warnings,
     )

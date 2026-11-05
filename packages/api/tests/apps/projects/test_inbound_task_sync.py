@@ -1837,3 +1837,58 @@ def test_program_token_refused_after_minter_demoted_to_program_viewer(
     )
     assert resp.status_code == 401
     assert not Task.objects.filter(project=program_project, name="demoted-minter").exists()
+
+
+@pytest.mark.django_db
+def test_parent_that_drives_an_ss_link_is_not_attached_and_the_push_says_so(
+    project: Project, admin_user: Any
+) -> None:
+    """ADR-0370 (#4830): attaching would make the leaf parent a summary with an SS link.
+
+    The push still succeeds — the task lands flat, as for an unmatched parent — and the
+    response names why, so the external sync does not retry the item forever.
+    """
+    from trueppm_api.apps.projects.models import Dependency
+
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    parent_resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "EPIC-1", "name": "Epic"},
+        format="json",
+    )
+    parent_task = Task.objects.get(pk=parent_resp.data["task_id"])
+    parent_task.wbs_path = "1"
+    parent_task.save(update_fields=["wbs_path"])
+    other = Task.objects.create(project=project, name="Other", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=parent_task, successor=other, dep_type="SS")
+
+    child_resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {
+            "source": "jira",
+            "external_id": "STORY-1",
+            "name": "Story",
+            "parent_external_id": "EPIC-1",
+        },
+        format="json",
+    )
+
+    assert child_resp.status_code == 201, child_resp.data
+    child_task = Task.objects.get(pk=child_resp.data["task_id"])
+    assert child_task.is_subtask is False
+    assert child_task.wbs_path is None
+    assert len(child_resp.data["warnings"]) == 1
+    assert "cannot become a summary task" in child_resp.data["warnings"][0]
+
+
+@pytest.mark.django_db
+def test_clean_push_carries_no_warnings_key(project: Project, admin_user: Any) -> None:
+    _token, raw = _mint_token(project, admin_user)
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "X"},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert "warnings" not in resp.data

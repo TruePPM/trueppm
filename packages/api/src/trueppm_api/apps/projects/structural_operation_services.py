@@ -543,6 +543,34 @@ def _retire_restored_summary_start_links(locked: Any, restored: list[Any]) -> in
     return retired
 
 
+def _undo_rejection_for(rejected: Any, project_id: Any) -> StructuralUndoRejected:
+    """Re-express a graph-guard refusal in the undo endpoint's 409 vocabulary.
+
+    For ``summary_start_link`` — the undo would give a task back the children it had,
+    after it gained an SS/SF link while it was a leaf (ADR-0370, #4830) — the body is
+    the same ``detail`` + ``blocking_dependencies`` the indent/outdent/reparent
+    refusals carry, so a client handles every instance of the code one way. Any other
+    guard code passes through with its own detail and extras.
+    """
+    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.summary_link_guard import summary_start_link_block
+
+    body = dict(getattr(rejected, "body", {}) or {})
+    code = str(body.pop("code", getattr(rejected, "code", "invalid_graph_input")))
+    detail = str(body.pop("detail", str(rejected)))
+    if code == "summary_start_link":
+        for task_id in body.get("offending") or []:
+            task = Task.objects.filter(pk=task_id, project_id=project_id).first()
+            block = summary_start_link_block(task) if task is not None else None
+            if block is not None:
+                return StructuralUndoRejected(
+                    code,
+                    f"This undo cannot be applied: {block.detail}",
+                    extra={"blocking_dependencies": block.blocking_dependencies},
+                )
+    return StructuralUndoRejected(code, detail, extra=body)
+
+
 def _restore_shape(locked: Any, task_model: Any) -> int:
     """Undo step 3 — put the outline shape back, returning the number of rows moved.
 
@@ -603,7 +631,11 @@ def undo_structural_operation(
         SyncBatchOperationStatus,
         Task,
     )
-    from trueppm_api.apps.projects.task_grouping import assert_graph_feasible, capture_graph_state
+    from trueppm_api.apps.projects.task_grouping import (
+        GroupingRejected,
+        assert_graph_feasible,
+        capture_graph_state,
+    )
 
     # `StructuralOperationViewSet` already carries `IsProjectNotArchived`, so this is
     # not closing an open hole — it makes the floor uniform across the family after
@@ -670,7 +702,13 @@ def undo_structural_operation(
         #    paths where the forward endpoints skip it.
         _resync_shadow_values(locked)
 
-        assert_graph_feasible(locked.project_id, graph_before)
+        try:
+            assert_graph_feasible(locked.project_id, graph_before)
+        except GroupingRejected as rejected:
+            # The undo surface refuses with a 409 `StructuralUndoRejected`; letting the
+            # group/ungroup exception escape here was a 500 (#4830). Raised inside the
+            # atomic block, so every step above rolls back.
+            raise _undo_rejection_for(rejected, locked.project_id) from rejected
 
         summary = {
             "restored": restored,

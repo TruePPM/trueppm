@@ -18,7 +18,11 @@ from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
-from trueppm_api.apps.scheduling.graph_guard import TypedEdge, validate_expansion_with_edge
+from trueppm_api.apps.scheduling.graph_guard import (
+    SUMMARY_FORBIDDEN_LINK_TYPES,
+    TypedEdge,
+    validate_expansion_with_edge,
+)
 
 if TYPE_CHECKING:
     from rest_framework.views import APIView
@@ -8118,6 +8122,8 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             self._raise_cycle_error([predecessor, predecessor])
             return
 
+        self._lock_predecessor_for_start_link(predecessor, attrs)
+
         # Cross-project edges must be cycle-checked over the *merged* program
         # graph (ADR-0120 D1): an A→B cross edge can close a cycle that is only
         # visible when both projects' tasks and deps are present. Same-project
@@ -8256,6 +8262,36 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             for t in (tasks_by_id.get(tid) for tid in cycle_ids)
         ]
         self._raise_cycle_error(ordered)
+
+    def _lock_predecessor_for_start_link(
+        self, predecessor: Task, attrs: dict[str, Any] | None
+    ) -> None:
+        """Hold the predecessor's row lock before reading its children, for SS/SF links.
+
+        The ADR-0370 check reads whether the predecessor has children. Every structural
+        path that can give a task its first child (indent, outdent, reparent, create
+        or restore under a parent, inbound sync) locks that would-be parent row before
+        deciding, so taking the same row lock here first serializes the two: whichever
+        commits second re-reads the other's write and refuses (#4830). Without it, an
+        indent and an SS link on the same leaf can both validate against the pre-state
+        and both commit the forbidden combination.
+
+        Only SS/SF writes pay for it — no other type is affected by summary status.
+        This path takes this one row lock and nothing else before its INSERT, so it
+        cannot form a lock cycle with a restructure on its own; the INSERT's own FK
+        key-share locks are unchanged from before. Skipped outside a transaction,
+        where ``select_for_update`` is illegal and nothing could be serialized anyway.
+        """
+        from django.db import transaction
+
+        dep_type = (attrs or {}).get("dep_type") or (
+            self.instance.dep_type if self.instance is not None else "FS"
+        )
+        if dep_type not in SUMMARY_FORBIDDEN_LINK_TYPES:
+            return
+        if not transaction.get_connection().in_atomic_block:
+            return
+        Task.objects.select_for_update().filter(pk=predecessor.pk).values_list("pk").first()
 
     def _check_no_type_collision(
         self,
@@ -11707,6 +11743,16 @@ class InboundTaskSyncResultSerializer(serializers.Serializer[Any]):
     )
     assignee_resolved = serializers.BooleanField(
         help_text="True if `assignee_email` matched a project member and was linked."
+    )
+    warnings = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Non-fatal notes about this push; absent when there are none. Today only: "
+            "the task was not attached under its parent because the parent drives a "
+            "Start-to-Start or Start-to-Finish link and a summary may not (ADR-0370), "
+            "so it was added to the backlog instead."
+        ),
     )
 
 

@@ -578,3 +578,219 @@ def test_restoring_a_successor_does_not_revive_an_ss_link_from_a_new_summary(
     fs.refresh_from_db()
     assert ss.is_deleted is True
     assert fs.is_deleted is False
+
+
+# ---------------------------------------------------------------------------
+# Second pass (#4830 completeness check)
+# ---------------------------------------------------------------------------
+
+
+def _undo(client: APIClient, operation_id: str) -> Any:
+    return _post(client, UNDO_URL.format(pk=operation_id))
+
+
+@pytest.mark.django_db
+def test_undoing_an_outdent_that_would_re_summarize_an_ss_driver_is_a_409(
+    project: Project, owner_client: APIClient
+) -> None:
+    """P's only child is outdented, P gains an SS link as a leaf, then the outdent is undone.
+
+    Was a 500: the typed graph guard raised ``GroupingRejected`` into a view that only
+    caught ``StructuralUndoRejected``.
+    """
+    p = _task(project, "P", "1")
+    x = _task(project, "X", "1.1")
+    other = _task(project, "Other", "2")
+    outdented = _post(owner_client, OUTDENT_URL.format(pk=project.pk, task_id=x.pk))
+    assert outdented.status_code == 200, outdented.data
+    link = _post(
+        owner_client,
+        "/api/v1/dependencies/",
+        {"predecessor": str(p.pk), "successor": str(other.pk), "dep_type": "SS"},
+    )
+    assert link.status_code == 201, link.data
+    after_outdent = _outline(project)
+
+    response = _undo(owner_client, outdented.json()["operation_id"])
+
+    assert response.status_code == 409, response.content
+    body = response.json()
+    assert body["code"] == "summary_start_link"
+    assert "“P”" in body["detail"]
+    assert [d["successor_id"] for d in body["blocking_dependencies"]] == [str(other.pk)]
+    assert _outline(project) == after_outdent, "the refused undo must roll back"
+
+
+@pytest.mark.django_db
+def test_undoing_a_reparent_that_would_re_summarize_an_ss_driver_is_a_409(
+    project: Project, owner_client: APIClient
+) -> None:
+    p = _task(project, "P", "1")
+    x = _task(project, "X", "1.1")
+    other = _task(project, "Other", "2")
+    moved = _post(
+        owner_client,
+        REPARENT_URL.format(pk=project.pk, task_id=x.pk),
+        {"new_parent_id": None},
+    )
+    assert moved.status_code == 200, moved.data
+    Dependency.objects.create(predecessor=p, successor=other, dep_type="SF")
+    after_move = _outline(project)
+
+    response = _undo(owner_client, moved.json()["operation_id"])
+
+    assert response.status_code == 409, response.content
+    assert response.json()["code"] == "summary_start_link"
+    assert _outline(project) == after_move
+
+
+@pytest.mark.django_db
+def test_restoring_a_project_does_not_revive_an_ss_link_from_a_new_summary(
+    project: Project, owner_client: APIClient
+) -> None:
+    """A (project 1) -SS-> Y (project 2); project 2 trashed; A becomes a summary; restore 2."""
+    from trueppm_api.apps.projects.models import cascade_project_children_soft_delete
+
+    a = _task(project, "A", "1")
+    elsewhere = Project.objects.create(
+        name="Elsewhere", start_date=date(2026, 1, 5), calendar=project.calendar
+    )
+    ProjectMembership.objects.create(
+        project=elsewhere, user=User.objects.get(username="owner"), role=Role.OWNER
+    )
+    y = _task(elsewhere, "Y", "1")
+    ss = Dependency.objects.create(predecessor=a, successor=y, dep_type="SS")
+    ff = Dependency.objects.create(predecessor=a, successor=y, dep_type="FF")
+    assert owner_client.delete(f"/api/v1/projects/{elsewhere.pk}/").status_code == 204
+    cascade_project_children_soft_delete(elsewhere.pk)
+    ss.refresh_from_db()
+    assert ss.is_deleted is True
+    b = _task(project, "B", "2")
+    assert _post(owner_client, INDENT_URL.format(pk=project.pk, task_id=b.pk)).status_code == 200
+
+    restored = _post(owner_client, f"/api/v1/projects/{elsewhere.pk}/restore/")
+
+    assert restored.status_code == 200, restored.content
+    ss.refresh_from_db()
+    ff.refresh_from_db()
+    assert ss.is_deleted is True, "an SS link out of the new summary must stay deleted"
+    assert ff.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_bulk_create_under_an_ss_driver_alongside_an_outdent_row(
+    project: Project, owner_client: APIClient
+) -> None:
+    """The 207 per-row contract holds when the refused row sits among other ops."""
+    parent = _task(project, "Parent", "1")
+    other = _task(project, "Other", "2")
+    Dependency.objects.create(predecessor=parent, successor=other, dep_type="SF")
+
+    response = _post(
+        owner_client,
+        BULK_URL.format(pk=project.pk),
+        {
+            "operations": [
+                {"op": "create", "data": {"name": "Fine", "duration": 1}},
+                {
+                    "op": "create",
+                    "data": {"name": "Blocked", "duration": 1, "parent_id": str(parent.pk)},
+                },
+                {
+                    "op": "create",
+                    "data": {
+                        "name": "Blocked sub",
+                        "duration": 1,
+                        "parent_id": str(parent.pk),
+                        "is_subtask": True,
+                    },
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 207, response.data
+    assert [e["index"] for e in response.data["rejected"]] == [1, 2]
+    assert [e["index"] for e in response.data["applied"]] == [0]
+
+
+@pytest.mark.django_db
+def test_jira_import_goes_through_the_shared_skip(project: Project) -> None:
+    """Jira's parser only emits FS today; this pins that Jira persists via the shared path.
+
+    The parser is patched to hand back a summary with an SS link — what a future Jira
+    link mapping could produce — and the task must skip and report it exactly like the
+    MS Project path.
+    """
+    import base64
+
+    from trueppm_api.apps.jiraimport.tasks import import_jira
+
+    data = ProjectData(
+        tasks=[
+            TaskData(uid=1, name="Epic", outline_number="1", outline_level=1),
+            TaskData(uid=2, name="Story", outline_number="1.1", outline_level=2),
+            TaskData(
+                uid=3,
+                name="Later",
+                outline_number="2",
+                outline_level=1,
+                predecessor_links=[PredecessorLinkData(predecessor_uid=1, dep_type="SS")],
+            ),
+        ]
+    )
+    with (
+        patch("trueppm_api.apps.jiraimport.parser.parse_jira_xml", return_value=data),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+    ):
+        summary = import_jira.apply(
+            kwargs={
+                "project_id": str(project.pk),
+                "file_content_b64": base64.b64encode(b"<rss/>").decode("ascii"),
+                "filename": "jira.xml",
+            },
+            throw=True,
+        ).get()
+
+    assert not Dependency.objects.filter(predecessor__project=project).exists()
+    assert any("SS link to 'Later' skipped" in w for w in summary["warnings"]), summary
+
+
+@pytest.mark.django_db(transaction=True)
+def test_an_ss_link_write_locks_its_predecessor_row(project: Project) -> None:
+    """The serializer takes ``FOR UPDATE`` on the predecessor before reading its children.
+
+    A real two-connection race is not reproducible deterministically here; this pins the
+    lock acquisition the serialization argument rests on (see
+    ``DependencySerializer._lock_predecessor_for_start_link``). An FS write does not lock.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    user = User.objects.create_user(username="lock-owner", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    pred = _task(project, "Pred", "1")
+    succ = _task(project, "Succ", "2")
+
+    def locked_sql(dep_type: str) -> list[str]:
+        with CaptureQueriesContext(connection) as ctx:
+            response = _post(
+                client,
+                "/api/v1/dependencies/",
+                {"predecessor": str(pred.pk), "successor": str(succ.pk), "dep_type": dep_type},
+            )
+        assert response.status_code == 201, response.content
+        needle = str(pred.pk).replace("-", "")
+        return [
+            q["sql"]
+            for q in ctx.captured_queries
+            if "FOR UPDATE" in q["sql"]
+            and '"projects_task"' in q["sql"]
+            and needle in q["sql"].replace("-", "")
+        ]
+
+    assert locked_sql("SS"), "an SS write must lock the predecessor row"
+    assert not locked_sql("FS")

@@ -315,7 +315,6 @@ from trueppm_api.apps.projects.summary_link_guard import (
     BLOCKING_DEPENDENCIES_SCHEMA,
     SUMMARY_START_LINK_CODE,
     SummaryStartLinkBlock,
-    retire_revived_summary_start_links,
     summary_start_link_block,
 )
 from trueppm_api.apps.projects.task_bulk import (
@@ -7010,12 +7009,6 @@ class TaskViewSet(
                     return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
                 task.restore()
                 cascade_task_children_restore(task)
-                for retired in retire_revived_summary_start_links(task):
-                    logger.warning(
-                        "task.restore: SS/SF link %s from summary %s not revived (ADR-0370)",
-                        retired.pk,
-                        retired.predecessor_id,
-                    )
                 cross_edges = cross_project_edge_rows(tasks=task_subtree(task))
         except WbsPathOccupied as exc:
             # Refuse rather than re-path (#3071). This is the one restore path with a
@@ -19594,13 +19587,16 @@ class TaskSyncView(IdempotencyMixin, APIView):
             source_ip=_client_ip(request),
         )
 
+        body: dict[str, Any] = {
+            "task_id": str(result.task.pk),
+            "short_id": result.task.short_id,
+            "created": result.created,
+            "assignee_resolved": result.assignee_resolved,
+        }
+        if result.warnings:
+            body["warnings"] = result.warnings
         return Response(
-            {
-                "task_id": str(result.task.pk),
-                "short_id": result.task.short_id,
-                "created": result.created,
-                "assignee_resolved": result.assignee_resolved,
-            },
+            body,
             # 201 on first push (resource created); 200 on idempotent re-push
             # (resource existed and was updated).  The `created` boolean
             # carries the same signal, but proxies and clients that switch on
