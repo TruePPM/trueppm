@@ -26,6 +26,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
@@ -251,6 +252,38 @@ def test_token_from_a_replica_whose_clock_runs_ahead_is_refused(user: Any) -> No
     # ...and the window is bounded: two seconds past the margin is accepted.
     later = _access_issued_at(user, int(at.timestamp()) + 3)
     assert _bearer(later).get(_ME_URL).status_code == 200
+
+
+def test_simplejwt_version_and_settings_match_the_reimplemented_get_user() -> None:
+    """``CredentialCutoffJWTAuthentication.get_user`` mirrors simplejwt 5.x's body.
+
+    A major bump may change what the parent checks; re-read it before widening the
+    pin. ``CHECK_REVOKE_TOKEN`` is the branch the fast path drops (it delegates to
+    ``super()`` when the setting is on), so pin that it is off.
+    """
+    from importlib.metadata import version
+
+    from rest_framework_simplejwt.settings import api_settings
+
+    major, minor, *_ = (int(p) for p in version("djangorestframework-simplejwt").split("."))
+    assert (major, minor) >= (5, 3)
+    assert major < 6
+    assert api_settings.CHECK_REVOKE_TOKEN is False
+    assert api_settings.CHECK_USER_IS_ACTIVE is True
+
+
+@pytest.mark.django_db
+def test_check_revoke_token_path_still_applies_the_cutoff(user: Any) -> None:
+    from rest_framework_simplejwt.settings import api_settings
+
+    mark_credentials_revoked(user, at=timezone.now() - timedelta(seconds=10))
+    stale = AccessToken(_access_issued_at(user, int(time.time()) - 60))
+    with (
+        patch.object(api_settings, "CHECK_REVOKE_TOKEN", True),
+        patch.object(CredentialCutoffJWTAuthentication.__mro__[1], "get_user", return_value=user),
+        pytest.raises(AuthenticationFailed),
+    ):
+        CredentialCutoffJWTAuthentication().get_user(stale)
 
 
 @pytest.mark.django_db

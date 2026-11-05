@@ -63,6 +63,11 @@ def issue_ticket(user_id: str) -> str:
     treats a second 4001 as an expired session. The issue time the credential
     cutoff needs (#4499) is derived from the key's remaining TTL at consume time
     instead — see :func:`consume_ticket`.
+
+    That derivation assumes old and new pods share :data:`TICKET_TTL_SECONDS`.
+    Raising it in a later release makes tickets an old pod minted mid-rollout look
+    issued in the future (lowering it makes them look older, which fails closed),
+    so change it only with that rollout window in mind.
     """
     from trueppm_api.core import valkey
 

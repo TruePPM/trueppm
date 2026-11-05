@@ -481,7 +481,7 @@ access token outright, since it fails the `is_active` check on every request.
 A reset does not — access tokens are short-lived (15 minutes) and stateless,
 so a still-valid one can mint a fresh ticket and open a new socket until it
 expires on its own — and within that window it can also mint a new personal
-token, project token, or share link (0.5 closes this; see the note below).
+token, project token, or share link (0.5 will close this; see the note below).
 `revoke_api_tokens --user`/`--all-personal` perform the same sweep on demand,
 so an operator responding to an incident is not limited to these two
 automatic triggers.

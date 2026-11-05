@@ -620,3 +620,31 @@ def test_all_scope_still_points_at_key_rotation(alice: Any, project: Project) ->
     output = _run("--all", "--commit", "--yes")
     assert "separate credential class" in output
     assert "signed out everywhere" not in output
+
+
+@pytest.mark.django_db
+def test_user_scope_cuts_a_lone_access_jwt_with_nothing_else_to_revoke(alice: Any) -> None:
+    """The auditor's repro (#4499): an account with no PAT, no un-blacklisted refresh
+    row and no membership — e.g. the victim logged out, blacklisting their refresh
+    token but leaving a stolen access JWT live. The sweep must still stamp the
+    cutoff rather than early-return "Nothing to revoke."."""
+    from rest_framework.test import APIClient
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+    from rest_framework_simplejwt.tokens import AccessToken
+
+    assert not ApiToken.objects.filter(owner=alice).exists()
+    assert not OutstandingToken.objects.filter(user=alice).exists()
+    stolen = str(AccessToken.for_user(alice))
+
+    dry = _run("--user", "alice")
+    assert "Nothing to revoke" not in dry
+    assert "Accounts with existing access tokens cut off: 1" in dry
+
+    output = _run("--user", "alice", "--commit", "--yes")
+    assert "Nothing to revoke" not in output
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {stolen}")
+    assert client.get("/api/v1/auth/me/").status_code == 401
+    # ...and it can no longer mint a durable grant either.
+    assert client.post("/api/v1/me/api-tokens/", {"name": "x"}, format="json").status_code == 401

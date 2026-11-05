@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -214,6 +215,42 @@ async def test_a_ticket_with_no_ttl_has_no_trustworthy_issue_time() -> None:
         claim = await ws_auth.consume_ticket("tk")
     assert claim is not None
     assert claim.issued_at == float("-inf")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_an_aged_ticket_is_judged_by_its_true_issue_time(user: object) -> None:
+    """Real ``consume_ticket`` TTL math (#4499): a ticket minted 20 s ago (10 s of TTL
+    left) is refused against a cutoff 10 s ago. If the elapsed time were ignored —
+    treating consume time as issue time — it would be accepted."""
+    from channels.db import database_sync_to_async
+    from django.utils import timezone
+
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    def _set_cutoff() -> None:
+        UserProfile.objects.update_or_create(
+            user=user,
+            defaults={"credentials_revoked_at": timezone.now() - timedelta(seconds=10)},
+        )
+
+    await database_sync_to_async(_set_cutoff)()
+    store = {"ws:ticket:aged": str(user.pk)}
+    ttls = {"ws:ticket:aged": time.time() + 10}  # 30 s TTL, 20 s elapsed
+    with patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis(store, ttls)):
+        claim = await ws_auth.consume_ticket("aged")
+        assert claim is not None
+        assert abs((time.time() - claim.issued_at) - 20) < 1
+    with patch.object(ws_auth, "consume_ticket", new=AsyncMock(return_value=claim)):
+        result = await ws_auth.authenticate_scope(_scope("ticket=aged"))
+    assert result.user is None
+
+    # Control: the same ticket fresh (full TTL left) connects.
+    store = {"ws:ticket:fresh": str(user.pk)}
+    ttls = {"ws:ticket:fresh": time.time() + 30}
+    with patch("redis.asyncio.from_url", return_value=_FakeAsyncRedis(store, ttls)):
+        result = await ws_auth.authenticate_scope(_scope("ticket=fresh"))
+    assert result.user is not None
 
 
 # ---------------------------------------------------------------------------

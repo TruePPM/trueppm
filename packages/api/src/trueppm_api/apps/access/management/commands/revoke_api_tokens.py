@@ -308,6 +308,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Configured git-automation secrets matched: {secrets_total}")
         self.stdout.write(f"Active outgoing webhooks matched: {webhooks_total}")
         self.stdout.write(f"Live project socket connections matched: {sockets_total}")
+        self.stdout.write(f"Accounts with existing access tokens cut off: {len(affected_users)}")
         return refresh_total, links_total, secrets_total, webhooks_total, sockets_total
 
     def _confirm(self, options: dict[str, Any], total: int) -> None:
@@ -456,6 +457,13 @@ class Command(BaseCommand):
             acct_webhooks_matched,
             sockets_matched,
         ) = self._report_account_sweep(affected_users)
+        # Every affected account is swept for its access tokens too (#4499):
+        # revoke_all_refresh_tokens stamps the credential cutoff. That always has
+        # an effect — an access JWT is stateless, so no row tells us whether one
+        # is outstanding — so it counts as a matched item. Without it, an account
+        # with nothing else left to revoke (logged out, no PAT, no membership)
+        # early-returned "Nothing to revoke." and its stolen access JWT stayed live.
+        cutoffs_matched = len(affected_users)
         links_matched += acct_links_matched
         invites_matched = self._count_pending_invites(options, affected_users)
         secrets_matched += acct_secrets_matched
@@ -470,6 +478,7 @@ class Command(BaseCommand):
                 refresh_matched,
                 sockets_matched,
                 invites_matched,
+                cutoffs_matched,
             )
         ):
             self.stdout.write(self.style.SUCCESS("Nothing to revoke."))
@@ -489,7 +498,8 @@ class Command(BaseCommand):
             + webhooks_matched
             + refresh_matched
             + sockets_matched
-            + invites_matched,
+            + invites_matched
+            + cutoffs_matched,
         )
         (
             revoked,
@@ -516,6 +526,11 @@ class Command(BaseCommand):
                     f"link(s), cleared {secrets_cleared} git-automation secret(s), "
                     f"deactivated {webhooks_deactivated} outgoing webhook(s), and "
                     f"scheduled eviction of {sockets_evicted} live project connection(s)."
+                )
+            )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Cut off existing access tokens for {len(affected_users)} account(s)."
                 )
             )
         if invites_matched:

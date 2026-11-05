@@ -82,7 +82,7 @@ first is what lets `CloseEvent.code` carry the reason.
 
 | Code | When | Sent | Reaches a browser? |
 |------|------|------|--------------------|
-| `4001` | Missing, invalid, expired, or already-consumed ticket (or, on the deprecated path, an invalid token) | after accept | yes |
+| `4001` | Missing, invalid, expired, or already-consumed ticket; a ticket (or, on the deprecated path, a token) issued before the account's credential cutoff, such as one minted just before a password reset (0.5 and later); or, on the deprecated path, an invalid token | after accept | yes |
 | `4003` | Authenticated, but not a member of the project, or a role below Team Member — also sent to a live socket when the user is demoted or removed | after accept | yes |
 | `4404` | The path matched no WebSocket route | **before** accept | no — the browser sees `1006` |
 

@@ -35,7 +35,22 @@ class CredentialCutoffJWTAuthentication(JWTAuthentication):
     """
 
     def get_user(self, validated_token: Token) -> Any:
-        """Resolve the token's user, refusing it if it predates the user's cutoff."""
+        """Resolve the token's user, refusing it if it predates the user's cutoff.
+
+        Why this reimplements simplejwt's ``get_user`` instead of delegating to
+        ``super()``: the parent's lookup is a bare ``objects.get()``, so delegating
+        would cost a second query per request to read the profile. The body below
+        mirrors simplejwt 5.x (pinned ``>=5.3.1,<6.0``; ``test_credential_cutoff``
+        pins the version and the setting) except for the one branch it drops,
+        ``CHECK_REVOKE_TOKEN``. That branch is off here; if a deployment ever turns
+        it on, this delegates to ``super()`` so the stock check still runs, and pays
+        the extra query.
+        """
+        if api_settings.CHECK_REVOKE_TOKEN:
+            user = super().get_user(validated_token)
+            self._refuse_if_before_cutoff(validated_token, user)
+            return user
+
         try:
             user_id = validated_token[api_settings.USER_ID_CLAIM]
         except KeyError as exc:
@@ -53,12 +68,15 @@ class CredentialCutoffJWTAuthentication(JWTAuthentication):
         if api_settings.CHECK_USER_IS_ACTIVE and not user.is_active:
             raise AuthenticationFailed(_("User is inactive"))
 
+        self._refuse_if_before_cutoff(validated_token, user)
+        return user
+
+    @staticmethod
+    def _refuse_if_before_cutoff(validated_token: Token, user: Any) -> None:
         if issued_before_cutoff(validated_token.get("iat"), credentials_revoked_at(user)):
             # No ``code=``: DRF puts only ``detail`` on the wire for this
             # exception, so a code would be an undocumented, unreachable value.
             raise AuthenticationFailed(_("This session was signed out. Please sign in again."))
-
-        return user
 
 
 class CredentialCutoffJWTScheme(SimpleJWTScheme):  # type: ignore[no-untyped-call]
