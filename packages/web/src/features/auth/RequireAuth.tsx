@@ -2,6 +2,15 @@ import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router';
 import { bootstrapAccessToken } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
+import { silentDemoLogin } from './demoSession';
+
+/** One silent demo re-login per page load, across remounts — a failed one must not loop (#4500). */
+let silentDemoAttempted = false;
+
+/** Test seam: forget the per-page-load attempt. */
+export function resetSilentDemoAttempt(): void {
+  silentDemoAttempted = false;
+}
 
 export function RequireAuth() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -30,6 +39,34 @@ export function RequireAuth() {
     };
   }, [needsBootstrap, bootstrapAttempted]);
 
+  // Silent demo re-login (#4500). The demo signs in session-only, so a reload or a
+  // pasted deep link finds no session — either an expired one (bootstrap refresh
+  // failed) or none at all. On a read-only demo host `silentDemoLogin` re-submits the
+  // published credential so the visitor lands on the page the URL names instead of the
+  // signed-out modal. Eligibility excludes an explicit sign-out and the bare origin
+  // (the demo's front door keeps its Explore button); the module flag caps it at one
+  // attempt per page load, and a failure falls through to the existing modal/redirect.
+  const signedOut = useAuthStore((s) => s.signedOut);
+  const [silent, setSilent] = useState<'idle' | 'running' | 'done'>('idle');
+  const lostSession = sessionExpired || (!isAuthenticated && location.pathname !== '/');
+  const silentEligible =
+    hasHydrated && lostSession && !signedOut && !needsBootstrap && silent !== 'done';
+  const silentPending = silentEligible && (silent === 'running' || !silentDemoAttempted);
+
+  // The window is the page load only. Once the guard has seen a healthy (or
+  // deliberately signed-out front-door) state, a later expiry mid-app must keep the
+  // shell mounted for the modal rather than blank it while a login is attempted.
+  useEffect(() => {
+    if (hasHydrated && !needsBootstrap && !lostSession) silentDemoAttempted = true;
+  }, [hasHydrated, needsBootstrap, lostSession]);
+
+  useEffect(() => {
+    if (!silentEligible || silent !== 'idle' || silentDemoAttempted) return;
+    silentDemoAttempted = true;
+    setSilent('running');
+    void silentDemoLogin().then(() => setSilent('done'));
+  }, [silentEligible, silent]);
+
   // Block rendering until Zustand has rehydrated from localStorage.
   // Without this gate, v5's async hydration causes the first render to see
   // accessToken: null even when a valid token exists in storage, resulting in
@@ -41,6 +78,9 @@ export function RequireAuth() {
   // `accessToken` is set and `needsBootstrap` flips false; on failure
   // `sessionExpired` flips true (handled below).
   if (needsBootstrap && !bootstrapAttempted) return null;
+
+  // Hold the screen (no modal flash) while the silent login is deciding.
+  if (silentPending) return null;
 
   // When the session expires mid-app, isAuthenticated flips to false. Without
   // this branch the next render would Navigate to /login, unmounting AppShell

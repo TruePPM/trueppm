@@ -23,6 +23,10 @@ interface AuthState {
    *  Always reset to `false` on a fresh expiry or a successful (re-)auth, so a
    *  new session-expired event never inherits a stale acknowledgment. */
   sessionExpiredReadOnly: boolean;
+  /** True after an explicit sign-out in this page load. In memory only. The silent
+   *  demo re-login (#4500) reads it so signing out of the demo is never undone by the
+   *  route guard re-signing the visitor in. Cleared by any successful sign-in. */
+  signedOut: boolean;
   _hasHydrated: boolean;
   /** Store the access token in memory after login or a successful refresh. The
    *  refresh token is not passed here — it is set/rotated server-side as an
@@ -55,6 +59,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       sessionExpired: false,
       sessionExpiredReadOnly: false,
+      signedOut: false,
       _hasHydrated: false,
       setAccessToken: (accessToken) =>
         set({
@@ -62,6 +67,7 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true,
           sessionExpired: false,
           sessionExpiredReadOnly: false,
+          signedOut: false,
         }),
       clearTokens: () => {
         // Every sign-out path funnels through here (menu, session-expired banner,
@@ -75,6 +81,7 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           sessionExpired: false,
           sessionExpiredReadOnly: false,
+          signedOut: true,
         });
       },
       markSessionExpired: () => {
