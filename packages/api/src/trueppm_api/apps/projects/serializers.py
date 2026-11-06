@@ -18,7 +18,11 @@ from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
-from trueppm_api.apps.scheduling.graph_guard import TypedEdge, validate_expansion_with_edge
+from trueppm_api.apps.scheduling.graph_guard import (
+    SUMMARY_FORBIDDEN_LINK_TYPES,
+    TypedEdge,
+    validate_expansion_with_edge,
+)
 
 if TYPE_CHECKING:
     from rest_framework.views import APIView
@@ -8118,6 +8122,8 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             self._raise_cycle_error([predecessor, predecessor])
             return
 
+        self._lock_predecessor_for_start_link(predecessor, attrs)
+
         # Cross-project edges must be cycle-checked over the *merged* program
         # graph (ADR-0120 D1): an A→B cross edge can close a cycle that is only
         # visible when both projects' tasks and deps are present. Same-project
@@ -8256,6 +8262,46 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             for t in (tasks_by_id.get(tid) for tid in cycle_ids)
         ]
         self._raise_cycle_error(ordered)
+
+    def _lock_predecessor_for_start_link(
+        self, predecessor: Task, attrs: dict[str, Any] | None
+    ) -> None:
+        """Hold the predecessor's row lock before reading its children, for SS/SF links.
+
+        The ADR-0370 check reads whether the predecessor has children. The structural
+        paths that can give a task its first child lock that would-be parent row before
+        they decide: indent (the previous-sibling level, ``FOR UPDATE``), outdent (the
+        task itself), reparent (the target), create and ``tasks/bulk`` create under a
+        parent, task restore (the parent), inbound sync (the parent), reorder (every
+        sibling at the level), the trash cascades' retire step, and structural undo
+        (every row of the recorded region, which includes the old parent — capture is
+        "at or under" each region root). Taking the same row lock here first makes the
+        two serialize: whichever commits second re-reads the other's write under READ
+        COMMITTED and refuses (#4830). The lock is effective because
+        ``ATOMIC_REQUESTS`` is on (``settings/base.py``), so it is held to commit.
+
+        What it does **not** do: guarantee freedom from deadlock. This path locks one
+        row before its INSERT, but the INSERT then takes FK key-share locks on both
+        endpoints, and a structural edit holding a sibling row ``FOR UPDATE`` can be
+        waiting on the predecessor at the same time — a lock cycle is possible.
+        ``tasks/bulk`` can already deadlock across parents in the same way; that is
+        pre-existing, not introduced here. PostgreSQL detects such a cycle and aborts
+        one transaction, so the outcome is a failed request, never the forbidden state
+        committed.
+
+        Only SS/SF writes pay for it — no other type is affected by summary status.
+        Skipped outside a transaction, where ``select_for_update`` is illegal.
+        """
+        from django.db import transaction
+
+        dep_type = (attrs or {}).get("dep_type") or (
+            self.instance.dep_type if self.instance is not None else "FS"
+        )
+        if dep_type not in SUMMARY_FORBIDDEN_LINK_TYPES:
+            return
+        if not transaction.get_connection().in_atomic_block:
+            return
+        Task.objects.select_for_update().filter(pk=predecessor.pk).values_list("pk").first()
 
     def _check_no_type_collision(
         self,
@@ -11707,6 +11753,16 @@ class InboundTaskSyncResultSerializer(serializers.Serializer[Any]):
     )
     assignee_resolved = serializers.BooleanField(
         help_text="True if `assignee_email` matched a project member and was linked."
+    )
+    warnings = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Non-fatal notes about this push; absent when there are none. Today only: "
+            "the task was not attached under its parent because the parent drives a "
+            "Start-to-Start or Start-to-Finish link and a summary may not (ADR-0370), "
+            "so it was added to the backlog instead."
+        ),
     )
 
 

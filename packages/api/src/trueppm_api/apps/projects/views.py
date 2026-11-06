@@ -311,6 +311,12 @@ from trueppm_api.apps.projects.services import (
     soft_delete_task_with_cross_fanout,
 )
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
+from trueppm_api.apps.projects.summary_link_guard import (
+    BLOCKING_DEPENDENCIES_SCHEMA,
+    SUMMARY_START_LINK_CODE,
+    SummaryStartLinkBlock,
+    summary_start_link_block,
+)
 from trueppm_api.apps.projects.task_bulk import (
     BulkOutcome,
 )
@@ -329,6 +335,7 @@ from trueppm_api.core.openapi import (
     ownership_refusal_403,
     state_refusal_400,
     suppress_list_pagination,
+    validation_envelope_400,
 )
 from trueppm_api.core.protect_conflict import describe_reference, protected_error_response
 from trueppm_api.core.request_body import object_body
@@ -5531,6 +5538,15 @@ def _resolve_create_parent(project: Any, parent_id: Any, *, is_subtask: bool) ->
                 ]
             }
         )
+    if not children:
+        # ADR-0370 (#4830): the parent's first child makes it a summary — a drawer
+        # subtask included, since the CPM children map counts every child — and a
+        # summary may not drive an SS/SF link.
+        block = summary_start_link_block(parent)
+        if block is not None:
+            raise DRFValidationError(
+                {"parent_id": [ErrorDetail(block.detail, code=SUMMARY_START_LINK_CODE)]}
+            )
     return parent, _build_wbs_path(str(parent.wbs_path), len(children) + 1)
 
 
@@ -6939,6 +6955,13 @@ class TaskViewSet(
         request=None,
         responses={
             200: TaskSerializer,
+            400: state_refusal_400(
+                "The task's parent has no other live child and drives a Start-to-Start "
+                "or Start-to-Finish link: restoring the task would make that parent a "
+                "summary, which ADR-0370 forbids to drive one (#4830).",
+                codes=(SUMMARY_START_LINK_CODE,),
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+            ),
             409: OpenApiResponse(
                 description=(
                     "The task's WBS position was allocated to another live task while "
@@ -6978,6 +7001,12 @@ class TaskViewSet(
         task_id = str(task.pk)
         try:
             with transaction.atomic():
+                # ADR-0370 (#4830): the parent may have lost its last child when this
+                # row was deleted and gained an SS/SF link since. Restoring the row
+                # would make it a summary again with that link — refuse, unwritten.
+                block = _restore_parent_summary_start_link_block(task)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
                 task.restore()
                 cascade_task_children_restore(task)
                 cross_edges = cross_project_edge_rows(tasks=task_subtree(task))
@@ -9237,7 +9266,19 @@ class TaskReorderView(IdempotencyMixin, APIView):
     @extend_schema(
         summary="Reorder sibling tasks within a WBS level",
         request=TaskReorderSerializer,
-        responses={200: TaskReorderResponseSerializer},
+        responses={
+            200: TaskReorderResponseSerializer,
+            400: validation_envelope_400(
+                "The reorder is refused: ``ordered_ids`` names a task that is not a live "
+                "sibling under ``parent_path``, or omits one (field-keyed "
+                "``ordered_ids`` errors); or (``summary_start_link``, #4830) a sibling "
+                "would land on a position whose children stay in place, giving it its "
+                "first child while it drives a Start-to-Start or Start-to-Finish link — "
+                "a summary may not drive one (ADR-0370). The last carries "
+                "``blocking_dependencies``.",
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+            ),
+        },
     )
     def post(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -9306,6 +9347,14 @@ class TaskReorderView(IdempotencyMixin, APIView):
         for task in siblings_by_id.values():
             _require_wbs_restructure_permission(request, task)
 
+        # ADR-0370 (#4830). Rows are already locked (`siblings_qs` is FOR UPDATE and
+        # ATOMIC_REQUESTS holds the transaction), so the check and the write agree.
+        block = _reorder_summary_start_link_block(
+            str(project.pk), parent_path, ordered_ids, siblings_by_id
+        )
+        if block is not None:
+            return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+
         updated: list[dict[str, Any]] = []
 
         with transaction.atomic():
@@ -9319,12 +9368,18 @@ class TaskReorderView(IdempotencyMixin, APIView):
                     task.save(update_fields=["wbs_path"])
                 updated.append({"id": str(task_id), "wbs_path": new_path})
 
-            # Reorder is the one restructure that provably cannot change any parent's
-            # child SET — it permutes one level in place — so this is convergence only:
-            # it repairs a parent whose declaration drifted on an earlier act, and it
-            # keeps the four structural endpoints from disagreeing about whether
-            # declaring a container is part of restructuring (#3010). One row, so the
-            # cost is a refresh and, almost always, no UPDATE at all.
+            # The level's PARENT keeps the same child set — the reorder permutes its
+            # children in place — so for it this is convergence only: it repairs a
+            # parent whose declaration drifted on an earlier act, and keeps the
+            # structural endpoints agreeing that declaring a container is part of
+            # restructuring (#3010). One row, so the cost is a refresh and, almost
+            # always, no UPDATE at all. The SIBLINGS' child sets are another matter:
+            # this loop rewrites only the siblings' own paths, never their
+            # descendants', so a sibling can land on a path whose old occupant's
+            # children still hang under it, and inherit them. That WBS-integrity
+            # defect is tracked separately; the one consequence #4830 guards — a
+            # task driving an SS/SF link inheriting children — is refused above by
+            # `_reorder_summary_start_link_block`.
             resync_container_declarations(parent_row, already_locked=True)
 
             # Reorder is the one structural endpoint that already gates every sibling
@@ -9346,10 +9401,84 @@ class TaskReorderView(IdempotencyMixin, APIView):
         )
 
 
+def _reorder_summary_start_link_block(
+    project_id: str,
+    parent_path: str,
+    ordered_ids: list[uuid.UUID],
+    siblings_by_id: dict[uuid.UUID, Task],
+) -> SummaryStartLinkBlock | None:
+    """The ADR-0370 refusal for a reorder, or ``None`` when it is safe (#4830).
+
+    A reorder rewrites each sibling's own ``wbs_path`` and leaves every descendant
+    where it was, so a sibling moved onto a position whose old occupant had children
+    becomes the parent of those children. When that sibling had no children before
+    and drives an SS/SF link, the reorder would make it a summary the engine refuses.
+
+    Deliberately narrower than refusing any reorder at a level with children:
+    moving a phase up or down among its siblings (Alt+Arrow in build mode, outline
+    drag) is an everyday act and must keep working. Only a sibling gaining its
+    *first* child is checked, matching every other structural guard, so a sibling
+    that was already a summary is not this reorder's to refuse. One query reads
+    which positions at this level have children; the link lookup runs only for a
+    sibling that would gain them.
+    """
+    import re
+
+    prefix = f"{parent_path}." if parent_path else ""
+    child_re = re.compile(rf"^{re.escape(prefix)}(\d+)\.\d+$")
+    positions_with_children: set[str] = set()
+    for path in Task.objects.filter(
+        project_id=project_id,
+        is_deleted=False,
+        wbs_path__regex=rf"^{re.escape(prefix)}\d+\.\d+$",
+    ).values_list("wbs_path", flat=True):
+        match = child_re.match(str(path))
+        if match:
+            positions_with_children.add(f"{prefix}{match.group(1)}")
+    if not positions_with_children:
+        return None
+    for position, task_id in enumerate(ordered_ids, start=1):
+        task = siblings_by_id[task_id]
+        new_path = _build_wbs_path(parent_path, position)
+        old_path = str(task.wbs_path)
+        if old_path == new_path or new_path not in positions_with_children:
+            continue
+        if old_path in positions_with_children:
+            continue  # already a summary before the reorder
+        block = summary_start_link_block(task)
+        if block is not None:
+            return block
+    return None
+
+
 def _get_parent_path(wbs_path: str) -> str:
     """Return the parent's wbs_path by stripping the last label, or '' for root."""
     parts = wbs_path.split(".")
     return ".".join(parts[:-1]) if len(parts) > 1 else ""
+
+
+def _restore_parent_summary_start_link_block(task: Task) -> SummaryStartLinkBlock | None:
+    """The ADR-0370 refusal for un-trashing ``task``, or ``None`` when it may return.
+
+    Resolves the parent by path rather than through ``structural_parent``, which
+    skips subtasks: a restored drawer subtask makes its parent a summary to the CPM
+    just as a structural child does. Only a parent with no live child is checked —
+    one that already has children is already a summary, and its links are not this
+    restore's doing.
+    """
+    if not task.wbs_path:
+        return None
+    parent_path, _, _ = str(task.wbs_path).rpartition(".")
+    if not parent_path:
+        return None
+    parent = (
+        Task.objects.select_for_update()
+        .filter(project_id=task.project_id, wbs_path=parent_path, is_deleted=False)
+        .first()
+    )
+    if parent is None or _get_siblings(str(task.project_id), parent_path):
+        return None
+    return summary_start_link_block(parent)
 
 
 def _get_siblings(project_id: str, parent_path: str, *, lock: bool = False) -> list[Task]:
@@ -9436,8 +9565,12 @@ def _require_wbs_restructure_permission(request: Request, task: Task) -> None:
                 "carries no ``wbs_path``, or the sibling that would become its "
                 "parent is a milestone — a milestone is a single point in time and "
                 "cannot acquire children. Verified against the three guards in "
-                "``post`` (#3319).",
-                codes=("child_of_milestone",),
+                "``post`` (#3319). Also refused with ``summary_start_link`` when that "
+                "sibling is a leaf that drives a Start-to-Start or Start-to-Finish link: "
+                "its first child would make it a summary, which ADR-0370 forbids to drive "
+                "one (#4830).",
+                codes=("child_of_milestone", SUMMARY_START_LINK_CODE),
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
     )
@@ -9517,6 +9650,12 @@ class TaskIndentView(IdempotencyMixin, APIView):
 
             # Count existing children of previous sibling to determine insertion position.
             prev_children = _get_siblings(str(project.pk), prev_sibling.wbs_path, lock=True)
+            # ADR-0370 guard (#4830): a leaf gaining its first child becomes a summary,
+            # and a summary may not drive an SS/SF link. Checked before any row moves.
+            if not prev_children:
+                block = summary_start_link_block(prev_sibling)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
             new_position = len(prev_children) + 1
             old_path = task.wbs_path
             new_path = _build_wbs_path(prev_sibling.wbs_path, new_position)
@@ -9585,7 +9724,13 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 "already at root level (nowhere to promote to), it carries no "
                 "``wbs_path``, or it is not found among its own siblings — the "
                 "``wbs_path`` corruption case #3319's sibling guard catches. "
-                "Verified against the three guards in ``post``."
+                "Verified against the three guards in ``post``. Also refused with "
+                "``summary_start_link`` when the task is a leaf that drives a "
+                "Start-to-Start or Start-to-Finish link and has following siblings to "
+                "adopt: adopting them would make it a summary, which ADR-0370 forbids to "
+                "drive one (#4830).",
+                codes=(SUMMARY_START_LINK_CODE,),
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
     )
@@ -9689,6 +9834,12 @@ class TaskOutdentView(IdempotencyMixin, APIView):
 
             # Count existing children of the task.
             existing_children = _get_siblings(str(project.pk), task.wbs_path, lock=True)
+            # ADR-0370 guard (#4830): adopting its following siblings makes a leaf a
+            # summary, which may not drive an SS/SF link. Checked before any row moves.
+            if following_siblings and not existing_children:
+                block = summary_start_link_block(task)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
             next_child_pos = len(existing_children) + 1
 
             all_updated: list[dict[str, Any]] = []
@@ -9847,7 +9998,18 @@ def _resolve_reparent_target(
                 )
             },
         ),
-        responses={200: TaskRestructureResponseSerializer},
+        responses={
+            200: TaskRestructureResponseSerializer,
+            400: validation_envelope_400(
+                "The move is refused: the target is the task itself or one of its "
+                "descendants, the task or the target has no ``wbs_path``, the target is "
+                "a milestone (``child_of_milestone``), or the target is a leaf that "
+                "drives a Start-to-Start or Start-to-Finish link (``summary_start_link``, "
+                "#4830) — its first child would make it a summary, which ADR-0370 "
+                "forbids to drive one. The last carries ``blocking_dependencies``.",
+                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+            ),
+        },
     )
 )
 class TaskReparentView(IdempotencyMixin, APIView):
@@ -9928,6 +10090,12 @@ class TaskReparentView(IdempotencyMixin, APIView):
             descendants = _get_descendants(str(project.pk), old_path, lock=True)
             old_siblings = _get_siblings(str(project.pk), old_parent_path, lock=True)
             new_children = _get_siblings(str(project.pk), new_parent_path, lock=True)
+            # ADR-0370 guard (#4830): a leaf target gaining its first child becomes a
+            # summary, which may not drive an SS/SF link. Checked before any row moves.
+            if new_parent is not None and not new_children:
+                block = summary_start_link_block(new_parent)
+                if block is not None:
+                    return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
 
             # Unlike indent/outdent the two levels can be anywhere in the tree, so both
             # bound the region; reduce_region_roots collapses them when one contains
@@ -19495,13 +19663,16 @@ class TaskSyncView(IdempotencyMixin, APIView):
             source_ip=_client_ip(request),
         )
 
+        body: dict[str, Any] = {
+            "task_id": str(result.task.pk),
+            "short_id": result.task.short_id,
+            "created": result.created,
+            "assignee_resolved": result.assignee_resolved,
+        }
+        if result.warnings:
+            body["warnings"] = result.warnings
         return Response(
-            {
-                "task_id": str(result.task.pk),
-                "short_id": result.task.short_id,
-                "created": result.created,
-                "assignee_resolved": result.assignee_resolved,
-            },
+            body,
             # 201 on first push (resource created); 200 on idempotent re-push
             # (resource existed and was updated).  The `created` boolean
             # carries the same signal, but proxies and clients that switch on

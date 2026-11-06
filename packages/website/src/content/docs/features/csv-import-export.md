@@ -249,6 +249,13 @@ critical path, so importing it would produce a schedule the engine cannot
 compute. Fix the loop in the sheet and re-upload.
 :::
 
+A Start-to-Start or Start-to-Finish predecessor that points at a **summary row** (a
+row with rows nested under it) is not created, because a summary cannot drive a link
+from its start ([scheduler conventions](/features/scheduler-conventions/)). The rest
+of the file still imports, and the import result's `warnings` list names each skipped
+link. Ships in 0.5; in the current release the link is imported and the project's
+schedule then stops recalculating until it is deleted or retyped.
+
 ## Dates, durations and percentages
 
 **Durations** may be written as `5`, `5d`, `5 days`, `16 hours` (converted on an

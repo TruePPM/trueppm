@@ -19,7 +19,7 @@ without a broker.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
@@ -69,6 +69,10 @@ class MaterializeResult:
     task_ids: list[uuid.UUID]
     milestones_created: int
     dependencies_created: int
+    #: One sentence per edge the document carried but this apply did not write — today
+    #: only an SS/SF link out of a summary, which ADR-0370 forbids and the CPM refuses
+    #: (#4830). Surfaced in ``result_summary["warnings"]`` so the skip is not silent.
+    warnings: list[str] = field(default_factory=list)
 
 
 def _task_node(task: Any) -> dict[str, Any]:
@@ -298,10 +302,10 @@ def _build_template_task_row(
         wbs_path=offset_wbs_path(node.get("wbs_path"), wbs_offset),
         server_version=1,
     )
-    for field in ("delivery_mode", "governance_class", "type"):
-        value = node.get(field)
+    for attr in ("delivery_mode", "governance_class", "type"):
+        value = node.get(attr)
         if value:
-            setattr(row, field, value)
+            setattr(row, attr, value)
     if node.get("is_subtask"):
         row.is_subtask = True
     # Seed provenance (ADR-0786, #2730). edited_at is deliberately left null:
@@ -346,6 +350,11 @@ def materialize_structure(
     from trueppm_api.apps.projects.models import Dependency, bulk_create_tasks
     from trueppm_api.apps.projects.models import (
         Project as ProjectModel,
+    )
+    from trueppm_api.apps.projects.summary_link_guard import (
+        skipped_link_warning,
+        split_summary_start_links,
+        summary_ids_from_paths,
     )
     from trueppm_api.apps.sync.sequence import allocate_for_projects
 
@@ -412,6 +421,21 @@ def materialize_structure(
         for e in structure.get("dependencies") or []
         if str(e.get("predecessor")) in ref_to_task and str(e.get("successor")) in ref_to_task
     ]
+    # ADR-0370 (#4830): a template extracted from a project that already held an
+    # SS/SF link out of a summary — or a document edited in the JSONB column — would
+    # otherwise seed a plan the CPM refuses on every recalculation. Skip and report.
+    edges, skipped = split_summary_start_links(
+        edges, summary_ids_from_paths((row.pk, row.wbs_path) for row in rows)
+    )
+    by_id = {str(row.pk): row.name for row in rows}
+    warnings = [
+        skipped_link_warning(
+            by_id.get(str(dep.predecessor_id), "unknown task"),
+            by_id.get(str(dep.successor_id), "unknown task"),
+            str(dep.dep_type),
+        )
+        for dep in skipped
+    ]
     if edges:
         Dependency.objects.bulk_create(edges, batch_size=500, ignore_conflicts=True)
 
@@ -419,4 +443,5 @@ def materialize_structure(
         task_ids=[row.id for row in rows],
         milestones_created=sum(1 for row in rows if row.is_milestone),
         dependencies_created=len(edges),
+        warnings=warnings,
     )

@@ -23570,16 +23570,48 @@
                                         "code": {
                                             "type": "string",
                                             "enum": [
-                                                "child_of_milestone"
+                                                "child_of_milestone",
+                                                "summary_start_link"
                                             ],
                                             "description": "Stable refusal code — branch on this, not on ``detail``.",
                                             "x-trueppm-enum": "open"
+                                        },
+                                        "blocking_dependencies": {
+                                            "type": "array",
+                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "dep_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "SS",
+                                                            "SF"
+                                                        ],
+                                                        "x-trueppm-enum": "open"
+                                                    },
+                                                    "successor_id": {
+                                                        "type": "string",
+                                                        "format": "uuid",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "dep_type",
+                                                    "successor_id"
+                                                ]
+                                            }
                                         }
                                     }
                                 }
                             }
                         },
-                        "description": "The move is not available from this task's current position: it is already first among its siblings (nothing to indent under), it carries no ``wbs_path``, or the sibling that would become its parent is a milestone — a milestone is a single point in time and cannot acquire children. Verified against the three guards in ``post`` (#3319)."
+                        "description": "The move is not available from this task's current position: it is already first among its siblings (nothing to indent under), it carries no ``wbs_path``, or the sibling that would become its parent is a milestone — a milestone is a single point in time and cannot acquire children. Verified against the three guards in ``post`` (#3319). Also refused with ``summary_start_link`` when that sibling is a leaf that drives a Start-to-Start or Start-to-Finish link: its first child would make it a summary, which ADR-0370 forbids to drive one (#4830)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -23656,12 +23688,51 @@
                                     "properties": {
                                         "detail": {
                                             "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "summary_start_link"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
+                                        },
+                                        "blocking_dependencies": {
+                                            "type": "array",
+                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "dep_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "SS",
+                                                            "SF"
+                                                        ],
+                                                        "x-trueppm-enum": "open"
+                                                    },
+                                                    "successor_id": {
+                                                        "type": "string",
+                                                        "format": "uuid",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "dep_type",
+                                                    "successor_id"
+                                                ]
+                                            }
                                         }
                                     }
                                 }
                             }
                         },
-                        "description": "The move is not available from this task's current position: it is already at root level (nowhere to promote to), it carries no ``wbs_path``, or it is not found among its own siblings — the ``wbs_path`` corruption case #3319's sibling guard catches. Verified against the three guards in ``post``."
+                        "description": "The move is not available from this task's current position: it is already at root level (nowhere to promote to), it carries no ``wbs_path``, or it is not found among its own siblings — the ``wbs_path`` corruption case #3319's sibling guard catches. Verified against the three guards in ``post``. Also refused with ``summary_start_link`` when the task is a leaf that drives a Start-to-Start or Start-to-Finish link and has following siblings to adopt: adopting them would make it a summary, which ADR-0370 forbids to drive one (#4830)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -23750,24 +23821,7 @@
                         },
                         "description": ""
                     },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
                     "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -23790,10 +23844,58 @@
                                             ],
                                             "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
                                             "example": "invalid_body"
+                                        },
+                                        "blocking_dependencies": {
+                                            "type": "array",
+                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "dep_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "SS",
+                                                            "SF"
+                                                        ],
+                                                        "x-trueppm-enum": "open"
+                                                    },
+                                                    "successor_id": {
+                                                        "type": "string",
+                                                        "format": "uuid",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "dep_type",
+                                                    "successor_id"
+                                                ]
+                                            }
                                         }
                                     },
                                     "additionalProperties": {
                                         "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The move is refused: the target is the task itself or one of its descendants, the task or the target has no ``wbs_path``, the target is a milestone (``child_of_milestone``), or the target is a leaf that drives a Start-to-Start or Start-to-Finish link (``summary_start_link``, #4830) — its first child would make it a summary, which ADR-0370 forbids to drive one. The last carries ``blocking_dependencies``."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
                                     }
                                 }
                             }
@@ -24197,24 +24299,7 @@
                         },
                         "description": ""
                     },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
                     "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -24237,10 +24322,58 @@
                                             ],
                                             "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
                                             "example": "invalid_body"
+                                        },
+                                        "blocking_dependencies": {
+                                            "type": "array",
+                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "dep_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "SS",
+                                                            "SF"
+                                                        ],
+                                                        "x-trueppm-enum": "open"
+                                                    },
+                                                    "successor_id": {
+                                                        "type": "string",
+                                                        "format": "uuid",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "dep_type",
+                                                    "successor_id"
+                                                ]
+                                            }
                                         }
                                     },
                                     "additionalProperties": {
                                         "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The reorder is refused: ``ordered_ids`` names a task that is not a live sibling under ``parent_path``, or omits one (field-keyed ``ordered_ids`` errors); or (``summary_start_link``, #4830) a sibling would land on a position whose children stay in place, giving it its first child while it drives a Start-to-Start or Start-to-Finish link — a summary may not drive one (ADR-0370). The last carries ``blocking_dependencies``."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
                                     }
                                 }
                             }
@@ -44058,7 +44191,7 @@
                         "description": ""
                     },
                     "409": {
-                        "description": "The act can no longer be reversed safely — body is ``{\"code\": ..., \"detail\": ..., ...}`` with ``code`` one of ``too_large``, ``not_top_of_stack`` (extra: ``blocking_operation_id``) or ``shape_changed`` (extra: ``changed``), matching ``StructuralUndoBlockedReason``."
+                        "description": "The act can no longer be reversed safely — body is ``{\"code\": ..., \"detail\": ..., ...}`` with ``code`` one of ``too_large``, ``not_top_of_stack`` (extra: ``blocking_operation_id``) or ``shape_changed`` (extra: ``changed``), matching ``StructuralUndoBlockedReason``. A reversal whose result the graph guard would refuse is also a 409: ``summary_start_link`` (extra: ``blocking_dependencies``) when it would make a task that has since gained a Start-to-Start or Start-to-Finish link a summary again (ADR-0370, #4830), or the guard's cycle codes (extra: ``offending``)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -46900,6 +47033,60 @@
                             }
                         },
                         "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string"
+                                        },
+                                        "code": {
+                                            "type": "string",
+                                            "enum": [
+                                                "summary_start_link"
+                                            ],
+                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "x-trueppm-enum": "open"
+                                        },
+                                        "blocking_dependencies": {
+                                            "type": "array",
+                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "format": "uuid"
+                                                    },
+                                                    "dep_type": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "SS",
+                                                            "SF"
+                                                        ],
+                                                        "x-trueppm-enum": "open"
+                                                    },
+                                                    "successor_id": {
+                                                        "type": "string",
+                                                        "format": "uuid",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "dep_type",
+                                                    "successor_id"
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The task's parent has no other live child and drives a Start-to-Start or Start-to-Finish link: restoring the task would make that parent a summary, which ADR-0370 forbids to drive one (#4830)."
                     },
                     "409": {
                         "description": "The task's WBS position was allocated to another live task while it was deleted. The body names the occupant (#3071)."
@@ -57320,6 +57507,13 @@
                     "assignee_resolved": {
                         "type": "boolean",
                         "description": "True if `assignee_email` matched a project member and was linked."
+                    },
+                    "warnings": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Non-fatal notes about this push; absent when there are none. Today only: the task was not attached under its parent because the parent drives a Start-to-Start or Start-to-Finish link and a summary may not (ADR-0370), so it was added to the backlog instead."
                     }
                 },
                 "required": [
@@ -75789,7 +75983,7 @@
                             "dependencies_skipped": {
                                 "type": "integer",
                                 "minimum": 0,
-                                "description": "Edges NOT re-created because the other end no longer exists — a non-zero value means the restored graph is incomplete."
+                                "description": "Edges NOT re-created because the other end no longer exists, or because the edge is a Start-to-Start or Start-to-Finish link out of a task the undo makes a summary again (ADR-0370, #4830) — a non-zero value means the restored graph is incomplete."
                             }
                         },
                         "required": [

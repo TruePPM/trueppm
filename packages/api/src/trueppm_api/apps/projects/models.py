@@ -2051,6 +2051,12 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
         deleted_version=None,
         deleted_at=None,
     )
+    # ADR-0370 (#4830): a revived link — typically a cross-project one — whose
+    # predecessor became a summary while this project sat in the trash would fail
+    # every recalculation of that predecessor's project. Retire it again.
+    from trueppm_api.apps.projects.summary_link_guard import retire_revived_summary_start_links
+
+    retire_revived_summary_start_links(Task.objects.filter(project_id=project_id, is_deleted=False))
     Sprint.objects.filter(project_id=project_id, is_deleted=True).update(
         is_deleted=False,
         server_version=F("server_version") + 1,
@@ -2256,6 +2262,11 @@ def cascade_task_children_restore(task: Task) -> None:
         deleted_version=None,
         deleted_at=None,
     )
+    # ADR-0370 (#4830): a revived SS/SF link whose predecessor became a summary while
+    # this subtree sat in the trash would fail every recalculation. Retire it again.
+    from trueppm_api.apps.projects.summary_link_guard import retire_revived_summary_start_links
+
+    retire_revived_summary_start_links(subtree.filter(is_deleted=False))
 
 
 def _repath_occupied_descendants(task: Task, seq: int) -> None:

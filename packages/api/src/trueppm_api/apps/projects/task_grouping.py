@@ -301,7 +301,11 @@ def _park_level(project_id: Any, parent_path: str, rows: list[Task], base: int) 
 #: A project's dependency edges and WBS children-map — the two inputs the ADR-0259
 #: guard reads. Captured before a restructure so a verdict on the post-state can be
 #: compared against the pre-state rather than blamed on this operation blindly.
-GraphState = tuple[list[tuple[str, str]], dict[str, list[str]]]
+#:
+#: Each edge is ``(predecessor, successor, dep_type)``. The type is what lets the guard
+#: see an SS/SF link out of a summary (ADR-0370), which the untyped cycle check cannot —
+#: the gap #4830 found on every restructure path.
+GraphState = tuple[list[tuple[str, str, str]], dict[str, list[str]]]
 
 
 def capture_graph_state(project_id: Any) -> GraphState:
@@ -313,10 +317,10 @@ def capture_graph_state(project_id: Any) -> GraphState:
     if not task_ids:
         return [], {}
     edges = [
-        (str(pred), str(succ))
-        for pred, succ in Dependency.objects.filter(
+        (str(pred), str(succ), str(dep_type))
+        for pred, succ, dep_type in Dependency.objects.filter(
             is_deleted=False, predecessor_id__in=[uuid.UUID(t) for t in task_ids]
-        ).values_list("predecessor_id", "successor_id")
+        ).values_list("predecessor_id", "successor_id", "dep_type")
     ]
     return edges, children_map
 
@@ -338,7 +342,11 @@ def _assert_schedulable(state: GraphState) -> None:
     ``raise ... from`` is then an exception by construction rather than by a nullable
     return the reader (and every static analyzer) has to prove non-``None`` themselves.
     """
-    from trueppm_api.apps.scheduling.graph_guard import validate_task_graph
+    from trueppm_api.apps.scheduling.graph_guard import (
+        InfeasibleGraphError,
+        find_summary_start_links,
+        validate_task_graph,
+    )
 
     edges, children_map = state
     if not edges:
@@ -346,7 +354,15 @@ def _assert_schedulable(state: GraphState) -> None:
         # to prove it. A plan with no dependencies is the common case for the outline
         # this endpoint serves, so the cheap exit is the usual one.
         return
-    validate_task_graph(edges, children_map=children_map)
+    validate_task_graph([(p, s) for p, s, _ in edges], children_map=children_map)
+    # ADR-0370: the engine refuses an SS/SF link out of a summary on every
+    # recalculation, so a restructure that leaves one behind is as unschedulable as
+    # one that leaves a cycle (#4830). Blames the summaries, deduplicated in order.
+    offending = find_summary_start_links(edges, children_map.keys())
+    if offending:
+        raise InfeasibleGraphError(
+            "summary_start_link", list(dict.fromkeys(p for p, _, _ in offending))
+        )
 
 
 def _is_schedulable(state: GraphState) -> bool:

@@ -46,6 +46,7 @@ from trueppm_api.apps.projects.refusal_codes import StructuralUndoBlockedReason
 from trueppm_api.apps.projects.restructure_hooks import (
     broadcast_tasks_restructured_and_recalc,
 )
+from trueppm_api.apps.scheduling.graph_guard import SUMMARY_FORBIDDEN_LINK_TYPES
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -461,8 +462,10 @@ def _restore_deleted_rows(locked: Any, task_model: Any) -> int:
     return restored
 
 
-def _restore_dependencies(locked: Any, task_model: Any, dependency_model: Any) -> tuple[int, int]:
-    """Undo step 2 — restore edges, returning ``(restored, skipped)``.
+def _restore_dependencies(
+    locked: Any, task_model: Any, dependency_model: Any
+) -> tuple[list[Any], int]:
+    """Undo step 2 — restore edges, returning ``(restored rows, skipped count)``.
 
     Only where both endpoints are live and the row would not collide on
     ``unique_dependency``. ``capture_graph_state`` builds its edge list from tasks
@@ -472,7 +475,7 @@ def _restore_dependencies(locked: Any, task_model: Any, dependency_model: Any) -
 
     Caller holds ``transaction.atomic()`` — ``select_for_update()`` below requires it.
     """
-    restored = 0
+    restored: list[Any] = []
     skipped = 0
     for dep in dependency_model.objects.select_for_update().filter(
         pk__in=locked.removed_dependency_ids,
@@ -501,8 +504,71 @@ def _restore_dependencies(locked: Any, task_model: Any, dependency_model: Any) -
             skipped += 1
             continue
         dep.restore()
-        restored += 1
+        restored.append(dep)
     return restored, skipped
+
+
+def _retire_restored_summary_start_links(locked: Any, restored: list[Any]) -> int:
+    """Undo step 2b — re-remove restored SS/SF links out of a summary; return how many.
+
+    The edges step 2 revives were removed by the forward act, and the only act that
+    removes edges is ungroup, which takes its container's links with it. A container
+    has children, so an SS/SF link on it was already forbidden by ADR-0370 when the
+    ungroup ran — the ungroup incidentally repaired the plan, and reviving that link
+    would make every recalculation refuse it again (#4830). Treated like step 2's own
+    skips: the undo completes and the link is counted in ``dependencies_skipped``.
+
+    Runs after the shape and the minted rows are settled, because summary status is a
+    property of the final tree. Reads the project's children map only when a restored
+    edge is SS/SF, which is the rare case; every other undo pays nothing.
+    """
+    from trueppm_api.apps.projects.serializers import _load_project_tasks_and_children_map
+    from trueppm_api.apps.scheduling.graph_guard import find_summary_start_links
+
+    candidates = [d for d in restored if d.dep_type in SUMMARY_FORBIDDEN_LINK_TYPES]
+    if not candidates:
+        return 0
+    _, children_map = _load_project_tasks_and_children_map(locked.project_id)
+    offending = set(
+        find_summary_start_links(
+            ((str(d.predecessor_id), str(d.successor_id), d.dep_type) for d in candidates),
+            children_map.keys(),
+        )
+    )
+    retired = 0
+    for dep in candidates:
+        if (str(dep.predecessor_id), str(dep.successor_id), dep.dep_type) in offending:
+            dep.soft_delete()
+            retired += 1
+    return retired
+
+
+def _undo_rejection_for(rejected: Any, project_id: Any) -> StructuralUndoRejected:
+    """Re-express a graph-guard refusal in the undo endpoint's 409 vocabulary.
+
+    For ``summary_start_link`` — the undo would give a task back the children it had,
+    after it gained an SS/SF link while it was a leaf (ADR-0370, #4830) — the body is
+    the same ``detail`` + ``blocking_dependencies`` the indent/outdent/reparent
+    refusals carry, so a client handles every instance of the code one way. Any other
+    guard code passes through with its own detail and extras.
+    """
+    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.summary_link_guard import summary_start_link_block
+
+    body = dict(getattr(rejected, "body", {}) or {})
+    code = str(body.pop("code", getattr(rejected, "code", "invalid_graph_input")))
+    detail = str(body.pop("detail", str(rejected)))
+    if code == "summary_start_link":
+        for task_id in body.get("offending") or []:
+            task = Task.objects.filter(pk=task_id, project_id=project_id).first()
+            block = summary_start_link_block(task) if task is not None else None
+            if block is not None:
+                return StructuralUndoRejected(
+                    code,
+                    f"This undo cannot be applied: {block.detail}",
+                    extra={"blocking_dependencies": block.blocking_dependencies},
+                )
+    return StructuralUndoRejected(code, detail, extra=body)
 
 
 def _restore_shape(locked: Any, task_model: Any) -> int:
@@ -565,7 +631,11 @@ def undo_structural_operation(
         SyncBatchOperationStatus,
         Task,
     )
-    from trueppm_api.apps.projects.task_grouping import assert_graph_feasible, capture_graph_state
+    from trueppm_api.apps.projects.task_grouping import (
+        GroupingRejected,
+        assert_graph_feasible,
+        capture_graph_state,
+    )
 
     # `StructuralOperationViewSet` already carries `IsProjectNotArchived`, so this is
     # not closing an open hole — it makes the floor uniform across the family after
@@ -616,11 +686,15 @@ def undo_structural_operation(
         # guards the way it does.
         deleted_restored = _restore_deleted_rows(locked, Task)
 
-        deps_restored, deps_skipped = _restore_dependencies(locked, Task, Dependency)
+        restored_deps, deps_skipped = _restore_dependencies(locked, Task, Dependency)
 
         restored = _restore_shape(locked, Task)
 
         created_removed = _unmint_created_rows(locked, Task)
+
+        retired = _retire_restored_summary_start_links(locked, restored_deps)
+        deps_restored = len(restored_deps) - retired
+        deps_skipped += retired
 
         # A row that gained or lost children needs its shadow values re-parked. Every
         #    distinct parent path on either side of the restore is a candidate; reading
@@ -628,7 +702,13 @@ def undo_structural_operation(
         #    paths where the forward endpoints skip it.
         _resync_shadow_values(locked)
 
-        assert_graph_feasible(locked.project_id, graph_before)
+        try:
+            assert_graph_feasible(locked.project_id, graph_before)
+        except GroupingRejected as rejected:
+            # The undo surface refuses with a 409 `StructuralUndoRejected`; letting the
+            # group/ungroup exception escape here was a 500 (#4830). Raised inside the
+            # atomic block, so every step above rolls back.
+            raise _undo_rejection_for(rejected, locked.project_id) from rejected
 
         summary = {
             "restored": restored,

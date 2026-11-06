@@ -109,7 +109,17 @@ def _labelled(node: str, labels: Mapping[str, str]) -> str:
     raw than a JSON field. A name carrying its own line breaks could otherwise
     fake the end of the message and append a sentence of its own.
     """
-    printable = _CONTROL_CHARS.sub(" ", labels.get(node, node))
+    return printable_label(labels.get(node, node))
+
+
+def printable_label(text: str) -> str:
+    """``text`` made safe to embed in a one-line refusal: no control chars, bounded length.
+
+    The sanitizing half of :func:`_labelled`, exposed for refusals that name tasks
+    outside the cycle renderer (the SS/SF-from-summary refusal, #4830) so the two
+    cannot disagree about what a task name is allowed to do to a message.
+    """
+    printable = _CONTROL_CHARS.sub(" ", text)
     return _elide(" ".join(printable.split()), MAX_LABEL_CHARS)
 
 
@@ -268,6 +278,34 @@ def validate_task_graph(
     result = find_cycle(edges, children_map=children_map)
     if result.cycle is not None:
         raise InfeasibleGraphError("cyclic_dependency", result.cycle)
+
+
+#: Link types a summary task may not drive (ADR-0370). A summary's START is its
+#: earliest-starting leaf, but the engine fans a summary edge out to every leaf with
+#: its type intact, so an SS/SF link from a summary would bind its successor to the
+#: summary's *latest* leaf start instead. The engine refuses such an edge on every
+#: recalculation (``_reject_summary_start_links``); this is the same rule, stated
+#: once for every writer that persists an edge or turns a task into a summary
+#: without going through ``DependencySerializer`` (#4830).
+SUMMARY_FORBIDDEN_LINK_TYPES: frozenset[str] = frozenset(
+    {DependencyType.SS.value, DependencyType.SF.value}
+)
+
+
+def find_summary_start_links(
+    edges: Iterable[tuple[str, str, str]],
+    summary_ids: Iterable[str],
+) -> list[tuple[str, str, str]]:
+    """The ``(predecessor, successor, dep_type)`` edges the engine refuses: SS/SF from a summary.
+
+    Pure and id-space agnostic, like :func:`validate_task_graph`: importers call it
+    with the ids they hold in memory before writing, structural edits with task pks.
+    Returns the offending edges in input order rather than raising, because the two
+    kinds of caller disagree on what to do with them — an import skips each one with
+    a warning, a structural edit refuses the whole request.
+    """
+    summaries = set(summary_ids)
+    return [(p, s, t) for p, s, t in edges if t in SUMMARY_FORBIDDEN_LINK_TYPES and p in summaries]
 
 
 #: ``(predecessor_id, successor_id, dep_type, lag_days)`` — an edge with the type and

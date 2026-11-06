@@ -1901,6 +1901,15 @@ class _SeedImporter:
             project_slug, wbs = enclosing_project, ref
         return self.tasks[(project_slug, wbs)]
 
+    def _summary_task_ids(self) -> set[str]:
+        """Pks of every seeded task with a direct child, across all seeded projects.
+
+        Keyed per project because a WBS path is only unique within one. Read in
+        Pass B, once every task exists, so a child declared after its parent counts.
+        """
+        parents = {(slug, wbs.rpartition(".")[0]) for slug, wbs in self.tasks if "." in str(wbs)}
+        return {str(task.pk) for key, task in self.tasks.items() if key in parents}
+
     def _link_dependencies(self, project: Project, data: dict[str, Any]) -> None:
         """Materialize the project's CPM edges in one batch per owning project.
 
@@ -1910,6 +1919,8 @@ class _SeedImporter:
         enclosing block — a seed may reference a task in any project of the
         program (the ADR-0120 D1 envelope), so the two are not the same set.
         """
+        from trueppm_api.apps.projects.summary_link_guard import split_summary_start_links
+
         slug = data["slug"]
         by_owner: dict[Any, list[Dependency]] = defaultdict(list)
         for dep in data.get("dependencies", []):
@@ -1922,6 +1933,22 @@ class _SeedImporter:
                     lag=dep.get("lag", 0),
                 )
             )
+        summary_ids = self._summary_task_ids()
+        for project_id in list(by_owner):
+            # ADR-0370 (#4830): an SS/SF link out of a summary would leave the seeded
+            # project refusing every recalculation. Skip it, loudly, like any other
+            # link a seed asks for that the instance cannot honor.
+            kept, skipped = split_summary_start_links(by_owner[project_id], summary_ids)
+            for bad in skipped:
+                logger.warning(
+                    "seed.dependency_skipped project=%s predecessor=%s successor=%s "
+                    "dep_type=%s: a summary task cannot drive an SS/SF link (ADR-0370)",
+                    slug,
+                    bad.predecessor.wbs_path,
+                    bad.successor.wbs_path,
+                    bad.dep_type,
+                )
+            by_owner[project_id] = kept
         for project_id, rows in by_owner.items():
             self._bulk_insert(Dependency, rows, project_ids=[project_id])
 

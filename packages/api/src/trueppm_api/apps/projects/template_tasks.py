@@ -145,6 +145,9 @@ def apply_template(self: Any, application_id: str) -> dict[str, Any]:
                 "milestones_created": result.milestones_created,
                 "dependencies_created": result.dependencies_created,
             }
+            if result.warnings:
+                # Edges the document carried but this apply did not write (#4830).
+                application.result_summary["warnings"] = result.warnings
             application.save(
                 update_fields=[
                     "created_task_ids",

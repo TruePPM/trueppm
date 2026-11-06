@@ -44,6 +44,13 @@ durable handle: it exists the moment the request commits, and `GET
 /api/v1/template-applications/{id}/` reports `pending` → `running` → `success` /
 `failed`.
 
+On `success`, `result_summary` carries `tasks_created`, `milestones_created` and
+`dependencies_created`. Starting with 0.5 it will also carry `warnings`, a list of sentences
+naming every link the document held but the apply did not write. Today the only
+such link is a Start-to-Start or Start-to-Finish link out of a summary task, which
+the scheduler cannot honor ([ADR-0370](/features/scheduler-conventions/)). The key
+is absent when nothing was skipped.
+
 The gallery does **not** publish the `structure` document. A gallery reader is a
 wider audience than the source project's members, so a whole project's shape
 (task names included) must not ride a list endpoint. `task_count` is the server's
@@ -247,10 +254,14 @@ still carries part of what you asked to remove.
 | `POST /api/v1/structural-operations/{id}/undo/` | `restored`, `created_removed`, `deleted_restored`, `dependencies_restored`, `dependencies_skipped` |
 
 The structural undo is all-or-nothing, so its counts always describe a completed
-reversal — a refusal is a `409` with no summary at all. A non-zero
-`dependencies_skipped` there means an edge could not be re-created because its other
-end no longer exists, so the restored graph is **incomplete** and the user has links
-to redraw.
+reversal — a refusal is a `409` with no summary at all, including one whose
+result would make a task that has since gained a Start-to-Start or Start-to-Finish
+link a summary again (`code: "summary_start_link"`, with `blocking_dependencies`;
+ships in 0.5). A non-zero `dependencies_skipped` there means an edge was not
+re-created, so the restored graph is **incomplete** and the user has links to
+redraw: either its other end no longer exists, or (ships in 0.5) it is a
+Start-to-Start or Start-to-Finish link out of a task the undo makes a summary again
+([ADR-0370](/features/scheduler-conventions/)).
 
 #### Client-minted ids
 

@@ -57,6 +57,7 @@ def import_project(
     from django.conf import settings
 
     from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.summary_link_guard import summary_ids_from_paths
 
     # Chunk every bulk_create (#1721) so a large import is not emitted as one
     # unbounded multi-row INSERT (which pins the whole set in a single statement
@@ -110,7 +111,12 @@ def import_project(
     # --- Step 3: Create dependencies ---
     _update(50, "Creating dependencies...")
     _import_dependencies(
-        data, task_uid_to_pk, summary, project_id=project_id, batch_size=batch_size
+        data,
+        task_uid_to_pk,
+        summary,
+        project_id=project_id,
+        batch_size=batch_size,
+        summary_task_ids=summary_ids_from_paths((t.pk, t.wbs_path) for t in task_objects),
     )
 
     # --- Step 4: Create resource assignments ---
@@ -717,12 +723,23 @@ def _import_dependencies(
     *,
     project_id: str,
     batch_size: int,
+    summary_task_ids: set[str] | None = None,
 ) -> None:
     """Create Dependency rows from parsed predecessor links.
 
-    Warns (one entry per link) on any predecessor UID absent from the import.
+    Warns (one entry per link) on any predecessor UID absent from the import, and on
+    any Start-to-Start / Start-to-Finish link out of a summary task (#4830). ADR-0370
+    forbids that link and the CPM pass refuses every recalculation of a project that
+    holds one, so writing it would leave the imported plan unschedulable until
+    someone found and deleted it. MS Project itself allows the link, so a real file
+    can carry one; it is skipped rather than failing the whole import over one edge.
+    ``summary_task_ids`` is the set of imported task pks that have children.
     """
     from trueppm_api.apps.projects.models import Dependency
+    from trueppm_api.apps.projects.summary_link_guard import (
+        skipped_link_warning,
+        split_summary_start_links,
+    )
 
     dep_objects: list[Dependency] = []
     for td in data.tasks:
@@ -743,6 +760,20 @@ def _import_dependencies(
                     successor_id=successor_pk,
                     dep_type=pl.dep_type,
                     lag=pl.lag_days,
+                )
+            )
+
+    dep_objects, skipped = split_summary_start_links(dep_objects, summary_task_ids or set())
+    if skipped:
+        names = {
+            str(task_uid_to_pk[td.uid]): td.name for td in data.tasks if td.uid in task_uid_to_pk
+        }
+        for dep in skipped:
+            summary["warnings"].append(
+                skipped_link_warning(
+                    names.get(str(dep.predecessor_id), "unknown task"),
+                    names.get(str(dep.successor_id), "unknown task"),
+                    str(dep.dep_type),
                 )
             )
 
