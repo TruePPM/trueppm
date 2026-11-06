@@ -24242,7 +24242,7 @@
         "/api/v1/projects/{id}/tasks/reorder/": {
             "post": {
                 "operationId": "v1_projects_tasks_reorder_create",
-                "description": "Reorder sibling tasks within a WBS level.\n\nPOST /api/v1/projects/{pk}/tasks/reorder/\n\nBody:\n    {\n        \"parent_path\": \"1.2\",          # empty string for root level\n        \"ordered_ids\": [\"<uuid>\", ...]  # all live siblings in desired order\n    }\n\nThe server recomputes wbs_path for every sibling (e.g. \"1.2.1\", \"1.2.2\",\n...) and saves them atomically.  All supplied IDs must be live, non-deleted\ntasks belonging to this project under the given parent — otherwise 400.\n\nReturns:\n    200 { \"updated\": [{ \"id\": \"<uuid>\", \"wbs_path\": \"1.2.1\" }, ...] }",
+                "description": "Reorder sibling tasks within a WBS level.\n\nPOST /api/v1/projects/{pk}/tasks/reorder/\n\nBody:\n    {\n        \"parent_path\": \"1.2\",          # empty string for root level\n        \"ordered_ids\": [\"<uuid>\", ...]  # all live siblings in desired order\n    }\n\nThe server recomputes wbs_path for every sibling (e.g. \"1.2.1\", \"1.2.2\",\n...) and saves them atomically.  All supplied IDs must be live, non-deleted\ntasks belonging to this project under the given parent — otherwise 400.\n\nEach sibling carries its whole subtree: descendants' paths are rewritten under\nthe sibling's new path, so parent/child relationships are preserved (#4842).\n\nReturns:\n    200 { \"updated\": [{ \"id\": \"<uuid>\", \"wbs_path\": \"1.2.1\" }, ...] } — the\n    siblings plus every descendant whose path moved.",
                 "summary": "Reorder sibling tasks within a WBS level",
                 "parameters": [
                     {
@@ -24322,37 +24322,6 @@
                                             ],
                                             "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
                                             "example": "invalid_body"
-                                        },
-                                        "blocking_dependencies": {
-                                            "type": "array",
-                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "id": {
-                                                        "type": "string",
-                                                        "format": "uuid"
-                                                    },
-                                                    "dep_type": {
-                                                        "type": "string",
-                                                        "enum": [
-                                                            "SS",
-                                                            "SF"
-                                                        ],
-                                                        "x-trueppm-enum": "open"
-                                                    },
-                                                    "successor_id": {
-                                                        "type": "string",
-                                                        "format": "uuid",
-                                                        "nullable": true
-                                                    }
-                                                },
-                                                "required": [
-                                                    "id",
-                                                    "dep_type",
-                                                    "successor_id"
-                                                ]
-                                            }
                                         }
                                     },
                                     "additionalProperties": {
@@ -24361,7 +24330,7 @@
                                 }
                             }
                         },
-                        "description": "The reorder is refused: ``ordered_ids`` names a task that is not a live sibling under ``parent_path``, or omits one (field-keyed ``ordered_ids`` errors); or (``summary_start_link``, #4830) a sibling would land on a position whose children stay in place, giving it its first child while it drives a Start-to-Start or Start-to-Finish link — a summary may not drive one (ADR-0370). The last carries ``blocking_dependencies``."
+                        "description": "The reorder is refused: ``ordered_ids`` names a task that is not a live sibling under ``parent_path``, or omits one (field-keyed ``ordered_ids`` errors)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
