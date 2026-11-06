@@ -168,6 +168,16 @@ Rules:
   `ux-review`, which checks WCAG 2.2 AA by definition, and giving them a second name
   would split one diff's findings across two counters and corrupt both yields. Absence
   from this list means "not a findings gate", not "forgotten" (#2616).
+- **Cost line (optional, one estimate).** Ask `scripts/cost-ledger enabled` first; exit 0 means
+  write it, anything else means write none. `est-cost-usd: <N.NN> (prices YYYY-MM-DD)` is the stdout
+  of `python3 scripts/est-cost.py --agent <id> ... --since <implementer spawn, UTC> --until <go-ahead, UTC>`:
+  the orchestrator window plus the named agents and their descendants, priced per response at list
+  prices from `.claude/model-prices.json`. Paste it unchanged. It is a list-price equivalent, not what a
+  subscription charged, and never a measured figure. The script prints a `note:` and exits 1 (no line)
+  when the price table is older than 90 days, a model has no row, or a transcript is missing; put that
+  note under `## Notes`. `scripts/subagent-tokens.py` and `scripts/orchestrator-tokens.py` give the
+  measured counts. Ported from macrodream/blueprint (#364); refresh `.claude/model-prices.json` from its
+  `source` URL when `checked` ages out.
 - **`0 findings` is a real and expected outcome — record it.** The temptation is to omit
   a gate that found nothing because the line looks like noise. That omission is precisely
   what destroys the metric: zeros are the signal that a gate has stopped earning its
