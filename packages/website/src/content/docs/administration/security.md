@@ -504,7 +504,9 @@ The same protection holds for a request that is already running when the reset
 commits. Creating a personal token, project token, program token, share link,
 git-automation secret, outgoing webhook (or editing its URL or secret, or
 re-enabling it), or workspace invite takes a lock on the account's profile row,
-and the reset (or `revoke_api_tokens --user` / `--all-personal`) takes the same
+and the reset (or `revoke_api_tokens --user`, or the accounts `--all-personal`
+resolved before its confirmation prompt, see
+[#4753](https://gitlab.com/trueppm/trueppm/-/issues/4753)) takes the same
 lock. The two therefore run one after the other. A creation that commits before
 the revocation takes the lock is seen by its sweep, so a personal token, share
 link, git-automation secret, outgoing webhook, or workspace invite is revoked

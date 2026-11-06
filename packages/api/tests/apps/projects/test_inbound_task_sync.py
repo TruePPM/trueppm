@@ -196,15 +196,19 @@ def test_token_for_other_project_is_rejected_with_401(
 
 
 @pytest.mark.django_db
-def test_valid_token_updates_last_used_at(project: Project, admin_user: Any) -> None:
+def test_valid_token_updates_last_used_at(
+    project: Project, admin_user: Any, django_capture_on_commit_callbacks: Any
+) -> None:
     token, raw = _mint_token(project, admin_user)
     assert token.last_used_at is None
     client = _bearer(APIClient(), raw)
-    resp = client.post(
-        f"/api/v1/projects/{project.pk}/task-sync/",
-        {"source": "jira", "external_id": "X-1", "name": "Issue 1"},
-        format="json",
-    )
+    # The stamp is deferred to commit so a request never holds the token row lock (#4839).
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.post(
+            f"/api/v1/projects/{project.pk}/task-sync/",
+            {"source": "jira", "external_id": "X-1", "name": "Issue 1"},
+            format="json",
+        )
     assert resp.status_code == 201
     token.refresh_from_db()
     assert token.last_used_at is not None

@@ -143,7 +143,10 @@ def lock_and_recheck_credential_cutoff(request: Any) -> None:
 
     Call it **first** in the mint, before any other row lock, so every path acquires
     the profile lock before the rows the sweep touches (no lock-order inversion with
-    the reset). It must run inside the request's transaction (``ATOMIC_REQUESTS``) so
+    the reset). That includes the credential's own row: an API-token caller's
+    ``last_used_at`` stamp is deferred to ``on_commit`` precisely so the request holds
+    no ``ApiToken`` row lock when it gets here (``OwnerScopedApiTokenAuthentication``).
+    It must run inside the request's transaction (``ATOMIC_REQUESTS``) so
     the lock is held until the mint commits; outside one ``select_for_update`` raises
     ``TransactionManagementError`` rather than silently locking nothing.
 
@@ -180,6 +183,10 @@ def lock_and_recheck_credential_cutoff(request: Any) -> None:
 
     auth: Any = getattr(request, "auth", None)
     if isinstance(auth, ApiToken):
+        # Fail-closed under cross-pod clock skew: created_at comes from the minting pod's
+        # clock and the cutoff from the resetting pod's, so a PAT legitimately created just
+        # after a reset on a slow-clocked pod can land at or before the cutoff and be
+        # refused here until the next cutoff.
         refused = issued_before_cutoff(auth.created_at.timestamp(), cutoff, whole_seconds=False)
     else:
         iat = auth.get("iat") if auth is not None and hasattr(auth, "get") else None

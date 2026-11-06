@@ -272,8 +272,11 @@ class Command(BaseCommand):
         )
         from trueppm_api.apps.access.signals import evict_all_live_project_sockets
 
-        revoke_all_personal_access_tokens(user, reason="bootstrap_promotion")
+        # Stamp the credential cutoff (and so take the UserProfile lock) before the PAT
+        # sweep, as a password reset does (#4839): a mint in flight then either committed
+        # before the sweep or is refused after it.
         revoke_all_refresh_tokens(user)
+        revoke_all_personal_access_tokens(user, reason="bootstrap_promotion")
         revoke_personal_durable_grants(user)
         SocialAccount.objects.filter(user=user).delete()
         evict_all_live_project_sockets(user.pk)

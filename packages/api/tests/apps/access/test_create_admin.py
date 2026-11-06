@@ -8,6 +8,7 @@ import threading
 from datetime import date
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -397,3 +398,30 @@ def test_concurrent_bootstraps_mint_exactly_one_password(tmp_path: Path) -> None
     with open(pw_file) as fh:
         password = fh.read().strip()
     assert User.objects.get(email="admin@example.com").check_password(password)
+
+
+@pytest.mark.django_db
+def test_promotion_stamps_the_cutoff_before_sweeping_pats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The credential cutoff (and its profile lock) lands before the PAT sweep (#4839)."""
+    from trueppm_api.apps.access import services
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "1")
+    existing = User.objects.create_user(
+        username="someone2", email="admin@example.com", password="x"
+    )
+    _mint_pat(existing)
+    seen: list[bool] = []
+    real = services.revoke_all_personal_access_tokens
+
+    def _spy(user: Any, **kwargs: Any) -> int:
+        profile = UserProfile.objects.filter(user=user).first()
+        seen.append(profile is not None and profile.credentials_revoked_at is not None)
+        return real(user, **kwargs)
+
+    monkeypatch.setattr(services, "revoke_all_personal_access_tokens", _spy)
+    with patch(_CMD, str(tmp_path / "pw")):
+        call_command("create_admin", stdout=StringIO())
+    assert seen == [True]

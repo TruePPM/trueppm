@@ -299,10 +299,10 @@ def _no_grants(user: Any) -> None:
 
 
 def _reset_first(
-    reset_kind: str, call: Callable[[APIClient], Any], user: Any
+    reset_kind: str, call: Callable[[APIClient], Any], user: Any, bearer: str | None = None
 ) -> tuple[_Reset, dict[str, Any]]:
-    """Park a revocation at its commit point, then run ``call`` with a pre-reset JWT."""
-    stale = str(AccessToken.for_user(user))
+    """Park a revocation at its commit point, then run ``call`` with a pre-reset credential."""
+    stale = bearer or str(AccessToken.for_user(user))
     reset = _Reset(user, reset_kind)
     with patch(_EVICT, reset.hook()):
         resetter = reset.start()
@@ -322,12 +322,25 @@ def _mint_first(
     reset_kind: str,
     call: Callable[[APIClient], Any],
     user: Any,
+    bearer: str | None = None,
+    pause_before_lock: bool = False,
 ) -> dict[str, Any]:
-    """Park a mint holding the profile lock, then run a revocation against it."""
-    token = str(AccessToken.for_user(user))
+    """Park a mint holding the profile lock, then run a revocation against it.
+
+    With ``pause_before_lock`` the mint is parked after authentication but BEFORE it
+    takes the profile lock, holding whatever row locks authentication itself took (the
+    deadlock shape for an API-token caller). The revocation is then expected to run
+    to completion rather than park behind the mint.
+    """
+    token = bearer or str(AccessToken.for_user(user))
     locked, proceed = threading.Event(), threading.Event()
 
     def _pause_after_lock(request: Any) -> None:
+        if pause_before_lock:
+            locked.set()
+            assert proceed.wait(_TIMEOUT)
+            lock_and_recheck_credential_cutoff(request)
+            return
         lock_and_recheck_credential_cutoff(request)
         locked.set()
         assert proceed.wait(_TIMEOUT)
@@ -346,7 +359,8 @@ def _mint_first(
         blocked = _wait_until_blocked_or_done(resetter)
         # The revocation must be parked behind the mint. Without the lock it runs to
         # completion here, and the grant the mint writes afterwards escapes the sweep.
-        assert blocked and resetter.is_alive(), "the revocation did not wait for the mint"
+        if not pause_before_lock:
+            assert blocked and resetter.is_alive(), "the revocation did not wait for the mint"
         proceed.set()
         _join(minter, resetter)
     assert reset.status in (200, 0)
@@ -533,6 +547,63 @@ def test_pat_created_before_the_cutoff_is_refused_for_an_invite(user: Any) -> No
     resp = client.post("/api/v1/workspace/invites/", {"email": "pat-invitee@x.io"}, format="json")
     assert resp.status_code == 401, resp.data
     assert not WorkspaceInvite.objects.filter(email="pat-invitee@x.io").exists()
+
+
+# --- an API-token caller must not deadlock against a revocation (#4839) -----------
+
+_INVITE_URL = "/api/v1/workspace/invites/"
+_INVITE = _Mint(
+    "pat-invite", "trueppm_api.apps.workspace.views", lambda p, g: _INVITE_URL, {}, None
+)
+
+
+def _invite_call(client: APIClient) -> Any:
+    return client.post(_INVITE_URL, {"email": "pat-race@example.com"}, format="json")
+
+
+@pytest.mark.parametrize("reset_kind", ["view", "command"])
+def test_pat_caller_mint_does_not_deadlock_with_a_revocation(reset_kind: str, user: Any) -> None:
+    """Authentication used to hold the PAT row lock (a ``last_used_at`` UPDATE) while the
+    mint reached for the profile lock; the revocation takes them in the opposite order
+    and Postgres aborted one of them with ``deadlock detected``. A deadlocked reset rolls
+    back with a 500, so a stolen PAT could repeatedly break a reset.
+    """
+    raw = _pat_for(user)
+    out = _mint_first(_INVITE, reset_kind, _invite_call, user, bearer=raw, pause_before_lock=True)
+    # The revocation finished (``_mint_first`` asserts a clean status) and the mint, which
+    # carried a credential that predates the cutoff, was refused.
+    assert out["resp"].status_code == 401, out["resp"]
+    assert not WorkspaceInvite.objects.filter(email="pat-race@example.com").exists()
+
+
+@pytest.mark.parametrize("reset_kind", ["view", "command"])
+def test_pat_caller_mint_first_is_swept_and_reset_first_is_refused(
+    reset_kind: str, user: Any
+) -> None:
+    raw = _pat_for(user)
+    out = _mint_first(_INVITE, reset_kind, _invite_call, user, bearer=raw)
+    assert out["resp"].status_code == 201, out["resp"].data
+    assert not WorkspaceInvite.objects.filter(
+        invited_by=user, status=InviteStatus.PENDING
+    ).exists(), "the invite survived the sweep"
+
+
+def test_pat_caller_reset_first_is_refused(user: Any) -> None:
+    raw = _pat_for(user)
+    _, out = _reset_first("view", _invite_call, user, bearer=raw)
+    assert out["resp"].status_code == 401
+    assert not WorkspaceInvite.objects.filter(email="pat-race@example.com").exists()
+
+
+def test_pat_created_exactly_at_the_cutoff_is_refused(user: Any) -> None:
+    """The comparison is ``<=``: a credential at the cutoff's own instant cannot be ordered."""
+    raw = _pat_for(user)
+    pat = ApiToken.objects.get(owner=user, name="race-pat-auth")
+    mark_credentials_revoked(user, at=pat.created_at - timedelta(seconds=1))
+    assert UserProfile.objects.get(user=user).credentials_revoked_at == pat.created_at
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    assert _invite_call(client).status_code == 401
 
 
 def test_lock_creates_the_profile_row_when_none_exists(user: Any) -> None:

@@ -94,11 +94,15 @@ class TestProjectApiTokenAuthenticationSuccess:
         assert auth == token
         assert auth.is_program_scoped is True
 
-    def test_success_stamps_last_used_at(self, project: Project, creator: object) -> None:
+    def test_success_stamps_last_used_at(
+        self, project: Project, creator: object, django_capture_on_commit_callbacks: Any
+    ) -> None:
         token = _mint(project=project, created_by=creator)
         assert token.last_used_at is None
         before = timezone.now()
-        ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        # Deferred to commit so the request holds no token row lock (#4839).
+        with django_capture_on_commit_callbacks(execute=True):
+            ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
         token.refresh_from_db()
         assert token.last_used_at is not None
         assert token.last_used_at >= before
