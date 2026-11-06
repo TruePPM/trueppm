@@ -308,6 +308,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Configured git-automation secrets matched: {secrets_total}")
         self.stdout.write(f"Active outgoing webhooks matched: {webhooks_total}")
         self.stdout.write(f"Live project socket connections matched: {sockets_total}")
+        self.stdout.write(f"Accounts with existing access tokens cut off: {len(affected_users)}")
         return refresh_total, links_total, secrets_total, webhooks_total, sockets_total
 
     def _confirm(self, options: dict[str, Any], total: int) -> None:
@@ -456,6 +457,13 @@ class Command(BaseCommand):
             acct_webhooks_matched,
             sockets_matched,
         ) = self._report_account_sweep(affected_users)
+        # Every affected account is swept for its access tokens too (#4499):
+        # revoke_all_refresh_tokens stamps the credential cutoff. That always has
+        # an effect — an access JWT is stateless, so no row tells us whether one
+        # is outstanding — so it counts as a matched item. Without it, an account
+        # with nothing else left to revoke (logged out, no PAT, no membership)
+        # early-returned "Nothing to revoke." and its stolen access JWT stayed live.
+        cutoffs_matched = len(affected_users)
         links_matched += acct_links_matched
         invites_matched = self._count_pending_invites(options, affected_users)
         secrets_matched += acct_secrets_matched
@@ -470,6 +478,7 @@ class Command(BaseCommand):
                 refresh_matched,
                 sockets_matched,
                 invites_matched,
+                cutoffs_matched,
             )
         ):
             self.stdout.write(self.style.SUCCESS("Nothing to revoke."))
@@ -489,7 +498,8 @@ class Command(BaseCommand):
             + webhooks_matched
             + refresh_matched
             + sockets_matched
-            + invites_matched,
+            + invites_matched
+            + cutoffs_matched,
         )
         (
             revoked,
@@ -518,6 +528,11 @@ class Command(BaseCommand):
                     f"scheduled eviction of {sockets_evicted} live project connection(s)."
                 )
             )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Cut off existing access tokens for {len(affected_users)} account(s)."
+                )
+            )
         if invites_matched:
             scope = "instance-wide" if options["all"] else "sent by the targeted account(s)"
             self.stdout.write(
@@ -525,7 +540,20 @@ class Command(BaseCommand):
                     f"Revoked {invites_matched} pending workspace invite(s) {scope}."
                 )
             )
-        self.stdout.write(
-            "Sessions and JWTs are a separate credential class — rotate JWT_SIGNING_KEY "
-            "as well if you have not already (administration/security.md)."
-        )
+        # Per-mode, because only the per-account sweep reaches sessions: it runs
+        # revoke_all_refresh_tokens, which also stamps the credential cutoff (#4499)
+        # and so refuses those accounts' existing access JWTs. ``--all`` sweeps no
+        # account's sessions, and no mode reaches accounts outside its scope.
+        if options["all"] or not affected_users:
+            self.stdout.write(
+                "Sessions and JWTs are a separate credential class — rotate "
+                "JWT_SIGNING_KEY as well if you have not already "
+                "(administration/security.md)."
+            )
+        else:
+            self.stdout.write(
+                "The targeted account(s) are signed out everywhere: their refresh "
+                "tokens are revoked and their existing access tokens are refused. "
+                "Other accounts' sessions are untouched — rotate JWT_SIGNING_KEY to "
+                "sign everyone out (administration/security.md)."
+            )

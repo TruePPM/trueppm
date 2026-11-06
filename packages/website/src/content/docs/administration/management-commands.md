@@ -439,6 +439,14 @@ revocation time and is not audited a second time, and an already-expired token i
 neither counted nor audited as revoked (it already fails authentication). Tokens minted while the confirmation prompt is open are also revoked. Accounts
 that own only an expired token are still swept for their other credentials. On 0.4
 the commit re-dates concurrently revoked tokens and audits expired ones.
+
+`--user` and `--all-personal` will also refuse each swept account's existing
+access tokens, not only its refresh tokens, so those accounts are signed out
+everywhere immediately rather than when their access tokens expire (at most 15
+minutes). `--user` will do this even for an account that has nothing else left to
+revoke, such as one with no personal token whose refresh token was already
+revoked by signing out. The closing message will say so. `--all` does not sweep
+any account's sessions, so it will keep pointing at `JWT_SIGNING_KEY` rotation.
 :::
 
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI

@@ -112,7 +112,7 @@ REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
     # requests in the test suite exercise the real production auth wiring.
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication",
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "trueppm_api.core.authentication.CredentialCutoffJWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
 }

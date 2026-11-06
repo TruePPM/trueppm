@@ -195,6 +195,12 @@ account:
 docker compose exec api python manage.py changepassword <username>
 ```
 
+`changepassword` (and the Django admin's change-password form) only sets the new
+password. Unlike the self-service reset, it does not sign the account out:
+existing sessions, access tokens, personal tokens, share links and webhooks stay
+live. If the account may be compromised, use the reset flow instead, or follow up
+with `python manage.py revoke_api_tokens --user <username> --commit`.
+
 ## Forgot the admin password (no email configured)
 
 If you have lost the admin password and SMTP is not configured (common in self-hosted dev), shell into the container and reset directly:

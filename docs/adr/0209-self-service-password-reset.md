@@ -96,6 +96,16 @@ design. The access token (15-minute TTL, in-memory only) self-expires; there is 
 server-side access-token revocation by design, and 15 minutes is the accepted blast
 radius (ADR-0187).
 
+> **Superseded in part (2026-11-05, #4499).** The last sentence above no longer holds.
+> A still-valid access token could, inside that 15-minute window, mint a WebSocket
+> ticket (opening a socket after the reset's eviction ran) or a durable grant — a
+> personal token, project token, or share link — that outlived the reset, so the
+> blast radius was not bounded by 15 minutes at all. `revoke_all_refresh_tokens`
+> now also stamps a per-account credential cutoff (`UserProfile.credentials_revoked_at`),
+> and the JWT authenticator, the refresh endpoint and the WebSocket handshake refuse
+> any credential issued at or before it. See `core/credential_cutoff.py` for the
+> boundary and clock-skew rules.
+
 **Django sessions are deliberately *not* cleared.** Research confirms the SPA never
 authenticates via `django.contrib.sessions` — `SessionAuthentication` exists only
 for the Django admin and DRF browsable API. Clearing `django_session` rows would

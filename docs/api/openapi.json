@@ -1888,7 +1888,7 @@
         "/api/v1/auth/password/reset/confirm/": {
             "post": {
                 "operationId": "v1_auth_password_reset_confirm_create",
-                "description": "Validates the uid + token from the reset link and sets the new password. On success, every other active session for the account is revoked (all refresh tokens are blacklisted), the account's Personal Access Tokens are revoked, and its public share links and git-automation webhook secret are revoked/cleared. Returns 400 with `code: invalid_token` for an invalid or expired link, or `code: weak_password` with a `messages` list when the password fails policy.",
+                "description": "Validates the uid + token from the reset link and sets the new password. On success, every other active session for the account is revoked (all refresh tokens are blacklisted, and every access token issued before the reset is refused immediately rather than at its expiry), the account's Personal Access Tokens are revoked, and its public share links and git-automation webhook secret are revoked/cleared. Returns 400 with `code: invalid_token` for an invalid or expired link, or `code: weak_password` with a `messages` list when the password fails policy.",
                 "summary": "Confirm a password reset",
                 "tags": [
                     "auth"

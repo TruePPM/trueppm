@@ -324,7 +324,7 @@ _CREDENTIAL_BUILDERS = {
     "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication": (
         _build_personal_access_token_request
     ),
-    "rest_framework_simplejwt.authentication.JWTAuthentication": _build_jwt_request,
+    "trueppm_api.core.authentication.CredentialCutoffJWTAuthentication": _build_jwt_request,
     "rest_framework.authentication.SessionAuthentication": _build_session_request,
 }
 
@@ -371,6 +371,48 @@ def test_every_default_authenticator_refuses_an_inactive_user(dotted_path: str) 
     # refusals, and both leave the request unauthenticated. What must never happen is
     # the authenticator handing the disabled account back as request.user.
     assert refused is None, f"{dotted_path} authenticated a user with is_active=False"
+
+
+#: Authenticators exempt from the reset invariant below, each with its reason.
+_RESET_EXEMPT = {
+    # Dev/test settings only (never loaded in staging or prod, #2248): the SPA never
+    # authenticates with a Django session, so a reset has no session to cut.
+    "rest_framework.authentication.SessionAuthentication",
+}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "dotted_path", [p for p in _DEFAULT_AUTHENTICATORS if p not in _RESET_EXEMPT]
+)
+def test_every_default_authenticator_refuses_a_credential_issued_before_a_reset(
+    dotted_path: str,
+) -> None:
+    """Class guard for #4499 — the #2832 invariant's sibling for password reset.
+
+    A reset leaves the account *active*, so the inactive-user guard above passes it.
+    Each authenticator in the default chain must refuse a credential that existed
+    before the reset by some mechanism: the PAT class because the reset revokes
+    PATs, the JWT class because of the credential cutoff. Parametrized over the
+    live setting, so an authenticator added without either fails here.
+    """
+    from trueppm_api.apps.access.services import (
+        revoke_all_personal_access_tokens,
+        revoke_all_refresh_tokens,
+    )
+
+    build = _CREDENTIAL_BUILDERS[dotted_path]
+    authenticator = import_string(dotted_path)()
+    user = User.objects.create_user(username=f"reset_{dotted_path[-12:]}", password="pw")
+    request = build(user)
+    assert authenticator.authenticate(build(user)) is not None  # vacuity guard
+
+    # The revocations the password-reset confirm view runs on the credential side.
+    revoke_all_refresh_tokens(user)
+    revoke_all_personal_access_tokens(user, actor=user, reason="password_reset")
+
+    with pytest.raises(exceptions.AuthenticationFailed):
+        authenticator.authenticate(request)
 
 
 @pytest.mark.django_db

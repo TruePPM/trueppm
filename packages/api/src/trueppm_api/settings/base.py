@@ -1523,7 +1523,7 @@ REST_FRAMEWORK = {
     # (TaskSyncView, the acceptance-result view, the MCP-readable viewsets).
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication",
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "trueppm_api.core.authentication.CredentialCutoffJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
