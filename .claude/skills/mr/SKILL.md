@@ -168,16 +168,39 @@ Rules:
   `ux-review`, which checks WCAG 2.2 AA by definition, and giving them a second name
   would split one diff's findings across two counters and corrupt both yields. Absence
   from this list means "not a findings gate", not "forgotten" (#2616).
-- **Cost line (optional, one estimate).** Ask `scripts/cost-ledger enabled` first; exit 0 means
-  write it, anything else means write none. `est-cost-usd: <N.NN> (prices YYYY-MM-DD)` is the stdout
-  of `python3 scripts/est-cost.py --agent <id> ... --since <implementer spawn, UTC> --until <go-ahead, UTC>`:
-  the orchestrator window plus the named agents and their descendants, priced per response at list
-  prices from `.claude/model-prices.json`. Paste it unchanged. It is a list-price equivalent, not what a
-  subscription charged, and never a measured figure. The script prints a `note:` and exits 1 (no line)
-  when the price table is older than 90 days, a model has no row, or a transcript is missing; put that
-  note under `## Notes`. `scripts/subagent-tokens.py` and `scripts/orchestrator-tokens.py` give the
-  measured counts. Ported from macrodream/blueprint (#364); refresh `.claude/model-prices.json` from its
-  `source` URL when `checked` ages out.
+- **Cost lines — ask the cost-ledger setting first** (`docs/harness/cost-ledger.md`): run
+  `scripts/cost-ledger enabled`. Exit 0 (on): write the lines below when you hold their figures.
+  Exit 1 (off): write the one line `cost-ledger: off` under the last `gate:` line, and no
+  `subagent-tokens:`, `orchestrator-tokens:` or `est-cost-usd:` line; do not run
+  `scripts/subagent-tokens.py`, `scripts/orchestrator-tokens.py` or `scripts/est-cost.py`, and
+  post no cost comment. Exit 2 (unreadable): the same, plus the `## Notes` line "cost ledger
+  setting unreadable; nothing recorded". The marker never names the layer that turned it off.
+  `budget-exceeded:` is not a cost line and is written either way. The three lines are **not in
+  the template**: a template slot only invites an estimate. `/wave` is the writer that holds real
+  figures and sends them in its go-ahead message; paste them under the gates, unchanged.
+  - `subagent-tokens: <N>`: digits only. The cumulative usage of the agents the orchestrator
+    spawned or resumed for the branch and of their descendants (the implementer's own gate batch),
+    summed per response (input + cache-write + cache-read + output) by
+    `python3 scripts/subagent-tokens.py --agent <id> ... --until <go-ahead, UTC>`. State its scope
+    once under `## Notes`: "subagent-tokens: agents the orchestrator named and their descendants,
+    up to the go-ahead".
+  - `orchestrator-tokens: <N>`: digits only. The orchestrating session's own usage over the
+    branch, from `python3 scripts/orchestrator-tokens.py --since <implementer spawn, UTC> --until
+    <go-ahead, UTC>`. Same unit as `subagent-tokens:`, but session spend over the window, not
+    attribution to the MR: neither line contains the other, so never sum them as the MR's cost,
+    and never sum it across the MRs of one wave. It covers the current session only; on a branch
+    resumed from another session, omit it or write "orchestrator-tokens: current session only"
+    under `## Notes`.
+  - `est-cost-usd: <N.NN> (prices YYYY-MM-DD)`: the one estimate, the stdout of
+    `python3 scripts/est-cost.py --agent <id> ... --since <implementer spawn, UTC> --until <go-ahead, UTC>`,
+    priced per response at list prices from `.claude/model-prices.json`. Paste it unchanged. It is
+    a list-price equivalent, not what a subscription charged, and never a measured figure.
+  - One line each per MR. **Omit a line when its script exited non-zero** (an agent id with no
+    transcript, an unresolved session directory, a stale price table) and put the script's
+    `note:` or the reason under `## Notes`. A missing or malformed figure is never written as 0.
+    Refresh `.claude/model-prices.json` from its `source` URL when `checked` ages out.
+  - The description carries no `## Cost` table. With the ledger on, the readable table is the
+    `## Cost of this MR` comment posted after the MR exists (Step 4).
 - **`0 findings` is a real and expected outcome — record it.** The temptation is to omit
   a gate that found nothing because the line looks like noise. That omission is precisely
   what destroys the metric: zeros are the signal that a gate has stopped earning its
@@ -211,7 +234,8 @@ Rules:
   paying for themselves. Padding it defeats its only purpose and quietly re-imposes
   ceremony the fast-path table was written to strip out.
 - Omit the whole section only for MRs where no gate applied at all (a pure chore or CI
-  config branch).
+  config branch). The cost lines (or `cost-ledger: off`) are the exception: they still
+  apply to a chore MR, so a chore MR keeps the section for them.
 
 ---
 
@@ -253,6 +277,15 @@ pipeline-watch loop. Do **not** invoke `/fix-mr` yourself; both skills are user-
 by design (`disable-model-invocation`), and the user decides whether to babysit this MR
 or batch it with others. If the pipeline hasn't started yet, note that CI will run
 automatically on push.
+
+**Cost comment.** With `scripts/cost-ledger enabled` exit 0 and the cost lines present in
+the description, post the MR's cost record once the MR exists. Write the MR description to a
+file (or fetch it back with `glab api projects/:id/merge_requests/<iid>`), then run
+`COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`
+(drop `--split` when no per-model split was recorded; the comment then says `n/a` with the
+reason). It renders `## Cost of this MR` itself. Exit 3 means the ledger is off or unreadable:
+post nothing. Exit 4 or 5: say so in the report. The format and the later-record rules are in
+`docs/harness/cost-ledger.md` § *The cost records*.
 
 Emit the `scripts/wt prune` line whenever the branch lives in a worktree (its path is
 under `../trueppm-wt/`); omit it for a branch checked out in the main checkout. **Nothing

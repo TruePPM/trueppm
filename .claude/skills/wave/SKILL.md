@@ -239,6 +239,34 @@ MR happen regardless of the audit. Otherwise run items 1–6 first:
    `completeness-check/fix-diff`; if `§ After round 1` selected neither, record
    only round 1's line. Do not invent a marker that file doesn't define.
 
+**Cost figures, snapshotted when you give the go-ahead.** Run `scripts/cost-ledger enabled`
+in the worktree first (`docs/harness/cost-ledger.md`).
+
+- **Exit 1 (off):** send the single line `cost-ledger: off` in place of the three cost lines.
+  Do not run `scripts/subagent-tokens.py`, `scripts/orchestrator-tokens.py` or
+  `scripts/est-cost.py`, read no transcript, and post no cost comment. **Exit 2 (unreadable):**
+  the same, plus the `## Notes` line "cost ledger setting unreadable; nothing recorded".
+  `budget-exceeded:` is not a cost line and is sent either way.
+- **Exit 0 (on):** record the `agentId:` of every agent you spawn or resume for the branch at the
+  moment you do (the Agent tool result prints it): the implementer, each `completeness-check`
+  pass, a fresh agent for a late round. Note `date -u +%Y-%m-%dT%H:%M:%SZ` when you spawn the
+  implementer. At the go-ahead, in the worktree, first truncate the split file once:
+  `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; : > "$COST_SPLIT"` (inside the git
+  dir, so never committed; shell state does not persist between Bash calls, so set `COST_SPLIT`
+  on each command's own line). Then run, in your own session (they read
+  `$CLAUDE_CODE_SESSION_ID`), each teeing stderr to the split file while it still reaches you:
+  - `python3 scripts/subagent-tokens.py --agent <id> [--agent <id> ...] --until <go-ahead, UTC> 2> >(tee -a "$COST_SPLIT" >&2)`
+  - `python3 scripts/orchestrator-tokens.py --since <implementer spawn, UTC> --until <go-ahead, UTC> 2> >(tee -a "$COST_SPLIT" >&2)`
+  - `python3 scripts/est-cost.py --agent <id> [--agent <id> ...] --since <implementer spawn, UTC> --until <go-ahead, UTC> 2> >(tee -a "$COST_SPLIT" >&2)`
+
+  Send each script's stdout line to the implementer unchanged, to paste under the gates in the
+  MR's `## Gates` section (`mr/SKILL.md` § The Gates section has the line formats). On a non-zero
+  exit send no line for that script and send the reason it printed (for `est-cost.py`, the
+  `note:` text) for `## Notes`; a figure that cannot be measured is omitted, never sent as 0. The
+  `subagent_tokens` field in an agent's completion notification is a context size, not usage: it
+  is never recorded, and it is not the ledger's `subagent-tokens:` figure. A branch resumed from
+  another session cannot be read from this one: omit the line and say so.
+
 Only once this clears does the Step 5 agent, resumed, finish the branch:
 
 7. **Stale-base check, before pushing.** `git fetch origin`, then confirm the
@@ -263,7 +291,19 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    CLEAN, so build the table yourself from the issue's acceptance criteria, using
    the auditor's CLEAN section as the evidence for each MET row, and hand the
    table to this agent — it has no other way to see the criteria.
+    The same message carries the cost lines (or `cost-ledger: off`) from above, which go
+    under the gates unchanged.
 11. **Never merge.** Hand back the MR URL and stop.
+
+Once the MR exists and you have verified it, with the ledger on, post its cost comment
+(`docs/harness/cost-ledger.md` § *The cost records*): the three runs above teed their stderr
+into `wave-cost-split.txt`. Fetch the description with
+`glab api projects/:id/merge_requests/<iid>`, write its `.description` to a file, and run
+`COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`.
+It renders and posts record 1 itself. Exit 3 (ledger off or unreadable): post nothing. Exit 4 or
+5: say so in the report. Work on the MR after record 1 (a fix round, a re-measure) gets its own
+record, never an edit of record 1; the procedure (`--next-since`, `--ledger`, `--since`) is in
+the doc.
 
 The agent reports back: MR URL, the full gate ledger, the commit SHA, and
 anything it deliberately left undone.
@@ -307,6 +347,10 @@ state plainly:
 - Which issues did **not** land, and why.
 - Whether you raised the WIP cap, and whether any worktrees need cleanup
   (`scripts/wt remove <issue>`).
+- Measured `subagent-tokens:` and `orchestrator-tokens:` per branch (session spend over the
+  window, same unit, not attribution), with `est-cost-usd:` beside them; `n/a` with the reason
+  where a script omitted its line, and `cost ledger off` where `scripts/cost-ledger enabled`
+  said so. Measured figures and the one labeled estimate, never a guess.
 - The wave's shape: how many agents, how many on Opus.
 
 Do not merge anything. Do not start another wave without being asked.
