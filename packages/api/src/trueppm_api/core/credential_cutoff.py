@@ -172,7 +172,7 @@ def lock_and_recheck_credential_cutoff(request: Any) -> None:
         .values_list("credentials_revoked_at", flat=True)
         .get(user=user)
     )
-    auth = getattr(request, "auth", None)
-    iat = auth.get("iat") if hasattr(auth, "get") else None
+    auth: Any = getattr(request, "auth", None)
+    iat = auth.get("iat") if auth is not None and hasattr(auth, "get") else None
     if issued_before_cutoff(iat, cutoff):
         raise AuthenticationFailed(_("This session was signed out. Please sign in again."))
