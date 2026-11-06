@@ -500,6 +500,15 @@ reaches refresh tokens issued before the blacklist recorded every session (see
 [Blacklist tables and cleanup](#blacklist-tables-and-cleanup)), which the
 blacklist alone cannot revoke.
 
+The same protection holds for a request that is already running when the reset
+commits. Creating a personal token, project token, program token, share link,
+git-automation secret, outgoing webhook, or workspace invite takes a lock on the
+account's profile row, and the reset takes the same lock. The two therefore run
+one after the other: a creation that finishes first is revoked by the reset's
+sweep, and one that starts after the reset is refused with a `401`. A personal
+token or share link can no longer slip through the milliseconds between the
+reset's sweep and its commit.
+
 The cutoff is set one second after the reset, and the comparison is strict to
 the second, because a token's issue time is only recorded in whole seconds. The
 extra second absorbs clock skew between replicas: a token minted just before the

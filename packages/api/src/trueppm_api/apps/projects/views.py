@@ -330,6 +330,7 @@ from trueppm_api.apps.webhooks.models import (
     WebhookDelivery,
 )
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
+from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import (
     ownership_refusal_403,
@@ -20104,6 +20105,9 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         scope_obj = self._resolve_scope()
         scope_kwargs = {self._scope_field: scope_obj}
 
+        # First lock taken: serializes this mint against a password-reset sweep (#4839).
+        lock_and_recheck_credential_cutoff(request)
+
         write_serializer = ProjectApiTokenCreateSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
 
@@ -20385,6 +20389,10 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
 
         # IsAuthenticated guarantees a real user; narrow for the FK assignments.
         caller = cast(User, request.user)
+
+        # First lock taken, before the cap count: serializes this mint against a
+        # password-reset sweep so a PAT cannot commit after the sweep missed it (#4839).
+        lock_and_recheck_credential_cutoff(request)
 
         write_serializer = MyApiTokenCreateSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)

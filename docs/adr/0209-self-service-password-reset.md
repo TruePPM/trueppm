@@ -105,6 +105,11 @@ radius (ADR-0187).
 > and the JWT authenticator, the refresh endpoint and the WebSocket handshake refuse
 > any credential issued at or before it. See `core/credential_cutoff.py` for the
 > boundary and clock-skew rules.
+>
+> A mint already in flight when the reset commits is closed by #4839: every
+> durable-grant mint takes a row lock on the caller's `UserProfile` (the same row
+> the reset's cutoff upsert locks) and re-reads the cutoff from the locked row, so
+> the mint and the sweep serialize instead of racing under READ COMMITTED.
 
 **Django sessions are deliberately *not* cleared.** Research confirms the SPA never
 authenticates via `django.contrib.sessions` — `SessionAuthentication` exists only

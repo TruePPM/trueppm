@@ -43,6 +43,8 @@ from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from rest_framework.exceptions import AuthenticationFailed
 
 #: Forward margin added to every stored cutoff to absorb clock skew between the
 #: replica that runs the reset and the replicas that minted tokens (see the
@@ -116,3 +118,61 @@ def issued_before_cutoff(iat: Any, cutoff: datetime | None, *, whole_seconds: bo
     if whole_seconds:
         return issued <= math.floor(cutoff.timestamp())
     return issued <= cutoff.timestamp()
+
+
+def lock_and_recheck_credential_cutoff(request: Any) -> None:
+    """Serialize a durable-grant mint against a concurrent credential sweep (#4839).
+
+    The authenticator checks the cutoff when the request *starts*. A password reset
+    that commits after that check but before the mint's INSERT commits is invisible
+    to both sides: the reset's sweep (``revoke_all_personal_access_tokens``,
+    ``revoke_personal_durable_grants``) runs under READ COMMITTED and cannot see an
+    uncommitted row, and the mint already passed authentication. The row survives
+    the sweep, and a PAT can have no expiry.
+
+    Both sides therefore take a row lock on the caller's ``UserProfile``.
+    ``mark_credentials_revoked`` (``update_or_create`` -> ``SELECT ... FOR UPDATE``)
+    holds it from the cutoff stamp to commit, so the sweep always runs under it. This
+    function takes the same lock and then re-reads the cutoff from the *locked* row
+    (never a cached ``request.user.profile``):
+
+    - reset first: the mint blocks until the reset commits, re-reads the new cutoff
+      and is refused;
+    - mint first: the reset blocks on the lock until the mint commits, so its sweep
+      (a later statement, hence a later snapshot) sees and revokes the new grant.
+
+    Call it **first** in the mint, before any other row lock, so every path acquires
+    the profile lock before the rows the sweep touches (no lock-order inversion with
+    the reset). It must run inside the request's transaction (``ATOMIC_REQUESTS``) so
+    the lock is held until the mint commits; outside one ``select_for_update`` raises
+    ``TransactionManagementError`` rather than silently locking nothing.
+
+    The profile row is created lazily, so it may not exist yet: ``get_or_create``
+    inserts it first. Two creators collide on the unique ``user`` key and the loser
+    waits for the winner's commit, so the lock is never a no-op.
+
+    **Fail-closed on a missing ``iat``.** The request's issue time comes from
+    ``request.auth`` (the validated JWT). Every mint endpoint refuses API tokens
+    (``IsNotTokenAuthenticated``), so a JWT is the only credential that reaches
+    here. If ``request.auth`` carries no usable ``iat`` and a cutoff exists, the
+    caller is refused, exactly as :func:`issued_before_cutoff` does for the
+    authenticator.
+
+    Raises:
+        AuthenticationFailed: the caller's token predates the cutoff (HTTP 401).
+    """
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    user = request.user
+    if not getattr(user, "is_authenticated", False):
+        return
+    UserProfile.objects.get_or_create(user=user)
+    cutoff = (
+        UserProfile.objects.select_for_update()
+        .values_list("credentials_revoked_at", flat=True)
+        .get(user=user)
+    )
+    auth = getattr(request, "auth", None)
+    iat = auth.get("iat") if hasattr(auth, "get") else None
+    if issued_before_cutoff(iat, cutoff):
+        raise AuthenticationFailed(_("This session was signed out. Please sign in again."))

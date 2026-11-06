@@ -36,6 +36,7 @@ from trueppm_api.apps.projects.share_serializers import (
     ShareLinkSerializer,
 )
 from trueppm_api.apps.projects.sharing_settings import public_sharing_instance_enabled
+from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 
 # Uniform 404 detail — the kill switch, an unknown token, and a policy-disabled
 # link must all be indistinguishable to the recipient.
@@ -126,6 +127,8 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
     def post(self, request: Request, project_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
+        # First lock taken: serializes the mint against a password-reset sweep (#4839).
+        lock_and_recheck_credential_cutoff(request)
         if not _sharing_enabled():
             return Response(
                 {"detail": "Public board sharing is disabled on this instance."},

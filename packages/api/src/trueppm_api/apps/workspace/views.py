@@ -79,6 +79,7 @@ from trueppm_api.apps.workspace.serializers import (
     display_name_for,
     initials_for,
 )
+from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 from trueppm_api.core.export_downloads import stream_export_job_or_error
 from trueppm_api.core.openapi import state_refusal_400
 
@@ -884,6 +885,10 @@ class WorkspaceInviteListView(IdempotencyMixin, APIView):
             raise PermissionDenied(
                 "You cannot invite someone to a role equal to or higher than your own."
             )
+
+        # Serialize against a password-reset sweep, which revokes the invites this
+        # user sent (#4839).
+        lock_and_recheck_credential_cutoff(request)
 
         if User.objects.filter(email__iexact=email, is_active=True).exists():
             raise ValidationError({"email": "A member with this email already exists."})
