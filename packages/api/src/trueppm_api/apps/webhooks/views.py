@@ -59,6 +59,7 @@ from trueppm_api.apps.webhooks.serializers import (
     WebhookSerializer,
 )
 from trueppm_api.apps.webhooks.tasks import deliver_webhook
+from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,9 @@ class WebhookViewSet(
         # Check object-level permission.
         self.check_object_permissions(self.request, project)
 
+        # Serialize against a password-reset sweep, which deactivates this user's
+        # webhooks (#4839).
+        lock_and_recheck_credential_cutoff(self.request)
         serializer.save(project=project, created_by=self.request.user)
 
     def perform_update(self, serializer: BaseSerializer[Webhook]) -> None:
@@ -245,6 +249,8 @@ class WebhookViewSet(
             and serializer.instance is not None
             and not serializer.instance.is_active
         )
+        if changed_credential_fields or is_reenable:
+            lock_and_recheck_credential_cutoff(self.request)
         serializer.save()
         if changed_credential_fields or is_reenable:
             from typing import cast
@@ -530,4 +536,5 @@ class ProgramWebhookViewSet(WebhookViewSet):
             raise NotFound("Program not found.") from None
 
         self.check_object_permissions(self.request, program)
+        lock_and_recheck_credential_cutoff(self.request)
         serializer.save(program=program, created_by=self.request.user)

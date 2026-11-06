@@ -47,6 +47,7 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, Task
+from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 from trueppm_api.core.openapi import state_refusal_400, suppress_list_pagination
 
 from . import git_webhook_auth, providers
@@ -1133,6 +1134,9 @@ class GitAutomationRotateSecretView(IdempotencyMixin, APIView):
 
     def post(self, request: Request, project_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        # First lock taken: serializes the rotation against a password-reset sweep
+        # (#4839), which clears this user's automation secrets.
+        lock_and_recheck_credential_cutoff(request)
         # 256 bits of entropy, URL-safe so it pastes cleanly into a provider's
         # webhook secret field.
         plaintext = secrets.token_urlsafe(32)

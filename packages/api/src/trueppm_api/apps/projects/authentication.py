@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.models import AnonymousUser
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
@@ -199,7 +200,18 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         # last_used_at is updated in a single UPDATE so we don't perturb the
         # token's server_version or audit_history.  The audit row for the
         # specific use is written by the view (which holds the URL kwargs).
-        ProjectApiToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
+        #
+        # Deferred to commit (#4839) so an authenticated request never holds the token
+        # row's write lock across its transaction (ATOMIC_REQUESTS). The credential
+        # sweeps (``revoke_all_personal_access_tokens``) lock the owner's UserProfile
+        # row and THEN the token rows; a request that held the token row first and
+        # reached for the profile lock later (``lock_and_recheck_credential_cutoff``)
+        # deadlocked against them, aborting the whole reset. With no token-row lock
+        # held by the request, every path takes profile -> token in one order.
+        used_at = timezone.now()
+        transaction.on_commit(
+            lambda: ProjectApiToken.objects.filter(pk=token.pk).update(last_used_at=used_at)
+        )
 
         user = resolved or AnonymousUser()
         return (user, token)

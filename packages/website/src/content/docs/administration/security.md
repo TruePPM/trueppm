@@ -500,6 +500,22 @@ reaches refresh tokens issued before the blacklist recorded every session (see
 [Blacklist tables and cleanup](#blacklist-tables-and-cleanup)), which the
 blacklist alone cannot revoke.
 
+The same protection holds for a request that is already running when the reset
+commits. Creating a personal token, project token, program token, share link,
+git-automation secret, outgoing webhook (or editing its URL or secret, or
+re-enabling it), or workspace invite takes a lock on the account's profile row,
+and the reset (or `revoke_api_tokens --user`, or the accounts `--all-personal`
+resolved before its confirmation prompt, see
+[#4753](https://gitlab.com/trueppm/trueppm/-/issues/4753)) takes the same
+lock. The two therefore run one after the other. A creation that commits before
+the revocation takes the lock is seen by its sweep, so a personal token, share
+link, git-automation secret, outgoing webhook, or workspace invite is revoked
+with the rest (project and program tokens are organization assets, which a reset
+never revokes). A creation that was authenticated with a credential issued
+before the reset, and is still waiting when the reset commits, is refused with
+a `401`. A personal token or share link can no longer slip through the
+milliseconds between the reset's sweep and its commit.
+
 The cutoff is set one second after the reset, and the comparison is strict to
 the second, because a token's issue time is only recorded in whole seconds. The
 extra second absorbs clock skew between replicas: a token minted just before the

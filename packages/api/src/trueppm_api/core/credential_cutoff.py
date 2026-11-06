@@ -43,6 +43,8 @@ from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from rest_framework.exceptions import AuthenticationFailed
 
 #: Forward margin added to every stored cutoff to absorb clock skew between the
 #: replica that runs the reset and the replicas that minted tokens (see the
@@ -116,3 +118,78 @@ def issued_before_cutoff(iat: Any, cutoff: datetime | None, *, whole_seconds: bo
     if whole_seconds:
         return issued <= math.floor(cutoff.timestamp())
     return issued <= cutoff.timestamp()
+
+
+def lock_and_recheck_credential_cutoff(request: Any) -> None:
+    """Serialize a durable-grant mint against a concurrent credential sweep (#4839).
+
+    The authenticator checks the cutoff when the request *starts*. A password reset
+    that commits after that check but before the mint's INSERT commits is invisible
+    to both sides: the reset's sweep (``revoke_all_personal_access_tokens``,
+    ``revoke_personal_durable_grants``) runs under READ COMMITTED and cannot see an
+    uncommitted row, and the mint already passed authentication. The row survives
+    the sweep, and a PAT can have no expiry.
+
+    Both sides therefore take a row lock on the caller's ``UserProfile``.
+    ``mark_credentials_revoked`` (``update_or_create`` -> ``SELECT ... FOR UPDATE``)
+    holds it from the cutoff stamp to commit, so the sweep always runs under it. This
+    function takes the same lock and then re-reads the cutoff from the *locked* row
+    (never a cached ``request.user.profile``):
+
+    - reset first: the mint blocks until the reset commits, re-reads the new cutoff
+      and is refused;
+    - mint first: the reset blocks on the lock until the mint commits, so its sweep
+      (a later statement, hence a later snapshot) sees and revokes the new grant.
+
+    Call it **first** in the mint, before any other row lock, so every path acquires
+    the profile lock before the rows the sweep touches (no lock-order inversion with
+    the reset). That includes the credential's own row: an API-token caller's
+    ``last_used_at`` stamp is deferred to ``on_commit`` precisely so the request holds
+    no ``ApiToken`` row lock when it gets here (``OwnerScopedApiTokenAuthentication``).
+    It must run inside the request's transaction (``ATOMIC_REQUESTS``) so
+    the lock is held until the mint commits; outside one ``select_for_update`` raises
+    ``TransactionManagementError`` rather than silently locking nothing.
+
+    The profile row is created lazily, so it may not exist yet: ``get_or_create``
+    inserts it first. Two creators collide on the unique ``user`` key and the loser
+    waits for the winner's commit, so the lock is never a no-op.
+
+    **Where the issue time comes from.** A JWT caller: ``request.auth`` is the
+    validated token and its ``iat`` is compared on the whole second, exactly as the
+    authenticator does. A Personal Access Token caller (some mint endpoints, such as
+    the workspace invite create, do not refuse API tokens): ``request.auth`` is the
+    ``ApiToken`` row, which has no ``iat``, so its ``created_at`` is compared at full
+    precision. A PAT created after the cutoff passes; one created at or before it is
+    refused (a reset's PAT sweep revokes those anyway; this closes the in-flight gap).
+    **Any other auth type, or a JWT with no usable ``iat``, is refused whenever a
+    cutoff exists** (fail-closed, as :func:`issued_before_cutoff` does for the
+    authenticator).
+
+    Raises:
+        AuthenticationFailed: the caller's token predates the cutoff (HTTP 401).
+    """
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    user = request.user
+    if not getattr(user, "is_authenticated", False):
+        return
+    UserProfile.objects.get_or_create(user=user)
+    cutoff = (
+        UserProfile.objects.select_for_update()
+        .values_list("credentials_revoked_at", flat=True)
+        .get(user=user)
+    )
+    from trueppm_api.apps.projects.models import ApiToken
+
+    auth: Any = getattr(request, "auth", None)
+    if isinstance(auth, ApiToken):
+        # Fail-closed under cross-pod clock skew: created_at comes from the minting pod's
+        # clock and the cutoff from the resetting pod's, so a PAT legitimately created just
+        # after a reset on a slow-clocked pod can land at or before the cutoff and be
+        # refused here until the next cutoff.
+        refused = issued_before_cutoff(auth.created_at.timestamp(), cutoff, whole_seconds=False)
+    else:
+        iat = auth.get("iat") if auth is not None and hasattr(auth, "get") else None
+        refused = issued_before_cutoff(iat, cutoff)
+    if refused:
+        raise AuthenticationFailed(_("This session was signed out. Please sign in again."))

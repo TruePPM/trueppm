@@ -357,6 +357,16 @@ class Command(BaseCommand):
 
         now = timezone.now()
         with transaction.atomic():
+            if not options["all"]:
+                # Stamp the cutoff, and so take each account's UserProfile lock, BEFORE
+                # the PAT sweep below (#4839). A durable-grant mint takes the same lock
+                # before it writes, so one in flight either committed already (and the
+                # sweep sees it) or blocks until this commits and is then refused.
+                # Sweeping first left the lock untaken while the sweep ran.
+                from trueppm_api.core.credential_cutoff import mark_credentials_revoked
+
+                for account in affected_users:
+                    mark_credentials_revoked(account)
             if options["user"] and affected_users:
                 # --user: the service already owns the lock + re-filter + audit
                 # contract; reimplementing it here is how this command drifted (#4580).
