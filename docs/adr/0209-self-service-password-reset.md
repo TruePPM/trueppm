@@ -106,10 +106,14 @@ radius (ADR-0187).
 > any credential issued at or before it. See `core/credential_cutoff.py` for the
 > boundary and clock-skew rules.
 >
-> A mint already in flight when the reset commits is closed by #4839: every
-> durable-grant mint takes a row lock on the caller's `UserProfile` (the same row
-> the reset's cutoff upsert locks) and re-reads the cutoff from the locked row, so
-> the mint and the sweep serialize instead of racing under READ COMMITTED.
+> A mint already in flight when the reset commits is closed by #4839: the
+> durable-grant mints the reset's sweep covers (personal access tokens, share
+> links, git-automation secrets, outgoing webhooks and their credential edits,
+> workspace invites), plus project and program token creation, take a row lock
+> on the caller's `UserProfile` (the same row the reset's cutoff upsert locks)
+> and re-read the cutoff from the locked row. The mint and the sweep serialize
+> instead of racing under READ COMMITTED: a mint that commits first is swept, and
+> one still carrying a pre-reset credential after the reset commits is refused.
 
 **Django sessions are deliberately *not* cleared.** Research confirms the SPA never
 authenticates via `django.contrib.sessions` — `SessionAuthentication` exists only

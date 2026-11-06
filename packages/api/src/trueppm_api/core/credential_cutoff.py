@@ -151,12 +151,16 @@ def lock_and_recheck_credential_cutoff(request: Any) -> None:
     inserts it first. Two creators collide on the unique ``user`` key and the loser
     waits for the winner's commit, so the lock is never a no-op.
 
-    **Fail-closed on a missing ``iat``.** The request's issue time comes from
-    ``request.auth`` (the validated JWT). Every mint endpoint refuses API tokens
-    (``IsNotTokenAuthenticated``), so a JWT is the only credential that reaches
-    here. If ``request.auth`` carries no usable ``iat`` and a cutoff exists, the
-    caller is refused, exactly as :func:`issued_before_cutoff` does for the
-    authenticator.
+    **Where the issue time comes from.** A JWT caller: ``request.auth`` is the
+    validated token and its ``iat`` is compared on the whole second, exactly as the
+    authenticator does. A Personal Access Token caller (some mint endpoints, such as
+    the workspace invite create, do not refuse API tokens): ``request.auth`` is the
+    ``ApiToken`` row, which has no ``iat``, so its ``created_at`` is compared at full
+    precision. A PAT created after the cutoff passes; one created at or before it is
+    refused (a reset's PAT sweep revokes those anyway; this closes the in-flight gap).
+    **Any other auth type, or a JWT with no usable ``iat``, is refused whenever a
+    cutoff exists** (fail-closed, as :func:`issued_before_cutoff` does for the
+    authenticator).
 
     Raises:
         AuthenticationFailed: the caller's token predates the cutoff (HTTP 401).
@@ -172,7 +176,13 @@ def lock_and_recheck_credential_cutoff(request: Any) -> None:
         .values_list("credentials_revoked_at", flat=True)
         .get(user=user)
     )
+    from trueppm_api.apps.projects.models import ApiToken
+
     auth: Any = getattr(request, "auth", None)
-    iat = auth.get("iat") if auth is not None and hasattr(auth, "get") else None
-    if issued_before_cutoff(iat, cutoff):
+    if isinstance(auth, ApiToken):
+        refused = issued_before_cutoff(auth.created_at.timestamp(), cutoff, whole_seconds=False)
+    else:
+        iat = auth.get("iat") if auth is not None and hasattr(auth, "get") else None
+        refused = issued_before_cutoff(iat, cutoff)
+    if refused:
         raise AuthenticationFailed(_("This session was signed out. Please sign in again."))
