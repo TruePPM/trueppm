@@ -258,3 +258,79 @@ def test_reparent_renumbers_siblings_left_behind_with_their_subtrees(
         "D": "3",
         "D1": "3.1",
     }
+
+
+def _assert_moved(response: Any, task: Task, before: int, path: str) -> None:
+    updated = {u["id"]: u["wbs_path"] for u in response.json()["updated"]}
+    assert updated[str(task.pk)] == path
+    assert Task.objects.get(pk=task.pk).server_version > before
+
+
+def test_indent_bumps_and_reports_renumbered_descendants(
+    project: Project, client: APIClient
+) -> None:
+    _t(project, "A", "1")
+    b = _t(project, "B", "2")
+    _t(project, "C", "3")
+    c1 = _t(project, "C1", "3.1")
+    before = Task.objects.get(pk=c1.pk).server_version
+
+    response = _post(client, project, f"{b.pk}/indent/")
+
+    assert response.status_code == 200, response.data
+    _assert_moved(response, c1, before, "2.1")
+
+
+def test_outdent_bumps_and_reports_renumbered_descendants(
+    project: Project, client: APIClient
+) -> None:
+    _t(project, "P", "1")
+    x = _t(project, "X", "1.1")
+    _t(project, "Q", "2")
+    q1 = _t(project, "Q1", "2.1")
+    before = Task.objects.get(pk=q1.pk).server_version
+
+    response = _post(client, project, f"{x.pk}/outdent/")
+
+    assert response.status_code == 200, response.data
+    _assert_moved(response, q1, before, "3.1")
+
+
+def test_reparent_bumps_and_reports_renumbered_descendants(
+    project: Project, client: APIClient
+) -> None:
+    a = _t(project, "A", "1")
+    b = _t(project, "B", "2")
+    _t(project, "C", "3")
+    c1 = _t(project, "C1", "3.1")
+    before = Task.objects.get(pk=c1.pk).server_version
+
+    response = _post(client, project, f"{b.pk}/reparent/", {"new_parent_id": str(a.pk)})
+
+    assert response.status_code == 200, response.data
+    _assert_moved(response, c1, before, "2.1")
+
+
+def test_nested_indent_renumbers_following_siblings_with_their_subtrees(
+    project: Project, client: APIClient
+) -> None:
+    _t(project, "P", "1")
+    _t(project, "X", "1.1")
+    y = _t(project, "Y", "1.2")
+    _t(project, "Z", "1.3")
+    _t(project, "Z1", "1.3.1")
+    _t(project, "Q", "2")
+    _t(project, "Q1", "2.1")
+
+    response = _post(client, project, f"{y.pk}/indent/")
+
+    assert response.status_code == 200, response.data
+    assert _outline(project) == {
+        "P": "1",
+        "X": "1.1",
+        "Y": "1.1.1",
+        "Z": "1.2",
+        "Z1": "1.2.1",
+        "Q": "2",
+        "Q1": "2.1",
+    }

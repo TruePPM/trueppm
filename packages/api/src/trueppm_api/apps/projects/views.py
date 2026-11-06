@@ -9508,10 +9508,14 @@ def _renumber_siblings(
         # Soft-deleted rows are left out: the uniqueness constraint ignores them, and
         # a restore re-derives its place, so their stale paths are an accepted
         # trade-off shared with `_get_descendants`.
-        for descendant in Task.objects.select_for_update().filter(
-            project_id=siblings[0].project_id,
-            is_deleted=False,
-            wbs_path__regex=rf"^{re.escape(level_prefix)}\d+\.",
+        for descendant in (
+            Task.objects.select_for_update()
+            .filter(
+                project_id=siblings[0].project_id,
+                is_deleted=False,
+                wbs_path__regex=rf"^{re.escape(level_prefix)}\d+\.",
+            )
+            .order_by("wbs_path")
         ):
             if str(descendant.pk) in skip_ids:
                 continue
