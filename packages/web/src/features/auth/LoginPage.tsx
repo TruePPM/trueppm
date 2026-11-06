@@ -1,7 +1,6 @@
 import { useEffect, useState, useId, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
-import { useAuthStore } from '@/stores/authStore';
 import { queryClient } from '@/lib/queryClient';
 import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
@@ -10,13 +9,9 @@ import { OSSChip } from '@/components/OSSChip';
 import { discoverSsoProviders, ssoLoginUrl, type SsoProviderSummary } from '@/hooks/ssoLogin';
 import { useDemoMode } from '@/hooks/useDemoMode';
 import { DemoLoginHint } from './DemoLoginHint';
+import { requestSession } from './demoSession';
+import { clearDemoSessionMarker, markDemoSession } from './demoMarker';
 import { DemoModePanelNote } from './DemoModePanelNote';
-
-interface TokenResponse {
-  // The refresh token is no longer returned in the body — it is set as an
-  // httpOnly, Secure, SameSite=Strict cookie by the login endpoint (#897).
-  access: string;
-}
 
 /**
  * Post-login destination. A safe `next` deep link always wins (the captured
@@ -139,7 +134,6 @@ export function LoginPage() {
   const rememberMeId = useId();
   const errorId = useId();
 
-  const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const navigate = useNavigate();
   // Which control's sign-in is in flight — so only that button says it is busy.
   const [demoSigningIn, setDemoSigningIn] = useState(false);
@@ -189,13 +183,11 @@ export function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await axios.post<TokenResponse>('/api/v1/auth/token/', {
-        username,
-        password: pass,
-        remember_me: remember,
-      });
-      setAccessToken(response.data.access);
-      queryClient.clear();
+      const access = await requestSession(username, pass, remember);
+      // Remember whether THIS browser now holds the shared demo account, so a later
+      // failed refresh renews only a demo session and never swaps a real one (#4500).
+      if (source === 'demo') markDemoSession();
+      else clearDemoSessionMarker();
 
       // Resolve the server-decided front door (ADR-0129) for the no-`next` case.
       // Use bare axios with the just-minted access token (apiClient's interceptor
@@ -206,7 +198,7 @@ export function LoginPage() {
       let landingPath: string | undefined;
       try {
         const me = await axios.get<CurrentUser>('/api/v1/auth/me/', {
-          headers: { Authorization: `Bearer ${response.data.access}` },
+          headers: { Authorization: `Bearer ${access}` },
         });
         queryClient.setQueryData(['current-user'], me.data);
         landingPath = me.data.landing?.path;
