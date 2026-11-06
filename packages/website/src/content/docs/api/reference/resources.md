@@ -1,7 +1,7 @@
 ---
 title: "Resources and time API"
 description: "Resources, task-resource assignments, the project roster, teams, skills, and time tracking."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 ## Resources
@@ -15,6 +15,11 @@ documentedFor: "0.4"
 | DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) — also removes the resource from every project roster; **workspace Admin only from 0.4** |
 | POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource, restoring the roster rows the deactivation removed — **no body**; `400` if it is not deactivated; **workspace Admin only from 0.4** |
 | GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource — **workspace Admin only from 0.4** |
+| POST | `/api/v1/resources/{id}/rate/` | Preview (`dry_run: true`, the default) or save (`dry_run: false`) the resource's hourly `cost_rate`; both return the same re-cost of every affected project — **workspace Admin, signed-in session only** (an API token gets `403`). See [Cost model](/features/cost-model/#changing-a-rate) |
+
+:::note[Ships in 0.5]
+The `rate/` action and the `cost_rate` field ship in 0.5. When they land, `cost_rate` is read-only on this resource and is returned only to a workspace Admin; for everyone else the key is omitted. Sending it on `PUT`/`PATCH` returns `400`. In the current release resources carry no rate.
+:::
 
 Creating and updating catalog rows requires the Project Manager or Project Admin
 role on at least one **active** project. From 0.4, deactivating and restoring a

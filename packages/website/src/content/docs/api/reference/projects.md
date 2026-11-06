@@ -24,6 +24,7 @@ documentedFor: "0.5"
 | PUT / PATCH | `/api/v1/projects/{id}/` | Update |
 | DELETE | `/api/v1/projects/{id}/` | Soft-delete |
 | GET | `/api/v1/projects/{id}/status-summary/` | Health and recency summary for the shell — see [Status summary](#status-summary) |
+| GET | `/api/v1/projects/{id}/cost/` | Budget, actual cost (hours × rate), earned value, cost variance and budget utilization, with per-person lines and definitions — **Project Manager or Owner** (ships in 0.5; see [Cost model](/features/cost-model/#the-project-cost-breakdown)) |
 | GET | `/api/v1/projects/health-summary/` | One health row per project the caller is a member of: `id`, `name`, `health_band`, `health_band_source`, `at_risk_count`, `critical_count`. Same `health_band` and `health_band_source` rules as the status summary below |
 
 ### Status summary
