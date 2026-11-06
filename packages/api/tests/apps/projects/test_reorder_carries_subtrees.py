@@ -106,6 +106,7 @@ def test_nested_reorder_carries_subtrees_and_leaves_other_branches_alone(
     x = _t(project, "X", "1.1")
     _t(project, "X1", "1.1.1")
     y = _t(project, "Y", "1.2")
+    dep = Dependency.objects.create(predecessor=x, successor=y, dep_type="FS")
     _t(project, "Q", "2")
     _t(project, "Q1", "2.1")
 
@@ -120,6 +121,7 @@ def test_nested_reorder_carries_subtrees_and_leaves_other_branches_alone(
         "Q": "2",
         "Q1": "2.1",
     }
+    assert set(Dependency.objects.values_list("pk", flat=True)) == {dep.pk}
 
 
 def test_ten_does_not_swallow_one_s_subtree(project: Project, client: APIClient) -> None:
@@ -136,18 +138,26 @@ def test_ten_does_not_swallow_one_s_subtree(project: Project, client: APIClient)
     assert out["T10"] == "1" and out["T10c"] == "1.1"
 
 
-def test_moved_descendants_bump_server_version_and_broadcast_once(
+def test_moved_rows_bump_server_version_appear_in_updated_and_broadcast_once(
     project: Project, client: APIClient
 ) -> None:
+    """A 3-way rotation: every sibling and every descendant moves."""
     a = _t(project, "A", "1")
     a1 = _t(project, "A1", "1.1")
     b = _t(project, "B", "2")
-    before = Task.objects.get(pk=a1.pk).server_version
+    c = _t(project, "C", "3")
+    c1 = _t(project, "C1", "3.1")
+    before = {t.pk: Task.objects.get(pk=t.pk).server_version for t in (a, a1, b, c, c1)}
 
-    response = _reorder(client, project, "", [b, a])
+    response = _reorder(client, project, "", [b, c, a])
 
     assert response.status_code == 200, response.data
-    assert Task.objects.get(pk=a1.pk).server_version > before
+    assert _outline(project) == {"B": "1", "C": "2", "C1": "2.1", "A": "3", "A1": "3.1"}
+    updated = {u["id"]: u["wbs_path"] for u in response.json()["updated"]}
+    assert updated[str(a1.pk)] == "3.1"
+    assert updated[str(c1.pk)] == "2.1"
+    for t in (a, a1, b, c, c1):
+        assert Task.objects.get(pk=t.pk).server_version > before[t.pk]
     response.broadcast.assert_called_once_with(str(project.pk), "tasks_reordered", {})
 
 
@@ -162,3 +172,89 @@ def test_unchanged_order_touches_nothing(project: Project, client: APIClient) ->
     assert response.status_code == 200, response.data
     assert Task.objects.get(pk=a1.pk).server_version == before
     assert _outline(project) == {"A": "1", "A1": "1.1", "B": "2"}
+
+
+# ---------------------------------------------------------------------------
+# Same class on the renumber path: indent / outdent / reparent renumber the
+# siblings left behind, and those siblings' subtrees must follow (#4842).
+# ---------------------------------------------------------------------------
+
+
+def _post(
+    client: APIClient, project: Project, suffix: str, body: dict[str, Any] | None = None
+) -> Any:
+    with (
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+    ):
+        return client.post(
+            f"/api/v1/projects/{project.pk}/tasks/{suffix}", body or {}, format="json"
+        )
+
+
+def test_indent_renumbers_following_siblings_with_their_subtrees(
+    project: Project, client: APIClient
+) -> None:
+    _t(project, "A", "1")
+    b = _t(project, "B", "2")
+    _t(project, "B1", "2.1")
+    _t(project, "C", "3")
+    _t(project, "C1", "3.1")
+
+    response = _post(client, project, f"{b.pk}/indent/")
+
+    assert response.status_code == 200, response.data
+    assert _outline(project) == {
+        "A": "1",
+        "B": "1.1",
+        "B1": "1.1.1",
+        "C": "2",
+        "C1": "2.1",
+    }
+
+
+def test_outdent_renumbers_siblings_after_the_old_parent_with_their_subtrees(
+    project: Project, client: APIClient
+) -> None:
+    _t(project, "P", "1")
+    x = _t(project, "X", "1.1")
+    _t(project, "Y", "1.2")
+    _t(project, "Y1", "1.2.1")
+    _t(project, "Q", "2")
+    _t(project, "Q1", "2.1")
+
+    response = _post(client, project, f"{x.pk}/outdent/")
+
+    assert response.status_code == 200, response.data
+    assert _outline(project) == {
+        "P": "1",
+        "X": "2",
+        "Y": "2.1",
+        "Y1": "2.1.1",
+        "Q": "3",
+        "Q1": "3.1",
+    }
+
+
+def test_reparent_renumbers_siblings_left_behind_with_their_subtrees(
+    project: Project, client: APIClient
+) -> None:
+    _t(project, "A", "1")
+    b = _t(project, "B", "2")
+    _t(project, "C", "3")
+    _t(project, "C1", "3.1")
+    _t(project, "D", "4")
+    _t(project, "D1", "4.1")
+    a = Task.objects.get(name="A")
+
+    response = _post(client, project, f"{b.pk}/reparent/", {"new_parent_id": str(a.pk)})
+
+    assert response.status_code == 200, response.data
+    assert _outline(project) == {
+        "A": "1",
+        "B": "1.1",
+        "C": "2",
+        "C1": "2.1",
+        "D": "3",
+        "D1": "3.1",
+    }
