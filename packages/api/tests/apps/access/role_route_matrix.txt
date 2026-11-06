@@ -249,6 +249,7 @@
 -++++++  GET api/v1/projects/<pk>/board-config/::get
 --+++++  GET api/v1/projects/<pk>/board-views/::get
 --+++++  GET api/v1/projects/<pk>/burn/::get
+-----++  GET api/v1/projects/<pk>/cost/::get
 --+++++  GET api/v1/projects/<pk>/flow-metrics/::get
 --+++++  GET api/v1/projects/<pk>/forecast/::get
 --+++++  GET api/v1/projects/<pk>/milestones/::get
@@ -457,6 +458,7 @@
 -++++++  POST api/v1/^recurrence-rules/$::create
 ----+++  POST api/v1/^resource-skills/$::create
 -----++  POST api/v1/^resources/$::create
+-------  POST api/v1/^resources/(?P<pk>[^/.]+)/rate/$::rate
 -------  POST api/v1/^resources/(?P<pk>[^/.]+)/restore/$::restore
 ----+++  POST api/v1/^skills/$::create
 -++++++  POST api/v1/^slip-conflicts/(?P<pk>[^/.]+)/acknowledge/$::acknowledge
