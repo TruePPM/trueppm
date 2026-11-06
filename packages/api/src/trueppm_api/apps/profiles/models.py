@@ -126,6 +126,22 @@ class UserProfile(models.Model):
         default=DateFormat.AUTO,
         help_text="Date-format style for all displayed dates. 'auto' follows browser locale.",
     )
+    # Credential cutoff (#4499). Not a preference: security state that lives here
+    # because this is the one per-user row the JWT authenticator can load for free
+    # (``select_related("profile")`` on the query it already runs). Set by
+    # ``revoke_all_refresh_tokens`` — password reset, off-boarding, admin token
+    # revocation — and read by every authenticator: an access JWT, refresh token or
+    # WebSocket ticket issued at or before this instant is refused, which is what
+    # closes the stateless access token's 15-minute window after a reset. Never
+    # serialized: ``UserProfileSerializer`` lists its fields explicitly.
+    credentials_revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Credentials issued at or before this instant are refused. Null = no "
+            "cutoff. Set by sign-out-everywhere actions such as a password reset."
+        ),
+    )
 
     class Meta:
         verbose_name = "user profile"

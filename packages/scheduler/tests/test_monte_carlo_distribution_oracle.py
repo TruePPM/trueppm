@@ -96,7 +96,7 @@ def _pert_alpha_beta(o: float, m: float, p: float) -> tuple[float, float, float,
     sigma = (p - o) / 6.0
     sigma2 = sigma**2
     range_ = p - o
-    mu_norm = min(max((mu - o) / range_, 1e-4), 1.0 - 1e-4)
+    mu_norm = (mu - o) / range_
     var_norm = sigma2 / (range_**2)
     kappa = mu_norm * (1.0 - mu_norm) / var_norm - 1.0
     alpha = mu_norm * kappa
@@ -146,6 +146,23 @@ def _reference_pert_quantiles(
 # ---------------------------------------------------------------------------
 # 1. Moment check directly on `_sample_pert`
 # ---------------------------------------------------------------------------
+
+
+def test_pert_alpha_beta_never_below_two_thirds_for_ordered_triples() -> None:
+    """Alpha and beta are >= 2/3 for every ordered triple, so `_sample_pert` needs
+    no mu_norm clip or non-positive-parameter fallback (they were unreachable)."""
+    rng = np.random.default_rng(4730)
+    for _ in range(2_000):
+        o, m, p = sorted(float(x) for x in rng.uniform(0.0, 500.0, size=3))
+        if p - o < 1e-9:
+            continue
+        _, _, alpha, beta = _pert_alpha_beta(o, m, p)
+        assert alpha >= 2.0 / 3.0 - 1e-9
+        assert beta >= 2.0 / 3.0 - 1e-9
+    # Extremes: mode at either end.
+    for o, m, p in [(0.0, 0.0, 10.0), (0.0, 10.0, 10.0)]:
+        _, _, alpha, beta = _pert_alpha_beta(o, m, p)
+        assert min(alpha, beta) >= 2.0 / 3.0 - 1e-9
 
 
 def test_sample_pert_mean_and_variance_match_pert_closed_form() -> None:

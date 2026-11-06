@@ -591,6 +591,42 @@ prove" comments from "Cloudflare Access" to "edge WAF / challenge rules," since
 naming Access there would now assert something no longer true of the edge those
 comments describe.
 
+## Amendment 2026-11-05 — silent re-login for a deep link or a lapsed demo session (#4500)
+
+**Decision.** On a demo host, the route guard re-submits the published credential once
+per page load (`remember_me: false`) in two cases: a fresh visitor who pastes a deep link
+and has no session, and a returning visitor whose refresh genuinely failed (browser
+restart, long idle, a sample reset) **and** whose browser carries the demo-session marker
+(a boolean in `localStorage`, set when the demo account signs in and cleared on sign-out
+or any non-demo sign-in). A plain reload is not a case: a `remember_me: false` refresh
+cookie is a browser-session cookie that survives a reload, and the reload sign-out first
+reported against beta.8 was #4426 (an nginx `X-Forwarded-Proto` overwrite), fixed in
+0.4.0. The trigger requires `/edition/` to report `demo_read_only` **and** publish a
+`demo_login_hint`, and the marker keeps a real account on the demo host from being
+swapped to the demo user. An explicit sign-out is excluded for the rest of that page load
+(the flag is in memory only), as are the bare origin and mid-app expiry.
+
+**Premise changed: consent (Amendment 2026-09-26).** That amendment argued the click is
+the decision to proceed. A fresh deep-link visitor is now signed in without seeing the
+button or its copy. This is acceptable because the credential is already public on the
+login screen, the account is read-only, nothing a visitor changes is saved, and the
+demo bar shown on every screen after sign-in says "Read-only demo" with a tooltip that
+nothing is saved. It does not name the shared account; the consent here rests on the
+credential being public and the session being read-only, not on that bar.
+
+**Premise changed: throttle sizing (T2/D6).** "One token request per visitor" no longer
+holds: a deep-link visit or a lapsed-session load now costs one `POST /api/v1/auth/token/`
+against the per-IP `login` bucket (10/min). Many evaluators behind one NAT can therefore
+draw a 429. It degrades safely: the silent login resolves false and the existing sign-in
+screen or signed-out modal shows. The attempt is capped at one per page load and both the
+edition read and the token request are bounded at 4 seconds, so a refusal or a hung
+endpoint cannot loop or hold the screen. No throttle value changes here; revisit `login`
+if demo traffic shows 429s.
+
+**Cost to non-demo installs.** Not zero: an unauthenticated deep link, or a failed-refresh
+load carrying the demo marker, makes one extra bounded `GET /api/v1/edition/` before the
+usual redirect or modal. Nothing else changes for a real install.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |

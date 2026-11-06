@@ -26,6 +26,8 @@
 # Prints one `iid<TAB>state<TAB>title` line per issue the tracker returned.
 # An iid absent from the output does not exist or is not readable (deleted,
 # moved, confidential) — the caller decides what that means.
+# With GITLAB_ISSUES_WITH_PLAN=1 two more columns follow the title: the
+# milestone title (`-` when none) and the comma-joined labels (#4724).
 # Returns 2 when the tracker could not be read after retries; nothing useful
 # is printed in that case, so callers must check the status, not the output.
 gitlab_issue_states() {
@@ -63,7 +65,14 @@ _gitlab_issue_batch() {
 
     case "$code" in
       200)
-        printf '%s' "$body" | jq -r '.[] | [(.iid | tostring), .state, (.title | gsub("[\t\n]"; " "))] | @tsv'
+        if [ "${GITLAB_ISSUES_WITH_PLAN:-0}" = "1" ]; then
+          # Opt-in extra columns after the title: milestone title, comma-joined
+          # labels. Off by default so every other caller's `cut -f3-` title read
+          # is unchanged.
+          printf '%s' "$body" | jq -r '.[] | [(.iid | tostring), .state, (.title | gsub("[\t\n]"; " ")), (.milestone.title // "-"), ((.labels // []) | join(","))] | @tsv'
+        else
+          printf '%s' "$body" | jq -r '.[] | [(.iid | tostring), .state, (.title | gsub("[\t\n]"; " "))] | @tsv'
+        fi
         return
         ;;
       401)

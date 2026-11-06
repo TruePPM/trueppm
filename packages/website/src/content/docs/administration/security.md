@@ -480,11 +480,36 @@ password reset does this immediately; account deactivation also blocks the
 access token outright, since it fails the `is_active` check on every request.
 A reset does not — access tokens are short-lived (15 minutes) and stateless,
 so a still-valid one can mint a fresh ticket and open a new socket until it
-expires on its own. Closing that reconnect window needs a per-user credential
-cutoff checked against the token's issue time, which is tracked separately.
+expires on its own — and within that window it can also mint a new personal
+token, project token, or share link (0.5 will close this; see the note below).
 `revoke_api_tokens --user`/`--all-personal` perform the same sweep on demand,
 so an operator responding to an incident is not limited to these two
 automatic triggers.
+:::
+
+:::note[Ships in 0.5]
+A password reset, a member off-boarding, and `revoke_api_tokens --user` /
+`--all-personal` will also stamp a per-account **credential cutoff**. From
+then on, every access token and refresh token issued before the cutoff is
+refused with a `401` on its next use, and every WebSocket ticket issued before
+it is refused by closing the socket with code `4001`, instead of staying valid
+for the rest of its lifetime. This closes the reconnect window described
+above: a stolen access token can no longer open a new socket or mint a WebSocket
+ticket, personal token, project token, or share link after the reset. It also
+reaches refresh tokens issued before the blacklist recorded every session (see
+[Blacklist tables and cleanup](#blacklist-tables-and-cleanup)), which the
+blacklist alone cannot revoke.
+
+The cutoff is set one second after the reset, and the comparison is strict to
+the second, because a token's issue time is only recorded in whole seconds. The
+extra second absorbs clock skew between replicas: a token minted just before the
+reset by a pod whose clock runs slightly fast is still refused. Together they
+refuse anything issued up to about two seconds after the reset, so a sign-in
+that completes that soon has to sign in once more. This assumes your nodes'
+clocks are kept in sync with NTP to well within a second; larger skew reopens
+the window by the excess. Nothing needs configuring, and accounts that never had
+a cutoff are unaffected. On 0.4, a pre-reset access token keeps working until it expires
+(15 minutes at most).
 :::
 
 ## Helm secure-by-default

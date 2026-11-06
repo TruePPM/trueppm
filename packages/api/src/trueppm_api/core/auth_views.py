@@ -475,8 +475,12 @@ def _record_outstanding(refresh: RefreshToken) -> None:
 def _token_subject_is_active(refresh: RefreshToken) -> bool:
     """Whether the account a refresh token was minted for is still usable.
 
-    Returns ``False`` for a missing claim, an account that no longer exists, and a
-    deactivated one. The wording of the caller's rejection is deliberately the same
+    Returns ``False`` for a missing claim, an account that no longer exists, a
+    deactivated one, and a token issued at or before the account's credential
+    cutoff (#4499). The cutoff check is what reaches a refresh token that predates
+    #2999 and so has no ``OutstandingToken`` row for the blacklist to revoke.
+
+    The wording of the caller's rejection is deliberately the same
     "invalid or expired" string simplejwt uses for a bad token: a distinct message
     would tell an attacker holding a stolen token that the account exists and was
     disabled, which is an enumeration signal on the one endpoint that is reachable
@@ -488,11 +492,15 @@ def _token_subject_is_active(refresh: RefreshToken) -> bool:
     if user_id is None:
         return False
 
+    from trueppm_api.core.credential_cutoff import credentials_revoked_at, issued_before_cutoff
+
     user_model = get_user_model()
     try:
-        return user_model.objects.filter(
-            **{api_settings.USER_ID_FIELD: user_id, "is_active": True}
-        ).exists()
+        user = (
+            user_model.objects.select_related("profile")
+            .filter(**{api_settings.USER_ID_FIELD: user_id, "is_active": True})
+            .first()
+        )
     except (DjangoValidationError, ValueError, TypeError):
         # A claim of the wrong type for the pk column (a string where an int is
         # expected) makes Django raise at query build. DRF does not convert
@@ -500,6 +508,9 @@ def _token_subject_is_active(refresh: RefreshToken) -> bool:
         # 500 on an unauthenticated endpoint. Treat an unusable claim as "not a
         # valid subject" — the same answer as a claim that matches nothing.
         return False
+    if user is None:
+        return False
+    return not issued_before_cutoff(refresh.payload.get("iat"), credentials_revoked_at(user))
 
 
 def _apply_remember(refresh: RefreshToken, *, remember: bool) -> None:
