@@ -167,7 +167,12 @@ resource-overallocation digest (who is booked over 100% next week, for the
 callers who are Resource Manager or above on the relevant projects). Neither
 computes anything of its own — each links to the same rolled-up numbers the
 program overview and the resource heat map already show, so a digest line and
-the screen it points to can never disagree. A week with nothing to report
+the screen it points to agree, with one exception. For a program that uses the
+**Budget-weighted** aggregation policy, the program-health digest always uses the
+plain average. A digest is not computed for a particular viewer, and budget
+weighting is applied only for a viewer allowed to see every project's budget, so
+someone who may see every budget can find the overview showing a different,
+budget-weighted band than their digest. A week with nothing to report
 still sends, with a subject line saying so, rather than going silent.
 
 Both digests are scoped to your **current** memberships. When your access to a

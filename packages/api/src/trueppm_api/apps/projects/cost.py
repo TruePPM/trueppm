@@ -17,7 +17,8 @@ Definitions (ADR-1324 §2–§3):
   that project). Entries on soft-deleted tasks still count: the money was spent.
 - **Earned value (EV)** = BAC × the project's existing percent complete (the same
   ``Avg(percent_complete)`` over non-deleted tasks the project list annotates, ADR-0171)
-  / 100. Reused verbatim; not a new progress measure.
+  / 100. Reused verbatim; not a new progress measure. A project with no live tasks
+  has percent complete 0 (nothing left has been earned), never null.
 - **CV** = EV − AC; **budget utilization** = AC / BAC.
 
 Performance: a fixed number of queries for any number of projects (no per-project
@@ -55,7 +56,8 @@ COST_DEFINITIONS: dict[str, str] = {
         "not included. Changing a rate re-costs past hours."
     ),
     "percent_complete": (
-        "The project's percent complete: the mean percent_complete of its non-deleted tasks."
+        "The project's percent complete: the mean percent_complete of its non-deleted "
+        "tasks, or 0 when it has none."
     ),
     "earned_value": "budget x percent_complete / 100.",
     "cost_variance": "earned_value - actual. Negative means over budget.",

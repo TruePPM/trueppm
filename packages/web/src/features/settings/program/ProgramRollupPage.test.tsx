@@ -154,6 +154,22 @@ describe('ProgramRollupPage (settings)', () => {
     );
   });
 
+  it('says when budget weighting falls back to the average (ADR-1324)', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig(),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+    expect(
+      screen.getByText(
+        'Projects with larger budgets carry proportionally more weight. Uses the average if any project has no budget, or for anyone who is not a manager of every project.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('non-admin sees read-only KPI values + policy (no disabled controls) and a Read-only pill', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_MEMBER } });
     useProgramRollupConfig.mockReturnValue({

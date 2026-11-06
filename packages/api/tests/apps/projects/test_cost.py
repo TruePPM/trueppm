@@ -620,3 +620,39 @@ def test_ambiguous_email_matches_nobody(db: object) -> None:
     twin.save()
     assert project_cost_facts([p.pk])[p.pk].cost_computable is True
     assert _rate_scope_project_ids(shared) == [p.pk]
+
+
+def test_digest_uses_the_plain_average_for_a_budget_weighted_program(
+    program: tuple[Program, Any],
+) -> None:
+    """The weekly digest has no cost viewer, so budget weighting never applies to it.
+
+    A: one overdue open task → critical (ordinal 0). B: one task done on time →
+    on_track (ordinal 2). Average = round(1) → at_risk. Weighted by budgets 100 and
+    9,900 = round(1.98) → on_track. The digest must report the average (at risk),
+    while a PM of every project sees the weighted band on the overview.
+    """
+    from trueppm_api.apps.notifications.digests import build_program_health_digest
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    prog, owner = program
+    yesterday = TODAY - datetime.timedelta(days=1)
+    a = h.project("Alpha", budget="100.00", program=prog)
+    b = h.project("Beta", budget="9900.00", program=prog)
+    Task.objects.create(project=a, name="late", duration=1, early_finish=yesterday)
+    Task.objects.create(
+        project=b,
+        name="done",
+        duration=1,
+        early_finish=yesterday,
+        status=TaskStatus.COMPLETE,
+        actual_finish=yesterday,
+    )
+    _configure(prog, [RollupKpi.SCHEDULE_HEALTH.value], AggregationPolicy.WEIGHTED_BY_BUDGET.value)
+
+    assert (
+        compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))["program_health"] == "on_track"
+    )
+    assert compute_program_rollup(prog)["program_health"] == "at_risk"
+    _, body = build_program_health_digest(owner, timezone.now())
+    assert "Prog: At risk" in body

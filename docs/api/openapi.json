@@ -68183,8 +68183,7 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$",
-                        "readOnly": true,
-                        "nullable": true
+                        "readOnly": true
                     },
                     "earned_value": {
                         "type": "string",

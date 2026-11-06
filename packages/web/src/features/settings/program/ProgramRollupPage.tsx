@@ -127,7 +127,7 @@ const POLICIES: PolicyOption[] = [
   {
     id: 'weighted_by_budget',
     label: 'Budget-weighted',
-    hint: 'Projects with larger budgets carry proportionally more weight. Falls back to the average if any project has no budget.',
+    hint: 'Projects with larger budgets carry proportionally more weight. Uses the average if any project has no budget, or for anyone who is not a manager of every project.',
   },
   {
     id: 'task_weighted',

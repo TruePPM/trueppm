@@ -90,9 +90,8 @@ class ProjectCostSerializer(serializers.Serializer[dict[str, Any]]):
     as_of = serializers.DateTimeField(read_only=True)
     budget = _money(allow_null=True)
     actual = _money()
-    percent_complete = serializers.DecimalField(
-        max_digits=5, decimal_places=2, read_only=True, allow_null=True
-    )
+    # Never null: a project with no live tasks reports 0 (cost.project_cost_facts).
+    percent_complete = serializers.DecimalField(max_digits=5, decimal_places=2, read_only=True)
     earned_value = _money(allow_null=True)
     cost_variance = CostKpiSerializer(read_only=True)
     budget_utilization = CostKpiSerializer(read_only=True)
