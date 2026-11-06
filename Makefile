@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check api-scheduler-lock-check \
+        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -568,6 +568,13 @@ e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
 	@bash scripts/check-e2e-catchall.sh --self-test
 	@bash scripts/check-e2e-catchall.sh
 
+cost-ledger-check: ## Run the lint:cost-ledger CI job locally (the cost-ledger scripts' --self-test runs)
+	@python3 scripts/cost-ledger --self-test
+	@python3 scripts/subagent-tokens.py --self-test
+	@python3 scripts/orchestrator-tokens.py --self-test
+	@python3 scripts/est-cost.py --self-test
+	@python3 scripts/cost-table.py --self-test
+
 web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
 	@# packages/web/src/api/types.ts is hand-maintained. This fails when a field an
 	@# interface shares with its mapped schema in docs/api/openapi.json disagrees on
@@ -761,6 +768,7 @@ pre-push-checks: pre-push-wasm
 pre-push-checks: pre-push-mobile
 pre-push-checks: e2e-schema-guard-check
 pre-push-checks: web-types-drift-check
+pre-push-checks: cost-ledger-check
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
