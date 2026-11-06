@@ -22,7 +22,7 @@ from trueppm_api.apps.history.diff_policy import (
     visible_changes,
 )
 from trueppm_api.apps.projects.board_activity import _BOARD_DIFF_FIELDS
-from trueppm_api.apps.projects.models import Task
+from trueppm_api.apps.projects.models import Project, Task
 
 
 def test_privacy_gated_fields_are_never_compared_on_any_surface() -> None:
@@ -40,8 +40,12 @@ def test_privacy_gated_fields_are_tracked_so_the_policy_is_load_bearing() -> Non
     If the historical model stopped carrying it, the exclusion would become dead
     and a future reader might remove it as such — while a re-tracked field would
     then leak. The test states the dependency the policy comment describes.
+
+    The set spans models: ``blocked_reason`` is a Task field, ``budget`` a Project
+    one (ADR-1324). Every gated name must be tracked by at least one of them.
     """
     tracked = {f.name for f in Task.history.model._meta.fields}  # type: ignore[attr-defined]
+    tracked |= {f.name for f in Project.history.model._meta.fields}  # type: ignore[attr-defined]
     assert tracked >= HISTORY_DIFF_PRIVACY_GATED
 
 

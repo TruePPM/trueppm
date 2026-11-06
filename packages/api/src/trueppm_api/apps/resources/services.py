@@ -463,3 +463,118 @@ def apply_task_owners(
         transaction.on_commit(_broadcast)
 
     return written
+
+
+def _rate_scope_project_ids(resource: Resource) -> list[Any]:
+    """Projects whose cost a change to ``resource``'s rate can move (ADR-1324 §5).
+
+    Every project where the resource's person logged time, plus every project where
+    the resource is assigned to a live task (its rate decides ``cost_computable``
+    there even before anyone logs an hour). Deleted projects are excluded.
+    """
+    from trueppm_api.apps.timetracking.models import TimeEntry
+
+    ids: set[Any] = set(
+        TaskResource.objects.filter(resource=resource, task__is_deleted=False)
+        .values_list("task__project_id", flat=True)
+        .distinct()
+    )
+    if resource.user_id is not None:
+        ids |= set(
+            TimeEntry.objects.filter(user_id=resource.user_id, is_deleted=False)
+            .values_list("task__project_id", flat=True)
+            .distinct()
+        )
+    return list(
+        Project.objects.filter(id__in=ids, is_deleted=False)
+        .order_by("name", "id")
+        .values_list("id", flat=True)
+    )
+
+
+def set_resource_rate(
+    resource: Resource,
+    rate: Decimal | None,
+    *,
+    actor: Any,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Preview or apply a resource's hourly rate; return the re-cost (ADR-1324 §5).
+
+    The ONE write path for ``Resource.cost_rate`` and the one source of the preview,
+    so #4810's "the preview equals the server's re-cost result" is a property of the
+    code rather than a promise: ``dry_run=True`` computes "after" by passing the
+    proposed rate as an override to :func:`project_cost_facts`; ``dry_run=False``
+    saves, writes the audit row, and recomputes "after" from the database. Both
+    return the same shape. Changing a rate re-costs every past entry — there is one
+    current rate and no history (enterprise#45 owns rate cards).
+
+    No broadcast: the rate is not board state, and every cost read recomputes on GET.
+    An unchanged rate saves nothing and writes no audit row.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.cost import money, project_cost_facts
+    from trueppm_api.apps.workspace.models import AuditEventType, Workspace
+    from trueppm_api.apps.workspace.services import record_audit_event
+
+    with transaction.atomic():
+        if not dry_run:
+            resource = Resource.objects.select_for_update().get(pk=resource.pk)
+        before_rate = resource.cost_rate
+        project_ids = _rate_scope_project_ids(resource)
+        before = project_cost_facts(project_ids)
+        if dry_run:
+            after = project_cost_facts(project_ids, rate_overrides={resource.pk: rate})
+        else:
+            if before_rate != rate:
+                resource.cost_rate = rate
+                resource.save()
+                record_audit_event(
+                    event_type=AuditEventType.RESOURCE_RATE_CHANGED,
+                    actor=actor,
+                    target_type="resource",
+                    target_id=resource.pk,
+                    target_label=resource.name,
+                    metadata={
+                        "cost_rate_before": None if before_rate is None else str(before_rate),
+                        "cost_rate_after": None if rate is None else str(rate),
+                        "projects_recosted": len(project_ids),
+                    },
+                )
+            after = project_cost_facts(project_ids)
+
+    names = dict(Project.objects.filter(id__in=project_ids).values_list("id", "name"))
+    projects: list[dict[str, Any]] = []
+    total_minutes = 0
+    total_delta = Decimal("0.00")
+    for pid in project_ids:
+        b, a = before[pid], after[pid]
+        minutes = sum(ln.minutes for ln in a.lines if ln.resource_id == resource.pk)
+        total_minutes += minutes
+        delta = a.actual - b.actual
+        total_delta += delta
+        projects.append(
+            {
+                "project_id": str(pid),
+                "name": names.get(pid, ""),
+                "hours": money(Decimal(minutes) / 60),
+                "actual_before": b.actual,
+                "actual_after": a.actual,
+                "delta": delta,
+                "cost_computable_before": b.cost_computable,
+                "cost_computable_after": a.cost_computable,
+            }
+        )
+    return {
+        "resource_id": str(resource.pk),
+        "currency": Workspace.load().currency,
+        "cost_rate_before": before_rate,
+        "cost_rate_after": rate,
+        "dry_run": dry_run,
+        "as_of": timezone.now(),
+        "projects": projects,
+        "total_hours": money(Decimal(total_minutes) / 60),
+        "total_delta": total_delta,
+    }

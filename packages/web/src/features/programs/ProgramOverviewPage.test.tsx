@@ -96,10 +96,44 @@ describe('ProgramOverviewPage (#713)', () => {
   });
 
   it('shows a deferred KPI muted with its reason rather than hiding it', async () => {
-    mockApi(rollup({ kpis: { cost_variance: { available: false, reason: 'no_cost_data' } } }));
+    mockApi(
+      rollup({
+        kpis: { cost_variance: { available: false, reason: 'missing_rates', missing_rate_count: 3 } },
+      }),
+    );
     renderPage();
     expect(await screen.findByText('Cost variance')).toBeInTheDocument();
-    expect(screen.getByText('Needs cost data')).toBeInTheDocument();
+    // The reason names how much is missing (ADR-1324 §3), not a generic "no data".
+    expect(screen.getByText('3 people have no rate')).toBeInTheDocument();
+  });
+
+  it('names projects without a budget, and hides cost from a non-manager', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          cost_variance: { available: false, reason: 'no_budget', projects_without_budget: 1 },
+          budget_utilization: { available: false, reason: 'cost_restricted' },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('1 project has no budget')).toBeInTheDocument();
+    expect(screen.getByText('Visible to program managers')).toBeInTheDocument();
+  });
+
+  it('renders computed cost KPIs as money and a percentage', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          cost_variance: { available: true, value: '-1500.00', unit: 'USD' },
+          budget_utilization: { available: true, value: 0.42, unit: 'ratio' },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('over budget')).toBeInTheDocument();
+    expect(screen.getByText('42%')).toBeInTheDocument();
+    expect(screen.getByText(/1,500/)).toBeInTheDocument();
   });
 
   it('renders the deferred-KPI reason as readable copy, not a sub-AA disabled token (rule 169, #3477)', async () => {
@@ -215,7 +249,7 @@ describe('kpiDrillTarget (#2155)', () => {
   });
 
   it('never drills a deferred KPI or an unrelated metric', () => {
-    expect(kpiDrillTarget('critical_tasks', { available: false, reason: 'no_cost_data' }, 'pg')).toBeUndefined();
+    expect(kpiDrillTarget('critical_tasks', { available: false, reason: 'no_budget' }, 'pg')).toBeUndefined();
     expect(kpiDrillTarget('baseline_variance', { available: true, value: 9 }, 'pg')).toBeUndefined();
   });
 });

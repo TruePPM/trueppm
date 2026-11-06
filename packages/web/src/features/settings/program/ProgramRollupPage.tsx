@@ -96,12 +96,12 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'cost_variance',
         label: 'Cost variance (CV)',
-        description: 'Earned-value cost variance vs. the saved baseline. Negative = over budget.',
+        description: 'Earned value minus actual cost, summed across projects. Negative = over budget.',
       },
       {
         id: 'budget_utilization',
         label: 'Budget utilization',
-        description: 'Approved budget consumed to date, aggregated across all projects.',
+        description: 'Actual cost as a share of total budget across all projects.',
       },
     ],
   },
@@ -127,7 +127,7 @@ const POLICIES: PolicyOption[] = [
   {
     id: 'weighted_by_budget',
     label: 'Budget-weighted',
-    hint: 'Projects with larger approved budgets carry proportionally more weight in the average.',
+    hint: 'Projects with larger budgets carry proportionally more weight. Falls back to the average if any project has no budget.',
   },
   {
     id: 'task_weighted',
@@ -189,7 +189,6 @@ interface InlineToastState {
 // `DEFERRED_REASON_LABEL` on purpose: on the overview the PM is reading a blank
 // tile, here they are being told why a switch will not move.
 const UNAVAILABLE_REASON_TEXT: Record<UnavailableKpiReason, string> = {
-  no_cost_data: 'Not yet available — needs project cost data to roll up.',
   no_montecarlo_store: 'Not yet available — needs stored Monte Carlo runs to roll up.',
 };
 

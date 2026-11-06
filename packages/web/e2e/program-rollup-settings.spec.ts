@@ -52,9 +52,8 @@ const FIXTURE_CONFIG = {
   // Mirrors the server's DEFERRED_KPI_REASONS (#2404). p80_completion is both
   // unavailable and already enabled here — the stale-config case the picker has
   // to keep switchable OFF.
+  // The cost KPIs left that map with the cost model (#754/#3426): they compute.
   unavailable_kpis: {
-    cost_variance: 'no_cost_data',
-    budget_utilization: 'no_cost_data',
     p80_completion: 'no_montecarlo_store',
   },
 };
@@ -66,7 +65,12 @@ interface Captures {
   patchCount: number;
 }
 
-async function setup(page: Page, captures: Captures, opts: { myRole?: number } = {}) {
+async function setup(
+  page: Page,
+  captures: Captures,
+  opts: { myRole?: number; config?: typeof FIXTURE_CONFIG } = {},
+) {
+  const config = opts.config ?? FIXTURE_CONFIG;
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -117,14 +121,14 @@ async function setup(page: Page, captures: Captures, opts: { myRole?: number } =
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj(FIXTURE_CONFIG),
+        body: pj(config),
       });
       return;
     }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj(FIXTURE_CONFIG),
+      body: pj(config),
     });
   });
   // The page now hosts a live preview (#673) that calls the rollup consumer.
@@ -199,14 +203,16 @@ test.describe('Program Settings → Rollup KPIs', () => {
 
   test('a KPI the server reports unavailable cannot be switched on (#2404)', async ({ page }) => {
     const captures: Captures = { patchCount: 0 };
-    await setup(page, captures);
+    await setup(page, captures, {
+      config: { ...FIXTURE_CONFIG, enabled_kpis: ['schedule_health', 'milestone_health'] },
+    });
     await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
 
-    const costVariance = page.getByRole('switch', { name: 'Cost variance (CV)' });
+    const costVariance = page.getByRole('switch', { name: 'P80 completion date' });
     await expect(costVariance).toHaveAttribute('aria-checked', 'false');
     await expect(costVariance).toHaveAttribute('aria-disabled', 'true');
     await expect(
-      page.getByText('Not yet available — needs project cost data to roll up.').first(),
+      page.getByText('Not yet available — needs stored Monte Carlo runs to roll up.').first(),
     ).toBeVisible();
 
     // `force` bypasses Playwright's actionability check, which already refuses
@@ -219,6 +225,21 @@ test.describe('Program Settings → Rollup KPIs', () => {
     await expect(costVariance).toHaveAttribute('aria-checked', 'false');
     await page.waitForTimeout(600); // past the 250ms toggle debounce
     expect(captures.patchCount).toBe(0);
+  });
+
+  test('the cost KPIs are live switches, not dead controls (#3426)', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    const costVariance = page.getByRole('switch', { name: 'Cost variance (CV)' });
+    await expect(costVariance).toHaveAttribute('aria-checked', 'false');
+    await expect(costVariance).not.toHaveAttribute('aria-disabled', 'true');
+    await costVariance.click();
+
+    await expect.poll(() => captures.patchCount, { timeout: 2000 }).toBeGreaterThanOrEqual(1);
+    const body = captures.lastPatchBody as { enabled_kpis?: string[] } | undefined;
+    expect(body?.enabled_kpis).toContain('cost_variance');
   });
 
   test('an already-enabled unavailable KPI can still be switched off (#2404)', async ({ page }) => {

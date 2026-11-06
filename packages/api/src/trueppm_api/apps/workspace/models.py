@@ -370,6 +370,12 @@ class Workspace(models.Model):
     # moved off it by an upgrade.
     feedback_enabled = models.BooleanField(default=True)
     feedback_url = models.URLField(blank=True, default="")
+    # The one currency every cost amount is in (ADR-1324, #754): Resource.cost_rate,
+    # Project.budget and every derived actual / earned value. A label, not a
+    # converter — there is no FX, so changing it re-labels existing amounts and
+    # converts nothing. ISO-4217 shape is enforced by the settings serializer, the
+    # only write path.
+    currency = models.CharField(max_length=3, default="USD")
 
     # Workspace-wide default working calendar (ADR-0441, #1987) — the root of the
     # Project → Program → Workspace → system-default inheritance chain. NULL = fall
@@ -809,6 +815,12 @@ class AuditEventType(models.TextChoices):
     # one wrote nothing, so the path that grants a federated credential over an
     # *existing* local account was the only one leaving no trace.
     SSO_ACCOUNT_LINKED = "sso_account_linked", "SSO account linked"
+    # #754, ADR-1324. A resource's hourly cost rate is a salary proxy and has no
+    # history (one current value), so changing it silently re-costs every past time
+    # entry for that resource. This row is the only record of who changed it and from
+    # what; its metadata carries the before/after rate, which is why it lives in this
+    # Admin-only log rather than in a team-readable feed.
+    RESOURCE_RATE_CHANGED = "resource_rate_changed", "Resource rate changed"
 
 
 class AuditEvent(models.Model):

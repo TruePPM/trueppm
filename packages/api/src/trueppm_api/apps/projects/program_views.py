@@ -3064,11 +3064,19 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         Read-only and computed on demand (no persisted rollup row), so it always
         reflects the projects' current state. Permission: any program member.
+
+        The cost KPIs (``cost_variance`` / ``budget_utilization``) carry values only
+        for a program Admin+ caller (ADR-1324 §4); everyone else gets
+        ``{"available": False, "reason": "cost_restricted"}``. A token caller is
+        judged by its user's role, so an MCP agent sees what its human would.
         """
+        from trueppm_api.apps.access.models import Role
+        from trueppm_api.apps.access.permissions import effective_program_role
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.projects.program_rollup import compute_program_rollup
 
         program = self.get_object()
+        role = effective_program_role(request, program.pk)
         return Response(
             compute_program_rollup(
                 program,
@@ -3076,6 +3084,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 # CHILD PROJECT data, so the mixin's row filter (which sees only the
                 # Program row) does not reach it. Opted-out projects are dropped here.
                 exclude_project_ids=mcp_excluded_project_ids(request),
+                include_cost=role is not None and role >= Role.ADMIN,
             )
         )
 

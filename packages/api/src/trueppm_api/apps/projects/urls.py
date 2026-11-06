@@ -22,6 +22,7 @@ from trueppm_api.apps.projects.ceremony_views import (
     PhaseGateConfigView,
     ProjectGuardrailPolicyView,
 )
+from trueppm_api.apps.projects.cost_views import ProjectCostView
 from trueppm_api.apps.projects.decisions_views import ProjectDecisionsPolicyView
 from trueppm_api.apps.projects.key_views import KeySuggestionView, ResolveView
 from trueppm_api.apps.projects.poker_views import (
@@ -279,6 +280,12 @@ urlpatterns = [
         "projects/<pk>/overview/",
         ProjectOverviewView.as_view(),
         name="project-overview",
+    ),
+    # Cost summary (ADR-1324, #754) — project Admin+.
+    path(
+        "projects/<pk>/cost/",
+        ProjectCostView.as_view(),
+        name="project-cost",
     ),
     path(
         "projects/<pk>/attention/",

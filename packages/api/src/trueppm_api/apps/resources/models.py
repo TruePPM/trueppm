@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, ClassVar, TypeVar
 
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from trueppm_api.apps.projects.models import Calendar, Project, Task, VersionedModel
@@ -101,6 +102,20 @@ class Resource(VersionedModel):
         related_name="resources",
         null=True,
         blank=True,
+    )
+    # Hourly cost in the workspace currency (ADR-1324, #754). ONE current value with no
+    # history: actual cost is hours x the rate as it is *now*, so changing it re-costs
+    # every past entry for this resource — intended, and previewed by
+    # ``POST /resources/{id}/rate/`` (the only write path; read-only on the serializer).
+    # NULL = unrated (blocks ``cost_computable``); 0 = a real zero-cost rate. A
+    # salary proxy: readable only at workspace ADMIN (see ResourceSerializer).
+    # Date-effective rate cards are enterprise#45.
+    cost_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
     )
 
     class Meta:

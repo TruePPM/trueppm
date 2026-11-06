@@ -108,7 +108,13 @@ HISTORY_DIFF_OBJECT_SCOPED_EXCLUDED: frozenset[str] = frozenset({"is_deleted"})
 # — and every past reason — off a team-readable feed. The structured blocker signal
 # (``blocker_type`` / ``blocked_since`` / ``blocked_by`` / ``blocking_task``) is
 # team-shareable and stays in the diff.
-HISTORY_DIFF_PRIVACY_GATED: frozenset[str] = frozenset({"blocked_reason"})
+#
+# ``budget`` (ADR-1324, #754) is a project's BAC — confidential, readable only at
+# project ADMIN+ (``ProjectSerializer``), while the project changelog is Viewer+.
+# ``HistoricalProject`` still tracks it so a budget change keeps its audit row (readable
+# to the project Admin through the export bundle); this exclusion keeps the amount —
+# and every past amount — off the team-readable feed.
+HISTORY_DIFF_PRIVACY_GATED: frozenset[str] = frozenset({"blocked_reason", "budget"})
 
 # Noise exclusions surfaced anyway when they are the ONLY thing a record changed (#3306).
 #
