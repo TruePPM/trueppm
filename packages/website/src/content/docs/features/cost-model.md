@@ -28,7 +28,7 @@ When 0.5 lands, the budget, rates and currency are set through the API, as shown
 | **Hourly rate** | Resource | Workspace Admin or Owner | Workspace Admin or Owner. A Project Manager also sees the rate of each person who logged time on their project, in that project's cost breakdown. |
 | **Currency** | Workspace settings | Workspace Admin or Owner | Everyone |
 
-A rate is a stand-in for what a person costs the organization, so it is **never** shown to a Member or a Viewer. That holds everywhere a rate or a cost figure could travel: the resource catalog, the project roster, the project's activity history, exports, share links, agent (MCP) reads, and the program rollup. A Member or Viewer of a program sees the cost KPIs as **Visible to program managers** instead of a number.
+A rate is a stand-in for what a person costs the organization, so it is **never** shown to a Member or a Viewer. That holds everywhere a rate or a cost figure could travel: the resource catalog, the project roster, the project's activity history, exports, share links, agent (MCP) reads, and the program rollup. In the program rollup, the cost KPIs show a number only to someone who is Program Manager or Owner on the program **and** Project Manager or Owner on every project in it. Everyone else sees **Restricted to managers of every project**.
 
 ### One rate per resource, no history
 
@@ -66,7 +66,7 @@ What counts as actual cost:
 - **Deleted time entries do not count.** Time logged on a task that was later deleted still counts, because the money was spent.
 - **A deactivated resource still prices its past hours.** Off-boarding someone does not erase what their work cost.
 
-When a person has more than one resource, TruePPM uses the one on the project's team roster.
+When a person has more than one resource, TruePPM uses the one on the project's team roster. When a person's account is not linked to any resource, TruePPM uses a resource with no linked account and the same email address.
 
 ## When a figure cannot be computed
 
@@ -75,8 +75,8 @@ A cost figure that is missing an input says which input is missing instead of sh
 | What you see | Why | What to do |
 |---|---|---|
 | **N projects have no budget** | A project, or one of the program's projects, has no budget, or a budget of 0 | A Project Manager sets `budget` on the project with `PATCH /api/v1/projects/{id}/` |
-| **N people have no rate** | Someone who logged time on the project, or who is assigned to one of its tasks, has no rate. Their hours cannot be priced | Ask a workspace admin to set their rates |
-| **Visible to program managers** | You are a Member or Viewer of the program | Nothing; cost is restricted |
+| **N people have no rate** | Someone who logged time on the project, or who is assigned to one of its tasks, has no rate. Their hours cannot be priced | A workspace admin sets each person's rate with `POST /api/v1/resources/{id}/rate/`. This works for a deactivated resource too. If the person has **no resource at all** (their entry in the breakdown has no `resource_id`), first create one with their email address (`POST /api/v1/resources/`), then rate it. TruePPM matches a resource with no linked account to the person by email |
+| **Restricted to managers of every project** | You are not Program Manager or above on the program, or not Project Manager or above on every project in it | Nothing; cost is restricted |
 
 Actual cost is still shown while rates are missing, but it covers only the priced hours. The cost breakdown lists the unpriced hours and names the people who have no rate.
 

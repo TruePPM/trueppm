@@ -118,7 +118,7 @@ describe('ProgramOverviewPage (#713)', () => {
     );
     renderPage();
     expect(await screen.findByText('1 project has no budget')).toBeInTheDocument();
-    expect(screen.getByText('Visible to program managers')).toBeInTheDocument();
+    expect(screen.getByText('Restricted to managers of every project')).toBeInTheDocument();
   });
 
   it('renders computed cost KPIs as money and a percentage', async () => {

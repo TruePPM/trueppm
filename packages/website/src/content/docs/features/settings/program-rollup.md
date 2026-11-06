@@ -57,7 +57,7 @@ Ten KPIs can be enabled. The page groups them into three sections for scannabili
 The two cost KPIs compute in 0.5, from the [cost model](/features/cost-model/). In the current release both are locked in the picker with the reason `no_cost_data` ("needs project cost data"), and **Budget-weighted** always falls back to the average.
 :::
 
-The cost KPIs carry a value only for a program **Program Manager** or Owner. Everyone else sees them as **Visible to program managers** (`cost_restricted`). They are unavailable, with a reason that names what is missing, when any project in the program has no budget (`no_budget`, with `projects_without_budget`) or when anyone logging time has no rate (`missing_rates`, with `missing_rate_count`). See [When a figure cannot be computed](/features/cost-model/#when-a-figure-cannot-be-computed).
+The cost KPIs carry a value only for someone who is **Program Manager** or Owner on the program **and** Project Manager or Owner on **every** project in it. A program role does not reach a project's budget. Everyone else, including a program Scheduler, Member or Viewer, sees them as **Restricted to managers of every project** (`cost_restricted`). They are unavailable, with a reason that names what is missing, when any project in the program has no budget (`no_budget`, with `projects_without_budget`), or when anyone who logged time on a project or is assigned to one of its tasks has no rate (`missing_rates`, with `missing_rate_count`). See [When a figure cannot be computed](/features/cost-model/#when-a-figure-cannot-be-computed).
 
 Only enabled KPIs appear on the program overview and its rollup tiles. KPI toggles save **optimistically** — the switch flips immediately, and rapid changes are batched into a single save.
 

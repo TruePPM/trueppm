@@ -11159,7 +11159,7 @@
         "/api/v1/programs/{id}/rollup/": {
             "get": {
                 "operationId": "v1_programs_rollup_retrieve",
-                "description": "Computed rollup of the enabled KPIs across the program's projects.\n\nURL: ``GET /api/v1/programs/{pk}/rollup/``\n\nConsumes the #527 config (``rollup_enabled_kpis`` +\n``rollup_aggregation_policy``) and returns the rolled-up values per\nADR-0088 — the program health dot, the active policy (and whether it\ncould be honored), the contributing project count, and a per-KPI map\nwhere deferred KPIs carry ``{\"available\": False, \"reason\": ...}``.\n\nRead-only and computed on demand (no persisted rollup row), so it always\nreflects the projects' current state. Permission: any program member.\n\nThe cost KPIs (``cost_variance`` / ``budget_utilization``) carry values only\nfor a program Admin+ caller (ADR-1324 §4); everyone else gets\n``{\"available\": False, \"reason\": \"cost_restricted\"}``. A token caller is\njudged by its user's role, so an MCP agent sees what its human would.",
+                "description": "Computed rollup of the enabled KPIs across the program's projects.\n\nURL: ``GET /api/v1/programs/{pk}/rollup/``\n\nConsumes the #527 config (``rollup_enabled_kpis`` +\n``rollup_aggregation_policy``) and returns the rolled-up values per\nADR-0088 — the program health dot, the active policy (and whether it\ncould be honored), the contributing project count, and a per-KPI map\nwhere deferred KPIs carry ``{\"available\": False, \"reason\": ...}``.\n\nRead-only and computed on demand (no persisted rollup row), so it always\nreflects the projects' current state. Permission: any program member.\n\nThe cost KPIs (``cost_variance`` / ``budget_utilization``) carry values only\nfor a caller who is program Admin+ AND project Admin+ on every contributing\nproject (ADR-1324 §4); everyone else gets\n``{\"available\": False, \"reason\": \"cost_restricted\"}``. A token caller is\njudged by its user's role, so an MCP agent sees what its human would.",
                 "summary": "Compute the program KPI rollup across its projects",
                 "parameters": [
                     {
@@ -66720,7 +66720,7 @@
                     "reason": {
                         "type": "string",
                         "readOnly": true,
-                        "description": "Why the KPI has no value: no_montecarlo_store (not built yet), no_budget (a contributing project has no budget), missing_rates (someone in scope has no rate), or cost_restricted (the caller is below program Admin and may not see cost). ADR-1324."
+                        "description": "Why the KPI has no value: no_montecarlo_store (not built yet), no_budget (a contributing project has no budget), missing_rates (someone in scope has no rate), or cost_restricted (the caller is not program Admin+ and project Admin+ on every contributing project, so may not see cost). ADR-1324."
                     },
                     "projects_without_budget": {
                         "type": "integer",

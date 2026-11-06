@@ -90,7 +90,7 @@ def compute_program_rollup(
     program: Program,
     *,
     exclude_project_ids: Collection[Any] | None = None,
-    include_cost: bool = False,
+    cost_viewer: Any = None,
 ) -> dict[str, Any]:
     """Compute the rolled-up KPI block for a program's overview (ADR-0088).
 
@@ -102,9 +102,13 @@ def compute_program_rollup(
     ``{"available": False, "reason": ...}`` for a KPI whose per-project source is
     not built yet (#753) or cannot be computed from the program's data.
 
-    ``include_cost`` is the caller's cost-visibility verdict (program Admin+,
-    ADR-1324 §4). It defaults to ``False`` — fail closed — so a caller that forgets
-    to decide gets ``cost_restricted`` entries, never a cost value. It does not affect
+    ``cost_viewer`` is the user the cost KPIs are computed for, passed only once the
+    caller has established they are program Admin+ (ADR-1324 §4). A value is returned
+    only if that user is ALSO project Admin+ on every contributing project: program
+    roles do not cascade to projects, and a program total over projects the caller
+    cannot see the budget of leaks it (one project: BAC = CV / (pc − util)). It
+    defaults to ``None`` — fail closed — so a caller that forgets to decide gets
+    ``cost_restricted`` entries, never a cost value. It does not affect
     ``weighted_by_budget``: that weighting moves only the health bands and variances,
     which reveal no amount.
 
@@ -133,7 +137,7 @@ def compute_program_rollup(
     effective_policy, policy_available, policy_unavailable_reason, task_weights = _policy_weights(
         policy, project_ids
     )
-    cost_kpis = _cost_kpis(enabled, project_ids, include_cost=include_cost)
+    cost_kpis = _cost_kpis(enabled, project_ids, cost_viewer=cost_viewer)
 
     # schedule_health per project is always needed: it is both a KPI and the
     # source of the headline program health dot (drives Program.health=AUTO).
@@ -222,8 +226,35 @@ def _policy_weights(
     return policy, True, None, {pid: float(c) for pid, c in counts.items()}
 
 
+def _sees_cost_of_every_project(user: Any, project_ids: list[Any]) -> bool:
+    """``user`` holds live project ADMIN+ on every id in ``project_ids`` (ADR-1324 §4).
+
+    The project half of the rollup's cost gate. The non-request twin of
+    ``ProjectSerializer._caller_sees_cost``: live, non-revoked membership on a
+    non-trashed project (the ``live_member_project_ids`` floor), at ADMIN or above.
+    One query. An empty program is vacuously visible — its totals are null.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if not project_ids:
+        return True
+    admin_of = set(
+        ProjectMembership.live()
+        .filter(
+            user=user,
+            project_id__in=project_ids,
+            project__is_deleted=False,
+            role__gte=Role.ADMIN,
+        )
+        .values_list("project_id", flat=True)
+    )
+    return admin_of >= set(project_ids)
+
+
 def _cost_kpis(
-    enabled: list[str], project_ids: list[Any], *, include_cost: bool
+    enabled: list[str], project_ids: list[Any], *, cost_viewer: Any
 ) -> dict[str, dict[str, Any]]:
     """The two cost KPI entries, computed only when one is enabled (ADR-1324 §3–§4)."""
     if not _COST_KPIS.intersection(enabled):
@@ -234,7 +265,7 @@ def _cost_kpis(
         project_cost_facts,
     )
 
-    if not include_cost:
+    if not _sees_cost_of_every_project(cost_viewer, project_ids):
         return {k: {"available": False, "reason": REASON_COST_RESTRICTED} for k in _COST_KPIS}
     from trueppm_api.apps.workspace.models import Workspace
 

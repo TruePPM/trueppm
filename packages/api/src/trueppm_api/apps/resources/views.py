@@ -1393,7 +1393,10 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         current rate, with no history. Saving writes a ``resource_rate_changed`` audit
         row. Workspace ADMIN+, human session only.
         """
-        resource = get_object_or_404(Resource.objects.filter(is_deleted=False), pk=pk)
+        # Deactivated resources too (unfiltered manager, like ``restore``): a
+        # departed person's past hours still cost what they cost (ADR-1324 §2), so an
+        # unrated one must stay rateable or "N people have no rate" has no remedy.
+        resource = get_object_or_404(Resource.objects.all(), pk=pk)
         body = ResourceRateSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         result = set_resource_rate(

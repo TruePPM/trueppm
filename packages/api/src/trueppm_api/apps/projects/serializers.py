@@ -3262,8 +3262,9 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
         help_text=(
             "Why the KPI has no value: no_montecarlo_store (not built yet), "
             "no_budget (a contributing project has no budget), missing_rates "
-            "(someone in scope has no rate), or cost_restricted (the caller is "
-            "below program Admin and may not see cost). ADR-1324."
+            "(someone in scope has no rate), or cost_restricted (the caller is not "
+            "program Admin+ and project Admin+ on every contributing project, so "
+            "may not see cost). ADR-1324."
         ),
     )
     # Cost-KPI detail (ADR-1324 §3) — present on cost_variance / budget_utilization

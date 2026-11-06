@@ -480,11 +480,15 @@ def _rate_scope_project_ids(resource: Resource) -> list[Any]:
         .distinct()
     )
     if resource.user_id is not None:
-        ids |= set(
-            TimeEntry.objects.filter(user_id=resource.user_id, is_deleted=False)
-            .values_list("task__project_id", flat=True)
-            .distinct()
-        )
+        loggers = TimeEntry.objects.filter(user_id=resource.user_id, is_deleted=False)
+    elif resource.email:
+        # The email fallback ``project_cost_facts`` applies to a resource with no
+        # user link (ADR-1324 §2): its rate prices that person's hours, so their
+        # projects are in scope too.
+        loggers = TimeEntry.objects.filter(user__email__iexact=resource.email, is_deleted=False)
+    else:
+        loggers = TimeEntry.objects.none()
+    ids |= set(loggers.values_list("task__project_id", flat=True).distinct())
     return list(
         Project.objects.filter(id__in=ids, is_deleted=False)
         .order_by("name", "id")

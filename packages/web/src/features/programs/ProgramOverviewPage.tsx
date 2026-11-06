@@ -107,7 +107,7 @@ const DEFERRED_REASON_LABEL: Record<UnavailableKpi['reason'], string> = {
   no_montecarlo_store: 'Needs a saved Monte Carlo run',
   no_budget: 'Needs a budget on every project',
   missing_rates: 'Needs a rate for everyone on the project',
-  cost_restricted: 'Visible to program managers',
+  cost_restricted: 'Restricted to managers of every project',
 };
 
 /** The reason line, naming how much is missing when the server says (ADR-1324 §3). */

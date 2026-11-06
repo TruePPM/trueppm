@@ -3066,7 +3066,8 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         reflects the projects' current state. Permission: any program member.
 
         The cost KPIs (``cost_variance`` / ``budget_utilization``) carry values only
-        for a program Admin+ caller (ADR-1324 §4); everyone else gets
+        for a caller who is program Admin+ AND project Admin+ on every contributing
+        project (ADR-1324 §4); everyone else gets
         ``{"available": False, "reason": "cost_restricted"}``. A token caller is
         judged by its user's role, so an MCP agent sees what its human would.
         """
@@ -3084,7 +3085,9 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 # CHILD PROJECT data, so the mixin's row filter (which sees only the
                 # Program row) does not reach it. Opted-out projects are dropped here.
                 exclude_project_ids=mcp_excluded_project_ids(request),
-                include_cost=role is not None and role >= Role.ADMIN,
+                # Program Admin+ here; project Admin+ on every contributing project
+                # is checked inside (ADR-1324 §4 — program roles do not cascade).
+                cost_viewer=request.user if role is not None and role >= Role.ADMIN else None,
             )
         )
 

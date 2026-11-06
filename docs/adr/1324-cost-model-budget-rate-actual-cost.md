@@ -86,8 +86,14 @@ hours(u, p) = Σ TimeEntry.minutes / 60  where task.project = p, entry.is_delete
   resources, prefer one on the project's active roster, then a live one over a
   deactivated one, then by `name`, then by `id`. A deactivated resource still prices its
   history, because off-boarding a person must not erase what their past hours cost.
-- A user with **no resource at all** has their hours counted as `unpriced_hours`, and
-  they count once toward `missing_rate_count`.
+- A user with **no linked resource** is matched to a resource that has **no user link**
+  and the same email (case-insensitive), the legacy fallback `ResourceSerializer.get_is_me`
+  already applies. `Resource.user` has no API write path, so this is the only remedy a
+  workspace admin has: create a resource with that person's email, then rate it. A
+  resource already bound to someone else is never borrowed.
+- A user with **no resource at all** (no link, no email match) has their hours counted as
+  `unpriced_hours`, and they count once toward `missing_rate_count`. Their
+  `missing_rate_resources` entry carries a `user_id` and a null `resource_id`.
 
 The time aggregation is done in SQL: one grouped `Sum(minutes)` per `(project, user)`.
 Resolution then runs in Python over the small result. A fixed number of queries serves
@@ -156,7 +162,7 @@ The rule from #4810: **a Member or Viewer never receives a rate or a cost field.
 | `Project.budget` on `ProjectSerializer` | project Admin+ (Project Manager) | field omitted |
 | `Project.budget` write | project Admin+ | 400 for a Scheduler **even when the value is unchanged** |
 | `GET /projects/{id}/cost/` (summary + per-person lines incl. rate) | project Admin+ | 403 |
-| Program rollup cost KPIs | program Admin+ | `{available:false, reason:"cost_restricted"}` |
+| Program rollup cost KPIs | program Admin+ **and** project Admin+ on **every** contributing project | `{available:false, reason:"cost_restricted"}` |
 | Workspace currency (`/workspace/`) | readable by all members (a label, not a secret); writable by workspace Admin+ | — |
 
 Why a project PM sees per-person rates on their own cost summary, but not in the
@@ -231,6 +237,7 @@ Money is serialized as **decimal strings** and ratios as numbers, the DRF
 | L12 | MCP (token reads of `projects/{id}/`, `programs/{id}/rollup/`, `projects/{id}/cost/`) | token user's role applies, same gates | `test_cost_rbac::test_mcp_member_token_sees_no_cost` |
 | L13 | Share links (`share_services`) | explicit payloads, no project or resource cost fields | `test_cost_rbac::test_share_payload_has_no_cost` |
 | L14 | Program rollup payload | `cost_restricted` below program Admin | `test_cost_rbac::test_rollup_cost_kpis_restricted_for_program_viewer` |
+| L14b | Program rollup payload, program Admin who is not project Admin on every child | `cost_restricted`. Program roles do not cascade to projects (`_membership_role` reads only `ProjectMembership`). For a one-project program, BAC = CV / (pc − util), so the totals would hand a project Viewer the budget the Viewer role is denied | `test_cost.py::test_program_admin_needs_project_admin_on_every_project` (negative control: fails with the project check removed) |
 | L15 | `ProgramProjectRowSerializer`, `TaskProjectRefSerializer`, bulk-settings | explicit narrow field lists | covered by L3's serializer-level strip, and these lists name no cost field |
 | L16 | Settings template `copy_settings_from` | `SETTINGS_TEMPLATE_FIELDS` is an allowlist and `budget` is not a setting, so a new project never inherits another's budget | — (allowlist; nothing to change) |
 | L17 | Workspace audit log (rate metadata) | workspace Admin-only (existing gate) | — (existing gate) |
@@ -244,8 +251,8 @@ and the PM is entitled to it anyway (§4).
 
 `project_cost_facts(project_ids)` issues a fixed **6 queries for any N**: budgets,
 percent complete, a grouped time sum, candidate resources, roster rows, and assigned
-resources. A seventh runs only when someone logged time with no resource, to read
-their name. The program rollup calls it once. The rate preview calls it twice, once for
+resources. Up to two more run only when someone logged time with no linked resource:
+one reads their name and email, one matches an unlinked resource by email. The program rollup calls it once. The rate preview calls it twice, once for
 "before" and once for "after". `test_cost.py` pins the count with
 `django_assert_max_num_queries`.
 
@@ -269,7 +276,7 @@ MCP token reads, which are B1 with a token principal.
 | Rate: **E**oP | A self-created project grants no rate visibility, because lines list only people who logged time there. |
 | Budget: **T**ampering / **I** | Admin+ write. Unconditional Scheduler refusal (L4 oracle). Read strip (L3). |
 | Budget: **R** | `HistoricalProject` tracks `budget`. The history diff hides it from readers (L7), but the row is retained for audit and readable to the project Admin via the export bundle. |
-| Derived cost: **I** | Cost endpoint is Admin+. Rollup is `cost_restricted` below program Admin (L14). |
+| Derived cost: **I** | Cost endpoint is Admin+. Rollup is `cost_restricted` below program Admin, and for a program Admin who is not project Admin on every contributing project (L14/L14b). |
 | Broadcast fan-out (B4) | Payloads are id-only. No new broadcast carries cost (L6). |
 
 **Top 3 risks:** (1) A future serializer that dumps all Project fields (`.values()`, `__all__`)
@@ -322,11 +329,20 @@ unweighted task mean, and whether per-role default rates are needed in 0.5.
 
 ## Implementation notes
 
-- Affected packages: api, plus web types (`src/api/types.ts`, rollup reason copy) and website docs.
-- Migration required: yes. Three additive nullable/defaulted `AddField`s in `workspace`,
-  `resources` and `projects` (with `historicalproject`), plus an `AlterField` on
-  `AuditEvent.event_type` choices. No constraint, no data repair, rolling-update safe
-  (rule 8: purely additive).
+- Affected packages: api, web (the rollup types and reason copy live in
+  `features/programs/ProgramOverviewPage.tsx` and
+  `features/settings/program/useProgramRollupConfig.ts`; `src/api/types.ts` needed no
+  change), and website docs.
+- Migration required: yes. Three additive `AddField`s in `workspace`, `resources` and
+  `projects` (with `historicalproject`), plus an `AlterField` on `AuditEvent.event_type`
+  choices. No constraint and no data repair. Rolling-update safety (migration rule 8),
+  per column: `budget` and `cost_rate` are nullable, so an old pod's INSERT that omits
+  them writes NULL. `Workspace.currency` is NOT NULL, so it carries `db_default="USD"`
+  as well as `default`. With a Python default alone, `AddField` adds a column default
+  and then drops it, and an old pod saving the Workspace would insert a
+  `HistoricalWorkspace` row without the column and fail NOT NULL during the rollout.
+  `sqlmigrate workspace 0030` now shows `ADD COLUMN currency ... DEFAULT 'USD' NOT NULL`
+  with no `DROP DEFAULT`.
 - API changes: `ResourceSerializer.cost_rate`, `ProjectSerializer.budget`,
   `WorkspaceSettingsSerializer.currency`, `POST /resources/{id}/rate/`,
   `GET /projects/{id}/cost/`, and rollup `policy_unavailable_reason`, new reasons and

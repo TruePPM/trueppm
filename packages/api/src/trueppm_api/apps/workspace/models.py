@@ -375,7 +375,14 @@ class Workspace(models.Model):
     # converter — there is no FX, so changing it re-labels existing amounts and
     # converts nothing. ISO-4217 shape is enforced by the settings serializer, the
     # only write path.
-    currency = models.CharField(max_length=3, default="USD")
+    #
+    # ``db_default`` as well as ``default`` (migration rule 8): with only a Python
+    # default, AddField sets a column default and then DROPs it, so during a rolling
+    # update an old pod that saves the Workspace inserts a HistoricalWorkspace row
+    # without this column and hits NOT NULL. A persistent DB default keeps that write
+    # valid. ``default`` stays so an instance built in Python reads "USD", not the
+    # unevaluated ``DatabaseDefault`` expression.
+    currency = models.CharField(max_length=3, default="USD", db_default="USD")
 
     # Workspace-wide default working calendar (ADR-0441, #1987) — the root of the
     # Project → Program → Workspace → system-default inheritance chain. NULL = fall

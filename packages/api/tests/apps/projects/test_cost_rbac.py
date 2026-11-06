@@ -268,3 +268,69 @@ def test_rollup_cost_kpis_restricted_for_program_viewer(world: dict[str, Any]) -
         kpis = resp.json()["kpis"]
         assert kpis["cost_variance"] == {"available": False, "reason": "cost_restricted"}
         assert kpis["budget_utilization"] == {"available": False, "reason": "cost_restricted"}
+
+
+# L8 (through the real path) ------------------------------------------------------
+def _program_bundle_history(requester: Any, project: Project) -> list[dict[str, Any]]:
+    """Build the program export bundle as ``requester`` and return the project history."""
+    import io
+    import tarfile
+
+    from django.core.files.storage import default_storage
+
+    from trueppm_api.apps.projects.models import ProgramExportJob
+    from trueppm_api.apps.projects.tasks import run_program_export
+
+    job = ProgramExportJob.objects.create(program=project.program, requested_by=requester)
+    run_program_export.apply(args=[str(job.id)], throw=True)
+    job.refresh_from_db()
+    with (
+        default_storage.open(job.file_path, "rb") as fh,
+        tarfile.open(fileobj=io.BytesIO(fh.read()), mode="r:gz") as tar,
+    ):
+        member = tar.extractfile(f"projects/{project.pk}/history/project.json")
+        assert member is not None
+        rows: list[dict[str, Any]] = json.loads(member.read())
+    return rows
+
+
+def test_program_bundle_history_drops_budget_through_the_export_path(
+    world: dict[str, Any],
+) -> None:
+    """The async program bundle a project Viewer requests carries no budget (L8)."""
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.access.services import create_program
+    from trueppm_api.apps.projects.models import Methodology
+
+    prog = create_program(
+        name="Bundle", description="", methodology=Methodology.HYBRID, created_by=world["admin"]
+    )
+    p = Project.objects.get(pk=world["p"].pk)
+    p.program = prog
+    p.save()  # a HistoricalProject row carrying the budget
+    ProgramMembership.objects.create(program=prog, user=world["viewer"], role=Role.ADMIN)
+
+    viewer_rows = _program_bundle_history(world["viewer"], p)
+    assert viewer_rows, "the history table must not be empty, or the check is vacuous"
+    _no_cost(viewer_rows)
+
+    admin_rows = _program_bundle_history(world["admin"], p)
+    assert any(r.get("budget") is not None for r in admin_rows)
+
+
+# Gap 4: a deactivated resource is still rateable ---------------------------------
+def test_rate_endpoint_prices_a_deactivated_resource(world: dict[str, Any]) -> None:
+    r = world["r"]
+    r.cost_rate = None
+    r.save()
+    r.soft_delete()
+    resp = h.client(world["wsadmin"]).post(
+        f"/api/v1/resources/{r.pk}/rate/", {"cost_rate": "50.00", "dry_run": False}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    r.refresh_from_db()
+    assert r.cost_rate == Decimal("50.00")
+    # Its past hour (1 h on world["p"]) is now priced.
+    (row,) = resp.json()["projects"]
+    assert row["actual_after"] == "50.00"
+    assert row["cost_computable_after"] is True

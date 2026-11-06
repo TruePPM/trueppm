@@ -7,6 +7,7 @@ calling the code under test — the point is to pin the formula, not echo it.
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 from typing import Any
 
@@ -14,7 +15,7 @@ import pytest
 from django.utils import timezone
 
 from tests.apps.projects import cost_helpers as h
-from trueppm_api.apps.access.models import ProgramMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.cost import project_cost_facts, project_percent_complete
 from trueppm_api.apps.projects.models import (
@@ -334,6 +335,16 @@ def _configure(prog: Program, kpis: list[str], policy: str) -> None:
 _COST = [RollupKpi.COST_VARIANCE.value, RollupKpi.BUDGET_UTILIZATION.value]
 
 
+def _pm_of_all(prog: Program, who: Any = None) -> Any:
+    """A user who is project Admin on every project in ``prog`` (the cost gate's floor)."""
+    who = who or h.user(f"pm-{uuid.uuid4().hex[:12]}")
+    for p in Project.objects.filter(program=prog):
+        ProjectMembership.objects.update_or_create(
+            project=p, user=who, defaults={"role": Role.ADMIN}
+        )
+    return who
+
+
 def test_rollup_cost_kpis_flip_from_no_budget_to_missing_rates_to_available(
     program: tuple[Program, Any],
 ) -> None:
@@ -344,20 +355,20 @@ def test_rollup_cost_kpis_flip_from_no_budget_to_missing_rates_to_available(
     r = h.resource("Worker", u, None)
     h.log(h.task(p, percent=50), u, 120)
 
-    kpis = compute_program_rollup(prog, include_cost=True)["kpis"]
+    kpis = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))["kpis"]
     assert kpis["cost_variance"]["reason"] == "no_budget"
     assert kpis["cost_variance"]["projects_without_budget"] == 1
     assert kpis["budget_utilization"]["reason"] == "no_budget"
 
     Project.objects.filter(pk=p.pk).update(budget=Decimal("1000.00"))
-    kpis = compute_program_rollup(prog, include_cost=True)["kpis"]
+    kpis = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))["kpis"]
     assert kpis["cost_variance"]["reason"] == "missing_rates"
     assert kpis["cost_variance"]["missing_rate_count"] == 1
     assert kpis["budget_utilization"]["reason"] == "missing_rates"
 
     r.cost_rate = Decimal("50.00")
     r.save()
-    kpis = compute_program_rollup(prog, include_cost=True)["kpis"]
+    kpis = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))["kpis"]
     # EV = 1000 × 50 % = 500; AC = 2 h × 50 = 100 → CV 400; util 0.1.
     assert kpis["cost_variance"]["available"] is True
     assert kpis["cost_variance"]["value"] == "400.00"
@@ -373,7 +384,7 @@ def test_rollup_cost_is_program_total_not_mean(program: tuple[Program, Any]) -> 
         h.resource(name, u, "50.00")
         p = h.project(name, budget=budget, program=prog)
         h.log(h.task(p, percent=0), u, minutes)
-    kpis = compute_program_rollup(prog, include_cost=True)["kpis"]
+    kpis = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))["kpis"]
     # ΣAC = 100, ΣBAC = 10,100 → 0.0099 (a mean of 0.5 and 0.005 would be 0.2525).
     assert kpis["budget_utilization"]["value"] == 0.0099
     # Σ CV = (0 − 50) + (0 − 50) = −100.
@@ -386,6 +397,7 @@ def test_rollup_cost_restricted_below_program_admin(program: tuple[Program, Any]
     ProgramMembership.objects.create(program=prog, user=viewer, role=Role.VIEWER)
     _configure(prog, _COST, AggregationPolicy.WORST.value)
     h.project("A", budget="1.00", program=prog)
+    _pm_of_all(prog, owner)
     url = f"/api/v1/programs/{prog.pk}/rollup/"
     restricted = h.client(viewer).get(url).json()["kpis"]
     assert restricted["cost_variance"] == {"available": False, "reason": "cost_restricted"}
@@ -459,7 +471,7 @@ def test_no_rollup_control_is_a_dead_control(program: tuple[Program, Any]) -> No
     assert set(advertised["unavailable_kpis"]).isdisjoint(_COST)
 
     _configure(prog, _COST, AggregationPolicy.WORST.value)
-    kpis = compute_program_rollup(prog, include_cost=True)["kpis"]
+    kpis = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))["kpis"]
     for kpi in _COST:
         assert kpis[kpi]["available"] is True, kpis[kpi]
         assert kpis[kpi]["value"] is not None
@@ -472,3 +484,57 @@ def test_no_rollup_control_is_a_dead_control(program: tuple[Program, Any]) -> No
     plain = compute_program_rollup(prog)
     assert weighted["policy_available"] is True
     assert weighted["kpis"] != plain["kpis"]
+
+
+def test_program_admin_needs_project_admin_on_every_project(
+    program: tuple[Program, Any],
+) -> None:
+    """Program roles do not cascade to projects (ADR-1324 §4, completeness gap 1).
+
+    A program Admin who is only a Viewer on one contributing project would otherwise
+    receive that project's CV and utilization — and for a one-project program,
+    BAC = CV / (pc − util) recovers the budget the Viewer role is denied.
+    """
+    prog, owner = program
+    _configure(prog, _COST, AggregationPolicy.WORST.value)
+    a = h.project("A", budget="1000.00", program=prog)
+    b = h.project("B", budget="2000.00", program=prog)
+    ProjectMembership.objects.create(project=a, user=owner, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=b, user=owner, role=Role.VIEWER)
+    url = f"/api/v1/programs/{prog.pk}/rollup/"
+
+    kpis = h.client(owner).get(url).json()["kpis"]
+    assert kpis["cost_variance"] == {"available": False, "reason": "cost_restricted"}
+    assert kpis["budget_utilization"] == {"available": False, "reason": "cost_restricted"}
+
+    ProjectMembership.objects.filter(project=b, user=owner).update(role=Role.ADMIN)
+    assert h.client(owner).get(url).json()["kpis"]["cost_variance"]["available"] is True
+
+
+def test_unlinked_logger_is_priced_by_a_resource_with_their_email(db: object) -> None:
+    """The remedy for "has no resource": create one with their email and rate it.
+
+    ``Resource.user`` has no API write path, so the cost model falls back to an
+    unlinked resource whose email matches the logger (ADR-1324 §2).
+    """
+    from trueppm_api.apps.projects.cost import project_cost_facts
+
+    pat = h.user("pat")
+    pat.email = "Pat@Example.com"
+    pat.save()
+    p = h.project("Email", budget="100.00")
+    h.log(h.task(p), pat, 120)
+    before = project_cost_facts([p.pk])[p.pk]
+    assert before.missing_rate_count == 1
+    assert before.missing[0].resource_id is None
+
+    from trueppm_api.apps.resources.models import Resource
+
+    Resource.objects.create(name="Pat", email="pat@example.com", cost_rate=Decimal("30.00"))
+    after = project_cost_facts([p.pk])[p.pk]
+    assert after.cost_computable is True
+    assert after.actual == Decimal("60.00")  # 2 h × 30
+    # A resource already bound to someone else is never borrowed.
+    other = h.user("other")
+    Resource.objects.filter(email="pat@example.com").update(user=other)
+    assert project_cost_facts([p.pk])[p.pk].cost_computable is False

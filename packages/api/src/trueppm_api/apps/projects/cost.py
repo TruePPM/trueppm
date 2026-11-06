@@ -241,27 +241,61 @@ def _load_inputs(pids: list[Any]) -> _CostInputs:
         .order_by()
         .values("id", "user_id", "name", "cost_rate", "is_deleted")
     }
-    roster = set(
-        ProjectResource.objects.filter(
-            project_id__in=pids, resource_id__in=list(resources), is_deleted=False
-        ).values_list("project_id", "resource_id")
-    )
-    inputs = _CostInputs(budgets, pct, time_rows, assigned_rows, resources, roster)
+    inputs = _CostInputs(budgets, pct, time_rows, assigned_rows, resources, set())
     for r in resources.values():
         if r["user_id"] is not None:
             inputs.by_user.setdefault(r["user_id"], []).append(r)
     unlinked = user_ids - set(inputs.by_user)
     if unlinked:
-        # A 7th query, only when someone logged time with no resource at all.
-        from django.contrib.auth import get_user_model
-
-        for u in (
-            get_user_model()
-            .objects.filter(pk__in=unlinked)
-            .only("username", "first_name", "last_name")
-        ):
-            inputs.unlinked_names[u.pk] = u.get_full_name() or u.get_username()
+        _link_by_email(inputs, unlinked)
+    inputs.roster = set(
+        ProjectResource.objects.filter(
+            project_id__in=pids, resource_id__in=list(resources), is_deleted=False
+        ).values_list("project_id", "resource_id")
+    )
     return inputs
+
+
+def _link_by_email(inputs: _CostInputs, unlinked: set[Any]) -> None:
+    """Resolve loggers with no linked resource by email (one or two extra queries).
+
+    ``Resource.user`` has no write path in the API, so a person who logs time
+    without a linked resource would otherwise be permanently unpriceable. The
+    remedy a workspace admin has is to create a resource with that person's email
+    (``POST /resources/``, email is workspace-Admin-writable) and rate it — the same
+    legacy email fallback ``ResourceSerializer.get_is_me`` already applies to a
+    resource whose user FK was never set. Only resources with NO user link match, so
+    a resource already bound to someone else is never borrowed. A logger still
+    unmatched keeps unpriced hours and their account name on the missing list.
+    """
+    from django.contrib.auth import get_user_model
+    from django.db.models.functions import Lower
+
+    from trueppm_api.apps.resources.models import Resource
+
+    users = list(
+        get_user_model()
+        .objects.filter(pk__in=unlinked)
+        .only("username", "first_name", "last_name", "email")
+    )
+    email_to_uid: dict[str, Any] = {}
+    for u in users:
+        inputs.unlinked_names[u.pk] = u.get_full_name() or u.get_username()
+        email = (u.email or "").strip().lower()
+        if email:
+            email_to_uid[email] = u.pk
+    if not email_to_uid:
+        return
+    for row in (
+        Resource.objects.annotate(_email=Lower("email"))
+        .filter(user__isnull=True, _email__in=list(email_to_uid))
+        .order_by()
+        .values("id", "user_id", "name", "cost_rate", "is_deleted", "_email")
+    ):
+        r: dict[str, Any] = dict(row)
+        uid = email_to_uid[str(r.pop("_email"))]
+        inputs.resources[r["id"]] = r
+        inputs.by_user.setdefault(uid, []).append(r)
 
 
 class _Pricer:
