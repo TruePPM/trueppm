@@ -168,9 +168,10 @@ async function compileUtility(candidate: string): Promise<string> {
   const { default: postcss } = await import('postcss');
   const { default: tailwind } = await import('tailwindcss');
   const { default: config } = await import('../../tailwind.config');
-  const result = await postcss([
-    tailwind({ ...config, content: [{ raw: candidate }] }),
-  ]).process('@tailwind utilities;', { from: undefined });
+  const result = await postcss([tailwind({ ...config, content: [{ raw: candidate }] })]).process(
+    '@tailwind utilities;',
+    { from: undefined },
+  );
   return result.css;
 }
 
@@ -212,5 +213,28 @@ describe('chrome hairline alpha (#4765)', () => {
   it('the /8 hairline modifier used by the sidebar is emitted (not dropped)', async () => {
     const css = await compileUtility('border-chrome-border/8');
     expect(css).toMatch(/rgb\(var\(--chrome-border\)\s*\/\s*0\.08\)/);
+  });
+
+  it.each([
+    ['light', chromeLight],
+    ['dark', chromeDark],
+  ])('hairline is fainter than chrome-text-secondary against chrome-surface (%s)', (_n, body) => {
+    const t = parseTokenBlock(body);
+    const surface = t['chrome-surface'];
+    const ink = t['chrome-border'];
+    const textSecondary = t['chrome-text-secondary'];
+    expect(surface && ink && textSecondary).toBeTruthy();
+    const composite = (alpha: number): [number, number, number] =>
+      [0, 1, 2].map((k) => Math.round(ink[k] * alpha + surface[k] * (1 - alpha))) as [
+        number,
+        number,
+        number,
+      ];
+    const hairline = contrastRatio(composite(tokenOpacity(body)), surface);
+    expect(hairline).toBeLessThan(contrastRatio(textSecondary, surface));
+    // Negative control: an alpha-1 rule (the #4765 bug) is as dark as full ink and fails the pairing.
+    expect(contrastRatio(composite(1), surface)).toBeGreaterThan(
+      contrastRatio(textSecondary, surface),
+    );
   });
 });
