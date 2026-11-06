@@ -243,7 +243,7 @@
   :root {
     --chrome-surface:             248 247 243;   /* rgb(248 247 243) — warm off-white */
     --chrome-surface-raised:      238 236 230;
-    --chrome-border:              0 0 0;         /* used as rgba(0 0 0 / 0.08) */
+    --chrome-border:              0 0 0;         /* alpha lives in --chrome-border-opacity; tailwind.config.ts applies it to bare border-chrome-border */
     --chrome-border-opacity:      0.08;
     --chrome-text-primary:        26 25 23;      /* #1A1917 — 16.1:1 on chrome-surface */
     --chrome-text-secondary:      107 105 101;   /* #6B6965 — 4.63:1 on chrome-surface */

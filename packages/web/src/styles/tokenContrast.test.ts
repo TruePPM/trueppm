@@ -153,3 +153,88 @@ describe('token-contrast guard negative control', () => {
     expect(ratio).toBeCloseTo(2.7, 1);
   });
 });
+
+/**
+ * Hairline guard (#4765). `--chrome-border` is an `R G B` triplet with its alpha
+ * in `--chrome-border-opacity`. Tailwind's `<alpha-value>` resolves to 1 when a
+ * utility carries no `/N` modifier, so a bare `border-chrome-border` painted a
+ * solid black (light) or white (dark) 1px rule instead of a ~8% hairline. This
+ * compiles the real utility through Tailwind and resolves the emitted color
+ * against the real token blocks, so it fails if either side regresses.
+ */
+const HAIRLINE_MAX_ALPHA = 0.2;
+
+async function compileUtility(candidate: string): Promise<string> {
+  const { default: postcss } = await import('postcss');
+  const { default: tailwind } = await import('tailwindcss');
+  const { default: config } = await import('../../tailwind.config');
+  const result = await postcss([tailwind({ ...config, content: [{ raw: candidate }] })]).process(
+    '@tailwind utilities;',
+    { from: undefined },
+  );
+  return result.css;
+}
+
+function resolveHairlineAlpha(css: string, tokenOpacity: number): number {
+  const m = /border-color:\s*rgb\(var\(--chrome-border\)\s*\/\s*(.+?)\)?\s*$/m.exec(css);
+  expect(m, `no rgb(var(--chrome-border) / …) border-color in:\n${css}`).not.toBeNull();
+  const alphaExpr = (m as RegExpExecArray)[1].trim();
+  return alphaExpr.startsWith('var(--chrome-border-opacity') ? tokenOpacity : Number(alphaExpr);
+}
+
+describe('chrome hairline alpha (#4765)', () => {
+  const tokenOpacity = (body: string): number => {
+    const m = /--chrome-border-opacity:\s*([\d.]+)\s*;/.exec(body);
+    expect(m, '--chrome-border-opacity not found').not.toBeNull();
+    return Number((m as RegExpExecArray)[1]);
+  };
+  const chromeLight = extractBlock(globals, /:root\s*\{\s*\n\s*--chrome-surface:/);
+  const chromeDark = extractBlock(globals, /\.dark\s*\{\s*\n\s*--chrome-surface:/);
+
+  it.each([
+    ['light', chromeLight],
+    ['dark', chromeDark],
+  ])('bare border-chrome-border resolves to alpha <= 0.2 (%s)', async (_n, body) => {
+    const css = await compileUtility('border-chrome-border');
+    // Emitted via the token's own opacity, never a literal 1.
+    expect(css).toContain('var(--chrome-border-opacity)');
+    const opacity = tokenOpacity(body);
+    expect(opacity).toBeGreaterThan(0);
+    expect(opacity).toBeLessThanOrEqual(HAIRLINE_MAX_ALPHA);
+    const alpha = resolveHairlineAlpha(css, opacity);
+    expect(alpha).toBeLessThanOrEqual(HAIRLINE_MAX_ALPHA);
+  });
+
+  it('an explicit /N modifier still overrides the default alpha', async () => {
+    const css = await compileUtility('border-chrome-border/15');
+    expect(css).toMatch(/rgb\(var\(--chrome-border\)\s*\/\s*0\.15\)/);
+  });
+
+  it('the /8 hairline modifier used by the sidebar is emitted (not dropped)', async () => {
+    const css = await compileUtility('border-chrome-border/8');
+    expect(css).toMatch(/rgb\(var\(--chrome-border\)\s*\/\s*0\.08\)/);
+  });
+
+  it.each([
+    ['light', chromeLight],
+    ['dark', chromeDark],
+  ])('hairline is fainter than chrome-text-secondary against chrome-surface (%s)', (_n, body) => {
+    const t = parseTokenBlock(body);
+    const surface = t['chrome-surface'];
+    const ink = t['chrome-border'];
+    const textSecondary = t['chrome-text-secondary'];
+    expect(surface && ink && textSecondary).toBeTruthy();
+    const composite = (alpha: number): [number, number, number] =>
+      [0, 1, 2].map((k) => Math.round(ink[k] * alpha + surface[k] * (1 - alpha))) as [
+        number,
+        number,
+        number,
+      ];
+    const hairline = contrastRatio(composite(tokenOpacity(body)), surface);
+    expect(hairline).toBeLessThan(contrastRatio(textSecondary, surface));
+    // Negative control: an alpha-1 rule (the #4765 bug) is as dark as full ink and fails the pairing.
+    expect(contrastRatio(composite(1), surface)).toBeGreaterThan(
+      contrastRatio(textSecondary, surface),
+    );
+  });
+});

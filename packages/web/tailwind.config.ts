@@ -16,6 +16,9 @@ const config: Config = {
       '2xl': '1440px',
     },
     extend: {
+      // The default opacity scale has no 8, so every `/8` utility (the sidebar's
+      // `border-chrome-border/8` hairlines, `bg-brand-primary/8`) compiled to nothing (#4765).
+      opacity: { 8: '0.08' },
       colors: {
         brand: {
           // Mode-aware via CSS custom properties in globals.css (ADR-0103):
@@ -100,8 +103,16 @@ const config: Config = {
           'surface-raised': 'rgb(var(--chrome-surface-raised) / <alpha-value>)',
           'text-primary':   'rgb(var(--chrome-text-primary) / <alpha-value>)',
           'text-secondary': 'rgb(var(--chrome-text-secondary) / <alpha-value>)',
-          // Subtle chrome divider: rgba(0,0,0,0.08) in light, rgba(255,255,255,0.08) in dark
-          border:           'rgb(var(--chrome-border) / <alpha-value>)',
+          // Subtle chrome divider: rgba(0,0,0,0.08) in light, rgba(255,255,255,0.08) in dark.
+          // A bare `border-chrome-border` has no `/N` modifier, and Tailwind then passes
+          // `var(--tw-<plugin>-opacity)` (which the plugin pins to 1), so a plain
+          // `<alpha-value>` painted a solid black/white rule (#4765). Detect the
+          // no-modifier case and fall back to the token's own opacity; `/N` overrides.
+          // Tailwind's runtime accepts a color function; its Config type does not, hence the cast.
+          border: (({ opacityValue }: { opacityValue?: string }) =>
+            opacityValue === undefined || opacityValue.startsWith('var(--tw-')
+              ? 'rgb(var(--chrome-border) / var(--chrome-border-opacity))'
+              : `rgb(var(--chrome-border) / ${opacityValue})`) as unknown as string,
           'row-hover':      'var(--chrome-row-hover)',
           'row-active':     'var(--chrome-row-active)',
           grid:             'var(--chrome-grid)',
