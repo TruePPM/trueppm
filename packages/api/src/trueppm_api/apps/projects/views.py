@@ -9252,8 +9252,12 @@ class TaskReorderView(IdempotencyMixin, APIView):
     ...) and saves them atomically.  All supplied IDs must be live, non-deleted
     tasks belonging to this project under the given parent — otherwise 400.
 
+    Each sibling carries its whole subtree: descendants' paths are rewritten under
+    the sibling's new path, so parent/child relationships are preserved (#4842).
+
     Returns:
-        200 { "updated": [{ "id": "<uuid>", "wbs_path": "1.2.1" }, ...] }
+        200 { "updated": [{ "id": "<uuid>", "wbs_path": "1.2.1" }, ...] } — the
+        siblings plus every descendant whose path moved.
     """
 
     # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
@@ -9271,12 +9275,7 @@ class TaskReorderView(IdempotencyMixin, APIView):
             400: validation_envelope_400(
                 "The reorder is refused: ``ordered_ids`` names a task that is not a live "
                 "sibling under ``parent_path``, or omits one (field-keyed "
-                "``ordered_ids`` errors); or (``summary_start_link``, #4830) a sibling "
-                "would land on a position whose children stay in place, giving it its "
-                "first child while it drives a Start-to-Start or Start-to-Finish link — "
-                "a summary may not drive one (ADR-0370). The last carries "
-                "``blocking_dependencies``.",
-                extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
+                "``ordered_ids`` errors).",
             ),
         },
     )
@@ -9347,25 +9346,50 @@ class TaskReorderView(IdempotencyMixin, APIView):
         for task in siblings_by_id.values():
             _require_wbs_restructure_permission(request, task)
 
-        # ADR-0370 (#4830). Rows are already locked (`siblings_qs` is FOR UPDATE and
-        # ATOMIC_REQUESTS holds the transaction), so the check and the write agree.
-        block = _reorder_summary_start_link_block(
-            str(project.pk), parent_path, ordered_ids, siblings_by_id
-        )
-        if block is not None:
-            return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
-
         updated: list[dict[str, Any]] = []
 
         with transaction.atomic():
             capture = StructuralCapture.begin(project.pk, {parent_path})
 
+            # Task.wbs_path is the ONLY record of parenthood, so a sibling that
+            # changes position must carry its whole subtree with it (#4842).
+            # Descendants are read ONCE, before any sibling is rewritten, and keyed
+            # by the sibling they hang under — otherwise a sibling landing on a
+            # path another sibling is about to vacate would be indistinguishable
+            # from that sibling's children. Both the sibling rows and the
+            # descendants are then rewritten in place; the (project, wbs_path)
+            # exclusion constraint is DEFERRED, so the transient collisions of a
+            # permutation are checked only at COMMIT, when the paths are unique.
+            level_prefix = f"{parent_path}." if parent_path else ""
+            old_sibling_paths = {tid: str(t.wbs_path) for tid, t in siblings_by_id.items()}
+            descendants_by_sibling_path: dict[str, list[Task]] = {}
+            # Soft-deleted descendants keep their stale path (accepted, as in
+            # `_get_descendants`): the uniqueness constraint ignores deleted rows.
+            for descendant in Task.objects.select_for_update().filter(
+                project_id=pk,
+                is_deleted=False,
+                wbs_path__regex=rf"^{re.escape(level_prefix)}\d+\.",
+            ):
+                top_label = str(descendant.wbs_path)[len(level_prefix) :].split(".", 1)[0]
+                descendants_by_sibling_path.setdefault(level_prefix + top_label, []).append(
+                    descendant
+                )
+
             for position, task_id in enumerate(ordered_ids, start=1):
                 task = siblings_by_id[task_id]
                 new_path = _build_wbs_path(parent_path, position)
-                if task.wbs_path != new_path:
+                old_path = old_sibling_paths[task_id]
+                if old_path != new_path:
                     task.wbs_path = new_path
                     task.save(update_fields=["wbs_path"])
+                    # Dotted prefixes so "1" never matches inside "10.x".
+                    updated.extend(
+                        _rewrite_descendants(
+                            descendants_by_sibling_path.get(old_path, []),
+                            f"{old_path}.",
+                            f"{new_path}.",
+                        )
+                    )
                 updated.append({"id": str(task_id), "wbs_path": new_path})
 
             # The level's PARENT keeps the same child set — the reorder permutes its
@@ -9373,13 +9397,8 @@ class TaskReorderView(IdempotencyMixin, APIView):
             # parent whose declaration drifted on an earlier act, and keeps the
             # structural endpoints agreeing that declaring a container is part of
             # restructuring (#3010). One row, so the cost is a refresh and, almost
-            # always, no UPDATE at all. The SIBLINGS' child sets are another matter:
-            # this loop rewrites only the siblings' own paths, never their
-            # descendants', so a sibling can land on a path whose old occupant's
-            # children still hang under it, and inherit them. That WBS-integrity
-            # defect is tracked separately; the one consequence #4830 guards — a
-            # task driving an SS/SF link inheriting children — is refused above by
-            # `_reorder_summary_start_link_block`.
+            # always, no UPDATE at all. Each sibling's own child set is unchanged
+            # too, because its subtree moved with it above (#4842).
             resync_container_declarations(parent_row, already_locked=True)
 
             # Reorder is the one structural endpoint that already gates every sibling
@@ -9399,56 +9418,6 @@ class TaskReorderView(IdempotencyMixin, APIView):
             {"updated": updated, "operation_id": str(operation.pk)},
             status=status.HTTP_200_OK,
         )
-
-
-def _reorder_summary_start_link_block(
-    project_id: str,
-    parent_path: str,
-    ordered_ids: list[uuid.UUID],
-    siblings_by_id: dict[uuid.UUID, Task],
-) -> SummaryStartLinkBlock | None:
-    """The ADR-0370 refusal for a reorder, or ``None`` when it is safe (#4830).
-
-    A reorder rewrites each sibling's own ``wbs_path`` and leaves every descendant
-    where it was, so a sibling moved onto a position whose old occupant had children
-    becomes the parent of those children. When that sibling had no children before
-    and drives an SS/SF link, the reorder would make it a summary the engine refuses.
-
-    Deliberately narrower than refusing any reorder at a level with children:
-    moving a phase up or down among its siblings (Alt+Arrow in build mode, outline
-    drag) is an everyday act and must keep working. Only a sibling gaining its
-    *first* child is checked, matching every other structural guard, so a sibling
-    that was already a summary is not this reorder's to refuse. One query reads
-    which positions at this level have children; the link lookup runs only for a
-    sibling that would gain them.
-    """
-    import re
-
-    prefix = f"{parent_path}." if parent_path else ""
-    child_re = re.compile(rf"^{re.escape(prefix)}(\d+)\.\d+$")
-    positions_with_children: set[str] = set()
-    for path in Task.objects.filter(
-        project_id=project_id,
-        is_deleted=False,
-        wbs_path__regex=rf"^{re.escape(prefix)}\d+\.\d+$",
-    ).values_list("wbs_path", flat=True):
-        match = child_re.match(str(path))
-        if match:
-            positions_with_children.add(f"{prefix}{match.group(1)}")
-    if not positions_with_children:
-        return None
-    for position, task_id in enumerate(ordered_ids, start=1):
-        task = siblings_by_id[task_id]
-        new_path = _build_wbs_path(parent_path, position)
-        old_path = str(task.wbs_path)
-        if old_path == new_path or new_path not in positions_with_children:
-            continue
-        if old_path in positions_with_children:
-            continue  # already a summary before the reorder
-        block = summary_start_link_block(task)
-        if block is not None:
-            return block
-    return None
 
 
 def _get_parent_path(wbs_path: str) -> str:
@@ -9507,17 +9476,64 @@ def _get_descendants(project_id: str, wbs_path: str, *, lock: bool = False) -> l
     return list(qs.order_by("wbs_path"))
 
 
-def _renumber_siblings(siblings: list[Task], parent_path: str) -> list[dict[str, Any]]:
+def _renumber_siblings(
+    siblings: list[Task],
+    parent_path: str,
+    *,
+    skip_ids: frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
     """Assign sequential wbs_path to siblings and save changed ones.
 
-    Returns list of {"id": ..., "wbs_path": ...} for all siblings.
+    A sibling that changes position carries its whole subtree (#4842): ``wbs_path`` is
+    the only record of parenthood, so renumbering only the sibling rows would leave
+    their children under whichever task inherits the old path. Descendants are read
+    once, before any row is rewritten, and keyed by the sibling label they hang
+    under — reading per sibling would let a sibling shifting down onto a label that
+    was just vacated pick up the subtree that already moved there.
+
+    ``skip_ids`` are tasks the caller has already placed (a moved task and its
+    subtree). They can carry the same top label as a not-yet-renumbered sibling, so
+    they must not be mistaken for that sibling's children.
+
+    Returns list of {"id": ..., "wbs_path": ...} for all siblings, plus every
+    descendant whose path moved.
     """
+    new_paths = {
+        task.pk: _build_wbs_path(parent_path, position)
+        for position, task in enumerate(siblings, start=1)
+    }
+    level_prefix = f"{parent_path}." if parent_path else ""
+    descendants_by_path: dict[str, list[Task]] = {}
+    if any(task.wbs_path != new_paths[task.pk] for task in siblings):
+        # Soft-deleted rows are left out: the uniqueness constraint ignores them, and
+        # a restore re-derives its place, so their stale paths are an accepted
+        # trade-off shared with `_get_descendants`.
+        for descendant in (
+            Task.objects.select_for_update()
+            .filter(
+                project_id=siblings[0].project_id,
+                is_deleted=False,
+                wbs_path__regex=rf"^{re.escape(level_prefix)}\d+\.",
+            )
+            .order_by("wbs_path")
+        ):
+            if str(descendant.pk) in skip_ids:
+                continue
+            top_label = str(descendant.wbs_path)[len(level_prefix) :].split(".", 1)[0]
+            descendants_by_path.setdefault(level_prefix + top_label, []).append(descendant)
+
     updated: list[dict[str, Any]] = []
-    for position, task in enumerate(siblings, start=1):
-        new_path = _build_wbs_path(parent_path, position)
-        if task.wbs_path != new_path:
+    for task in siblings:
+        new_path = new_paths[task.pk]
+        old_path = str(task.wbs_path)
+        if old_path != new_path:
             task.wbs_path = new_path
             task.save(update_fields=["wbs_path"])
+            updated.extend(
+                _rewrite_descendants(
+                    descendants_by_path.get(old_path, []), f"{old_path}.", f"{new_path}."
+                )
+            )
         updated.append({"id": str(task.pk), "wbs_path": new_path})
     return updated
 
@@ -9669,7 +9685,13 @@ class TaskIndentView(IdempotencyMixin, APIView):
 
             # Renumber old siblings (remove the gap left by the moved task).
             remaining_siblings = [s for s in siblings if s.pk != task.pk]
-            all_updated.extend(_renumber_siblings(remaining_siblings, parent_path))
+            all_updated.extend(
+                _renumber_siblings(
+                    remaining_siblings,
+                    parent_path,
+                    skip_ids=frozenset(u["id"] for u in all_updated),
+                )
+            )
 
             # Indent is the most common way a user creates a phase, so it is the most
             # important place for the row above to be *declared* a container rather
@@ -9872,11 +9894,30 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                 next_child_pos += 1
 
             # Step 3: Renumber remaining siblings at the old level.
-            all_updated.extend(_renumber_siblings(remaining_old, parent_path))
+            all_updated.extend(
+                _renumber_siblings(
+                    remaining_old,
+                    parent_path,
+                    skip_ids=frozenset(u["id"] for u in all_updated),
+                )
+            )
 
             # Step 4: Renumber siblings at the new level (insert task after parent).
-            refreshed_new_siblings = _get_siblings(str(project.pk), grandparent_path, lock=True)
-            all_updated.extend(_renumber_siblings(refreshed_new_siblings, grandparent_path))
+            # Built from the pre-move snapshot with the task spliced in after its old
+            # parent, not re-read by path order: the task already sits at the slot a
+            # later sibling still occupies, and a path-ordered re-read would tie them.
+            new_level_order = [
+                *new_level_siblings[: parent_idx + 1],
+                task,
+                *new_level_siblings[parent_idx + 1 :],
+            ]
+            all_updated.extend(
+                _renumber_siblings(
+                    new_level_order,
+                    grandparent_path,
+                    skip_ids=frozenset(u["id"] for u in all_updated),
+                )
+            )
 
             # Outdent moves both ways at once (#3010): the task ADOPTS its following
             # siblings, so it can become a container; its former parent LOSES them all,
@@ -10112,7 +10153,13 @@ class TaskReparentView(IdempotencyMixin, APIView):
             all_updated.extend(_rewrite_descendants(descendants, old_path, new_path))
 
             remaining_old = [s for s in old_siblings if s.pk != task.pk]
-            all_updated.extend(_renumber_siblings(remaining_old, old_parent_path))
+            all_updated.extend(
+                _renumber_siblings(
+                    remaining_old,
+                    old_parent_path,
+                    skip_ids=frozenset(u["id"] for u in all_updated),
+                )
+            )
 
             # Both sides move (#3010): `new_parent` may have gained its first child and
             # `former_parent` may have lost its last. A move to root has no new parent
