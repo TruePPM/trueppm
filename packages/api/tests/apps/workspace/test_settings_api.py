@@ -262,3 +262,39 @@ def test_timezone_rejects_blank(admin: object) -> None:
     resp = _client(admin).patch(URL, {"timezone": "   "}, format="json")
     assert resp.status_code == 400
     assert Workspace.load().timezone == "UTC"
+
+
+# ---------------------------------------------------------------------------
+# Currency (ADR-1324, #754)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_currency_defaults_to_usd_and_is_readable_by_members(member: object) -> None:
+    assert _client(member).get(URL).json()["currency"] == "USD"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("value", ["eur", " gbp ", "JPY"])
+def test_admin_sets_currency_trimmed_and_upper_cased(admin: object, value: str) -> None:
+    resp = _client(admin).patch(URL, {"currency": value}, format="json")
+    assert resp.status_code == 200, resp.data
+    expected = value.strip().upper()
+    assert resp.json()["currency"] == expected
+    assert Workspace.load().currency == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("value", ["US", "USDX", "U$D", "12A", "", "ÉUR"])
+def test_currency_rejects_anything_but_three_ascii_letters(admin: object, value: str) -> None:
+    resp = _client(admin).patch(URL, {"currency": value}, format="json")
+    assert resp.status_code == 400
+    assert "currency" in resp.json()
+    assert Workspace.load().currency == "USD"
+
+
+@pytest.mark.django_db
+def test_member_cannot_set_currency(member: object) -> None:
+    resp = _client(member).patch(URL, {"currency": "EUR"}, format="json")
+    assert resp.status_code == 403
+    assert Workspace.load().currency == "USD"

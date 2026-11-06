@@ -3287,7 +3287,10 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
         allow_null=True,
         help_text=(
             "Why the chosen policy fell back to average, or null when it was honored. "
-            "no_budget: weighted_by_budget needs a budget on every contributing project."
+            "cost_restricted: weighted_by_budget is applied only for a caller who may "
+            "see every contributing project's budget (program Admin+ and project "
+            "Admin+ on each). no_budget: that caller's program has a project with no "
+            "budget."
         ),
     )
     project_count = serializers.IntegerField(read_only=True)

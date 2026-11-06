@@ -66643,7 +66643,7 @@
                         "type": "string",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Why the chosen policy fell back to average, or null when it was honored. no_budget: weighted_by_budget needs a budget on every contributing project."
+                        "description": "Why the chosen policy fell back to average, or null when it was honored. cost_restricted: weighted_by_budget is applied only for a caller who may see every contributing project's budget (program Admin+ and project Admin+ on each). no_budget: that caller's program has a project with no budget."
                     },
                     "project_count": {
                         "type": "integer",

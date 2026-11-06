@@ -116,7 +116,9 @@ When cost data is complete, the program rollup's two cost KPIs compute as progra
 
 Both are unavailable if **any** project in the program is missing a budget or a rate, because a partial total would understate the program. The tile names how many projects or people are missing.
 
-The **Budget-weighted** aggregation policy weights each project by its budget. If any project has no budget, the rollup uses the average instead and says why. See [Program rollup KPIs](/features/settings/program-rollup/).
+The **Budget-weighted** aggregation policy weights each project by its budget. If any project has no budget, the rollup uses the average instead and says why. Budget weighting is applied only for someone who may see every project's budget, under the same rule as the cost KPIs, because a weighted figure reveals how the budgets compare. Everyone else sees the plain average, with a note that budget weighting is unavailable.
+
+A project that has spent hours but has no remaining tasks earns nothing, so its percent complete is 0 and its whole actual cost shows as negative cost variance. See [Program rollup KPIs](/features/settings/program-rollup/).
 
 ## Related
 

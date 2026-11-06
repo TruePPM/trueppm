@@ -423,12 +423,14 @@ def test_weighted_by_budget_weights_by_project_budget(program: tuple[Program, An
     _configure(
         prog, [RollupKpi.BASELINE_VARIANCE.value], AggregationPolicy.WEIGHTED_BY_BUDGET.value
     )
-    data = compute_program_rollup(prog)
+    data = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))
     assert data["policy_available"] is True
     assert data["policy_unavailable_reason"] is None
     a = data["kpis"]["baseline_variance"]["value"]
     _configure(prog, [RollupKpi.BASELINE_VARIANCE.value], AggregationPolicy.AVERAGE.value)
-    avg = compute_program_rollup(prog)["kpis"]["baseline_variance"]["value"]
+    avg = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))["kpis"]["baseline_variance"][
+        "value"
+    ]
     # Hand: average = (10 + 2) / 2; weighted = (10·1000 + 2·3000) / 4000.
     assert avg == pytest.approx((10 + 2) / 2, abs=0.1)
     assert a == pytest.approx((10 * 1000 + 2 * 3000) / 4000, abs=0.1)
@@ -443,7 +445,7 @@ def test_weighted_by_budget_falls_back_when_any_project_lacks_budget(
     _configure(
         prog, [RollupKpi.BASELINE_VARIANCE.value], AggregationPolicy.WEIGHTED_BY_BUDGET.value
     )
-    data = compute_program_rollup(prog)
+    data = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))
     assert data["policy_available"] is False
     assert data["policy_unavailable_reason"] == "no_budget"
 
@@ -479,9 +481,9 @@ def test_no_rollup_control_is_a_dead_control(program: tuple[Program, Any]) -> No
     _configure(
         prog, [RollupKpi.BASELINE_VARIANCE.value], AggregationPolicy.WEIGHTED_BY_BUDGET.value
     )
-    weighted = compute_program_rollup(prog)
+    weighted = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))
     _configure(prog, [RollupKpi.BASELINE_VARIANCE.value], AggregationPolicy.AVERAGE.value)
-    plain = compute_program_rollup(prog)
+    plain = compute_program_rollup(prog, cost_viewer=_pm_of_all(prog))
     assert weighted["policy_available"] is True
     assert weighted["kpis"] != plain["kpis"]
 
@@ -538,3 +540,83 @@ def test_unlinked_logger_is_priced_by_a_resource_with_their_email(db: object) ->
     other = h.user("other")
     Resource.objects.filter(email="pat@example.com").update(user=other)
     assert project_cost_facts([p.pk])[p.pk].cost_computable is False
+
+
+def test_budget_weighting_is_not_an_oracle_for_a_caller_below_the_cost_floor(
+    program: tuple[Program, Any],
+) -> None:
+    """Round-2 blocker: a budget-weighted mean leaks the ratio of budgets.
+
+    v = (v1·b1 + v2·b2)/(b1 + b2) gives b1/b2 = (v − v2)/(v1 − v). A program Admin who
+    is PM of A (so knows b1) and only a Viewer of B (so sees B's variance) would
+    recover b2. Below the cost floor the policy must fall back to the plain average,
+    with a reason that is the same whether or not any budget is set.
+    """
+    prog, owner = program
+    _variance_projects(prog, ("1000.00", "3000.00"))
+    a, b = Project.objects.filter(program=prog).order_by("name")
+    ProjectMembership.objects.create(project=a, user=owner, role=Role.ADMIN)
+    ProjectMembership.objects.create(project=b, user=owner, role=Role.VIEWER)
+    _configure(
+        prog, [RollupKpi.BASELINE_VARIANCE.value], AggregationPolicy.WEIGHTED_BY_BUDGET.value
+    )
+    url = f"/api/v1/programs/{prog.pk}/rollup/"
+
+    data = h.client(owner).get(url).json()
+    assert data["kpis"]["baseline_variance"]["value"] == pytest.approx((10 + 2) / 2, abs=0.1)
+    assert data["policy_available"] is False
+    assert data["policy_unavailable_reason"] == "cost_restricted"
+    assert "budget" not in data["policy_unavailable_reason"]
+
+    # Same answer when a budget is missing — the reason does not reveal it either.
+    Project.objects.filter(pk=b.pk).update(budget=None)
+    again = h.client(owner).get(url).json()
+    assert again["policy_unavailable_reason"] == "cost_restricted"
+
+
+def test_spent_project_with_no_live_tasks_shows_its_overrun(db: object) -> None:
+    """Round-2 gap 1: no live tasks earns 0, so CV = −AC rather than a null value."""
+    from trueppm_api.apps.projects.cost import program_cost_kpis
+
+    worker = h.user("abandoner")
+    h.resource("Abandoner", worker, "100.00")
+    p = h.project("Abandoned", budget="1000.00")
+    t = h.task(p, percent=40)
+    h.log(t, worker, 600)  # 10 h × 100 = 1,000.00
+    t.soft_delete()
+
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.actual == Decimal("1000.00")
+    assert cost.percent_complete == Decimal("0.00")
+    assert cost.earned_value == Decimal("0.00")
+    assert cost.cost_variance == Decimal("-1000.00")
+    assert cost.budget_utilization == 1.0
+    kpis = program_cost_kpis([cost], "USD")
+    assert kpis["cost_variance"]["value"] == "-1000.00"  # not dropped as 0
+
+
+def test_ambiguous_email_matches_nobody(db: object) -> None:
+    """Round-2 gap 2: two accounts sharing an email make the fallback ambiguous."""
+    from trueppm_api.apps.resources.models import Resource
+
+    logger, twin = h.user("logger1"), h.user("twin1")
+    for u in (logger, twin):
+        u.email = "shared@example.com"
+        u.save()
+    p = h.project("Shared", budget="100.00")
+    h.log(h.task(p), logger, 60)
+    shared = Resource.objects.create(
+        name="Shared", email="shared@example.com", cost_rate=Decimal("9.00")
+    )
+
+    cost = project_cost_facts([p.pk])[p.pk]
+    assert cost.cost_computable is False  # stays visible as missing
+    assert cost.missing[0].resource_id is None
+    # The rate preview applies the same rule, so preview and save agree.
+    from trueppm_api.apps.resources.services import _rate_scope_project_ids
+
+    assert _rate_scope_project_ids(shared) == []
+    twin.email = "other@example.com"
+    twin.save()
+    assert project_cost_facts([p.pk])[p.pk].cost_computable is True
+    assert _rate_scope_project_ids(shared) == [p.pk]

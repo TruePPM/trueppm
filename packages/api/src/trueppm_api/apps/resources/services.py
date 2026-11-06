@@ -472,20 +472,27 @@ def _rate_scope_project_ids(resource: Resource) -> list[Any]:
     the resource is assigned to a live task (its rate decides ``cost_computable``
     there even before anyone logs an hour). Deleted projects are excluded.
     """
+    from trueppm_api.apps.projects.cost import unambiguous_emails
     from trueppm_api.apps.timetracking.models import TimeEntry
 
     ids: set[Any] = set(
-        TaskResource.objects.filter(resource=resource, task__is_deleted=False)
+        TaskResource.objects.active()
+        .filter(resource=resource, task__is_deleted=False)
         .values_list("task__project_id", flat=True)
         .distinct()
     )
     if resource.user_id is not None:
         loggers = TimeEntry.objects.filter(user_id=resource.user_id, is_deleted=False)
-    elif resource.email:
+    elif resource.email and unambiguous_emails([resource.email]):
         # The email fallback ``project_cost_facts`` applies to a resource with no
         # user link (ADR-1324 §2): its rate prices that person's hours, so their
-        # projects are in scope too.
-        loggers = TimeEntry.objects.filter(user__email__iexact=resource.email, is_deleted=False)
+        # projects are in scope too. Same rule as the fallback: exactly one account
+        # holds the email, and that account has no linked resource of its own.
+        loggers = TimeEntry.objects.filter(
+            user__email__iexact=resource.email,
+            user__resources__isnull=True,
+            is_deleted=False,
+        )
     else:
         loggers = TimeEntry.objects.none()
     ids |= set(loggers.values_list("task__project_id", flat=True).distinct())

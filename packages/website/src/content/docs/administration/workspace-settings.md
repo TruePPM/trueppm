@@ -113,6 +113,29 @@ The same affordance appears throughout the
 | `public_sharing` | boolean | `false` | When `true`, designated read-only views may be shared via link so anyone with the link can view without signing in. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing_override_policy` | string | `"suggest"` | Whether downstream scopes may override the workspace sharing values. `"suggest"` (default) lets programs/projects override; `"enforce"` makes the workspace value a hard ceiling. **`enforce` is an Enterprise capability — in the community edition it degrades to `suggest` (no lock).** |
 | `sprint_picker_ready_only_default` <br/>*(shipped in 0.4)* | boolean | `true` | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories. This is the **workspace default**; programs and projects inherit it and may override it per scope (Shape A: `null` override = inherit). Advisory only — the picker's own "Show all" toggle always reveals a not-ready story, and committing one is never blocked. There is no override policy / enforcement seam for this field. |
+| `currency` <br/>*(ships in 0.5)* | string (ISO 4217) | `"USD"` | The one currency every cost amount (resource rates, project budgets, actual cost) is shown in. See [Currency](#currency). |
+
+### Currency
+
+:::note[Ships in 0.5]
+The `currency` field ships in 0.5 with the [cost model](/features/cost-model/). The
+current release has no currency setting and no cost amounts.
+:::
+
+When 0.5 lands, `currency` is the three-letter ISO 4217 code (for example `USD`,
+`EUR` or `GBP`) that every cost amount in the workspace is shown in: resource
+rates, project budgets, actual cost and earned value. A workspace admin sets it
+with `PATCH /api/v1/workspace/`; a Member gets `403`. Every workspace member can
+read it, since it is a label rather than a secret.
+
+The API trims and upper-cases the value (`eur` is stored as `EUR`) and rejects
+anything that is not exactly three ASCII letters with a `400`. It checks the shape
+only, not membership in the ISO list, so a currency newer than this build is
+still accepted.
+
+It is a **label, not a converter**. There is no currency conversion: changing it
+re-labels every existing amount and converts nothing. Set it before you enter
+rates and budgets.
 
 ### Default timezone
 

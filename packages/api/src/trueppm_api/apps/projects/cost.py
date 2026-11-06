@@ -256,6 +256,30 @@ def _load_inputs(pids: list[Any]) -> _CostInputs:
     return inputs
 
 
+def unambiguous_emails(emails: Collection[str]) -> set[str]:
+    """The lower-cased emails in ``emails`` held by exactly ONE account (one query).
+
+    The rule the email fallback and the rate-preview scope share, so preview and save
+    agree on who an unlinked resource prices (ADR-1324 §2).
+    """
+    from django.contrib.auth import get_user_model
+    from django.db.models import Count
+    from django.db.models.functions import Lower
+
+    if not emails:
+        return set()
+    return {
+        row["_e"]
+        for row in get_user_model()
+        .objects.annotate(_e=Lower("email"))
+        .filter(_e__in=[e.lower() for e in emails])
+        .order_by()
+        .values("_e")
+        .annotate(n=Count("id"))
+        if row["n"] == 1
+    }
+
+
 def _link_by_email(inputs: _CostInputs, unlinked: set[Any]) -> None:
     """Resolve loggers with no linked resource by email (one or two extra queries).
 
@@ -278,12 +302,18 @@ def _link_by_email(inputs: _CostInputs, unlinked: set[Any]) -> None:
         .objects.filter(pk__in=unlinked)
         .only("username", "first_name", "last_name", "email")
     )
-    email_to_uid: dict[str, Any] = {}
+    candidates: dict[str, Any] = {}
     for u in users:
         inputs.unlinked_names[u.pk] = u.get_full_name() or u.get_username()
         email = (u.email or "").strip().lower()
         if email:
-            email_to_uid[email] = u.pk
+            candidates[email] = u.pk
+    if not candidates:
+        return
+    # ``auth.User.email`` is not unique. An email held by more than one account is
+    # ambiguous, so it matches nobody — the person stays visible as missing a rate
+    # rather than being priced at whichever account the queryset returned first.
+    email_to_uid = {e: candidates[e] for e in unambiguous_emails(candidates) if e in candidates}
     if not email_to_uid:
         return
     for row in (
@@ -384,10 +414,15 @@ def project_cost_facts(
         pid: ProjectCost(
             project_id=pid,
             budget=inputs.budgets.get(pid),
+            # A project with no live tasks has earned nothing: 0, not "unknown".
+            # Otherwise EV is None, CV reads {available, value: null} while AC > 0,
+            # and the program total silently drops the overrun (ADR-1324 §2: spent-
+            # but-abandoned work must show as negative CV). Where the project list's
+            # Avg annotation is defined (≥1 live task) the two still agree.
             percent_complete=(
                 Decimal(str(inputs.pct[pid])).quantize(CENT, rounding=ROUND_HALF_UP)
                 if pid in inputs.pct
-                else None
+                else Decimal("0.00")
             ),
             as_of=now,
         )
@@ -482,7 +517,9 @@ def program_cost_kpis(costs: Collection[ProjectCost], currency: str) -> dict[str
             "cost_variance": kpi_entry(None, reason, **detail),
             "budget_utilization": kpi_entry(None, reason, **detail),
         }
-    total_cv = sum(((c.cost_variance or Decimal("0")) for c in costs), Decimal("0"))
+    # Every cost here has a value: unavailable_reason() is None for all of them, and
+    # a project with no live tasks earns 0 (see project_cost_facts), never None.
+    total_cv = sum((c.cost_variance or Decimal("0") for c in costs), Decimal("0"))
     total_ac = sum((c.actual for c in costs), Decimal("0"))
     total_bac = sum((c.budget or Decimal("0") for c in costs), Decimal("0"))
     return {

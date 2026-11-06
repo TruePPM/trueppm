@@ -12,6 +12,7 @@ vi.mock('@/api/client', () => ({ apiClient: { get: mockGet } }));
 interface RollupShape {
   aggregation_policy: string;
   policy_available: boolean;
+  policy_unavailable_reason?: string | null;
   project_count: number;
   program_health: string;
   kpis: Record<string, unknown>;
@@ -167,6 +168,22 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(
       await screen.findByText('Budget weighting is unavailable — showing the average instead.'),
     ).toBeInTheDocument();
+  });
+
+  it('keeps the fallback note generic when budget weighting is restricted (ADR-1324)', async () => {
+    mockApi(
+      rollup({
+        aggregation_policy: 'weighted_by_budget',
+        policy_available: false,
+        policy_unavailable_reason: 'cost_restricted',
+      }),
+    );
+    renderPage();
+    expect(
+      await screen.findByText('Budget weighting is unavailable — showing the average instead.'),
+    ).toBeInTheDocument();
+    // Must not say whether any project has a budget.
+    expect(screen.queryByText(/needs a budget on every project/i)).not.toBeInTheDocument();
   });
 
   it('renders the shared retryable error state when the rollup request fails (#2176)', async () => {

@@ -53,8 +53,12 @@ type RollupKpiEntry = AvailableKpi | UnavailableKpi;
 export interface ProgramRollup {
   aggregation_policy: AggregationPolicy;
   policy_available: boolean;
-  /** Why the policy fell back to average; `no_budget` for weighted_by_budget. */
-  policy_unavailable_reason?: 'no_budget' | null;
+  /**
+   * Why the policy fell back to average. `no_budget`: a project has no budget.
+   * `cost_restricted`: the caller may not see every project's budget, so budget
+   * weighting is not applied for them (ADR-1324 §7); the copy stays generic.
+   */
+  policy_unavailable_reason?: 'no_budget' | 'cost_restricted' | null;
   project_count: number;
   program_health: HealthBand;
   kpis: Record<string, RollupKpiEntry>;

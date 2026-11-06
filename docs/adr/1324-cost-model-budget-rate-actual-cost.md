@@ -90,7 +90,12 @@ hours(u, p) = Σ TimeEntry.minutes / 60  where task.project = p, entry.is_delete
   and the same email (case-insensitive), the legacy fallback `ResourceSerializer.get_is_me`
   already applies. `Resource.user` has no API write path, so this is the only remedy a
   workspace admin has: create a resource with that person's email, then rate it. A
-  resource already bound to someone else is never borrowed.
+  resource already bound to someone else is never borrowed. `auth.User.email` is not
+  unique, so an email held by **more than one account** matches nobody: the person
+  stays visible as missing a rate instead of being priced at whichever account a
+  query returned first. The rate preview's scope (`_rate_scope_project_ids`) applies
+  the same rule (`cost.unambiguous_emails`, and only to accounts with no resource of
+  their own), so preview and save agree.
 - A user with **no resource at all** (no link, no email match) has their hours counted as
   `unpriced_hours`, and they count once toward `missing_rate_count`. Their
   `missing_rate_resources` entry carries a `user_id` and a null `resource_id`.
@@ -104,7 +109,8 @@ any number of projects, with no per-project loop (§8).
 The EV basis was settled by the user on 2026-11-05 and is not reopened here:
 
 ```
-percent_complete = existing project % complete (Avg of non-deleted tasks' percent_complete, 0–100)
+percent_complete = existing project % complete (Avg of non-deleted tasks' percent_complete, 0–100);
+                   0 for a project with no live tasks (nothing left has been earned)
 EV   = BAC × percent_complete / 100
 CV   = EV − AC                          (negative = over budget)
 budget_utilization = AC / BAC           (a fraction; 1.0 = budget consumed)
@@ -145,6 +151,16 @@ projects returns `{available: true, value: null}`, the existing "no data" conven
 any contributing project lacks a budget, the policy falls back to
 `average`. The response then carries `policy_available: false` and the new
 `policy_unavailable_reason: "no_budget"`. The rollup is never blanked (ADR-0088).
+
+The weighting is itself budget-derived, so it is behind the same floor as the cost
+KPIs (§4). A weighted mean reveals the ratio of budgets: v = (v1·b1 + v2·b2)/(b1 + b2)
+gives b1/b2 = (v − v2)/(v1 − v), so a PM of one project who can see another's
+variance recovers its budget. A caller who is not program Admin+ **and** project
+Admin+ on every contributing project gets the plain average with
+`policy_unavailable_reason: "cost_restricted"`. That is decided before any budget is
+read, so it is the same answer whether or not budgets are set, and `no_budget` is
+shown only to a caller who may see the budgets. The weekly digest passes no viewer, so
+a budget-weighted program's digest dot is the average.
 
 `DEFERRED_KPI_REASONS` loses both cost entries, so `unavailable_kpis` on the
 rollup-config endpoint stops listing them and the settings toggles light up (#2404's
@@ -237,15 +253,21 @@ Money is serialized as **decimal strings** and ratios as numbers, the DRF
 | L12 | MCP (token reads of `projects/{id}/`, `programs/{id}/rollup/`, `projects/{id}/cost/`) | token user's role applies, same gates | `test_cost_rbac::test_mcp_member_token_sees_no_cost` |
 | L13 | Share links (`share_services`) | explicit payloads, no project or resource cost fields | `test_cost_rbac::test_share_payload_has_no_cost` |
 | L14 | Program rollup payload | `cost_restricted` below program Admin | `test_cost_rbac::test_rollup_cost_kpis_restricted_for_program_viewer` |
+| L14c | `weighted_by_budget` weighting for a caller below the cost floor | average + `cost_restricted`, decided before budgets are read | `test_cost.py::test_budget_weighting_is_not_an_oracle_for_a_caller_below_the_cost_floor` (negative control: returns the weighted 4.0, not the average 6.0, with the guard removed) |
 | L14b | Program rollup payload, program Admin who is not project Admin on every child | `cost_restricted`. Program roles do not cascade to projects (`_membership_role` reads only `ProjectMembership`). For a one-project program, BAC = CV / (pc − util), so the totals would hand a project Viewer the budget the Viewer role is denied | `test_cost.py::test_program_admin_needs_project_admin_on_every_project` (negative control: fails with the project check removed) |
 | L15 | `ProgramProjectRowSerializer`, `TaskProjectRefSerializer`, bulk-settings | explicit narrow field lists | covered by L3's serializer-level strip, and these lists name no cost field |
 | L16 | Settings template `copy_settings_from` | `SETTINGS_TEMPLATE_FIELDS` is an allowlist and `budget` is not a setting, so a new project never inherits another's budget | — (allowlist; nothing to change) |
 | L17 | Workspace audit log (rate metadata) | workspace Admin-only (existing gate) | — (existing gate) |
 
-Accepted inference risk: a viewer of a `weighted_by_budget` program sees health bands
-weighted by budgets and `projects_without_budget`. Neither reveals an amount. A project
-PM whose project has exactly one time-logger can divide AC by hours to get that rate,
-and the PM is entitled to it anyway (§4).
+Budget weighting is **not** an accepted risk. An earlier draft accepted it on the
+grounds that neither the weighted bands nor `projects_without_budget` reveal an amount.
+That is false once one budget is known: the weighted variance gives the ratio of
+budgets, and the PM of one project knows their own. It is now gated (L14c).
+`projects_without_budget` appears only on cost-KPI entries, which are already behind
+the floor.
+
+Accepted inference risk: a project PM whose project has exactly one time-logger can
+divide AC by hours to get that rate, and the PM is entitled to it anyway (§4).
 
 ### 8. Performance
 

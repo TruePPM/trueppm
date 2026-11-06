@@ -26,7 +26,9 @@ Design (ADR-0088):
 - ``weighted_by_budget`` weights each project by ``Project.budget`` (ADR-1324). When
   any contributing project has no budget it falls back to ``average`` and the response
   flags ``policy_available: False`` with ``policy_unavailable_reason: "no_budget"``;
-  the rollup is never blanked just because the chosen policy cannot be honored.
+  the rollup is never blanked just because the chosen policy cannot be honored. A
+  caller who may not see every project's budget gets the average with
+  ``"cost_restricted"`` instead — the weighting itself would leak budget ratios.
 
 Implemented with a fixed, small number of grouped (``values().annotate()``)
 queries across the program's projects — never a per-project ``ProjectOverviewView``
@@ -108,9 +110,11 @@ def compute_program_rollup(
     roles do not cascade to projects, and a program total over projects the caller
     cannot see the budget of leaks it (one project: BAC = CV / (pc − util)). It
     defaults to ``None`` — fail closed — so a caller that forgets to decide gets
-    ``cost_restricted`` entries, never a cost value. It does not affect
-    ``weighted_by_budget``: that weighting moves only the health bands and variances,
-    which reveal no amount.
+    ``cost_restricted`` entries, never a cost value. The same verdict gates
+    ``weighted_by_budget``: a budget-weighted mean reveals the ratio of budgets, so a
+    caller below it gets the average with ``policy_unavailable_reason:
+    "cost_restricted"`` (see :func:`_policy_weights`). The weekly digest passes no
+    ``cost_viewer``, so its health dot for a budget-weighted program is the average.
 
     Pure read: deterministic for a given DB state, no writes, safe to call on
     every GET.
@@ -134,10 +138,16 @@ def compute_program_rollup(
         project_qs = project_qs.exclude(pk__in=exclude_project_ids)
     project_ids = list(project_qs.values_list("id", flat=True))
 
+    # One verdict for both budget-derived outputs (ADR-1324 §4/§7): the cost KPIs AND
+    # the budget weighting. Only checked when one of them is in play.
+    sees_cost = (
+        bool(_COST_KPIS.intersection(enabled))
+        or policy == AggregationPolicy.WEIGHTED_BY_BUDGET.value
+    ) and _sees_cost_of_every_project(cost_viewer, project_ids)
     effective_policy, policy_available, policy_unavailable_reason, task_weights = _policy_weights(
-        policy, project_ids
+        policy, project_ids, sees_cost=sees_cost
     )
-    cost_kpis = _cost_kpis(enabled, project_ids, cost_viewer=cost_viewer)
+    cost_kpis = _cost_kpis(enabled, project_ids, sees_cost=sees_cost)
 
     # schedule_health per project is always needed: it is both a KPI and the
     # source of the headline program health dot (drives Program.health=AUTO).
@@ -206,7 +216,7 @@ def compute_program_rollup(
 
 
 def _policy_weights(
-    policy: str, project_ids: list[Any]
+    policy: str, project_ids: list[Any], *, sees_cost: bool
 ) -> tuple[str, bool, str | None, dict[Any, float]]:
     """Resolve ``(effective_policy, policy_available, reason, weights)`` for the reduce.
 
@@ -216,8 +226,19 @@ def _policy_weights(
     ``no_budget``. An empty program has nothing to weight, so the policy is trivially
     honored. Every other policy weights by committed (non-BACKLOG) task counts, which
     only ``task_weighted`` reads; a large grooming backlog does not skew it.
+
+    A caller who may not see every contributing project's budget (``sees_cost``
+    False) gets AVERAGE with ``cost_restricted`` — checked BEFORE the budgets are
+    read, so the reason is the same whether or not any budget is set. A budget-
+    weighted mean leaks the ratio of budgets (b1/b2 = (v − v2)/(v1 − v)), so with one
+    budget known (a PM of one project) it yields the other; and ``no_budget`` would
+    tell any member whether every project has a budget.
     """
     if policy == AggregationPolicy.WEIGHTED_BY_BUDGET.value:
+        if not sees_cost:
+            from trueppm_api.apps.projects.cost import REASON_COST_RESTRICTED
+
+            return AggregationPolicy.AVERAGE.value, False, REASON_COST_RESTRICTED, {}
         budgets = dict(Project.objects.filter(id__in=project_ids).values_list("id", "budget"))
         if all((budgets.get(pid) or 0) > 0 for pid in project_ids):
             return policy, True, None, {pid: float(budgets[pid] or 0) for pid in project_ids}
@@ -254,7 +275,7 @@ def _sees_cost_of_every_project(user: Any, project_ids: list[Any]) -> bool:
 
 
 def _cost_kpis(
-    enabled: list[str], project_ids: list[Any], *, cost_viewer: Any
+    enabled: list[str], project_ids: list[Any], *, sees_cost: bool
 ) -> dict[str, dict[str, Any]]:
     """The two cost KPI entries, computed only when one is enabled (ADR-1324 §3–§4)."""
     if not _COST_KPIS.intersection(enabled):
@@ -265,7 +286,7 @@ def _cost_kpis(
         project_cost_facts,
     )
 
-    if not _sees_cost_of_every_project(cost_viewer, project_ids):
+    if not sees_cost:
         return {k: {"available": False, "reason": REASON_COST_RESTRICTED} for k in _COST_KPIS}
     from trueppm_api.apps.workspace.models import Workspace
 

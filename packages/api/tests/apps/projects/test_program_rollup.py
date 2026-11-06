@@ -10,7 +10,8 @@ Covers:
   program totals regardless of policy.
 - Health/variance KPIs honor the policy: worst vs average reduce differently.
 - weighted_by_budget with no budgets falls back to average and flags
-  policy_available: false, policy_unavailable_reason: no_budget.
+  policy_available: false; a caller below the cost floor sees
+  policy_unavailable_reason: cost_restricted (ADR-1324 §7).
 """
 
 from __future__ import annotations
@@ -578,7 +579,9 @@ def test_weighted_by_budget_falls_back_to_average(
     # computed via the AVERAGE fallback.
     assert data["aggregation_policy"] == AggregationPolicy.WEIGHTED_BY_BUDGET.value
     assert data["policy_available"] is False
-    assert data["policy_unavailable_reason"] == "no_budget"
+    # A program Member is below the cost floor (ADR-1324 §7), so the reason is the
+    # non-revealing one — it would read the same if every project had a budget.
+    assert data["policy_unavailable_reason"] == "cost_restricted"
     assert data["kpis"]["baseline_variance"]["value"] == 6.0  # average fallback
 
 

@@ -97,7 +97,7 @@ The aggregation policy decides how the individual project health signals combine
 |--------|-----------|------------------------------|
 | Worst-case (recommended, default) | `worst` | Program health equals the worst health across all projects. One critical project makes the program critical. |
 | Average | `average` | Numeric average of project health scores. Dilutes a single critical project. |
-| Budget-weighted | `weighted_by_budget` | Each project is weighted by its budget. If any project has no budget, the rollup uses the average instead and reports `policy_available: false` with `policy_unavailable_reason: "no_budget"`. |
+| Budget-weighted | `weighted_by_budget` | Each project is weighted by its budget. If any project has no budget, the rollup uses the average instead and reports `policy_available: false` with `policy_unavailable_reason: "no_budget"`. The weighting is applied only for someone who is Program Manager or above on the program and Project Manager or above on every project in it, because a weighted figure reveals how the budgets compare. Everyone else gets the average with `policy_unavailable_reason: "cost_restricted"`, whether or not any budget is set. |
 | Task-weighted | `task_weighted` | Projects with more tasks carry proportionally more weight in the average. |
 
 `worst` is the default and the recommended choice for most programs because it never lets a single critical project hide behind healthier ones. The weighted policies exist for client-facing rollups where a small fit-out should not drag down a large shell-and-core program. The chosen policy applies uniformly to every enabled KPI — there is no per-KPI policy override.
