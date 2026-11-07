@@ -176,6 +176,17 @@ CURLMOCK
   printf 'no section here\n' >"$tmp/README.md"
   expect fail "a README with no Known limitations section is rejected"
 
+  mkreadme "10 11 13" "11"
+  sed 's/^May also land.*$/Reworded paragraph./' "$tmp/README.md" >"$tmp/README.reworded.md"
+  mv "$tmp/README.reworded.md" "$tmp/README.md"
+  bash "$0" "$tmp/README.md" >"$tmp/out.txt" 2>&1 || true
+  if ! grep -q "rule (a) would check nothing" "$tmp/out.txt"; then
+    echo "SELF-TEST FAILED: a missing 'not (yet) committed' paragraph was not rejected for that reason." >&2
+    cat "$tmp/out.txt" >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: a README without the 'not (yet) committed' paragraph is rejected (rule a cannot pass vacuously)"
+
   mkreadme "10 13" "11"
   if MOCK_UNFETCHABLE=1 bash "$0" "$tmp/README.md" >/dev/null 2>&1; then
     echo "SELF-TEST FAILED: an unreadable tracker was silently accepted." >&2
@@ -219,6 +230,13 @@ if [ -z "$section" ]; then
   exit 1
 fi
 nc_para=$(printf '%s\n' "$section" | awk -v n="$NC_RE" '$0 ~ n {on=1} on && /^$/ {exit} on')
+
+if [ -z "$nc_para" ]; then
+  # Without this, a missing or reworded paragraph leaves rule (a) with nothing
+  # to check and the gate passes vacuously.
+  echo "ERROR: $README has no 'May also land in 0.5, but not (yet) committed' paragraph — rule (a) would check nothing." >&2
+  exit 1
+fi
 
 refs() { grep -oE "$ISSUE_URL_RE" | grep -oE '[0-9]+$' | sort -un || true; }
 section_ids=$(printf '%s\n' "$section" | refs)
