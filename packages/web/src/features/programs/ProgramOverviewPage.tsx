@@ -6,7 +6,7 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
-import { ROLE_OWNER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
 
@@ -444,6 +444,8 @@ export function ProgramOverviewPage() {
   const { data: program } = useProgram(programId);
 
   const kpiEntries = rollup ? Object.entries(rollup.kpis) : [];
+  // Only program admins can change the rollup config, so only they get the link.
+  const canConfigure = (program?.my_role ?? 0) >= ROLE_ADMIN;
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
@@ -521,31 +523,21 @@ export function ProgramOverviewPage() {
               className="flex flex-col items-start gap-2 px-4 py-6 rounded-card border border-neutral-border bg-neutral-surface-raised"
               role="status"
             >
-              {/* Facts the page already holds with zero KPIs enabled: the worst-case
-                  health band and the project count. Critical project and next
-                  milestone arrive only inside the schedule_health / milestone_health
-                  KPI entries, so they cannot be shown here without a new read. */}
-              <dl className="flex flex-col gap-1 text-sm text-neutral-text-primary">
-                <div className="flex gap-2">
-                  <dt className="text-neutral-text-secondary">Program health</dt>
-                  <dd className="font-medium">{HEALTH_LABEL[rollup.program_health]}</dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="text-neutral-text-secondary">Projects</dt>
-                  <dd className="font-medium">{rollup.project_count}</dd>
-                </div>
-              </dl>
-              <p className="text-xs text-neutral-text-secondary">
-                No KPIs are enabled for this rollup. Choose which ones to track.
+              {/* TODO(#4855): show critical project and next milestone here once the
+                  rollup response carries them with no KPIs enabled. */}
+              <p className="text-sm text-neutral-text-primary">
+                No KPIs are enabled for this rollup.
               </p>
-              <Link
-                to={`/programs/${programId}/settings/rollup`}
-                className="text-xs text-brand-primary underline-offset-2 hover:underline
+              {canConfigure && (
+                <Link
+                  to={`/programs/${programId}/settings/rollup`}
+                  className="text-xs text-brand-primary underline-offset-2 hover:underline
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                   focus-visible:outline-none rounded-control"
-              >
-                Configure rollup
-              </Link>
+                >
+                  Configure rollup
+                </Link>
+              )}
             </div>
           ) : (
             <section aria-label="Program KPIs">

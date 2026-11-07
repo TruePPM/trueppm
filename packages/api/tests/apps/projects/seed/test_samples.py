@@ -945,12 +945,21 @@ def test_load_atlas_enables_a_default_rollup_kpi_set(owner: Any) -> None:
     assert "schedule_health" in program.rollup_enabled_kpis
 
 
-def test_load_atlas_repairs_an_emptied_rollup_config_on_reload(owner: Any) -> None:
-    """A reload re-asserts the default KPI set if the config was emptied (#4506)."""
-    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
-    Program.objects.filter(pk=program.pk).update(rollup_enabled_kpis=[])
+def test_sample_import_into_a_shell_with_an_emptied_rollup_config_populates_it(
+    owner: Any,
+) -> None:
+    """The sample path must not depend on the create-time receiver having run (#4506)."""
+    from trueppm_api.apps.projects.seed.importer import import_seed
 
-    reloaded = load_sample("atlas-platform-launch", owner=owner, create_users=True)
-    reloaded.refresh_from_db()
+    payload = json.loads(SAMPLES["atlas-platform-launch"].path.read_text(encoding="utf-8"))
+    shell = Program.objects.create(name="Shell", methodology=payload["program"]["methodology"])
+    Program.objects.filter(pk=shell.pk).update(rollup_enabled_kpis=[])
+    shell.refresh_from_db()
+    assert shell.rollup_enabled_kpis == []
 
-    assert reloaded.rollup_enabled_kpis
+    program = import_seed(
+        payload, owner=owner, create_users=True, is_sample=True, target_program=shell
+    )
+    program.refresh_from_db()
+
+    assert program.rollup_enabled_kpis

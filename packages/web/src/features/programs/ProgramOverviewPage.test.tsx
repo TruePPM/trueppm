@@ -73,21 +73,27 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(screen.getAllByText('PHX').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('shows the facts it holds above the configure link when no KPIs are enabled (#4506)', async () => {
-    mockApi(rollup({ kpis: {}, program_health: 'at_risk', project_count: 3 }));
+  it('admins see the empty state with exactly one configure link (#4506)', async () => {
+    mockApi(rollup({ kpis: {}, project_count: 3 }), { my_role: 300 });
     renderPage();
     const status = await screen.findByRole('status');
-    expect(within(status).getByText('Program health')).toBeInTheDocument();
-    expect(within(status).getByText('At risk')).toBeInTheDocument();
-    expect(within(status).getByText('Projects')).toBeInTheDocument();
-    expect(within(status).getByText('3')).toBeInTheDocument();
-    // Exactly one configure link: the empty state owns it, the footer is suppressed.
+    expect(within(status).getByText('No KPIs are enabled for this rollup.')).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Configure rollup' })).toHaveLength(1);
-    expect(screen.queryByText('No KPIs enabled.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Program health')).not.toBeInTheDocument();
+  });
+
+  it('non-admins see a neutral empty state with no configure link (#4506)', async () => {
+    mockApi(rollup({ kpis: {}, project_count: 3 }), { my_role: 200 });
+    renderPage();
+    const status = await screen.findByRole('status');
+    expect(within(status).getByText('No KPIs are enabled for this rollup.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Configure rollup' })).not.toBeInTheDocument();
   });
 
   it('carries no Enterprise upsell on the OSS program page (#4506)', async () => {
-    mockApi(rollup({ kpis: { schedule_health: { available: true, value: 'on_track' } } }));
+    mockApi(rollup({ kpis: { schedule_health: { available: true, value: 'on_track' } } }), {
+      my_role: 300,
+    });
     renderPage();
     await screen.findByRole('link', { name: 'Configure rollup' });
     expect(screen.queryByText(/Enterprise/)).not.toBeInTheDocument();

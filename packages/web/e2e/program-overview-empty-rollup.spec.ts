@@ -2,9 +2,8 @@ import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
- * #4506 — Program Overview with no KPIs enabled shows the facts the page already
- * holds (program health, project count) above the configure link, and carries no
- * Enterprise upsell. Every endpoint the page reads is mocked with its real shape.
+ * #4506 — Program Overview with no KPIs enabled shows a neutral message and one
+ * configure link, and carries no Enterprise upsell. Every endpoint the page reads is mocked with its real shape.
  */
 
 const PROGRAM_ID = 'e2e-program-00000000-0000-0000-0000-000000004506';
@@ -72,12 +71,11 @@ async function setup(page: import('@playwright/test').Page, kpis: Record<string,
 }
 
 test.describe('Program Overview rollup empty state (#4506)', () => {
-  test('no KPIs enabled: shows health and project count, one configure link, no Enterprise pitch', async ({ page }) => {
+  test('no KPIs enabled: one configure link, no Enterprise pitch', async ({ page }) => {
     await setup(page, {});
-    const status = page.getByRole('status');
-    await expect(status.getByText('Program health')).toBeVisible();
-    await expect(status.getByText('At risk')).toBeVisible();
-    await expect(status.getByText('Projects')).toBeVisible();
+    await expect(
+      page.getByRole('status').getByText('No KPIs are enabled for this rollup.'),
+    ).toBeVisible();
     await expect(page.getByRole('link', { name: 'Configure rollup' })).toHaveCount(1);
     await expect(page.getByText(/Enterprise/)).toHaveCount(0);
   });
