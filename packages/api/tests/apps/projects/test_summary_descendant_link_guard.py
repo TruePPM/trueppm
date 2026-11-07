@@ -235,3 +235,64 @@ class TestReparent:
         build.refresh_from_db()
         assert str(build.wbs_path) == "1.2"
         assert _project_is_schedulable(project)
+
+
+@pytest.mark.django_db
+class TestMoreShapes:
+    """The differential and the deep-descendant cases (fix-diff re-check of #4705)."""
+
+    def test_outdent_refused_when_linked_to_a_followers_descendant(
+        self, project: Project, owner_client: APIClient
+    ) -> None:
+        """Adopting Build also brings Build's subtask under Design."""
+        _task(project, "Phase", "1")
+        design = _task(project, "Design", "1.1")
+        _task(project, "Build", "1.2")
+        wire = _task(project, "Wire", "1.2.1")
+        link = _link(design, wire)
+        before = _outline(project)
+
+        response = _post(owner_client, OUTDENT_URL.format(pk=project.pk, task_id=design.pk))
+
+        _assert_refused(response, link, before, project)
+
+    def test_reparent_refused_when_a_moved_descendant_links_to_the_target(
+        self, project: Project, owner_client: APIClient
+    ) -> None:
+        design = _task(project, "Design", "1")
+        build = _task(project, "Build", "2")
+        wire = _task(project, "Wire", "2.1")
+        link = _link(wire, design, "FF")
+        before = _outline(project)
+
+        response = _post(
+            owner_client,
+            REPARENT_URL.format(pk=project.pk, task_id=build.pk),
+            {"new_parent_id": str(design.pk)},
+        )
+
+        _assert_refused(response, link, before, project)
+
+    def test_reparent_is_not_blamed_for_a_link_to_a_shared_existing_ancestor(
+        self, project: Project, owner_client: APIClient
+    ) -> None:
+        """Program was already Build's ancestor; moving Build within it adds nothing new.
+
+        The pre-existing ``Program -> Build`` link already breaks the rule, and
+        refusing every move inside Program on that account would block the edits that
+        repair the plan. Only ancestors the move *adds* (Design) are checked.
+        """
+        program = _task(project, "Program", "1")
+        design = _task(project, "Design", "1.1")
+        build = _task(project, "Build", "1.2")
+        _link(program, build)
+
+        response = _post(
+            owner_client,
+            REPARENT_URL.format(pk=project.pk, task_id=build.pk),
+            {"new_parent_id": str(design.pk)},
+        )
+
+        assert response.status_code == 200, response.data
+        build.refresh_from_db()
+        assert str(build.wbs_path) == "1.1.1"
