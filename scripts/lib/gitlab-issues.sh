@@ -42,10 +42,31 @@ gitlab_issue_states() {
   done
 }
 
+# gitlab_issues_by_label <api> <project> <token-or-empty> <labels> [state]
+#
+# Prints the same `iid<TAB>state<TAB>title[<TAB>milestone<TAB>labels]` lines as
+# gitlab_issue_states, for every issue carrying ALL of the comma-joined
+# <labels>, filtered to <state> (opened|closed|all, default opened). Pages
+# through the list so a growing label is never silently truncated at 100
+# (#4720). Same retry/429/token behavior as the iid lookup; returns 2 when the
+# tracker could not be read.
+gitlab_issues_by_label() {
+  local api="$1" project="$2" token="$3" labels="$4" state="${5:-opened}"
+  local page=1 out n
+  while :; do
+    out=$(GITLAB_ISSUES_QUERY_OVERRIDE="state=${state}&labels=${labels}&page=${page}" \
+      _gitlab_issue_batch "$api" "$project" "$token") || return 2
+    [ -n "$out" ] && printf '%s\n' "$out"
+    n=$(printf '%s' "$out" | grep -c . || true)
+    [ "$n" -lt 100 ] && return 0
+    page=$((page + 1))
+  done
+}
+
 _gitlab_issue_batch() {
   local api="$1" project="$2" token="$3"
   shift 3
-  local query="per_page=100&state=all" iid url resp status code retry_after body
+  local query="per_page=100&${GITLAB_ISSUES_QUERY_OVERRIDE:-state=all}" iid url resp status code retry_after body
   local attempt=1 max="${GITLAB_ISSUES_MAX_ATTEMPTS:-5}" wait
   local -a auth=()
   for iid in "$@"; do query+="&iids[]=${iid}"; done

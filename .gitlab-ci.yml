@@ -1510,6 +1510,39 @@ docs:known-issues-freshness:
     - bash scripts/check-known-issues-freshness.sh --self-test
     - bash scripts/check-known-issues-freshness.sh
 
+lint:scheduler-readme-limitations:
+  extends: .fast-job
+  # Scheduler README Known-limitations tracker-sync gate (#4720).
+  # packages/scheduler/README.md ships as the PyPI page; its limitations
+  # section and its "May also land in 0.5, but not committed" paragraph were
+  # written by hand and drifted from the tracker (six committed wrong-result
+  # bugs omitted, six `release::committed` issues called "not committed").
+  # Fails when (a) an issue listed as "not committed" carries
+  # release::committed, (b) an open scheduler+correctness `fix(...)`/untyped
+  # issue is missing from the section, or (c) a closed issue is still listed.
+  #
+  # Same shape as docs:known-issues-freshness: MR + main, fail-closed, reads
+  # the tracker through scripts/lib/gitlab-issues.sh (batched, 429 retry,
+  # shared ISSUES_API_TOKEN) — the gates that bypassed it 429'd main (#4452).
+  # Not allow_failure and not schedule-only, like its siblings.
+  #
+  # NOTE: this reads live tracker state, so a label edit (a new open
+  # scheduler+correctness fix issue, a release:: relabel) turns the job red
+  # with no code change — that is the point; edit the README list in the same
+  # breath. A tracker-API timeout should retry the JOB, not silence it.
+  # Not in `make pre-push`: like its siblings it needs the tracker, which the
+  # local gate set deliberately does not.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash curl jq
+  script:
+    - bash scripts/check-scheduler-readme-limitations.sh --self-test
+    - bash scripts/check-scheduler-readme-limitations.sh
+
 docs:config-links:
   # Every https://docs.trueppm.com link in the two files an operator actually
   # edits — packages/helm/values.yaml and .env.example — must resolve to a page
