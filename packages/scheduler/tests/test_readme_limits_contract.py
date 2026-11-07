@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 
 import trueppm_scheduler as ts
+from trueppm_scheduler import engine as _engine
 
 _README_PATH = Path(__file__).resolve().parents[1] / "README.md"
 
@@ -37,8 +38,18 @@ _DOCUMENTED_CAPS = frozenset(
         "MAX_INDEX_CELLS",
         "MAX_VELOCITY_SPRINTS",
         "MC_SENSITIVITY_CAP",
+        "_MAX_RUNS_ABSOLUTE",
     }
 )
+
+
+def _actual(name: str) -> int:
+    """Resolve a documented cap: the exported constant, else the engine's private one.
+
+    ``_MAX_RUNS_ABSOLUTE`` (the ``monte_carlo(runs=…)`` ceiling) is documented in the
+    table but deliberately not exported, so it is read from ``engine`` directly.
+    """
+    return getattr(ts, name) if hasattr(ts, name) else getattr(_engine, name)
 
 
 def _parse_limits_table() -> dict[str, int]:
@@ -72,9 +83,9 @@ class TestReadmeLimitsContract:
     def test_table_values_match_the_exported_constants(self) -> None:
         documented = _parse_limits_table()
         mismatched = {
-            name: (documented_value, getattr(ts, name))
+            name: (documented_value, _actual(name))
             for name, documented_value in documented.items()
-            if documented_value != getattr(ts, name)
+            if documented_value != _actual(name)
         }
         assert not mismatched, (
             "README 'Limits for embedders' table has drifted from the exported "

@@ -203,6 +203,7 @@ packages/scheduler/
 │       ├── __init__.py     # Public API exports
 │       ├── models.py       # Data classes: Task, Dependency, Project, Calendar
 │       ├── engine.py       # schedule(), monte_carlo(), CPM algorithms
+│       ├── derive.py       # derive_value() explainability
 │       └── cli.py          # CLI entry point (trueppm-scheduler command)
 ├── tests/
 │   ├── test_engine.py      # Unit tests for schedule() and monte_carlo()

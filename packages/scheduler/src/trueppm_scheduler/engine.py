@@ -8199,8 +8199,9 @@ def monte_carlo(
     numpy 2.4, 2026-09: 63 ms for a PERT chain, 88 ms for a network mixing all
     four link types with lag) and more on a shared CI runner or an older server
     — ``tests/test_bench.py`` holds it under a 2 s regression tripwire, not the
-    laptop figure (#3859). So the library imposes **no** run or task cap by
-    default — ``monte_carlo(project, runs=10_000)`` simulates as written (the velocity
+    laptop figure (#3859). So the library imposes no task cap and no run cap by
+    default beyond an absolute ceiling of 100 000 000 runs (``InvalidScheduleInput``
+    above it) — ``monte_carlo(project, runs=10_000)`` simulates as written (the velocity
     sampler draws in bounded chunks, so memory does not grow with ``runs``). The
     ``max_runs`` / ``max_tasks`` knobs exist for an *embedding* layer that needs
     to bound work on a synchronous request path (the TruePPM API passes its own caps and returns
