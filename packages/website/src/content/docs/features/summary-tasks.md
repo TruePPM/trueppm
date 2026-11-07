@@ -129,6 +129,13 @@ the successor is in another project. Structural undo answers `409` with the same
 code and list. Creating a task with `parent_id` answers `400` with the message under
 `parent_id` and no `code`.
 
+A move is also refused when it would put a summary over a task it is linked to: with
+`Design → Build` on adjacent rows, indenting Build under Design would leave Design
+linked to its own subtask, which the scheduler treats as a cycle. Indent, outdent and
+reparent answer `400` with `code: "summary_descendant_link"` and the same
+`blocking_dependencies` list, and nothing moves. Delete or change the link, then try
+the move again.
+
 ### Phases and sprints
 
 Assigning a phase to a sprint is refused outright on the `sprint` field —

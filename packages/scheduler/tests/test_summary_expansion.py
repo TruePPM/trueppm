@@ -491,6 +491,27 @@ class TestAncestorDescendantLinksAgreeWithFindCycle:
             expand_summary_dependencies(tasks, deps, children_map)
         assert exc.value.cycle == ["a", "a"]
 
+    @pytest.mark.parametrize("dep_type", [DependencyType.SS, DependencyType.SF])
+    def test_start_link_from_summary_to_own_child_hits_adr_0370_first(
+        self, dep_type: DependencyType
+    ) -> None:
+        """SS/SF *from* a summary is refused by ADR-0370 before the shared-leaf rule."""
+        children_map = _SHAPES["two_leaves"]
+        assert find_cycle([("S", "a")], children_map=children_map)
+        deps = [Dependency(predecessor_id="S", successor_id="a", dep_type=dep_type)]
+        with pytest.raises(InvalidScheduleInput, match="not supported"):
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+
+    @pytest.mark.parametrize("dep_type", [DependencyType.SS, DependencyType.SF])
+    def test_start_link_from_child_to_own_parent_is_a_cycle(self, dep_type: DependencyType) -> None:
+        """Into a summary, SS/SF is not ADR-0370's direction, so the cycle rule applies."""
+        children_map = _SHAPES["two_leaves"]
+        assert find_cycle([("a", "S")], children_map=children_map)
+        deps = [Dependency(predecessor_id="a", successor_id="S", dep_type=dep_type)]
+        with pytest.raises(CyclicDependencyError) as exc:
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+        assert exc.value.cycle == ["a", "S", "a"]
+
     def test_unrelated_summaries_still_expand(self) -> None:
         """Guard against over-refusal: disjoint summaries and siblings still fan out."""
         children_map = _SHAPES["nested"]

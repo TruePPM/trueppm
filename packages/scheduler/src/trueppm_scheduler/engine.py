@@ -3735,9 +3735,12 @@ def expand_summary_dependencies(
     descendants, or from one (and, with a diamond ``children_map``, two summaries
     holding a common leaf) — is a logical cycle and raises
     :class:`CyclicDependencyError`, exactly as :func:`find_cycle` reports it
-    (#4705, #4538). Links that expand onto the same leaf pair are merged by meaning, not list
-    order: same type keeps the largest (most binding) lag; different types
-    raise :class:`InvalidScheduleInput` (#4434).
+    (#4705, #4538). The one exception is a Start-to-Start or Start-to-Finish link
+    *from* a summary: the ADR-0370 check runs first and raises
+    :class:`InvalidScheduleInput` for it, whatever its successor. Links that
+    expand onto the same leaf pair are merged by meaning, not list order: same
+    type keeps the largest (most binding) lag; different types raise
+    :class:`InvalidScheduleInput` (#4434).
 
     Args:
         tasks: All tasks including summaries.
@@ -3753,7 +3756,11 @@ def expand_summary_dependencies(
         InvalidScheduleInput: If ``children_map`` is malformed — not a dict, a
             summary id (key) or child id that is not a string (``None`` and
             other non-string ids are refused, #4522), a value that is not a
-            list, or a summary with an empty children list.
+            list, or a summary with an empty children list. Also raised for a
+            Start-to-Start or Start-to-Finish link from a summary task (ADR-0370),
+            checked before the shared-leaf rule below, so an SS/SF link from a
+            summary to its own descendant raises this rather than
+            ``CyclicDependencyError``.
         CyclicDependencyError: If a link's endpoints share a leaf (see above).
             ``cycle`` names the *source* link, not the leaves it expands to:
             ``[pred, succ, pred]``, or ``[pred, pred]`` when both endpoints are
