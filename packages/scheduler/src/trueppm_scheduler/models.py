@@ -344,6 +344,10 @@ class Task:
             d["free_float"] = _parse_timedelta(d.get("free_float", 0))
             _require_bool(d, "is_critical")
             _require_bool(d, "milestone_at_day_end")
+            # Rust ``percent_complete: f64`` refuses an explicit null; Python used
+            # to treat it as 0% (#4708). An absent key still defaults to 0.
+            if "percent_complete" in d and d["percent_complete"] is None:
+                raise ValueError("percent_complete must be a number, got NoneType: None.")
             _check_finite(d, "percent_complete")
             _check_percent_range(d)
             _check_finite(d, "story_points")

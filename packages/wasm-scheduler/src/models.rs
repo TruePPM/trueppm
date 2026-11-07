@@ -9,6 +9,39 @@ use std::cell::OnceCell;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
+/// Parse-time checks for fields this engine ignores but the shared document
+/// contract constrains, so both engines accept the same set (#4708).
+pub mod enum_serde {
+    use serde::{de::Error, Deserialize, Deserializer};
+
+    /// `deserialize_with` for `delivery_mode`: `null`/absent stay `None`; any other
+    /// value must be one of the Python `DeliveryMode` values.
+    pub fn delivery_mode<'de, D: Deserializer<'de>>(de: D) -> Result<Option<String>, D::Error> {
+        match Option::<String>::deserialize(de)? {
+            None => Ok(None),
+            Some(s) if s == "waterfall" || s == "scrum" => Ok(Some(s)),
+            Some(s) => Err(D::Error::custom(format!(
+                "Invalid delivery_mode {s:?}; must be one of: waterfall, scrum."
+            ))),
+        }
+    }
+
+    /// `deserialize_with` for an optional integer field (`sprint_length_days`).
+    ///
+    /// Python pins this to an `int` (`10.0`, `true` and `"10"` are refused), so the
+    /// check reads the raw JSON token: only an integer token passes, not a float
+    /// that happens to be whole.
+    pub fn integral_opt<'de, D: Deserializer<'de>>(de: D) -> Result<Option<f64>, D::Error> {
+        match Option::<serde_json::Number>::deserialize(de)? {
+            None => Ok(None),
+            Some(n) if n.is_i64() || n.is_u64() => Ok(n.as_f64()),
+            Some(n) => Err(D::Error::custom(format!(
+                "sprint_length_days must be an integer (got {n})"
+            ))),
+        }
+    }
+}
+
 /// Strict `YYYY-MM-DD` date deserialization (#4707).
 ///
 /// chrono's `NaiveDate` serde `FromStr` is lenient: it accepts `2026-3-2`, padded
@@ -237,7 +270,11 @@ pub struct Task {
     // run — so they never affect a deterministic CPM result and are accepted and ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "enum_serde::delivery_mode"
+    )]
     pub delivery_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub story_points: Option<f64>,
@@ -466,7 +503,11 @@ pub struct Project {
     pub calendars: Option<std::collections::HashMap<String, Calendar>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity_samples: Option<Vec<Option<f64>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "enum_serde::integral_opt"
+    )]
     pub sprint_length_days: Option<f64>,
 }
 

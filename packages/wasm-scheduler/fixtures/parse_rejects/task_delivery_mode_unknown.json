@@ -1,0 +1,1 @@
+{"id":"pr-delivery-mode-kanban","name":"delivery_mode kanban is not waterfall/scrum - Python refuses, Rust now refuses (#4708)","start_date":"2026-01-01","tasks":[{"id":"A","name":"Task A","duration":86400.0,"delivery_mode":"kanban"}],"dependencies":[],"calendar":{"working_days":31,"exceptions":[],"hours_per_day":8.0,"timezone":"UTC"}}
