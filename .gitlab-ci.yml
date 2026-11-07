@@ -1304,7 +1304,8 @@ lint:cost-ledger:
   # transcript or the network, so a green run is evidence about the parsers and the n/a-never-0
   # rules, not about any MR. scripts/cost-ledger self-tests against a throwaway `git init`, so
   # git is installed. ~3s. post-mr-cost.py is the PostToolUse hook that auto-posts record 1
-  # (and, with --round, record K); its self-test runs against a stub runner and a fake notes API.
+  # (and, with --round, record K); its self-test runs against a stub runner and a fake notes API, and replays the golden
+  # fixture scripts/tests/cost-ledger-golden/ (fake glab, temp git dir) that pins non-overlap (#4865).
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:

@@ -71,9 +71,10 @@ cost-ledger: off
 ```
 
 and no `subagent-tokens:`, `orchestrator-tokens:` or `est-cost-usd:` line, and
-no cost record (`scripts/cost-table.py` exits 3 and posts nothing). They do not run
-`scripts/orchestrator-tokens.py`, `scripts/subagent-tokens.py` or `scripts/est-cost.py`, and all three also ask the setting first: when it is off
-or unreadable they exit 3, prints nothing on stdout and opens no transcript. When the setting
+no cost record (`scripts/cost-table.py` exits 3 and posts nothing, and `scripts/post-mr-cost.py`, the
+only code that measures, stops before it reads a transcript). The three measuring scripts
+(`scripts/orchestrator-tokens.py`, `scripts/subagent-tokens.py`, `scripts/est-cost.py`) also ask the setting first: when it is off
+or unreadable they exit 3, print nothing on stdout and open no transcript. When the setting
 is unreadable, the MR also carries the `## Notes` line "cost ledger setting unreadable;
 nothing recorded".
 
@@ -113,16 +114,20 @@ lines are only as consistent as the skills that write them.
   (below), covered by this same setting.
 - **`orchestrator-tokens:` is session spend over the window, not attribution.** It includes work that is
   not this MR's. Do not add the two lines up as the MR's cost.
-- **Do not sum `orchestrator-tokens:` across the MRs of one wave.** The branches' windows
-  overlap in one orchestrating session, so each figure is the session's spend while that
-  branch was open, not an attribution to it.
+- **The `## Cost of this MR` records of one session do not overlap, so they add up
+  (trueppm#4865).** Each record claims only what no earlier record of that session claimed (see
+  *Non-overlap* below). The `## Gates` ledger lines are different: they are
+  `post-mr-cost.py --measure` snapshots taken at the go-ahead, which claim nothing, so the lines of
+  two MRs from one session can still cover the same stretch. Read the comments, not the lines, when
+  adding up a session.
 - A window of disabled MRs is not evidence that cost fell.
 
 ## The `subagent-tokens:` line and the layout dependency
 
 - **What it is.** `subagent-tokens: <N>` is the sum, per response and once per message id, over the
   transcripts of every agent the orchestrator spawned or resumed for the branch plus all their
-  descendants (`parentAgentId`), from `scripts/subagent-tokens.py --agent <id> ... --until <T>`.
+  descendants (`parentAgentId`). Reference only: `scripts/post-mr-cost.py` (`--measure`, the hook,
+  `--round`) runs `scripts/subagent-tokens.py` with the right per-agent windows; nobody runs it by hand.
   The parser is `scripts/lib/transcript_usage.py`, shared with `scripts/orchestrator-tokens.py`.
 - **Layout dependency.** The script reads `<projects-dir>/<slug>/<session-id>/subagents/agent-<id>.jsonl`
   and the sibling `agent-<id>.meta.json`. That layout is not documented upstream (observed
@@ -159,8 +164,8 @@ measured line, and never added to a measured figure.
   (`--agent <id>` and their descendants, up to `--until`), each response priced with its own
   `message.model` and four usage classes, once per message id. The line is omitted when any piece
   is missing, because a partial price would read as a whole one.
-  `python3 scripts/est-cost.py --agent <id> [--agent <id> ...] --since <T> --until <T>`
-  prints the line on stdout; the per-model figures, or the reason for an omission as a `note:`
+  `scripts/est-cost.py` (reference only; `scripts/post-mr-cost.py --measure` runs it for you, with the
+  right windows) prints the line on stdout; the per-model figures, or the reason for an omission as a `note:`
   line for the MR's `## Notes`, go to stderr. Exit 0 priced, 1 omitted, 2 usage, 3 ledger off
   (it asks `scripts/cost-ledger enabled` first and opens nothing).
   `--no-agents` in place of `--agent` prices the orchestrator alone, for a window in which no
@@ -199,22 +204,23 @@ table: the description carries no `## Cost` section, and the ledger reader looks
 
 Work on an MR after its first comment is a further comment, never an edit:
 
-- **Record 1** covers the branch up to the go-ahead to push. Its figures are the description's
-  ledger lines, and its heading has no record number, so a comment posted before records existed
+- **Record 1** covers the session's work up to the moment `glab mr create` ran (the hook measures
+  it then; trueppm#4865), not the description's ledger lines, which are the go-ahead snapshot from
+  `--measure`. Its heading has no record number, so a comment posted before records existed
   counts as record 1.
 - **Record K** (2, 3, ...) covers one later window: a fix round after the MR opened, a `/fix-mr`
   pass, a re-measure. Its heading is `## Cost of this MR (#<issue>) — record K`, it states its
   window start and end, its figures come from the measuring scripts' own stdout lines for that
   window (not from the description), and it adds a running-total row across records 1..K.
-- **The `## Gates` ledger lines stay record 1's figures.** Nothing sums the later records except
+- **The `## Gates` ledger lines are the go-ahead snapshot.** Nothing sums the later records except
   each record's own running-total row.
 - **One record per window.** A re-run for the same window (same start and end) updates that
   window's record, which must be the latest; a different window posts a new one. An earlier
   record is never edited: record 1 is refused (exit 5) once a record 2 exists, and so is a window
   that matches any record but the latest.
-- **A subagent still running after a record's window end is counted in no record.** The
-  subagent scripts have no per-window cut (they count an agent's usage up to `--until`), so such
-  an agent's later usage has no record to land in.
+- **A subagent that keeps working after a record is counted in the next one, once.** Each agent
+  has its own watermark (the end of the last record that measured it), and the next record counts
+  that agent only for usage after it (`--agent <id>@<since>`, below).
 - **A window with no subagent** (a typical `/fix-mr` pass) shows a **measured 0** for the
   Subagents row (0 tokens, 0.00 USD; each family `none used`), and Total tokens and Est. cost are
   real, as are the running totals. The 0 comes only from the explicit statement `--no-agents`,
@@ -224,48 +230,120 @@ Work on an MR after its first comment is a further comment, never an edit:
   split lines is not trusted: the record says the split does not sum to the line. An orchestrator
   with no usage in the window still prints no line, so its cells stay `n/a`.
 
+### Non-overlap: per-session state and attribution
+
+trueppm#4865, ported from macrodream/blueprint#387. An audit of the last 40 MRs in three repos found
+records that repeated the session's growing total (trueppm !3247, !3248 and !3249 all showed 515,339
+Opus orchestrator tokens), a window marker shared by every session and worktree, and subagents
+attached to whichever MR opened first. The decision: **records do not overlap.** Each record claims
+only tokens no earlier record of the same session claimed, so summing every record a session posted
+gives that session's total. In a parallel wave the first MR to open carries the orchestrator spend
+interleaved up to that point, and the record's footnote says so.
+
+- **State.** `<git-common-dir>/mr-cost-state/<session-id>.json`:
+  `{"schema": 1, "orchestrator_until": "<UTC Z>", "agents": {"<agent-id>": "<UTC Z>"}}`, written
+  atomically (a temp file in the same directory, then `os.replace`) after **every** successful post
+  by `scripts/post-mr-cost.py`: `orchestrator_until` and the watermark of each agent that record
+  measured (descendants too) move to the record's `until`. It is per session. The legacy shared
+  `mr-cost-last-until` marker (and the interim per-session `mr-cost-last-until.<session id>`) is
+  **never read**, not even as a fallback; delete it if you find one. A state file that exists but
+  does not validate posts nothing and says so, because guessing a window would double count. A
+  failed post never advances the state.
+- **A POST that landed without the state moving** (the hook was killed after its POST, or
+  `cost-table.py` failed on the response): the next run of the hook finds the record, and
+  `reconcile()` advances the state to the end of the token user's own latest record, and the
+  watermark of the agents that record's window would have attributed. A foreign record, or one dated
+  after now, is ignored, and a watermark never moves backwards.
+- **Windows.** Orchestrator: from `orchestrator_until` to now (no state: from the session
+  transcript's first entry). Each agent: from its own watermark to now (none: from its first entry);
+  a descendant is measured over its own watermark and goes with its top-level parent. A watermark is
+  an exclusive bound, so a response stamped exactly at the previous record's end is counted once.
+  The measuring scripts take this as `--agent <id>@<since>` (and `--agent-since <id>@<since>` for an
+  agent that is not named, such as a descendant) on `subagent-tokens.py` and `est-cost.py`.
+- **Attribution of top-level agents to an MR.** A subagent transcript's `cwd` and `gitBranch` always
+  show the session root and `main`, so they cannot say which branch an agent worked on. Its **brief**
+  can: the text of the first `user` entry of its transcript. An agent counts for this MR when it was
+  named with `--agent`, or its brief names this MR's source branch or its worktree directory leaf;
+  otherwise it is left out if its brief names any other branch matching
+  `(feat|fix|docs|chore)/<digits>-`; otherwise (an unnamed gate) it counts if it has usage after its
+  watermark, so the first record to open claims it. The brief is untrusted text and is only matched
+  against, never printed. So every brief `/wave` writes names the branch it is for.
+- **Empty rows.** Claude Code writes `<synthetic>` assistant entries with all-zero usage on an
+  interrupt or an error. The parser drops any response whose four usage values are all zero and
+  counts it in the `empty` figure on stderr, so no `model unknown 0` split line exists and the
+  **Other** column appears only when a model outside Sonnet and Opus used tokens.
+- **The golden fixture.** `scripts/tests/cost-ledger-golden/` is one synthetic session (an
+  orchestrator, an agent with a nested descendant, an agent for another branch that started before
+  the first MR opened, an unnamed gate, a zero-usage row, an agent resumed after its record) replayed
+  through the real hook, `--round`, the state files and `cost-table.py` with a fake `glab` and a temp
+  git dir. `expected.json` pins each record's totals and rows and that the three records add up to
+  the session's usage with nothing claimed twice. `python3 scripts/post-mr-cost.py --self-test`
+  runs it. The directory is byte for byte the same in every repo that carries this harness
+  (Blueprint holds the canonical copy), so it names no repo-specific path or issue.
+
+### One repo per hook, and explicit projects
+
+The hook runs in the **session's** directory, which can be a different repo from the one an MR was
+opened on (a worktree of another project, or `glab mr create -R`). Reading the MR by iid in the wrong
+repo would post a cost record on an unrelated MR. So the hook parses the project path from the printed
+MR URL (`https://<host>/<namespace/project>/-/merge_requests/<n>`) and posts only when it equals the
+project of the repo it runs in (its `origin` remote); otherwise it posts nothing and prints
+`python3 scripts/post-mr-cost.py --retry --mr <n> --session <sid>` to run in the right checkout. Every
+`glab api` call also names its project explicitly (`projects/<url-encoded path>/...`, and
+`cost-table.py --project`), so nothing resolves `:id` against whichever repo the process happens to
+run in. The golden fixture's fake `glab` rejects `:id` and any other project, and one step replays a
+`glab mr create` printed for another project.
+
 ### The records post themselves
 
 Provenance: ported from Visiban's `post-mr-cost.py` (visiban/visiban#2128 and follow-ups) and
-Blueprint's cost-comment work (macrodream/blueprint#384).
+Blueprint's cost-comment work (macrodream/blueprint#384, macrodream/blueprint#387).
+`scripts/post-mr-cost.py` is the only code that measures and posts a record; a person or a skill
+never runs the three measuring scripts by hand, and nothing writes a window marker.
 
-- **Record 1.** After any `glab mr create` run through Claude Code's Bash tool, the PostToolUse
-  hook `.claude/hooks/post-mr-cost.sh` (registered in `.claude/settings.json`) runs
-  `scripts/post-mr-cost.py`, which posts record 1. It does nothing when `scripts/cost-ledger
-  enabled` is not 0, when the MR description carries `cost-ledger: off`, or when this user already
-  has a `## Cost of this MR` comment on the MR (so a record is never posted twice).
-  **Which source wins: the description's ledger lines.** When a `subagent-tokens:`,
-  `orchestrator-tokens:` or `est-cost-usd:` line appears anywhere in the description (a `/wave`
-  MR; under `## Gates`, `## Notes`, in a fence or in a quote alike), the hook renders record 1 from
-  the description through `cost-table.py --file` and does not measure, so the comment matches the
-  description by construction (a line cost-table cannot read renders as n/a). A re-measured
-  window cannot be right for a wave: its agents start before the previous MR's post, so the window
-  excludes this MR's agents and can include another's (!3249 read 0.8M tokens against a ledger of
-  10.8M). The per-model split comes from `wave-cost-split.txt` in the git dir of the checkout the
-  MR was created from, and is used only when it is older than the MR, at most two hours older, and
-  its token sums equal the description's lines. Then its mtime is the window end; otherwise the
-  per-model cells read n/a, the totals are unchanged, and the window end is the MR's creation time
-  (the hook's time if that cannot be read; the footer's "go-ahead to push" is then seconds off),
-  so record 1 always has a readable window end for `--next-since` and `--round`. This path does
-  not write `mr-cost-last-until` (it measures nothing, and the file is shared by every worktree).
-  A description with no ledger key anywhere (a plain `/mr`) is measured: the window runs from the
-  last MR this session posted for (`mr-cost-last-until.<session id>` in the git common dir; the
-  window is per session because the common dir is shared by every worktree and parallel session,
-  and a legacy unkeyed `mr-cost-last-until` is read only when no keyed file exists)
-  or the session start, to now; subagents are the top-level ones that started in that window. The
-  session's transcript is found by session id under `~/.claude/projects/*/`, so a session run from
-  the main checkout is found whether its agents worked in the checkout or in a
-  `../trueppm-wt/<leaf>/` worktree. `/wave` names its agents explicitly and is the more exact
-  path (below), but the hook posts first, because it fires at `glab mr create`.
-- **Record K.** The hook cannot see later work. After a `/fix-mr` pass, a review-fix or
+- **Record 1: the hook.** After any `glab mr create` run through Claude Code's Bash tool, the
+  PostToolUse hook `.claude/hooks/post-mr-cost.sh` (registered in `.claude/settings.json`, timeout
+  600) runs `scripts/post-mr-cost.py`. It posts nothing when `scripts/cost-ledger enabled` is not 0,
+  when the MR description carries `cost-ledger: off`, or when this user already has a `## Cost of
+  this MR` comment on the MR (so a record is never posted twice). Otherwise it measures the
+  session's next window (above), posts record 1 through `scripts/cost-table.py`, and advances the
+  state. The description's ledger lines are the go-ahead snapshot and are **not** what record 1
+  renders from: rendering them would repeat a figure an earlier record already claimed. The session's
+  transcript is found by session id under `~/.claude/projects/*/`, so a session run from the main
+  checkout is found whether its agents worked in the checkout or in a `../trueppm-wt/<leaf>/`
+  worktree.
+- **The go-ahead snapshot: `--measure`.** `python3 scripts/post-mr-cost.py --measure` prints the
+  `subagent-tokens:`, `orchestrator-tokens:` and `est-cost-usd:` lines for the window the next
+  record would cover, for the MR description's `## Gates` section. It posts nothing and advances
+  nothing, so the hook still claims the same tokens at `glab mr create`. It attributes by the
+  current branch and worktree.
+- **Record K: `--round`.** The hook cannot see later work. After a `/fix-mr` pass, a review-fix or
   completeness-check fix push after the MR opened, or a rebase with conflict resolution before
-  merge, run `python3 scripts/post-mr-cost.py --round --mr <N>`. It posts `## Cost of this MR (#N)
-  — record K` for the window since the latest record, with the running total, and advances
-  `mr-cost-last-until.<session id>` so the next MR does not re-count the round. It posts nothing, and prints one
-  line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
-  or nothing was measured.
-  Wave fix rounds are window-based until #4864: the window since the latest record can mis-count
-  a wave's parallel agents, so prefer the by-hand path with named agents for a wave round.
+  merge, run `python3 scripts/post-mr-cost.py --round --mr <iid>`. It posts `## Cost of this MR
+  (#N) — record K` with the window that session has not yet claimed, never earlier than that MR's
+  latest record end (the `cost-table.py --next-since` value), a running total across records, and
+  advances the state. A re-run posts a record only if the orchestrator or an attributed agent has
+  new usage since the last post; otherwise it says there is nothing measurable. It posts nothing,
+  and prints one line saying why, when the ledger is off, the MR carries `cost-ledger: off`, or
+  record 1 is missing.
+- **`--agent <id>`** (repeatable, `--round` and `--measure`): name exact agents (the `agentId:` of
+  the Agent tool result) instead of auto-attribution; a named agent is always counted if it has
+  usage in the window.
+- **`--measure --agent <id>` without `--pin`** applies to that run only and prints a one-line stderr
+  warning: record 1 (the hook) will not attribute those agents unless they are pinned.
+- **`--measure --agent <id> --pin`:** run it in the branch's own worktree. It also records those
+  agents as belonging to this branch, in `<git-common-dir>/mr-cost-state/<session-id>.pins.json`
+  (`{"schema": 1, "branches": {"<branch>": ["<agent-id>"]}}`, written atomically, kept apart from
+  the state file). The hook (record 1) and `--round` (record K) read it, so an agent whose brief
+  names no branch is attributed to the same MR in the snapshot and in the records, and is left out
+  of every other branch's record. It refuses (exit 2) to pin to the default branch (`main`, or
+  whatever `origin/HEAD` names): no MR has that source branch, so the agent would be left out of
+  every real branch's record and its tokens never claimed.
+- **`--retry --mr <iid> --session <sid>`:** what a fail-soft message tells you to run (it prints the
+  session id, or `<session-id>` when none was usable, and the literal `<iid>` when no MR number was
+  known), in the checkout of the MR's project. It posts record 1 when the MR has no cost comment
+  yet (the hook's work), otherwise the next record (`--round`'s), and advances the state like any
+  other post.
 - **Failures are retried, explained and visible.** `cost-table.py --post` retries the whole
   read-then-write up to 3 times (2s then 5s backoff, 20s per `glab api` call, at most 3 notes pages per attempt: 307s worst case; the hook's own timeout on it is derived from `worst_case_seconds()` in `cost-table.py` plus 30s, 337s, so the whole hook fits its 600s limit. An MR with 300 or more notes exits 5, which is not retried) when a call fails or
   hangs. It retries from the top, not the single call, because a POST that timed out may have
@@ -274,14 +352,7 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   appended to the message and written to `mr-cost-hook.log`. A failure or skip is also emitted as a
   hook `systemMessage`, so the user sees it in the terminal and not only the model. The hook's own
   reads (MR description, notes, `--next-since`) are retried the same way, the notes are paged past
-  100, and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4). When a cost comment
-  already exists, the session window moves to the end of the token user's own record, never
-  backwards and never past now; a foreign or future-dated record is ignored.
-- **Manual fallback.** The failure message prints a command that works as written:
-  `python3 scripts/post-mr-cost.py --retry --mr <iid> --session <sid>` (a failed `--round` prints the
-  `--round` equivalent); run it from the checkout root. It re-runs the hook's own
-  logic for an MR that already exists (same window, same opt-outs), and posts nothing if a cost
-  comment is already there.
+  100, and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4).
 - **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload
   and starts python only when it matches `*glab*mr*create*`; python then re-filters with its own
   stricter `glab mr create` pattern, so a loose shell match is harmless.
@@ -290,45 +361,23 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   that could not be fetched (so the opt-out marker cannot be checked), posts nothing and is
   reported to the session and logged.
 - **Fail-soft.** The hook always exits 0. A broken transcript layout, an unreadable notes API or
-  a failed post is reported to the session with the by-hand command, never silently, and never
+  a failed post is reported to the session with the command to re-run, never silently, and never
   blocks `glab mr create`. An unreadable notes read is reported, not treated as "a comment exists".
 - **It logs every `glab mr create` it sees**, one line each, to `mr-cost-hook.log` in the clone's
   git common dir: time, session id, MR number and a fixed outcome. No command text or token is
   logged, and the log rotates at 256 KB. **No line for an MR opened through Claude Code means the
   hook never ran in that session**, usually because the session started before the hook was in the
   checkout (hooks load at session start) or the MR was opened another way.
+- **`cost-table.py` is reference only.** It renders and reads records
+  (`--comment`, `--next-since`) and is called by `post-mr-cost.py`; do not run it by hand to post a
+  record, since a record posted that way does not advance the session state and the next record
+  would count the same tokens again. `--self-test` covers each mode with a fake `glab api`.
 - **Limit.** An MR opened in the GitLab UI or a plain terminal gets no comment.
 
-### Running it
-
-All three modes are `scripts/cost-table.py`; `--self-test` covers each, with a fake `glab api`.
-
-- **Record 1:** `python3 scripts/cost-table.py --comment --file <description.md> --issue <N>
-  --until <T> --split <file> --post --mr <iid>`. Without `--post` it prints the body.
-- **The next window's start:** `python3 scripts/cost-table.py --next-since --mr <iid>` prints the
-  latest record's window end, the `--since` for the measuring scripts and for the record (exit 1
-  when this user has no readable record with a window end).
-- **Record K:** measure the window with `scripts/subagent-tokens.py`, `scripts/orchestrator-tokens.py`
-  and `scripts/est-cost.py` (`--since` the value above, `--until` now; `subagent-tokens.py` takes
-  no `--since`), keeping their stdout lines in one file and their stderr in another. Name only
-  agents spawned fresh in the window, since a subagent's usage counts up to `--until` from its
-  start: a resumed agent makes the subagent cells `n/a` with a stated reason (post the record
-  without a `subagent-tokens:` / `est-cost-usd:` line). With no subagent in the window, pass
-  `--no-agents` to `subagent-tokens.py` and `est-cost.py` instead of `--agent`. Naming only fresh
-  agents is prose-enforced: no script checks it. Capture the end once
-  (`T=$(date -u +%Y-%m-%dT%H:%M:%SZ)`), take the start `S` from `--next-since`, and save the pair
-  with its MR number: `WIN="$(git rev-parse --git-dir)/wave-cost-window.txt"; printf '%s %s %s\n' <iid> <S> <T> > "$WIN"`.
-  A re-run of the same record reads it back and reuses the pair only when the first field is this
-  MR's iid (`WIN="$(git rev-parse --git-dir)/wave-cost-window.txt"; read -r I S T < "$WIN"`, then
-  compare `$I` with the iid), because `--next-since` returns the posted record's own end; a pair
-  saved for another MR or an earlier round is never reused. Then run `python3 scripts/cost-table.py --comment --ledger
-  <stdout lines> --split <stderr> --since <S> --until <T> --issue <N> --mr <iid> --post`. Without
-  `--post` it reads the earlier records and prints the body.
-
-Exit codes: 0 rendered (printed or posted); 1 no `## Gates` section (for record K, never: the
-lines file is read as one); 2 usage or an unreadable file; 3 the ledger is off or unreadable, or
-the lines carry `cost-ledger: off`, so no record and no API call; 4 the notes or the token's user
-could not be read or written; 5 refused, the window belongs to an earlier record.
+Exit codes of `cost-table.py`: 0 rendered (printed or posted); 1 no `## Gates` section (for record
+K, never: the lines file is read as one); 2 usage or an unreadable file; 3 the ledger is off or
+unreadable, or the lines carry `cost-ledger: off`, so no record and no API call; 4 the notes or the
+token's user could not be read or written; 5 refused, the window belongs to an earlier record.
 
 ### What a record shows
 
@@ -339,18 +388,26 @@ could not be read or written; 5 refused, the window belongs to an earlier record
   lines the measuring scripts print on stderr (`subagent-tokens: model <id> <N>`,
   `orchestrator-tokens: model <id> <N>`, `est-cost: subagent|orchestrator model <id> <USD> USD`);
   `--split <file>` is those stderr streams concatenated, and no other line in it is read.
-- **n/a, never 0.** No split file, a model with no estimate (no price row, or `est-cost.py`
-  omitted its line), a missing, doubled or malformed ledger line, or no window end shows `n/a`
-  with a fixed reason; it never echoes the line's text (MR text is untrusted). A family a
-  side did not use shows `none used`. If a side's split does not sum to its ledger line, the record
+- **n/a, never 0.** A model with no estimate (no price row, or `est-cost.py` omitted its line), a
+  missing, doubled or malformed ledger line, or no window end shows `n/a` with a fixed reason; it
+  never echoes the line's text (MR text is untrusted). A family a side did not use shows
+  `none used`. **No per-model split at all** (no split file, or neither side has a family) renders a
+  compact two-column `Tokens | Est. cost` table, not a per-family table of `n/a` cells: the
+  Subagents and Orchestrator rows show their tokens and a `-` for cost (a measured 0 shows
+  `0.00 USD`), and the Total row is the record. A compact record parses and numbers like any other.
+  If a side's split does not sum to its ledger line, the record
   says so; the line is the record. The Total tokens cell is `n/a` unless both token lines are
   present.
 - **States.** The window (record 1: its end, the go-ahead to push; record K: start and end), that
   the cost is a list-price estimate from `.claude/model-prices.json` with its price date, the
-  `budget-exceeded:` count (record K: `n/a`, not measured for a later window), and that the
-  orchestrator figure is the session's spend and is shared by every branch of the same wave, so
-  two MRs' totals must not be added. A record K states each stretch no record covers: before its
-  own window, or between two earlier records.
+  `budget-exceeded:` count (record K: `n/a`, not measured for a later window), and the
+  non-overlap sentence: "Records do not overlap: the orchestrator row is this session's spend since
+  its previous cost record, across every branch it worked, and each subagent is counted only for
+  usage after its previous record. Records from one session add up to its total." (Comments posted
+  before trueppm#4865 carry the older never-add sentence and still parse.) A record K states each
+  stretch this MR has no record for: before its own window, or between two earlier records. The
+  work in such a stretch is in another MR's record from the same session, or in none.
+- **Other.** The `Other` column appears only when a model outside Sonnet and Opus used tokens.
 - **Off.** It follows the cost-ledger setting with no toggle of its own: ledger off or
   unreadable, or a `cost-ledger: off` marker, means exit 3 and no record; existing records are
   left alone.
@@ -373,7 +430,7 @@ why, from a fixed list (an earlier record did not parse; this user's earlier rec
 records 1 to K-1, which covers a missing number and a duplicate; an earlier record states no window
 end; a window, or an earlier pair, starts before the previous one ended, which would count work
 twice). A time gap between two windows is not on the list: the total still adds up and the record
-states each uncovered stretch ("No record covers X to Y"), whether it is before this window or
+states each stretch this MR has no record for ("This MR has no record for X to Y"), whether it is before this window or
 between two earlier records. The record's number is
 still one past every record number this user's notes carry, so a malformed note is never
 overwritten. A column one record has `n/a` in is `n/a` in the running total; the others still add

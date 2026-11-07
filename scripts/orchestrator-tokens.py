@@ -164,7 +164,7 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
         return 2
     print(
         "orchestrator-tokens: %d messages (input %d, cache-write %d, cache-read %d, output %d); "
-        "skipped %d malformed, %d sidechain, %d duplicate message ids, %d outside the window"
+        "skipped %d malformed, %d sidechain, %d duplicate message ids, %d outside the window, %d empty"
         % (
             (stats["messages"],)
             + tuple(totals)
@@ -173,6 +173,7 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
                 stats["sidechain"],
                 stats["duplicate"],
                 stats["outside"],
+                stats["empty"],
             )
         ),
         file=err,
@@ -393,6 +394,59 @@ def _self_test_cases(tmp, lines, check):
             repr((rc, out)),
         )
     check("the default gate asks scripts/cost-ledger", ledger_enabled() in (0, 1, 2))
+
+    # An all-zero `<synthetic>` response (written on an interrupt or error) is dropped, so it can
+    # not become a phantom `model unknown 0` line in the split (macrodream/blueprint#387).
+    def with_model(mid, ts, usage, model):
+        return json.dumps(
+            {
+                "type": "assistant",
+                "isSidechain": False,
+                "timestamp": ts,
+                "message": {"id": mid, "model": model, "usage": usage},
+            }
+        )
+
+    zpath = os.path.join(tmp, "zero.jsonl")
+    zero = {
+        "input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 0,
+    }
+    with open(zpath, "w", encoding="utf-8") as f:
+        f.write(
+            "\n".join(
+                [
+                    with_model(
+                        "a1",
+                        "2026-11-01T10:00:00Z",
+                        {"input_tokens": 5, "output_tokens": 5},
+                        "claude-opus-5-5",
+                    ),
+                    with_model("z1", "2026-11-01T10:01:00Z", zero, "<synthetic>"),
+                ]
+            )
+            + "\n"
+        )
+    rc, out, err = call(zpath)
+    check(
+        "an all-zero <synthetic> response adds no model line and is counted as empty",
+        rc == 0
+        and out == "orchestrator-tokens: 10\n"
+        and "model unknown" not in err
+        and "orchestrator-tokens: model claude-opus-5-5 10\n" in err
+        and "1 empty" in err,
+        repr((out, err)),
+    )
+    with open(zpath, "w", encoding="utf-8") as f:
+        f.write(with_model("z1", "2026-11-01T10:01:00Z", zero, "<synthetic>") + "\n")
+    rc, out, err = call(zpath)
+    check(
+        "a window holding only empty responses is no usage (exit 1), never a measured 0",
+        rc == 1 and out == "",
+        repr((rc, out)),
+    )
 
 
 def main(argv):

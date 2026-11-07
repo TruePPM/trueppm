@@ -290,14 +290,18 @@ MR !<N>: pipeline green, but the branch CONFLICTS with main — not mergeable.
 `discussions_not_resolved`, `draft_status`, `blocked_status`. Report those verbatim
 rather than calling the MR ready; they need a human.
 
-**Record this pass's cost as a new record**, once the fix is pushed, by running
-`python3 scripts/post-mr-cost.py --round --mr <N>` and reporting its one-line result verbatim. It
-posts `## Cost of this MR (#N) — record K` (this pass's window plus a running total) through
-`scripts/cost-table.py`, and posts nothing, saying why, when the ledger is off or unreadable, the
-MR carries `cost-ledger: off`, or record 1 is missing. It never edits an earlier record or the
-`## Gates` lines. A rebase that resolved conflicts is a pass too. The window, the format and the
-by-hand fallback (the three measuring scripts plus `cost-table.py --ledger`, as in `/wave`'s
-record-K steps) are in `docs/harness/cost-ledger.md` § *The cost records*.
+**Record this pass's cost as a new record** (trueppm#4865), once the fix is pushed and the ledger is
+on (`scripts/cost-ledger enabled` exits 0; off, unreadable, or no record 1: post none), by running
+`python3 scripts/post-mr-cost.py --round --mr <N>` in the worktree and reporting its one-line result
+verbatim. It posts `## Cost of this MR (#N) — record K` through `scripts/cost-table.py`, measuring
+the window this session has not yet claimed (the orchestrator since its previous cost record, and
+each subagent only for usage after its own previous record), and advances the per-session state;
+a re-run with nothing new to claim posts nothing. It never edits an earlier record or the
+`## Gates` lines. A rebase that resolved conflicts is a pass too. A pass that spawned no subagent
+needs nothing extra. Do not run the three measuring scripts, `cost-table.py --next-since` or
+`--ledger`, or save a window pair by hand. The steps and the format are in
+`docs/harness/cost-ledger.md` § *The cost records* and § *Non-overlap*. If it cannot post, say so
+in the report.
 
 **Never merge the MR.** Hand back the URL and stop — auto-merging after a fix is
 exactly the git-workflow rule this repo forbids.
