@@ -126,6 +126,10 @@ the reference. After changing the reference, regenerate it with:
 REGEN_ORACLE_CORPUS=1 pytest tests/test_cpm_oracle.py -k corpus
 ```
 
+Whenever you add a conformance fixture or regenerate a snapshot (this corpus
+included), update its entry in `packages/wasm-scheduler/fixtures/PROVENANCE.json`;
+`test_wasm_conformance.py` fails on a missing or stale entry.
+
 The corpus and the fixture format are not yet published for other
 implementations to test against. That is tracked in #4165 (publish the
 conformance corpus) and #4164 (a JSON Schema for the project document).

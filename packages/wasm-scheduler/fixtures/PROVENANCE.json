@@ -1,0 +1,1200 @@
+{
+  "_comment": "Sidecar provenance index for every conformance fixture and snapshot under this directory (#4732). A sidecar because the Rust parser uses deny_unknown_fields (#4442), so an inline _provenance key would be refused. entries is keyed by path relative to fixtures/. Each entry: provenance (one of 'hand-verified' = the expected output was derived or checked against a documented convention independent of the engines; 'regenerated' = the bytes were produced by running an engine, e.g. REGEN_EXPECTED=1, so they re-bless whatever the engine emits; 'unknown' = history does not say), issue (the issue named by the first commit that added the file, or null), evidence (short commit hash and what it states). Never record 'hand-verified' without evidence; use 'unknown'. Input fixtures (non-snapshots) are 'unknown' unless a commit states they were derived by hand. To add a fixture: add an entry in the same commit. When you regenerate a snapshot (REGEN_EXPECTED=1 or REGEN_ORACLE_CORPUS=1) set its entry to 'regenerated'; set 'hand-verified' only after actually checking the output against a convention, and cite it in evidence. tests/test_wasm_conformance.py fails on a missing entry, a stale entry, or a disallowed value. This file is not itself a fixture; the Python, Rust and web harnesses skip it by name.",
+  "entries": {
+    "all_dep_types.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "basic_fs_chain.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "calendar_exceptions.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "canonical_to_json_roundtrip.json": {
+      "provenance": "unknown",
+      "issue": "#1816",
+      "evidence": "2d86ea791: added; no regeneration or hand-derivation statement in history"
+    },
+    "cycle_errors/expected/long_escaped_ring.json": {
+      "provenance": "unknown",
+      "issue": "#4781",
+      "evidence": "5e5eaeb22: last change carries no regeneration or hand-derivation statement"
+    },
+    "cycle_errors/expected/scc_shortest_through_start.json": {
+      "provenance": "unknown",
+      "issue": "#4781",
+      "evidence": "5e5eaeb22: last change carries no regeneration or hand-derivation statement"
+    },
+    "cycle_errors/expected/two_cycles_smallest_wins.json": {
+      "provenance": "unknown",
+      "issue": "#4781",
+      "evidence": "5e5eaeb22: last change carries no regeneration or hand-derivation statement"
+    },
+    "cycle_errors/long_escaped_ring.json": {
+      "provenance": "unknown",
+      "issue": "#4781",
+      "evidence": "5e5eaeb22: added; no regeneration or hand-derivation statement in history"
+    },
+    "cycle_errors/scc_shortest_through_start.json": {
+      "provenance": "unknown",
+      "issue": "#4781",
+      "evidence": "5e5eaeb22: added; no regeneration or hand-derivation statement in history"
+    },
+    "cycle_errors/two_cycles_smallest_wins.json": {
+      "provenance": "unknown",
+      "issue": "#4781",
+      "evidence": "5e5eaeb22: added; no regeneration or hand-derivation statement in history"
+    },
+    "diamond_graph.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "driving_edge_cross_calendar_ff.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "c8d5a61b2: added; no regeneration or hand-derivation statement in history"
+    },
+    "driving_edge_cross_calendar_fs.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "c8d5a61b2: added; no regeneration or hand-derivation statement in history"
+    },
+    "driving_edge_cross_calendar_sf.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "c8d5a61b2: added; no regeneration or hand-derivation statement in history"
+    },
+    "expected/all_dep_types.json": {
+      "provenance": "regenerated",
+      "issue": "#39",
+      "evidence": "16af1559a: commit message states snapshot regenerated"
+    },
+    "expected/basic_fs_chain.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/calendar_exceptions.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/canonical_to_json_roundtrip.json": {
+      "provenance": "unknown",
+      "issue": "#1816",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/diamond_graph.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/driving_edge_cross_calendar_ff.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "c8d5a61b2: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/driving_edge_cross_calendar_fs.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "c8d5a61b2: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/driving_edge_cross_calendar_sf.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "c8d5a61b2: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/ff_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/fs_lag_holiday_week.json": {
+      "provenance": "unknown",
+      "issue": "#1828",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/fs_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/fs_negative_lag.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/fs_negative_lag_floored.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/fs_negative_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/max_duration_boundary.json": {
+      "provenance": "unknown",
+      "issue": "#1855",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_after_non_working_actual_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "9bfa3b1d4: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_end_of_day_cap_own_calendar.json": {
+      "provenance": "unknown",
+      "issue": "#4344",
+      "evidence": "5fe0c936b: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_end_of_day_cap_seven_day_sunday_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4344",
+      "evidence": "5fe0c936b: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_end_of_day_cap_weekend_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4344",
+      "evidence": "1a764c63c: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_ff_after_non_working_actual_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "5dbe66c4f: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/milestone_ff_after_six_day_calendar_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "9d989d513: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_free_float_successor_lag_cap.json": {
+      "provenance": "unknown",
+      "issue": "#4180",
+      "evidence": "bfc3e91bc: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/milestone_instant_links.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "5144cdb12: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_instants_all_link_types.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "b3c396a18: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_lag_after_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_lag_display_fresh.json": {
+      "provenance": "regenerated",
+      "issue": "#4206",
+      "evidence": "a129dd80c: commit message states snapshot regenerated"
+    },
+    "expected/milestone_project_start_floor_display_only.json": {
+      "provenance": "unknown",
+      "issue": "#4225",
+      "evidence": "4b975c1aa: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/milestone_reading_tie_free_float.json": {
+      "provenance": "unknown",
+      "issue": "#4183",
+      "evidence": "ee4d1e07f: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/milestone_sf_end_of_day_cap_own_calendar.json": {
+      "provenance": "unknown",
+      "issue": "#4431",
+      "evidence": "62a00a138: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_sf_end_of_day_cap_weekend_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4431",
+      "evidence": "62a00a138: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_start_of_day_ties_finish_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4183",
+      "evidence": "ee4d1e07f: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/milestone_tasks.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "5144cdb12: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/milestone_terminal_lag_seed.json": {
+      "provenance": "unknown",
+      "issue": "#4174",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/msproject_ff_ss_whole_day.json": {
+      "provenance": "unknown",
+      "issue": "#4323",
+      "evidence": "4bfbd036b: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/parallel_critical.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/per_task_calendar_backward_float.json": {
+      "provenance": "unknown",
+      "issue": "#1504",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/per_task_calendar_duration.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/per_task_calendar_fs_lag_both_directions.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/per_task_calendar_id_empty_registry.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "e17262b25: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/per_task_calendar_id_no_registry.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "e17262b25: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/per_task_calendar_six_day.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/planned_start_snet.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_actual_start_floors_early_start.json": {
+      "provenance": "regenerated",
+      "issue": "#1505",
+      "evidence": "b81b09a5c: commit message states snapshot regenerated"
+    },
+    "expected/progress_closed_milestone_non_working_day_after_work.json": {
+      "provenance": "unknown",
+      "issue": "#4641",
+      "evidence": "3227d252b: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_closed_milestone_open_predecessor.json": {
+      "provenance": "unknown",
+      "issue": "#4525",
+      "evidence": "75e5166c8: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_completed_actuals_milestone_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4433",
+      "evidence": "7cebed944: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_completed_no_actuals_between_live_tasks.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "c9ade181e: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_completed_no_actuals_milestone_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "3fc031db3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_completed_no_actuals_seven_day_chain.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "c9ade181e: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_completed_percent_only_constraints.json": {
+      "provenance": "unknown",
+      "issue": "#2572",
+      "evidence": "c9ade181e: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_completed_pin.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_completed_successor_no_backward_constraint.json": {
+      "provenance": "unknown",
+      "issue": "#1820",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_fs_into_milestone_started_on_sunday.json": {
+      "provenance": "unknown",
+      "issue": "#4677",
+      "evidence": "22cfcd34c: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_in_progress_remaining.json": {
+      "provenance": "unknown",
+      "issue": "#1186",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_milestone_recorded_on_forecast_moves_nothing.json": {
+      "provenance": "unknown",
+      "issue": "#4690",
+      "evidence": "f8b997dd7: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_non_working_actual_duration_walk.json": {
+      "provenance": "unknown",
+      "issue": "#3963",
+      "evidence": "f8e69ba95: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_non_working_actual_start_driving_edge.json": {
+      "provenance": "unknown",
+      "issue": "#4332",
+      "evidence": "846df8ecd: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_non_working_milestone_late_window.json": {
+      "provenance": "unknown",
+      "issue": "#3963",
+      "evidence": "0606ade8d: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/progress_out_of_sequence.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_saturday_actual_start_milestone_free_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4345",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_ss_into_milestone_started_on_saturday.json": {
+      "provenance": "unknown",
+      "issue": "#4677",
+      "evidence": "8d8b34c92: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_started_link_anchor.json": {
+      "provenance": "unknown",
+      "issue": "#4523",
+      "evidence": "412f0cfae: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_started_snet_resume.json": {
+      "provenance": "unknown",
+      "issue": "#4527",
+      "evidence": "e1d69c3e8: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_status_date_floor.json": {
+      "provenance": "unknown",
+      "issue": "#1186",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/progress_weekend_finish_late_seed.json": {
+      "provenance": "unknown",
+      "issue": "#1820",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/reserved_fields_inert.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "4c5d1c14f: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/sf_before_project_start.json": {
+      "provenance": "regenerated",
+      "issue": "#4218",
+      "evidence": "d4d965fb1: commit message states snapshot regenerated"
+    },
+    "expected/sf_before_project_start_chain.json": {
+      "provenance": "unknown",
+      "issue": "#4218",
+      "evidence": "d4d965fb1: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/sf_before_project_start_data_date.json": {
+      "provenance": "unknown",
+      "issue": "#4218",
+      "evidence": "16af1559a: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/sf_from_work_chained.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "a2348327d: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/sf_from_work_vs_milestone.json": {
+      "provenance": "regenerated",
+      "issue": "#4079",
+      "evidence": "ee4d1e07f: commit message states snapshot regenerated"
+    },
+    "expected/sf_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/sf_linked_snet_move_project_start.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "b915c0b09: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/sf_linked_snet_snap_to_start.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "b915c0b09: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/sf_linked_snet_start_at_earliest.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "b915c0b09: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/sf_mixed_links_binding_rule.json": {
+      "provenance": "regenerated",
+      "issue": "#4218",
+      "evidence": "a291480b3: commit message states snapshot regenerated"
+    },
+    "expected/sf_positive_lag_monday_start.json": {
+      "provenance": "unknown",
+      "issue": "#4333",
+      "evidence": "d4d965fb1: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
+    },
+    "expected/six_day_mask.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/ss_connected_critical.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/ss_lag_alt_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/ss_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/sub_start_floors_move_nothing.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "0658fe06d: last change carries no regeneration or hand-derivation statement"
+    },
+    "ff_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "99b2ef872: added; no regeneration or hand-derivation statement in history"
+    },
+    "fs_lag_holiday_week.json": {
+      "provenance": "unknown",
+      "issue": "#1828",
+      "evidence": "c9b8410d6: added; no regeneration or hand-derivation statement in history"
+    },
+    "fs_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "fs_negative_lag.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "fs_negative_lag_floored.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "fs_negative_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/actual_finish_over_span.json": {
+      "provenance": "unknown",
+      "issue": "#1564",
+      "evidence": "fef1b1d75: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/actual_start_after_finish.json": {
+      "provenance": "unknown",
+      "issue": "#1564",
+      "evidence": "fef1b1d75: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/blanket_exceptions.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/cycle.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/duplicate_edge.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/duplicate_task_id.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/duration_over_max.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/far_future_start.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/fractional_duration.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/fractional_lag.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/inverted_exception_range.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/isolated_working_day_then_blanket.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/lag_over_max.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/negative_duration.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/percent_complete_150.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/percent_complete_1e6.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/percent_complete_just_over_100.json": {
+      "provenance": "unknown",
+      "issue": "#4513",
+      "evidence": "95f0f1672: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/percent_complete_negative.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/pert_ordering_inconsistent.json": {
+      "provenance": "unknown",
+      "issue": "#1087",
+      "evidence": "d8f359200: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/planned_start_over_span.json": {
+      "provenance": "unknown",
+      "issue": "#1087",
+      "evidence": "d8f359200: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/project_span_over_max.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "bebf486ab: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/sf_below_min_date.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "ea74d4a2e: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/status_date_over_span.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/unknown_dependency_task.json": {
+      "provenance": "unknown",
+      "issue": "#1087",
+      "evidence": "d8f359200: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/unknown_task_calendar_id.json": {
+      "provenance": "unknown",
+      "issue": "#4516",
+      "evidence": "e17262b25: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/working_days_high_bit.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "invalid/zero_working_days.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "max_duration_boundary.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "8434a3e76: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_after_non_working_actual_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "9bfa3b1d4: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_end_of_day_cap_own_calendar.json": {
+      "provenance": "unknown",
+      "issue": "#4344",
+      "evidence": "5fe0c936b: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_end_of_day_cap_seven_day_sunday_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4344",
+      "evidence": "1a764c63c: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_end_of_day_cap_weekend_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4344",
+      "evidence": "1a764c63c: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_ff_after_non_working_actual_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "9bfa3b1d4: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_ff_after_six_day_calendar_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "9bfa3b1d4: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_free_float_successor_lag_cap.json": {
+      "provenance": "unknown",
+      "issue": "#4180",
+      "evidence": "bfc3e91bc: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_instant_links.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "0606ade8d: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_instants_all_link_types.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "0606ade8d: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_lag_after_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#4173",
+      "evidence": "b3c396a18: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_lag_display_fresh.json": {
+      "provenance": "unknown",
+      "issue": "#4206",
+      "evidence": "010b241f0: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_project_start_floor_display_only.json": {
+      "provenance": "unknown",
+      "issue": "#4225",
+      "evidence": "3dd6c5f6d: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_reading_tie_free_float.json": {
+      "provenance": "unknown",
+      "issue": "#4183",
+      "evidence": "ee4d1e07f: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_sf_end_of_day_cap_own_calendar.json": {
+      "provenance": "unknown",
+      "issue": "#4431",
+      "evidence": "62a00a138: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_sf_end_of_day_cap_weekend_finish.json": {
+      "provenance": "unknown",
+      "issue": "#4431",
+      "evidence": "62a00a138: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_start_of_day_ties_finish_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4183",
+      "evidence": "ee4d1e07f: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_tasks.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "milestone_terminal_lag_seed.json": {
+      "provenance": "unknown",
+      "issue": "#4174",
+      "evidence": "df3c9dd4f: added; no regeneration or hand-derivation statement in history"
+    },
+    "msproject_ff_ss_whole_day.json": {
+      "provenance": "unknown",
+      "issue": "#4323",
+      "evidence": "4bfbd036b: added; no regeneration or hand-derivation statement in history"
+    },
+    "oracle/corpus.json": {
+      "provenance": "regenerated",
+      "issue": "#3987",
+      "evidence": "b915c0b09: corpus is generated by the independent reference CPM (its own _comment; REGEN_ORACLE_CORPUS=1) and commits 5dbe66c4f, a291480b3, b915c0b09 state the corpus was regenerated"
+    },
+    "parallel_critical.json": {
+      "provenance": "unknown",
+      "issue": "#749",
+      "evidence": "7e6790421: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/calendar_exceptions_empty_string.json": {
+      "provenance": "unknown",
+      "issue": "#4521",
+      "evidence": "aea9f0216: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/calendar_exceptions_null.json": {
+      "provenance": "unknown",
+      "issue": "#4521",
+      "evidence": "aea9f0216: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_compact_calendar_exception.json": {
+      "provenance": "unknown",
+      "issue": "#1861",
+      "evidence": "36257adeb: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_compact_start_date.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_leading_space_start_date.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_negative_year_start_date.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_ordinal_status_date.json": {
+      "provenance": "unknown",
+      "issue": "#1861",
+      "evidence": "36257adeb: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_plus_year_start_date.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_trailing_space_start_date.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_unpadded_start_date.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_weekdate_planned_start.json": {
+      "provenance": "unknown",
+      "issue": "#1861",
+      "evidence": "36257adeb: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/date_year_zero_start_date.json": {
+      "provenance": "unknown",
+      "issue": "#1826",
+      "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/dependency_lag_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/dependency_predecessor_id_non_string.json": {
+      "provenance": "unknown",
+      "issue": "#4521",
+      "evidence": "aea9f0216: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/dependency_successor_id_non_string.json": {
+      "provenance": "unknown",
+      "issue": "#4521",
+      "evidence": "aea9f0216: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_dependencies_empty_object.json": {
+      "provenance": "unknown",
+      "issue": "#4521",
+      "evidence": "eedda56b5: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_id_non_string.json": {
+      "provenance": "unknown",
+      "issue": "#4130",
+      "evidence": "e8b9a7fef: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_name_null.json": {
+      "provenance": "unknown",
+      "issue": "#4130",
+      "evidence": "e8b9a7fef: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_sprint_length_days_float_integral.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "b6e89be28: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_sprint_length_days_fractional.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "24b476b8e: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_tasks_empty_string.json": {
+      "provenance": "unknown",
+      "issue": "#4521",
+      "evidence": "eedda56b5: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_velocity_samples_empty_string.json": {
+      "provenance": "unknown",
+      "issue": "#4521",
+      "evidence": "eedda56b5: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/project_velocity_samples_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/sprint_length_days_non_numeric.json": {
+      "provenance": "unknown",
+      "issue": "#2178",
+      "evidence": "52209b8e5: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_delivery_mode_unknown.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "24b476b8e: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_duration_bool.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_duration_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_duration_out_of_range.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_duration_scientific_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_free_float_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_id_non_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "6ca34d03e: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_is_critical_non_bool.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_milestone_at_day_end_non_bool.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_most_likely_duration_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_name_non_string.json": {
+      "provenance": "unknown",
+      "issue": "#4130",
+      "evidence": "e8b9a7fef: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_optimistic_duration_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_percent_complete_null.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "24b476b8e: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_percent_complete_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_pessimistic_duration_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_story_points_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "parse_rejects/task_total_float_numeric_string.json": {
+      "provenance": "unknown",
+      "issue": null,
+      "evidence": "e2fcb33de: added; no regeneration or hand-derivation statement in history"
+    },
+    "per_task_calendar_backward_float.json": {
+      "provenance": "unknown",
+      "issue": "#1504",
+      "evidence": "c2a774fa9: added; no regeneration or hand-derivation statement in history"
+    },
+    "per_task_calendar_duration.json": {
+      "provenance": "unknown",
+      "issue": "#1504",
+      "evidence": "c2a774fa9: added; no regeneration or hand-derivation statement in history"
+    },
+    "per_task_calendar_fs_lag_both_directions.json": {
+      "provenance": "unknown",
+      "issue": "#1504",
+      "evidence": "c2a774fa9: added; no regeneration or hand-derivation statement in history"
+    },
+    "per_task_calendar_id_empty_registry.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "per_task_calendar_id_no_registry.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "per_task_calendar_six_day.json": {
+      "provenance": "unknown",
+      "issue": "#1504",
+      "evidence": "c2a774fa9: added; no regeneration or hand-derivation statement in history"
+    },
+    "planned_start_snet.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_actual_start_floors_early_start.json": {
+      "provenance": "unknown",
+      "issue": "#2621",
+      "evidence": "86bf0c1d4: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_closed_milestone_non_working_day_after_work.json": {
+      "provenance": "unknown",
+      "issue": "#4641",
+      "evidence": "3227d252b: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_closed_milestone_open_predecessor.json": {
+      "provenance": "hand-verified",
+      "issue": "#4525",
+      "evidence": "8681f4431: commit message states the input fixture was derived by hand; input fixture only, later edits (8f16371ef, 9bfa988f2, 75e5166c8) not re-verified"
+    },
+    "progress_completed_actuals_milestone_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4433",
+      "evidence": "4227b5fd3: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_completed_no_actuals_between_live_tasks.json": {
+      "provenance": "unknown",
+      "issue": "#4343",
+      "evidence": "c9ade181e: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_completed_no_actuals_milestone_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4343",
+      "evidence": "3fc031db3: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_completed_no_actuals_seven_day_chain.json": {
+      "provenance": "unknown",
+      "issue": "#4343",
+      "evidence": "c9ade181e: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_completed_percent_only_constraints.json": {
+      "provenance": "unknown",
+      "issue": "#2572",
+      "evidence": "3212fe23f: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_completed_pin.json": {
+      "provenance": "unknown",
+      "issue": "#1186",
+      "evidence": "2a83b2dd6: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_completed_successor_no_backward_constraint.json": {
+      "provenance": "unknown",
+      "issue": "#1820",
+      "evidence": "4f3d8cb72: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_fs_into_milestone_started_on_sunday.json": {
+      "provenance": "unknown",
+      "issue": "#4677",
+      "evidence": "22cfcd34c: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_in_progress_remaining.json": {
+      "provenance": "unknown",
+      "issue": "#1186",
+      "evidence": "2a83b2dd6: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_milestone_recorded_on_forecast_moves_nothing.json": {
+      "provenance": "unknown",
+      "issue": "#4690",
+      "evidence": "fa229a3a3: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_non_working_actual_duration_walk.json": {
+      "provenance": "unknown",
+      "issue": "#3963",
+      "evidence": "f8e69ba95: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_non_working_actual_start_driving_edge.json": {
+      "provenance": "unknown",
+      "issue": "#4332",
+      "evidence": "846df8ecd: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_non_working_milestone_late_window.json": {
+      "provenance": "unknown",
+      "issue": "#3963",
+      "evidence": "f8e69ba95: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_out_of_sequence.json": {
+      "provenance": "unknown",
+      "issue": "#1186",
+      "evidence": "2a83b2dd6: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_saturday_actual_start_milestone_free_instant.json": {
+      "provenance": "unknown",
+      "issue": "#4345",
+      "evidence": "e8af821bc: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_ss_into_milestone_started_on_saturday.json": {
+      "provenance": "unknown",
+      "issue": "#4677",
+      "evidence": "8d8b34c92: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_started_link_anchor.json": {
+      "provenance": "unknown",
+      "issue": "#4523",
+      "evidence": "dc8870db0: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_started_snet_resume.json": {
+      "provenance": "unknown",
+      "issue": "#4527",
+      "evidence": "e1d69c3e8: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_status_date_floor.json": {
+      "provenance": "unknown",
+      "issue": "#39",
+      "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_weekend_finish_late_seed.json": {
+      "provenance": "unknown",
+      "issue": "#1820",
+      "evidence": "4f3d8cb72: added; no regeneration or hand-derivation statement in history"
+    },
+    "reserved_fields_inert.json": {
+      "provenance": "unknown",
+      "issue": "#4715",
+      "evidence": "4c5d1c14f: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_before_project_start.json": {
+      "provenance": "unknown",
+      "issue": "#4218",
+      "evidence": "16af1559a: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_before_project_start_chain.json": {
+      "provenance": "unknown",
+      "issue": "#4218",
+      "evidence": "16af1559a: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_before_project_start_data_date.json": {
+      "provenance": "unknown",
+      "issue": "#4218",
+      "evidence": "16af1559a: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_from_work_chained.json": {
+      "provenance": "unknown",
+      "issue": "#4145",
+      "evidence": "a2348327d: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_from_work_vs_milestone.json": {
+      "provenance": "unknown",
+      "issue": "#4079",
+      "evidence": "b3a514f76: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "99b2ef872: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_linked_snet_move_project_start.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "b915c0b09: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_linked_snet_snap_to_start.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "b915c0b09: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_linked_snet_start_at_earliest.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "b915c0b09: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_mixed_links_binding_rule.json": {
+      "provenance": "unknown",
+      "issue": "#4220",
+      "evidence": "f195424a4: added; no regeneration or hand-derivation statement in history"
+    },
+    "sf_positive_lag_monday_start.json": {
+      "provenance": "unknown",
+      "issue": "#4333",
+      "evidence": "d4d965fb1: added; no regeneration or hand-derivation statement in history"
+    },
+    "six_day_mask.json": {
+      "provenance": "unknown",
+      "issue": "#1504",
+      "evidence": "c2a774fa9: added; no regeneration or hand-derivation statement in history"
+    },
+    "ss_connected_critical.json": {
+      "provenance": "unknown",
+      "issue": "#908",
+      "evidence": "06057ecb2: added; no regeneration or hand-derivation statement in history"
+    },
+    "ss_lag_alt_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "99b2ef872: added; no regeneration or hand-derivation statement in history"
+    },
+    "ss_lag_weekend.json": {
+      "provenance": "unknown",
+      "issue": "#1505",
+      "evidence": "99b2ef872: added; no regeneration or hand-derivation statement in history"
+    },
+    "sub_start_floors_move_nothing.json": {
+      "provenance": "unknown",
+      "issue": "#4635",
+      "evidence": "0658fe06d: added; no regeneration or hand-derivation statement in history"
+    }
+  }
+}

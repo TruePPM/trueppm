@@ -30,7 +30,8 @@ const KNOWN_DIVERGENT: &[(&str, &str)] = &[
 
 /// Every top-level `*.json` under `fixtures/` (excludes the `expected/`,
 /// `invalid/`, and `parse_rejects/` subdirectories — `read_dir` yields those as
-/// directories, which have no `.json` extension).
+/// directories, which have no `.json` extension). `PROVENANCE.json` is the
+/// sidecar index of fixture provenance (#4732), not a fixture.
 fn valid_fixture_stems() -> Vec<String> {
     let mut stems: Vec<String> = fs::read_dir(fixtures_dir())
         .expect("fixtures/ directory must exist")
@@ -38,6 +39,7 @@ fn valid_fixture_stems() -> Vec<String> {
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
         .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(String::from))
+        .filter(|stem| stem != "PROVENANCE")
         .collect();
     stems.sort();
     stems
@@ -63,7 +65,9 @@ fn load_and_check(fixture_name: &str) {
     // #1506: a missing expected snapshot is a hard failure, never a warn-and-pass.
     // Regenerate committed snapshots from the Python engine with
     //   REGEN_EXPECTED=1 pytest packages/scheduler/tests/test_wasm_conformance.py
-    // and commit the expected/ output.
+    // and commit the expected/ output. Then update the fixture's entry in
+    // fixtures/PROVENANCE.json (#4732): a regenerated snapshot is "regenerated",
+    // not "hand-verified", until someone checks it against a convention.
     assert!(
         expected_path.exists(),
         "{fixture_name}: missing expected snapshot {}. A new fixture must not warn-and-pass \
