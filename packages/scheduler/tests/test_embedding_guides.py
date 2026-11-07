@@ -123,6 +123,7 @@ def test_django_guide_passes_progress_inputs_and_persists_outputs(
         _db_task("snet", "Not before", planned_start=date(2026, 3, 2)),
         _db_task("cal", "Own calendar", calendar_id="seven", calendar=seven_day),
         _db_task("ms", "Milestone", duration=timedelta(0)),
+        _db_task("sprint", "Sprint work", delivery_mode="scrum", story_points=8.0),
     ]
     project = SimpleNamespace(
         pk="p1",
@@ -139,8 +140,8 @@ def test_django_guide_passes_progress_inputs_and_persists_outputs(
             ]
         ),
         status_date=date(2026, 1, 14),
-        velocity_samples=None,
-        sprint_length_days=None,
+        velocity_samples=[5.0, 8.0],
+        sprint_length_days=10,
         project_finish=None,
         save=lambda update_fields: None,
     )
@@ -154,6 +155,10 @@ def test_django_guide_passes_progress_inputs_and_persists_outputs(
     assert by_id["cal"].calendar_id == "seven"
     assert sp.calendars is not None and "seven" in sp.calendars
     assert sp.status_date == date(2026, 1, 14)
+    assert by_id["sprint"].delivery_mode == ts.DeliveryMode.SCRUM
+    assert by_id["sprint"].story_points == 8.0
+    assert sp.velocity_samples == [5.0, 8.0]
+    assert sp.sprint_length_days == 10
 
     result = ts.schedule(sp)
     rt = {t.id: t for t in result.tasks}
@@ -323,3 +328,36 @@ def test_fastapi_guide_timeout_returns_504(monkeypatch: pytest.MonkeyPatch) -> N
         asyncio.run(ns["_run_offthread"](lambda: time.sleep(0.3)))
     out = asyncio.run(ns["_handlers"][TimeoutError](None, TimeoutError()))
     assert out.status_code == 504
+
+
+def test_fastapi_guide_bad_input_is_422_not_500(monkeypatch: pytest.MonkeyPatch) -> None:
+    ns = _fastapi_namespace(monkeypatch)
+    handler = ns["_handlers"][ts.SchedulerError]
+
+    # The Pydantic stand-in enforces NO field constraints, so this request reaches
+    # the engine as a real server would only if validation were absent. What it
+    # proves: an out-of-range value the model's Field bounds normally reject is
+    # still a SchedulerError, which the handler maps to 422 rather than a 500.
+    bad = _req(ns)
+    bad.tasks[0].duration_days = -1
+    with pytest.raises(ts.InvalidScheduleInput) as caught:
+        asyncio.run(ns["schedule_project"](bad))
+    assert asyncio.run(handler(None, caught.value)).status_code == 422
+
+    # An unknown dep_type is NOT a SchedulerError: DependencyType() raises a plain
+    # ValueError. In the guide only the `Literal` on DependencyIn.dep_type (real
+    # Pydantic, not this stand-in) keeps it from becoming a 500, so assert the
+    # annotation is present rather than pretending the stand-in enforces it.
+    with pytest.raises(ValueError) as unknown:
+        ns["_to_scheduler_project"](
+            _req(
+                ns,
+                dependencies=[
+                    ns["DependencyIn"](predecessor_id="t0", successor_id="t1", dep_type="XX")
+                ],
+            )
+        )
+    assert not isinstance(unknown.value, ts.SchedulerError)
+    assert 'dep_type: Literal["FS", "FF", "SS", "SF"]' in _block_containing(
+        "fastapi.md", "class DependencyIn"
+    )

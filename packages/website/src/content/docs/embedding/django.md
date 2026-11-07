@@ -54,7 +54,7 @@ def build_scheduler_project(django_project: Project) -> SchedulerProject:
     the agile inputs. Leave one out and the schedule silently ignores it.
     """
     scheduler_cal = _to_scheduler_calendar(django_project.calendar)
-    db_tasks = list(django_project.tasks.all())
+    db_tasks = list(django_project.tasks.select_related("calendar"))
 
     # Per-task calendars: register each distinct calendar under its id. A task's
     # calendar_id must have an entry here, or the engine refuses the project with
@@ -221,6 +221,10 @@ class TaskViewSet(ModelViewSet):
         if cpm_fields & set(serializer.validated_data):
             enqueue_recalculate(project_id=instance.project_id)
 ```
+
+The guide also passes project-level inputs, so call `enqueue_recalculate()` from
+the project's own update path whenever `status_date`, `start_date` or the project
+calendar change, not only from task updates.
 
 ## 4. Calendar from the database
 

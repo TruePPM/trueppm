@@ -176,7 +176,8 @@ def _run_schedule(req: ScheduleRequest) -> ScheduleResponse:
 
 ## 3. Monte Carlo
 
-Monte Carlo is the expensive call, and the library applies no cap by default. Pass
+Monte Carlo is the expensive call, and the library applies no task or run cap by default (only an absolute
+ceiling of 100,000,000 runs, far above what a request should allow). Pass
 `max_tasks` and `max_runs` whenever the caller is untrusted. If clients can supply
 their own calendars, also pass a smaller `max_index_cells` (and
 `max_lag_delta_cells`); the defaults are sized for a batch job, not a request
