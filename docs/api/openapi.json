@@ -23633,14 +23633,15 @@
                                             "type": "string",
                                             "enum": [
                                                 "child_of_milestone",
-                                                "summary_start_link"
+                                                "summary_start_link",
+                                                "summary_descendant_link"
                                             ],
                                             "description": "Stable refusal code — branch on this, not on ``detail``.",
                                             "x-trueppm-enum": "open"
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -23651,7 +23652,9 @@
                                                     "dep_type": {
                                                         "type": "string",
                                                         "enum": [
+                                                            "FS",
                                                             "SS",
+                                                            "FF",
                                                             "SF"
                                                         ],
                                                         "x-trueppm-enum": "open"
@@ -23673,7 +23676,7 @@
                                 }
                             }
                         },
-                        "description": "The move is not available from this task's current position: it is already first among its siblings (nothing to indent under), it carries no ``wbs_path``, or the sibling that would become its parent is a milestone — a milestone is a single point in time and cannot acquire children. Verified against the three guards in ``post`` (#3319). Also refused with ``summary_start_link`` when that sibling is a leaf that drives a Start-to-Start or Start-to-Finish link: its first child would make it a summary, which ADR-0370 forbids to drive one (#4830)."
+                        "description": "The move is not available from this task's current position: it is already first among its siblings (nothing to indent under), it carries no ``wbs_path``, or the sibling that would become its parent is a milestone — a milestone is a single point in time and cannot acquire children. Verified against the three guards in ``post`` (#3319). Also refused with ``summary_start_link`` when that sibling is a leaf that drives a Start-to-Start or Start-to-Finish link: its first child would make it a summary, which ADR-0370 forbids to drive one (#4830). Refused with ``summary_descendant_link`` when the sibling is linked to the task or one of its subtasks: the move would link a summary to its own descendant, which the scheduler treats as a cycle (#4705)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -23754,14 +23757,15 @@
                                         "code": {
                                             "type": "string",
                                             "enum": [
-                                                "summary_start_link"
+                                                "summary_start_link",
+                                                "summary_descendant_link"
                                             ],
                                             "description": "Stable refusal code — branch on this, not on ``detail``.",
                                             "x-trueppm-enum": "open"
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -23772,7 +23776,9 @@
                                                     "dep_type": {
                                                         "type": "string",
                                                         "enum": [
+                                                            "FS",
                                                             "SS",
+                                                            "FF",
                                                             "SF"
                                                         ],
                                                         "x-trueppm-enum": "open"
@@ -23794,7 +23800,7 @@
                                 }
                             }
                         },
-                        "description": "The move is not available from this task's current position: it is already at root level (nowhere to promote to), it carries no ``wbs_path``, or it is not found among its own siblings — the ``wbs_path`` corruption case #3319's sibling guard catches. Verified against the three guards in ``post``. Also refused with ``summary_start_link`` when the task is a leaf that drives a Start-to-Start or Start-to-Finish link and has following siblings to adopt: adopting them would make it a summary, which ADR-0370 forbids to drive one (#4830)."
+                        "description": "The move is not available from this task's current position: it is already at root level (nowhere to promote to), it carries no ``wbs_path``, or it is not found among its own siblings — the ``wbs_path`` corruption case #3319's sibling guard catches. Verified against the three guards in ``post``. Also refused with ``summary_start_link`` when the task is a leaf that drives a Start-to-Start or Start-to-Finish link and has following siblings to adopt: adopting them would make it a summary, which ADR-0370 forbids to drive one (#4830). Refused with ``summary_descendant_link`` when the task is linked to a following sibling or one of its subtasks: adopting them would link a summary to its own descendant, which the scheduler treats as a cycle (#4705)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -23909,7 +23915,7 @@
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -23920,7 +23926,9 @@
                                                     "dep_type": {
                                                         "type": "string",
                                                         "enum": [
+                                                            "FS",
                                                             "SS",
+                                                            "FF",
                                                             "SF"
                                                         ],
                                                         "x-trueppm-enum": "open"
@@ -23945,7 +23953,7 @@
                                 }
                             }
                         },
-                        "description": "The move is refused: the target is the task itself or one of its descendants, the task or the target has no ``wbs_path``, the target is a milestone (``child_of_milestone``), or the target is a leaf that drives a Start-to-Start or Start-to-Finish link (``summary_start_link``, #4830) — its first child would make it a summary, which ADR-0370 forbids to drive one. The last carries ``blocking_dependencies``."
+                        "description": "The move is refused: the target is the task itself or one of its descendants, the task or the target has no ``wbs_path``, the target is a milestone (``child_of_milestone``), or the target is a leaf that drives a Start-to-Start or Start-to-Finish link (``summary_start_link``, #4830) — its first child would make it a summary, which ADR-0370 forbids to drive one — or the target or one of its ancestors is linked to the task or one of its subtasks (``summary_descendant_link``, #4705): the move would link a summary to its own descendant, which the scheduler treats as a cycle. The last two carry ``blocking_dependencies``."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -47201,7 +47209,7 @@
                                         },
                                         "blocking_dependencies": {
                                             "type": "array",
-                                            "description": "Present only with code ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370). ``successor_id`` is null when the successor is in another project.",
+                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link that stops the task becoming a summary (ADR-0370); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
                                             "items": {
                                                 "type": "object",
                                                 "properties": {
@@ -47212,7 +47220,9 @@
                                                     "dep_type": {
                                                         "type": "string",
                                                         "enum": [
+                                                            "FS",
                                                             "SS",
+                                                            "FF",
                                                             "SF"
                                                         ],
                                                         "x-trueppm-enum": "open"

@@ -129,6 +129,28 @@ the successor is in another project. Structural undo answers `409` with the same
 code and list. Creating a task with `parent_id` answers `400` with the message under
 `parent_id` and no `code`.
 
+### A summary cannot be linked to one of its own subtasks
+
+:::note[Ships in 0.5]
+This refusal will ship in 0.5. In the current release the move succeeds, and the
+project's schedule then stops recalculating until the link is deleted.
+:::
+
+A move will be refused when it would put a summary over a task it is linked to: with
+`Design → Build` on adjacent rows, indenting Build under Design would leave Design
+linked to its own subtask, which the scheduler treats as a cycle. Indent, outdent and
+reparent will answer `400` with `code: "summary_descendant_link"` and the same
+`blocking_dependencies` list, and nothing will move. Delete or change the link, then
+try the move again. Saving such a link as a dependency is already refused.
+
+Two other ways to end up with such a link are not refused yet: saving a dependency at
+the same moment someone else makes the move
+([#4857](https://gitlab.com/trueppm/trueppm/-/issues/4857)), and restoring a task from
+the trash under a task it is linked to
+([#4858](https://gitlab.com/trueppm/trueppm/-/issues/4858)). An MS Project, CSV or
+Jira import can also bring one in
+([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)).
+
 ### Phases and sprints
 
 Assigning a phase to a sprint is refused outright on the `sprint` field —

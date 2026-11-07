@@ -313,8 +313,10 @@ from trueppm_api.apps.projects.services import (
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
 from trueppm_api.apps.projects.summary_link_guard import (
     BLOCKING_DEPENDENCIES_SCHEMA,
+    SUMMARY_DESCENDANT_LINK_CODE,
     SUMMARY_START_LINK_CODE,
     SummaryStartLinkBlock,
+    summary_descendant_link_block,
     summary_start_link_block,
 )
 from trueppm_api.apps.projects.task_bulk import (
@@ -9598,8 +9600,11 @@ def _require_wbs_restructure_permission(request: Request, task: Task) -> None:
                 "``post`` (#3319). Also refused with ``summary_start_link`` when that "
                 "sibling is a leaf that drives a Start-to-Start or Start-to-Finish link: "
                 "its first child would make it a summary, which ADR-0370 forbids to drive "
-                "one (#4830).",
-                codes=("child_of_milestone", SUMMARY_START_LINK_CODE),
+                "one (#4830). Refused with ``summary_descendant_link`` when the sibling "
+                "is linked to the task or one of its subtasks: the move would link a "
+                "summary to its own descendant, which the scheduler treats as a cycle "
+                "(#4705).",
+                codes=("child_of_milestone", SUMMARY_START_LINK_CODE, SUMMARY_DESCENDANT_LINK_CODE),
                 extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
@@ -9686,6 +9691,11 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 block = summary_start_link_block(prev_sibling)
                 if block is not None:
                     return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+            # #4705: prev_sibling becomes the one new ancestor of the task's subtree, so
+            # a link between them would run from a summary into its own descendant.
+            block = summary_descendant_link_block([prev_sibling], [task, *descendants])
+            if block is not None:
+                return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
             new_position = len(prev_children) + 1
             old_path = task.wbs_path
             new_path = _build_wbs_path(prev_sibling.wbs_path, new_position)
@@ -9764,8 +9774,11 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 "``summary_start_link`` when the task is a leaf that drives a "
                 "Start-to-Start or Start-to-Finish link and has following siblings to "
                 "adopt: adopting them would make it a summary, which ADR-0370 forbids to "
-                "drive one (#4830).",
-                codes=(SUMMARY_START_LINK_CODE,),
+                "drive one (#4830). Refused with ``summary_descendant_link`` when the task "
+                "is linked to a following sibling or one of its subtasks: adopting them "
+                "would link a summary to its own descendant, which the scheduler treats "
+                "as a cycle (#4705).",
+                codes=(SUMMARY_START_LINK_CODE, SUMMARY_DESCENDANT_LINK_CODE),
                 extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
@@ -9876,6 +9889,23 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                 block = summary_start_link_block(task)
                 if block is not None:
                     return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+            # #4705: the task becomes the one new ancestor of every adopted follower's
+            # subtree. Their descendants are read once here, before any row moves, and
+            # reused by the adoption loop below.
+            follower_descendants = {
+                follower.pk: _get_descendants(str(project.pk), follower.wbs_path, lock=True)
+                for follower in following_siblings
+            }
+            block = summary_descendant_link_block(
+                [task],
+                [
+                    moved
+                    for follower in following_siblings
+                    for moved in (follower, *follower_descendants[follower.pk])
+                ],
+            )
+            if block is not None:
+                return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
             next_child_pos = len(existing_children) + 1
 
             all_updated: list[dict[str, Any]] = []
@@ -9897,7 +9927,7 @@ class TaskOutdentView(IdempotencyMixin, APIView):
             for follower in following_siblings:
                 follower_old_path = follower.wbs_path
                 follower_new_path = _build_wbs_path(new_task_path, next_child_pos)
-                follower_desc = _get_descendants(str(project.pk), follower_old_path, lock=True)
+                follower_desc = follower_descendants[follower.pk]
 
                 follower.wbs_path = follower_new_path
                 follower.save(update_fields=["wbs_path"])
@@ -10041,6 +10071,28 @@ def _resolve_reparent_target(
     return new_parent, new_parent.wbs_path
 
 
+def _new_reparent_ancestors(
+    project_id: str, old_parent_path: str, new_parent_path: str
+) -> list[Task]:
+    """The tasks a reparent makes ancestors of the moved subtree for the first time.
+
+    Every prefix of ``new_parent_path`` (the target included) names an ancestor after
+    the move; every prefix of ``old_parent_path`` named one before. Only the difference
+    is new, so a shared ancestor is not re-checked (#4705). Empty for a move to root.
+    """
+
+    def prefixes(path: str) -> set[str]:
+        parts = path.split(".") if path else []
+        return {".".join(parts[: i + 1]) for i in range(len(parts))}
+
+    new_paths = prefixes(new_parent_path) - prefixes(old_parent_path)
+    if not new_paths:
+        return []
+    return list(
+        Task.objects.filter(project_id=project_id, is_deleted=False, wbs_path__in=new_paths)
+    )
+
+
 @extend_schema_view(
     post=extend_schema(
         summary="Reparent a task under an arbitrary summary (or to root)",
@@ -10061,7 +10113,11 @@ def _resolve_reparent_target(
                 "a milestone (``child_of_milestone``), or the target is a leaf that "
                 "drives a Start-to-Start or Start-to-Finish link (``summary_start_link``, "
                 "#4830) — its first child would make it a summary, which ADR-0370 "
-                "forbids to drive one. The last carries ``blocking_dependencies``.",
+                "forbids to drive one — or the target or one of its ancestors is linked "
+                "to the task or one of its subtasks (``summary_descendant_link``, #4705): "
+                "the move would link a summary to its own descendant, which the "
+                "scheduler treats as a cycle. The last two carry "
+                "``blocking_dependencies``.",
                 extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
@@ -10151,6 +10207,14 @@ class TaskReparentView(IdempotencyMixin, APIView):
                 block = summary_start_link_block(new_parent)
                 if block is not None:
                     return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+            # #4705: the target and its ancestors that are not already ancestors of the
+            # task become new ancestors of its subtree.
+            block = summary_descendant_link_block(
+                _new_reparent_ancestors(str(project.pk), old_parent_path, new_parent_path),
+                [task, *descendants],
+            )
+            if block is not None:
+                return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
 
             # Unlike indent/outdent the two levels can be anywhere in the tree, so both
             # bound the region; reduce_region_roots collapses them when one contains

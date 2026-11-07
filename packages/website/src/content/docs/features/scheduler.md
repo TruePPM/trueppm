@@ -520,6 +520,14 @@ expansion.tasks         # input tasks with summaries removed — leaves only
 expansion.dependencies  # leaf-level edges, self-links skipped and deduplicated
 ```
 
+:::note[Ships in 0.5]
+In 0.4, a link between a summary and one of its own subtasks (or a summary linked
+to itself) is skipped as a self-link, or turned into an order between sibling
+tasks. In 0.5 the call will refuse it with `CyclicDependencyError` instead, the same
+input `find_cycle` reports as a cycle. A Start-to-Start or Start-to-Finish link *from*
+a summary will still raise `InvalidScheduleInput`, as described below.
+:::
+
 When two links resolve to the same leaf pair — say `build → test` and
 `phase-1 → test` with a 7-day lag — they merge into one edge that keeps the
 **largest** lag, so the result never depends on the order of `dependencies`. If the

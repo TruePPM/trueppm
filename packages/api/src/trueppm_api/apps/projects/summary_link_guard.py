@@ -14,6 +14,15 @@ knows a task is about to gain its *first* child. Only the first: a task that is
 already a summary and already holds such a link was broken before this request, and
 refusing an unrelated restructure on that account would block the edits that repair
 it — the same differential rule ``assert_graph_feasible`` follows.
+
+The same moves can also make an existing link run between a summary and one of its
+own descendants (#4705): ``Design -FS-> Build`` on adjacent rows, then indent Build,
+gives ``Design{Build} -FS-> Build``. ``find_cycle`` and the CPM's summary expansion
+both treat that as a cycle, so every recalculation of the project is refused.
+:func:`summary_descendant_link_block` is the check for it. Each restructure passes the
+tasks that become *new* ancestors and the tasks that move under them, so a link that
+already ran between an ancestor and its descendant before the request is not blamed
+on it, for the same differential reason.
 """
 
 from __future__ import annotations
@@ -50,6 +59,9 @@ DependencyT = TypeVar("DependencyT", bound=_EdgeLike)
 #: Stable machine code for the refusal, shared by every structural endpoint.
 SUMMARY_START_LINK_CODE = "summary_start_link"
 
+#: Stable machine code for a move that would link a summary to its own descendant (#4705).
+SUMMARY_DESCENDANT_LINK_CODE = "summary_descendant_link"
+
 #: Most links a refusal names before collapsing the rest into a count — the message is
 #: prose a person reads, and the full list travels in ``blocking_dependencies``.
 MAX_NAMED_LINKS = 3
@@ -60,15 +72,19 @@ BLOCKING_DEPENDENCIES_SCHEMA: dict[str, Any] = {
     "blocking_dependencies": {
         "type": "array",
         "description": (
-            "Present only with code ``summary_start_link``: every Start-to-Start or "
-            "Start-to-Finish link that stops the task becoming a summary (ADR-0370). "
-            "``successor_id`` is null when the successor is in another project."
+            "Present only with code ``summary_start_link`` or "
+            "``summary_descendant_link``. For ``summary_start_link``: every "
+            "Start-to-Start or Start-to-Finish link that stops the task becoming a "
+            "summary (ADR-0370); ``successor_id`` is null when the successor is in "
+            "another project. For ``summary_descendant_link``: every link the move "
+            "would leave between a summary task and one of its own subtasks, which "
+            "the scheduler treats as a cycle (#4705)."
         ),
         "items": {
             "type": "object",
             "properties": {
                 "id": {"type": "string", "format": "uuid"},
-                "dep_type": {"type": "string", "enum": ["SS", "SF"]},
+                "dep_type": {"type": "string", "enum": ["FS", "SS", "FF", "SF"]},
                 "successor_id": {"type": "string", "format": "uuid", "nullable": True},
             },
             "required": ["id", "dep_type", "successor_id"],
@@ -83,11 +99,12 @@ class SummaryStartLinkBlock:
 
     detail: str
     blocking_dependencies: list[dict[str, Any]] = field(default_factory=list)
+    code: str = SUMMARY_START_LINK_CODE
 
     def body(self) -> dict[str, Any]:
         """The ``{code, detail, blocking_dependencies}`` body the WBS endpoints return."""
         return {
-            "code": SUMMARY_START_LINK_CODE,
+            "code": self.code,
             "detail": self.detail,
             "blocking_dependencies": self.blocking_dependencies,
         }
@@ -263,3 +280,64 @@ def summary_start_link_block(task: Task) -> SummaryStartLinkBlock | None:
         "Finish-to-Finish, or delete them, first."
     )
     return SummaryStartLinkBlock(detail=detail, blocking_dependencies=payload)
+
+
+def summary_descendant_link_block(
+    new_ancestors: Sequence[Task], moved: Sequence[Task]
+) -> SummaryStartLinkBlock | None:
+    """The refusal for a move that would link a summary to its own descendant (#4705).
+
+    ``new_ancestors`` are the tasks the move makes ancestors of ``moved`` that were not
+    ancestors of them before; ``moved`` is every task that ends up under them (the
+    moved task and its whole subtree). A live link in either direction between the two
+    sets would, after the move, run between a summary and one of its own descendants.
+    The scheduler expands that link to a self-loop on a shared leaf: ``find_cycle``
+    reports it as a cycle and ``expand_summary_dependencies`` raises
+    ``CyclicDependencyError``, so the project could not be recalculated again until
+    the link was found and deleted. In a WBS tree, "shares a leaf" is exactly
+    "ancestor and descendant", so this is the engine's own rule, narrowed to the
+    pairs the move creates.
+
+    One indexed query on the two dependency FKs. Both sets belong to the caller's
+    project, so every task named in the message is one the caller may read.
+    """
+    from django.db.models import Q
+
+    from trueppm_api.apps.projects.models import Dependency
+
+    ancestor_ids = [t.pk for t in new_ancestors]
+    moved_ids = [t.pk for t in moved]
+    if not ancestor_ids or not moved_ids:
+        return None
+    links = list(
+        Dependency.live.filter(
+            Q(predecessor_id__in=ancestor_ids, successor_id__in=moved_ids)
+            | Q(predecessor_id__in=moved_ids, successor_id__in=ancestor_ids)
+        )
+        .select_related("predecessor", "successor")
+        .only("id", "dep_type", "predecessor__name", "successor_id", "successor__name")
+        .order_by("predecessor__name", "successor__name", "pk")
+    )
+    if not links:
+        return None
+
+    described = [
+        f"“{printable_label(link.predecessor.name)}” → "
+        f"“{printable_label(link.successor.name)}” ({link.dep_type})"
+        for link in links
+    ]
+    named = ", ".join(described[:MAX_NAMED_LINKS])
+    if len(described) > MAX_NAMED_LINKS:
+        named += f" and {len(described) - MAX_NAMED_LINKS} more"
+    detail = (
+        f"This move would put a summary task over a task it is linked to: {named}. A "
+        "summary task cannot be linked to one of its own subtasks, because the "
+        "schedule would depend on itself. Delete or change those links first."
+    )
+    payload = [
+        {"id": str(link.pk), "dep_type": link.dep_type, "successor_id": str(link.successor_id)}
+        for link in links
+    ]
+    return SummaryStartLinkBlock(
+        detail=detail, blocking_dependencies=payload, code=SUMMARY_DESCENDANT_LINK_CODE
+    )

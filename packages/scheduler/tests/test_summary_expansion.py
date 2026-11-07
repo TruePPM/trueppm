@@ -8,11 +8,13 @@ from datetime import date, timedelta
 import pytest
 
 from trueppm_scheduler import (
+    CyclicDependencyError,
     Dependency,
     DependencyType,
     Project,
     Task,
     expand_summary_dependencies,
+    find_cycle,
     schedule,
 )
 from trueppm_scheduler.engine import InvalidScheduleInput, ScheduleResult
@@ -134,16 +136,15 @@ class TestExpandSummaryDependencies:
         assert expanded[0].dep_type == DependencyType.FF
         assert expanded[0].lag == timedelta(days=3)
 
-    def test_self_referencing_edge_skipped(self) -> None:
-        """If a summary's only leaf would create a self-referencing edge, skip it."""
+    def test_summary_to_own_only_leaf_is_a_cycle(self) -> None:
+        """A summary linked to its own single leaf is refused, not silently dropped (#4705)."""
         tasks = [task("S"), task("L")]
         deps = [Dependency(predecessor_id="S", successor_id="L", dep_type=DependencyType.FS)]
         children_map = {"S": ["L"]}  # L is both child of S and successor
 
-        _, expanded = expand_summary_dependencies(tasks, deps, children_map)
-
-        # L→L would be self-referencing — should be skipped
-        assert len(expanded) == 0
+        with pytest.raises(CyclicDependencyError) as exc:
+            expand_summary_dependencies(tasks, deps, children_map)
+        assert exc.value.cycle == ["S", "L", "S"]
 
     def test_no_summaries_passthrough(self) -> None:
         """Empty children_map returns tasks and deps unchanged."""
@@ -407,3 +408,118 @@ class TestDuplicateLeafPairResolution:
                 set(result.critical_path),
             )
             assert got == expected, f"order {perm} changed the schedule"
+
+
+# Nested shape: ``S2 ⊃ {S1, c}``, ``S1 ⊃ {a, b}``.
+_SHAPES: dict[str, dict[str, list[str]]] = {
+    "one_leaf": {"S": ["a"]},
+    "two_leaves": {"S": ["a", "b"]},
+    "nested": {"S2": ["S1", "c"], "S1": ["a", "b"]},
+}
+
+_CASES = [
+    # (shape, direction, predecessor, successor)
+    ("one_leaf", "summary_to_own_child", "S", "a"),
+    ("two_leaves", "summary_to_own_child", "S", "a"),
+    ("nested", "summary_to_own_child", "S2", "a"),
+    ("one_leaf", "child_to_own_parent", "a", "S"),
+    ("two_leaves", "child_to_own_parent", "a", "S"),
+    ("nested", "child_to_own_parent", "b", "S2"),
+    ("one_leaf", "summary_to_itself", "S", "S"),
+    ("two_leaves", "summary_to_itself", "S", "S"),
+    ("nested", "summary_to_itself", "S1", "S1"),
+    ("nested", "nested_summary_to_ancestor", "S1", "S2"),
+    ("nested", "ancestor_to_nested_summary", "S2", "S1"),
+]
+
+
+class TestAncestorDescendantLinksAgreeWithFindCycle:
+    """#4705 / #4538: expansion refuses every link ``find_cycle`` reports as a cycle.
+
+    ``find_cycle`` keeps the self-loop a summary↔own-descendant link expands to; the
+    expansion used to skip it, so one input was a cycle to the validator and, to
+    the scheduler, a dropped link, an invented sibling order, or a cycle through two
+    leaves nobody linked. Every direction x {1 leaf, 2 leaves, nested} must now
+    refuse, naming the source link rather than the leaves.
+    """
+
+    @staticmethod
+    def _tasks(children_map: dict[str, list[str]]) -> list[Task]:
+        ids = set(children_map) | {c for kids in children_map.values() for c in kids}
+        return [task(t) for t in sorted(ids)]
+
+    @pytest.mark.parametrize(
+        ("shape", "pred", "succ"),
+        [pytest.param(shape, p, s, id=f"{direction}-{shape}") for shape, direction, p, s in _CASES],
+    )
+    @pytest.mark.parametrize("dep_type", [DependencyType.FS, DependencyType.FF])
+    def test_expansion_and_find_cycle_agree(
+        self, shape: str, pred: str, succ: str, dep_type: DependencyType
+    ) -> None:
+        children_map = _SHAPES[shape]
+        assert find_cycle([(pred, succ)], children_map=children_map)
+
+        deps = [Dependency(predecessor_id=pred, successor_id=succ, dep_type=dep_type)]
+        with pytest.raises(CyclicDependencyError) as exc:
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+        expected = [pred, pred] if pred == succ else [pred, succ, pred]
+        assert exc.value.cycle == expected
+
+    def test_issue_4538_no_invented_sibling_order(self) -> None:
+        """``S{a, b} -FS-> a`` used to schedule as ``b -> a``; it must refuse instead."""
+        children_map = {"S": ["a", "b"]}
+        deps = [Dependency(predecessor_id="S", successor_id="a")]
+        with pytest.raises(CyclicDependencyError, match="'S' → 'a' → 'S'"):
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+
+    def test_diamond_shared_leaf_agrees_with_find_cycle(self) -> None:
+        """Two summaries sharing a leaf through a diamond: both paths see the cycle."""
+        children_map = {"P": ["a", "b"], "Q": ["a", "c"]}
+        assert find_cycle([("P", "Q")], children_map=children_map)
+        deps = [Dependency(predecessor_id="P", successor_id="Q")]
+        with pytest.raises(CyclicDependencyError) as exc:
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+        assert exc.value.cycle == ["P", "Q", "P"]
+
+    def test_leaf_self_link_refused_when_summaries_present(self) -> None:
+        """A plain ``a -> a`` was also dropped whenever ``children_map`` was non-empty."""
+        children_map = {"S": ["b", "c"]}
+        assert find_cycle([("a", "a")], children_map=children_map)
+        deps = [Dependency(predecessor_id="a", successor_id="a")]
+        tasks = [task("a"), *self._tasks(children_map)]
+        with pytest.raises(CyclicDependencyError) as exc:
+            expand_summary_dependencies(tasks, deps, children_map)
+        assert exc.value.cycle == ["a", "a"]
+
+    @pytest.mark.parametrize("dep_type", [DependencyType.SS, DependencyType.SF])
+    def test_start_link_from_summary_to_own_child_hits_adr_0370_first(
+        self, dep_type: DependencyType
+    ) -> None:
+        """SS/SF *from* a summary is refused by ADR-0370 before the shared-leaf rule."""
+        children_map = _SHAPES["two_leaves"]
+        assert find_cycle([("S", "a")], children_map=children_map)
+        deps = [Dependency(predecessor_id="S", successor_id="a", dep_type=dep_type)]
+        with pytest.raises(InvalidScheduleInput, match="not supported"):
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+
+    @pytest.mark.parametrize("dep_type", [DependencyType.SS, DependencyType.SF])
+    def test_start_link_from_child_to_own_parent_is_a_cycle(self, dep_type: DependencyType) -> None:
+        """Into a summary, SS/SF is not ADR-0370's direction, so the cycle rule applies."""
+        children_map = _SHAPES["two_leaves"]
+        assert find_cycle([("a", "S")], children_map=children_map)
+        deps = [Dependency(predecessor_id="a", successor_id="S", dep_type=dep_type)]
+        with pytest.raises(CyclicDependencyError) as exc:
+            expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+        assert exc.value.cycle == ["a", "S", "a"]
+
+    def test_unrelated_summaries_still_expand(self) -> None:
+        """Guard against over-refusal: disjoint summaries and siblings still fan out."""
+        children_map = _SHAPES["nested"]
+        deps = [
+            Dependency(predecessor_id="a", successor_id="b"),
+            Dependency(predecessor_id="S1", successor_id="c"),
+        ]
+        assert not find_cycle([(d.predecessor_id, d.successor_id) for d in deps], children_map)
+        _, expanded = expand_summary_dependencies(self._tasks(children_map), deps, children_map)
+        edges = {(d.predecessor_id, d.successor_id) for d in expanded}
+        assert edges == {("a", "b"), ("a", "c"), ("b", "c")}

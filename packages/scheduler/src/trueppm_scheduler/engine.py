@@ -2279,11 +2279,11 @@ def _expand_edges_for_cycle_check(
     """Expand summary↔leaf edges to leaf-level tuples for cycle detection.
 
     Operates on raw edge tuples — no :class:`Dependency` objects required.
-    Deduplicates the result. Unlike :func:`expand_summary_dependencies`
-    (which drops self-loops because the CPM engine cannot consume them),
-    self-loops *produced by expansion* are kept here: a summary→its-own-leaf
-    edge expands to a self-loop on the leaf, and that self-loop is precisely
-    the logical cycle this function exists to surface.
+    Deduplicates the result. Self-loops *produced by expansion* are kept: a
+    summary→its-own-leaf edge expands to a self-loop on the leaf, and that
+    self-loop is precisely the logical cycle this function exists to surface.
+    :func:`expand_summary_dependencies` refuses the same links with
+    :class:`CyclicDependencyError` (#4705), so the two agree on every input.
     """
     summary_ids = set(children_map.keys())
     if not summary_ids:
@@ -3730,11 +3730,17 @@ def expand_summary_dependencies(
 
     Summary tasks (those with entries in children_map) are removed from the
     task list. Dependencies involving summary tasks are fanned out to all
-    their leaf descendants, producing a cross-product of edges. Self-referencing
-    edges (where predecessor == successor after expansion) are skipped.
-    Links that expand onto the same leaf pair are merged by meaning, not list
-    order: same type keeps the largest (most binding) lag; different types
-    raise :class:`InvalidScheduleInput` (#4434).
+    their leaf descendants, producing a cross-product of edges. A link whose two
+    endpoints share a leaf — a summary linked to itself, to one of its own
+    descendants, or from one (and, with a diamond ``children_map``, two summaries
+    holding a common leaf) — is a logical cycle and raises
+    :class:`CyclicDependencyError`, exactly as :func:`find_cycle` reports it
+    (#4705, #4538). The one exception is a Start-to-Start or Start-to-Finish link
+    *from* a summary: the ADR-0370 check runs first and raises
+    :class:`InvalidScheduleInput` for it, whatever its successor. Links that
+    expand onto the same leaf pair are merged by meaning, not list order: same
+    type keeps the largest (most binding) lag; different types raise
+    :class:`InvalidScheduleInput` (#4434).
 
     Args:
         tasks: All tasks including summaries.
@@ -3750,7 +3756,15 @@ def expand_summary_dependencies(
         InvalidScheduleInput: If ``children_map`` is malformed — not a dict, a
             summary id (key) or child id that is not a string (``None`` and
             other non-string ids are refused, #4522), a value that is not a
-            list, or a summary with an empty children list.
+            list, or a summary with an empty children list. Also raised for a
+            Start-to-Start or Start-to-Finish link from a summary task (ADR-0370),
+            checked before the shared-leaf rule below, so an SS/SF link from a
+            summary to its own descendant raises this rather than
+            ``CyclicDependencyError``.
+        CyclicDependencyError: If a link's endpoints share a leaf (see above).
+            ``cycle`` names the *source* link, not the leaves it expands to:
+            ``[pred, succ, pred]``, or ``[pred, pred]`` when both endpoints are
+            the same id.
     """
     if not children_map:
         return SummaryExpansion(tasks=tasks, dependencies=deps)
@@ -3763,6 +3777,7 @@ def expand_summary_dependencies(
 
     leaves = _resolve_endpoint_leaves(deps, summary_ids, children_map)
     _check_expansion_bound(deps, leaves)
+    _reject_overlapping_links(deps, leaves)
 
     return SummaryExpansion(tasks=leaf_tasks, dependencies=_cross_product_edges(deps, leaves))
 
@@ -3838,10 +3853,39 @@ def _check_expansion_bound(deps: list[Dependency], leaves: dict[str, list[str]])
             )
 
 
+def _reject_overlapping_links(deps: list[Dependency], leaves: dict[str, list[str]]) -> None:
+    """Refuse a link whose endpoints share a leaf, naming the source link (#4705, #4538).
+
+    Expanding such a link puts a self-loop on the shared leaf. The cycle-check twin
+    (:func:`_expand_edges_for_cycle_check`) keeps that self-loop because it *is* the
+    cycle, so :func:`find_cycle` reports it. This path used to skip it as a harmless
+    self-reference, which turned the same input into one of three wrong answers: the
+    link vanished (any single-leaf case, and ``S -> S``), the remaining leaf pairs
+    survived as an invented sibling order (``S{a, b} -FS-> a`` became ``b -> a``), or
+    ``schedule()`` later raised a cycle through two leaves the user never linked.
+
+    Shared leaves are exactly the overlap the cycle check sees: an id linked to
+    itself, an ancestor and its descendant in either direction (a descendant's
+    leaves are a non-empty subset of its ancestor's, since empty child lists are
+    refused), and two summaries holding a common leaf through a diamond. The check
+    runs after :func:`_check_expansion_bound`, so the per-link set work is bounded by
+    the same cap.
+    """
+    leaf_sets: dict[str, set[str]] = {}
+    for dep in deps:
+        pred, succ = dep.predecessor_id, dep.successor_id
+        if pred == succ:
+            raise CyclicDependencyError([pred, pred])
+        pred_leaves = leaf_sets.setdefault(pred, set(leaves[pred]))
+        if any(leaf in pred_leaves for leaf in leaves[succ]):
+            raise CyclicDependencyError([pred, succ, pred])
+
+
 def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -> list[Dependency]:
     """Fan each edge out to the cross product of its endpoints' leaves.
 
-    Self-referencing edges (predecessor == successor after expansion) are skipped.
+    No edge can expand onto a self-loop: :func:`_reject_overlapping_links` has
+    already refused every link whose endpoints share a leaf.
 
     Two source links can expand onto the same leaf pair — ``A -FS-> C`` plus
     ``S(A, B) -FS+7d-> C`` both yield ``A → C``. The engine graph holds one edge per
@@ -3866,8 +3910,6 @@ def _cross_product_edges(deps: list[Dependency], leaves: dict[str, list[str]]) -
     for dep in deps:
         for p in leaves[dep.predecessor_id]:
             for s in leaves[dep.successor_id]:
-                if p == s:
-                    continue
                 prior = chosen.get((p, s))
                 if prior is not None:
                     _, prior_source = prior
