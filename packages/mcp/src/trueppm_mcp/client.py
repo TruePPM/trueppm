@@ -91,9 +91,10 @@ class ApiError(TruePPMError):
     """Raised when the API returns an unexpected (non-401) error status.
 
     Attributes:
-        status_code: The HTTP status, or ``None`` when the error was not built from
-            a response. Lets a tool map a *specific* refusal (e.g. 403 on the cost
-            endpoint) to a structured result without parsing the message text.
+        status_code: The HTTP status for an error built from a response, or ``None``
+            otherwise. :class:`RateLimitError` does not set it (it is always 429).
+            Lets a tool map a *specific* refusal (e.g. 403 on the cost endpoint) to a
+            structured result without parsing the message text.
     """
 
     def __init__(

@@ -119,7 +119,7 @@ separately:
 ## Status
 
 The read-tool surface is **20 read-only tools** (19 ship in 0.4; `get_project_cost`
-is added in 0.5) across projects and programs, tasks and My Work, schedule and
+lands in 0.5) across projects and programs, tasks and My Work, schedule and
 risk (including non-mutating what-if and schedule derivation), project cost, and
 sprints — each mapping to one existing REST
 endpoint and returning only what your role permits. The

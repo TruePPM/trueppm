@@ -146,7 +146,7 @@ clear message rather than letting every later query fail.
 
 ## What you can ask
 
-The server exposes **19 read-only tools**, each mapping to one existing REST
+The server exposes **19 read-only tools** (a 20th, `get_project_cost`, lands in 0.5), each mapping to one existing REST
 endpoint and returning only what your role permits:
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,

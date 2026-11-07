@@ -592,6 +592,20 @@ async def test_get_project_cost_below_admin_is_a_structured_restriction(
     assert set(result) == {"project_id", "cost_restricted", "reason", "message"}
 
 
+async def test_program_health_keeps_cost_kpis_including_false_and_restricted(
+    settings: Settings,
+) -> None:
+    """Compaction drops None/empty only; a False flag and a restricted KPI survive."""
+    kpis = {
+        "cost_variance": {"available": False, "reason": "cost_restricted"},
+        "budget_utilization": {"available": True, "value": 0.0},
+    }
+    routes: Routes = {"programs/pr-1/rollup/": _json({"kpis": kpis, "note": None})}
+    async with _client(settings, routes) as client:
+        result = await _get_program_health(client, "pr-1")
+    assert result == {"kpis": kpis}
+
+
 async def test_get_project_cost_not_found_stays_an_error(settings: Settings) -> None:
     """A 404 is not mapped to cost_restricted; that would leak the existence oracle."""
     routes: Routes = {"projects/p-1/cost/": httpx.Response(404, json={"detail": "Not found."})}
