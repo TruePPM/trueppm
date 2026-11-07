@@ -18,7 +18,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 
 - **Real scheduling semantics, not a toy.** All four dependency types (finish-to-start, start-to-start, finish-to-finish, start-to-finish) with lead/lag on every link — most lightweight schedulers only do finish-to-start, which cannot express an overlap or a wait without faking it with a dummy task.
 - **Working-time aware.** A built-in working-day calendar skips weekends and honors holiday exceptions, so durations resolve to real delivery dates.
-- **Risk forecasting built in.** PERT-Beta Monte Carlo (a Beta moment-fitted to the classic PERT mean and σ = (P − O)/6 — see [Conventions](#conventions)), numpy-vectorized at ~10k runs/sec — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
+- **Risk forecasting built in.** PERT-Beta Monte Carlo (a Beta moment-fitted to the classic PERT mean and σ = (P − O)/6 — see [Conventions](#conventions)), numpy-vectorized (10,000 runs on a 200-task project in roughly 60–100 ms, on the order of 100k runs/sec) — the difference between "due March 3" and "70% likely by March 3, 95% by March 14."
 - **Fails loud on bad input.** Cycle detection that names the offending task IDs, plus up-front validation of durations, lag, and project span — no silent wrong answers, no spinning on a degenerate graph.
 - **Embeds anywhere.** Two dependencies, no framework. Serialize a plan to JSON, schedule it, and read back structured results.
 
@@ -26,7 +26,7 @@ It's pure Python with just `networkx` and `numpy` underneath — no Django, no w
 
 - Forward/backward CPM pass with all four dependency types (FS, SS, FF, SF), total/free float, and critical-path flagging
 - Calendar-aware working-day arithmetic (weekend skip + holiday exceptions), with optional per-task calendars for mixed-team schedules
-- Monte Carlo schedule-risk simulation via PERT-Beta distributions — method-of-moments fit to the classic PERT mean and σ = (P − O)/6, not the λ=4 Beta-PERT (numpy-vectorized, ~10k runs/sec) → P50/P80/P95 completion dates
+- Monte Carlo schedule-risk simulation via PERT-Beta distributions — method-of-moments fit to the classic PERT mean and σ = (P − O)/6, not the λ=4 Beta-PERT (numpy-vectorized, roughly 60–100 ms per 10,000 runs on a 200-task project) → P50/P80/P95 completion dates
 - Hybrid agile/waterfall forecasting — mark a task `delivery_mode=SCRUM` with a `story_points` estimate and Monte Carlo samples its duration from the team's own velocity history instead of a per-task PERT guess, so a project can mix sprint-delivered and traditionally-estimated work in one simulation
 - Explainable results — `derive_value()` answers "why is this date what it is?" for any early/late/float value, naming the exact predecessor, dependency type, and lag that won, plus every constraint it beat
 - JSON round-tripping for plans (`Project.from_json()` / `Project.to_json()`)
@@ -400,10 +400,18 @@ input up front rather than spinning on a degenerate project:
 - **Duration** — each task duration must be between `0` and `MAX_DURATION_DAYS`
   (`36_525`, ~100 years). Negative durations are rejected.
 - **Lag** — each dependency lag must be within `±MAX_LAG_DAYS` (`36_525`).
-- **Project span** — the cumulative span (every task's worst-case duration plus
-  the magnitude of every lag) must stay under `MAX_PROJECT_SPAN_DAYS`
-  (`366_000`, ~1000 years), regardless of task count.
-- **Monte Carlo** — `runs` must be `>= 1`.
+- **Project span** — the cumulative span must stay under `MAX_PROJECT_SPAN_DAYS`
+  (`366_000`, ~1000 years), regardless of task count. The span is the sum of every
+  task's worst-case duration (the deterministic duration or the largest PERT
+  estimate) plus the magnitude of every lag, plus one more term added once:
+  the furthest of the latest `planned_start` pin (start-no-earlier-than), the
+  data date (`status_date`) offset, and the furthest recorded actual from the
+  project start. Three separate refusals sit beside it: a `status_date` more than
+  `MAX_PROJECT_SPAN_DAYS` after the start, an `actual_start`/`actual_finish` more
+  than that from the start, and a start date so close to `date.max` that the walk
+  would overflow the date range.
+- **Monte Carlo** — `runs` must be `>= 1` and at most `100_000_000` (see the
+  `runs` ceiling in [Limits for embedders](#limits-for-embedders)).
 
 `Project.from_json()` also rejects the non-standard JSON literals `NaN`,
 `Infinity`, and `-Infinity`.
@@ -427,7 +435,7 @@ application can check or re-enforce them without hand-copying a number:
 |-----|-------|--------|
 | `MAX_DURATION_DAYS` | `36525` | A single task's duration or PERT estimate (~100 years) |
 | `MAX_LAG_DAYS` | `36525` | A single dependency's lag, either direction |
-| `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative project span — every task's worst-case duration plus every lag (~1000 years) |
+| `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative project span — worst-case task durations plus lags plus the furthest pin, data date or actual (~1000 years; see Project span above) |
 | `MAX_DEPENDENCIES` | `100000` | Raw dependency-edge count, before summary expansion |
 | `MAX_EXPANDED_EDGES` | `100000` | Leaf-level edges after expanding a summary↔summary dependency |
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
@@ -436,15 +444,17 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_INDEX_CELLS` | `25000000` | Monte Carlo's `(distinct calendars by content) x (index span)` working-day indices, 8 bytes per cell; over it `monte_carlo()` raises `SimulationCapExceeded`. Override per call with `max_index_cells` |
 | `MAX_VELOCITY_SPRINTS` | `10000` | Per-run sprint horizon the velocity sampler will bootstrap |
 | `MC_SENSITIVITY_CAP` | `20` | Tasks returned by the sensitivity ("tornado") ranking |
+| `_MAX_RUNS_ABSOLUTE` | `100000000` | Hard ceiling on `monte_carlo(runs=…)`, enforced regardless of `max_runs`; over it `monte_carlo()` raises `InvalidScheduleInput`. A caller-supplied `max_runs` below `runs` is checked as well and raises `SimulationCapExceeded` instead. Not exported from the package: it is a private engine constant, listed so the number is documented |
 
 ```python
 from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
 ```
 
-There is no fixed task-count or run-count cap built into the engine itself —
-`monte_carlo(max_runs=…, max_tasks=…)` are opt-in, caller-supplied ceilings that
-default to `None` (uncapped). That default is correct for a batch script or
-notebook that owns the whole machine, and wrong for a synchronous web request:
+The engine has no task-count cap of its own, and its only run-count cap is the
+absolute `100_000_000` ceiling in the table above, which is far past anything a
+request handler should accept. `monte_carlo(max_runs=…, max_tasks=…)` are opt-in,
+caller-supplied ceilings that default to `None` (no limit beyond that ceiling).
+That default is correct for a batch script or notebook that owns the whole machine, and wrong for a synchronous web request:
 **`schedule()` and `monte_carlo()` are CPU-bound** (a day-by-day calendar walk,
 plus a numpy-vectorized sampling pass), so a request handler that calls either
 directly on untrusted or unbounded input ties up a worker thread or process for
@@ -590,10 +600,7 @@ release it is scheduled for:
   ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
   as a lower bound rather than a full forecast
-  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); three
-  `monte_carlo()` keyword caps still leak a bare `TypeError` instead of the
-  documented `SchedulerError` contract
-  ([#4464](https://gitlab.com/trueppm/trueppm/-/issues/4464)); percentile
+  ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); percentile
   estimation is imprecise at very low run counts (10–11 runs), where the
   reported P95 can have only 90% of runs on or before it
   ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)); a completed task that finished before the project start
@@ -614,9 +621,14 @@ release it is scheduled for:
 - **Calendars** — a zero-lag milestone-to-milestone link into a narrower
   per-task calendar can overstate float
   ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)).
-- **Scale / performance** — a project above roughly 73,000 tasks at a 5-day
-  average duration is refused as "longer than 1,000 years" by a span guard
-  meant to catch pathological input, not real large projects
+- **Scale / performance** — a project whose cumulative span passes
+  `MAX_PROJECT_SPAN_DAYS` is refused as "longer than 1,000 years" by a span guard
+  meant to catch pathological input, not real large projects. That is about
+  73,000 tasks at a 5-day average duration with no lags (366,000 / 5); the
+  administration sizing page reports the smallest *measured* refusal, at 64,000
+  tasks, on a benchmark project whose durations and lags together average more
+  than 5 days per task, so the two figures are the same guard at different
+  inputs
   ([#3830](https://gitlab.com/trueppm/trueppm/-/issues/3830)); Monte Carlo
   holds three `(runs × tasks)` float64 matrices live in memory, already 2.3 GB
   at 50,000 tasks
@@ -659,7 +671,9 @@ they will ship with 0.5 or that release will slip:
   ([#4230](https://gitlab.com/trueppm/trueppm/-/issues/4230)); the Monte Carlo
   memory footprint above is chunked over runs and dropped to float32
   ([#3824](https://gitlab.com/trueppm/trueppm/-/issues/3824)); the CPM
-  duration-expansion day-walk above moves off O(duration)
+  duration-expansion day-walk (the per-day calendar walk that makes `schedule()`
+  CPU-bound, see [Limits for embedders](#limits-for-embedders)) moves off
+  O(duration)
   ([#1531](https://gitlab.com/trueppm/trueppm/-/issues/1531)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
@@ -700,9 +714,7 @@ binding/`imposed_date` mismatch above
 [#4438](https://gitlab.com/trueppm/trueppm/-/issues/4438)), the remaining
 MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
-[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the three leaking
-Monte Carlo keyword caps
-([#4464](https://gitlab.com/trueppm/trueppm/-/issues/4464)), the very-low-run-count percentile imprecision
+[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the very-low-run-count percentile imprecision
 ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)), the closed-milestone frozen-edge path dependence
 ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)), and a
 `monte_carlo(return_samples=True)` option to hand back the raw matrices

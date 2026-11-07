@@ -201,7 +201,7 @@ of JSON to the browser.
 
 Opening the Schedule is not the only wall on the way to 100,000 tasks. The scheduler
 refuses a project whose task durations *sum* past 1,000 years, as if every task ran in
-series — measured refusing at 64,000 tasks (#3830). Recalculation needs ~30 KB of memory
+series — measured refusing at 64,000 tasks (#3830). That is the smallest size we measured as refused, not the threshold: the guard caps the summed span at 366,000 days, about 73,000 tasks at a 5-day average duration with no lags. Recalculation needs ~30 KB of memory
 per task against a 2 GiB worker limit (#3831). Every remote edit re-fetches the whole
 project for everyone watching (#2341). And a program with cross-project dependencies
 recalculates as one project the size of all its members together. Each is tracked for
