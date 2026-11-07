@@ -9,12 +9,65 @@ use petgraph::Direction;
 
 use crate::backward::{milestone_latest, milestone_refs, sf_latest_start};
 use crate::calendar::{
-    checked_offset_days, next_working_day, prev_working_day, retreat_calendar_days,
-    working_days_between, PassCalendars, WorkingDayCounter,
+    advance_calendar_days, checked_offset_days, next_working_day, prev_working_day,
+    retreat_calendar_days, working_days_between, PassCalendars, WorkingDayCounter,
 };
-use crate::forward::{milestone_link, start_anchored, start_reading, Instant, MilestoneInstants};
+use crate::forward::{
+    edge_anchor, milestone_link, milestone_proposal, start_anchored, start_reading, Instant,
+    MilestoneInstants,
+};
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, DrivingEdge, Task};
+
+/// Whether `dep` imposes exactly the successor's early position (#4704).
+///
+/// The forward pass's own proposal for the link, against what it bounds. Into
+/// work, the bound `forward::edge_constraints` snaps on the successor's calendar,
+/// against the early start for FS/SS and the early finish for FF/SF. Into a
+/// milestone, the `(instant, start_display)` the link proposes
+/// ([`milestone_proposal`]) against the one the milestone is shown at — the
+/// latest proposal it received. This is the "binding" test of the Python
+/// `derive_value`; zero relationship free float alone misses a link whose
+/// predecessor's slip and successor's position are counted in different working
+/// time (a wider calendar's weekend, or a calendar-day lag landing on one).
+/// `(own_link, succ_shown)` is this task's link instant and the successor's
+/// shown instant, each `None` for work. Mirrors the Python `_link_binds`.
+fn link_binds(
+    dep: &Dependency,
+    pred: &Task,
+    succ: &Task,
+    (own_link, succ_shown): (Option<Instant>, Option<Instant>),
+    pred_cal: &Calendar,
+    succ_cal: &Calendar,
+) -> Result<bool, String> {
+    let (start, finish) = (pred.link_start(), pred.early_finish.unwrap());
+    if let Some(shown) = succ_shown {
+        let proposal = milestone_proposal(
+            dep.dep_type,
+            dep.lag_days(),
+            (start, finish),
+            own_link,
+            pred_cal,
+            succ_cal,
+        )?;
+        return Ok(proposal == shown);
+    }
+    let anchor = edge_anchor(
+        dep.dep_type,
+        start,
+        finish,
+        own_link.map(|i| i.0),
+        pred_cal,
+        dep.lag_days(),
+    )?;
+    let bound = advance_calendar_days(anchor, dep.lag_days(), succ_cal)?;
+    let target = if start_anchored(dep.dep_type) {
+        succ.early_start.unwrap()
+    } else {
+        succ.early_finish.unwrap()
+    };
+    Ok(bound == target)
+}
 
 /// The latest instant each milestone may reach without moving anything, for free
 /// float (#4180). Mirrors the Python `_milestone_free_instants`.
@@ -373,8 +426,20 @@ pub fn compute_floats(
             };
             // Zero relationship free float ⇒ this link drives the successor's early
             // date (#2095). The forward pass guarantees slack >= 0, so the exact
-            // zero test matches the Python engine bit-for-bit.
-            if drive_slack == 0 {
+            // zero test matches the Python engine bit-for-bit. A link that imposes
+            // exactly the successor's early position drives it too (#4704): the
+            // slack is counted in this task's working days, so a wider calendar's
+            // weekend, or one a calendar-day lag lands on, reads as slack that
+            // moves nothing.
+            let binds = link_binds(
+                dep,
+                &tasks[i],
+                succ,
+                (milestones.links[i], instants[s]),
+                node_cal,
+                cals.for_node(s),
+            )?;
+            if drive_slack == 0 || binds {
                 driving_edges.push(DrivingEdge {
                     predecessor_id: pred_id.clone(),
                     successor_id: succ.id.clone(),

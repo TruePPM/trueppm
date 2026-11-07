@@ -4479,11 +4479,11 @@ class Dependency(VersionedModel):
     )
     accepted_at = models.DateTimeField(null=True, blank=True)
 
-    # Driving-link flag (#2095): True when this edge's relationship free float is
-    # zero — i.e. this predecessor actually controls (drives) the successor's early
-    # date, so the schedule view draws it at full weight while non-driving links
-    # recede. A CPM *output*, written back by the recompute task via bulk_update
-    # (like Task.is_critical) so it never bumps server_version, and history-excluded.
+    # Driving-link flag (#2095): True when the engine reports this edge as a
+    # driving edge — it binds the successor or has zero free float (#4704) — so the
+    # schedule view draws it at full weight while non-driving links recede.
+    # A CPM *output*, written back by the recompute task via bulk_update (like
+    # Task.is_critical) so it never bumps server_version, and history-excluded.
     # Defaults False so a freshly-created edge reads as non-driving until the next
     # recompute resolves it (avoids a NOT NULL-without-default migration).
     is_driving = models.BooleanField(default=False)

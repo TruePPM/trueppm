@@ -1672,9 +1672,11 @@ mod tests {
     /// #4180: free float into a start-of-day milestone compares its shown position,
     /// not its raw instant. `A(4d) -FS+2d-> M` puts M at Sunday midnight, shown as
     /// the start of Monday; a one-day slip of A lands on Monday midnight, still the
-    /// start of Monday, so A has one day of free float and A→M does not drive M.
-    /// FS+1 (Saturday midnight, the end of Friday) stays at zero: the slip moves M
-    /// to the start of Monday (#4173). Both with and without `M -FS0-> B(1d)`.
+    /// start of Monday, so A has one day of free float. A→M still drives M: it is
+    /// the link that binds M (#4704), and a driving edge is a binding link or a
+    /// zero-free-float one. FS+1 (Saturday midnight, the end of Friday) stays at
+    /// zero float: the slip moves M to the start of Monday (#4173). Both with and
+    /// without `M -FS0-> B(1d)`.
     #[test]
     fn test_free_float_into_start_of_day_milestone_counts_shown_position() {
         let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
@@ -1713,7 +1715,7 @@ mod tests {
             assert_eq!(find(&fs2, "M").early_start, d(2026, 1, 12));
             assert!(!find(&fs2, "M").milestone_at_day_end);
             assert_eq!(find(&fs2, "A").free_float, 86400.0, "tail={tail}");
-            assert!(!a_drives_m(&fs2), "tail={tail}");
+            assert!(a_drives_m(&fs2), "tail={tail}");
 
             let fs1 = schedule_impl(&build(1.0, tail)).unwrap();
             assert_eq!(find(&fs1, "M").early_start, d(2026, 1, 9));

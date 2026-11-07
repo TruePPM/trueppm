@@ -369,13 +369,26 @@ MC_SENSITIVITY_SUBSAMPLE = 2_000
 
 @dataclass(frozen=True)
 class DrivingEdge:
-    """A dependency whose relationship free float is zero (#2095).
+    """A dependency that binds its successor or has zero relationship free float (#2095, #4704).
 
     A *driving* edge is the predecessor→successor link that actually controls the
     successor's early date: the successor's early start/finish sits exactly on the
-    date this link imposes, so slipping the predecessor by a single working day
-    would push the successor. Non-driving links have slack — the successor would
-    start at the same time even if that predecessor finished later.
+    date this link imposes, read in the successor's working time — the "binding"
+    term :func:`trueppm_scheduler.derive.derive_value` cites — or whose
+    relationship free float is zero. The set is the union of the two, so it can
+    hold a zero-free-float link that does not bind: at a merge where a five-day
+    ``P`` and a seven-day ``Q`` both feed ``S``, both are reported while
+    ``derive_value`` binds only ``Q``. Non-driving links have
+    slack — the successor would start at the same time even if that predecessor
+    finished later.
+
+    The two tests are not the same, and free float stays a separate output. Float
+    is counted in the predecessor's working days, so a link can place its
+    successor and still leave the predecessor slack that moves nothing: a
+    seven-day-week predecessor finishing on a Friday into a Monday-to-Friday
+    successor has two days of free float (its weekend) and still drives it onto
+    Monday, and a calendar-day lag landing on a weekend does the same on one
+    calendar (#4537). Testing zero free float alone dropped those links (#4704).
 
     Identified by the (predecessor, successor) pair plus ``dep_type`` (the string
     value ``"FS"``/``"SS"``/``"FF"``/``"SF"``), matching the stored dependency row.
@@ -490,7 +503,8 @@ class ScheduleResult:
     # Ordering is UNSPECIFIED — look up by id, not position (see class docstring, #1862).
     tasks: list[Task]  # copies with all CPM fields populated
     critical_path: list[str]  # every critical task ID, in topological order (not one chain)
-    # Dependencies whose relationship free float is zero (#2095). Order is
+    # Dependencies that bind their successor or whose relationship free float is
+    # zero (#2095, #4704). Order is
     # deterministic (sorted) so the two engines' snapshots stay comparable.
     driving_edges: list[DrivingEdge] = field(default_factory=list)
 
@@ -3274,7 +3288,8 @@ def _compute_floats(
     """Compute total_float, free_float, and is_critical for every task (in-place).
 
     Returns the list of :class:`DrivingEdge` s discovered as a side output of the
-    free-float slack loop — links whose relationship free float is zero (#2095).
+    free-float slack loop — links that bind their successor or whose relationship
+    free float is zero (#2095, #4704).
 
     ``total_float`` is the working-day span between a task's early and late start;
     a task is ``is_critical`` when it is zero.
@@ -3321,9 +3336,10 @@ def _compute_floats(
     lates = late_instants or {}
     links = link_instants or {}
 
-    # Driving edges (#2095): links whose per-edge free-float slack is zero — the
-    # predecessor that pins the successor's early date. Collected as a side output
-    # of the same slack loop that computes free float; purely presentational.
+    # Driving edges (#2095): links that bind the successor's early date
+    # (:func:`_link_binds`, #4704) or whose per-edge free-float slack is zero.
+    # Collected as a side output of the same slack loop that computes free float;
+    # purely presentational.
     driving_edges: list[DrivingEdge] = []
     # Free float compares a milestone successor by its shown position, not its raw
     # instant (#4180).
@@ -3452,10 +3468,10 @@ def _free_float_days(
     non-working ``actual_start`` (a Saturday) counts as the Monday after it (#4332);
     every other early date already is a working day.
 
-    Appends to ``driving_edges`` as a side output: a link whose relationship free
-    float is zero is the one pinning the successor's early date (#2095). The forward
-    pass guarantees ``slack >= 0``, so the exact zero test is deterministic across
-    both engines.
+    Appends to ``driving_edges`` as a side output: a link that binds the
+    successor's early position (:func:`_link_binds`, #4704) or whose relationship
+    free float is zero (#2095). The forward pass guarantees ``slack >= 0``, so the
+    exact zero test is deterministic across both engines.
 
     Mirrors the backward pass in skipping completed successors: one is out of
     network logic (ADR-0136) and cannot bound this task's slip, and including it
@@ -3480,12 +3496,14 @@ def _free_float_days(
         # The driving edge keeps the link's own type; the arithmetic below uses the
         # type a milestone successor sees (FF is FS, #4272).
         label = dep.dep_type.value
+        succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
+        # Checked on the link's own type: a milestone proposal reads FF as FS itself.
+        binds = _link_binds(dep, task, succ, (links.get(node_id), succ_instant), node_cal, succ_cal)
         if succ_free is not None:
             dep = _milestone_link(dep)
         own = instants.get(node_id)
         own_instant = None if own is None else own[0]
         own_link = links.get(node_id, own)
-        succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
         if succ_free is None:
             # A work successor is measured from the working day its start sits at,
             # not the raw date (#4332). The only early start that can fall on a
@@ -3527,9 +3545,65 @@ def _free_float_days(
         # driving predecessor even at zero free float.
         if refs != raw_refs:
             slack = _link_slack(dep, task, raw_refs, own_instant, node_cal, wd_counter, calendar)
-        if slack == 0:
+        if slack == 0 or binds:
             driving_edges.append(DrivingEdge(node_id, succ_id, label))
     return ff_days
+
+
+def _link_binds(
+    dep: Dependency,
+    task: Task,
+    succ: Task,
+    instants: tuple[_Instant | None, _Instant | None],
+    node_cal: Calendar,
+    succ_cal: Calendar,
+) -> bool:
+    """Whether ``dep`` imposes exactly the successor's early position (#4704).
+
+    The forward pass's own proposal for the link, compared with what it bounds.
+    Into work, that is the bound :func:`_forward_edge_constraints` snaps on the
+    successor's calendar, against the early start for FS/SS and the early finish
+    for FF/SF. Into a milestone, it is the ``(instant, start_display)`` the link
+    proposes (:func:`_milestone_proposal`) against the one the milestone is shown
+    at, which is the latest proposal :func:`_place_milestone` received. This is
+    the "binding" test :func:`trueppm_scheduler.derive.derive_value` applies.
+
+    Zero relationship free float alone misses such a link whenever the
+    predecessor's slip and the successor's position are measured in different
+    working time: a seven-day predecessor finishing on a Friday into a
+    Monday-to-Friday successor reads two days of slack (its Saturday and Sunday),
+    and a calendar-day lag that lands on a weekend reads the days its slip stays
+    inside that weekend (#4537). Either way the link alone places the successor.
+
+    ``instants`` is ``(own_link, succ_shown)``: this task's link instant when it
+    is a milestone (the one its successors measure from) and the successor's
+    shown instant when it is a milestone; ``None`` for work.
+    """
+    assert task.early_finish is not None
+    assert succ.early_start is not None and succ.early_finish is not None
+    own_link, succ_shown = instants
+    if succ_shown is not None:
+        proposal = _milestone_proposal(
+            dep.dep_type,
+            dep.lag,
+            _link_start(task),
+            task.early_finish,
+            own_link,
+            node_cal,
+            succ_cal,
+        )
+        return proposal == succ_shown
+    anchor = _edge_anchor(
+        dep.dep_type,
+        _link_start(task),
+        task.early_finish,
+        None if own_link is None else own_link[0],
+        node_cal,
+        dep.lag,
+    )
+    bound = _advance_calendar_days(anchor, dep.lag, succ_cal)
+    target = succ.early_start if dep.dep_type in _START_ANCHORED else succ.early_finish
+    return bound == target
 
 
 def _link_slack(

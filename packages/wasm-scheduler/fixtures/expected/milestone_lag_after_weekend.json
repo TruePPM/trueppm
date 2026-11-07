@@ -100,8 +100,23 @@
   ],
   "driving_edges": [
     {
+      "predecessor_id": "A",
+      "successor_id": "M3",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "B3",
+      "successor_id": "M3",
+      "dep_type": "FS"
+    },
+    {
       "predecessor_id": "B4",
       "successor_id": "M4",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "B4",
+      "successor_id": "M5",
       "dep_type": "FS"
     },
     {

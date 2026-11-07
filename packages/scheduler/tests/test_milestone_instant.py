@@ -1352,9 +1352,13 @@ class TestFreeFloatBeforeStartOfDayMilestone:
     """``A(4d) -FS+2d-> M``: M sits at Sunday midnight, shown as the start of Monday.
 
     A one-day slip of A moves M to Monday midnight: the same working position, the
-    same shown day and reading. So A has one day of free float and A→M does not
-    drive M. Free float used to compare the raw instants, which reported zero and a
-    driving edge.
+    same shown day and reading. So A has one day of free float. Free float used to
+    compare the raw instants, which reported zero.
+
+    A→M still drives M (#4704): it is the link that places M, and removing it moves
+    M to the project start. A driving edge is a link that binds its successor or has
+    zero free float; the two part whenever the slip runs through time the
+    successor's position does not count, as here.
 
     ``A -FS+1d-> M`` stays zero: Saturday midnight is shown as the end of Friday, and
     the one-day slip lands on Sunday midnight, shown as the start of Monday (#4173).
@@ -1382,7 +1386,7 @@ class TestFreeFloatBeforeStartOfDayMilestone:
         assert by_id["M"].early_start == date(2026, 1, 12)
         assert by_id["M"].milestone_at_day_end is False
         assert by_id["A"].free_float == timedelta(days=1)
-        assert ("A", "M") not in self._edges(result)
+        assert ("A", "M") in self._edges(result)
         assert derive_value(p, "A", Quantity.FREE_FLOAT, result).value == 1
         # The slip the float promises leaves M where it was; one more day moves it.
         slipped = _by_id(self._project(lag=2, tail=tail, a_start=date(2026, 1, 6)))["M"]
