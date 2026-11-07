@@ -240,7 +240,9 @@ only tokens no earlier record of the same session claimed, so summing every reco
 gives that session's total. In a parallel wave the first MR to open carries the orchestrator spend
 interleaved up to that point, and the record's footnote says so.
 
-- **State.** `<git-common-dir>/mr-cost-state/<session-id>.json`:
+- **State.** `${CLAUDE_CONFIG_DIR:-~/.claude}/mr-cost-state/<session-id>.json`, one file per session and
+  not per repo (a session spans repos, so a record in one repo must advance the window every other repo's
+  record starts from; the old per-repo files under `<git-common-dir>/mr-cost-state/` are never read):
   `{"schema": 1, "orchestrator_until": "<UTC Z>", "agents": {"<agent-id>": "<UTC Z>"}}`, written
   atomically (a temp file in the same directory, then `os.replace`) after **every** successful post
   by `scripts/post-mr-cost.py`: `orchestrator_until` and the watermark of each agent that record
@@ -250,7 +252,7 @@ interleaved up to that point, and the record's footnote says so.
   does not validate posts nothing and says so, because guessing a window would double count. A
   failed post never advances the state.
 - **A POST that landed without the state moving** (the hook was killed after its POST, or
-  `cost-table.py` failed on the response): the next run of the hook finds the record, and
+  `cost-table.py` failed on the response): the next run of the hook, or `--retry`, finds the record, and
   `reconcile()` advances the state to the end of the token user's own latest record, and the
   watermark of the agents that record's window would have attributed. A foreign record, or one dated
   after now, is ignored, and a watermark never moves backwards.
@@ -261,13 +263,23 @@ interleaved up to that point, and the record's footnote says so.
   The measuring scripts take this as `--agent <id>@<since>` (and `--agent-since <id>@<since>` for an
   agent that is not named, such as a descendant) on `subagent-tokens.py` and `est-cost.py`.
 - **Attribution of top-level agents to an MR.** A subagent transcript's `cwd` and `gitBranch` always
-  show the session root and `main`, so they cannot say which branch an agent worked on. Its **brief**
-  can: the text of the first `user` entry of its transcript. An agent counts for this MR when it was
-  named with `--agent`, or its brief names this MR's source branch or its worktree directory leaf;
-  otherwise it is left out if its brief names any other branch matching
-  `(feat|fix|docs|chore)/<digits>-`; otherwise (an unnamed gate) it counts if it has usage after its
-  watermark, so the first record to open claims it. The brief is untrusted text and is only matched
-  against, never printed. So every brief `/wave` writes names the branch it is for.
+  show the session root and `main`, so they cannot say which branch an agent worked on. Two things in
+  the transcript can:
+  1. **Where it acts** (strongest). The worktree (`*-wt/<issue>-<slug>`, or this checkout's toplevel)
+     holding the majority of the agent's `Edit` / `Write` / `NotebookEdit` `file_path`s; else the one
+     its Bash `cd <path>` and `git -C <path>` (not `show`, `diff` or `log`) calls target most, when one
+     leads strictly (a read-only auditor `cd`s into what it audits). When that home is known the agent
+     counts for this MR if it is this MR's worktree and not otherwise, and its brief is ignored: a
+     port agent's brief names the worktree it reads as well as the one it writes, so the brief cannot
+     tell them apart.
+  2. **Its brief** (the text of its first `user` entry), when no home is known. It counts if it names
+     this MR's source branch, branch leaf or worktree leaf (`<issue>-<slug>`); it is left for another
+     record if it names another branch `(feat|fix|docs|chore)/<digits>-...` or another worktree path
+     component `.../<issue>-<slug>`; a brief naming both this MR and another keeps this MR; an unnamed
+     gate counts if it has usage after its watermark, so the first record to open claims it.
+
+  `--agent` and pins override both. Briefs, paths and commands are untrusted text: they are classified
+  and matched, never printed.
 - **Empty rows.** Claude Code writes `<synthetic>` assistant entries with all-zero usage on an
   interrupt or an error. The parser drops any response whose four usage values are all zero and
   counts it in the `empty` figure on stderr, so no `model unknown 0` split line exists and the
@@ -332,9 +344,10 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
 - **`--measure --agent <id>` without `--pin`** applies to that run only and prints a one-line stderr
   warning: record 1 (the hook) will not attribute those agents unless they are pinned.
 - **`--measure --agent <id> --pin`:** run it in the branch's own worktree. It also records those
-  agents as belonging to this branch, in `<git-common-dir>/mr-cost-state/<session-id>.pins.json`
-  (`{"schema": 1, "branches": {"<branch>": ["<agent-id>"]}}`, written atomically, kept apart from
-  the state file). The hook (record 1) and `--round` (record K) read it, so an agent whose brief
+  agents as belonging to this branch, in `${CLAUDE_CONFIG_DIR:-~/.claude}/mr-cost-state/<session-id>.pins.json`
+  (`{"schema": 1, "branches": {"<project>:<branch>": ["<agent-id>"]}}`, the project being the `origin`
+  project so one branch name in two repos cannot collide; written atomically, kept apart from the
+  state file). The hook (record 1) and `--round` (record K) read it, so an agent whose brief
   names no branch is attributed to the same MR in the snapshot and in the records, and is left out
   of every other branch's record. It refuses (exit 2) to pin to the default branch (`main`, or
   whatever `origin/HEAD` names): no MR has that source branch, so the agent would be left out of
@@ -343,7 +356,10 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
   session id, or `<session-id>` when none was usable, and the literal `<iid>` when no MR number was
   known), in the checkout of the MR's project. It posts record 1 when the MR has no cost comment
   yet (the hook's work), otherwise the next record (`--round`'s), and advances the state like any
-  other post.
+  other post. Before posting a later record it runs the same `reconcile()` as the hook: when the token
+  user's own latest record ends after this session's state, that record landed without the state
+  moving, so it posts nothing, moves the state (and the agents that record measured) to its end and
+  says so, instead of re-counting them in a round.
 - **Failures are retried, explained and visible.** `cost-table.py --post` retries the whole
   read-then-write up to 3 times (2s then 5s backoff, 20s per `glab api` call, at most 3 notes pages per attempt: 307s worst case; the hook's own timeout on it is derived from `worst_case_seconds()` in `cost-table.py` plus 30s, 337s, so the whole hook fits its 600s limit. An MR with 300 or more notes exits 5, which is not retried) when a call fails or
   hangs. It retries from the top, not the single call, because a POST that timed out may have
@@ -398,7 +414,10 @@ token's user could not be read or written; 5 refused, the window belongs to an e
   If a side's split does not sum to its ledger line, the record
   says so; the line is the record. The Total tokens cell is `n/a` unless both token lines are
   present.
-- **States.** The window (record 1: its end, the go-ahead to push; record K: start and end), that
+- **States.** The window, always its actual start and end (record 1 posted by the hook or `--retry` states
+  `Window: S to U.`; the older `Window end: X.` form, which assumed the go-ahead, still parses), plus, on a
+  session's first record only, that the orchestrator row starts at the session's start and includes work
+  done before this MR's issue, that
   the cost is a list-price estimate from `.claude/model-prices.json` with its price date, the
   `budget-exceeded:` count (record K: `n/a`, not measured for a later window), and the
   non-overlap sentence: "Records do not overlap: the orchestrator row is this session's spend since

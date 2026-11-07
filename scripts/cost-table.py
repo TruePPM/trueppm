@@ -303,7 +303,22 @@ def _valid_ts(text):
         return False
 
 
-def _render(body, issue, until, split_text, record=1, since=None, prior=None):
+FIRST_RECORD = (
+    "- This is the session's first record, so the orchestrator row starts at the session's start and "
+    "includes work done before this MR's issue."
+)
+
+
+def _render(
+    body,
+    issue,
+    until,
+    split_text,
+    record=1,
+    since=None,
+    prior=None,
+    session_start=False,
+):
     """(lines, own total) of one record. Own total is {column: value or None} for its **Total** row,
     the figures the next record's running total adds up; columns are (kind, family or 'all')."""
     f = figures(body)
@@ -466,7 +481,14 @@ def _render(body, issue, until, split_text, record=1, since=None, prior=None):
         "- Costs are estimates at list prices from `.claude/model-prices.json` (%s), not billed amounts; a model with no price row shows `n/a`."
         % ("prices %s" % prices if prices else "no price date on the ledger line")
     )
-    if record == 1:
+    if record == 1 and since is not None and end:
+        # The record's actual window (macrodream/blueprint#387): it is posted by the hook or --retry after the
+        # MR opened, not at the go-ahead. The parser reads this line back up to the first `. ` (WINK_RE).
+        out.append(
+            "- Window: %s to %s. This record counts only the session's work in this window; later work on this MR "
+            "goes in later records." % (since, end)
+        )
+    elif record == 1:
         # The parser reads this line back up to the first `. ` (END1_RE): keep that prefix stable.
         out.append(
             "- Window end: %s. Both figures stop at the go-ahead to push; later work on this MR goes in later records."
@@ -490,6 +512,8 @@ def _render(body, issue, until, split_text, record=1, since=None, prior=None):
                 else "n/a (%s)" % running[1]
             )
         )
+    if session_start:
+        out.append(FIRST_RECORD)
     if prior.get("foreign"):
         out.append(
             "- %d note(s) with this heading by another user were not read."
@@ -556,10 +580,19 @@ def _running(own, fams, prior):
 
 
 def comment_lines(
-    body, issue=None, until=None, split_text=None, record=1, since=None, prior=None
+    body,
+    issue=None,
+    until=None,
+    split_text=None,
+    record=1,
+    since=None,
+    prior=None,
+    session_start=False,
 ):
     """The comment as a list of lines."""
-    return _render(body, issue, until, split_text, record, since, prior)[0]
+    return _render(body, issue, until, split_text, record, since, prior, session_start)[
+        0
+    ]
 
 
 # --- reading earlier records back (untrusted note text) --------------------------------------
@@ -593,7 +626,10 @@ def parse_record(body):
     headers = [m for m in map(HEADER_RE.match, lines) if m]
     compact = [ln for ln in lines if HEADER_COMPACT_RE.match(ln)]
     totals = [m for m in map(TOTAL_ROW_RE.match, lines) if m]
-    wins = [m for m in map(END1_RE.match if k == 1 else WINK_RE.match, lines) if m]
+    wins = [m for m in map(WINK_RE.match, lines) if m]
+    if k == 1:
+        # Record 1 states either `Window end: X.` (posted at the go-ahead) or `Window: S to U.` (macrodream/blueprint#387).
+        wins += [m for m in map(END1_RE.match, lines) if m]
     if len(headers) + len(compact) != 1 or len(totals) != 1 or len(wins) != 1:
         return None
     if compact:
@@ -627,7 +663,7 @@ def parse_record(body):
             total[col] = decimal.Decimal(USD_CELL_RE.match(v).group(1))
         else:
             return None
-    if k == 1:
+    if k == 1 and wins[0].re is END1_RE:
         start, end = None, wins[0].group(1)
     else:
         start, end = wins[0].group(1), wins[0].group(2)
@@ -923,7 +959,7 @@ def _read_capped(path, cap):
 
 USAGE = (
     "usage: cost-table.py --comment (--file <description.md> | --ledger <lines.txt> --since T --until T --mr <iid>) "
-    "[--issue N] [--until T] [--split F] [--project ns/proj] [--post [--mr <iid>]] | "
+    "[--issue N] [--until T] [--since T] [--session-start] [--split F] [--project ns/proj] [--post [--mr <iid>]] | "
     "--next-since --mr <iid> | --self-test"
 )
 
@@ -940,7 +976,7 @@ def comment_main(argv, enabled, stdout, stderr, api):
         "--mr",
         "--project",
     )
-    post_it = next_since = False
+    post_it = next_since = session_start = False
     while i < len(argv):
         a = argv[i]
         if a == "--comment":
@@ -950,6 +986,9 @@ def comment_main(argv, enabled, stdout, stderr, api):
             i += 1
         elif a == "--next-since":
             next_since = True
+            i += 1
+        elif a == "--session-start":
+            session_start = True
             i += 1
         elif a in flags and i + 1 < len(argv) and a not in opts:
             opts[a] = argv[i + 1]
@@ -1000,7 +1039,6 @@ def comment_main(argv, enabled, stdout, stderr, api):
         follow == ("--file" in opts)
         or (post_it and not nums["--mr"])
         or (follow and not (nums["--mr"] and "--since" in opts and "--until" in opts))
-        or (not follow and "--since" in opts)
     ):
         print(USAGE, file=stderr)
         return 2
@@ -1011,6 +1049,16 @@ def comment_main(argv, enabled, stdout, stderr, api):
         if since is None or until is None or since > until:
             print(
                 "cost-table: --since and --until must be ISO 8601 with a zone, --since first",
+                file=stderr,
+            )
+            return 2
+    elif "--since" in opts:
+        # Record 1 may state its actual window (macrodream/blueprint#387) instead of only its end.
+        since, why_s = window_end(opts["--since"])
+        end1, _w = window_end(opts.get("--until"))
+        if since is None or (end1 is not None and since > end1):
+            print(
+                "cost-table: --since must be ISO 8601 with a zone and not after --until",
                 file=stderr,
             )
             return 2
@@ -1034,7 +1082,14 @@ def comment_main(argv, enabled, stdout, stderr, api):
         return rc
     if not follow:
         text = "\n".join(
-            comment_lines(body, nums["--issue"], opts.get("--until"), split)
+            comment_lines(
+                body,
+                nums["--issue"],
+                opts.get("--until"),
+                split,
+                since=since,
+                session_start=session_start,
+            )
         )
         if not post_it:
             print(text, file=stdout)
@@ -1052,7 +1107,14 @@ def comment_main(argv, enabled, stdout, stderr, api):
             return rc, m
         text = "\n".join(
             comment_lines(
-                body, nums["--issue"], until, split, record=k, since=since, prior=prior
+                body,
+                nums["--issue"],
+                until,
+                split,
+                record=k,
+                since=since,
+                prior=prior,
+                session_start=session_start,
             )
         )
         if not post_it:
@@ -1568,7 +1630,16 @@ def self_test():
         ["--comment"],
         ["--file", dpath, "--comment", "--bogus"],
         ["--file", dpath, "--comment", "--split", tmp2],
-        ["--file", dpath, "--comment", "--since", "2026-11-04T15:30:00Z"],
+        ["--file", dpath, "--comment", "--since", "yesterday"],
+        [
+            "--file",
+            dpath,
+            "--comment",
+            "--since",
+            "2026-11-04T16:00:00Z",
+            "--until",
+            "2026-11-04T15:30:00Z",
+        ],
         [
             "--file",
             dpath,
@@ -2516,6 +2587,80 @@ def self_test():
         rc == 0 and PROJECT["path"] == "ns/p",
     )
     PROJECT["path"] = None
+
+    # macrodream/blueprint#387: record 1 states its real window, and says when the session just started.
+    w1 = "\n".join(
+        comment_lines(
+            full,
+            383,
+            "2026-11-04T16:00:00Z",
+            split,
+            since="2026-11-04T15:00:00Z",
+            session_start=True,
+        )
+    )
+    w2 = "\n".join(
+        comment_lines(
+            full, 383, "2026-11-04T16:00:00Z", split, since="2026-11-04T15:00:00Z"
+        )
+    )
+    check(
+        "record 1 with a start states `Window: S to U.`, not the go-ahead end",
+        "- Window: 2026-11-04T15:00:00Z to 2026-11-04T16:00:00Z. " in w1
+        and "Window end:" not in w1
+        and "stop at the go-ahead" not in w1,
+        w1,
+    )
+    check(
+        "the first-record sentence appears only when the window began at the session's start",
+        FIRST_RECORD in w1 and FIRST_RECORD not in w2,
+        w1 + w2,
+    )
+    p1 = parse_record(w1)
+    check(
+        "record 1 in the new window format parses (start and end), and old `Window end:` records still parse",
+        p1 is not None
+        and (p1["k"], p1["start"], p1["end"])
+        == (1, "2026-11-04T15:00:00Z", "2026-11-04T16:00:00Z")
+        and parse_record(rec1)["end"] == "2026-11-04T15:38:24Z",
+        repr(p1),
+    )
+    o = io.StringIO()
+    rc = main(
+        ["--next-since", "--mr", "288"],
+        enabled=on,
+        stdout=o,
+        stderr=io.StringIO(),
+        api=fake([note(10, w1)], []),
+    )
+    check(
+        "--next-since reads a new-format record 1",
+        rc == 0 and o.getvalue() == "2026-11-04T16:00:00Z\n",
+        repr((rc, o.getvalue())),
+    )
+    o = io.StringIO()
+    rc = main(
+        [
+            "--file",
+            dpath,
+            "--comment",
+            "--until",
+            "2026-11-04T16:00:00Z",
+            "--since",
+            "2026-11-04T15:00:00Z",
+            "--session-start",
+        ],
+        enabled=on,
+        stdout=o,
+        stderr=io.StringIO(),
+    )
+    check(
+        "cli: --since and --session-start on record 1",
+        rc == 0
+        and "- Window: 2026-11-04T15:00:00Z to" in o.getvalue()
+        and FIRST_RECORD in o.getvalue(),
+        o.getvalue()[:200],
+    )
 
     # The real setting reader answers with one of its three codes.
     check("ledger_enabled: answers 0, 1 or 2", ledger_enabled() in (0, 1, 2))
