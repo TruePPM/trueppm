@@ -570,9 +570,7 @@ release it is scheduled for:
   further than knowing more
   ([#4539](https://gitlab.com/trueppm/trueppm/-/issues/4539)); `driving_edges` can also omit a zero-lag cross-calendar
   link that alone places its successor
-  ([#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)); `expand_summary_dependencies` drops or inverts every
-  ancestor-to-descendant link
-  ([#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705)); closing a milestone ahead of an open predecessor still moves
+  ([#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)); closing a milestone ahead of an open predecessor still moves
   its lagged successors
   ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)); a non-working-day `actual_finish` or `actual_start` reads
   differently from the working-time reading on FF links
@@ -680,8 +678,7 @@ they will ship with 0.5 or that release will slip:
   date, float, or percentile on a project with recorded actuals or a
   milestone: the zero-lag milestone calendar overstatement ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)), the
   `driving_edges` false negatives ([#4537](https://gitlab.com/trueppm/trueppm/-/issues/4537), [#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)), the
-  `expand_summary_dependencies` ordering and ancestor-link bugs
-  ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538), [#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705)), the completed-task-without-actuals
+  completed-task-without-actuals
   non-monotonicity ([#4539](https://gitlab.com/trueppm/trueppm/-/issues/4539)), closing a milestone ahead of an open
   predecessor ([#4740](https://gitlab.com/trueppm/trueppm/-/issues/4740)), the non-working-day actuals divergences
   ([#4631](https://gitlab.com/trueppm/trueppm/-/issues/4631), [#4702](https://gitlab.com/trueppm/trueppm/-/issues/4702)), start-of-day milestone total float ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)),
