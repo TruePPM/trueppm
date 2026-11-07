@@ -1,7 +1,8 @@
 """Driving-link write-back (#2095).
 
-The recompute task marks each dependency whose relationship free float is zero —
-the predecessor that actually controls the successor's early date — with
+The recompute task marks each dependency the engine reports as driving — one that
+binds its successor or has zero relationship free float (#4704), the predecessor
+that actually controls the successor's early date — with
 ``is_driving=True`` so the schedule view can weight driving links above slack
 ones. A merge point is the discriminating case: of two predecessors into one
 successor, only the later-finishing one drives.

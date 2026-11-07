@@ -39,11 +39,12 @@ against ``httpx.MockTransport``); :func:`register_tools` binds a thin
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from http import HTTPStatus
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from trueppm_mcp.client import AuthError, TruePPMClient, TruePPMError
+from trueppm_mcp.client import ApiError, AuthError, TruePPMClient, TruePPMError
 
 #: API path for the task collection, relative to the client's /api/v1/ base.
 _TASKS_PATH = "tasks/"
@@ -582,6 +583,50 @@ async def _get_monte_carlo_forecast(client: TruePPMClient, project_id: str) -> d
     return result
 
 
+async def _get_project_cost(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The project's cost summary, or a structured ``cost_restricted`` result.
+
+    The endpoint is project Admin+ only (ADR-1324 section 4): a Member or Viewer is
+    refused with 403 and never receives a rate or cost value. For an agent that is an
+    expected answer, not a failure, so a 403 becomes
+    ``{"cost_restricted": true, "reason": ...}`` rather than a raised error. The
+    result is built from the refusal alone, so it cannot carry a cost figure.
+
+    ``reason`` is ``requires_project_admin`` when the API gave no refusal envelope (a
+    plain role denial), and ``token_policy`` when it did (the instance or project
+    kill switch, or the read-only-method guard, refused the call rather than the
+    role), so the model does not tell a caller to ask for a role upgrade that would
+    not help. A missing ``mcp:read`` scope is not marked by the API, so it can still
+    read as ``requires_project_admin``. A non-member of an existing project has no
+    role and also gets 403, so it is reported as ``cost_restricted``; the API
+    already answers 403 for it, so this adds nothing a caller could not see. Only a
+    404 (project missing or trashed) stays an error. The payload is passed through
+    unchanged (not compacted): a null ``budget`` means "no budget set" and must
+    survive.
+    """
+    try:
+        data = await client.get(f"projects/{project_id}/cost/")
+    except ApiError as exc:
+        if exc.status_code != HTTPStatus.FORBIDDEN:
+            raise
+        refused: dict[str, Any] = {
+            "project_id": project_id,
+            "cost_restricted": True,
+            "reason": "token_policy" if exc.refusal else "requires_project_admin",
+            "message": (
+                "Cost is restricted to project Admins and Owners; no budget, rate or "
+                "cost figure is returned for your role."
+                if not exc.refusal
+                else f"The API refused this call ({exc.refusal.describe()}); no cost "
+                "figure is returned."
+            ),
+        }
+        return refused
+    result: dict[str, Any] = dict(data) if isinstance(data, Mapping) else {}
+    result["cost_restricted"] = False
+    return result
+
+
 async def _whatif(
     client: TruePPMClient,
     project_id: str,
@@ -841,6 +886,33 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         return await _get_monte_carlo_forecast(client, project_id)
 
     @server.tool()
+    async def get_project_cost(project_id: str) -> dict[str, Any]:
+        """A project's cost: budget, actual cost, earned value, cost variance, utilization.
+
+        Read-only; recomputed server-side on every call. Amounts are decimal strings
+        in the workspace ``currency``. Read the server's figures and ``definitions``
+        (a one-sentence meaning for every number); do not recompute them.
+
+        Check ``cost_computable`` before quoting a total: when false, one or more
+        people in scope have no hourly rate, ``actual`` covers only the priced part,
+        and each KPI reports ``available: false`` with a ``reason`` (``no_budget`` or
+        ``missing_rates``) instead of a value. ``missing_rate_count`` and
+        ``missing_rate_resources`` say who is unrated. ``lines`` holds one row per
+        person (hours, rate, cost).
+
+        Cost is visible to project Admins and Owners only. Any other caller gets
+        ``{"cost_restricted": true, "reason": ...}`` with no figures. That is a normal
+        answer, not a failure: report that cost is restricted for the caller's role
+        and do not retry. A non-member of the project also gets
+        ``cost_restricted``. A project that does not exist (or is trashed) raises an
+        error.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        return await _get_project_cost(client, project_id)
+
+    @server.tool()
     async def whatif(
         project_id: str,
         task_id: str,
@@ -1001,6 +1073,10 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
     @server.tool()
     async def get_program_health(program_id: str) -> dict[str, Any]:
         """Rollup health for one program (single-program; cross-program is Enterprise).
+
+        The rollup carries the cost KPIs (``cost_variance``, ``budget_utilization``).
+        A caller below program Admin sees each as ``{"available": false, "reason":
+        "cost_restricted"}``, not a top-level flag, and never a cost value.
 
         Args:
             program_id: The program's UUID.

@@ -160,8 +160,8 @@ def test_fixture_conformance(fixture_name: str) -> None:
         "project_finish": result.project_finish.isoformat(),
         "tasks": [task_result_to_dict(t) for t in result.tasks],
         "critical_path": result.critical_path,
-        # Driving-edge parity (#2095): both engines must agree on which links have
-        # zero relationship free float. Sorted deterministically by ScheduleResult.
+        # Driving-edge parity (#2095, #4704): both engines must agree on which links
+        # place their successor. Sorted deterministically by ScheduleResult.
         "driving_edges": [e.to_dict() for e in result.driving_edges],
     }
 
