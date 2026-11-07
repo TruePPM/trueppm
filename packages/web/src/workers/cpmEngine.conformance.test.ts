@@ -112,6 +112,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   canonical_to_json_roundtrip: 'serialization fixture, not a scheduling scenario',
   // Calendar capability the browser does not have at drag time (ADR-0120).
   calendar_exceptions: 'engine gap: CalendarException holidays not modeled',
+  // #4715: the reserved-field values are inert here too, but the fixture carries an
+  // exception range, which this engine does not model.
+  reserved_fields_inert: 'engine gap: CalendarException holidays not modeled',
   fs_lag_holiday_week: 'engine gap: CalendarException holidays not modeled',
   six_day_mask: 'engine gap: fixed Mon-Fri week, no six-day mask',
   ss_lag_alt_weekend: 'engine gap: fixed Mon-Fri week, alternate weekend mask',
