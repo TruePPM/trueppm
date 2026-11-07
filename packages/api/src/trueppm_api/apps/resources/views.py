@@ -9,6 +9,7 @@ from typing import Any, cast
 from django.db import models, transaction
 from django.db.models import DateField, ProtectedError, QuerySet
 from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -28,6 +29,7 @@ from rest_framework.throttling import UserRateThrottle
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
     CanAssignResource,
+    IsNotTokenAuthenticated,
     IsOrgAdmin,
     IsOrgScheduler,
     IsProjectMember,
@@ -56,6 +58,8 @@ from trueppm_api.apps.resources.models import (
 from trueppm_api.apps.resources.serializers import (
     ProjectResourceSerializer,
     ResourceAssignmentSerializer,
+    ResourceRateResponseSerializer,
+    ResourceRateSerializer,
     ResourceSerializer,
     ResourceSkillSerializer,
     SkillSerializer,
@@ -65,6 +69,7 @@ from trueppm_api.apps.resources.serializers import (
 from trueppm_api.apps.resources.services import (
     ensure_project_resource,
     record_assignment_event,
+    set_resource_rate,
     task_is_summary,
 )
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
@@ -1081,7 +1086,11 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     #:   deactivation lifecycle has one principal. Splitting it would leave an
     #:   admin able to reactivate rows they can neither list
     #:   (``?include_deleted=true`` is on the same floor) nor deactivate.
-    _WORKSPACE_ADMIN_ACTIONS: frozenset[str] = frozenset({"assignments", "destroy", "restore"})
+    #: * ``rate`` — reads and re-costs a salary proxy across every project the
+    #:   person worked on (ADR-1324 §5). Exfiltration and a history rewrite.
+    _WORKSPACE_ADMIN_ACTIONS: frozenset[str] = frozenset(
+        {"assignments", "destroy", "restore", "rate"}
+    )
 
     def get_permissions(self) -> list[BasePermission]:
         """Split read vs write permissions.
@@ -1105,6 +1114,10 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         # IsAuthenticated gate: it carries task/project names across project
         # boundaries, so an open gate is a cross-project IDOR. It sits in the
         # workspace-admin set rather than being special-cased here.
+        if getattr(self, "action", None) == "rate":
+            # ai-review check 3 (ADR-1324): a rate change silently re-costs history,
+            # so it is a human-session act — an API/agent token may not make it.
+            return [IsAuthenticated(), IsNotTokenAuthenticated(), IsWorkspaceAdminStrict()]
         if getattr(self, "action", None) in self._WORKSPACE_ADMIN_ACTIONS:
             return [IsAuthenticated(), IsWorkspaceAdminStrict()]
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
@@ -1361,6 +1374,38 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
 
         serializer = self.get_serializer(resource)
         return Response(serializer.data)
+
+    @extend_schema(
+        summary="Preview or set a resource's hourly cost rate",
+        request=ResourceRateSerializer,
+        responses={
+            200: ResourceRateResponseSerializer,
+            404: OpenApiResponse(description="Resource not found."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="rate")
+    def rate(self, request: Request, pk: str | None = None) -> Response:
+        """Preview (``dry_run: true``, the default) or save a resource's rate (ADR-1324 §5).
+
+        One endpoint for both so the preview a workspace admin approves is the re-cost
+        the save produces — same function, the proposed rate passed as an override.
+        Changing a rate re-costs every past time entry for the resource: there is one
+        current rate, with no history. Saving writes a ``resource_rate_changed`` audit
+        row. Workspace ADMIN+, human session only.
+        """
+        # Deactivated resources too (unfiltered manager, like ``restore``): a
+        # departed person's past hours still cost what they cost (ADR-1324 §2), so an
+        # unrated one must stay rateable or "N people have no rate" has no remedy.
+        resource = get_object_or_404(Resource.objects.all(), pk=pk)
+        body = ResourceRateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        result = set_resource_rate(
+            resource,
+            body.validated_data["cost_rate"],
+            actor=request.user,
+            dry_run=body.validated_data["dry_run"],
+        )
+        return Response(ResourceRateResponseSerializer(result).data)
 
     @extend_schema(
         responses=ResourceAssignmentSerializer(many=True),

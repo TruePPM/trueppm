@@ -17,7 +17,7 @@ vi.mock('@/api/client', () => ({ apiClient: { get: getMock, patch: patchMock } }
 const CONFIG: ProgramRollupConfig = {
   enabled_kpis: ['schedule_health', 'critical_tasks'],
   aggregation_policy: 'worst',
-  unavailable_kpis: { cost_variance: 'no_cost_data' },
+  unavailable_kpis: { p80_completion: 'no_montecarlo_store' },
 };
 const KEY = ['program-rollup-config', 'pg1'];
 

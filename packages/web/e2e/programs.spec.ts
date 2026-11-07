@@ -66,7 +66,7 @@ const FIXTURE_ROLLUP = {
   kpis: {
     schedule_health: { available: true, value: 'at_risk' },
     critical_tasks: { available: true, value: 5 },
-    cost_variance: { available: false, reason: 'no_cost_data' },
+    cost_variance: { available: false, reason: 'missing_rates', missing_rate_count: 2 },
   },
 };
 
@@ -694,7 +694,7 @@ test.describe('Programs — overview rollup (#713)', () => {
     await expect(kpis.getByText('At risk')).toBeVisible(); // schedule_health band
     // Deferred KPI is shown with its reason, not hidden.
     await expect(kpis.getByText('Cost variance')).toBeVisible();
-    await expect(kpis.getByText('Needs cost data')).toBeVisible();
+    await expect(kpis.getByText('2 people have no rate')).toBeVisible();
   });
 
   test('shows the empty state when the program has no projects', async ({ page }) => {

@@ -11159,7 +11159,7 @@
         "/api/v1/programs/{id}/rollup/": {
             "get": {
                 "operationId": "v1_programs_rollup_retrieve",
-                "description": "Computed rollup of the enabled KPIs across the program's projects.\n\nURL: ``GET /api/v1/programs/{pk}/rollup/``\n\nConsumes the #527 config (``rollup_enabled_kpis`` +\n``rollup_aggregation_policy``) and returns the rolled-up values per\nADR-0088 — the program health dot, the active policy (and whether it\ncould be honored), the contributing project count, and a per-KPI map\nwhere deferred KPIs carry ``{\"available\": False, \"reason\": ...}``.\n\nRead-only and computed on demand (no persisted rollup row), so it always\nreflects the projects' current state. Permission: any program member.",
+                "description": "Computed rollup of the enabled KPIs across the program's projects.\n\nURL: ``GET /api/v1/programs/{pk}/rollup/``\n\nConsumes the #527 config (``rollup_enabled_kpis`` +\n``rollup_aggregation_policy``) and returns the rolled-up values per\nADR-0088 — the program health dot, the active policy (and whether it\ncould be honored), the contributing project count, and a per-KPI map\nwhere deferred KPIs carry ``{\"available\": False, \"reason\": ...}``.\n\nRead-only and computed on demand (no persisted rollup row), so it always\nreflects the projects' current state. Permission: any program member.\n\nThe cost KPIs (``cost_variance`` / ``budget_utilization``) carry values only\nfor a caller who is program Admin+ AND project Admin+ on every contributing\nproject (ADR-1324 §4); everyone else gets\n``{\"available\": False, \"reason\": \"cost_restricted\"}``. A token caller is\njudged by its user's role, so an MCP agent sees what its human would.",
                 "summary": "Compute the program KPI rollup across its projects",
                 "parameters": [
                     {
@@ -20079,6 +20079,68 @@
                             }
                         },
                         "description": "Already active. The plan has been committed once already."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/cost/": {
+            "get": {
+                "operationId": "v1_projects_cost_retrieve",
+                "description": "Return the project's cost facts. Pure read, recomputed on every GET.",
+                "summary": "Project cost: budget, actual cost, earned value",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectCost"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -39079,6 +39141,123 @@
                 "summary": "Retrieve assignment"
             }
         },
+        "/api/v1/resources/{id}/rate/": {
+            "post": {
+                "operationId": "v1_resources_rate_create",
+                "description": "Preview (``dry_run: true``, the default) or save a resource's rate (ADR-1324 §5).\n\nOne endpoint for both so the preview a workspace admin approves is the re-cost\nthe save produces — same function, the proposed rate passed as an override.\nChanging a rate re-costs every past time entry for the resource: there is one\ncurrent rate, with no history. Saving writes a ``resource_rate_changed`` audit\nrow. Workspace ADMIN+, human session only.",
+                "summary": "Preview or set a resource's hourly cost rate",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this resource.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "resources"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceRateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceRateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceRateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ResourceRateResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "Resource not found."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/resources/{id}/restore/": {
             "post": {
                 "operationId": "v1_resources_restore_create",
@@ -54890,6 +55069,88 @@
                 "description": "* `board` - Board\n* `schedule` - Schedule",
                 "x-trueppm-enum": "open"
             },
+            "CostKpi": {
+                "type": "object",
+                "description": "``{available, value | reason}`` for one cost KPI (ADR-1324 §3).",
+                "properties": {
+                    "available": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "value": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "cost_variance: a decimal string in the workspace currency. budget_utilization: a number, 1.0 = whole budget spent."
+                    },
+                    "reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpiReasonEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Why there is no value: no_budget, missing_rates, or cost_restricted.\n\n* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted"
+                    }
+                },
+                "required": [
+                    "available",
+                    "reason",
+                    "value"
+                ]
+            },
+            "CostKpiReasonEnum": {
+                "enum": [
+                    "no_budget",
+                    "missing_rates",
+                    "cost_restricted"
+                ],
+                "type": "string",
+                "description": "* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted",
+                "x-trueppm-enum": "open"
+            },
+            "CostLine": {
+                "type": "object",
+                "description": "One person's hours x rate on this project; ``cost`` is null when unrated.",
+                "properties": {
+                    "resource_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "hours": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "cost": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "cost",
+                    "hours",
+                    "name",
+                    "rate",
+                    "resource_id"
+                ]
+            },
             "CredentialSummary": {
                 "type": "object",
                 "description": "One row per provider in the list response.\n\nSurfaces:\n- ``provider`` (machine key) and ``name`` (human label) for the UI header\n- ``exists`` — drives the Connected / Not connected pill\n- ``base_url`` for self-hosted users\n- ``created_at`` / ``updated_at`` / ``last_used_at`` for the audit trail\n- ``expires_at`` for the \"expires in X days\" hint\n- ``requires_credential`` so the UI can hide the Connect button for the\n  ``generic`` provider when no PAT is needed\n\nNotably absent: any field derived from ``secret_ciphertext``.",
@@ -59095,6 +59356,32 @@
                 "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert",
                 "x-trueppm-enum": "open"
             },
+            "MissingRate": {
+                "type": "object",
+                "description": "A person in scope who has no rate — named so the PM can fix it, never priced.",
+                "properties": {
+                    "resource_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "user_id": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "name",
+                    "resource_id",
+                    "user_id"
+                ]
+            },
             "ModeEnum": {
                 "enum": [
                     "export",
@@ -63130,6 +63417,12 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "budget": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true
                     }
                 }
             },
@@ -64285,6 +64578,12 @@
                                 "maxLength": 0
                             }
                         ]
+                    },
+                    "currency": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "ISO 4217 code every cost amount (rates, budgets, actual cost) is shown in. A label only: there is no currency conversion, so changing it re-labels existing amounts and converts nothing.",
+                        "maxLength": 3
                     }
                 }
             },
@@ -66340,6 +66639,12 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "policy_unavailable_reason": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Why the chosen policy fell back to average, or null when it was honored. cost_restricted: weighted_by_budget is applied only for a caller who may see every contributing project's budget (program Admin+ and project Admin+ on each). no_budget: that caller's program has a project with no budget."
+                    },
                     "project_count": {
                         "type": "integer",
                         "readOnly": true
@@ -66360,6 +66665,7 @@
                     "aggregation_policy",
                     "kpis",
                     "policy_available",
+                    "policy_unavailable_reason",
                     "program_health",
                     "project_count"
                 ]
@@ -66384,7 +66690,7 @@
                         "additionalProperties": {
                             "type": "string"
                         },
-                        "description": "KPI identifier → stable machine reason it cannot produce a value yet (e.g. no_cost_data, no_montecarlo_store). Same reason strings the /rollup/ response returns for a deferred KPI. Empty once every KPI has a backing source.",
+                        "description": "KPI identifier → stable machine reason it cannot produce a value yet (e.g. no_montecarlo_store). Same reason strings the /rollup/ response returns for a deferred KPI. Empty once every KPI has a backing source.",
                         "readOnly": true
                     }
                 },
@@ -66408,15 +66714,27 @@
                     },
                     "unit": {
                         "type": "string",
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "calendar_days for the two day-variance KPIs; the workspace ISO-4217 currency code for cost_variance (whose value is a decimal string); ratio for budget_utilization (1.0 = whole budget spent)."
                     },
                     "reason": {
                         "type": "string",
+                        "readOnly": true,
+                        "description": "Why the KPI has no value: no_montecarlo_store (not built yet), no_budget (a contributing project has no budget), missing_rates (someone in scope has no rate), or cost_restricted (the caller is not program Admin+ and project Admin+ on every contributing project, so may not see cost). ADR-1324."
+                    },
+                    "projects_without_budget": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "missing_rate_count": {
+                        "type": "integer",
                         "readOnly": true
                     }
                 },
                 "required": [
                     "available",
+                    "missing_rate_count",
+                    "projects_without_budget",
                     "reason",
                     "unit",
                     "value"
@@ -67155,6 +67473,12 @@
                         "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0171). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
                         "readOnly": true
                     },
+                    "budget": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
                     "open_task_count": {
                         "type": "integer",
                         "nullable": true,
@@ -67824,6 +68148,134 @@
                     "scope"
                 ]
             },
+            "ProjectCost": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/projects/{id}/cost/`` (ADR-1324 §6).\n\nAmounts are decimal strings in ``currency`` (one workspace currency, no FX).\n``actual`` sums each line's rounded ``cost``, so the lines add up to it exactly.\n``cost_computable`` is false when anyone in scope lacks a rate, in which case\n``actual`` is the priced part only and the KPIs report ``missing_rates``.",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "currency": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "budget": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "actual": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "percent_complete": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "earned_value": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "cost_variance": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpi"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "budget_utilization": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CostKpi"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "cost_computable": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "missing_rate_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "missing_rate_resources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MissingRate"
+                        },
+                        "readOnly": true
+                    },
+                    "logged_hours": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "priced_hours": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "unpriced_hours": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CostLine"
+                        },
+                        "readOnly": true
+                    },
+                    "definitions": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "actual",
+                    "as_of",
+                    "budget",
+                    "budget_utilization",
+                    "cost_computable",
+                    "cost_variance",
+                    "currency",
+                    "definitions",
+                    "earned_value",
+                    "lines",
+                    "logged_hours",
+                    "missing_rate_count",
+                    "missing_rate_resources",
+                    "percent_complete",
+                    "priced_hours",
+                    "project_id",
+                    "unpriced_hours"
+                ]
+            },
             "ProjectCustomField": {
                 "type": "object",
                 "description": "Read/write serializer for project custom field definitions (#521).\n\nEnforces:\n- per-project case-insensitive name uniqueness (DB-level constraint + a\n  friendlier error here on create);\n- ``options`` non-empty list of unique ``{value, label}`` rows for\n  SINGLE_SELECT / MULTI_SELECT, empty for every other type;\n- ``PROJECT_CUSTOM_FIELD_MAX`` cap per project (32) on create.\n\nField type is immutable after create — switching a select field to text\nwould orphan the option list semantically. Recreate the field instead.",
@@ -68298,6 +68750,12 @@
                         "nullable": true,
                         "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0171). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
                         "readOnly": true
+                    },
+                    "budget": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true
                     },
                     "open_task_count": {
                         "type": "integer",
@@ -69947,6 +70405,12 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "budget": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -71533,6 +71997,14 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$"
                     },
+                    "cost_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Hourly cost in the workspace currency, or null when unrated. Present only for workspace Admins; set it with POST /resources/{id}/rate/."
+                    },
                     "skills": {
                         "type": "array",
                         "items": {
@@ -71605,6 +72077,152 @@
                     "task",
                     "task_name",
                     "units"
+                ]
+            },
+            "ResourceRateProject": {
+                "type": "object",
+                "description": "How one project's actual cost moves under the new rate.",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "hours": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "actual_before": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "actual_after": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "delta": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "cost_computable_before": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "cost_computable_after": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "actual_after",
+                    "actual_before",
+                    "cost_computable_after",
+                    "cost_computable_before",
+                    "delta",
+                    "hours",
+                    "name",
+                    "project_id"
+                ]
+            },
+            "ResourceRateRequest": {
+                "type": "object",
+                "description": "Body for ``POST /resources/{id}/rate/`` (ADR-1324 §5).",
+                "properties": {
+                    "cost_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "nullable": true,
+                        "description": "New hourly rate in the workspace currency; null clears it (unrated)."
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "true (default) previews the re-cost without saving; false saves the rate. Both return the same shape, computed the same way."
+                    }
+                },
+                "required": [
+                    "cost_rate"
+                ]
+            },
+            "ResourceRateResponse": {
+                "type": "object",
+                "description": "Response for ``POST /resources/{id}/rate/`` — identical for preview and save.\n\nChanging a rate re-costs every past time entry for the resource (one current rate,\nno history), so ``projects`` lists each project whose actual cost moves. The\npreview's numbers equal the save's by construction (ADR-1324 §5).",
+                "properties": {
+                    "resource_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "currency": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "cost_rate_before": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "cost_rate_after": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ResourceRateProject"
+                        },
+                        "readOnly": true
+                    },
+                    "total_hours": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "total_delta": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "cost_rate_after",
+                    "cost_rate_before",
+                    "currency",
+                    "dry_run",
+                    "projects",
+                    "resource_id",
+                    "total_delta",
+                    "total_hours"
                 ]
             },
             "ResourceRequest": {
@@ -82565,6 +83183,11 @@
                                 "maxLength": 0
                             }
                         ]
+                    },
+                    "currency": {
+                        "type": "string",
+                        "description": "ISO 4217 code every cost amount (rates, budgets, actual cost) is shown in. A label only: there is no currency conversion, so changing it re-labels existing amounts and converts nothing.",
+                        "maxLength": 3
                     },
                     "logo_url": {
                         "type": "string",

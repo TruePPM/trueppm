@@ -277,6 +277,17 @@ setting changes on your side. If a program enabled one of these before they were
 locked, the switch stays available to turn **off** so you can clear it, and the
 overview shows a dash with the reason instead of a number.
 
+:::note[Ships in 0.5]
+When 0.5 lands, **Cost variance (CV)** and **Budget utilization** are no longer
+locked: they compute from the [cost model](/features/cost-model/) (project
+budgets and resource rates), and only **P80 date** stays locked. A cost KPI
+that cannot compute names what is missing instead (a project with no budget,
+or people with no rate), and shows a value only to someone who is Program
+Manager or above on the program **and** Project Manager or above on every
+project in it. **Budget-weighted** then weights each project by its budget,
+falling back to the average when any project has none.
+:::
+
 ## Cadence
 
 The **Cadence** section defines the program's recurring ceremonies — meeting

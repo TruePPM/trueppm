@@ -3,12 +3,15 @@
 Covers:
 - RBAC: any program member can GET the rollup; non-members 404; anon 401.
 - Empty program → project_count 0, program_health "unknown", zero/None KPIs.
-- Only enabled KPIs appear; deferred KPIs (cost_variance, budget_utilization,
-  p80_completion) return {available: false, reason}.
+- Only enabled KPIs appear; the deferred KPI (p80_completion) returns
+  {available: false, reason}; cost KPIs are cost_restricted for a program Member
+  (ADR-1324 — their computation is covered in test_cost.py).
 - Count/score KPIs (critical_tasks, at_risk_tasks, risk_score) roll up as
   program totals regardless of policy.
 - Health/variance KPIs honor the policy: worst vs average reduce differently.
-- weighted_by_budget falls back to average and flags policy_available: false.
+- weighted_by_budget with no budgets falls back to average and flags
+  policy_available: false; a caller below the cost floor sees
+  policy_unavailable_reason: cost_restricted (ADR-1324 §7).
 """
 
 from __future__ import annotations
@@ -181,7 +184,9 @@ def test_only_enabled_kpis_appear(member: object, program: Program) -> None:
 
 
 @pytest.mark.django_db
-def test_deferred_kpis_are_unavailable_with_reason(member: object, program: Program) -> None:
+def test_deferred_and_restricted_kpis_are_unavailable_with_reason(
+    member: object, program: Program
+) -> None:
     _configure(
         program,
         [
@@ -192,8 +197,9 @@ def test_deferred_kpis_are_unavailable_with_reason(member: object, program: Prog
         AggregationPolicy.WORST.value,
     )
     kpis = _client(member).get(_url(program)).data["kpis"]
-    assert kpis["cost_variance"] == {"available": False, "reason": "no_cost_data"}
-    assert kpis["budget_utilization"] == {"available": False, "reason": "no_cost_data"}
+    # A program Member never receives a cost value (ADR-1324 §4).
+    assert kpis["cost_variance"] == {"available": False, "reason": "cost_restricted"}
+    assert kpis["budget_utilization"] == {"available": False, "reason": "cost_restricted"}
     assert kpis["p80_completion"] == {"available": False, "reason": "no_montecarlo_store"}
 
 
@@ -573,6 +579,9 @@ def test_weighted_by_budget_falls_back_to_average(
     # computed via the AVERAGE fallback.
     assert data["aggregation_policy"] == AggregationPolicy.WEIGHTED_BY_BUDGET.value
     assert data["policy_available"] is False
+    # A program Member is below the cost floor (ADR-1324 §7), so the reason is the
+    # non-revealing one — it would read the same if every project had a budget.
+    assert data["policy_unavailable_reason"] == "cost_restricted"
     assert data["kpis"]["baseline_variance"]["value"] == 6.0  # average fallback
 
 

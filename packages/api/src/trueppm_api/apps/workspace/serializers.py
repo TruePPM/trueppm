@@ -182,6 +182,9 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # public tracker (never stored, so an upgrade can move the default).
             "feedback_enabled",
             "feedback_url",
+            # The one currency every cost amount is in (ADR-1324, #754). A label, not
+            # a converter: there is no FX, so changing it converts nothing.
+            "currency",
             # Public serve-endpoint URL for the uploaded workspace logo (ADR-0149,
             # #969), or null when unset. Read-only; mutated via /workspace/logo/.
             "logo_url",
@@ -198,6 +201,13 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # AlterField for a documentation change, while redeclaring drops the
             # ModelSerializer-derived attributes. This is the only published description
             # of what the field does — the schema showed a bare 64-char string (#3377).
+            "currency": {
+                "help_text": (
+                    "ISO 4217 code every cost amount (rates, budgets, actual cost) is "
+                    "shown in. A label only: there is no currency conversion, so "
+                    "changing it re-labels existing amounts and converts nothing."
+                )
+            },
             "timezone": {
                 "help_text": (
                     "IANA timezone identifier, e.g. 'Asia/Tokyo'. No 'auto' sentinel — "
@@ -215,6 +225,18 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             return None
         version = int(obj.updated_at.timestamp()) if obj.updated_at else 0
         return f"/api/v1/workspace/logo/?v={version}"
+
+    def validate_currency(self, value: str) -> str:
+        """Accept an ISO-4217-shaped code (three letters), stored upper-case (ADR-1324).
+
+        Shape only, not membership in the ISO list: the code is a display label for
+        amounts (there is no FX), so an install using a currency newer than the list
+        this build shipped with must not be refused.
+        """
+        code = (value or "").strip().upper()
+        if len(code) != 3 or not code.isascii() or not code.isalpha():
+            raise serializers.ValidationError("Use a three-letter ISO 4217 code, e.g. USD or EUR.")
+        return code
 
     def validate_timezone(self, value: str) -> str:
         """Reject a non-IANA zone — this field is load-bearing as of #3377.

@@ -7,11 +7,15 @@ cross-program aggregation is Enterprise (ADR-0070).
 
 Design (ADR-0088):
 
-- **7 KPIs are computable today.** ``cost_variance`` / ``budget_utilization`` are
-  deferred to the cost/EVM model (#754) and ``p80_completion`` to a persistent
-  Monte Carlo store (#753); those return ``{"available": False, "reason": ...}``
-  so the UI can explain *why* a toggled KPI shows nothing rather than fabricating
-  a zero.
+- **9 KPIs are computable.** ``p80_completion`` is deferred to a persistent Monte
+  Carlo store (#753) and returns ``{"available": False, "reason": ...}`` so the UI can
+  explain *why* a toggled KPI shows nothing rather than fabricating a zero.
+- **Cost KPIs (ADR-1324, #754).** ``cost_variance`` / ``budget_utilization`` come from
+  :func:`~trueppm_api.apps.projects.cost.project_cost_facts` as program totals (Σ CV,
+  ΣAC / ΣBAC). They are unavailable with an actionable reason (``no_budget`` /
+  ``missing_rates``) when any contributing project cannot price its cost, and
+  ``cost_restricted`` for a caller below program Admin — a Member or Viewer never
+  receives a cost value.
 - **The aggregation policy applies where it is meaningful.** ``worst`` / ``average``
   / ``task_weighted`` govern the health bands (``schedule_health``,
   ``milestone_health``), the day-variances (``baseline_variance``,
@@ -19,9 +23,12 @@ Design (ADR-0088):
   (``critical_tasks``, ``at_risk_tasks``) and risk exposure (``risk_score``) roll
   up as program **totals** regardless of policy — the sum is the only PM-useful
   number for an additive metric.
-- ``weighted_by_budget`` has no weight to use until #754, so it falls back to
-  ``average`` and the response flags ``policy_available: False``; the rollup is
-  never blanked just because the chosen policy cannot be honored.
+- ``weighted_by_budget`` weights each project by ``Project.budget`` (ADR-1324). When
+  any contributing project has no budget it falls back to ``average`` and the response
+  flags ``policy_available: False`` with ``policy_unavailable_reason: "no_budget"``;
+  the rollup is never blanked just because the chosen policy cannot be honored. A
+  caller who may not see every project's budget gets the average with
+  ``"cost_restricted"`` instead — the weighting itself would leak budget ratios.
 
 Implemented with a fixed, small number of grouped (``values().annotate()``)
 queries across the program's projects — never a per-project ``ProjectOverviewView``
@@ -59,14 +66,15 @@ from trueppm_api.apps.projects.models import (
 # today?" and is published on the rollup-config endpoint as ``unavailable_kpis``
 # (#2404). It has to be a *server* fact rather than a hard-coded client list:
 # the settings picker offered all ten toggles as if they were live, so enabling
-# one of these three saved a config that could never render — a control that
-# lies. When #753 (Monte Carlo store) and #754 (cost/EVM model) land, deleting
-# the corresponding entry here is the only change needed to light the toggle up.
+# one of these saved a config that could never render — a control that lies.
+# The two cost KPIs left this map with the cost model (#754, ADR-1324; #3426):
+# they now compute, or name the per-project data that is missing. When #753
+# (Monte Carlo store) lands, deleting the last entry lights that toggle up too.
 DEFERRED_KPI_REASONS = {
-    RollupKpi.COST_VARIANCE.value: "no_cost_data",
-    RollupKpi.BUDGET_UTILIZATION.value: "no_cost_data",
     RollupKpi.P80_COMPLETION.value: "no_montecarlo_store",
 }
+
+_COST_KPIS = frozenset({RollupKpi.COST_VARIANCE.value, RollupKpi.BUDGET_UTILIZATION.value})
 
 # Active task statuses (exclude COMPLETE) — "open work" for count KPIs. Mirrors
 # the at-risk/critical definitions in ProjectViewSet.status_summary so the
@@ -84,6 +92,7 @@ def compute_program_rollup(
     program: Program,
     *,
     exclude_project_ids: Collection[Any] | None = None,
+    cost_viewer: Any = None,
 ) -> dict[str, Any]:
     """Compute the rolled-up KPI block for a program's overview (ADR-0088).
 
@@ -93,7 +102,19 @@ def compute_program_rollup(
     entry is either ``{"available": True, "value": ..., ["unit": ...]}`` (value
     may be ``None`` when a built KPI has no data yet, e.g. no active baseline) or
     ``{"available": False, "reason": ...}`` for a KPI whose per-project source is
-    not built yet (#753/#754).
+    not built yet (#753) or cannot be computed from the program's data.
+
+    ``cost_viewer`` is the user the cost KPIs are computed for, passed only once the
+    caller has established they are program Admin+ (ADR-1324 §4). A value is returned
+    only if that user is ALSO project Admin+ on every contributing project: program
+    roles do not cascade to projects, and a program total over projects the caller
+    cannot see the budget of leaks it (one project: BAC = CV / (pc − util)). It
+    defaults to ``None`` — fail closed — so a caller that forgets to decide gets
+    ``cost_restricted`` entries, never a cost value. The same verdict gates
+    ``weighted_by_budget``: a budget-weighted mean reveals the ratio of budgets, so a
+    caller below it gets the average with ``policy_unavailable_reason:
+    "cost_restricted"`` (see :func:`_policy_weights`). The weekly digest passes no
+    ``cost_viewer``, so its health dot for a budget-weighted program is the average.
 
     Pure read: deterministic for a given DB state, no writes, safe to call on
     every GET.
@@ -117,18 +138,16 @@ def compute_program_rollup(
         project_qs = project_qs.exclude(pk__in=exclude_project_ids)
     project_ids = list(project_qs.values_list("id", flat=True))
 
-    # weighted_by_budget cannot be honored until the cost model (#754) lands, so
-    # it degrades to AVERAGE and the caller flags policy_available=False.
-    effective_policy = policy
-    policy_available = True
-    if policy == AggregationPolicy.WEIGHTED_BY_BUDGET.value:
-        effective_policy = AggregationPolicy.AVERAGE.value
-        policy_available = False
-
-    # Per-project committed task counts — the weight for task_weighted. Computed
-    # once and shared by every policy-governed KPI. Excludes BACKLOG (uncommitted)
-    # so a large grooming backlog does not skew the weight.
-    task_weights = _committed_task_counts(project_ids)
+    # One verdict for both budget-derived outputs (ADR-1324 §4/§7): the cost KPIs AND
+    # the budget weighting. Only checked when one of them is in play.
+    sees_cost = (
+        bool(_COST_KPIS.intersection(enabled))
+        or policy == AggregationPolicy.WEIGHTED_BY_BUDGET.value
+    ) and _sees_cost_of_every_project(cost_viewer, project_ids)
+    effective_policy, policy_available, policy_unavailable_reason, task_weights = _policy_weights(
+        policy, project_ids, sees_cost=sees_cost
+    )
+    cost_kpis = _cost_kpis(enabled, project_ids, sees_cost=sees_cost)
 
     # schedule_health per project is always needed: it is both a KPI and the
     # source of the headline program health dot (drives Program.health=AUTO).
@@ -141,6 +160,8 @@ def compute_program_rollup(
     for kpi in enabled:
         if kpi in DEFERRED_KPI_REASONS:
             kpis[kpi] = {"available": False, "reason": DEFERRED_KPI_REASONS[kpi]}
+        elif kpi in cost_kpis:
+            kpis[kpi] = cost_kpis[kpi]
         elif kpi == RollupKpi.SCHEDULE_HEALTH.value:
             kpis[kpi] = {
                 "available": True,
@@ -187,10 +208,89 @@ def compute_program_rollup(
     return {
         "aggregation_policy": policy,
         "policy_available": policy_available,
+        "policy_unavailable_reason": policy_unavailable_reason,
         "project_count": len(project_ids),
         "program_health": program_health,
         "kpis": kpis,
     }
+
+
+def _policy_weights(
+    policy: str, project_ids: list[Any], *, sees_cost: bool
+) -> tuple[str, bool, str | None, dict[Any, float]]:
+    """Resolve ``(effective_policy, policy_available, reason, weights)`` for the reduce.
+
+    ``weighted_by_budget`` weights by ``Project.budget`` (ADR-1324). Every contributing
+    project needs one — weighting the budgeted subset would silently drop the rest
+    from the program health dot — so a single missing budget degrades to AVERAGE with
+    ``no_budget``. An empty program has nothing to weight, so the policy is trivially
+    honored. Every other policy weights by committed (non-BACKLOG) task counts, which
+    only ``task_weighted`` reads; a large grooming backlog does not skew it.
+
+    A caller who may not see every contributing project's budget (``sees_cost``
+    False) gets AVERAGE with ``cost_restricted`` — checked BEFORE the budgets are
+    read, so the reason is the same whether or not any budget is set. A budget-
+    weighted mean leaks the ratio of budgets (b1/b2 = (v − v2)/(v1 − v)), so with one
+    budget known (a PM of one project) it yields the other; and ``no_budget`` would
+    tell any member whether every project has a budget.
+    """
+    if policy == AggregationPolicy.WEIGHTED_BY_BUDGET.value:
+        if not sees_cost:
+            from trueppm_api.apps.projects.cost import REASON_COST_RESTRICTED
+
+            return AggregationPolicy.AVERAGE.value, False, REASON_COST_RESTRICTED, {}
+        budgets = dict(Project.objects.filter(id__in=project_ids).values_list("id", "budget"))
+        if all((budgets.get(pid) or 0) > 0 for pid in project_ids):
+            return policy, True, None, {pid: float(budgets[pid] or 0) for pid in project_ids}
+        return AggregationPolicy.AVERAGE.value, False, "no_budget", {}
+    counts = _committed_task_counts(project_ids)
+    return policy, True, None, {pid: float(c) for pid, c in counts.items()}
+
+
+def _sees_cost_of_every_project(user: Any, project_ids: list[Any]) -> bool:
+    """``user`` holds live project ADMIN+ on every id in ``project_ids`` (ADR-1324 §4).
+
+    The project half of the rollup's cost gate. The non-request twin of
+    ``ProjectSerializer._caller_sees_cost``: live, non-revoked membership on a
+    non-trashed project (the ``live_member_project_ids`` floor), at ADMIN or above.
+    One query. An empty program is vacuously visible — its totals are null.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if not project_ids:
+        return True
+    admin_of = set(
+        ProjectMembership.live()
+        .filter(
+            user=user,
+            project_id__in=project_ids,
+            project__is_deleted=False,
+            role__gte=Role.ADMIN,
+        )
+        .values_list("project_id", flat=True)
+    )
+    return admin_of >= set(project_ids)
+
+
+def _cost_kpis(
+    enabled: list[str], project_ids: list[Any], *, sees_cost: bool
+) -> dict[str, dict[str, Any]]:
+    """The two cost KPI entries, computed only when one is enabled (ADR-1324 §3–§4)."""
+    if not _COST_KPIS.intersection(enabled):
+        return {}
+    from trueppm_api.apps.projects.cost import (
+        REASON_COST_RESTRICTED,
+        program_cost_kpis,
+        project_cost_facts,
+    )
+
+    if not sees_cost:
+        return {k: {"available": False, "reason": REASON_COST_RESTRICTED} for k in _COST_KPIS}
+    from trueppm_api.apps.workspace.models import Workspace
+
+    return program_cost_kpis(project_cost_facts(project_ids).values(), Workspace.load().currency)
 
 
 def top_contributing_project(program: Program) -> dict[str, Any] | None:
@@ -837,8 +937,13 @@ def _risk_score_total(project_ids: list[Any]) -> int:
 # ---------------------------------------------------------------------------
 
 
+_WEIGHTED_POLICIES = frozenset(
+    {AggregationPolicy.TASK_WEIGHTED.value, AggregationPolicy.WEIGHTED_BY_BUDGET.value}
+)
+
+
 def _reduce_health(
-    bands: list[str], policy: str, task_weights: dict[Any, int], project_ids: list[Any]
+    bands: list[str], policy: str, task_weights: dict[Any, float], project_ids: list[Any]
 ) -> str:
     """Combine per-project health bands into one band under the policy.
 
@@ -846,8 +951,10 @@ def _reduce_health(
     not make the program look worse). Returns ``unknown`` when every project is
     unknown or there are no projects.
 
-    Note: task-weighting health requires aligning weights to bands positionally,
-    so the caller passes bands in ``project_ids`` order for ``task_weighted``.
+    Note: weighting health requires aligning weights to bands positionally, so the
+    caller passes bands in ``project_ids`` order. ``task_weights`` carries whichever
+    weight the policy uses: committed task counts for ``task_weighted``, budgets for
+    ``weighted_by_budget`` (ADR-1324).
     """
     ordinals = [_HEALTH_ORDINAL[b] for b in bands if b in _HEALTH_ORDINAL]
     if not ordinals:
@@ -855,9 +962,9 @@ def _reduce_health(
 
     if policy == AggregationPolicy.WORST.value:
         return _ORDINAL_TO_HEALTH[min(ordinals)]
-    if policy == AggregationPolicy.TASK_WEIGHTED.value:
-        # Weight each project's band by its committed task count. bands is in
-        # project_ids order; pair them and skip unknowns.
+    if policy in _WEIGHTED_POLICIES:
+        # Weight each project's band by its weight. bands is in project_ids order;
+        # pair them and skip unknowns.
         weighted_sum = 0.0
         weight_total = 0.0
         for pid, band in zip(project_ids, bands, strict=False):
@@ -869,17 +976,18 @@ def _reduce_health(
         if weight_total == 0:
             return _ORDINAL_TO_HEALTH[round(sum(ordinals) / len(ordinals))]
         return _ORDINAL_TO_HEALTH[round(weighted_sum / weight_total)]
-    # AVERAGE (and the weighted_by_budget fallback).
+    # AVERAGE (and the weighted_by_budget no-budget fallback).
     return _ORDINAL_TO_HEALTH[round(sum(ordinals) / len(ordinals))]
 
 
 def _reduce_variance(
-    by_project: dict[Any, float], policy: str, task_weights: dict[Any, int]
+    by_project: dict[Any, float], policy: str, task_weights: dict[Any, float]
 ) -> float | None:
     """Combine per-project day-variances under the policy.
 
     ``worst`` = the largest slip (the project dragging the program). ``average``
-    = arithmetic mean. ``task_weighted`` = mean weighted by committed task count.
+    = arithmetic mean. ``task_weighted`` = mean weighted by committed task count;
+    ``weighted_by_budget`` = mean weighted by ``Project.budget``.
     Returns ``None`` when no project has a value (e.g. no active baselines), which
     the serializer renders as "—".
     """
@@ -889,7 +997,7 @@ def _reduce_variance(
 
     if policy == AggregationPolicy.WORST.value:
         return round(max(values), 1)
-    if policy == AggregationPolicy.TASK_WEIGHTED.value:
+    if policy in _WEIGHTED_POLICIES:
         weighted_sum = 0.0
         weight_total = 0.0
         for pid, val in by_project.items():
@@ -899,5 +1007,5 @@ def _reduce_variance(
         if weight_total == 0:
             return round(sum(values) / len(values), 1)
         return round(weighted_sum / weight_total, 1)
-    # AVERAGE (and the weighted_by_budget fallback).
+    # AVERAGE (and the weighted_by_budget no-budget fallback).
     return round(sum(values) / len(values), 1)

@@ -22,17 +22,30 @@ import { useProgramId } from '@/hooks/useProgramId';
 export type HealthBand = SharedHealthBand | 'unknown';
 type AggregationPolicy = 'worst' | 'average' | 'weighted_by_budget' | 'task_weighted';
 
-/** A built KPI: value present (may be null when there is no data yet). */
+/**
+ * A built KPI: value present (may be null when there is no data yet). `unit` is
+ * `calendar_days` for the day variances, the workspace ISO-4217 code for
+ * `cost_variance` (whose value is a decimal string), and `ratio` for
+ * `budget_utilization` (ADR-1324).
+ */
 interface AvailableKpi {
   available: true;
   value: string | number | null;
-  unit?: 'calendar_days';
+  unit?: string;
+  projects_without_budget?: number;
+  missing_rate_count?: number;
 }
 
-/** A deferred KPI: no per-project source yet (#753/#754). */
+/**
+ * A KPI with no value: not built yet (#753), missing per-project cost data
+ * (`no_budget` / `missing_rates`), or hidden from a caller below program Admin
+ * (`cost_restricted`, ADR-1324 §4).
+ */
 interface UnavailableKpi {
   available: false;
-  reason: 'no_cost_data' | 'no_montecarlo_store';
+  reason: 'no_montecarlo_store' | 'no_budget' | 'missing_rates' | 'cost_restricted';
+  projects_without_budget?: number;
+  missing_rate_count?: number;
 }
 
 type RollupKpiEntry = AvailableKpi | UnavailableKpi;
@@ -40,6 +53,12 @@ type RollupKpiEntry = AvailableKpi | UnavailableKpi;
 export interface ProgramRollup {
   aggregation_policy: AggregationPolicy;
   policy_available: boolean;
+  /**
+   * Why the policy fell back to average. `no_budget`: a project has no budget.
+   * `cost_restricted`: the caller may not see every project's budget, so budget
+   * weighting is not applied for them (ADR-1324 §7); the copy stays generic.
+   */
+  policy_unavailable_reason?: 'no_budget' | 'cost_restricted' | null;
   project_count: number;
   program_health: HealthBand;
   kpis: Record<string, RollupKpiEntry>;
@@ -89,9 +108,36 @@ const POLICY_LABEL: Record<AggregationPolicy, string> = {
 // Plain-language explanation for a deferred KPI, keyed by its machine reason so
 // the PM understands why a KPI they enabled is blank rather than seeing nothing.
 const DEFERRED_REASON_LABEL: Record<UnavailableKpi['reason'], string> = {
-  no_cost_data: 'Needs cost data',
   no_montecarlo_store: 'Needs a saved Monte Carlo run',
+  no_budget: 'Needs a budget on every project',
+  missing_rates: 'Needs a rate for everyone on the project',
+  cost_restricted: 'Restricted to managers of every project',
 };
+
+/** The reason line, naming how much is missing when the server says (ADR-1324 §3). */
+function unavailableSub(entry: UnavailableKpi): string {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  if (entry.reason === 'no_budget' && entry.projects_without_budget) {
+    return `${plural(entry.projects_without_budget, 'project has', 'projects have')} no budget`;
+  }
+  if (entry.reason === 'missing_rates' && entry.missing_rate_count) {
+    return `${plural(entry.missing_rate_count, 'person has', 'people have')} no rate`;
+  }
+  return DEFERRED_REASON_LABEL[entry.reason] ?? 'Not available';
+}
+
+/** A decimal-string amount in an ISO-4217 currency; falls back to the bare number. */
+function formatMoney(value: number, currency: string | undefined): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency ?? 'USD',
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return value.toFixed(0);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -230,7 +276,7 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       key,
       label,
       value: '—',
-      sub: DEFERRED_REASON_LABEL[entry.reason],
+      sub: unavailableSub(entry),
       variant: 'neutral',
       muted: true,
     };
@@ -244,6 +290,31 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
   if (VARIANCE_KPIS.has(key)) {
     const { display, variant } = formatVariance(entry.value as number | null);
     return { key, label, value: display, sub: 'vs baseline', variant, muted: false };
+  }
+
+  if (key === 'cost_variance') {
+    // Negative = over budget (EV − AC, ADR-1324).
+    const amount = entry.value === null ? null : Number(entry.value);
+    return {
+      key,
+      label,
+      value: amount === null ? '—' : formatMoney(amount, entry.unit),
+      sub: amount === null ? undefined : amount < 0 ? 'over budget' : 'under budget',
+      variant: amount !== null && amount < 0 ? 'at-risk' : 'neutral',
+      muted: false,
+    };
+  }
+
+  if (key === 'budget_utilization') {
+    const ratio = entry.value as number | null;
+    return {
+      key,
+      label,
+      value: ratio === null ? '—' : `${Math.round(ratio * 100)}%`,
+      sub: ratio === null ? undefined : 'of budget spent',
+      variant: ratio !== null && ratio > 1 ? 'at-risk' : 'neutral',
+      muted: false,
+    };
   }
 
   // Counts / score: a number; > 0 leans at-risk for the task buckets.
@@ -348,7 +419,9 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
       {/* Rule 169 (#3477): readable prose uses `-secondary`, never `-disabled`. */}
       {!rollup.policy_available && (
         <p className="text-xs text-neutral-text-secondary">
-          Budget weighting is unavailable — showing the average instead.
+          {rollup.policy_unavailable_reason === 'no_budget'
+            ? 'Budget weighting needs a budget on every project — showing the average instead.'
+            : 'Budget weighting is unavailable — showing the average instead.'}
         </p>
       )}
     </div>

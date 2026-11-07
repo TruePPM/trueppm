@@ -29,9 +29,10 @@ export type AggregationPolicy =
 /**
  * Stable machine reasons a KPI has no backing data source yet. Mirrors the
  * server's `DEFERRED_KPI_REASONS` and the `reason` returned by `GET /rollup/`
- * for a deferred KPI.
+ * for a deferred KPI. The cost KPIs left this set with the cost model (#754,
+ * #3426): they compute, and a per-project gap is reported on the rollup itself.
  */
-export type UnavailableKpiReason = 'no_cost_data' | 'no_montecarlo_store';
+export type UnavailableKpiReason = 'no_montecarlo_store';
 
 export interface ProgramRollupConfig {
   enabled_kpis: RollupKpi[];

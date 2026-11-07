@@ -1002,6 +1002,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "program",
             "member_count",
             "percent_complete",
+            # Budget at completion (ADR-1324, #754). Confidential: present in the
+            # payload only for a project Admin+ caller (to_representation) and writable
+            # only by one (validate) — a Member or Viewer never receives it.
+            "budget",
             "open_task_count",
             "is_pinned",
             "overdue_count",
@@ -1405,6 +1409,39 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         today it is is precisely the thing that was ambiguous (#3075).
         """
         return timezone.localdate().isoformat()
+
+    def _caller_sees_cost(self, obj: Project) -> bool:
+        """Whether the caller holds project ADMIN+ (Project Manager) on ``obj`` (ADR-1324 §4).
+
+        Prefers the viewset's ``_my_role`` annotation (one scalar per row, no N+1) and
+        falls back to the request-scoped role lookup when it is absent, like
+        ``can_author``. Fails closed without a request. No workspace-admin bypass:
+        project content has none (``live_member_project_ids``).
+        """
+        # ``hasattr``, not ``is None``: on an annotated list a NULL ``_my_role`` means
+        # "no membership" and is final. Treating it as "annotation absent" would run
+        # the per-row fallback query for every non-member row (perf-check, #754).
+        role = getattr(obj, "_my_role", None)
+        if not hasattr(obj, "_my_role"):
+            request = self.context.get("request")
+            if request is None or not getattr(request.user, "is_authenticated", False):
+                return False
+            from trueppm_api.apps.access.permissions import _membership_role
+
+            role = _membership_role(request, obj.pk)
+        return role is not None and role >= Role.ADMIN
+
+    def to_representation(self, instance: Project) -> dict[str, Any]:
+        """Drop ``budget`` below project ADMIN (ADR-1324 §4, leak path L3).
+
+        Omitted rather than nulled, so a Member cannot even tell whether a budget is
+        set. Subclasses with their own narrower field list never carry the key, so
+        the check is skipped for them at no cost.
+        """
+        data: dict[str, Any] = super().to_representation(instance)
+        if "budget" in data and not self._caller_sees_cost(instance):
+            data.pop("budget")
+        return data
 
     def get_my_role_label(self, obj: Project) -> str | None:
         """Human-readable label for the caller's role (e.g. "Project Manager").
@@ -2037,6 +2074,16 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         role = _membership_role(request, instance.pk)
         if role is not None and role >= Role.ADMIN:
             return attrs
+
+        # ``budget`` is refused below Admin whether or not the value changes
+        # (ADR-1324 §4, leak path L4). The generic gate below rejects only *changed*
+        # fields, which for a field the Scheduler cannot read is an equality oracle:
+        # PATCH budget=X → 200 when X is right, 400 when wrong, so a binary search
+        # recovers the amount.
+        if "budget" in attrs:
+            raise serializers.ValidationError(
+                {"budget": "You need at least Project Manager role to set the budget."}
+            )
 
         changed_admin_only = sorted(
             field
@@ -3143,7 +3190,7 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
             "additionalProperties": {"type": "string"},
             "description": (
                 "KPI identifier → stable machine reason it cannot produce a value yet "
-                "(e.g. no_cost_data, no_montecarlo_store). Same reason strings the "
+                "(e.g. no_montecarlo_store). Same reason strings the "
                 "/rollup/ response returns for a deferred KPI. Empty once every KPI "
                 "has a backing source."
             ),
@@ -3200,8 +3247,30 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
 
     available = serializers.BooleanField(read_only=True)
     value = serializers.JSONField(read_only=True, required=False, allow_null=True)
-    unit = serializers.CharField(read_only=True, required=False)
-    reason = serializers.CharField(read_only=True, required=False)
+    unit = serializers.CharField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "calendar_days for the two day-variance KPIs; the workspace ISO-4217 "
+            "currency code for cost_variance (whose value is a decimal string); "
+            "ratio for budget_utilization (1.0 = whole budget spent)."
+        ),
+    )
+    reason = serializers.CharField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Why the KPI has no value: no_montecarlo_store (not built yet), "
+            "no_budget (a contributing project has no budget), missing_rates "
+            "(someone in scope has no rate), or cost_restricted (the caller is not "
+            "program Admin+ and project Admin+ on every contributing project, so "
+            "may not see cost). ADR-1324."
+        ),
+    )
+    # Cost-KPI detail (ADR-1324 §3) — present on cost_variance / budget_utilization
+    # whenever the caller may see cost, so a reason names how much is missing.
+    projects_without_budget = serializers.IntegerField(read_only=True, required=False)
+    missing_rate_count = serializers.IntegerField(read_only=True, required=False)
 
 
 class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
@@ -3213,6 +3282,17 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
 
     aggregation_policy = serializers.CharField(read_only=True)
     policy_available = serializers.BooleanField(read_only=True)
+    policy_unavailable_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the chosen policy fell back to average, or null when it was honored. "
+            "cost_restricted: weighted_by_budget is applied only for a caller who may "
+            "see every contributing project's budget (program Admin+ and project "
+            "Admin+ on each). no_budget: that caller's program has a project with no "
+            "budget."
+        ),
+    )
     project_count = serializers.IntegerField(read_only=True)
     program_health = serializers.CharField(read_only=True)
     kpis = serializers.DictField(child=ProgramRollupKpiEntrySerializer(), read_only=True)

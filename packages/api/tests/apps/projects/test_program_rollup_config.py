@@ -312,9 +312,9 @@ def test_get_advertises_unavailable_kpis(owner: object, hybrid_program: Program)
     """
     resp = _client(owner).get(_url(hybrid_program))
     assert resp.status_code == 200
+    # The two cost KPIs left this map with the cost model (#754/#3426, ADR-1324):
+    # they compute, or name the per-project data that is missing.
     assert resp.data["unavailable_kpis"] == {
-        "cost_variance": "no_cost_data",
-        "budget_utilization": "no_cost_data",
         "p80_completion": "no_montecarlo_store",
     }
 

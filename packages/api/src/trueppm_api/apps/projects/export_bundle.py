@@ -102,6 +102,35 @@ def _task_history_reason_gate(
     return gate
 
 
+def _project_history_budget_gate(
+    requester: Any, project_id: Any
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Build a row transform that drops ``budget`` below project ADMIN (ADR-1324, L8).
+
+    ``HistoricalProject`` tracks ``budget`` for audit, and ``.values()`` dumps every
+    column. The project bundle is Admin+-gated already, but the program bundle only
+    requires the requester to be a live *member* of each project — a Viewer there
+    must not read the budget out of the history rows. Evaluated once per project,
+    at build time (not enqueue time), like the membership check itself. A ``None``
+    requester reads nothing.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+
+    allowed = (
+        requester is not None
+        and ProjectMembership.live()
+        .filter(user=requester, project_id=project_id, role__gte=Role.ADMIN)
+        .exists()
+    )
+
+    def gate(row: dict[str, Any]) -> dict[str, Any]:
+        if allowed or "budget" not in row:
+            return row
+        return {k: v for k, v in row.items() if k != "budget"}
+
+    return gate
+
+
 def _add_table(
     tar: tarfile.TarFile,
     name: str,
@@ -168,7 +197,10 @@ def _add_history(
         _task_history_reason_gate(requester, [project_id]),
     )
     counts[f"{count_prefix}history.project"] = _add_table(
-        tar, f"{prefix}history/project.json", Project.history.filter(id=project_id)
+        tar,
+        f"{prefix}history/project.json",
+        Project.history.filter(id=project_id),
+        _project_history_budget_gate(requester, project_id),
     )
     counts[f"{count_prefix}history.dependencies"] = _add_table(
         tar,

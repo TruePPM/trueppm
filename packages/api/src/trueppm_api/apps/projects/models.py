@@ -1744,6 +1744,20 @@ class Project(VersionedModel):
         related_name="projects_deleted",
     )
 
+    # Budget at completion (BAC) in the workspace currency (ADR-1324, #754). The basis
+    # of earned value (EV = BAC x percent complete) and the weight for the program
+    # rollup's ``weighted_by_budget`` policy. NULL or 0 = no budget, which makes the
+    # cost KPIs report ``no_budget`` rather than a fabricated number. Confidential:
+    # readable and writable at project ADMIN+ only (ProjectSerializer), and hidden from
+    # every history diff (``HISTORY_DIFF_PRIVACY_GATED``) though still tracked for audit.
+    budget = models.DecimalField(
+        max_digits=16,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+    )
+
     history = HistoricalRecords(
         # ``deleted_at`` is tombstone-reap bookkeeping (grouped with
         # ``deleted_version``), not a user-meaningful audit fact — the

@@ -1,7 +1,7 @@
 ---
 title: Program rollup KPIs
 description: Choose which project health signals roll up to the program overview, and how project health combines into the single program health dot.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 A **program** groups several related projects under one PM. The **Program Settings → Rollup KPIs** page controls two things about how those projects' signals combine at the program boundary:
@@ -50,19 +50,23 @@ Ten KPIs can be enabled. The page groups them into three sections for scannabili
 
 | KPI | Identifier | What it shows |
 |-----|-----------|---------------|
-| Cost variance (CV) | `cost_variance` | Earned-value cost variance vs. the saved baseline (negative = over budget) |
-| Budget utilization | `budget_utilization` | Approved budget consumed to date, aggregated across all projects |
+| Cost variance (CV) | `cost_variance` | Earned value minus actual cost, summed across the program's projects (negative = over budget) |
+| Budget utilization | `budget_utilization` | Total actual cost ÷ total budget across the program's projects |
+
+:::note[Ships in 0.5]
+The two cost KPIs compute in 0.5, from the [cost model](/features/cost-model/). In the current release both are locked in the picker with the reason `no_cost_data` ("needs project cost data"), and **Budget-weighted** always falls back to the average.
+:::
+
+The cost KPIs carry a value only for someone who is **Program Manager** or Owner on the program **and** Project Manager or Owner on **every** project in it. A program role does not reach a project's budget. Everyone else, including a program Scheduler, Member or Viewer, sees them as **Restricted to managers of every project** (`cost_restricted`). They are unavailable, with a reason that names what is missing, when any project in the program has no budget (`no_budget`, with `projects_without_budget`), or when anyone who logged time on a project or is assigned to one of its tasks has no rate (`missing_rates`, with `missing_rate_count`). See [When a figure cannot be computed](/features/cost-model/#when-a-figure-cannot-be-computed).
 
 Only enabled KPIs appear on the program overview and its rollup tiles. KPI toggles save **optimistically** — the switch flips immediately, and rapid changes are batched into a single save.
 
 ### KPIs that are not available yet
 
-Three of the KPIs above have no backing data source in this release and are **shown but locked** in the picker:
+One of the KPIs above has no backing data source yet and is **shown but locked** in the picker:
 
 | KPI | Locked because | Reason code |
 |-----|----------------|-------------|
-| Cost variance (CV) | Needs project cost data | `no_cost_data` |
-| Budget utilization | Needs project cost data | `no_cost_data` |
 | P80 completion date | Needs stored Monte Carlo runs | `no_montecarlo_store` |
 
 Their switches cannot be turned **on** — enabling one would save a KPI that could never render a value. Each row states why, and `GET /api/v1/programs/{id}/rollup-config/` returns the same set as `unavailable_kpis` (an identifier → reason-code map) so any API client can render the same explanation instead of hard-coding the list. The map is empty once every KPI has a source.
@@ -93,7 +97,7 @@ The aggregation policy decides how the individual project health signals combine
 |--------|-----------|------------------------------|
 | Worst-case (recommended, default) | `worst` | Program health equals the worst health across all projects. One critical project makes the program critical. |
 | Average | `average` | Numeric average of project health scores. Dilutes a single critical project. |
-| Budget-weighted | `weighted_by_budget` | Projects with larger approved budgets carry proportionally more weight in the average. |
+| Budget-weighted | `weighted_by_budget` | Each project is weighted by its budget. If any project has no budget, the rollup uses the average instead and reports `policy_available: false` with `policy_unavailable_reason: "no_budget"`. The weighting is applied only for someone who is Program Manager or above on the program and Project Manager or above on every project in it, because a weighted figure reveals how the budgets compare. Everyone else gets the average with `policy_unavailable_reason: "cost_restricted"`, whether or not any budget is set. |
 | Task-weighted | `task_weighted` | Projects with more tasks carry proportionally more weight in the average. |
 
 `worst` is the default and the recommended choice for most programs because it never lets a single critical project hide behind healthier ones. The weighted policies exist for client-facing rollups where a small fit-out should not drag down a large shell-and-core program. The chosen policy applies uniformly to every enabled KPI — there is no per-KPI policy override.

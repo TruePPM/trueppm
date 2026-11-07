@@ -64,11 +64,10 @@ function defaultConfig(overrides: Partial<ProgramRollupConfig> = {}): ProgramRol
   return {
     enabled_kpis: ['schedule_health', 'p80_completion'],
     aggregation_policy: 'worst',
-    // The real server always advertises these three (#2404). Note the default
-    // config also has p80_completion already enabled — the stale-config case.
+    // The real server advertises only p80_completion since the cost model (#754,
+    // #3426). Note the default config also has p80_completion already enabled —
+    // the stale-config case.
     unavailable_kpis: {
-      cost_variance: 'no_cost_data',
-      budget_utilization: 'no_cost_data',
       p80_completion: 'no_montecarlo_store',
     },
     ...overrides,
@@ -153,6 +152,22 @@ describe('ProgramRollupPage (settings)', () => {
       'aria-checked',
       'false',
     );
+  });
+
+  it('says when budget weighting falls back to the average (ADR-1324)', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig(),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+    expect(
+      screen.getByText(
+        'Projects with larger budgets carry proportionally more weight. Uses the average if any project has no budget, or for anyone who is not a manager of every project.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('non-admin sees read-only KPI values + policy (no disabled controls) and a Read-only pill', () => {
@@ -436,11 +451,17 @@ describe('ProgramRollupPage (settings)', () => {
       });
       renderPage();
 
-      const cv = screen.getByRole('switch', { name: 'Cost variance (CV)' });
+      const cv = screen.getByRole('switch', { name: 'P80 completion date' });
       expect(cv).toHaveAttribute('aria-checked', 'false');
       expect(cv).toHaveAttribute('aria-disabled', 'true');
-      // Both cost KPIs share the reason, so this is intentionally an AllBy.
-      expect(screen.getAllByText(/needs project cost data to roll up/i)).toHaveLength(2);
+      expect(screen.getAllByText(/needs stored Monte Carlo runs to roll up/i)).toHaveLength(1);
+      // #3426: the cost KPIs compute now, so neither is locked.
+      expect(screen.getByRole('switch', { name: 'Cost variance (CV)' })).not.toHaveAttribute(
+        'aria-disabled',
+      );
+      expect(screen.getByRole('switch', { name: 'Budget utilization' })).not.toHaveAttribute(
+        'aria-disabled',
+      );
 
       // Clicking must not fire the PATCH — the defect was that it saved fine
       // and then rendered nothing, forever.
@@ -458,12 +479,12 @@ describe('ProgramRollupPage (settings)', () => {
       });
       renderPage();
 
-      const bu = screen.getByRole('switch', { name: 'Budget utilization' });
+      const bu = screen.getByRole('switch', { name: 'P80 completion date' });
       const describedBy = bu.getAttribute('aria-describedby');
       expect(describedBy).toBeTruthy();
       // Must not dangle: the id has to resolve to the rendered explanation.
       expect(document.getElementById(describedBy as string)).toHaveTextContent(
-        /needs project cost data/i,
+        /needs stored Monte Carlo runs/i,
       );
     });
 

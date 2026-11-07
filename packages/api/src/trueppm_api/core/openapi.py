@@ -390,10 +390,32 @@ def postprocess_openapi(
     # runs, so it is never marked as one.
     _publish_role_ordinal(result)
     _mark_enum_openness(result)
+    _unrequire_role_omitted_fields(result)
 
     # Document-level default so a client knows the baseline auth scheme.
     result["security"] = list(GLOBAL_SECURITY)
     return result
+
+
+#: Read-only response fields a serializer OMITS (not nulls) below a role floor.
+#: drf-spectacular marks every read-only field ``required``, which tells a generated
+#: client the key is always present — false for a caller below the floor, who never
+#: receives it. Keyed ``(component, field)``; each entry names its gate.
+ROLE_OMITTED_RESPONSE_FIELDS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # ADR-1324 §4: workspace ADMIN only (ResourceSerializer.to_representation).
+        ("Resource", "cost_rate"),
+    }
+)
+
+
+def _unrequire_role_omitted_fields(result: dict[str, Any]) -> None:
+    """Drop :data:`ROLE_OMITTED_RESPONSE_FIELDS` from their component's ``required``."""
+    schemas = result.get("components", {}).get("schemas", {})
+    for component, field in ROLE_OMITTED_RESPONSE_FIELDS:
+        required = schemas.get(component, {}).get("required")
+        if isinstance(required, list) and field in required:
+            required.remove(field)
 
 
 # RFC 3339 `full-time` (what JSON Schema's `format: "time"` validates against)

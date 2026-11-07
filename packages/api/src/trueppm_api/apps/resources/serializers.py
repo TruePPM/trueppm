@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any
 
@@ -165,6 +166,21 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
     # valid response (see _BlankableEmailField for why a stock EmailField cannot
     # drop the format).
     email = _BlankableEmailField(required=False, allow_blank=True)
+    # Hourly cost rate in the workspace currency (ADR-1324, #754). Read-only here: the
+    # one write path is ``POST /resources/{id}/rate/``, whose dry-run preview and save
+    # share one computation. A salary proxy — present only for a workspace ADMIN+
+    # caller (to_representation); there is deliberately no ``is_me`` carve-out.
+    cost_rate = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Hourly cost in the workspace currency, or null when unrated. Present only "
+            "for workspace Admins; set it with POST /resources/{id}/rate/."
+        ),
+    )
 
     class Meta:
         model = Resource
@@ -176,10 +192,11 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
             "job_role",
             "calendar",
             "max_units",
+            "cost_rate",
             "skills",
             "is_me",
         ]
-        read_only_fields = ["id", "server_version", "skills", "is_me"]
+        read_only_fields = ["id", "server_version", "skills", "is_me", "cost_rate"]
 
     def get_is_me(self, obj: Resource) -> bool:
         request = self.context.get("request")
@@ -239,6 +256,13 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
         check (#perf); the role is otherwise memoized across rows.
         """
         data = super().to_representation(instance)
+        # ``cost_rate`` (ADR-1324 §4, leak paths L1/L2): workspace ADMIN only, and no
+        # self-view exception — a rate is the organisation's cost of a person, not
+        # the person's own data, and a stored workspace role is the only principal
+        # that is not self-grantable (#3569). Nested ``resource_detail`` on the roster
+        # serializer inherits this because it reuses this class with the same context.
+        if "cost_rate" in data and not self._caller_is_workspace_admin():
+            data.pop("cost_rate")
         if "email" not in data:
             return data
         if data.get("is_me") or self._caller_is_workspace_admin():
@@ -266,6 +290,13 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
         that fallback is exactly the mechanism this gate closes for a writer below
         ADMIN, so exempting a caller's own address would reopen it.
         """
+        # A read-only field is silently ignored by DRF; for a rate that would read as
+        # a saved change. Refuse it and name the endpoint that does write it.
+        initial = getattr(self, "initial_data", None)
+        if isinstance(initial, Mapping) and "cost_rate" in initial:
+            raise serializers.ValidationError(
+                {"cost_rate": "Set a resource's rate with POST /api/v1/resources/{id}/rate/."}
+            )
         if "email" in attrs and not self._caller_is_workspace_admin():
             raise serializers.ValidationError(
                 {"email": "Only a workspace admin may set a resource's email address."}
@@ -424,3 +455,58 @@ class ResourceAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
             "units",
         ]
         read_only_fields = fields
+
+
+class ResourceRateSerializer(serializers.Serializer[dict[str, Any]]):
+    """Body for ``POST /resources/{id}/rate/`` (ADR-1324 §5)."""
+
+    cost_rate = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0"),
+        allow_null=True,
+        help_text="New hourly rate in the workspace currency; null clears it (unrated).",
+    )
+    dry_run = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "true (default) previews the re-cost without saving; false saves the rate. "
+            "Both return the same shape, computed the same way."
+        ),
+    )
+
+
+class ResourceRateProjectSerializer(serializers.Serializer[dict[str, Any]]):
+    """How one project's actual cost moves under the new rate."""
+
+    project_id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    hours = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    actual_before = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    actual_after = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    delta = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    cost_computable_before = serializers.BooleanField(read_only=True)
+    cost_computable_after = serializers.BooleanField(read_only=True)
+
+
+class ResourceRateResponseSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``POST /resources/{id}/rate/`` — identical for preview and save.
+
+    Changing a rate re-costs every past time entry for the resource (one current rate,
+    no history), so ``projects`` lists each project whose actual cost moves. The
+    preview's numbers equal the save's by construction (ADR-1324 §5).
+    """
+
+    resource_id = serializers.UUIDField(read_only=True)
+    currency = serializers.CharField(read_only=True)
+    cost_rate_before = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True, allow_null=True
+    )
+    cost_rate_after = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True, allow_null=True
+    )
+    dry_run = serializers.BooleanField(read_only=True)
+    as_of = serializers.DateTimeField(read_only=True)
+    projects = ResourceRateProjectSerializer(many=True, read_only=True)
+    total_hours = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)
+    total_delta = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True)

@@ -409,6 +409,7 @@ export default defineConfig({
                 { slug: "features/retrospective" },
                 { slug: "features/my-work" },
                 { slug: "features/timesheet" },
+                { slug: "features/cost-model" },
                 { slug: "features/multi-team-lens" },
               ],
             },
