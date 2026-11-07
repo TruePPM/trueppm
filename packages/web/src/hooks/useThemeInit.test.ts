@@ -98,3 +98,15 @@ describe('useThemeInit demo default (#4508)', () => {
     expect(useThemeStore.getState().theme).toBe('auto');
   });
 });
+
+describe('useThemeInit demo default, stored auto (#4508)', () => {
+  it('demo + stored auto stays auto (an explicit choice)', () => {
+    localStorage.clear();
+    mockMatchMedia(true);
+    queryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: true });
+    localStorage.setItem('trueppm.theme', 'auto');
+    useThemeStore.setState({ theme: 'auto' });
+    renderHook(() => useThemeInit());
+    expect(useThemeStore.getState().theme).toBe('auto');
+  });
+});
