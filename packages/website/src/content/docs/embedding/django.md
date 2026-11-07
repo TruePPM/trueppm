@@ -20,19 +20,18 @@ The scheduler never touches the ORM. Write a translation function in your
 
 ```python
 # scheduling/services.py
+from datetime import date
+
 from trueppm_scheduler import (
-    Calendar, DateRange, Dependency, DependencyType,
+    Calendar, DateRange, DeliveryMode, Dependency, DependencyType,
     Project as SchedulerProject, Task as SchedulerTask,
     ScheduleResult, schedule,
 )
 from .models import Project, Task  # your Django models
 
 
-def build_scheduler_project(django_project: Project) -> SchedulerProject:
-    """Serialize a Django Project to the pure-Python scheduler representation."""
-    cal = django_project.calendar
-
-    scheduler_cal = Calendar(
+def _to_scheduler_calendar(cal) -> Calendar:
+    return Calendar(
         working_days=cal.working_days,
         # hours_per_day and timezone are reserved-but-inert: the engine schedules
         # in whole-day units only, so these two fields are carried for API/model
@@ -46,6 +45,26 @@ def build_scheduler_project(django_project: Project) -> SchedulerProject:
         ],
     )
 
+
+def build_scheduler_project(django_project: Project) -> SchedulerProject:
+    """Serialize a Django Project to the pure-Python scheduler representation.
+
+    Passes every recorded input the engine reads: progress and actuals, the
+    start-no-earlier-than date, the status (data) date, per-task calendars, and
+    the agile inputs. Leave one out and the schedule silently ignores it.
+    """
+    scheduler_cal = _to_scheduler_calendar(django_project.calendar)
+    db_tasks = list(django_project.tasks.all())
+
+    # Per-task calendars: register each distinct calendar under its id. A task's
+    # calendar_id must have an entry here, or the engine refuses the project with
+    # InvalidScheduleInput rather than scheduling it on the project calendar.
+    calendars = {
+        str(t.calendar_id): _to_scheduler_calendar(t.calendar)
+        for t in db_tasks
+        if t.calendar_id is not None
+    }
+
     tasks = [
         SchedulerTask(
             id=str(t.pk),
@@ -54,8 +73,23 @@ def build_scheduler_project(django_project: Project) -> SchedulerProject:
             optimistic_duration=t.optimistic_duration,
             most_likely_duration=t.most_likely_duration,
             pessimistic_duration=t.pessimistic_duration,
+            # Progress (ADR-0132): percent_complete is 0-100. A task with an
+            # actual_finish is pinned to its recorded dates, not rescheduled.
+            percent_complete=t.percent_complete,
+            actual_start=t.actual_start,
+            actual_finish=t.actual_finish,
+            # Start-no-earlier-than constraint.
+            planned_start=t.planned_start,
+            calendar_id=str(t.calendar_id) if t.calendar_id is not None else None,
+            # Agile-aware Monte Carlo inputs (None means waterfall).
+            delivery_mode=DeliveryMode(t.delivery_mode) if t.delivery_mode else None,
+            story_points=t.story_points,
+            # Hand back the milestone edge the previous run persisted. The engine
+            # reads it only on a completed milestone; it is ignored on any other
+            # task, and None is always safe.
+            live_day_end_on=t.early_finish if t.milestone_at_day_end else None,
         )
-        for t in django_project.tasks.all()
+        for t in db_tasks
     ]
 
     deps = []
@@ -74,7 +108,21 @@ def build_scheduler_project(django_project: Project) -> SchedulerProject:
         tasks=tasks,
         dependencies=deps,
         calendar=scheduler_cal,
+        calendars=calendars or None,
+        # The data date: completed work is held fixed and remaining work is
+        # scheduled no earlier than this. The engine never reads the clock, so
+        # resolve a null status date to today here.
+        status_date=django_project.status_date or date.today(),
+        velocity_samples=django_project.velocity_samples,
+        sprint_length_days=django_project.sprint_length_days,
     )
+
+
+_RESULT_FIELDS = [
+    "early_start", "early_finish", "late_start", "late_finish",
+    "total_float", "free_float", "is_critical",
+    "scheduled_start", "milestone_at_day_end",
+]
 
 
 def apply_schedule_result(django_project: Project, result: ScheduleResult) -> None:
@@ -88,23 +136,27 @@ def apply_schedule_result(django_project: Project, result: ScheduleResult) -> No
         db_task = task_map.get(sched_task.id)
         if db_task is None:
             continue
-        db_task.early_start  = sched_task.early_start
-        db_task.early_finish = sched_task.early_finish
-        db_task.late_start   = sched_task.late_start
-        db_task.late_finish  = sched_task.late_finish
-        db_task.total_float  = sched_task.total_float
-        db_task.is_critical  = sched_task.is_critical
+        for name in _RESULT_FIELDS:
+            setattr(db_task, name, getattr(sched_task, name))
         updates.append(db_task)
 
     with transaction.atomic():
-        Task.objects.bulk_update(
-            updates,
-            ["early_start", "early_finish", "late_start", "late_finish",
-             "total_float", "is_critical"],
-        )
+        Task.objects.bulk_update(updates, _RESULT_FIELDS)
         django_project.project_finish = result.project_finish
         django_project.save(update_fields=["project_finish"])
 ```
+
+Three of the persisted outputs are not decoration:
+
+- `scheduled_start` is the task's whole span. For an in-progress task,
+  `early_start` is only the remaining-work window, so draw bars from
+  `scheduled_start`.
+- `free_float` is separate from `total_float`; persist both.
+- `milestone_at_day_end` says which edge of the shown day a milestone sits on.
+  The end of a Friday and the start of the next Monday are the same point in
+  working time, so two shown days must never be diffed as a slip. Persist it with
+  `early_finish`, and `build_scheduler_project()` hands it back on the next run
+  through `live_day_end_on`.
 
 ## 2. Call the scheduler from a Celery task
 
@@ -162,7 +214,10 @@ class TaskViewSet(ModelViewSet):
     def perform_update(self, serializer):
         instance = serializer.save()
         # Only fields that affect the CPM graph need a recalculation.
-        cpm_fields = {"duration", "early_start", "dependencies"}
+        cpm_fields = {
+            "duration", "dependencies", "percent_complete", "planned_start",
+            "actual_start", "actual_finish", "calendar",
+        }
         if cpm_fields & set(serializer.validated_data):
             enqueue_recalculate(project_id=instance.project_id)
 ```
