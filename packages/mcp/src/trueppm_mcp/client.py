@@ -88,7 +88,22 @@ class TruePPMError(RuntimeError):
 
 
 class ApiError(TruePPMError):
-    """Raised when the API returns an unexpected (non-401) error status."""
+    """Raised when the API returns an unexpected (non-401) error status.
+
+    Attributes:
+        status_code: The HTTP status, or ``None`` when the error was not built from
+            a response. Lets a tool map a *specific* refusal (e.g. 403 on the cost
+            endpoint) to a structured result without parsing the message text.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        refusal: Refusal | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        super().__init__(message, refusal)
+        self.status_code = status_code
 
 
 class AuthError(TruePPMError):
@@ -329,6 +344,7 @@ class TruePPMClient:
                 f"Unexpected response from {AUTH_VERIFY_PATH}: "
                 f"HTTP {response.status_code}{_refusal_suffix(refusal)}.",
                 refusal,
+                response.status_code,
             )
         result: dict[str, Any] = response.json()
         posture = result.get("token")
@@ -394,6 +410,7 @@ class TruePPMClient:
                 f"Unexpected response from {path}: "
                 f"HTTP {response.status_code}{_refusal_suffix(refusal)}.",
                 refusal,
+                response.status_code,
             )
         return response.json()
 

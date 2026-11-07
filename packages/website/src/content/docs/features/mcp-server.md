@@ -116,7 +116,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 ## What it can answer
 
-The server registers **19 read-only tools**, each mapping to one existing REST
+The server registers **19 read-only tools** (a 20th, `get_project_cost`, is planned for 0.5), each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -170,6 +170,14 @@ the effect of a perturbation) plus a pointer to `get_schedule_derivation` for th
 full contribution chain. So an answer arrives explained, not bare — and the `why`
 only ever reflects data your token can already read.
 :::
+
+### Project cost
+
+| Tool | Arguments | Returns |
+|------|-----------|---------|
+| `get_project_cost` | `project_id` | A project's budget, actual cost, earned value, cost variance and budget utilization, with the per-person lines and a one-sentence `definitions` entry for every figure. Check `cost_computable` first: when it is `false`, `missing_rate_count` people have no rate and each KPI reports why it has no value instead. |
+
+Planned for 0.5: `get_project_cost` ships in 0.5, with the cost model. Cost is visible to project Admins and Owners only. Any other caller gets `{ "cost_restricted": true, "reason": "requires_project_admin" }` and no budget, rate or cost figure. That is a normal answer, not a failure, so an assistant should say cost is restricted for your role rather than retry. See [Cost model](/features/cost-model/).
 
 ### Sprints
 
