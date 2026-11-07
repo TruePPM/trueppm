@@ -1023,10 +1023,13 @@ def reconcile(runner, cwd, sid, branch, seen, opts, project=None):
     None; anything else propagates to the caller's own report."""
     import transcript_usage as tu
 
+    opts = opts or Opts()
     if not SESSION_RE.match(sid or ""):
         return None
     try:
         user = glab_json("user", cwd)
+        if not isinstance(user, dict) or user.get("id") is None:
+            return None
         root = config_root()
         state = read_state(root, sid)
         first_ts = None
@@ -1042,10 +1045,18 @@ def reconcile(runner, cwd, sid, branch, seen, opts, project=None):
         )
         if not end:
             return None
-        _, _, _, ids, state, _, err = plan(
+        _, _, sdir, ids, state, _, err = plan(
             runner, cwd, sid, None, branch, [], opts, end, project=project
         )
-        if not err and write_state(root, sid, state, end, ids):
+        if err:
+            return None
+        try:
+            # The post path advances the chosen agents AND their descendants (a descendant keeps its
+            # own watermark), so the reconcile must too or the next record re-counts them.
+            members = [a for a, _ in tu.subagent_files(sdir, ids)[0]] if ids else []
+        except ValueError:
+            members = list(ids)
+        if write_state(root, sid, state, end, members):
             return end
     except (StateError, OSError, ValueError):
         return None
@@ -1896,7 +1907,8 @@ def golden_cases(check):
         check(
             "golden: reconcile moves the orchestrator and the record's agents to this session's landed record's end",
             landed["orchestrator_until"] == want_end
-            and landed["agents"].get("a1000000000000001") == want_end,
+            and landed["agents"].get("a1000000000000001") == want_end
+            and landed["agents"].get("a1d00000000000001") == want_end,
             repr(landed),
         )
         reconcile(run, repo, sid, "feat/101-a", seen11[:1], opts, "g/p")
@@ -1937,7 +1949,8 @@ def golden_cases(check):
         check(
             "golden: --retry after a landed POST moves the orchestrator and the agents to the record's end",
             rst["orchestrator_until"] == want_end
-            and rst["agents"].get("a1000000000000001") == want_end,
+            and rst["agents"].get("a1000000000000001") == want_end
+            and rst["agents"].get("a1d00000000000001") == want_end,
             repr(rst),
         )
         # The CLI calls process_retry with opts=None: it must default them, not raise inside the reconcile.
@@ -1953,6 +1966,24 @@ def golden_cases(check):
             "golden: process_retry with the CLI's default options does not raise",
             isinstance(msg_cli, str) and msg_cli != "",
             cli_err or repr(msg_cli),
+        )
+        # An unexpected failure inside reconcile is reported, not swallowed as "nothing to reconcile".
+        real_gj = globals()["glab_json"]
+
+        def boom(path, cwd):
+            raise RuntimeError("unexpected")
+
+        globals()["glab_json"] = boom
+        try:
+            reconcile(run, repo, sid, "feat/101-a", seen11, opts, "g/p")
+            raised = False
+        except RuntimeError:
+            raised = True
+        finally:
+            globals()["glab_json"] = real_gj
+        check(
+            "golden: an unexpected exception in reconcile propagates (only expected failures read as nothing to adopt)",
+            raised,
         )
         os.remove(spath)
         # cost-table failing after the fact: nothing is claimed, and the reason reaches the message and the log.
