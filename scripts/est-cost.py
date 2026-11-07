@@ -923,7 +923,7 @@ def _cases(tmp, check):
                 "claude-sonnet-5-5",
                 "claude-haiku-5-5",
                 "claude-fable-5-1",
-                # The previous generation, still inside the 30-day transcript window.
+                # Previous-generation rows, kept so a session still on one is priced.
                 "claude-sonnet-5",
                 "claude-opus-5",
                 "claude-fable-5",

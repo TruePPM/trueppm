@@ -33,8 +33,8 @@ Usage:
   python3 scripts/subagent-tokens.py --no-agents
   python3 scripts/subagent-tokens.py --self-test
 
-  --no-agents is the orchestrator's explicit statement that it spawned no subagent in the window
- : it prints `subagent-tokens: 0`, a measured zero, and opens no
+  --no-agents is the orchestrator's explicit statement that it spawned no subagent in the window:
+  it prints `subagent-tokens: 0`, a measured zero, and opens no
   transcript. It is never a default: without it and without --agent this exits 2, so a forgotten
   --agent can not become a zero. Giving it with --agent is a usage error.
 
