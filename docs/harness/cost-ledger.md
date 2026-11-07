@@ -247,15 +247,19 @@ interleaved up to that point, and the record's footnote says so.
   atomically (a temp file in the same directory, then `os.replace`) after **every** successful post
   by `scripts/post-mr-cost.py`: `orchestrator_until` and the watermark of each agent that record
   measured (descendants too) move to the record's `until`. It is per session. The legacy shared
-  `mr-cost-last-until` marker (and the interim per-session `mr-cost-last-until.<session id>`) is
-  **never read**, not even as a fallback; delete it if you find one. A state file that exists but
+  `mr-cost-last-until` marker is **never read**, not even as a fallback; delete it if you find one. A state file that exists but
   does not validate posts nothing and says so, because guessing a window would double count. A
   failed post never advances the state.
 - **A POST that landed without the state moving** (the hook was killed after its POST, or
   `cost-table.py` failed on the response): the next run of the hook, or `--retry`, finds the record, and
-  `reconcile()` advances the state to the end of the token user's own latest record, and the
-  watermark of the agents that record's window would have attributed. A foreign record, or one dated
-  after now, is ignored, and a watermark never moves backwards.
+  `reconcile()` advances the state to its end, and the watermark of the agents that record's window
+  would have attributed. Only a record **this session** posted counts: the token user can have records
+  on one MR from other sessions, whose tokens this session never measured, so a record is reconciled
+  only when its `Window: <since> to <until>` start equals this session's current `orchestrator_until`
+  (a session with no state yet: the session transcript's first entry). A record from another
+  session, an old-format record with no window start, one by another user, or one dated after now
+  moves nothing, and a watermark never moves backwards. With nothing to reconcile, `--retry` falls
+  through to `--round` and the hook posts nothing.
 - **Windows.** Orchestrator: from `orchestrator_until` to now (no state: from the session
   transcript's first entry). Each agent: from its own watermark to now (none: from its first entry);
   a descendant is measured over its own watermark and goes with its top-level parent. A watermark is
@@ -321,7 +325,7 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
   session's next window (above), posts record 1 through `scripts/cost-table.py`, and advances the
   state. The description's ledger lines are the go-ahead snapshot and are **not** what record 1
   renders from: rendering them would repeat a figure an earlier record already claimed. The session's
-  transcript is found by session id under `~/.claude/projects/*/`, so a session run from the main
+  transcript is found by session id under `$CLAUDE_CONFIG_DIR/projects/*/` (else `~/.claude/projects/*/`), so a session run from the main
   checkout is found whether its agents worked in the checkout or in a `../trueppm-wt/<leaf>/`
   worktree.
 - **The go-ahead snapshot: `--measure`.** `python3 scripts/post-mr-cost.py --measure` prints the
@@ -356,10 +360,9 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
   session id, or `<session-id>` when none was usable, and the literal `<iid>` when no MR number was
   known), in the checkout of the MR's project. It posts record 1 when the MR has no cost comment
   yet (the hook's work), otherwise the next record (`--round`'s), and advances the state like any
-  other post. Before posting a later record it runs the same `reconcile()` as the hook: when the token
-  user's own latest record ends after this session's state, that record landed without the state
-  moving, so it posts nothing, moves the state (and the agents that record measured) to its end and
-  says so, instead of re-counting them in a round.
+  other post. Before posting a later record it runs the same `reconcile()` as the hook: when a record this
+  session posted landed without the state moving, it posts nothing, moves the state (and the agents
+  that record measured) to its end and says so, instead of re-counting them in a round.
 - **Failures are retried, explained and visible.** `cost-table.py --post` retries the whole
   read-then-write up to 3 times (2s then 5s backoff, 20s per `glab api` call, at most 3 notes pages per attempt: 307s worst case; the hook's own timeout on it is derived from `worst_case_seconds()` in `cost-table.py` plus 30s, 337s, so the whole hook fits its 600s limit. An MR with 300 or more notes exits 5, which is not retried) when a call fails or
   hangs. It retries from the top, not the single call, because a POST that timed out may have

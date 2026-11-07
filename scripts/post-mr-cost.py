@@ -284,17 +284,43 @@ def window_end(notes, me, now):
     read_records does), and an end later than `now` is ignored: a foreign or hand-edited record
     dated 2099 would otherwise push this session's state past every later MR's window.
     """
-    if me is None:
-        return None
+    ends = [r["end"] for r in own_records(notes, me, now)]
+    return max(ends) if ends else None
+
+
+def own_records(notes, me, now):
+    """Parsed records ({'start', 'end', ...}) of the token user's own `## Cost of this MR` notes whose
+    end is a valid time not after `now`. A note with no author never matches."""
     ct = _cost_table()
-    ends = []
+    out = []
     for body, aid in notes:
-        if aid != me or not body.lstrip().startswith("## Cost of this MR"):
+        if (
+            aid is None
+            or aid != me
+            or not body.lstrip().startswith("## Cost of this MR")
+        ):
             continue
         rec = ct.parse_record(body)
         if rec and isinstance(rec.get("end"), str) and TS_RE.match(rec["end"]):
             if rec["end"] <= now:
-                ends.append(rec["end"])
+                out.append(rec)
+    return out
+
+
+def landed_end(notes, me, now, until, first_ts):
+    """The end of a record THIS session posted that its state has not caught up with, else None.
+
+    The token user can have records on one MR from several sessions, so "any own record" is not
+    evidence. A record is this session's landed one when its window START is exactly where this
+    session's next record would start: the state's `orchestrator_until`, or, for a session with no
+    state yet, the session transcript's first entry (a session-first record). A record in the
+    old `Window end: X.` form has no start and is never reconciled."""
+    want = until if until is not None else first_ts
+    ends = [
+        r["end"]
+        for r in own_records(notes, me, now)
+        if want and r.get("start") == want and (until is None or r["end"] > until)
+    ]
     return max(ends) if ends else None
 
 
@@ -584,9 +610,9 @@ class Opts:
     """Where the measuring scripts read from; overridden by the golden fixture so it is hermetic."""
 
     def __init__(self, projects_dir=None, prices=None, today=None):
-        self.projects_dir = projects_dir or os.path.join(
-            os.path.expanduser("~"), ".claude", "projects"
-        )
+        import transcript_usage as tu
+
+        self.projects_dir = projects_dir or tu.default_projects_dir()
         self.prices = prices
         self.today = today
 
@@ -982,37 +1008,46 @@ def mr_branch(iid, cwd, runner, project):
 
 
 def reconcile(runner, cwd, sid, branch, seen, opts, project=None):
-    """Advance the session state to the end of a record that landed without the state moving.
+    """Advance the session state to the end of a record THIS session posted that the state missed.
 
     A hook killed after its POST landed (or a cost-table that failed on the response) leaves the
     record on the MR and the state behind it, so the session's next record would claim the same
-    tokens again. Only the token user's own record counts, an end later than now is ignored (a
-    foreign or hand-edited record dated 2099 must not push the session past every later window),
-    and the agents advanced are the ones the record's window would have attributed. Only the hook
-    calls this: it fires for an MR this session just created, so any record on it is this
-    session's; --retry calls it too, since it is what the hook's fail-soft message prints, and an
-    agent measured by the landed record would otherwise be counted again by the next one. Returns
-    the end the state moved to, else None. Never raises, never moves a watermark backwards."""
+    tokens again. The token user may have records on the MR from other sessions (a /fix-mr in a new
+    session), whose tokens this session never measured, so only a record whose window start equals
+    this session's current `orchestrator_until` (or, with no state, the session's first transcript
+    entry) is reconciled (landed_end). An end later than now is ignored (a foreign or hand-edited
+    record dated 2099 must not push the session past every later window), the agents advanced are the
+    ones the record's window would have attributed, and a watermark never moves backwards. The hook
+    calls this when a comment already exists, and --retry before it falls through to --round. Returns
+    the end the state moved to, else None. Expected failures (an unreadable state or a file error) give
+    None; anything else propagates to the caller's own report."""
+    import transcript_usage as tu
+
+    if not SESSION_RE.match(sid or ""):
+        return None
     try:
         user = glab_json("user", cwd)
-        end = window_end(
-            seen, user.get("id") if isinstance(user, dict) else None, now_utc()
-        )
         root = config_root()
-        if not (end and SESSION_RE.match(sid or "")):
-            return None
         state = read_state(root, sid)
-        if (
-            state["orchestrator_until"] is not None
-            and end <= state["orchestrator_until"]
-        ):
+        first_ts = None
+        if state["orchestrator_until"] is None:
+            main_path, _ = tu.session_paths(sid, opts.projects_dir)
+            first_ts = first_timestamp(main_path)
+        end = landed_end(
+            seen,
+            user.get("id") if isinstance(user, dict) else None,
+            now_utc(),
+            state["orchestrator_until"],
+            first_ts,
+        )
+        if not end:
             return None
         _, _, _, ids, state, _, err = plan(
             runner, cwd, sid, None, branch, [], opts, end, project=project
         )
         if not err and write_state(root, sid, state, end, ids):
             return end
-    except Exception:  # noqa: BLE001 - reconciling must never break the hook
+    except (StateError, OSError, ValueError):
         return None
     return None
 
@@ -1234,6 +1269,7 @@ def process_round(iid, sid, cwd, opts=None, runner=run, explicit=(), project=Non
 def process_retry(iid, sid, cwd, opts=None, runner=run):
     """The command the fail-soft messages print: record 1 when the MR has no cost comment yet (the
     hook's work), else the next record (--round's). Both advance the session state."""
+    opts = opts or Opts()
     project = repo_project(runner, cwd)
     if project is None:
         return (
@@ -1808,23 +1844,57 @@ def golden_cases(check):
             repr(st),
         )
         # A POST that landed without the state moving (the hook was killed, cost-table failed on the
-        # response): the re-run reconciles the state from the record, and only from the token user's.
+        # response): only a record THIS session posted is reconciled, i.e. one whose window start is
+        # where this session's state stands. The state is rolled back to what it was before MR 11's
+        # record 2 (11:00), as if that record had landed and the state write had not.
         seen11 = already_commented(11, repo, "g/p")
         spath = state_path(config_root(), sid)
         want_end = sc["steps"][3]["at"]
-        if os.path.exists(spath):
-            os.remove(spath)
+        before_state = ex["steps"]["b-record-1"]["state"]
+
+        def roll_back(state):
+            with open(spath, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+
+        def notes_of(mr):
+            with open(gstate, encoding="utf-8") as f:
+                return len(json.load(f)["notes"].get(str(mr), []))
+
+        roll_back(before_state)
         reconcile(
             run, repo, sid, "feat/101-a", [(b, 8) for b, _ in seen11], opts, "g/p"
         )
         check(
             "golden: reconcile ignores a record by another user",
-            not os.path.exists(spath),
+            json.load(open(spath, encoding="utf-8")) == before_state,
+        )
+        roll_back(dict(before_state, orchestrator_until="2026-11-07T11:30:00Z"))
+        reconcile(run, repo, sid, "feat/101-a", seen11, opts, "g/p")
+        check(
+            "golden: a record from another session (its window start is not this session's state) moves nothing",
+            read_state(config_root(), sid)["orchestrator_until"]
+            == "2026-11-07T11:30:00Z",
+        )
+        old_form = [
+            (
+                b.replace(
+                    "- Window: 2026-11-07T11:00:00Z to 2026-11-07T12:00:00Z.",
+                    "- Window end: 2026-11-07T12:00:00Z.",
+                ),
+                i,
+            )
+            for b, i in seen11
+        ]
+        roll_back(before_state)
+        reconcile(run, repo, sid, "feat/101-a", old_form, opts, "g/p")
+        check(
+            "golden: an old-format record with no Window start is never reconciled",
+            json.load(open(spath, encoding="utf-8")) == before_state,
         )
         reconcile(run, repo, sid, "feat/101-a", seen11, opts, "g/p")
         landed = read_state(config_root(), sid)
         check(
-            "golden: reconcile moves the orchestrator and the record's agents to the landed record's end",
+            "golden: reconcile moves the orchestrator and the record's agents to this session's landed record's end",
             landed["orchestrator_until"] == want_end
             and landed["agents"].get("a1000000000000001") == want_end,
             repr(landed),
@@ -1834,19 +1904,34 @@ def golden_cases(check):
             "golden: reconcile never moves the state backwards",
             read_state(config_root(), sid) == landed,
         )
+        os.remove(spath)
+        reconcile(run, repo, sid, "feat/101-a", seen11[:1], opts, "g/p")
+        check(
+            "golden: with no state, this session's first record (it starts at the transcript's first entry) is reconciled",
+            read_state(config_root(), sid)["orchestrator_until"]
+            == "2026-11-07T10:00:00Z",
+            repr(read_state(config_root(), sid)),
+        )
+        # The hook path: a comment already exists and the state is behind it -> post nothing, move the state.
+        roll_back(before_state)
+        n0 = notes_of(11)
+        globals()["now_utc"] = lambda: "2026-11-07T13:30:00Z"
+        hook_msg = process(hook_payload(11), opts, crun)
+        check(
+            "golden: the hook with a landed record on the MR posts nothing and moves the state",
+            hook_msg is None
+            and notes_of(11) == n0
+            and read_state(config_root(), sid)["orchestrator_until"] == want_end,
+            repr((hook_msg, read_state(config_root(), sid))),
+        )
         # --retry after a landed POST runs the same reconcile: no further record is posted (a round would
         # re-count the agents the landed record measured) and the state moves to the record's end.
-        with open(gstate, encoding="utf-8") as f:
-            before = len(json.load(f)["notes"]["11"])
-        os.remove(spath)
-        globals()["now_utc"] = lambda: "2026-11-07T13:30:00Z"
+        roll_back(before_state)
         retried = process_retry(11, sid, repo, opts, crun)
-        with open(gstate, encoding="utf-8") as f:
-            after = len(json.load(f)["notes"]["11"])
         rst = read_state(config_root(), sid)
         check(
             "golden: --retry after a landed POST posts nothing and says the record had landed",
-            after == before and "had already landed" in retried,
+            notes_of(11) == n0 and "had already landed" in retried,
             retried,
         )
         check(
@@ -1855,6 +1940,21 @@ def golden_cases(check):
             and rst["agents"].get("a1000000000000001") == want_end,
             repr(rst),
         )
+        # The CLI calls process_retry with opts=None: it must default them, not raise inside the reconcile.
+        roll_back(before_state)
+        try:
+            msg_cli = process_retry(11, sid, repo, None, crun)
+        except AttributeError as e:
+            msg_cli = ""
+            cli_err = repr(e)
+        else:
+            cli_err = ""
+        check(
+            "golden: process_retry with the CLI's default options does not raise",
+            isinstance(msg_cli, str) and msg_cli != "",
+            cli_err or repr(msg_cli),
+        )
+        os.remove(spath)
         # cost-table failing after the fact: nothing is claimed, and the reason reaches the message and the log.
         with open(gstate, encoding="utf-8") as f:
             gs = json.load(f)
