@@ -521,7 +521,23 @@ export function ProgramOverviewPage() {
               className="flex flex-col items-start gap-2 px-4 py-6 rounded-card border border-neutral-border bg-neutral-surface-raised"
               role="status"
             >
-              <p className="text-sm text-neutral-text-primary">No KPIs enabled.</p>
+              {/* Facts the page already holds with zero KPIs enabled: the worst-case
+                  health band and the project count. Critical project and next
+                  milestone arrive only inside the schedule_health / milestone_health
+                  KPI entries, so they cannot be shown here without a new read. */}
+              <dl className="flex flex-col gap-1 text-sm text-neutral-text-primary">
+                <div className="flex gap-2">
+                  <dt className="text-neutral-text-secondary">Program health</dt>
+                  <dd className="font-medium">{HEALTH_LABEL[rollup.program_health]}</dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="text-neutral-text-secondary">Projects</dt>
+                  <dd className="font-medium">{rollup.project_count}</dd>
+                </div>
+              </dl>
+              <p className="text-xs text-neutral-text-secondary">
+                No KPIs are enabled for this rollup. Choose which ones to track.
+              </p>
               <Link
                 to={`/programs/${programId}/settings/rollup`}
                 className="text-xs text-brand-primary underline-offset-2 hover:underline
@@ -554,7 +570,7 @@ export function ProgramOverviewPage() {
             </section>
           )}
 
-          {rollup.project_count > 0 && (
+          {rollup.project_count > 0 && kpiEntries.length > 0 && (
             <div className="flex flex-col gap-1 border-t border-neutral-border pt-3">
               <Link
                 to={`/programs/${programId}/settings/rollup`}
@@ -564,13 +580,6 @@ export function ProgramOverviewPage() {
               >
                 Configure rollup
               </Link>
-              {/* OSS↔Enterprise boundary affordance (ADR-0070/0088): this rollup is
-                  per-program; comparing across programs is an Enterprise capability.
-                  Rule 169 (#3477): readable prose uses `-secondary`, never `-disabled`. */}
-              <p className="text-xs text-neutral-text-secondary">
-                Rolling up across multiple programs? Cross-program portfolio rollups are part of
-                TruePPM Enterprise.
-              </p>
             </div>
           )}
         </>

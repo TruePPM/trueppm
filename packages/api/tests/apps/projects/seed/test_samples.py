@@ -934,3 +934,23 @@ def test_demo_login_refuses_a_row_this_sample_did_not_seed(
 
     real.refresh_from_db()
     assert real.check_password("their-own-secret") is True
+
+
+def test_load_atlas_enables_a_default_rollup_kpi_set(owner: Any) -> None:
+    """The seeded Atlas program lands on a Program Overview with KPI content (#4506)."""
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    program.refresh_from_db()
+
+    assert program.rollup_enabled_kpis
+    assert "schedule_health" in program.rollup_enabled_kpis
+
+
+def test_load_atlas_repairs_an_emptied_rollup_config_on_reload(owner: Any) -> None:
+    """A reload re-asserts the default KPI set if the config was emptied (#4506)."""
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    Program.objects.filter(pk=program.pk).update(rollup_enabled_kpis=[])
+
+    reloaded = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    reloaded.refresh_from_db()
+
+    assert reloaded.rollup_enabled_kpis
