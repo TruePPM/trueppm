@@ -167,9 +167,9 @@
       "evidence": "1a764c63c: last change carries no regeneration or hand-derivation statement"
     },
     "expected/milestone_ff_after_non_working_actual_finish.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4173",
-      "evidence": "5dbe66c4f: commit message states snapshot regenerated"
+      "evidence": "5dbe66c4f: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/milestone_ff_after_six_day_calendar_finish.json": {
       "provenance": "unknown",
@@ -177,9 +177,9 @@
       "evidence": "9d989d513: last change carries no regeneration or hand-derivation statement"
     },
     "expected/milestone_free_float_successor_lag_cap.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4180",
-      "evidence": "bfc3e91bc: commit message states snapshot regenerated"
+      "evidence": "bfc3e91bc: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/milestone_instant_links.json": {
       "provenance": "unknown",
@@ -202,14 +202,14 @@
       "evidence": "a129dd80c: commit message states snapshot regenerated"
     },
     "expected/milestone_project_start_floor_display_only.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4225",
-      "evidence": "4b975c1aa: commit message states snapshot regenerated"
+      "evidence": "4b975c1aa: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/milestone_reading_tie_free_float.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4183",
-      "evidence": "ee4d1e07f: commit message states snapshot regenerated"
+      "evidence": "ee4d1e07f: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/milestone_sf_end_of_day_cap_own_calendar.json": {
       "provenance": "unknown",
@@ -222,9 +222,9 @@
       "evidence": "62a00a138: last change carries no regeneration or hand-derivation statement"
     },
     "expected/milestone_start_of_day_ties_finish_instant.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4183",
-      "evidence": "ee4d1e07f: commit message states snapshot regenerated"
+      "evidence": "ee4d1e07f: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/milestone_tasks.json": {
       "provenance": "unknown",
@@ -357,9 +357,9 @@
       "evidence": "846df8ecd: last change carries no regeneration or hand-derivation statement"
     },
     "expected/progress_non_working_milestone_late_window.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#3963",
-      "evidence": "0606ade8d: commit message states snapshot regenerated"
+      "evidence": "0606ade8d: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/progress_out_of_sequence.json": {
       "provenance": "unknown",
@@ -407,14 +407,14 @@
       "evidence": "d4d965fb1: commit message states snapshot regenerated"
     },
     "expected/sf_before_project_start_chain.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4218",
-      "evidence": "d4d965fb1: commit message states snapshot regenerated"
+      "evidence": "d4d965fb1: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/sf_before_project_start_data_date.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4218",
-      "evidence": "16af1559a: commit message states snapshot regenerated"
+      "evidence": "16af1559a: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/sf_from_work_chained.json": {
       "provenance": "unknown",
@@ -432,19 +432,19 @@
       "evidence": "d7c089063: last change carries no regeneration or hand-derivation statement"
     },
     "expected/sf_linked_snet_move_project_start.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4635",
-      "evidence": "b915c0b09: commit message states snapshot regenerated"
+      "evidence": "b915c0b09: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/sf_linked_snet_snap_to_start.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4635",
-      "evidence": "b915c0b09: commit message states snapshot regenerated"
+      "evidence": "b915c0b09: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/sf_linked_snet_start_at_earliest.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4635",
-      "evidence": "b915c0b09: commit message states snapshot regenerated"
+      "evidence": "b915c0b09: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/sf_mixed_links_binding_rule.json": {
       "provenance": "regenerated",
@@ -452,9 +452,9 @@
       "evidence": "a291480b3: commit message states snapshot regenerated"
     },
     "expected/sf_positive_lag_monday_start.json": {
-      "provenance": "regenerated",
+      "provenance": "unknown",
       "issue": "#4333",
-      "evidence": "d4d965fb1: commit message states snapshot regenerated"
+      "evidence": "d4d965fb1: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
     "expected/six_day_mask.json": {
       "provenance": "unknown",
@@ -747,9 +747,9 @@
       "evidence": "4bfbd036b: added; no regeneration or hand-derivation statement in history"
     },
     "oracle/corpus.json": {
-      "provenance": "unknown",
+      "provenance": "regenerated",
       "issue": "#3987",
-      "evidence": "e44989939: last change carries no regeneration or hand-derivation statement"
+      "evidence": "b915c0b09: corpus is generated by the independent reference CPM (its own _comment; REGEN_ORACLE_CORPUS=1) and commits 5dbe66c4f, a291480b3, b915c0b09 state the corpus was regenerated"
     },
     "parallel_critical.json": {
       "provenance": "unknown",
@@ -1009,7 +1009,7 @@
     "progress_closed_milestone_open_predecessor.json": {
       "provenance": "hand-verified",
       "issue": "#4525",
-      "evidence": "8681f4431: commit message states fixture derived by hand"
+      "evidence": "8681f4431: commit message states the input fixture was derived by hand; input fixture only, later edits (8f16371ef, 9bfa988f2, 75e5166c8) not re-verified"
     },
     "progress_completed_actuals_milestone_instant.json": {
       "provenance": "unknown",

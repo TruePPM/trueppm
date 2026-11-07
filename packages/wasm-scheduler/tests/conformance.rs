@@ -65,7 +65,9 @@ fn load_and_check(fixture_name: &str) {
     // #1506: a missing expected snapshot is a hard failure, never a warn-and-pass.
     // Regenerate committed snapshots from the Python engine with
     //   REGEN_EXPECTED=1 pytest packages/scheduler/tests/test_wasm_conformance.py
-    // and commit the expected/ output.
+    // and commit the expected/ output. Then update the fixture's entry in
+    // fixtures/PROVENANCE.json (#4732): a regenerated snapshot is "regenerated",
+    // not "hand-verified", until someone checks it against a convention.
     assert!(
         expected_path.exists(),
         "{fixture_name}: missing expected snapshot {}. A new fixture must not warn-and-pass \
