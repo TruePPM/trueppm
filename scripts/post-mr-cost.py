@@ -43,6 +43,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -139,7 +140,7 @@ def find_session_dir(sid, projects_dir):
 
 
 READ_ATTEMPTS = 3
-READ_TIMEOUT = 20
+READ_TIMEOUT = 15
 BACKOFF = (2, 5)
 SLEEP = [time.sleep]
 TS_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z")
@@ -160,28 +161,48 @@ def glab_json(path, cwd):
     return None
 
 
+_CT = []
+
+
+def _cost_table():
+    """cost-table.py loaded as a module (its constants and parser), once."""
+    if not _CT:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "cost_table_mod", os.path.join(HERE, "cost-table.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _CT.append(mod)
+    return _CT[0]
+
+
 def cost_table_timeout():
-    """Outer timeout for a cost-table.py run: its own worst case (it retries internally) plus margin.
+    """Outer timeout for a cost-table.py run: its own worst case (it retries internally, and walks
+    up to NOTES_MAX_PAGES notes pages per attempt) plus margin.
 
     Derived, not hard-coded: a kill before cost-table's last attempt would lose its stderr reason and
     leave the window marker un-advanced even when a POST had landed.
+
+    Budget for the hook (600s in .claude/settings.json), all stages at their worst: description
+    read + this hook's 2 notes pages + user read, each 3 x READ_TIMEOUT + backoff = 52s (4 reads,
+    208s), plus this timeout (337s), plus ~30s of local measuring: 575s.
     """
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "cost_table_consts", os.path.join(HERE, "cost-table.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return int(mod.worst_case_seconds()) + 30
+    return int(_cost_table().worst_case_seconds()) + 30
 
 
-def cost_notes(iid, cwd, max_pages=20):
-    """Bodies of the `## Cost of this MR` notes, [] when none, None when the notes could not be read.
+COST_NOTES_PAGES = (
+    2  # the hook's own time budget; cost-table reads up to NOTES_MAX_PAGES
+)
+
+
+def cost_notes(iid, cwd, max_pages=COST_NOTES_PAGES):
+    """[(body, author id)] of the `## Cost of this MR` notes, [] when none, None when unreadable.
 
     Unreadable is not 'exists': treating it as such made a flaky `glab api` skip the comment with
     no trace. The caller reports it and posts nothing, so a flaky API still never duplicates.
-    Pages past 100 notes (a long-lived MR); more than max_pages pages reads as unreadable.
+    Pages past 100 notes, up to max_pages (the hook's time budget); more reads as unreadable.
     """
     found = []
     for page in range(1, max_pages + 1):
@@ -191,30 +212,38 @@ def cost_notes(iid, cwd, max_pages=20):
         )
         if not isinstance(notes, list):
             return None
-        found += [
-            str(n.get("body", ""))
-            for n in notes
-            if isinstance(n, dict) and "## Cost of this MR" in str(n.get("body", ""))
-        ]
+        for n in notes:
+            if isinstance(n, dict) and "## Cost of this MR" in str(n.get("body", "")):
+                a = n.get("author")
+                found.append(
+                    (
+                        str(n.get("body", "")),
+                        a.get("id") if isinstance(a, dict) else None,
+                    )
+                )
         if len(notes) < 100:
             return found
     return None
 
 
-def window_end(bodies):
-    """The latest window end among existing cost records, or None when none is readable."""
-    import importlib.util
+def window_end(notes, me, now):
+    """The latest window end among THIS token user's existing cost records, or None.
 
-    spec = importlib.util.spec_from_file_location(
-        "cost_table_parse", os.path.join(HERE, "cost-table.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    Only notes by the token's own user whose body starts with the heading count (as cost-table's
+    read_records does), and an end later than `now` is ignored: a foreign or hand-edited record
+    dated 2099 would otherwise push this session's marker past every later MR's window.
+    """
+    if me is None:
+        return None
+    ct = _cost_table()
     ends = []
-    for b in bodies:
-        rec = mod.parse_record(b)
+    for body, aid in notes:
+        if aid != me or not body.lstrip().startswith("## Cost of this MR"):
+            continue
+        rec = ct.parse_record(body)
         if rec and isinstance(rec.get("end"), str) and TS_RE.match(rec["end"]):
-            ends.append(rec["end"])
+            if rec["end"] <= now:
+                ends.append(rec["end"])
     return max(ends) if ends else None
 
 
@@ -382,7 +411,10 @@ def process(payload, projects_dir=None, runner=run):
     if seen:
         # A comment that landed while the hook was killed or reported a failure: advance this
         # session's window to its end, or the next MR re-counts the same work.
-        end = window_end(seen)
+        user = glab_json("user", cwd)
+        end = window_end(
+            seen, user.get("id") if isinstance(user, dict) else None, now_utc()
+        )
         rc, gd, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
         if end and rc == 0 and gd.strip():
             gd = os.path.abspath(os.path.join(cwd, gd.strip()))
@@ -1029,43 +1061,97 @@ def self_test():
         TIMEOUTS
         and all(t == cost_table_timeout() for t in TIMEOUTS)
         and cost_table_timeout() > ctm.worst_case_seconds()
-        and cost_table_timeout() + 2 * (READ_ATTEMPTS * READ_TIMEOUT + sum(BACKOFF))
-        < 600,
+        and cost_table_timeout() == 337
+        # reads: description + notes pages (cost_notes default max_pages) + user, each fully retried
+        and cost_table_timeout()
+        + (2 + COST_NOTES_PAGES) * (READ_ATTEMPTS * READ_TIMEOUT + sum(BACKOFF))
+        + 30  # local measuring scripts
+        < 600
+        and ctm.NOTES_MAX_PAGES >= COST_NOTES_PAGES,
         repr((TIMEOUTS, ctm.worst_case_seconds())),
     )
     if os.path.exists(marker):
         os.remove(marker)
-    # G1: a comment that already exists advances the session window to its end, never backwards.
-    rec_body = "\n".join(
-        ctm.comment_lines(
-            "## Gates\nsubagent-tokens: 1\norchestrator-tokens: 2\n",
-            5,
-            "2026-11-07T14:00:00Z",
+
+    # A comment that already exists advances the session window, but only from the token user's own
+    # record that starts with the heading and ends no later than now; never backwards.
+    def record(until):
+        return "\n".join(
+            ctm.comment_lines(
+                "## Gates\nsubagent-tokens: 1\norchestrator-tokens: 2\n", 5, until
+            )
         )
+
+    def with_notes(notes, fn, me=1):
+        g = globals()["glab_json"]
+        try:
+            globals()["glab_json"] = lambda path, cwd: (
+                {"id": me} if path == "user" else notes if "notes" in path else ok_desc
+            )
+            return fn()
+        finally:
+            globals()["glab_json"] = g
+
+    def run_hook():
+        return process(pl, projects_dir=pdir, runner=full_runner([]))
+
+    def marker_value():
+        return open(marker).read().strip() if os.path.exists(marker) else None
+
+    def fresh():
+        for f in (marker, legacy):
+            if os.path.exists(f):
+                os.remove(f)
+
+    OK_END = "2026-11-07T14:00:00Z"
+    fresh()
+    msg = with_notes([{"body": record(OK_END), "author": {"id": 1}}], run_hook)
+    check(
+        "own valid record: quiet, and the window marker moves to its end",
+        msg is None and marker_value() == OK_END,
+        repr((msg, marker_value())),
     )
-    msg = with_glab(
-        ok_desc,
-        [{"body": rec_body}],
-        lambda: process(pl, projects_dir=pdir, runner=full_runner([])),
+    fresh()
+    with_notes([{"body": record(OK_END), "author": {"id": 2}}], run_hook)
+    check(
+        "a FOREIGN record with a valid past end does not move the marker either",
+        marker_value() is None,
+        repr(marker_value()),
+    )
+    fresh()
+    with_notes(
+        [{"body": record("2099-01-01T00:00:00Z"), "author": {"id": 2}}], run_hook
     )
     check(
-        "existing record: quiet, and the window marker moves to its end",
-        msg is None
-        and os.path.exists(marker)
-        and open(marker).read().strip() == "2026-11-07T14:00:00Z",
-        repr(msg),
+        "a FOREIGN record with a far-future end does not move the marker",
+        marker_value() is None,
+        repr(marker_value()),
     )
+    fresh()
+    msg = with_notes(
+        [{"body": record("2099-01-01T00:00:00Z"), "author": {"id": 1}}], run_hook
+    )
+    check(
+        "an OWN record ending after now does not move the marker past now (still quiet)",
+        msg is None and marker_value() is None,
+        repr(marker_value()),
+    )
+    fresh()
+    with_notes([{"body": "intro\n" + record(OK_END), "author": {"id": 1}}], run_hook)
+    check(
+        "an own note that merely contains the heading (does not start with it) is ignored",
+        marker_value() is None,
+    )
+    fresh()
+    with_notes([{"body": record(OK_END)}], run_hook, me=None)
+    check("an unreadable token user leaves the marker alone", marker_value() is None)
     write_since(gdir, "abc-123", "2026-11-07T18:00:00Z")
-    with_glab(
-        ok_desc,
-        [{"body": rec_body}],
-        lambda: process(pl, projects_dir=pdir, runner=full_runner([])),
-    )
+    with_notes([{"body": record(OK_END), "author": {"id": 1}}], run_hook)
     check(
         "existing record never moves the marker backwards",
-        open(marker).read().strip() == "2026-11-07T18:00:00Z",
+        marker_value() == "2026-11-07T18:00:00Z",
     )
-    os.remove(marker)
+    fresh()
     # G2: reads are retried; paging reaches past 100 notes.
     real_run = globals()["run"]
     seq = []
@@ -1103,7 +1189,7 @@ def self_test():
         globals()["glab_json"] = real_glab
     check(
         "cost_notes pages past 100 notes",
-        found == ["## Cost of this MR (#1)", "## Cost of this MR (#2)"]
+        found == [("## Cost of this MR (#1)", None), ("## Cost of this MR (#2)", None)]
         and len(pages) == 2,
         repr((found, pages)),
     )
@@ -1128,19 +1214,131 @@ def self_test():
         and "no readable record" not in msg,
         msg,
     )
-    # G3 + G5(d): the printed fallback commands run as printed, from the checkout root, via subprocess.
-    root = os.path.dirname(HERE)
-    fake = tempfile.mkdtemp(prefix="post-mr-cost-fakeglab-")
-    with open(os.path.join(fake, "glab"), "w") as f:
+    # G3 + G5(d): the printed fallback commands run as printed, from a sandboxed checkout root, via
+    # subprocess, against a stub glab that dispatches on the full argv and records every call. The
+    # sandbox owns its ledger setting ("on"), transcript and git dir, so nothing depends on the
+    # developer's real environment.
+    sandbox = tempfile.mkdtemp(prefix="post-mr-cost-sandbox-")
+    shutil.copytree(
+        HERE,
+        os.path.join(sandbox, "scripts"),
+        ignore=shutil.ignore_patterns("__pycache__", "tests"),
+    )
+    os.makedirs(os.path.join(sandbox, ".claude"))
+    with open(os.path.join(sandbox, ".claude", "cost-ledger.json"), "w") as f:
+        json.dump({"_doc": "test", "schema": 1, "cost-ledger": "on"}, f)
+    subprocess.run(["git", "init", "-q", sandbox], check=False)
+    home = os.path.join(sandbox, "home")
+    tdir = os.path.join(home, ".claude", "projects", "slug")
+    os.makedirs(tdir)
+    with open(os.path.join(tdir, "abc-123.jsonl"), "w") as f:
         f.write(
-            '#!/bin/sh\ncase "$2" in\n'
-            "  user) echo '{\"id\": 1}';;\n"
-            '  *notes*) echo \'[{"body": "## Cost of this MR (#1)"}]\';;\n'
-            '  *) echo \'{"description": "x"}\';;\nesac\n'
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-11-05T12:00:00Z",
+                    "message": {
+                        "id": "m1",
+                        "model": "claude-sonnet-5-5",
+                        "usage": {
+                            "input_tokens": 10,
+                            "cache_creation_input_tokens": 0,
+                            "cache_read_input_tokens": 0,
+                            "output_tokens": 5,
+                        },
+                    },
+                }
+            )
+            + "\n"
         )
-    os.chmod(os.path.join(fake, "glab"), 0o755)
-    penv = dict(os.environ, PATH=fake + os.pathsep + os.environ.get("PATH", ""))
-    penv.pop("CLAUDE_CODE_SESSION_ID", None)
+    empty_cfg = os.path.join(sandbox, "empty-gitconfig")
+    open(empty_cfg, "w").close()
+    stubdir = os.path.join(sandbox, "bin")
+    os.makedirs(stubdir)
+    calls_file = os.path.join(sandbox, "glab-calls.jsonl")
+    state_file = os.path.join(sandbox, "glab-state.json")
+    with open(os.path.join(stubdir, "glab"), "w") as f:
+        f.write(
+            "#!/usr/bin/env python3\n"
+            "import json, os, re, sys\n"
+            "a = sys.argv[1:]\n"
+            "assert a[:1] == ['api'], a\n"
+            "a = a[1:]\n"
+            "method, path, body, i = 'GET', None, None, 0\n"
+            "while i < len(a):\n"
+            "    if a[i] == '-X': method = a[i + 1]; i += 2\n"
+            "    elif a[i] == '--input': body = sys.stdin.read(); i += 2\n"
+            "    elif a[i] == '-H': i += 2\n"
+            "    elif path is None: path = a[i]; i += 1\n"
+            "    else: i += 1\n"
+            "open(os.environ['STUB_CALLS'], 'a').write(json.dumps({'method': method, 'path': path, 'body': body}) + '\\n')\n"
+            "st = json.load(open(os.environ['STUB_STATE']))\n"
+            "out = {}\n"
+            "if path == 'user': out = {'id': 1}\n"
+            "elif re.search(r'merge_requests/\\d+/notes', path) and method == 'GET':\n"
+            "    pg = int(re.search(r'[?&]page=(\\d+)', path).group(1))\n"
+            "    out = st['notes'][(pg - 1) * 100: pg * 100]\n"
+            "elif re.search(r'notes/(\\d+)$', path) and method == 'PUT':\n"
+            "    nid = int(re.search(r'notes/(\\d+)$', path).group(1))\n"
+            "    for n in st['notes']:\n"
+            "        if n['id'] == nid: n['body'] = json.loads(body)['body']\n"
+            "elif re.search(r'merge_requests/\\d+/notes$', path) and method == 'POST':\n"
+            "    st['notes'].append({'id': 900 + len(st['notes']), 'system': False, 'author': {'id': 1}, 'body': json.loads(body)['body']})\n"
+            "elif re.search(r'merge_requests/\\d+$', path):\n"
+            "    out = {'description': 'x', 'source_branch': 'feat/321-x'}\n"
+            "json.dump(st, open(os.environ['STUB_STATE'], 'w'))\n"
+            "print(json.dumps(out))\n"
+        )
+    os.chmod(os.path.join(stubdir, "glab"), 0o755)
+    penv = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "CLAUDE"))}
+    penv.update(
+        PATH=stubdir + os.pathsep + os.environ.get("PATH", ""),
+        HOME=home,
+        GIT_CONFIG_GLOBAL=empty_cfg,
+        GIT_CONFIG_NOSYSTEM="1",
+        STUB_CALLS=calls_file,
+        STUB_STATE=state_file,
+    )
+
+    def sandbox_run(printed, notes):
+        """Run the printed command line exactly as written, from the sandbox root; (proc, calls, state)."""
+        with open(state_file, "w") as f:
+            json.dump({"notes": notes}, f)
+        if os.path.exists(calls_file):
+            os.remove(calls_file)
+        mm = re.search(r"python3 (scripts/post-mr-cost\.py .*?) \(see", printed or "")
+        pargs = shlex.split(mm.group(1)) if mm else []
+        if not pargs:
+            return None, [], {}
+        r = subprocess.run(
+            [sys.executable] + pargs,
+            cwd=sandbox,
+            env=penv,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        try:
+            with open(calls_file) as f:
+                made = [json.loads(ln) for ln in f if ln.strip()]
+        except OSError:
+            made = []
+        with open(state_file) as f:
+            return r, made, json.load(f)
+
+    rec1_note = {
+        "id": 10,
+        "system": False,
+        "author": {"id": 1},
+        "body": "\n".join(
+            ctm.comment_lines(
+                "## Gates\nsubagent-tokens: 1\norchestrator-tokens: 2\n",
+                5,
+                "2026-11-04T12:00:00Z",
+            )
+        ),
+    }
     fail_round = with_glab(
         ok_desc,
         [],
@@ -1168,22 +1366,34 @@ def self_test():
             pargs[1:2] == [mode] and "..." not in (text or ""),
             repr(text),
         )
-        if pargs:
-            r = subprocess.run(
-                [sys.executable] + pargs,
-                cwd=root,
-                env=penv,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
+        notes = [] if mode == "--retry" else [rec1_note]
+        r, made, state = sandbox_run(text, notes)
+        check(
+            "%s command runs as printed from the checkout root" % label,
+            r is not None
+            and r.returncode == 0
+            and "usage" not in r.stderr.lower()
+            and "error" not in r.stderr.lower(),
+            repr(r and (r.returncode, r.stdout, r.stderr)),
+        )
+        writes = [c for c in made if c["method"] in ("POST", "PUT")]
+        bodies = [json.loads(c["body"])["body"] for c in writes if c["body"]]
+        if mode == "--retry":
             check(
-                "%s command runs as printed from the checkout root" % label,
-                r.returncode == 0
-                and "usage" not in r.stderr.lower()
-                and "error" not in r.stderr.lower()
-                and r.stdout.strip() != "",
-                repr((r.returncode, r.stdout, r.stderr)),
+                "printed --retry command POSTs a record 1 body",
+                len(writes) == 1
+                and writes[0]["method"] == "POST"
+                and bodies[0].startswith("## Cost of this MR")
+                and "record" not in bodies[0].split("\n")[0],
+                repr((r and r.stdout, r and r.stderr, writes)),
+            )
+        else:
+            check(
+                "printed --round command posts record 2",
+                len(writes) == 1
+                and bodies[0].startswith("## Cost of this MR")
+                and "record 2" in bodies[0].split("\n")[0],
+                repr((r and r.stdout, r and r.stderr, writes)),
             )
     # G5(e): a REAL failed cost-table run (stubbed glab exits 1 with stderr) puts its reason in the log line.
     bad = tempfile.mkdtemp(prefix="post-mr-cost-badglab-")

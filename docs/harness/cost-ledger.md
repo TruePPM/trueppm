@@ -250,7 +250,7 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
   or nothing was measured.
 - **Failures are retried, explained and visible.** `cost-table.py --post` retries the whole
-  read-then-write up to 3 times (2s then 5s backoff, 30s per `glab api` call; the hook's own timeout on it is derived from that worst case, `worst_case_seconds()` in `cost-table.py`, plus margin) when a call fails or
+  read-then-write up to 3 times (2s then 5s backoff, 20s per `glab api` call, at most 3 notes pages per attempt: 307s worst case; the hook's own timeout on it is derived from `worst_case_seconds()` in `cost-table.py` plus 30s, 337s, so the whole hook fits its 600s limit. An MR with 300 or more notes exits 5, which is not retried) when a call fails or
   hangs. It retries from the top, not the single call, because a POST that timed out may have
   landed: the retry re-reads the notes and updates that record 1 in place, so a retry never mints a
   second record 1. When it still fails, cost-table's stderr reason (which call, timeout or exit) is
@@ -258,7 +258,8 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   hook `systemMessage`, so the user sees it in the terminal and not only the model. The hook's own
   reads (MR description, notes, `--next-since`) are retried the same way, the notes are paged past
   100, and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4). When a cost comment
-  already exists, the session window moves to that record's end (never backwards).
+  already exists, the session window moves to the end of the token user's own record, never
+  backwards and never past now; a foreign or future-dated record is ignored.
 - **Manual fallback.** The failure message prints a command that works as written:
   `python3 scripts/post-mr-cost.py --retry --mr <iid> --session <sid>` (a failed `--round` prints the
   `--round` equivalent); run it from the checkout root. It re-runs the hook's own

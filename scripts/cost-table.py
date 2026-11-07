@@ -611,11 +611,15 @@ LAST_API_ERR = [
 ]  # why the most recent `glab api` call failed (one line, capped), for the exit message
 API_ATTEMPTS = 3
 BACKOFF = (2, 5)  # seconds slept before attempt 2 and 3
-API_TIMEOUT = 30
+API_TIMEOUT = 20
+NOTES_MAX_PAGES = (
+    3  # pages of 100 notes read_records walks; more is refused, not retried
+)
+TOO_MANY = "pages through"
 SLEEP = [
     time.sleep
 ]  # indirection so the self-test (and callers) can skip the real backoff
-API_CALLS_PER_ATTEMPT = 3  # GET user, GET notes (one page), POST/PUT
+API_CALLS_PER_ATTEMPT = 2 + NOTES_MAX_PAGES  # GET user, every notes page, POST/PUT
 
 
 def worst_case_seconds():
@@ -687,7 +691,12 @@ def _me(api):
     return uid if isinstance(uid, int) and not isinstance(uid, bool) else None
 
 
-def read_records(iid, api, max_pages=20):
+def err_rc(err):
+    """4 for an API failure (retried), 5 when the MR simply has more notes than are read (not retried)."""
+    return 5 if TOO_MANY in err else 4
+
+
+def read_records(iid, api, max_pages=NOTES_MAX_PAGES):
     """(records, foreign count, error message): records are this user's notes with the comment
     heading, as {'id', 'k' (heading number or None), 'rec' (parse_record or None)}, oldest first.
     Notes by anyone else are counted, never read."""
@@ -736,7 +745,8 @@ def read_records(iid, api, max_pages=20):
     return (
         None,
         0,
-        "cost-table: !%d has more than %d notes; not read" % (iid, max_pages * 100),
+        "cost-table: !%d has more notes than this reader pages through (%d); not read"
+        % (iid, max_pages * 100),
     )
 
 
@@ -843,7 +853,7 @@ def upsert(iid, body, api=glab_api):
     else POST one; refuse (5) once a later record exists, since earlier records are never edited."""
     own, _foreign, err = read_records(iid, api)
     if err:
-        return 4, err
+        return err_rc(err), err
     if any(o["k"] is None or o["k"] > 1 for o in own):
         return (
             5,
@@ -910,7 +920,7 @@ def comment_main(argv, enabled, stdout, stderr, api):
         def latest_end():
             own, _f, err = read_records(nums["--mr"], api)
             if err:
-                return 4, err
+                return err_rc(err), err
             latest = max(own, key=lambda o: o["k"] or 0) if own else None
             if not latest or not latest["rec"] or not latest["rec"]["end"]:
                 return (
@@ -973,7 +983,7 @@ def comment_main(argv, enabled, stdout, stderr, api):
     def followup():
         own, foreign, err = read_records(nums["--mr"], api)
         if err:
-            return 4, err
+            return err_rc(err), err
         rc, m, target, k, prior = plan_followup(own, foreign, since, until)
         if rc:
             return rc, m
@@ -1817,8 +1827,12 @@ def self_test():
         r == (1, "") and "timed out" in LAST_API_ERR[0],
         repr(LAST_API_ERR),
     )
-    rc, _ = upsert(7, "B", fake([note(i, "x") for i in range(2000)], []))
-    check("upsert: more notes than it reads exits 4, posts nothing", rc == 4)
+    rc, _ = upsert(
+        7, "B", fake([note(i, "x") for i in range(NOTES_MAX_PAGES * 100)], [])
+    )
+    check(
+        "upsert: more notes than it reads exits 5 (not retried), posts nothing", rc == 5
+    )
 
     # --- follow-up records ---
     lines2 = "subagent-tokens: 1000\norchestrator-tokens: 500\nest-cost-usd: 0.40 (prices 2026-11-03)\n"
@@ -1940,12 +1954,23 @@ def self_test():
     check("next-since: really no record exits 1, not 4", nrc == 1, repr(nrc))
     # The hook's outer timeout is derived from these constants, so it must exceed the worst case.
     check(
-        "worst case: 3 attempts x 3 calls x API_TIMEOUT + backoff",
+        "worst case: attempts x (user + every notes page + write) x API_TIMEOUT + backoff",
         worst_case_seconds()
-        == API_ATTEMPTS * API_CALLS_PER_ATTEMPT * API_TIMEOUT
+        == API_ATTEMPTS * (2 + NOTES_MAX_PAGES) * API_TIMEOUT
         + sum(BACKOFF[: API_ATTEMPTS - 1])
+        and worst_case_seconds() == 307
         and worst_case_seconds() < 600,
         repr(worst_case_seconds()),
+    )
+    # The paged case the formula assumes: a full run on the most notes it reads is 2 + pages calls.
+    pcalls = []
+    prc, _ = upsert(
+        7, "B", fake([note(i, "x") for i in range(NOTES_MAX_PAGES * 100 - 1)], pcalls)
+    )
+    check(
+        "worst case: the most-paged upsert makes exactly API_CALLS_PER_ATTEMPT calls",
+        prc == 0 and len(pcalls) == API_CALLS_PER_ATTEMPT,
+        repr((prc, len(pcalls))),
     )
     check("follow-up: own window stated", "- Window: %s to %s." % (S2, E2) in b2, b2)
     check(
