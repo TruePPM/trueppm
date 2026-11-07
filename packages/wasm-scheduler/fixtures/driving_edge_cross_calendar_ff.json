@@ -1,0 +1,47 @@
+{
+  "id": "p-driving-edge-cross-calendar-ff",
+  "name": "A seven-day predecessor finishing Saturday holds a Mon-Fri FF successor's finish on Monday, so it drives despite free float (#4704)",
+  "start_date": "2027-03-03",
+  "tasks": [
+    {
+      "id": "X",
+      "name": "Predecessor on the wider calendar",
+      "duration": 345600.0,
+      "calendar_id": "seven"
+    },
+    {
+      "id": "Y",
+      "name": "Successor on the narrower calendar",
+      "duration": 86400.0,
+      "calendar_id": "five"
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "X",
+      "successor_id": "Y",
+      "dep_type": "FF",
+      "lag": 0.0
+    }
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  },
+  "calendars": {
+    "seven": {
+      "working_days": 127,
+      "exceptions": [],
+      "hours_per_day": 8.0,
+      "timezone": "UTC"
+    },
+    "five": {
+      "working_days": 31,
+      "exceptions": [],
+      "hours_per_day": 8.0,
+      "timezone": "UTC"
+    }
+  }
+}

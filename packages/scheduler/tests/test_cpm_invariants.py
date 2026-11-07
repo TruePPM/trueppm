@@ -1202,3 +1202,22 @@ def test_link_that_places_its_successor_is_a_driving_edge(project: _oracle.RefPr
         return
     problems = _undriven_placing_links(engine_project)
     assert not problems, "\n".join([repr(project), *problems])
+
+
+@given(project=_plausible_projects(per_task_calendars=True))
+def test_link_that_places_its_successor_is_a_driving_edge_on_any_link_type(
+    project: Project,
+) -> None:
+    """The same property with FF and SF links across calendars (#4704).
+
+    :func:`~tests.test_cpm_oracle.progress_projects` turns an FF/SF link between
+    two calendars into FS/SS (the reference it feeds refuses them), so the
+    property above never sees one. ``_plausible_projects`` keeps every link type
+    and a lag from a lead to over two weeks on per-task calendars.
+    """
+    try:
+        schedule(project)
+    except SchedulerError:
+        return
+    problems = _undriven_placing_links(project)
+    assert not problems, "\n".join([repr(project), *problems])

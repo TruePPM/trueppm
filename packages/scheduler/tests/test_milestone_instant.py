@@ -1356,8 +1356,8 @@ class TestFreeFloatBeforeStartOfDayMilestone:
     compare the raw instants, which reported zero.
 
     A→M still drives M (#4704): it is the link that places M, and removing it moves
-    M to the project start. A driving edge is a link that binds its successor, not
-    one with zero free float; the two part whenever the slip runs through time the
+    M to the project start. A driving edge is a link that binds its successor or has
+    zero free float; the two part whenever the slip runs through time the
     successor's position does not count, as here.
 
     ``A -FS+1d-> M`` stays zero: Saturday midnight is shown as the end of Friday, and

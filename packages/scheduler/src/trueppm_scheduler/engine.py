@@ -369,13 +369,16 @@ MC_SENSITIVITY_SUBSAMPLE = 2_000
 
 @dataclass(frozen=True)
 class DrivingEdge:
-    """A dependency that places its successor's early date (#2095, #4704).
+    """A dependency that binds its successor or has zero relationship free float (#2095, #4704).
 
     A *driving* edge is the predecessor→successor link that actually controls the
     successor's early date: the successor's early start/finish sits exactly on the
     date this link imposes, read in the successor's working time — the "binding"
-    term :func:`trueppm_scheduler.derive.derive_value` cites. A link whose
-    relationship free float is zero is reported too. Non-driving links have
+    term :func:`trueppm_scheduler.derive.derive_value` cites — or whose
+    relationship free float is zero. The set is the union of the two, so it can
+    hold a zero-free-float link that does not bind: at a merge where a five-day
+    ``P`` and a seven-day ``Q`` both feed ``S``, both are reported while
+    ``derive_value`` binds only ``Q``. Non-driving links have
     slack — the successor would start at the same time even if that predecessor
     finished later.
 
@@ -500,7 +503,8 @@ class ScheduleResult:
     # Ordering is UNSPECIFIED — look up by id, not position (see class docstring, #1862).
     tasks: list[Task]  # copies with all CPM fields populated
     critical_path: list[str]  # every critical task ID, in topological order (not one chain)
-    # Dependencies whose relationship free float is zero (#2095). Order is
+    # Dependencies that bind their successor or whose relationship free float is
+    # zero (#2095, #4704). Order is
     # deterministic (sorted) so the two engines' snapshots stay comparable.
     driving_edges: list[DrivingEdge] = field(default_factory=list)
 
@@ -3284,7 +3288,7 @@ def _compute_floats(
     """Compute total_float, free_float, and is_critical for every task (in-place).
 
     Returns the list of :class:`DrivingEdge` s discovered as a side output of the
-    free-float slack loop — links that place their successor or whose relationship
+    free-float slack loop — links that bind their successor or whose relationship
     free float is zero (#2095, #4704).
 
     ``total_float`` is the working-day span between a task's early and late start;
@@ -3332,7 +3336,7 @@ def _compute_floats(
     lates = late_instants or {}
     links = link_instants or {}
 
-    # Driving edges (#2095): links that place the successor's early date
+    # Driving edges (#2095): links that bind the successor's early date
     # (:func:`_link_binds`, #4704) or whose per-edge free-float slack is zero.
     # Collected as a side output of the same slack loop that computes free float;
     # purely presentational.
@@ -3464,8 +3468,8 @@ def _free_float_days(
     non-working ``actual_start`` (a Saturday) counts as the Monday after it (#4332);
     every other early date already is a working day.
 
-    Appends to ``driving_edges`` as a side output: a link that places the
-    successor's early position (:func:`_link_binds`, #4704), or whose relationship
+    Appends to ``driving_edges`` as a side output: a link that binds the
+    successor's early position (:func:`_link_binds`, #4704) or whose relationship
     free float is zero (#2095). The forward pass guarantees ``slack >= 0``, so the
     exact zero test is deterministic across both engines.
 

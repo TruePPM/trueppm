@@ -4480,7 +4480,7 @@ class Dependency(VersionedModel):
     accepted_at = models.DateTimeField(null=True, blank=True)
 
     # Driving-link flag (#2095): True when the engine reports this edge as a
-    # driving edge — the link places the successor's early date (#4704) — so the
+    # driving edge — it binds the successor or has zero free float (#4704) — so the
     # schedule view draws it at full weight while non-driving links recede.
     # A CPM *output*, written back by the recompute task via bulk_update (like
     # Task.is_critical) so it never bumps server_version, and history-excluded.

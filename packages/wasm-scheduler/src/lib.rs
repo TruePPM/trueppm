@@ -1673,7 +1673,7 @@ mod tests {
     /// not its raw instant. `A(4d) -FS+2d-> M` puts M at Sunday midnight, shown as
     /// the start of Monday; a one-day slip of A lands on Monday midnight, still the
     /// start of Monday, so A has one day of free float. A→M still drives M: it is
-    /// the link that places M (#4704), and a driving edge is a binding link, not a
+    /// the link that binds M (#4704), and a driving edge is a binding link or a
     /// zero-free-float one. FS+1 (Saturday midnight, the end of Friday) stays at
     /// zero float: the slip moves M to the start of Monday (#4173). Both with and
     /// without `M -FS0-> B(1d)`.

@@ -569,8 +569,9 @@ export interface TaskLink {
   lag: number;
   isCritical: boolean;
   /**
-   * Driving link (#2095): this predecessor's relationship free float is zero, so it
-   * actually controls the successor's early date. Server-authoritative — a CPM
+   * Driving link (#2095, #4704): this link binds its successor (the date it imposes
+   * is the successor's early date, in the successor's working time) or has zero
+   * relationship free float, so it actually controls the successor's early date. Server-authoritative — a CPM
    * output on the dependency (`is_driving`), render-don't-derive (it cannot be
    * synthesized from endpoint criticality the way `isCritical` is). The schedule
    * view draws driving links at full weight and lets non-driving links recede.
