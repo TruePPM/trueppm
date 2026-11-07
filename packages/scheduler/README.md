@@ -435,7 +435,7 @@ application can check or re-enforce them without hand-copying a number:
 |-----|-------|--------|
 | `MAX_DURATION_DAYS` | `36525` | A single task's duration or PERT estimate (~100 years) |
 | `MAX_LAG_DAYS` | `36525` | A single dependency's lag, either direction |
-| `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative project span — every task's worst-case duration plus every lag (~1000 years) |
+| `MAX_PROJECT_SPAN_DAYS` | `366000` | Cumulative project span — worst-case task durations plus lags plus the furthest pin, data date or actual (~1000 years; see Project span above) |
 | `MAX_DEPENDENCIES` | `100000` | Raw dependency-edge count, before summary expansion |
 | `MAX_EXPANDED_EDGES` | `100000` | Leaf-level edges after expanding a summary↔summary dependency |
 | `MAX_CALENDAR_EXCEPTIONS` | `100000` | Exception ranges on one `Calendar` |
@@ -452,10 +452,9 @@ from trueppm_scheduler import MAX_DEPENDENCIES, MAX_DURATION_DAYS, MAX_LAG_DAYS
 
 The engine has no task-count cap of its own, and its only run-count cap is the
 absolute `100_000_000` ceiling in the table above, which is far past anything a
-request handler should accept.
-`monte_carlo(max_runs=…, max_tasks=…)` are opt-in, caller-supplied ceilings that
-default to `None` (no limit beyond that ceiling). That default is correct for a batch script or
-notebook that owns the whole machine, and wrong for a synchronous web request:
+request handler should accept. `monte_carlo(max_runs=…, max_tasks=…)` are opt-in,
+caller-supplied ceilings that default to `None` (no limit beyond that ceiling).
+That default is correct for a batch script or notebook that owns the whole machine, and wrong for a synchronous web request:
 **`schedule()` and `monte_carlo()` are CPU-bound** (a day-by-day calendar walk,
 plus a numpy-vectorized sampling pass), so a request handler that calls either
 directly on untrusted or unbounded input ties up a worker thread or process for
@@ -715,9 +714,7 @@ binding/`imposed_date` mismatch above
 [#4438](https://gitlab.com/trueppm/trueppm/-/issues/4438)), the remaining
 MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
-[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the three leaking
-Monte Carlo keyword caps
-([#4464](https://gitlab.com/trueppm/trueppm/-/issues/4464)), the very-low-run-count percentile imprecision
+[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the very-low-run-count percentile imprecision
 ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)), the closed-milestone frozen-edge path dependence
 ([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)), and a
 `monte_carlo(return_samples=True)` option to hand back the raw matrices

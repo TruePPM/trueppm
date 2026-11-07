@@ -394,7 +394,7 @@ each is individually catchable.
 | Exception | Raised when |
 |-----------|-------------|
 | `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` holds the offending task IDs. |
-| `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. Both caps default to `None` (uncapped) — they are opt-in guards for an embedder exposing the engine to untrusted input. |
+| `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. Both caps default to `None` (no limit; `runs` above an absolute 100,000,000 is always refused) — they are opt-in guards for an embedder exposing the engine to untrusted input. |
 | `InvalidScheduleInput` | The input is structurally valid but out of range, or the wrong type (see below), including `monte_carlo`'s own `sensitivity_cap`, `max_runs`, `max_tasks`, `max_lag_delta_cells` and `max_index_cells`. Messages that echo a value cap it at 200 characters. |
 | `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project, or (with a supplied `result`) a dependency of that task names a task the `result` lacks. |
 

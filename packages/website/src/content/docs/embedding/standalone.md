@@ -90,8 +90,8 @@ trueppm-scheduler schedule --help
 ```python
 from trueppm_scheduler import monte_carlo
 
-# The library imposes no run/task cap by default; pass max_runs / max_tasks
-# only if you need to bound work on a request path.
+# The library imposes no task cap and no run cap below an absolute 100,000,000
+# runs; pass max_runs / max_tasks to bound work on a request path.
 mc = monte_carlo(project, runs=10_000, seed=42)
 print(f"P50: {mc.p50}")
 print(f"P80: {mc.p80}  ← recommended commitment date")
