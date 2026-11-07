@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """scripts/subagent-tokens.py - the subagents' cumulative token usage for the
-`subagent-tokens: <N>` MR ledger line (macrodream/blueprint#365).
+`subagent-tokens: <N>` MR ledger line.
 
 Why this exists. The ledger's old `tokens:` line summed `subagent_tokens` from each agent's
 latest notification, which tracks about one context plus output, not usage across turns: a
@@ -30,10 +30,16 @@ it, and the meta `description` text is never read or echoed.
 Usage:
   python3 scripts/subagent-tokens.py --agent <id> [--agent <id> ...] [--until <ISO 8601>]
          [--session <session-id>] [--projects-dir <dir>]
+  python3 scripts/subagent-tokens.py --no-agents
   python3 scripts/subagent-tokens.py --self-test
 
+  --no-agents is the orchestrator's explicit statement that it spawned no subagent in the window
+ : it prints `subagent-tokens: 0`, a measured zero, and opens no
+  transcript. It is never a default: without it and without --agent this exits 2, so a forgotten
+  --agent can not become a zero. Giving it with --agent is a usage error.
+
   The session id defaults to $CLAUDE_CODE_SESSION_ID. --until is inclusive and must carry a zone.
-  The cost-ledger setting is asked first (`scripts/cost-ledger enabled`, macrodream/blueprint#348):
+  The cost-ledger setting is asked first (`scripts/cost-ledger enabled`):
   when it is off or unreadable this prints nothing and opens no transcript.
 
 Output: `subagent-tokens: <N>` on stdout and nothing else; the agents counted (named and
@@ -90,7 +96,7 @@ def session_dir(sid, projects_dir):
 
 
 def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
-    # Defense in depth (macrodream/blueprint#348): /mr and /wave skip this script when the ledger
+    # Defense in depth: /mr and /wave skip this script when the ledger
     # is off, and it still refuses to open a transcript on its own.
     state = enabled()
     if state != 0:
@@ -100,11 +106,15 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
             file=err,
         )
         return 3
-    ids, until, sid = [], None, None
-    projects_dir = os.path.join(os.path.expanduser("~"), ".claude", "projects")
+    ids, until, sid, none_ran = [], None, None, False
+    projects_dir = tu.default_projects_dir()
     i = 0
     while i < len(argv):
         a = argv[i]
+        if a == "--no-agents":
+            none_ran = True
+            i += 1
+            continue
         if a not in ("--agent", "--until", "--session", "--projects-dir"):
             print(
                 "usage: subagent-tokens.py --agent <id> [--agent <id>...] [--until T] [--session <sid>]",
@@ -138,8 +148,18 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
         else:
             projects_dir = v
         i += 2
+    if none_ran and ids:
+        print("usage: --no-agents and --agent are exclusive", file=err)
+        return 2
+    if none_ran:
+        print(
+            "subagent-tokens: 0 agents (--no-agents: the orchestrator stated none ran)",
+            file=err,
+        )
+        print("subagent-tokens: 0", file=out)
+        return 0
     if not ids:
-        print("usage: at least one --agent <id> is required", file=err)
+        print("usage: at least one --agent <id> (or --no-agents) is required", file=err)
         return 2
     sid = sid or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     if not sid:
@@ -292,6 +312,31 @@ def _cases(tmp, check):
         return rc, o.getvalue(), e.getvalue()
 
     pd = ("--projects-dir", projects)
+    rc, out, err = call("--no-agents")
+    check(
+        "--no-agents prints a measured zero and reads no transcript",
+        rc == 0 and out == "subagent-tokens: 0\n",
+        repr((rc, out, err)),
+    )
+    rc, out, _ = call("--no-agents", "--agent", a1, "--session", sid, *pd)
+    check(
+        "--no-agents with --agent is a usage error",
+        rc == 2 and out == "",
+        repr((rc, out)),
+    )
+    rc, out, _ = call("--session", sid, *pd)
+    check(
+        "neither --agent nor --no-agents still exits 2",
+        rc == 2 and out == "",
+        repr((rc, out)),
+    )
+    for state in (1, 2):
+        rc, out, _ = call("--no-agents", enabled=lambda s=state: s)
+        check(
+            "--no-agents asks the ledger setting first (exit 3)",
+            rc == 3 and out == "",
+            repr((rc, out)),
+        )
     rc, out, err = call("--agent", a1, "--session", sid, *pd)
     check(
         "single agent sum",
@@ -438,7 +483,7 @@ def _cases(tmp, check):
     ]:
         rc, out, _ = call(*args)
         check("exit 2: " + name, rc == 2 and out == "", repr((rc, out)))
-    # Ledger setting (macrodream/blueprint#348): a 3 with it off, against the same input that succeeds on.
+    # Ledger setting: a 3 with it off, against the same input that succeeds on.
     for state, word in ((1, "off"), (2, "unreadable")):
         rc, out, err = call(
             "--agent", a1, "--session", sid, *pd, enabled=lambda s=state: s
@@ -469,6 +514,58 @@ def _cases(tmp, check):
         st["messages"] == 0 and st["sidechain"] == 1,
         str(st),
     )
+    # The slug is the directory the session STARTED in: a session started inside a
+    # `scripts/wt` worktree lands under its own slug, not the main checkout's. Nothing derives
+    # the slug from the current directory; the session id alone finds it.
+    wt_projects = os.path.join(tmp, "wt-projects")
+    wt_sid = "5e5e5e5e-1111-2222-3333-444455556666"
+    for slug in (
+        "-Users-x-repos-trueppm-suite-trueppm",
+        "-Users-x-repos-trueppm-suite-trueppm-wt-4859-port-the-cost-ledger",
+    ):
+        os.makedirs(os.path.join(wt_projects, slug), exist_ok=True)
+    wt_base = os.path.join(
+        wt_projects, "-Users-x-repos-trueppm-suite-trueppm-wt-4859-port-the-cost-ledger"
+    )
+    wt_sub = os.path.join(wt_base, wt_sid, "subagents")
+    write(os.path.join(wt_base, wt_sid + ".jsonl"), [entry("w0", ts, usage, False)])
+    write(os.path.join(wt_sub, "agent-%s.jsonl" % a1), [entry("w1", ts, usage, True)])
+    meta(wt_sub, a1)
+    rc, out, err = call(
+        "--agent", a1, "--session", wt_sid, "--projects-dir", wt_projects
+    )
+    check(
+        "a session under a worktree slug is found by its id alone",
+        rc == 0 and out == "subagent-tokens: 7777\n",
+        repr((rc, out, err)),
+    )
+    # The same session id under two slugs is ambiguous: fail closed, never pick one.
+    dup = os.path.join(wt_projects, "-Users-x-repos-trueppm-suite-trueppm", wt_sid)
+    os.makedirs(os.path.join(dup, "subagents"), exist_ok=True)
+    rc, out, err = call(
+        "--agent", a1, "--session", wt_sid, "--projects-dir", wt_projects
+    )
+    check(
+        "a session id under two slugs exits 1 with no line",
+        rc == 1 and out == "" and "need exactly 1" in err,
+        repr((rc, out, err)),
+    )
+    # $CLAUDE_CONFIG_DIR moves the transcripts with the rest of Claude Code's config.
+    old_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    try:
+        os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(tmp, "cfg")
+        moved = tu.default_projects_dir() == os.path.join(tmp, "cfg", "projects")
+        os.environ.pop("CLAUDE_CONFIG_DIR")
+        home = tu.default_projects_dir() == os.path.join(
+            os.path.expanduser("~"), ".claude", "projects"
+        )
+    finally:
+        if old_cfg is None:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        else:
+            os.environ["CLAUDE_CONFIG_DIR"] = old_cfg
+    check("default projects dir follows $CLAUDE_CONFIG_DIR", moved)
+    check("default projects dir is ~/.claude/projects without it", home)
 
 
 def main(argv):

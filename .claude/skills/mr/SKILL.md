@@ -195,6 +195,10 @@ Rules:
     `python3 scripts/est-cost.py --agent <id> ... --since <implementer spawn, UTC> --until <go-ahead, UTC>`,
     priced per response at list prices from `.claude/model-prices.json`. Paste it unchanged. It is
     a list-price equivalent, not what a subscription charged, and never a measured figure.
+  - A branch on which **no subagent ran** (a hand-run `/mr` in one session) passes `--no-agents`
+    to `subagent-tokens.py` and `est-cost.py` in place of `--agent`: `subagent-tokens: 0` is then a
+    measured zero and the estimate prices the orchestrator alone. Without either flag both exit 2,
+    so a forgotten `--agent` never becomes a 0.
   - One line each per MR. **Omit a line when its script exited non-zero** (an agent id with no
     transcript, an unresolved session directory, a stale price table) and put the script's
     `note:` or the reason under `## Notes`. A missing or malformed figure is never written as 0.

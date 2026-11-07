@@ -311,6 +311,17 @@ def _render(body, issue, until, split_text, record=1, since=None, prior=None):
         return "{:,}".format(v)
 
     prior = prior or {}
+    # A window with no subagent: `subagent-tokens.py --no-agents` printed a measured
+    # `subagent-tokens: 0` and est-cost.py --no-agents printed no subagent model lines. The side
+    # is then present and empty, so each family reads `none used` and the side totals 0 / 0.00 USD,
+    # not n/a; the split-sum checks below compare 0 with 0. A split that does carry subagent lines
+    # is left as it is, so a wrong 0 beside real subagent figures still trips the mismatch note.
+    if (
+        f["subagent"][0] == 0
+        and "subagent" not in sp["tokens"]
+        and "subagent" not in sp["usd"]
+    ):
+        sp["tokens"]["subagent"], sp["usd"]["subagent"] = {}, {}
     fams = ["Sonnet", "Opus"]
     if any("Other" in sp[k].get(s, {}) for k in sp for s in SIDES) or any(
         "Other" in p["fams"] for p in prior.get("records", [])
@@ -1150,10 +1161,10 @@ def self_test():
         "est-cost-usd: 1.57 (prices 2026-11-03)",
         "budget-exceeded: 1 (implementer 1)",
     )
-    com = "\n".join(comment_lines(withb, 383, "2026-11-04T15:30:00Z", split))
+    com = "\n".join(comment_lines(withb, 4859, "2026-11-04T15:30:00Z", split))
     check(
         "comment: heading with the issue",
-        com.startswith("## Cost of this MR (#383)\n"),
+        com.startswith("## Cost of this MR (#4859)\n"),
         com,
     )
     for want in (
@@ -1177,7 +1188,7 @@ def self_test():
         "comment: no ledger line, no `gate:` line",
         not any(
             gy.COSTISH_RE.match(ln) or gy.GATE_PREFIX_RE.match(ln)
-            for ln in comment_lines(withb, 383, None, split)
+            for ln in comment_lines(withb, 4859, None, split)
         ),
     )
     check(
@@ -1258,9 +1269,9 @@ def self_test():
         "n/a (no `orchestrator-tokens:"
         in "\n".join(comment_lines(desc("subagent-tokens: 10"))),
     )
-    # The record 1 !288 carried, verbatim: an old comment counts as record 1.
-    mr288 = (
-        "## Cost of this MR (#383)\n\n| | Sonnet tokens | Sonnet est. cost | Opus tokens | Opus est. cost | Total tokens | Est. cost |\n"
+    # A record 1 as the script renders it, verbatim: an old comment counts as record 1.
+    rec1 = (
+        "## Cost of this MR (#4859)\n\n| | Sonnet tokens | Sonnet est. cost | Opus tokens | Opus est. cost | Total tokens | Est. cost |\n"
         "|---|---|---|---|---|---|---|\n| Subagents | 7,738,402 | 2.44 USD | none used | none used | 7,738,402 | 2.44 USD |\n"
         "| Orchestrator | 3,820,960 | 0.66 USD | none used | none used | 3,820,960 | 0.66 USD |\n"
         "| **Total** | **11,559,362** | **3.10 USD** | **0** | **0.00 USD** | **11,559,362** | **3.10 USD** |\n\n"
@@ -1270,15 +1281,15 @@ def self_test():
         "- The orchestrator figure is the session's spend over the window and is shared by every branch of the same wave, "
         "so two MRs' totals must not be added.\n\n" + FOOTER_1
     )
-    p288 = parse_record(mr288)
+    prec1 = parse_record(rec1)
     check(
-        "parse: !288's comment is record 1",
-        p288 is not None
-        and p288["k"] == 1
-        and p288["end"] == "2026-11-04T15:38:24Z"
-        and p288["total"][("tok", "all")] == 11559362
-        and p288["total"][("usd", "all")] == decimal.Decimal("3.10"),
-        repr(p288),
+        "parse: a record 1 comment parses as record 1",
+        prec1 is not None
+        and prec1["k"] == 1
+        and prec1["end"] == "2026-11-04T15:38:24Z"
+        and prec1["total"][("tok", "all")] == 11559362
+        and prec1["total"][("usd", "all")] == decimal.Decimal("3.10"),
+        repr(prec1),
     )
     # Strict parsing: each of these is not a record.
     for name, mut in (
@@ -1314,9 +1325,12 @@ def self_test():
         ),
         (
             "record 1 with a record suffix",
-            lambda b: b.replace("(#383)\n", "(#383) %s record 1\n" % DASH, 1),
+            lambda b: b.replace("(#4859)\n", "(#4859) %s record 1\n" % DASH, 1),
         ),
-        ("record 0", lambda b: b.replace("(#383)\n", "(#383) %s record 0\n" % DASH, 1)),
+        (
+            "record 0",
+            lambda b: b.replace("(#4859)\n", "(#4859) %s record 0\n" % DASH, 1),
+        ),
         (
             "oversized",
             lambda b: b.replace("- Agents", "- " + "x" * MAX_NOTE + "\n- Agents"),
@@ -1325,8 +1339,8 @@ def self_test():
     ):
         check(
             "parse: %s is not a record" % name,
-            parse_record(mut(mr288)) is None,
-            repr(parse_record(mut(mr288))),
+            parse_record(mut(rec1)) is None,
+            repr(parse_record(mut(rec1))),
         )
 
     tmp2 = tempfile.mkdtemp(prefix="cost-comment-")
@@ -1340,7 +1354,7 @@ def self_test():
             dpath,
             "--comment",
             "--issue",
-            "383",
+            "4859",
             "--until",
             "2026-11-04T15:30:00Z",
             "--split",
@@ -1352,7 +1366,7 @@ def self_test():
     )
     check(
         "cli comment: prints the body (the dry-run mode), exit 0",
-        rc == 0 and o.getvalue().startswith("## Cost of this MR (#383)"),
+        rc == 0 and o.getvalue().startswith("## Cost of this MR (#4859)"),
         repr((rc, e.getvalue())),
     )
     for name, en, want in (("off", off, 3), ("unreadable", bad, 3)):
@@ -1576,7 +1590,9 @@ def self_test():
     )
     calls = []
     rc, _ = upsert(
-        7, "NEW", fake([note(1, "x"), note(9, "## Cost of this MR (#383)\nold")], calls)
+        7,
+        "NEW",
+        fake([note(1, "x"), note(9, "## Cost of this MR (#4859)\nold")], calls),
     )
     check(
         "upsert: a hand-written own note with the heading is never overwritten (exit 5)",
@@ -1584,14 +1600,14 @@ def self_test():
         repr(calls),
     )
     calls = []
-    rc, _ = upsert(7, "NEW", fake([note(8, mr288), note(9, mr288)], calls))
+    rc, _ = upsert(7, "NEW", fake([note(8, rec1), note(9, rec1)], calls))
     check(
         "upsert: two own record 1s -> exit 5, neither updated",
         rc == 5 and not any(c[0] in ("PUT", "POST") for c in calls),
         repr(calls),
     )
     calls = []
-    rc, _ = upsert(7, "NEW", fake([note(1, "x"), note(9, mr288)], calls))
+    rc, _ = upsert(7, "NEW", fake([note(1, "x"), note(9, rec1)], calls))
     check(
         "upsert: a re-run updates record 1, no second post",
         rc == 0
@@ -1615,8 +1631,8 @@ def self_test():
         "NEW",
         fake(
             [
-                note(4, mr288),
-                note(5, "## Cost of this MR (#383) %s record 2\nx" % DASH),
+                note(4, rec1),
+                note(5, "## Cost of this MR (#4859) %s record 2\nx" % DASH),
             ],
             calls,
         ),
@@ -1628,7 +1644,7 @@ def self_test():
     )
     page1 = [note(i, "chat %d" % i) for i in range(100, 200)]
     calls = []
-    rc, _ = upsert(7, "NEW", fake(page1 + [note(500, mr288)], calls))
+    rc, _ = upsert(7, "NEW", fake(page1 + [note(500, rec1)], calls))
     check(
         "upsert: the match on page 2 is found and updated, not re-posted",
         rc == 0
@@ -1639,7 +1655,7 @@ def self_test():
     for method in ("GET", "POST", "user"):
         rc, _ = upsert(7, "B", fake([], [], fail=(method,)))
         check("upsert: %s failure exits 4" % method, rc == 4, repr(rc))
-    rc, _ = upsert(7, "B", fake([note(9, mr288)], [], fail=("PUT",)))
+    rc, _ = upsert(7, "B", fake([note(9, rec1)], [], fail=("PUT",)))
     check("upsert: PUT failure exits 4", rc == 4)
     rc, _ = upsert(7, "B", lambda m, p, b=None: (0, "not json"))
     check("upsert: unparseable listing exits 4", rc == 4)
@@ -1667,9 +1683,9 @@ def self_test():
                 "--split",
                 s2path,
                 "--issue",
-                "383",
+                "4859",
                 "--mr",
-                "288",
+                "4901",
                 "--since",
                 since,
                 "--until",
@@ -1682,7 +1698,7 @@ def self_test():
         sent = [c for c in calls if c[0] in ("PUT", "POST")]
         return rc, sent, (sent[-1][2]["body"] if sent else o.getvalue()), e.getvalue()
 
-    rc, sent, b2, _ = follow([note(10, mr288)])
+    rc, sent, b2, _ = follow([note(10, rec1)])
     check(
         "follow-up: posts a new record 2",
         rc == 0 and len(sent) == 1 and sent[0][0] == "POST",
@@ -1690,7 +1706,7 @@ def self_test():
     )
     check(
         "follow-up: record 2 heading",
-        b2.startswith("## Cost of this MR (#383) %s record 2\n" % DASH),
+        b2.startswith("## Cost of this MR (#4859) %s record 2\n" % DASH),
         b2,
     )
     check("follow-up: own window stated", "- Window: %s to %s." % (S2, E2) in b2, b2)
@@ -1722,7 +1738,7 @@ def self_test():
         repr(p2),
     )
     # Re-run for the same window: updates record 2 in place; a new window posts record 3.
-    rc, sent, b2b, _ = follow([note(10, mr288), note(11, b2)])
+    rc, sent, b2b, _ = follow([note(10, rec1), note(11, b2)])
     check(
         "follow-up: same window re-run updates that record",
         rc == 0
@@ -1733,7 +1749,7 @@ def self_test():
         repr(sent),
     )
     E3 = "2026-11-04T18:00:00Z"
-    rc, sent, b3, _ = follow([note(10, mr288), note(11, b2)], since=E2, until=E3)
+    rc, sent, b3, _ = follow([note(10, rec1), note(11, b2)], since=E2, until=E3)
     check(
         "follow-up: a new window posts record 3",
         rc == 0 and sent[0][0] == "POST" and "%s record 3\n" % DASH in b3,
@@ -1744,20 +1760,20 @@ def self_test():
         "| **Running total, records 1-3** | **11,562,362** | **3.90 USD** |" in b3,
         b3,
     )
-    rc, sent, _, err = follow([note(10, mr288), note(11, b2), note(12, b3)])
+    rc, sent, _, err = follow([note(10, rec1), note(11, b2), note(12, b3)])
     check(
         "follow-up: record 2's window again is refused (exit 5), nothing sent",
         rc == 5 and not sent,
         repr((rc, sent, err)),
     )
-    rc, sent, bd, _ = follow([note(10, mr288), note(11, b2), note(14, b2)])
+    rc, sent, bd, _ = follow([note(10, rec1), note(11, b2), note(14, b2)])
     check(
         "follow-up: two own record 2s for this window -> refused (exit 5), neither updated",
         rc == 5 and not sent,
         repr(sent),
     )
     rc, sent, bd, _ = follow(
-        [note(10, mr288), note(11, b2), note(14, b2)], since=E2, until=E3
+        [note(10, rec1), note(11, b2), note(14, b2)], since=E2, until=E3
     )
     check(
         "follow-up: two own record 2s, a new window -> record 4 (past every own note), total n/a",
@@ -1771,14 +1787,14 @@ def self_test():
     )
     # --next-since: the latest record's window end.
     for notes, want_rc, want in (
-        ([note(10, mr288)], 0, "2026-11-04T15:38:24Z\n"),
-        ([note(10, mr288), note(11, b2)], 0, E2 + "\n"),
+        ([note(10, rec1)], 0, "2026-11-04T15:38:24Z\n"),
+        ([note(10, rec1), note(11, b2)], 0, E2 + "\n"),
         ([], 1, ""),
-        ([note(10, mr288, author=OTHER)], 1, ""),
+        ([note(10, rec1, author=OTHER)], 1, ""),
     ):
         o = io.StringIO()
         rc = main(
-            ["--next-since", "--mr", "288"],
+            ["--next-since", "--mr", "4901"],
             enabled=on,
             stdout=o,
             stderr=io.StringIO(),
@@ -1802,10 +1818,10 @@ def self_test():
     )
 
     # Untrusted notes: a forged record by another user is never read and never edited.
-    forged = mr288.replace(
+    forged = rec1.replace(
         "**11,559,362** | **3.10 USD** |", "**999,999,999** | **9999.00 USD** |"
     )
-    rc, sent, bf, _ = follow([note(10, mr288), note(13, forged, author=OTHER)])
+    rc, sent, bf, _ = follow([note(10, rec1), note(13, forged, author=OTHER)])
     check(
         "forged: another user's record is not read; the total is this user's",
         rc == 0
@@ -1826,7 +1842,7 @@ def self_test():
         bf,
     )
     rc, sent, bf, _ = follow(
-        [note(10, mr288), note(13, b2.replace("record 2", "record 3"), author=OTHER)]
+        [note(10, rec1), note(13, b2.replace("record 2", "record 3"), author=OTHER)]
     )
     check(
         "forged: another user's later record does not change the number",
@@ -1835,14 +1851,14 @@ def self_test():
     )
     nauth = dict(note(14, forged))
     nauth["author"] = {"id": True}
-    rc, sent, bf, _ = follow([note(10, mr288), nauth])
+    rc, sent, bf, _ = follow([note(10, rec1), nauth])
     check(
         "forged: a boolean author id is not this user",
         "**11,560,862**" in bf and "were not read" in bf,
         bf,
     )
     # A malformed record by this user: the total is n/a with a reason; the next number still clears it.
-    bad_rec = mr288.replace("**11,559,362**", "**eleven million**")
+    bad_rec = rec1.replace("**11,559,362**", "**eleven million**")
     rc, sent, bm, _ = follow([note(10, bad_rec)])
     check(
         "malformed own record: total n/a (reason), never a guess",
@@ -1854,16 +1870,16 @@ def self_test():
     check(
         "parse: a control character in an n/a cell is not a record",
         parse_record(
-            mr288.replace("**0** | **0.00 USD**", "**n/a (a\x1bb)** | **0.00 USD**")
+            rec1.replace("**0** | **0.00 USD**", "**n/a (a\x1bb)** | **0.00 USD**")
         )
         is None
         and parse_record(
-            mr288.replace("**0** | **0.00 USD**", "**n/a (ab)** | **0.00 USD**")
+            rec1.replace("**0** | **0.00 USD**", "**n/a (ab)** | **0.00 USD**")
         )
         is not None,
     )
     rc, sent, bm, _ = follow(
-        [note(10, mr288), note(11, "## Cost of this MR (#383) record two\n" + FOOTER_K)]
+        [note(10, rec1), note(11, "## Cost of this MR (#4859) record two\n" + FOOTER_K)]
     )
     check(
         "malformed own heading: record number still past every own note, total n/a",
@@ -1875,7 +1891,7 @@ def self_test():
     )
     # A gap in the numbering (records 1 and 3, no 2): total n/a.
     rc, sent, bg, _ = follow(
-        [note(10, mr288), note(12, b3)], since=E3, until="2026-11-04T19:00:00Z"
+        [note(10, rec1), note(12, b3)], since=E3, until="2026-11-04T19:00:00Z"
     )
     check(
         "gap: records 1 and 3 -> record 4, total n/a",
@@ -1885,7 +1901,7 @@ def self_test():
         bg,
     )
     # Overlap: a window that starts before the previous one ended would count work twice.
-    rc, sent, bo, _ = follow([note(10, mr288)], since="2026-11-04T15:00:00Z")
+    rc, sent, bo, _ = follow([note(10, rec1)], since="2026-11-04T15:00:00Z")
     check(
         "overlap: total n/a",
         "Running total: n/a (this window starts before record 1 ended" in bo,
@@ -1896,7 +1912,7 @@ def self_test():
         "- Window: %s to %s." % (S2, E2),
         "- Window: 2026-11-04T10:00:00Z to 2026-11-04T17:00:00Z.",
     )
-    rc, sent, bo2, _ = follow([note(10, mr288), note(11, ov2)], since=E2, until=E3)
+    rc, sent, bo2, _ = follow([note(10, rec1), note(11, ov2)], since=E2, until=E3)
     check(
         "earlier overlap: record 3 total n/a with a reason",
         "%s record 3\n" % DASH in bo2
@@ -1912,7 +1928,7 @@ def self_test():
         repr(calls),
     )
     # A later start than the previous end: the uncounted stretch is stated, the total still adds up.
-    rc, sent, bl, _ = follow([note(10, mr288)], since="2026-11-04T16:00:00Z")
+    rc, sent, bl, _ = follow([note(10, rec1)], since="2026-11-04T16:00:00Z")
     check(
         "time gap: stated and the total stands",
         "No record covers 2026-11-04T15:38:24Z to 2026-11-04T16:00:00Z" in bl
@@ -1923,7 +1939,7 @@ def self_test():
     gp2 = b2.replace(
         "- Window: %s to %s." % (S2, E2), "- Window: 2026-11-04T16:00:00Z to %s." % E2
     )
-    rc, sent, bg3, _ = follow([note(10, mr288), note(11, gp2)], since=E2, until=E3)
+    rc, sent, bg3, _ = follow([note(10, rec1), note(11, gp2)], since=E2, until=E3)
     check(
         "earlier gap: record 3 sums and states the uncovered stretch",
         "%s record 3\n" % DASH in bg3
@@ -1947,24 +1963,24 @@ def self_test():
         bn,
     )
     # Dry run: reads the notes, prints, posts nothing.
-    rc, sent, out, _ = follow([note(10, mr288)], post_it=False)
+    rc, sent, out, _ = follow([note(10, rec1)], post_it=False)
     check(
         "follow-up dry run: printed, nothing sent",
         rc == 0 and not sent and "%s record 2\n" % DASH in out,
         repr(sent),
     )
     # Ledger off, or `cost-ledger: off` in the lines file: no record, no API call.
-    rc, sent, _, _ = follow([note(10, mr288)], en=off)
+    rc, sent, _, _ = follow([note(10, rec1)], en=off)
     check("follow-up: ledger off exits 3, nothing sent", rc == 3 and not sent)
     open(lpath, "w", encoding="utf-8").write("cost-ledger: off\n")
-    rc, sent, _, _ = follow([note(10, mr288)])
+    rc, sent, _, _ = follow([note(10, rec1)])
     check(
         "follow-up: `cost-ledger: off` in the lines exits 3, nothing sent",
         rc == 3 and not sent,
     )
     # A missing line in the window's file: that figure is n/a, so the running total column is n/a.
     open(lpath, "w", encoding="utf-8").write("orchestrator-tokens: 500\n")
-    rc, sent, bp, _ = follow([note(10, mr288)])
+    rc, sent, bp, _ = follow([note(10, rec1)])
     check(
         "follow-up: a missing line is n/a, and so is its running-total column",
         rc == 0
@@ -1973,8 +1989,63 @@ def self_test():
         in bp,
         bp,
     )
-    rc, sent, _, _ = follow([note(10, mr288)], extra=["--ledger", lpath])
+    rc, sent, _, _ = follow([note(10, rec1)], extra=["--ledger", lpath])
     check("follow-up: a doubled flag is a usage error", rc == 2 and not sent)
+
+    # A window with no subagent (`--no-agents`): measured 0, not n/a.
+    open(lpath, "w", encoding="utf-8").write(
+        "subagent-tokens: 0\norchestrator-tokens: 500\nest-cost-usd: 0.10 (prices 2026-11-03)\n"
+    )
+    open(s2path, "w", encoding="utf-8").write(
+        "orchestrator-tokens: model claude-sonnet-5-5 500\n"
+        "est-cost: orchestrator model claude-sonnet-5-5 0.10 USD\n"
+    )
+    rc, sent, bz, _ = follow([note(10, rec1)])
+    check(
+        "no-subagent window: Subagents row is a measured 0 / 0.00 USD, families none used",
+        rc == 0
+        and "| Subagents | none used | none used | none used | none used | 0 | 0.00 USD |"
+        in bz,
+        bz,
+    )
+    check(
+        "no-subagent window: orchestrator row and total are real",
+        "| Orchestrator | 500 | 0.10 USD | none used | none used | 500 | 0.10 USD |"
+        in bz
+        and "| **Total** | **500** | **0.10 USD** | **0** | **0.00 USD** | **500** | **0.10 USD** |"
+        in bz,
+        bz,
+    )
+    check(
+        "no-subagent window: running total is real and no split-sum mismatch note",
+        "| **Running total, records 1-2** | **11,559,862** | **3.20 USD** |" in bz
+        and "split sums" not in bz
+        and "n/a (no per-model split" not in bz,
+        bz,
+    )
+    # A 0 beside real subagent split lines is not trusted: the mismatch note fires.
+    open(s2path, "w", encoding="utf-8").write(split2)
+    rc, sent, bw, _ = follow([note(10, rec1)])
+    check(
+        "a subagent-tokens 0 with real subagent split lines still trips the mismatch note",
+        "The subagent model split sums to 1,000 tokens, not the ledger line's 0" in bw,
+        bw,
+    )
+    # No subagent-tokens line at all stays n/a (a forgotten --agent is not a zero).
+    open(lpath, "w", encoding="utf-8").write(
+        "orchestrator-tokens: 500\nest-cost-usd: 0.10 (prices 2026-11-03)\n"
+    )
+    open(s2path, "w", encoding="utf-8").write(
+        "orchestrator-tokens: model claude-sonnet-5-5 500\n"
+        "est-cost: orchestrator model claude-sonnet-5-5 0.10 USD\n"
+    )
+    rc, sent, bm, _ = follow([note(10, rec1)])
+    check(
+        "no subagent-tokens line stays n/a, never 0",
+        "| Subagents | n/a (no per-model split" in bm
+        and "n/a (no `subagent-tokens:` line" in bm,
+        bm,
+    )
 
     # The real setting reader answers with one of its three codes.
     check("ledger_enabled: answers 0, 1 or 2", ledger_enabled() in (0, 1, 2))

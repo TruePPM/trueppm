@@ -301,9 +301,40 @@ into `wave-cost-split.txt`. Fetch the description with
 `glab api projects/:id/merge_requests/<iid>`, write its `.description` to a file, and run
 `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`.
 It renders and posts record 1 itself. Exit 3 (ledger off or unreadable): post nothing. Exit 4 or
-5: say so in the report. Work on the MR after record 1 (a fix round, a re-measure) gets its own
-record, never an edit of record 1; the procedure (`--next-since`, `--ledger`, `--since`) is in
-the doc.
+5: say so in the report. Post it with the script, never with a hand-written `glab mr note`: the
+script is what later records read back and number from.
+
+**Work on the MR after record 1** (a fix round or a resume after the MR is open, a re-measure)
+gets its own record K, never an edit of record 1. With the ledger on, once that work is pushed,
+in the worktree:
+
+1. Get the window start: `python3 scripts/cost-table.py --next-since --mr <iid>` (exit 1: no
+   readable record, so post none and say why). Capture the end once,
+   `T=$(date -u +%Y-%m-%dT%H:%M:%SZ)`, and save the pair with the MR number:
+   `WIN="$(git rev-parse --git-dir)/wave-cost-window.txt"; printf '%s %s %s\n' <iid> <S> <T> > "$WIN"`
+   (`S` is the `--next-since` value). A re-run of the same record reads it back with
+   `WIN="$(git rev-parse --git-dir)/wave-cost-window.txt"; read -r I S T < "$WIN"` and reuses it
+   only when `$I` is this MR's iid. `--next-since` returns the posted record's own end, so without
+   the saved pair a re-run would post a near-empty record K+1; a pair saved for another MR or an
+   earlier round is never reused.
+2. Truncate the split file and a lines file in the git dir, then rerun the three measuring
+   scripts for `S`..`T`, each teeing stdout to the lines file and stderr to the split file, with
+   the paths set on that command's own line:
+   `COST_LINES="$(git rev-parse --git-dir)/wave-cost-lines.txt"; COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/orchestrator-tokens.py --since <S> --until <T> 1> >(tee -a "$COST_LINES") 2> >(tee -a "$COST_SPLIT" >&2)`,
+   and the same for `est-cost.py` (`--since <S> --until <T>`) and `subagent-tokens.py`
+   (`--until <T>` only; it has no `--since`). Both `subagent-tokens.py` and the subagent side of
+   `est-cost.py` count an agent's whole usage up to `--until`, so name only agents spawned
+   **fresh** in the window; a resumed agent makes the subagent cells `n/a` with a stated reason
+   (post the record without a `subagent-tokens:` / `est-cost-usd:` line). A window in which you
+   spawned no subagent passes `--no-agents` to `subagent-tokens.py` and `est-cost.py` in place of
+   `--agent`: a measured 0 for the subagent cells. A forgotten `--agent` without `--no-agents`
+   exits 2 and is never a 0.
+3. Post it:
+   `COST_LINES="$(git rev-parse --git-dir)/wave-cost-lines.txt"; COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --comment --ledger "$COST_LINES" --split "$COST_SPLIT" --since <S> --until <T> --issue <N> --mr <iid> --post`.
+
+A measuring script that fails leaves its cell `n/a`; ledger off or unreadable, no record (exit 3).
+The `## Gates` lines stay record 1's figures; do not edit them. The format, the states and the
+exit codes are in `docs/harness/cost-ledger.md` § *The cost records*.
 
 The agent reports back: MR URL, the full gate ledger, the commit SHA, and
 anything it deliberately left undone.
