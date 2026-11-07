@@ -333,7 +333,7 @@ interleaved up to that point, and the record's footnote says so.
 - **Known limit: a record edited after it was posted can be claimed twice.** A pending claim is settled
   by matching the record's `Window: S to U` line. If someone edits the comment so it no longer parses, or
   changes its window, the claim is read as absent, dropped, and the window is claimed again.
-- **Known limit: a `glab` child that outlives `cost-table.py`'s 300 s timeout.** If it lands its POST after
+- **Known limit: a `glab` child that outlives `cost-table.py`'s derived timeout (`worst_case_seconds()` + 30 s, about 337 s).** If it lands its POST after
   the pending claim was settled as absent (dropped), that window is claimed again and the record exists
   twice.
 - **Known limit: an agent attributed to a branch that never gets an MR in this session is never claimed.**
@@ -341,6 +341,11 @@ interleaved up to that point, and the record's footnote says so.
   or its MR is opened from another session, no record of this session ever includes the agent. Nothing
   double counts, but those tokens are in no record. `--agent <id>` on a `--round` for another MR counts
   them there by hand.
+- **Known limit (trueppm): the hook reads at most 2 notes pages (200 notes).** Blueprint reads 2,000. With
+  retried reads (up to `read_cost_seconds()` each) a longer scan could not fit the hook's 600 s. On an MR
+  with more than 200 notes, an unsettled pending claim cannot be settled (its notes read as unreadable), so
+  the post is refused with the `--retry` command and nothing is claimed twice; `--pin` is still written. An
+  MR with that many notes is unusual for a cost record's MR.
 - **Known limit: a session's first record includes the work done before its MR's issue.** Its
   orchestrator row starts at the session's first entry, and says so.
 
@@ -419,7 +424,8 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
   hook `systemMessage`, so the user sees it in the terminal and not only the model. The hook's own
   reads (MR description, notes, `--next-since`) are retried the same way, the notes are paged past
   100 (at most 2 pages, 200 notes, to fit the hook's time budget: more reads as unreadable, never as
-  absent), and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4).
+  absent; each read tries twice with 12 s timeouts, and `hook_worst_case_seconds()` sums every read on the
+  hook's path plus one cost-table run, about 523 s, pinned under 540 s by the self-test), and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4).
 - **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload
   and starts python only when it matches `*glab*mr*create*`; python then re-filters with its own
   stricter `glab mr create` pattern, so a loose shell match is harmless.

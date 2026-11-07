@@ -213,8 +213,8 @@ def run(cmd, cwd, env=None, timeout=300):
     )
 
 
-READ_ATTEMPTS = 3
-READ_TIMEOUT = 15
+READ_ATTEMPTS = 2
+READ_TIMEOUT = 12
 BACKOFF = (2, 5)
 SLEEP = [time.sleep]
 
@@ -280,24 +280,52 @@ def _cost_table():
     return _CT[0]
 
 
+def read_cost_seconds():
+    """Worst case of ONE glab_json read: every attempt hangs to READ_TIMEOUT, plus the backoffs."""
+    return READ_ATTEMPTS * READ_TIMEOUT + sum(
+        BACKOFF[min(i, len(BACKOFF) - 1)] for i in range(READ_ATTEMPTS - 1)
+    )
+
+
 def cost_table_timeout():
     """Outer timeout for a cost-table.py run: its own worst case (it retries internally, and walks
     up to NOTES_MAX_PAGES notes pages per attempt) plus margin.
 
     Derived, not hard-coded: a kill before cost-table's last attempt would lose its stderr reason and
-    leave the session state un-advanced even when a POST had landed.
-
-    Budget for the hook (600s in .claude/settings.json), all stages at their worst: MR read + this
-    hook's NOTE_PAGES notes pages + user read, each 3 x READ_TIMEOUT + backoff = 52s (4 reads, 208s),
-    plus this timeout (337s), plus ~30s of local measuring: 575s.
-    """
+    leave the session state un-advanced even when a POST had landed."""
     return int(_cost_table().worst_case_seconds()) + 30
 
 
+# The reads of the hook path, each a glab_json (read_cost_seconds() at worst):
+#   the MR (1); settling a pending claim: the user (1) and NOTE_PAGES notes pages; the "comment
+#   exists" check: NOTE_PAGES pages; and, on the exists branch only, reconcile's user read (1).
+# The posting path adds one cost-table run (cost_table_timeout()); the exists branch posts nothing.
+HOOK_LOCAL_SECONDS = 30  # measuring the three scripts, git calls
+HOOK_TIMEOUT_SECONDS = 600  # .claude/settings.json
+
+
+def hook_reads(posting):
+    return 2 + 2 * NOTE_PAGES if posting else 3 + 2 * NOTE_PAGES
+
+
+def hook_worst_case_seconds():
+    """The longest the hook can run with every call hanging: the larger of the posting path (its reads
+    and one cost-table run) and the comment-exists path (its reads, nothing posted). The self-test
+    pins it under HOOK_TIMEOUT_SECONDS with a margin, and counts the real glab_json calls of both
+    paths against hook_reads()."""
+    return max(
+        hook_reads(True) * read_cost_seconds()
+        + cost_table_timeout()
+        + HOOK_LOCAL_SECONDS,
+        hook_reads(False) * read_cost_seconds() + HOOK_LOCAL_SECONDS,
+    )
+
+
 def reason_of(err, cap=200):
-    """The last non-empty stderr line of a failed script, capped, for the message and the log."""
+    """The last non-empty stderr line of a failed script, control characters dropped (it reaches the
+    systemMessage and the log), capped."""
     lines = [ln.strip() for ln in (err or "").splitlines() if ln.strip()]
-    return lines[-1][:cap] if lines else ""
+    return _cost_table().clean_text(lines[-1], cap) if lines else ""
 
 
 def window_end(notes, me, now, start):
@@ -2711,6 +2739,66 @@ def golden_cases(check):
                 "timed out after 40s" in f.read(),
             )
 
+        # The hook's time budget is a sum over the REAL call sequence: count the glab_json reads of both
+        # paths with a pending claim to settle and two note pages everywhere, against hook_reads().
+        gs = json.load(open(gstate, encoding="utf-8"))
+        filler = [
+            {"id": 3000 + i, "body": "filler", "system": False, "author": {"id": 7}}
+            for i in range(100)
+        ]
+        gs["notes"]["13"] = list(filler)
+        gs["notes"]["11"] = list(filler) + gs["notes"]["11"]
+        json.dump(gs, open(gstate, "w", encoding="utf-8"))
+        real_gj = globals()["glab_json"]
+        reads = []
+
+        def counting(path, cwd):
+            reads.append(path)
+            return real_gj(path, cwd)
+
+        def pend_for_13():
+            st = st_now()
+            write_pending(
+                config_root(),
+                sid,
+                {
+                    "orchestrator_until": st["orchestrator_until"],
+                    "agents": st["agents"],
+                },
+                {
+                    "mr": 13,
+                    "project": "g/p",
+                    "since": "2026-11-07T14:00:00Z",
+                    "until": "2026-11-07T14:30:00Z",
+                    "agents": {},
+                },
+            )
+
+        roll_back(plain(ex["steps"]["c-retry"]["state"]))
+        pend_for_13()
+        globals()["glab_json"] = counting
+        try:
+            globals()["now_utc"] = lambda: "2026-11-07T16:00:00Z"
+            posted = process(hook_payload(13), opts, crun) or ""
+            n_post = len(reads)
+            reads.clear()
+            roll_back(plain(ex["steps"]["c-retry"]["state"]))
+            pend_for_13()
+            exists = process(hook_payload(11), opts, crun)
+            n_exists = len(reads)
+        finally:
+            globals()["glab_json"] = real_gj
+        check(
+            "golden budget: the posting path reads exactly hook_reads(True) times (MR, user, pending notes x pages, notes x pages)",
+            posted.startswith("Posted") and n_post == hook_reads(True),
+            repr((posted[:60], n_post, hook_reads(True))),
+        )
+        check(
+            "golden budget: the comment-exists path reads exactly hook_reads(False) times (adds reconcile's user read)",
+            exists is None and n_exists == hook_reads(False),
+            repr((exists, n_exists, hook_reads(False))),
+        )
+
     finally:
         globals()["now_utc"] = saved_now
         os.environ.clear()
@@ -3209,13 +3297,20 @@ def retained_cases(check):
         globals()["glab_json"] = real_json
     ct = _cost_table()
     check(
-        "cost-table's outer timeout exceeds its own retry worst case and fits the hook's 600s",
-        cost_table_timeout() > ct.worst_case_seconds()
-        and 4 * (READ_ATTEMPTS * READ_TIMEOUT + sum(BACKOFF))
-        + cost_table_timeout()
-        + 30
-        <= 600,
+        "cost-table's outer timeout exceeds its own retry worst case",
+        cost_table_timeout() > ct.worst_case_seconds(),
         str(cost_table_timeout()),
+    )
+    check(
+        "the hook's worst case (every read hanging, then one cost-table run) fits 600s with a margin",
+        hook_worst_case_seconds() <= HOOK_TIMEOUT_SECONDS - 60,
+        str(hook_worst_case_seconds()),
+    )
+    check(
+        "reason_of drops ANSI escapes and control characters, keeps the 200-char cap",
+        reason_of("x\n\x1b[31mred\x1b]0;t\x07 \x9bok") == "[31mred]0;t ok"
+        and len(reason_of("y" * 500)) == 200,
+        repr(reason_of("x\n\x1b[31mred\x1b]0;t\x07 \x9bok")),
     )
     # The hook's output: a failure is shown to the user (systemMessage), a post is not.
     real_process, real_stdin, real_stdout = globals()["process"], sys.stdin, sys.stdout

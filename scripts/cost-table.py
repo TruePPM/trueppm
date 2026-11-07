@@ -711,6 +711,15 @@ def scope_path(path, project):
     )
 
 
+def clean_text(text, cap=200):
+    """One line of untrusted text made safe to print: control characters (C0 including ESC, DEL and C1)
+    are dropped, so an ANSI escape from a server or glab cannot reach a terminal or a log, and the
+    result is capped."""
+    return "".join(ch for ch in str(text) if ch >= " " and not "\x7f" <= ch <= "\x9f")[
+        :cap
+    ]
+
+
 def glab_api(method, path, payload=None):
     """(returncode, stdout) of one `glab api` call; the JSON payload goes through stdin.
 
@@ -733,10 +742,10 @@ def glab_api(method, path, payload=None):
         return 1, ""
     if r.returncode != 0:
         tail = (r.stderr or r.stdout).decode("utf-8", errors="replace").strip()
-        tail = tail.splitlines()[-1] if tail else ""
-        LAST_API_ERR[0] = ("glab api %s exit %d: %s" % (where, r.returncode, tail))[
-            :200
-        ]
+        tail = clean_text(tail.splitlines()[-1] if tail else "")
+        LAST_API_ERR[0] = clean_text(
+            "glab api %s exit %d: %s" % (where, r.returncode, tail)
+        )
     return r.returncode, r.stdout.decode("utf-8", errors="replace")
 
 
@@ -1978,6 +1987,30 @@ def self_test():
         "glab_api: a timeout is (1, '') with a reason",
         r == (1, "") and "timed out" in LAST_API_ERR[0],
         repr(LAST_API_ERR),
+    )
+
+    class Failed:
+        returncode = 1
+        stdout = b""
+        stderr = b"boom\n\x1b[31m\x1b]0;pwned\x07bad gateway\x9b\n"
+
+    subprocess.run = lambda *a, **k: Failed()
+    try:
+        LAST_API_ERR[0] = ""
+        glab_api("GET", "user")
+    finally:
+        subprocess.run = real_run
+    check(
+        "glab_api: control characters (ESC, BEL, C1) in a server's error text never reach the reason",
+        "\x1b" not in LAST_API_ERR[0]
+        and "\x07" not in LAST_API_ERR[0]
+        and "\x9b" not in LAST_API_ERR[0]
+        and "bad gateway" in LAST_API_ERR[0],
+        repr(LAST_API_ERR),
+    )
+    check(
+        "clean_text keeps the 200-char cap",
+        len(clean_text("x" * 500)) == 200 and clean_text("a\x7fb") == "ab",
     )
     rc, _ = upsert(
         7, "B", fake([note(i, "x") for i in range(NOTES_MAX_PAGES * 100)], [])
