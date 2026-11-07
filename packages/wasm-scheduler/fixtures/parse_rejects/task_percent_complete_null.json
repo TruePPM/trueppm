@@ -1,0 +1,1 @@
+{"id":"pr-percent-complete-null","name":"percent_complete is null - Rust f64 refuses, Python from_dict now refuses (#4708)","start_date":"2026-01-01","tasks":[{"id":"A","name":"Task A","duration":86400.0,"percent_complete":null}],"dependencies":[],"calendar":{"working_days":31,"exceptions":[],"hours_per_day":8.0,"timezone":"UTC"}}

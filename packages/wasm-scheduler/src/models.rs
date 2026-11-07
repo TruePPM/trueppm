@@ -17,6 +17,35 @@ use serde::{Deserialize, Serialize};
 /// `date.min` is 0001-01-01. A document the server refuses with a 400 must not be
 /// schedulable offline, so every date field goes through this shape: exactly ten
 /// ASCII characters, `\d{4}-\d{2}-\d{2}`, and a year of at least 1.
+/// Parse-time checks for fields this engine ignores but the shared document
+/// contract constrains, so both engines accept the same set (#4708).
+pub mod enum_serde {
+    use serde::{de::Error, Deserialize, Deserializer};
+
+    /// `deserialize_with` for `delivery_mode`: `null`/absent stay `None`; any other
+    /// value must be one of the Python `DeliveryMode` values.
+    pub fn delivery_mode<'de, D: Deserializer<'de>>(de: D) -> Result<Option<String>, D::Error> {
+        match Option::<String>::deserialize(de)? {
+            None => Ok(None),
+            Some(s) if s == "waterfall" || s == "scrum" => Ok(Some(s)),
+            Some(s) => Err(D::Error::custom(format!(
+                "Invalid delivery_mode {s:?}; must be one of: waterfall, scrum."
+            ))),
+        }
+    }
+
+    /// `deserialize_with` for an optional integer-valued field (`sprint_length_days`).
+    pub fn integral_opt<'de, D: Deserializer<'de>>(de: D) -> Result<Option<f64>, D::Error> {
+        match Option::<f64>::deserialize(de)? {
+            None => Ok(None),
+            Some(v) if v.is_finite() && v.fract() == 0.0 => Ok(Some(v)),
+            Some(v) => Err(D::Error::custom(format!(
+                "sprint_length_days must be an integer (got {v})"
+            ))),
+        }
+    }
+}
+
 pub mod date_serde {
     use chrono::{Datelike, NaiveDate};
     use serde::{de::Error, Deserialize, Deserializer};
@@ -237,7 +266,11 @@ pub struct Task {
     // run — so they never affect a deterministic CPM result and are accepted and ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "enum_serde::delivery_mode"
+    )]
     pub delivery_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub story_points: Option<f64>,
@@ -466,7 +499,11 @@ pub struct Project {
     pub calendars: Option<std::collections::HashMap<String, Calendar>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity_samples: Option<Vec<Option<f64>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "enum_serde::integral_opt"
+    )]
     pub sprint_length_days: Option<f64>,
 }
 
