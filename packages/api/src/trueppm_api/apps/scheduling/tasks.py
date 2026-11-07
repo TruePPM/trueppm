@@ -1324,8 +1324,9 @@ def _bulk_write_cpm_results(
 
 
 def _apply_driving_flags(deps: list[Any], driving_edges: Iterable[Any]) -> None:
-    """Set ``is_driving`` on each stored Dependency whose edge has zero relationship
-    free float (#2095).
+    """Set ``is_driving`` on each stored Dependency the engine reports as driving (#2095).
+
+    A driving edge is a link that places its successor's early date (#4704).
 
     Keyed by ``(predecessor_id, successor_id, dep_type)`` on leaf task ids exactly
     as the engine reports; summary-level edges (expanded before CPM) carry no

@@ -293,7 +293,7 @@ Smaller exported names that the sections above do not cover:
 
 - `find_cycle(edges)` returns a `CycleCheck`. Its `.cycle` is the offending task ids in order, with the first repeated at the end (`["A", "B", "C", "A"]`), or `None` when the graph is acyclic. It is truthy only when a cycle exists.
 - `expand_summary_dependencies(tasks, deps, children_map)` returns a `SummaryExpansion`: `.tasks` is the input with summary tasks removed (leaves only) and `.dependencies` is every dependency fanned out to leaf-level edges. It still unpacks as `leaf_tasks, deps = ...`.
-- `ScheduleResult.driving_edges` is a list of `DrivingEdge`: the links whose relationship free float is zero, so the successor's early date sits exactly on the date that link imposes. Slipping that predecessor a working day would push the successor.
+- `ScheduleResult.driving_edges` is a list of `DrivingEdge`: the links that place their successor, because the date the link imposes, read in the successor's working time, is the successor's early date. A link with zero relationship free float is one too. Free float stays a separate output: a seven-day-week predecessor finishing on a Friday into a Monday-to-Friday successor drives it onto Monday and still has two days of free float, its Saturday and Sunday ([#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)).
 - `MonteCarloResult.sensitivity` is a list of `TaskSensitivity` (`task_id`, `index`). `index` is the absolute Spearman rank correlation, from 0 to 1, between the task's sampled duration and the project finish. Tasks whose duration cannot vary the finish are omitted rather than reported as 0.
 - `perturb_task_duration(project, task_id, delta_days)` returns a copy of the project with one task's duration shifted, for what-if runs. It moves the fixed duration, the three-point estimate and the story points together, so the CPM finish and the Monte Carlo bands stay consistent. The input project is not mutated.
 
@@ -561,10 +561,7 @@ release it is scheduled for:
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
   *into* a summary task do not fan out to every leaf the way the successor
   side does
-  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); `driving_edges`
-  can omit a link whose calendar-day lag lands on non-working time even
-  though removing it does move the successor
-  ([#4537](https://gitlab.com/trueppm/trueppm/-/issues/4537));
+  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437));
   `expand_summary_dependencies` can invent a sibling ordering from a
   summary-to-own-child link that `find_cycle` correctly flags as a cycle
   ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538)); a completed
@@ -668,10 +665,8 @@ MS-Project-parity gaps, the zero-lag milestone-calendar overstatement
 ([#4526](https://gitlab.com/trueppm/trueppm/-/issues/4526)), the three leaking
 Monte Carlo keyword caps, a `monte_carlo(return_samples=True)` option to
 hand back the raw matrices
-([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)), and four findings
+([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)), and three findings
 from the 2026-10-18 scheduler audit above: the
-`driving_edges` false negative on calendar-lag-onto-non-working-time
-([#4537](https://gitlab.com/trueppm/trueppm/-/issues/4537)), the
 `expand_summary_dependencies` sibling-ordering bug on invalid input
 ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538)), the
 completed-task-without-actuals non-monotonicity

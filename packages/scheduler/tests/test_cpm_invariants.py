@@ -26,6 +26,7 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+from tests import test_cpm_oracle as _oracle
 from tests.test_contract_fuzz import _PLAUSIBLE_ANCHOR, _plausible_projects
 from trueppm_scheduler import (
     Calendar,
@@ -36,6 +37,7 @@ from trueppm_scheduler import (
     SchedulerError,
     ScheduleResult,
     Task,
+    derive_value,
     schedule,
 )
 
@@ -1062,3 +1064,141 @@ def test_pinning_a_live_task_to_its_shown_start_moves_nothing(project: Project) 
             ],
         )
         assert _early_positions(schedule(pinned)) == want, task.id
+
+
+# ---------------------------------------------------------------------------
+# Invariant: a link that places its successor is a driving edge (#4704)
+# ---------------------------------------------------------------------------
+
+#: The #4704 repro: ``X`` (4d, seven-day week) from Tue 2027-03-02 finishes Friday
+#: 03-05, and ``X -FS+0-> Y`` (1d, Monday to Friday) places ``Y`` on Monday 03-08.
+#: Unlinked, ``Y`` starts Tuesday 03-02. ``X`` reads two days of free float, its
+#: Saturday and Sunday, which move nothing.
+_SEVEN_INTO_FIVE = Project(
+    id="p",
+    name="p",
+    start_date=date(2027, 3, 2),
+    tasks=[
+        Task(id="X", name="X", duration=timedelta(days=4), calendar_id="seven"),
+        Task(id="Y", name="Y", duration=timedelta(days=1), calendar_id="five"),
+    ],
+    dependencies=[Dependency(predecessor_id="X", successor_id="Y")],
+    calendar=Calendar(working_days=0b0011111),
+    calendars={"seven": Calendar(working_days=0b1111111), "five": Calendar(working_days=0b0011111)},
+)
+
+
+def _positions(result: ScheduleResult) -> dict[str, tuple[date, date, bool]]:
+    positions = {}
+    for t in result.tasks:
+        assert t.early_start is not None and t.early_finish is not None
+        positions[t.id] = (t.early_start, t.early_finish, t.milestone_at_day_end)
+    return positions
+
+
+def _earlier(after: tuple[date, date, bool], before: tuple[date, date, bool]) -> bool:
+    """Whether ``after`` sits earlier than ``before`` in its start, finish, or day edge.
+
+    Only an earlier position counts as the removed link having held the task:
+    removing a task's last SF link also restores its project-start floor (#4218),
+    which can move it *later* with no link having placed it.
+    """
+    return (
+        after[0] < before[0]
+        or after[1] < before[1]
+        or (after[:2] == before[:2] and before[2] and not after[2])
+    )
+
+
+def _undriven_placing_links(project: Project) -> list[str]:
+    """Links into live successors that place them but are missing from ``driving_edges``.
+
+    A link places its successor when either (a) removing it moves the successor's
+    early position earlier, or (b) :func:`derive_value` cites it as the binding term of the
+    successor's early start or early finish.
+    """
+    result = schedule(project)
+    driving = {(e.predecessor_id, e.successor_id) for e in result.driving_edges}
+    tasks = {t.id: t for t in result.tasks}
+    before = _positions(result)
+    problems: list[str] = []
+    for dep in project.dependencies:
+        pred, succ = dep.predecessor_id, dep.successor_id
+        if (pred, succ) in driving:
+            continue
+        task = tasks[succ]
+        if task.actual_finish is not None or (task.percent_complete or 0) >= 100:
+            continue  # a completed successor is out of network logic (ADR-0136)
+        unlinked = dataclasses.replace(
+            project, dependencies=[d for d in project.dependencies if d is not dep]
+        )
+        if _earlier(_positions(schedule(unlinked))[succ], before[succ]):
+            problems.append(f"removing {pred}->{succ} moves {succ} earlier")
+        for quantity in ("early_start", "early_finish"):
+            binding = derive_value(project, succ, quantity, result=result).binding
+            if (
+                binding is not None
+                and binding.kind.startswith("predecessor_")
+                and binding.source_task_id == pred
+            ):
+                problems.append(f"derive_value({succ}, {quantity}) binds on {pred}")
+    return problems
+
+
+def test_zero_lag_link_across_calendars_that_places_its_successor_drives() -> None:
+    """The #4704 repro: a seven-day predecessor alone places its five-day successor."""
+    result = schedule(_SEVEN_INTO_FIVE)
+    tasks = {t.id: t for t in result.tasks}
+    assert tasks["X"].early_finish == date(2027, 3, 5)
+    assert tasks["Y"].early_start == date(2027, 3, 8)
+    # Float stays a separate output: X can still slip over its weekend.
+    assert tasks["X"].free_float == timedelta(days=2)
+    assert result.driving_edges == [DrivingEdge("X", "Y", "FS")]
+    assert _undriven_placing_links(_SEVEN_INTO_FIVE) == []
+
+
+def test_calendar_day_lag_onto_a_weekend_that_places_its_successor_drives() -> None:
+    """The #4537 shape: ``A`` (3d, Mon-Wed) ``-FS+2d->`` lands on Saturday, ``B`` on Monday.
+
+    ``A`` can slip two days (a Thursday finish lands the lag on Sunday, a Friday
+    one on Monday) without moving ``B``, so it has two days of free float, yet the
+    link alone places ``B``.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),  # a Monday
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=3)),
+            Task(id="B", name="B", duration=timedelta(days=2)),
+        ],
+        dependencies=[Dependency("A", "B", DependencyType.FS, timedelta(days=2))],
+        calendar=Calendar(working_days=0b0011111),
+    )
+    result = schedule(project)
+    tasks = {t.id: t for t in result.tasks}
+    assert tasks["B"].early_start == date(2026, 3, 9)
+    assert tasks["A"].free_float == timedelta(days=2)
+    assert result.driving_edges == [DrivingEdge("A", "B", "FS")]
+    assert _undriven_placing_links(project) == []
+
+
+@example(project=_oracle.CLOSING_RELEASES_A_FROZEN_EDGE)
+@given(project=_oracle.progress_projects())
+def test_link_that_places_its_successor_is_a_driving_edge(project: _oracle.RefProject) -> None:
+    """Every link that places a live successor is in ``driving_edges`` (#4704).
+
+    Over progress, a data date, SNETs and per-task calendars: a link removed from
+    the network that moves its successor earlier, or one :func:`derive_value` names as the
+    successor's binding term, held the successor where it is. ``driving_edges``
+    used to test zero relationship free float alone, counted in the predecessor's
+    working days, and so dropped a link from a wider calendar into a narrower one
+    whose non-working days are slip that moves nothing.
+    """
+    engine_project = _oracle.to_engine_project(project)
+    try:
+        schedule(engine_project)
+    except SchedulerError:
+        return
+    problems = _undriven_placing_links(engine_project)
+    assert not problems, "\n".join([repr(project), *problems])

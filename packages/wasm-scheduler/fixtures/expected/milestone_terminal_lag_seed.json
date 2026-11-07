@@ -29,5 +29,11 @@
   "critical_path": [
     "M"
   ],
-  "driving_edges": []
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "M",
+      "dep_type": "FS"
+    }
+  ]
 }
