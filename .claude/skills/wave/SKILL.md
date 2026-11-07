@@ -299,15 +299,15 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
 description's ledger lines. Once the resumed agent runs `glab mr create`, the PostToolUse hook
 `.claude/hooks/post-mr-cost.sh` (`scripts/post-mr-cost.py`) posts the `## Cost of this MR` comment
 by itself, unless the ledger is off, the description carries `cost-ledger: off`, or a cost comment
-already exists. It needs nothing passed in: it finds the session's transcript by session id and the
-top-level subagents that started in its window. After you verify the MR, check the hook's
+already exists. Because the description already carries the ledger lines, the hook renders record 1 from
+them (plus the git-dir `wave-cost-split.txt` when it is fresh and matches) and does not re-measure; it
+measures only a description with no ledger key anywhere. After you verify the MR, check the hook's
 `additionalContext` line (or `mr-cost-hook.log` in `git rev-parse --git-common-dir`); if it says
-it posted, do nothing. If it skipped or failed with the ledger on, post record 1 yourself, which
-is also the path when you want the exact named agents: fetch the description with
+it posted, do nothing. If it skipped or failed with the ledger on, post record 1 yourself (a fallback only): fetch the description with
 `glab api projects/:id/merge_requests/<iid>`, write its `.description` to a file, and run
 `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`,
-then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until.${CLAUDE_CODE_SESSION_ID:?}"`
-so the next MR's hook window does not re-count this one. Exit 3 (ledger off or unreadable): post
+Do not write `mr-cost-last-until.${CLAUDE_CODE_SESSION_ID:?}`: the description path measures nothing, and a
+go-ahead time older than that file's value would move the next plain `/mr` window backward. Exit 3 (ledger off or unreadable): post
 nothing. Exit 4 or 5: say so in the report. Post with the script, never a hand-written
 `glab mr note`: the script is what later records read back and number from.
 
@@ -316,7 +316,7 @@ nothing. Exit 4 or 5: say so in the report. Post with the script, never a hand-w
 after the MR is open, and a rebase with conflict resolution before merge (CLAUDE.md "Batched MR
 sequence"; a clean rebase is not a window). With the ledger on, once that work is pushed, the
 default is `python3 scripts/post-mr-cost.py --round --mr <iid>`: it measures this session since
-the latest record, posts record K and advances `mr-cost-last-until.<session id>`. When you need the exact named
+the latest record, posts record K and advances `mr-cost-last-until.<session id>`. That window is session-based, so for a wave's parallel agents it can mis-count until #4864 is fixed. When you need the exact named
 agents, do it by hand, in the worktree:
 
 1. Get the window start: `python3 scripts/cost-table.py --next-since --mr <iid>` (exit 1: no

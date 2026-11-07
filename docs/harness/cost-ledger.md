@@ -233,10 +233,25 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   hook `.claude/hooks/post-mr-cost.sh` (registered in `.claude/settings.json`) runs
   `scripts/post-mr-cost.py`, which posts record 1. It does nothing when `scripts/cost-ledger
   enabled` is not 0, when the MR description carries `cost-ledger: off`, or when this user already
-  has a `## Cost of this MR` comment on the MR (so a record is never posted twice). The window runs
-  from the last MR this session posted for (`mr-cost-last-until.<session id>` in the git common dir;
-  the window is per session because the common dir is shared by every worktree and parallel
-  session, and a legacy unkeyed `mr-cost-last-until` is read only when no keyed file exists)
+  has a `## Cost of this MR` comment on the MR (so a record is never posted twice).
+  **Which source wins: the description's ledger lines.** When a `subagent-tokens:`,
+  `orchestrator-tokens:` or `est-cost-usd:` line appears anywhere in the description (a `/wave`
+  MR; under `## Gates`, `## Notes`, in a fence or in a quote alike), the hook renders record 1 from
+  the description through `cost-table.py --file` and does not measure, so the comment matches the
+  description by construction (a line cost-table cannot read renders as n/a). A re-measured
+  window cannot be right for a wave: its agents start before the previous MR's post, so the window
+  excludes this MR's agents and can include another's (!3249 read 0.8M tokens against a ledger of
+  10.8M). The per-model split comes from `wave-cost-split.txt` in the git dir of the checkout the
+  MR was created from, and is used only when it is older than the MR, at most two hours older, and
+  its token sums equal the description's lines. Then its mtime is the window end; otherwise the
+  per-model cells read n/a, the totals are unchanged, and the window end is the MR's creation time
+  (the hook's time if that cannot be read; the footer's "go-ahead to push" is then seconds off),
+  so record 1 always has a readable window end for `--next-since` and `--round`. This path does
+  not write `mr-cost-last-until` (it measures nothing, and the file is shared by every worktree).
+  A description with no ledger key anywhere (a plain `/mr`) is measured: the window runs from the
+  last MR this session posted for (`mr-cost-last-until.<session id>` in the git common dir; the
+  window is per session because the common dir is shared by every worktree and parallel session,
+  and a legacy unkeyed `mr-cost-last-until` is read only when no keyed file exists)
   or the session start, to now; subagents are the top-level ones that started in that window. The
   session's transcript is found by session id under `~/.claude/projects/*/`, so a session run from
   the main checkout is found whether its agents worked in the checkout or in a
@@ -249,6 +264,8 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   `mr-cost-last-until.<session id>` so the next MR does not re-count the round. It posts nothing, and prints one
   line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
   or nothing was measured.
+  Wave fix rounds are window-based until #4864: the window since the latest record can mis-count
+  a wave's parallel agents, so prefer the by-hand path with named agents for a wave round.
 - **Failures are retried, explained and visible.** `cost-table.py --post` retries the whole
   read-then-write up to 3 times (2s then 5s backoff, 20s per `glab api` call, at most 3 notes pages per attempt: 307s worst case; the hook's own timeout on it is derived from `worst_case_seconds()` in `cost-table.py` plus 30s, 337s, so the whole hook fits its 600s limit. An MR with 300 or more notes exits 5, which is not retried) when a call fails or
   hangs. It retries from the top, not the single call, because a POST that timed out may have
