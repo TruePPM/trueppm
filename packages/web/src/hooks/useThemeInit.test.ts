@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useThemeStore } from '@/stores/themeStore';
+import { queryClient } from '@/lib/queryClient';
 import { useThemeInit } from './useThemeInit';
 
 function mockMatchMedia(prefersDark: boolean) {
@@ -22,6 +23,7 @@ function mockMatchMedia(prefersDark: boolean) {
 beforeEach(() => {
   document.documentElement.classList.remove('dark');
   useThemeStore.setState({ theme: 'auto' });
+  queryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: false });
   vi.unstubAllGlobals();
 });
 
@@ -62,5 +64,37 @@ describe('useThemeInit', () => {
 
     mq._trigger(true);
     expect(document.documentElement.classList.contains('dark')).toBe(true);
+  });
+});
+
+describe('useThemeInit demo default (#4508)', () => {
+  const seedEdition = (demo: boolean) =>
+    queryClient.setQueryData(['edition'], { edition: 'community', demo_read_only: demo });
+
+  beforeEach(() => {
+    localStorage.clear();
+    mockMatchMedia(true);
+  });
+
+  it('demo + nothing stored -> light, not persisted', () => {
+    seedEdition(true);
+    renderHook(() => useThemeInit());
+    expect(useThemeStore.getState().theme).toBe('light');
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(localStorage.getItem('trueppm.theme')).toBeNull();
+  });
+
+  it('demo + stored dark -> dark wins', () => {
+    seedEdition(true);
+    localStorage.setItem('trueppm.theme', 'dark');
+    useThemeStore.setState({ theme: 'dark' });
+    renderHook(() => useThemeInit());
+    expect(useThemeStore.getState().theme).toBe('dark');
+  });
+
+  it('non-demo -> stays auto', () => {
+    seedEdition(false);
+    renderHook(() => useThemeInit());
+    expect(useThemeStore.getState().theme).toBe('auto');
   });
 });

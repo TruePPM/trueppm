@@ -14,6 +14,16 @@ function readStoredTheme(): Theme {
   return 'auto';
 }
 
+/** True when the visitor has made an explicit choice (a default is not a choice). */
+export function hasStoredTheme(): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === 'light' || stored === 'dark' || stored === 'auto';
+  } catch {
+    return false;
+  }
+}
+
 interface ThemeState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
