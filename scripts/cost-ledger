@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""scripts/cost-ledger - read and write the cost-ledger setting (macrodream/blueprint#348, ADR 0011).
+"""scripts/cost-ledger - read and write the cost-ledger setting (ADR-1340).
 
 The cost ledger is the set of cost lines /mr and /wave write in an MR's `## Gates`
-section: the measured `subagent-tokens:`, `turns:`, `orchestrator-tokens:`, `cost:`, and the one estimate, `est-cost-usd:`. This script is the only code
-that reads the setting's two layers; skills and scripts ask it with `enabled`. The same answer
-governs the `## Cost of this MR` records scripts/cost-table.py posts (macrodream/blueprint#384).
+section: the measured `subagent-tokens:` and `orchestrator-tokens:`, and the one estimate,
+`est-cost-usd:`. This script is the only code that reads the setting's two layers; skills and scripts ask it with `enabled`. The same answer
+governs the `## Cost of this MR` records scripts/cost-table.py posts.
 
 Layers and precedence (docs/harness/cost-ledger.md states this once):
   Effective value: off if .claude/cost-ledger.json says off; otherwise off if git config
-  blueprint.costLedger is false (local or global); otherwise on. A local setting can turn
+  trueppm.costLedger is false (local or global); otherwise on. A local setting can turn
   recording off, never on over a project that chose off. An unreadable layer counts as off.
 
   project  .claude/cost-ledger.json, committed: {"_doc": ..., "schema": 1, "cost-ledger": "on"|"off"}
-  local    git config blueprint.costLedger false (local config is shared by every worktree of
+  local    git config trueppm.costLedger false (local config is shared by every worktree of
            the clone and is never committed; --global is read too). Only `false` has an effect.
 
 Usage:
   scripts/cost-ledger status [--json]   effective value and the layer that set it
   scripts/cost-ledger enabled           quiet; exit 0 on, 1 off, 2 a layer is unreadable
   scripts/cost-ledger on|off            edit the committed project file (lands through a chore MR)
-  scripts/cost-ledger on|off --local    off: git config --local blueprint.costLedger false;
+  scripts/cost-ledger on|off --local    off: git config --local trueppm.costLedger false;
                                         on: unset that key (never writes true)
   scripts/cost-ledger --self-test
 
@@ -37,7 +37,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REL = os.path.join(".claude", "cost-ledger.json")
-KEY = "blueprint.costLedger"
+KEY = "trueppm.costLedger"
 SCHEMA = 1
 VALUE_RE = re.compile(r'("cost-ledger"\s*:\s*")(on|off)(")')
 FALSE = ("false", "no", "off", "0", "")
@@ -252,7 +252,7 @@ def self_test():
         subprocess.run(["git", "init", "-q", root], check=True)
         pfile = os.path.join(root, REL)
         template = (
-            '{\n  "_doc": "macrodream/blueprint#348, docs/harness/cost-ledger.md, ADR 0011",\n'
+            '{\n  "_doc": "docs/harness/cost-ledger.md, ADR-1340",\n'
             '  "schema": 1,\n  "cost-ledger": "%s"\n}\n'
         )
 

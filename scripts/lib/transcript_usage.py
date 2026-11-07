@@ -1,6 +1,6 @@
 """scripts/lib/transcript_usage.py - per-response token usage from Claude Code session
 transcripts, shared by scripts/orchestrator-tokens.py and scripts/subagent-tokens.py
-(macrodream/blueprint#365), and by scripts/est-cost.py (macrodream/blueprint#364), which prices each
+and by scripts/est-cost.py, which prices each
 response by `measure_rows`.
 
 Pure functions: no subprocess, no policy (the cost-ledger setting is each CLI's job).
@@ -38,6 +38,21 @@ FIELDS = (
 AGENT_ID_RE = re.compile(r"^a?[0-9a-f]{8,64}\Z")
 SESSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z_-]{0,127}\Z")
 MODEL_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._:-]{0,63}\Z")
+
+
+def default_projects_dir():
+    """Where Claude Code keeps session transcripts: `$CLAUDE_CONFIG_DIR/projects` when that is
+    set (Claude Code moves its whole config directory with it), else `~/.claude/projects`.
+
+    The `<slug>` level below it is never computed here. Claude Code derives it from the
+    directory a session was started in, so a session started in the main checkout and one
+    started inside a `scripts/wt` worktree land under different slugs; every reader globs
+    `*/<session-id>` instead, which finds either, and fails closed on more than one hit.
+    """
+    base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(
+        os.path.expanduser("~"), ".claude"
+    )
+    return os.path.join(base, "projects")
 
 
 def parse_time(text):

@@ -195,6 +195,19 @@ Rules:
     `python3 scripts/est-cost.py --agent <id> ... --since <implementer spawn, UTC> --until <go-ahead, UTC>`,
     priced per response at list prices from `.claude/model-prices.json`. Paste it unchanged. It is
     a list-price equivalent, not what a subscription charged, and never a measured figure.
+  - `--no-agents` (to `subagent-tokens.py` and `est-cost.py`, in place of `--agent`) is only for a
+    branch on which **no Agent call was made at all**: `subagent-tokens: 0` is then a measured zero
+    and the estimate prices the orchestrator alone. The pre-MR gates and `completeness-check` are
+    spawned agents here, so a branch that ran any of them names every `agentId` with `--agent`
+    instead; a false `--no-agents` records a 0 that hides their usage. Without either flag both
+    scripts exit 2, so a forgotten `--agent` never becomes a 0.
+  - Outside `/wave` (which holds the real figures, above) there is no implementer spawn: take
+    `--since` as the time work on the branch started in this session (the first commit's author
+    time, `git log --reverse --format=%aI origin/main..HEAD | head -n1`, converted to UTC, or
+    earlier if you know it) and say which in `## Notes`. To get a per-model split for the cost
+    comment, run each script with `2> >(tee -a "$COST_SPLIT" >&2)` after truncating
+    `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; : > "$COST_SPLIT"`, exactly as
+    `/wave` does; otherwise drop `--split` from the cost-comment command below.
   - One line each per MR. **Omit a line when its script exited non-zero** (an agent id with no
     transcript, an unresolved session directory, a stale price table) and put the script's
     `note:` or the reason under `## Notes`. A missing or malformed figure is never written as 0.
