@@ -212,6 +212,12 @@ Rules:
     transcript, an unresolved session directory, a stale price table) and put the script's
     `note:` or the reason under `## Notes`. A missing or malformed figure is never written as 0.
     Refresh `.claude/model-prices.json` from its `source` URL when `checked` ages out.
+  - **The comment posts automatically.** A PostToolUse hook (`.claude/hooks/post-mr-cost.sh`)
+    posts record 1 after `glab mr create` unless `scripts/cost-ledger enabled` is not 0, the
+    description carries `cost-ledger: off`, or a cost comment already exists, so do not post a
+    second one by hand. Later work on the open MR gets
+    `python3 scripts/post-mr-cost.py --round --mr <N>` (`docs/harness/cost-ledger.md` § *The
+    records post themselves*).
   - The description carries no `## Cost` table. With the ledger on, the readable table is the
     `## Cost of this MR` comment posted after the MR exists (Step 4).
 - **`0 findings` is a real and expected outcome — record it.** The temptation is to omit
@@ -291,12 +297,15 @@ by design (`disable-model-invocation`), and the user decides whether to babysit 
 or batch it with others. If the pipeline hasn't started yet, note that CI will run
 automatically on push.
 
-**Cost comment.** With `scripts/cost-ledger enabled` exit 0 and the cost lines present in
-the description, post the MR's cost record once the MR exists. Write the MR description to a
-file (or fetch it back with `glab api projects/:id/merge_requests/<iid>`), then run
+**Cost comment.** With `scripts/cost-ledger enabled` exit 0, the hook posts record 1 when
+`glab mr create` returns (see the cost lines above). Check its result: the `additionalContext`
+line, or `mr-cost-hook.log` in `git rev-parse --git-common-dir`. Post by hand only if the hook
+skipped or failed: write the description to a file (or fetch it with
+`glab api projects/:id/merge_requests/<iid>`), run
 `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`
 (drop `--split` when no per-model split was recorded; the comment then says `n/a` with the
-reason). It renders `## Cost of this MR` itself. Exit 3 means the ledger is off or unreadable:
+reason), then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until"`
+so the next MR's hook window does not re-count it. Exit 3 means the ledger is off or unreadable:
 post nothing. Exit 4 or 5: say so in the report. The format and the later-record rules are in
 `docs/harness/cost-ledger.md` § *The cost records*.
 

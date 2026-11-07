@@ -1303,7 +1303,8 @@ lint:cost-ledger:
   # --self-test over fixture transcripts and a fake `glab api`; none of them reads a real
   # transcript or the network, so a green run is evidence about the parsers and the n/a-never-0
   # rules, not about any MR. scripts/cost-ledger self-tests against a throwaway `git init`, so
-  # git is installed. ~3s.
+  # git is installed. ~3s. post-mr-cost.py is the PostToolUse hook that auto-posts record 1
+  # (and, with --round, record K); its self-test runs against a stub runner and a fake notes API.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
@@ -1317,6 +1318,8 @@ lint:cost-ledger:
     - python3 scripts/orchestrator-tokens.py --self-test
     - python3 scripts/est-cost.py --self-test
     - python3 scripts/cost-table.py --self-test
+    - python3 scripts/post-mr-cost.py --self-test
+    - python3 scripts/lib/ledger_lines.py --self-test
 
 lint:adr-collisions:
   extends: .fast-job

@@ -44,6 +44,17 @@
             "statusMessage": "Checking for VoC reminder…"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/post-mr-cost.sh",
+            "timeout": 600,
+            "statusMessage": "Posting MR cost comment…"
+          }
+        ]
       }
     ]
   }
