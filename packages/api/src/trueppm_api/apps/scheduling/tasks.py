@@ -963,26 +963,25 @@ def summary_working_day_durations(
     ``[start, end)``, so the finish day is added back — conditionally; see the
     comment on that line for the weekend-``actual_finish`` case it guards.
 
-    WHY a batched pre-pass rather than a call inside the write-back loop: the scalar
-    counter is an O(span) day walk, so per-summary calls are O(summaries · span) —
-    a deeply nested WBS re-walks the whole project span once per level.
-    :class:`_WorkingDayCounter` (#822) pays O(span) once per calendar and answers
-    each span with two binary searches. Measured: one ``build`` over a 2-year span
-    costs about the same as one scalar walk of it (0.24 ms, 0.35 ms with 25 calendar
-    exceptions) and each ``between`` is 1.4 µs, so break-even is under two summaries
-    — and a project's root summary alone already spans the hull. At 50 summaries in
-    a 2-year project the batched form is ~0.35 ms against up to ~11 ms.
+    WHY a batched pre-pass rather than a call inside the write-back loop: one
+    counter per project keeps the calendar lookup out of the per-summary loop.
+    :class:`_WorkingDayCounter` is a thin wrapper (#4713): ``build`` is O(1) and
+    ``between`` delegates to the arithmetic ``_working_days_between`` (mask days
+    minus an O(log E) exception prefix sum), so each span costs microseconds
+    whatever its length and a deeply nested WBS no longer re-walks the project span
+    once per level.
 
     Be honest about the other comparison: what this replaced was an O(1) timedelta
-    subtraction, so the correct answer costs ~0.24–1.4 ms per project per recompute
-    where the wrong one cost nothing. Working days cannot be derived without walking
-    a calendar, and that is <0.3% of the recompute budget.
+    subtraction, so the correct answer costs a little per summary per recompute
+    where the wrong one cost nothing. Working days cannot be derived without
+    consulting the calendar, and that is a negligible share of the recompute budget.
 
-    ``schedule()`` builds a counter of its own for float computation, which this
-    duplicates on the single-project path. It is local to that function and never
-    returned, and the program pass needs one counter *per member calendar* anyway
-    (ADR-0120 D3), so reusing it would mean widening the PyPI package's public
-    surface for ~1 ms. Left duplicated deliberately.
+    The counter only answers the half-open ``[start, end)``; it does not expose
+    ``is_working_day``, hence the paired calendar used for the finish-day correction.
+    ``schedule()`` makes a counter of its own for float computation. It is local to
+    that function and never returned, and the program pass needs one counter *per
+    member calendar* anyway (ADR-0120 D3), so reusing it would mean widening the
+    PyPI package's public surface for nothing.
 
     Args:
         result_map: Engine rows keyed by task id, **after** ``apply_summary_rollups``

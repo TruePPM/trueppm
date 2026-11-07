@@ -1031,8 +1031,8 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
     Returns 0 when end <= start.
 
     Counted arithmetically rather than day by day (#4161): mask days in the span,
-    minus mask days inside each exception run that overlaps it. It is the fallback
-    for every span :class:`_WorkingDayCounter` does not cover, and a free-float
+    minus mask days inside each exception run that overlaps it. It backs
+    :class:`_WorkingDayCounter`, and a free-float
     slack measured across a century-long exception lands outside that range once
     per edge — so a day loop here was the same O(edges * range length) cost the
     snap helpers had. The subtraction is now :meth:`Calendar._exception_mask_days`,
@@ -1054,55 +1054,31 @@ def _working_days_between(start: date, end: date, calendar: Calendar) -> int:
 
 
 class _WorkingDayCounter:
-    """O(log n) working-day span counts over a schedule's fixed date range (#822).
+    """Working-day span counts for one calendar, as a thin wrapper (#822, #4713).
 
-    :func:`_working_days_between` is an O(span) day loop, and ``_compute_floats``
-    calls it twice per successor link, so float computation was O(tasks · span).
-    This precomputes the sorted ordinals of every working day in
-    ``[lo, hi]`` once per :func:`schedule` call (the CPM counterpart to
-    monte_carlo's :func:`_build_working_day_index`); :meth:`between` then counts a
-    span with two binary searches.
+    This used to precompute the sorted ordinals of every working day in
+    ``[lo, hi]`` with an O(span) Python walk on every :func:`schedule` call, to buy
+    a two-binary-search ``between``. :func:`_working_days_between` has since become
+    arithmetic (mask days minus an O(log E) exception prefix sum, #4161/#4176) and
+    is at least as fast per query, so the build walk was pure cost: 43 ms at a
+    150,000-day span. The class stays only because the API imports it (``build`` and
+    ``between``); ``lo``/``hi`` are accepted for that signature and no longer used.
 
-    ``between(start, end)`` reproduces :func:`_working_days_between` *exactly* —
-    working days in ``[start, end)`` — as
-    ``searchsorted(end) - searchsorted(start)`` (the array holds exactly the
-    working days, so ``side="left"`` on ``end`` excludes it and on ``start``
-    includes it). The scalar function remains the conformance reference; a span
-    that falls outside the built range falls back to it, so a miscovered range can
-    never silently miscount.
+    ``between(start, end)`` is exactly :func:`_working_days_between` — working days
+    in ``[start, end)``, 0 when ``end <= start``.
     """
 
-    def __init__(self, ordinals: np.ndarray, lo: date, hi: date, calendar: Calendar) -> None:
-        self._ords = ordinals
-        self._lo_ord = lo.toordinal()
-        self._hi_ord = hi.toordinal()
+    def __init__(self, calendar: Calendar) -> None:
         self._calendar = calendar
 
     @classmethod
     def build(cls, lo: date, hi: date, calendar: Calendar) -> _WorkingDayCounter:
-        """Build a counter covering working days in the inclusive range ``[lo, hi]``."""
-        ords: list[int] = []
-        if hi >= lo:
-            current = lo
-            while current <= hi:
-                if calendar.is_working_day(current):
-                    ords.append(current.toordinal())
-                current += timedelta(days=1)
-        return cls(np.fromiter(ords, dtype=np.int64, count=len(ords)), lo, hi, calendar)
+        """Return a counter for ``calendar``; ``lo``/``hi`` are kept for compatibility."""
+        return cls(calendar)
 
     def between(self, start: date, end: date) -> int:
-        if end <= start:
-            return 0
-        s_ord = start.toordinal()
-        e_ord = end.toordinal()
-        # ``[start, end)`` counts working days up to ``end - 1``; valid only when
-        # the whole span lies inside the built range. Otherwise fall back to the
-        # scalar reference (defensive — callers stay within the schedule span).
-        if s_ord < self._lo_ord or e_ord - 1 > self._hi_ord:
-            return _working_days_between(start, end, self._calendar)
-        lo = int(np.searchsorted(self._ords, s_ord, side="left"))
-        hi = int(np.searchsorted(self._ords, e_ord, side="left"))
-        return hi - lo
+        """Working days in ``[start, end)``."""
+        return _working_days_between(start, end, self._calendar)
 
 
 def _advance_calendar_days(d: date, lag: timedelta, calendar: Calendar) -> date:
@@ -3314,7 +3290,7 @@ def _compute_floats(
     slack — is measured on the task's *own* calendar, because the slip is counted
     in that task's working days; each free-float constraint is snapped on that same
     calendar, mirroring the backward pass. With one project calendar every span
-    resolves to ``calendar`` and the fast ``wd_counter`` is used for all of them.
+    resolves to ``calendar`` and ``wd_counter`` is used for all of them.
 
     A milestone's spans are measured between *instants* (#4079): its early instant
     (``instants``, from :func:`_forward_pass`) and, in ``late_instants``, the late
@@ -3409,7 +3385,7 @@ def _compute_floats(
         # The slip is measured in *this* task's working days, and each constraint
         # is snapped on this task's own calendar (``node_cal``) — mirroring the
         # backward pass, whose retreat also lands on ``node_cal``. With one project
-        # calendar every span resolves to ``calendar`` and the fast counter is used.
+        # calendar every span resolves to ``calendar`` and the counter is used.
         ff_days = _free_float_days(
             node_id,
             task,
@@ -3436,11 +3412,11 @@ def _wd_span(
     wd_counter: _WorkingDayCounter | None,
     calendar: Calendar,
 ) -> int:
-    """Working-day span, via the O(log n) counter when it is valid for ``cal``.
+    """Working-day span, via the counter when it is for ``cal``'s calendar.
 
     The counter is built over the default project ``calendar`` (the ``schedule()``
     hot path, #822), so it is only valid for spans measured on that calendar — a
-    per-task calendar falls back to the scalar O(span) reference. Both return
+    per-task calendar uses :func:`_working_days_between` directly. Both return
     identical counts.
     """
     if wd_counter is not None and cal is calendar:
@@ -4901,12 +4877,12 @@ def schedule(project: Project) -> ScheduleResult:
         for tid, late in late_instants.items()
     }
     # Precompute a working-day index over the schedule's span so float
-    # computation is O(log n) per span instead of O(span) (#822, ADR-0142). Every
+    # computation is O(log E) per span instead of O(span) (#822, ADR-0142). Every
     # date _compute_floats measures lies within [earliest early start,
     # project_finish]; the earliest early start is start_date or earlier, since an
     # SF-linked task can be placed before the project start (#4218). The counter is
     # built over the default calendar; per-task-calendar spans fall back to the
-    # scalar count inside _compute_floats.
+    # direct count inside _compute_floats.
     counter_lo = min(
         [project.start_date, *(t.early_start for t in task_map.values() if t.early_start)]
     )

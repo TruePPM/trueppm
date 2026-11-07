@@ -84,6 +84,8 @@ the fallback when no counter is supplied. The Rust/WASM engine is unchanged: the
 optimization changes how a count is computed, not the result, so cross-engine
 conformance holds.
 
+> **Superseded 2026-11-07 (#4713):** the precomputed ordinal array is gone. `_working_days_between` became arithmetic (#4161/#4176) and is at least as fast per query, so `_WorkingDayCounter` is now a thin wrapper whose `build` is O(1) and whose `between` delegates to it. Counts are unchanged.
+
 ## Alternatives Considered
 | Option | Pros | Cons |
 |--------|------|------|
