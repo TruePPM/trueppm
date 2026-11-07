@@ -9452,7 +9452,14 @@ def _restore_parent_summary_start_link_block(task: Task) -> SummaryStartLinkBloc
 
 
 def _get_siblings(project_id: str, parent_path: str, *, lock: bool = False) -> list[Task]:
-    """Fetch live tasks at the given parent level, ordered by wbs_path."""
+    """Fetch live tasks at the given parent level, in outline order.
+
+    Ordered numerically on the last label, in Python. ``wbs_path`` is an ltree, which
+    compares labels as text, so at 10 or more siblings ``"10"`` sorts before ``"2"``
+    and every caller that derives a position or a renumbering from list index
+    (indent, outdent, reparent, group, ungroup) renumbered the wrong tasks (#4845).
+    Siblings share every label but the last, so the last label alone orders them.
+    """
     qs = Task.objects.filter(project_id=project_id, is_deleted=False)
     if lock:
         qs = qs.select_for_update()
@@ -9462,7 +9469,13 @@ def _get_siblings(project_id: str, parent_path: str, *, lock: bool = False) -> l
         )
     else:
         qs = qs.filter(wbs_path__regex=_ROOT_WBS_RE)
-    return list(qs.order_by("wbs_path"))
+    return sorted(qs, key=_last_label_ordinal)
+
+
+def _last_label_ordinal(task: Task) -> int:
+    """The sibling position encoded in ``task.wbs_path``'s last label, as an integer."""
+    label = str(task.wbs_path).rpartition(".")[2]
+    return int(label) if label.isdigit() else 0
 
 
 def _get_descendants(project_id: str, wbs_path: str, *, lock: bool = False) -> list[Task]:
