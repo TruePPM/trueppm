@@ -306,7 +306,7 @@ it posted, do nothing. If it skipped or failed with the ledger on, post record 1
 is also the path when you want the exact named agents: fetch the description with
 `glab api projects/:id/merge_requests/<iid>`, write its `.description` to a file, and run
 `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`,
-then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until"`
+then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until.${CLAUDE_CODE_SESSION_ID:?}"`
 so the next MR's hook window does not re-count this one. Exit 3 (ledger off or unreadable): post
 nothing. Exit 4 or 5: say so in the report. Post with the script, never a hand-written
 `glab mr note`: the script is what later records read back and number from.
@@ -316,7 +316,7 @@ nothing. Exit 4 or 5: say so in the report. Post with the script, never a hand-w
 after the MR is open, and a rebase with conflict resolution before merge (CLAUDE.md "Batched MR
 sequence"; a clean rebase is not a window). With the ledger on, once that work is pushed, the
 default is `python3 scripts/post-mr-cost.py --round --mr <iid>`: it measures this session since
-the latest record, posts record K and advances `mr-cost-last-until`. When you need the exact named
+the latest record, posts record K and advances `mr-cost-last-until.<session id>`. When you need the exact named
 agents, do it by hand, in the worktree:
 
 1. Get the window start: `python3 scripts/cost-table.py --next-since --mr <iid>` (exit 1: no
