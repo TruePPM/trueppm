@@ -393,9 +393,12 @@ def split_matches(description, split_path):
         with open(split_path, encoding="utf-8") as f:
             sp = mod.parse_split(f.read(4 << 20))
         fig = mod.figures(description or "")
+        compared = 0
         for side in ("subagent", "orchestrator"):
             want = fig[side][0]
             got = sum(sp["tokens"].get(side, {}).values())
+            if want:
+                compared += 1
             if want is not None and got != want:
                 return (
                     False,
@@ -406,6 +409,12 @@ def split_matches(description, split_path):
                         want,
                     ),
                 )
+        if not compared:
+            # Nothing non-zero to compare against: a match would be vacuous.
+            return (
+                False,
+                "the description has no non-zero token figure to check it against",
+            )
         return True, None
     except Exception as e:  # noqa: BLE001 - a bad import must not disable the comment
         return False, "it could not be checked (%s)" % type(e).__name__
@@ -443,6 +452,17 @@ def wave_split(runner, cwd, created_at, description):
     return path, stamp, None
 
 
+def created_at_utc(created_at):
+    """The MR's creation time as fixed-format UTC, or None when it cannot be read."""
+    try:
+        made = datetime.datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        if made.tzinfo is None:
+            return None
+        return made.astimezone(datetime.timezone.utc).strftime(TS_FMT)
+    except ValueError:
+        return None
+
+
 def post_from_description(iid, d, cwd, gitdir, command, runner, manual):
     """Post record 1 from the description's own ledger lines; never re-measures.
 
@@ -450,7 +470,7 @@ def post_from_description(iid, d, cwd, gitdir, command, runner, manual):
     post excludes this MR's agents and can include another's. The orchestrator already wrote the
     right figures into the description; the description wins over any measurement.
 
-    Always passes --until (the split's mtime, else now) so record 1 has a readable window end,
+    Always passes --until (the split's mtime, else the MR's creation time, else now) so record 1 has a readable window end,
     which `cost-table.py --next-since` and --round need. It does not touch mr-cost-last-until:
     this path measures nothing, and that file is shared by every worktree, so writing the split's
     older mtime could move the plain-/mr window backward.
@@ -471,7 +491,7 @@ def post_from_description(iid, d, cwd, gitdir, command, runner, manual):
         "--mr",
         str(iid),
         "--until",
-        until or now_utc(),
+        until or created_at_utc(d.get("created_at")) or now_utc(),
     ]
     if split:
         cmd += ["--split", split]
@@ -494,7 +514,11 @@ def post_from_description(iid, d, cwd, gitdir, command, runner, manual):
             ": " + why_f if why_f else "",
             manual,
         )
-    note = "" if split else " (per-model split n/a: %s)" % why
+    note = (
+        ""
+        if split
+        else " (per-model split n/a: %s; the window end is the MR creation time)" % why
+    )
     return (
         "Posted the `## Cost of this MR` comment on !%d from the description's ledger lines%s (opt out: scripts/cost-ledger off --local)."
         % (iid, note)
@@ -1744,7 +1768,14 @@ def self_test():
             "orchestrator-tokens: model claude-opus-4-8 %d\n" % (sub, orch)
         )
 
-    def wave_mr(iid_, description, split_age=None, split_text=None, sid="abc-123"):
+    def wave_mr(
+        iid_,
+        description,
+        split_age=None,
+        split_text=None,
+        sid="abc-123",
+        created_at="2026-11-07T15:00:00.000Z",
+    ):
         """Run the hook for one MR of a wave; return (msg, commands, desc as cost-table saw it)."""
         for fn in (marker, os.path.join(gdir, SPLIT_NAME)):
             if os.path.exists(fn):
@@ -1774,7 +1805,7 @@ def self_test():
                 "stdout": "https://gitlab.com/x/-/merge_requests/%d\n" % iid_
             },
         )
-        d_ = {"description": description, "created_at": "2026-11-07T15:00:00.000Z"}
+        d_ = {"description": description, "created_at": created_at}
         m_ = with_glab(d_, [], lambda: process(pl_, projects_dir=pdir, runner=r))
         return m_, log_, seen_
 
@@ -1831,12 +1862,50 @@ def self_test():
             and len(tbl) == 1
             and "--split" not in tbl[0]
             and "--until" in tbl[0]
+            and tbl[0][tbl[0].index("--until") + 1] == "2026-11-07T15:00:00Z"
+            and "MR creation time" in m_
             and not cmds(log_, measuring),
         )
         check(
             "split %s: record 1 still has a readable window end (--next-since)" % label,
             len(tbl) == 1 and readable_end(tbl[0], ledger),
         )
+    m_, log_, _ = wave_mr(3249, ledger, created_at="garbage")
+    tbl = cmds(log_, ("cost-table.py",))
+    check(
+        "unparseable created_at falls back to now for --until",
+        len(tbl) == 1
+        and re.match(
+            r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z", tbl[0][tbl[0].index("--until") + 1]
+        )
+        is not None
+        and tbl[0][tbl[0].index("--until") + 1] != "2026-11-07T15:00:00Z",
+    )
+    # A split with nothing non-zero to compare against is dropped, not vacuously accepted.
+    vac = "## Gates\norchestrator-tokens: current session only\nest-cost-usd: 3.08\n"
+    sp_ = os.path.join(gdir, SPLIT_NAME)
+    with open(sp_, "w") as f:
+        f.write(split_for(0, 7213540))
+    check(
+        "split is dropped when the description has no figure to compare",
+        split_matches(vac, sp_)[0] is False,
+    )
+    zero = "## Gates\nsubagent-tokens: 0\n"
+    with open(sp_, "w") as f:
+        f.write("")
+    check(
+        "a zero figure matching an empty split is vacuous, so dropped",
+        split_matches(zero, sp_)[0] is False,
+    )
+    with open(sp_, "w") as f:
+        f.write(split_for(0, 7213540))
+    check(
+        "one non-zero matching side keeps the split",
+        split_matches(
+            "## Gates\nsubagent-tokens: 0\norchestrator-tokens: 7213540\n", sp_
+        )[0]
+        is True,
+    )
     # Marker: never written on this path, so it cannot move backward.
     with open(marker, "w") as f:
         f.write("2026-11-07T16:00:00Z\n")

@@ -244,7 +244,8 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   10.8M). The per-model split comes from `wave-cost-split.txt` in the git dir of the checkout the
   MR was created from, and is used only when it is older than the MR, at most two hours older, and
   its token sums equal the description's lines. Then its mtime is the window end; otherwise the
-  per-model cells read n/a, the totals are unchanged, and the window end is the time the hook ran,
+  per-model cells read n/a, the totals are unchanged, and the window end is the MR's creation time
+  (the hook's time if that cannot be read; the footer's "go-ahead to push" is then seconds off),
   so record 1 always has a readable window end for `--next-since` and `--round`. This path does
   not write `mr-cost-last-until` (it measures nothing, and the file is shared by every worktree).
   A description with no ledger key anywhere (a plain `/mr`) is measured: the window runs from the
