@@ -244,10 +244,17 @@ def process(payload, projects_dir=None, runner=run):
     rc, _, _ = runner(
         [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
     )
+    if rc == 2:
+        # Unreadable is not "off": a person chose off, nobody chose a broken setting file.
+        return (
+            "MR cost comment not posted for !%d: the cost-ledger setting is unreadable (scripts/cost-ledger status). %s"
+            % (
+                iid,
+                manual,
+            )
+        )
     if rc != 0:
-        return quiet(
-            "cost-ledger off or unreadable (enabled exit %d)" % rc
-        )  # the opt-out
+        return quiet("cost-ledger off (enabled exit %d)" % rc)  # the opt-out
     sid = payload.get("session_id") or ""
     if not SESSION_RE.match(sid):
         return "MR cost comment skipped for !%d: no usable session id. %s" % (
@@ -255,7 +262,16 @@ def process(payload, projects_dir=None, runner=run):
             manual,
         )
     d = glab_json("projects/:id/merge_requests/%d" % iid, cwd)
-    if isinstance(d, dict) and OFF_MARKER_RE.search(str(d.get("description", ""))):
+    if not isinstance(d, dict):
+        # The opt-out marker lives in the description, so an unreadable one cannot be checked.
+        return (
+            "MR cost comment not posted for !%d: could not read its description (glab api failed), so `cost-ledger: off` could not be checked. %s"
+            % (
+                iid,
+                manual,
+            )
+        )
+    if OFF_MARKER_RE.search(str(d.get("description", ""))):
         return quiet("MR description carries cost-ledger: off")
     seen = already_commented(iid, cwd)
     if seen is None:
@@ -378,15 +394,28 @@ def process_round(iid, sid, cwd, projects_dir=None, runner=run):
     rc, _, _ = runner(
         [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
     )
+    if rc == 2:
+        return "cost-ledger setting is unreadable: no record posted for !%d. %s" % (
+            iid,
+            manual,
+        )
     if rc != 0:
-        return "cost-ledger is off or unreadable: no record posted for !%d." % iid
+        return "cost-ledger is off: no record posted for !%d." % iid
     if not SESSION_RE.match(sid or ""):
         return "Record skipped for !%d: no usable session id (pass --session). %s" % (
             iid,
             manual,
         )
     d = glab_json("projects/:id/merge_requests/%d" % iid, cwd)
-    if isinstance(d, dict) and OFF_MARKER_RE.search(str(d.get("description", ""))):
+    if not isinstance(d, dict):
+        return (
+            "Record not posted for !%d: could not read its description (glab api failed), so `cost-ledger: off` could not be checked. %s"
+            % (
+                iid,
+                manual,
+            )
+        )
+    if OFF_MARKER_RE.search(str(d.get("description", ""))):
         return "MR !%d carries `cost-ledger: off`: no record posted." % iid
     rc, out, _ = runner(
         [
@@ -560,12 +589,17 @@ def self_test():
         "session_id": "abc-123",
         "cwd": os.getcwd(),
     }
-    for rc, label in ((1, "off"), (2, "unreadable")):
-        calls.clear()
-        check(
-            "ledger %s -> silent no-op" % label,
-            process(payload, runner=runner_for(rc)) is None and len(calls) == 1,
-        )
+    calls.clear()
+    check(
+        "ledger off -> silent no-op",
+        process(payload, runner=runner_for(1)) is None and len(calls) == 1,
+    )
+    calls.clear()
+    check(
+        "ledger unreadable -> reported, nothing else runs",
+        "unreadable" in (process(payload, runner=runner_for(2)) or "")
+        and len(calls) == 1,
+    )
     calls.clear()
     check(
         "non-MR command never touches anything",
@@ -658,8 +692,7 @@ def self_test():
     calls.clear()
     check(
         "round: ledger off -> nothing else runs",
-        "off or unreadable"
-        in process_round(7, "abc-123", os.getcwd(), runner=round_runner(1))
+        "is off" in process_round(7, "abc-123", os.getcwd(), runner=round_runner(1))
         and len(calls) == 1,
     )
     check(
@@ -671,6 +704,213 @@ def self_test():
         "round: ISSUE_RE reads the branch",
         ISSUE_RE.search("fix/1234-thing").group(1) == "1234"
         and ISSUE_RE.search("chore/mr-cost-comment-enforcement") is None,
+    )
+
+    # --- paths the stub runner can reach: each has a negative control.
+    base_url = "https://gitlab.com/trueppm/trueppm-suite/-/merge_requests/77\n"
+    pl = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "glab mr create --yes"},
+        "tool_response": {"stdout": base_url},
+        "session_id": "abc-123",
+        "cwd": os.getcwd(),
+    }
+    gdir = tempfile.mkdtemp(prefix="post-mr-cost-git-")
+    pdir = tempfile.mkdtemp(prefix="post-mr-cost-proj-")
+    os.makedirs(os.path.join(pdir, "slug", "abc-123"))
+    open(os.path.join(pdir, "slug", "abc-123.jsonl"), "w").close()
+
+    def full_runner(
+        log,
+        git_ok=True,
+        measure_ok=True,
+        table_rc=0,
+        enabled_rc=0,
+        since_rc=0,
+        branch="feat/321-x",
+    ):
+        def r(cmd, cwd, env=None, timeout=300):
+            log.append(cmd)
+            name = os.path.basename(cmd[1]) if len(cmd) > 1 else cmd[0]
+            if cmd[-1:] == ["enabled"]:
+                return enabled_rc, "", ""
+            if cmd[:2] == ["git", "rev-parse"]:
+                return (0, gdir + "\n", "") if git_ok else (128, "", "")
+            if cmd[:2] == ["git", "branch"]:
+                return 0, branch + "\n", ""
+            if "--next-since" in cmd:
+                return since_rc, "2026-11-07T14:00:00Z\n", ""
+            if name in ("subagent-tokens.py", "orchestrator-tokens.py"):
+                if not measure_ok:
+                    return 3, "", ""
+                line = (
+                    "subagent-tokens: 5"
+                    if name.startswith("sub")
+                    else "orchestrator-tokens: 6"
+                )
+                return 0, line + "\n", ""
+            if name == "est-cost.py":
+                return 0, "", ""
+            if name == "cost-table.py":
+                return table_rc, "", ""
+            return 0, "", ""
+
+        return r
+
+    marker = os.path.join(gdir, "mr-cost-last-until")
+
+    def with_glab(desc, notes, fn):
+        g = globals()["glab_json"]
+        try:
+            globals()["glab_json"] = lambda path, cwd: (
+                notes if "notes" in path else desc
+            )
+            return fn()
+        finally:
+            globals()["glab_json"] = g
+
+    ok_desc = {"description": "## Gates\nsubagent-tokens: 1\n"}
+    log = []
+    msg = with_glab(
+        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=full_runner(log))
+    )
+    check("happy path posts", msg is not None and msg.startswith("Posted"))
+    check(
+        "happy path writes mr-cost-last-until",
+        os.path.exists(marker)
+        and re.match(r"^\d{4}-", open(marker).read()) is not None,
+    )
+    check(
+        "happy path passes --issue from the command only when present",
+        any("cost-table.py" in c[1] and "--post" in c for c in log if len(c) > 1),
+    )
+    os.remove(marker)
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process(pl, projects_dir=pdir, runner=full_runner([], table_rc=4)),
+    )
+    check("cost-table non-zero is reported", msg is not None and "failed" in msg)
+    check("cost-table failure does not advance the marker", not os.path.exists(marker))
+    log = []
+    msg = with_glab(
+        {"description": "## Gates\ncost-ledger: off\n"},
+        [],
+        lambda: process(pl, projects_dir=pdir, runner=full_runner(log)),
+    )
+    check(
+        "description cost-ledger: off -> quiet, nothing measured",
+        msg is None and not any("cost-table.py" in " ".join(c) for c in log),
+    )
+    log = []
+    msg = with_glab(
+        None, [], lambda: process(pl, projects_dir=pdir, runner=full_runner(log))
+    )
+    check(
+        "unreadable description is reported and nothing is posted",
+        msg is not None
+        and "could not read its description" in msg
+        and not any("cost-table.py" in " ".join(c) for c in log),
+    )
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process(pl, projects_dir=tempfile.mkdtemp(), runner=full_runner([])),
+    )
+    check(
+        "no transcript -> reported", msg is not None and "transcript not found" in msg
+    )
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process(pl, projects_dir=pdir, runner=full_runner([], git_ok=False)),
+    )
+    check(
+        "not a git checkout -> reported",
+        msg is not None and "not in a git checkout" in msg,
+    )
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process(
+            pl, projects_dir=pdir, runner=full_runner([], measure_ok=False)
+        ),
+    )
+    check(
+        "nothing measurable -> reported",
+        msg is not None and "nothing measurable" in msg,
+    )
+    msg = process(pl, runner=full_runner([], enabled_rc=2))
+    check(
+        "unreadable ledger setting is surfaced to the session",
+        msg is not None and "unreadable" in msg,
+    )
+    check(
+        "plain off stays silent",
+        process(pl, runner=full_runner([], enabled_rc=1)) is None,
+    )
+    # process_round
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process_round(
+            77,
+            "abc-123",
+            os.getcwd(),
+            projects_dir=pdir,
+            runner=full_runner([], since_rc=1),
+        ),
+    )
+    check("round: record 1 missing -> skipped", "no readable record 1" in msg)
+    log = []
+    msg = with_glab(
+        {"description": "cost-ledger: off"},
+        [],
+        lambda: process_round(
+            77, "abc-123", os.getcwd(), projects_dir=pdir, runner=full_runner(log)
+        ),
+    )
+    check(
+        "round: off marker -> nothing measured",
+        "cost-ledger: off" in msg
+        and not any("cost-table.py" in " ".join(c) for c in log),
+    )
+    msg = with_glab(
+        None,
+        [],
+        lambda: process_round(
+            77, "abc-123", os.getcwd(), projects_dir=pdir, runner=full_runner([])
+        ),
+    )
+    check(
+        "round: unreadable description is reported",
+        "could not read its description" in msg,
+    )
+    check(
+        "round: unreadable ledger setting is reported",
+        "unreadable"
+        in process_round(
+            77, "abc-123", os.getcwd(), runner=full_runner([], enabled_rc=2)
+        ),
+    )
+    if os.path.exists(marker):
+        os.remove(marker)
+    log = []
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process_round(
+            77, "abc-123", os.getcwd(), projects_dir=pdir, runner=full_runner(log)
+        ),
+    )
+    check("round: happy path posts", msg.startswith("Posted"))
+    check(
+        "round: advances mr-cost-last-until",
+        os.path.exists(marker),
+    )
+    check(
+        "round: issue number comes from the branch name",
+        any("--issue" in c and "321" in c for c in log),
     )
     if fails:
         for f in fails:

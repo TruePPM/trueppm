@@ -95,11 +95,13 @@ Nothing in CI reads an MR description for cost lines: the lines are advisory and
 them. The two readers of a description that do exist leave them alone: `lint:mr-followups`
 (`scripts/check-mr-followups.sh`) only reacts to follow-up wording, and the `/kaizen` gate-yield
 parser matches `gate:` lines only. `/kaizen` reads the cost lines separately, through
-`scripts/lib/ledger_lines.py` (§ 1g, *Cost beside yield*). What is checked is the tooling. The `lint:cost-ledger` CI job (and `make cost-ledger-check`,
-part of `make pre-push`) runs the `--self-test` of `scripts/cost-ledger`,
-`scripts/subagent-tokens.py`, `scripts/orchestrator-tokens.py`, `scripts/est-cost.py` and
-`scripts/cost-table.py`, `scripts/post-mr-cost.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one `cost-ledger: off` line, no cost lines
-beside it, no second `est-cost-usd:`) is not present in this repository; until one exists, the
+`scripts/lib/ledger_lines.py` (§ 1g, *Cost beside yield*). What is checked is the tooling. The
+`lint:cost-ledger` CI job (and `make cost-ledger-check`, part of `make pre-push`) runs the
+`--self-test` of `scripts/cost-ledger`, `scripts/subagent-tokens.py`,
+`scripts/orchestrator-tokens.py`, `scripts/est-cost.py`, `scripts/cost-table.py`,
+`scripts/post-mr-cost.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one
+`cost-ledger: off` line, no cost lines beside it, no second `est-cost-usd:`) is not present in
+this repository; until one exists, the
 lines are only as consistent as the skills that write them.
 
 ## Reading the figures
@@ -245,6 +247,12 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   `mr-cost-last-until` so the next MR does not re-count the round. It posts nothing, and prints one
   line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
   or nothing was measured.
+- **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload
+  and starts python only when it contains `glab mr create`.
+- **What stays silent, and what does not.** A plain `off` (the setting, or `cost-ledger: off` in the
+  description) is a choice and is only logged. An **unreadable** setting, or an MR description
+  that could not be fetched (so the opt-out marker cannot be checked), posts nothing and is
+  reported to the session and logged.
 - **Fail-soft.** The hook always exits 0. A broken transcript layout, an unreadable notes API or
   a failed post is reported to the session with the by-hand command, never silently, and never
   blocks `glab mr create`. An unreadable notes read is reported, not treated as "a comment exists".
