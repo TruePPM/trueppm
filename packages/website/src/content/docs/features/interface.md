@@ -302,6 +302,8 @@ The whole interface supports Light, Dark, and Auto themes via a single toggle in
 your account menu. Chrome and content adapt together — there is never a dark
 sidebar stranded on a light app.
 
+The hosted demo defaults to Light until you pick another theme.
+
 ## When you're signed out
 
 If your session ends while you're working — a timed-out token, a password
