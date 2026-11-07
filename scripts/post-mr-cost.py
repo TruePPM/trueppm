@@ -356,34 +356,68 @@ def log_firing(cwd, payload, msg):
 
 
 SPLIT_NAME = "wave-cost-split.txt"
-SPLIT_MAX_AGE_S = 6 * 3600
+SPLIT_MAX_AGE_S = 2 * 3600
+# A cost key at the start of a line, optionally behind a list marker, quote or fence indent. Raw
+# text on purpose: cost-table only reads unfenced `## Gates` lines, but a ledger pasted under
+# `## Notes`, in a fence or in a quote still means the figures were written down by someone.
+LEDGER_KEY_RE = re.compile(
+    r"^[ \t>]*(?:[-*][ \t]+)?(?:subagent-tokens|orchestrator-tokens|est-cost-usd)[ \t]*:",
+    re.I | re.M,
+)
 
 
 def ledger_in_description(description):
-    """True when the description carries any cost ledger line (`subagent-tokens:`,
-    `orchestrator-tokens:` or `est-cost-usd:`), well-formed or not.
+    """True when any cost ledger key appears anywhere in the description, in any shape.
 
-    Why any, not only well-formed: a malformed ledger line still means a person or /wave wrote the
-    figures. Re-measuring over it would post numbers that contradict the description, so it goes
-    to cost-table.py, which renders the bad cell n/a with a reason instead.
+    Why raw text: a re-measured window cannot be right for a wave MR, so once a ledger is written
+    anywhere the hook must never measure. cost-table.py then renders it (a cell may read n/a).
     """
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "cost_table_for_hook", os.path.join(HERE, "cost-table.py")
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    f = mod.figures(description or "")
-    return f["subagent"][1] != mod.NONE_RECORDED
+    return LEDGER_KEY_RE.search(description or "") is not None
 
 
-def wave_split(runner, cwd, created_at):
+def split_matches(description, split_path):
+    """(ok, why): True only when the split's per-model token sums equal the description's lines.
+
+    Reuses cost-table.py's own parsing. Any failure to load or read it drops the split rather than
+    raising: the totals come from the description either way.
+    """
+    try:
+        import importlib.util
+
+        sys.dont_write_bytecode = True
+        spec = importlib.util.spec_from_file_location(
+            "cost_table_for_hook", os.path.join(HERE, "cost-table.py")
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with open(split_path, encoding="utf-8") as f:
+            sp = mod.parse_split(f.read(4 << 20))
+        fig = mod.figures(description or "")
+        for side in ("subagent", "orchestrator"):
+            want = fig[side][0]
+            got = sum(sp["tokens"].get(side, {}).values())
+            if want is not None and got != want:
+                return (
+                    False,
+                    "its %s tokens (%d) differ from the description's (%d)"
+                    % (
+                        side,
+                        got,
+                        want,
+                    ),
+                )
+        return True, None
+    except Exception as e:  # noqa: BLE001 - a bad import must not disable the comment
+        return False, "it could not be checked (%s)" % type(e).__name__
+
+
+def wave_split(runner, cwd, created_at, description):
     """(split path, mtime as UTC timestamp, why-not) for this checkout's wave-cost-split.txt.
 
     /wave writes the file into the implementer worktree's git dir, which is where `glab mr create`
-    ran, so only `git rev-parse --git-dir` from cwd is looked at. A file not older than the MR, or
-    more than six hours older, belongs to some other MR in the same worktree and is ignored.
+    ran, so only `git rev-parse --git-dir` from cwd is looked at. It is used only when it is older
+    than the MR, at most two hours older, and its token sums equal the description's lines;
+    otherwise it belongs to some other MR in the same worktree and is ignored.
     """
     rc, out, _ = runner(["git", "rev-parse", "--git-dir"], cwd)
     if rc != 0 or not out.strip():
@@ -400,28 +434,33 @@ def wave_split(runner, cwd, created_at):
         return None, None, "MR created_at unreadable"
     if age <= 0 or age > SPLIT_MAX_AGE_S:
         return None, None, "%s is not from this MR (stale)" % SPLIT_NAME
+    ok, why = split_matches(description, path)
+    if not ok:
+        return None, None, "%s ignored: %s" % (SPLIT_NAME, why)
     stamp = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).strftime(
         TS_FMT
     )
     return path, stamp, None
 
 
-def post_from_description(iid, d, cwd, gitdir, command, runner):
+def post_from_description(iid, d, cwd, gitdir, command, runner, manual):
     """Post record 1 from the description's own ledger lines; never re-measures.
 
     Why: a wave opens its MRs minutes apart with agents started earlier, so a window since the last
     post excludes this MR's agents and can include another's. The orchestrator already wrote the
     right figures into the description; the description wins over any measurement.
+
+    Always passes --until (the split's mtime, else now) so record 1 has a readable window end,
+    which `cost-table.py --next-since` and --round need. It does not touch mr-cost-last-until:
+    this path measures nothing, and that file is shared by every worktree, so writing the split's
+    older mtime could move the plain-/mr window backward.
     """
-    manual = (
-        "Run it by hand: see docs/harness/cost-ledger.md (python3 scripts/cost-table.py --file <description.md> --comment --post --mr %d)."
-        % iid
-    )
-    split, until, why = wave_split(runner, cwd, d.get("created_at"))
+    desc_text = str(d.get("description", ""))
+    split, until, why = wave_split(runner, cwd, d.get("created_at"), desc_text)
     tmp = tempfile.mkdtemp(prefix="mr-cost-", dir=gitdir)
     desc = os.path.join(tmp, "desc.md")
     with open(desc, "w", encoding="utf-8") as f:
-        f.write(str(d.get("description", "")))
+        f.write(desc_text)
     cmd = [
         sys.executable,
         os.path.join(HERE, "cost-table.py"),
@@ -431,31 +470,30 @@ def post_from_description(iid, d, cwd, gitdir, command, runner):
         "--post",
         "--mr",
         str(iid),
+        "--until",
+        until or now_utc(),
     ]
     if split:
-        cmd += ["--until", until, "--split", split]
-    m = ISSUE_RE.search(str(command))
+        cmd += ["--split", split]
+    m = ISSUE_RE.search(str(command)) or ISSUE_RE.search(
+        str(d.get("source_branch", ""))
+    )
     if m:
         cmd += ["--issue", m.group(1)]
-    rc, _, _ = runner(cmd, cwd)
+    rc, _, err = runner(cmd, cwd, timeout=cost_table_timeout())
     try:
         os.remove(desc)
         os.rmdir(tmp)
     except OSError:
         pass
     if rc != 0:
-        return "MR cost comment failed for !%d (cost-table exit %d). %s" % (
+        why_f = reason_of(err)
+        return "MR cost comment failed for !%d (cost-table exit %d%s). %s" % (
             iid,
             rc,
+            ": " + why_f if why_f else "",
             manual,
         )
-    try:
-        with open(
-            os.path.join(gitdir, "mr-cost-last-until"), "w", encoding="utf-8"
-        ) as f:
-            f.write((until or now_utc()) + "\n")
-    except OSError:
-        pass
     note = "" if split else " (per-model split n/a: %s)" % why
     return (
         "Posted the `## Cost of this MR` comment on !%d from the description's ledger lines%s (opt out: scripts/cost-ledger off --local)."
@@ -496,11 +534,6 @@ def process(payload, projects_dir=None, runner=run):
         )
     if rc != 0:
         return quiet("cost-ledger off (enabled exit %d)" % rc)  # the opt-out
-    if not SESSION_RE.match(sid):
-        return "MR cost comment skipped for !%d: no usable session id. %s" % (
-            iid,
-            manual,
-        )
     d = glab_json("projects/:id/merge_requests/%d" % iid, cwd)
     if not isinstance(d, dict):
         # The opt-out marker lives in the description, so an unreadable one cannot be checked.
@@ -529,7 +562,11 @@ def process(payload, projects_dir=None, runner=run):
         rc, gd, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
         if end and rc == 0 and gd.strip():
             gd = os.path.abspath(os.path.join(cwd, gd.strip()))
-            if end > read_since(gd, sid):
+            if (
+                SESSION_RE.match(sid)
+                and not ledger_in_description(d.get("description"))
+                and end > read_since(gd, sid)
+            ):
                 write_since(gd, sid, end)
         return quiet("a cost comment already exists")
     if ledger_in_description(d.get("description")):
@@ -547,6 +584,12 @@ def process(payload, projects_dir=None, runner=run):
             os.path.abspath(os.path.join(cwd, gd.strip())),
             ti.get("command", ""),
             runner,
+            manual,
+        )
+    if not SESSION_RE.match(sid):
+        return "MR cost comment skipped for !%d: no usable session id. %s" % (
+            iid,
+            manual,
         )
     projects_dir = projects_dir or os.path.join(
         os.path.expanduser("~"), ".claude", "projects"
@@ -917,11 +960,16 @@ def self_test():
         is None
         and not calls,
     )
-    check(
-        "bad session id is reported, not fatal",
-        "no usable session id"
-        in (process(dict(payload, session_id="../x"), runner=runner_for(0)) or ""),
-    )
+    real_glab0 = globals()["glab_json"]
+    try:
+        globals()["glab_json"] = lambda path, cwd: [] if "notes" in path else {}
+        check(
+            "bad session id on a plain /mr is reported, not fatal",
+            "no usable session id"
+            in (process(dict(payload, session_id="../x"), runner=runner_for(0)) or ""),
+        )
+    finally:
+        globals()["glab_json"] = real_glab0
 
     tmp = tempfile.mkdtemp(prefix="post-mr-cost-test-")
     sdir = os.path.join(tmp, "slug", "abc-123", "subagents")
@@ -1678,19 +1726,37 @@ def self_test():
         process(pl, runner=full_runner([], enabled_rc=1)) is None,
     )
     # Wave-shaped: the description's ledger lines win; the measuring path is unreachable.
+    import importlib.util as ilu
+
+    spec_ = ilu.spec_from_file_location(
+        "ct_selftest", os.path.join(HERE, "cost-table.py")
+    )
+    ctm = ilu.module_from_spec(spec_)
+    spec_.loader.exec_module(ctm)
     ledger = "## Gates\nsubagent-tokens: 3571566\norchestrator-tokens: 7213540\nest-cost-usd: 3.08\n"
     created = datetime.datetime(2026, 11, 7, 15, 0, tzinfo=datetime.timezone.utc)
     ct = created.timestamp()
     measuring = ("subagent-tokens.py", "orchestrator-tokens.py", "est-cost.py")
 
-    def wave_mr(iid_, description, split_age=None):
+    def split_for(sub, orch):
+        return (
+            "subagent-tokens: model claude-sonnet-5-5 %d\n"
+            "orchestrator-tokens: model claude-opus-4-8 %d\n" % (sub, orch)
+        )
+
+    def wave_mr(iid_, description, split_age=None, split_text=None, sid="abc-123"):
         """Run the hook for one MR of a wave; return (msg, commands, desc as cost-table saw it)."""
         for fn in (marker, os.path.join(gdir, SPLIT_NAME)):
             if os.path.exists(fn):
                 os.remove(fn)
         if split_age is not None:
             sp = os.path.join(gdir, SPLIT_NAME)
-            open(sp, "w").close()
+            with open(sp, "w") as f:
+                f.write(
+                    split_text
+                    if split_text is not None
+                    else split_for(3571566, 7213540)
+                )
             os.utime(sp, (ct - split_age, ct - split_age))
         log_, seen_ = [], []
         base = full_runner(log_)
@@ -1703,6 +1769,7 @@ def self_test():
 
         pl_ = dict(
             pl,
+            session_id=sid,
             tool_response={
                 "stdout": "https://gitlab.com/x/-/merge_requests/%d\n" % iid_
             },
@@ -1711,10 +1778,23 @@ def self_test():
         m_ = with_glab(d_, [], lambda: process(pl_, projects_dir=pdir, runner=r))
         return m_, log_, seen_
 
+    def cmds(log_, names):
+        return [c for c in log_ if len(c) > 1 and os.path.basename(c[1]) in names]
+
+    def readable_end(cmd, description):
+        """Render record 1 with the hook's own argv for real and read its window end back."""
+        until_ = cmd[cmd.index("--until") + 1]
+        rec = ctm.parse_record(
+            "\n".join(ctm.comment_lines(description, None, until_, None))
+        )
+        return rec is not None and rec["end"] is not None
+
     for k, iid_ in enumerate((3245, 3246, 3248)):
         desc_k = ledger.replace("3571566", str(3571566 + k))
-        m_, log_, seen_ = wave_mr(iid_, desc_k, split_age=600)
-        tbl = [c for c in log_ if len(c) > 1 and c[1].endswith("cost-table.py")]
+        m_, log_, seen_ = wave_mr(
+            iid_, desc_k, split_age=600, split_text=split_for(3571566 + k, 7213540)
+        )
+        tbl = cmds(log_, ("cost-table.py",))
         check(
             "wave MR %d: posted from the description's ledger" % iid_,
             m_ is not None and m_.startswith("Posted") and len(tbl) == 1,
@@ -1725,55 +1805,111 @@ def self_test():
         )
         check(
             "wave MR %d: nothing was re-measured" % iid_,
-            not any(len(c) > 1 and os.path.basename(c[1]) in measuring for c in log_),
+            not cmds(log_, measuring),
         )
         check(
-            "wave MR %d: split file and its mtime are passed" % iid_,
-            "--split" in tbl[0] and "--until" in tbl[0],
+            "wave MR %d: a matching split is passed with its mtime as --until" % iid_,
+            "--split" in tbl[0]
+            and tbl[0][tbl[0].index("--until") + 1]
+            == datetime.datetime.fromtimestamp(
+                ct - 600, datetime.timezone.utc
+            ).strftime(TS_FMT),
         )
-        check(
-            "wave MR %d: marker advances to the split time" % iid_,
-            open(marker).read() == tbl[0][tbl[0].index("--until") + 1] + "\n",
-        )
-    for label, age in (
-        ("absent", None),
-        ("newer than the MR", -60),
-        ("more than 6h older than the MR", 7 * 3600),
+        check("wave MR %d: marker untouched" % iid_, not os.path.exists(marker))
+    for label, age, txt in (
+        ("absent", None, None),
+        ("newer than the MR", -60, None),
+        ("more than 2h older than the MR", 3 * 3600, None),
+        ("not matching the description's sums", 600, split_for(5, 6)),
     ):
-        m_, log_, _ = wave_mr(3249, ledger, split_age=age)
-        tbl = [c for c in log_ if len(c) > 1 and c[1].endswith("cost-table.py")]
+        m_, log_, _ = wave_mr(3249, ledger, split_age=age, split_text=txt)
+        tbl = cmds(log_, ("cost-table.py",))
         check(
-            "split %s: rendered without --split, totals still from the description"
-            % label,
+            "split %s: totals only, --until still passed, never measured" % label,
             m_ is not None
             and "split n/a" in m_
             and len(tbl) == 1
             and "--split" not in tbl[0]
-            and "--until" not in tbl[0]
-            and not any(
-                len(c) > 1 and os.path.basename(c[1]) in measuring for c in log_
-            ),
+            and "--until" in tbl[0]
+            and not cmds(log_, measuring),
         )
-    m_, log_, _ = wave_mr(3249, "## Gates\nest-cost-usd: lots\n")
+        check(
+            "split %s: record 1 still has a readable window end (--next-since)" % label,
+            len(tbl) == 1 and readable_end(tbl[0], ledger),
+        )
+    # Marker: never written on this path, so it cannot move backward.
+    with open(marker, "w") as f:
+        f.write("2026-11-07T16:00:00Z\n")
+    base_ = full_runner([])
+    sp_ = os.path.join(gdir, SPLIT_NAME)
+    with open(sp_, "w") as f:
+        f.write(split_for(3571566, 7213540))
+    os.utime(sp_, (ct - 3000, ct - 3000))  # older than the marker
+    with_glab(
+        {"description": ledger, "created_at": "2026-11-07T15:00:00.000Z"},
+        [],
+        lambda: process(pl, projects_dir=pdir, runner=base_),
+    )
     check(
-        "a malformed ledger line still never falls through to measuring",
-        not any(len(c) > 1 and os.path.basename(c[1]) in measuring for c in log_),
+        "an older split cannot lower mr-cost-last-until",
+        open(marker).read() == "2026-11-07T16:00:00Z\n",
+    )
+    # Ledger keys in any shape (Notes, fence, quote, list item) are still a ledger: never measured.
+    for label, body in (
+        ("under ## Notes", "## Notes\nsubagent-tokens: 5\n"),
+        ("in a fence", "## Notes\n```\norchestrator-tokens: 5\n```\n"),
+        ("in a blockquote", "> est-cost-usd: 3.08\n"),
+        ("as a list item", "## Summary\n- subagent-tokens: 5\n"),
+        ("malformed", "## Gates\nest-cost-usd: lots\n"),
+    ):
+        m_, log_, _ = wave_mr(3252, body)
+        check(
+            "ledger key %s: rendered by cost-table, never measured" % label,
+            len(cmds(log_, ("cost-table.py",))) == 1 and not cmds(log_, measuring),
+        )
+    check(
+        "ledger_in_description: plain text is not a ledger",
+        not ledger_in_description(
+            "## Summary\nthe subagent-tokens: figure is in prose\nx"
+        )
+        and ledger_in_description("a\n  - Est-Cost-USD : 1.00\n"),
     )
     m_, log_, _ = wave_mr(3250, "## Summary\nplain\n")
     check(
-        "plain /mr (no ledger lines) is still measured and posted",
+        "plain /mr (no ledger key anywhere) is still measured and posted",
         m_ is not None
         and m_.startswith("Posted")
-        and any(
-            len(c) > 1 and os.path.basename(c[1]) == "subagent-tokens.py" for c in log_
-        ),
+        and bool(cmds(log_, ("subagent-tokens.py",))),
     )
-    m_, log_, _ = wave_mr(3251, ledger)
+    m_, log_, _ = wave_mr(3253, ledger, sid="../x")
     check(
-        "ledger lines present: measure path is not reachable even when measuring would succeed",
-        not any(len(c) > 1 and os.path.basename(c[1]) in measuring for c in log_),
+        "a wave MR still gets its comment with no usable session id",
+        m_ is not None and m_.startswith("Posted") and not cmds(log_, measuring),
     )
-    for fn in (marker, os.path.join(gdir, SPLIT_NAME)):
+    m_, log_, _ = wave_mr(3254, ledger, sid="no-such-session")
+    check(
+        "a wave MR still gets its comment with no transcript",
+        m_ is not None and m_.startswith("Posted") and not cmds(log_, measuring),
+    )
+    # A cost-table that cannot be loaded drops the split; the comment is not suppressed.
+    real_here = HERE
+    sp_ = os.path.join(gdir, SPLIT_NAME)
+    with open(sp_, "w") as f:
+        f.write(split_for(3571566, 7213540))
+    os.utime(sp_, (ct - 600, ct - 600))
+    broken = tempfile.mkdtemp(prefix="post-mr-cost-broken-")
+    with open(os.path.join(broken, "cost-table.py"), "w") as f:
+        f.write("raise ImportError('boom')\n")
+    try:
+        globals()["HERE"] = broken
+        ok_, why_ = split_matches(ledger, sp_)
+    finally:
+        globals()["HERE"] = real_here
+    check(
+        "an unloadable cost-table drops the split instead of raising",
+        ok_ is False and "could not be checked" in why_,
+    )
+    for fn in (marker, sp_):
         if os.path.exists(fn):
             os.remove(fn)
     # process_round
