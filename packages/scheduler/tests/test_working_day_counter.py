@@ -1,9 +1,10 @@
-"""_WorkingDayCounter must reproduce _working_days_between exactly (ADR-0142, #822).
+"""_WorkingDayCounter must reproduce _working_days_between exactly (ADR-0142, #822, #4713).
 
-The counter is the O(log n) hot-path replacement for the scalar O(span) loop in
-CPM float computation. These tests pin them to byte-identical counts across
-weekends, calendar exceptions, empty/degenerate spans, and the out-of-range
-fallback — the property the schedule() conformance contract relies on.
+The counter is a thin wrapper: ``build`` is O(1) and ``between`` delegates to the
+arithmetic ``_working_days_between``. These tests pin them to identical counts
+across weekends, calendar exceptions, empty/degenerate spans, and spans outside
+the (now ignored) ``lo``/``hi`` passed to ``build`` — the property the schedule()
+conformance contract relies on.
 """
 
 from __future__ import annotations
@@ -25,8 +26,7 @@ def _check(cal: Calendar, lo: date, hi: date) -> None:
     while d <= hi + timedelta(days=2):
         e = d
         while e <= hi + timedelta(days=2):
-            # Spans fully inside [lo, hi] use the index; anything spilling out
-            # falls back to the scalar — both must equal the reference.
+            # Spans inside and spilling out of [lo, hi] must both match.
             assert counter.between(d, e) == _working_days_between(d, e, cal), (d, e)
             e += timedelta(days=1)
         d += timedelta(days=1)
@@ -58,9 +58,9 @@ def test_empty_and_reversed_spans_are_zero() -> None:
     assert counter.between(date(2026, 1, 20), date(2026, 1, 10)) == 0
 
 
-def test_out_of_range_falls_back_to_scalar() -> None:
+def test_spans_outside_build_range_are_still_exact() -> None:
     cal = Calendar()
-    # Build a narrow index, then query a span beyond it on both ends.
+    # Build over a narrow range, then query a span beyond it on both ends.
     counter = _WorkingDayCounter.build(date(2026, 1, 10), date(2026, 1, 15), cal)
     lo, hi = date(2026, 1, 1), date(2026, 1, 31)
     assert counter.between(lo, hi) == _working_days_between(lo, hi, cal)
@@ -75,8 +75,8 @@ def _random_calendar(rng: random.Random) -> Calendar:
     return Calendar(working_days=rng.randint(1, 0b1111111), exceptions=exceptions)
 
 
-def test_wrapper_equals_working_days_between_over_random_calendars() -> None:
-    """The wrapper is a pure delegate, regardless of the (ignored) build range (#4713)."""
+def test_between_equals_working_days_between_over_random_calendars() -> None:
+    """``between`` is a pure delegate, regardless of the (ignored) build range (#4713)."""
     rng = random.Random(4713)
     for _ in range(40):
         cal = _random_calendar(rng)

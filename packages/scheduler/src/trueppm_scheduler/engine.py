@@ -3290,7 +3290,7 @@ def _compute_floats(
     slack — is measured on the task's *own* calendar, because the slip is counted
     in that task's working days; each free-float constraint is snapped on that same
     calendar, mirroring the backward pass. With one project calendar every span
-    resolves to ``calendar`` and the fast ``wd_counter`` is used for all of them.
+    resolves to ``calendar`` and ``wd_counter`` is used for all of them.
 
     A milestone's spans are measured between *instants* (#4079): its early instant
     (``instants``, from :func:`_forward_pass`) and, in ``late_instants``, the late
@@ -3385,7 +3385,7 @@ def _compute_floats(
         # The slip is measured in *this* task's working days, and each constraint
         # is snapped on this task's own calendar (``node_cal``) — mirroring the
         # backward pass, whose retreat also lands on ``node_cal``. With one project
-        # calendar every span resolves to ``calendar`` and the fast counter is used.
+        # calendar every span resolves to ``calendar`` and the counter is used.
         ff_days = _free_float_days(
             node_id,
             task,
@@ -3412,7 +3412,7 @@ def _wd_span(
     wd_counter: _WorkingDayCounter | None,
     calendar: Calendar,
 ) -> int:
-    """Working-day span, via the counter when it is valid for ``cal``.
+    """Working-day span, via the counter when it is for ``cal``'s calendar.
 
     The counter is built over the default project ``calendar`` (the ``schedule()``
     hot path, #822), so it is only valid for spans measured on that calendar — a
@@ -4882,7 +4882,7 @@ def schedule(project: Project) -> ScheduleResult:
     # project_finish]; the earliest early start is start_date or earlier, since an
     # SF-linked task can be placed before the project start (#4218). The counter is
     # built over the default calendar; per-task-calendar spans fall back to the
-    # scalar count inside _compute_floats.
+    # direct count inside _compute_floats.
     counter_lo = min(
         [project.start_date, *(t.early_start for t in task_map.values() if t.early_start)]
     )

@@ -225,9 +225,10 @@ impl Calendar {
 /// [`working_days_between`] is an O(span) day loop, and `compute_floats` calls it
 /// twice per successor link, so the float pass was O((V+E)·span·X). This
 /// precomputes the sorted proleptic-Gregorian ordinals of every working day in
-/// `[lo, hi]` once (the Rust counterpart to the Python engine's
-/// `_WorkingDayCounter`); [`WorkingDayCounter::between`] then counts a span with
-/// two binary searches.
+/// `[lo, hi]` once; [`WorkingDayCounter::between`] then counts a span with two
+/// binary searches. (The Python engine's `_WorkingDayCounter` no longer does this:
+/// since #4713 it delegates to its arithmetic `_working_days_between`. The count
+/// is identical, so conformance is unaffected.)
 ///
 /// `between(start, end)` reproduces [`working_days_between`] *exactly* — working
 /// days in `[start, end)` — as `partition_point(end) - partition_point(start)`
