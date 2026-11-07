@@ -292,7 +292,7 @@ The same framing, with the underlying math, is in
 Smaller exported names that the sections above do not cover:
 
 - `find_cycle(edges)` returns a `CycleCheck`. Its `.cycle` is the offending task ids in order, with the first repeated at the end (`["A", "B", "C", "A"]`), or `None` when the graph is acyclic. It is truthy only when a cycle exists.
-- `expand_summary_dependencies(tasks, deps, children_map)` returns a `SummaryExpansion`: `.tasks` is the input with summary tasks removed (leaves only) and `.dependencies` is every dependency fanned out to leaf-level edges. It still unpacks as `leaf_tasks, deps = ...`.
+- `expand_summary_dependencies(tasks, deps, children_map)` returns a `SummaryExpansion`: `.tasks` is the input with summary tasks removed (leaves only) and `.dependencies` is every dependency fanned out to leaf-level edges. It still unpacks as `leaf_tasks, deps = ...`. From 0.5, a link whose two endpoints share a leaf (a summary linked to itself, to one of its own descendants, or from one) will raise `CyclicDependencyError` naming that source link, so `.cycle` will be `[pred, succ, pred]` (or `[pred, pred]` for a link to itself): it is the same input `find_cycle` reports as a cycle. A Start-to-Start or Start-to-Finish link *from* a summary will still raise `InvalidScheduleInput` instead, because the ADR-0370 check runs first. 0.4 silently drops such a link or turns it into an invented sibling order ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538), [#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705)). The MS Project, CSV and Jira importers do not yet refuse such a link at import time ([#4856](https://gitlab.com/trueppm/trueppm/-/issues/4856)).
 - `ScheduleResult.driving_edges` is a list of `DrivingEdge`: the links that bind their successor or have zero relationship free float. A link binds when the date it imposes, read in the successor's working time, is the successor's early date. The set is the union of the two, so at a merge it can name a zero-free-float link that does not bind. Free float stays a separate output: a seven-day-week predecessor finishing on a Friday into a Monday-to-Friday successor drives it onto Monday and still has two days of free float, its Saturday and Sunday ([#4704](https://gitlab.com/trueppm/trueppm/-/issues/4704)).
 - `MonteCarloResult.sensitivity` is a list of `TaskSensitivity` (`task_id`, `index`). `index` is the absolute Spearman rank correlation, from 0 to 1, between the task's sampled duration and the project finish. Tasks whose duration cannot vary the finish are omitted rather than reported as 0.
 - `perturb_task_duration(project, task_id, delta_days)` returns a copy of the project with one task's duration shifted, for what-if runs. It moves the fixed duration, the three-point estimate and the story points together, so the CPM finish and the Monte Carlo bands stay consistent. The input project is not mutated.
@@ -561,10 +561,7 @@ release it is scheduled for:
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
   *into* a summary task do not fan out to every leaf the way the successor
   side does
-  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437));
-  `expand_summary_dependencies` can invent a sibling ordering from a
-  summary-to-own-child link that `find_cycle` correctly flags as a cycle
-  ([#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538)); a completed
+  ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); a completed
   task with no recorded actuals can be moved later than the data date, a
   non-monotonicity where knowing less about a task slips the schedule
   further than knowing more

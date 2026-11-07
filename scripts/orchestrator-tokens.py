@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """scripts/orchestrator-tokens.py - the orchestrating session's own token usage over a
-time window, for the `orchestrator-tokens: <N>` MR ledger line (macrodream/blueprint#340).
+time window, for the `orchestrator-tokens: <N>` MR ledger line.
 
 Why this exists. The orchestrating session, which re-reads its always-loaded instructions on
 every turn, was invisible to the ledger, so it understated per-MR cost. This sums that
 session's usage from its transcript between two instants (the implementer's spawn and the MR
 go-ahead) and prints one ledger line. It is session spend over the window, not attribution to
-the MR. Main sessions were about 29% of list-price spend and subagents about 71% across the
-measured window, so this is the smaller component. The subagents' own usage is the
-`subagent-tokens:` line (scripts/subagent-tokens.py, macrodream/blueprint#365), summed per
+the MR. The subagents' own usage is the
+`subagent-tokens:` line (scripts/subagent-tokens.py), summed per
 response in the same unit, so the two figures are comparable.
 
 Input: a Claude Code session transcript, JSON Lines. Format as observed on 2026-11-02 (it
@@ -33,15 +32,15 @@ Usage:
 
   With no positional argument, the session id is read from $CLAUDE_CODE_SESSION_ID (set in
   the session's shell, observed 2026-11-02). A session id is resolved to exactly one
-  `<projects-dir>/*/<id>.jsonl` (default projects dir: ~/.claude/projects). --since and
+  `<projects-dir>/*/<id>.jsonl` (default projects dir: $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects). --since and
   --until are inclusive and must carry a zone (`Z` or `+hh:mm`): a naive time would be read
   in the wrong zone silently. Take them from `date -u +%Y-%m-%dT%H:%M:%SZ`.
 
-  The cost-ledger setting is asked first (`scripts/cost-ledger enabled`, macrodream/blueprint#348):
+  The cost-ledger setting is asked first (`scripts/cost-ledger enabled`):
   when it is off or unreadable this prints nothing and opens no transcript.
 
 Output: `orchestrator-tokens: <N>` on stdout; the breakdown, skip counts and one
-        `orchestrator-tokens: model <id> <N>` line per model on stderr (macrodream/blueprint#383).
+        `orchestrator-tokens: model <id> <N>` line per model on stderr.
 Exit:   0 measured - 1 no orchestrator usage in the window (no line printed: an empty
         window is a wrong window, not a measured 0) - 2 usage error or unreadable input
         - 3 the cost ledger is off or its setting is unreadable (nothing read, nothing printed)
@@ -58,8 +57,14 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "lib"))
-# The parser is shared with subagent-tokens.py (macrodream/blueprint#365); re-exported under the old names.
-from transcript_usage import FIELDS, measure_detail, parse_time, usage_of  # noqa: E402,F401
+# The parser is shared with subagent-tokens.py; re-exported under the old names.
+from transcript_usage import (  # noqa: E402,F401
+    FIELDS,
+    default_projects_dir,
+    measure_detail,
+    parse_time,
+    usage_of,
+)
 
 SESSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z_-]{0,127}\Z")
 
@@ -94,7 +99,7 @@ def ledger_enabled():
 
 
 def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
-    # Defense in depth (macrodream/blueprint#348): /mr and /wave skip this script when the ledger
+    # Defense in depth: /mr and /wave skip this script when the ledger
     # is off, and it still refuses to open a transcript on its own.
     state = enabled()
     if state != 0:
@@ -105,7 +110,7 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
         )
         return 3
     target, since, until = None, None, None
-    projects_dir = os.path.join(os.path.expanduser("~"), ".claude", "projects")
+    projects_dir = default_projects_dir()
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -172,7 +177,7 @@ def run(argv, out=sys.stdout, err=sys.stderr, enabled=ledger_enabled):
         ),
         file=err,
     )
-    # Per-model split (macrodream/blueprint#383), read by scripts/cost-table.py --split; the stdout
+    # Per-model split, read by scripts/cost-table.py --split; the stdout
     # ledger line is unchanged. The model name is sanitized by the shared parser.
     for model in sorted(per_model):
         print(
@@ -365,7 +370,7 @@ def _self_test_cases(tmp, lines, check):
     os.makedirs(os.path.join(tmp, "dir.jsonl"))
     rc, out, _ = call(os.path.join(tmp, "dir.jsonl"))
     check("exit 2: directory", rc == 2 and out == "", repr((rc, out)))
-    # Negative control (macrodream/blueprint#348): the same unreadable input exits 2 with the
+    # Negative control: the same unreadable input exits 2 with the
     # ledger on, so a 3 with it off proves the read was never attempted.
     missing = os.path.join(tmp, "missing.jsonl")
     rc, out, _ = call(missing, enabled=lambda: 0)

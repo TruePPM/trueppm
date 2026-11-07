@@ -18,6 +18,21 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **`expand_summary_dependencies` now raises `CyclicDependencyError` for a link
+  between a summary task and its own descendant, instead of silently rewriting it
+  ([#4705](https://gitlab.com/trueppm/trueppm/-/issues/4705),
+  [#4538](https://gitlab.com/trueppm/trueppm/-/issues/4538)).** A link whose
+  endpoints share a leaf (a summary linked to itself, to one of its own
+  descendants, or from one; two summaries holding a common leaf) is what
+  `find_cycle` reports as a cycle, but the expansion skipped the self-loop it
+  produces. Depending on the shape it dropped the link, invented an order between
+  sibling tasks (`S{a, b} → a` scheduled as `b → a`), or `schedule()` later raised a
+  cycle through two leaves nobody had linked. **A caller that passed such links in
+  without running `find_cycle` first, and got a silently reordered or unconstrained
+  schedule, now gets `CyclicDependencyError`.** Its `.cycle` names the source link
+  as `[predecessor, successor, predecessor]`, or `[id, id]` for a link to itself.
+  The exception is a Start-to-Start or Start-to-Finish link *from* a summary: the
+  ADR-0370 check runs first and raises `InvalidScheduleInput`, as it already did.
 - **A zero-duration task with a small estimate no longer costs a full working day
   in Monte Carlo, and seeded results for such tasks change.** A 0-day task with a
   `(0, 0, 1)` estimate, mean 1/6 day and mode 0, was floored at one working day in

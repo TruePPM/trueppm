@@ -144,11 +144,15 @@ class TestIndent:
     def test_indent_under_a_leaf_that_drives_only_fs_and_ff_is_allowed(
         self, project: Project, owner_client: APIClient
     ) -> None:
+        # Both links leave the moved subtree: an A -FF-> B link would become a link
+        # from a summary to its own child once B is indented, which #4705 refuses
+        # (test_summary_descendant_link_guard.py), not the ADR-0370 rule tested here.
         a = _task(project, "A", "1")
         b = _task(project, "B", "2")
         c = _task(project, "C", "3")
+        d = _task(project, "D", "4")
         Dependency.objects.create(predecessor=a, successor=c, dep_type="FS")
-        Dependency.objects.create(predecessor=a, successor=b, dep_type="FF")
+        Dependency.objects.create(predecessor=a, successor=d, dep_type="FF")
 
         response = _post(owner_client, INDENT_URL.format(pk=project.pk, task_id=b.pk))
 

@@ -4,7 +4,8 @@ The cost ledger is the set of cost lines `/mr` and `/wave` write in an MR's
 `## Gates` section: the measured `subagent-tokens:` and `orchestrator-tokens:`, and the one
 estimate, `est-cost-usd:`. They let a reader tell what a branch cost and, over many MRs, which
 gates and rework rounds earn their cost. One setting, `cost-ledger`, turns all of them on or off
-together. It is **on by default**.
+together. It is **on by default**. The decision is
+[ADR-1340](../adr/1340-cost-ledger-setting.md).
 
 The same setting governs the `## Cost of this MR` comments that `scripts/cost-table.py` renders
 (see *The cost records* below), the only
@@ -91,12 +92,15 @@ What off does not change:
 ## Who checks it
 
 Nothing in CI reads an MR description for cost lines: the lines are advisory and no gate requires
-them. What is checked is the tooling. The `lint:cost-ledger` CI job (and `make cost-ledger-check`,
+them. The two readers of a description that do exist leave them alone: `lint:mr-followups`
+(`scripts/check-mr-followups.sh`) only reacts to follow-up wording, and the `/kaizen` gate-yield
+parser matches `gate:` lines only. `/kaizen` reads the cost lines separately, through
+`scripts/lib/ledger_lines.py` (§ 1g, *Cost beside yield*). What is checked is the tooling. The `lint:cost-ledger` CI job (and `make cost-ledger-check`,
 part of `make pre-push`) runs the `--self-test` of `scripts/cost-ledger`,
 `scripts/subagent-tokens.py`, `scripts/orchestrator-tokens.py`, `scripts/est-cost.py` and
 `scripts/cost-table.py`. A description-level validator (one `cost-ledger: off` line, no cost lines
-beside it, no second `est-cost-usd:`) and a cross-MR yield report are not present in this
-repository; until they exist, the lines are only as consistent as the skills that write them.
+beside it, no second `est-cost-usd:`) is not present in this repository; until one exists, the
+lines are only as consistent as the skills that write them.
 
 ## Reading the figures
 
@@ -125,8 +129,21 @@ repository; until they exist, the lines are only as consistent as the skills tha
   directory that does not resolve, exits 1 and prints no line, because a partial sum would read as
   a measured one. One gap remains: descendants are found only through `parentAgentId` in the
   meta files, so a nested agent whose transcript exists but whose meta file is missing is not
-  found, and the sum is partial. Locally, 10 of 4,738 transcripts had no meta file (the newest
-  from 2026-10-20, checked 2026-11-03).
+  found, and the sum is partial. Locally, 3 of this repository's 807 subagent transcripts (8 of 4,495
+  across all projects) had no meta file, checked 2026-11-07.
+- **Where the transcripts are.** `<projects-dir>` is `$CLAUDE_CONFIG_DIR/projects` when that is
+  set, else `~/.claude/projects`; `--projects-dir` overrides it. The `<slug>` below it is derived
+  by Claude Code from the directory the session was **started** in, so a session started in the
+  main checkout and one started inside a `scripts/wt` worktree (`../trueppm-wt/<leaf>`) sit under
+  different slugs, and a later `cd` does not move either. No script computes a slug: each globs
+  `<projects-dir>/*/<session-id>` and needs exactly one hit, so the session id alone finds the
+  transcript from any directory, and an id under two slugs fails closed (exit 1, no line). The
+  session id is `$CLAUDE_CODE_SESSION_ID`, so the orchestrator runs these scripts in its own
+  session, never inside a subagent's.
+- **A window with no subagent.** `--no-agents` is the explicit statement that none ran: it prints
+  `subagent-tokens: 0`, a measured zero, and opens no transcript. Without `--agent` and without
+  `--no-agents` the script exits 2, so a forgotten `--agent` can never become a 0; the two
+  together are a usage error.
 
 
 ## The `est-cost-usd:` line
@@ -144,11 +161,21 @@ measured line, and never added to a measured figure.
   prints the line on stdout; the per-model figures, or the reason for an omission as a `note:`
   line for the MR's `## Notes`, go to stderr. Exit 0 priced, 1 omitted, 2 usage, 3 ledger off
   (it asks `scripts/cost-ledger enabled` first and opens nothing).
+  `--no-agents` in place of `--agent` prices the orchestrator alone, for a window in which no
+  subagent ran; stderr labels the run `orchestrator-only`. It is never a default, as for
+  `subagent-tokens.py`.
 - **The price table.** `.claude/model-prices.json`: full model IDs as keys, USD per million
   tokens for `input`, `cache_write_5m`, `cache_write_1h`, `cache_read` and `output`, an optional
   `long_prompt` tier (Claude Haiku 5.5 prices a response whose prompt is over 100,000 tokens
   differently), a `checked` date and the `source` URL. Prices are copied from that page by a
-  person and checked in review, never invented. A table older than 90 days, missing, malformed or
+  person and checked in review, never invented. Keys are matched exactly against each response's
+  `message.model`: there is no prefix or family fallback, so a new model ID (or an older one still
+  inside the 30-day transcript window) needs its own row. The table carries every current model
+  plus previous-generation rows (`claude-sonnet-5`, `claude-opus-5`, `claude-fable-5`,
+  `claude-haiku-4-5`) kept so a session that still runs on one is priced rather than omitted
+  (`claude-sonnet-5` was the one seen in local transcripts when they were added); a model with no row makes the whole
+  line omitted with `note: est-cost-usd omitted: model <id> has no row in the price table`,
+  never a $0 row. Responses with all-zero usage (`<synthetic>` entries) price at 0 without a row. A table older than 90 days, missing, malformed or
   without a row for a model used, or a response in fast mode (`speed` other than `standard`), with a
   non-global `inference_geo` or with a `service_tier` other than `standard` (the table has no multiplier for any), gives no line and a `## Notes` line saying why; a stale table
   does not warn anyone, so refresh it (re-copy, update `checked`) when MRs carry
@@ -186,9 +213,14 @@ Work on an MR after its first comment is a further comment, never an edit:
 - **A subagent still running after a record's window end is counted in no record.** The
   subagent scripts have no per-window cut (they count an agent's usage up to `--until`), so such
   an agent's later usage has no record to land in.
-- **A window with no subagent** (a typical `/fix-mr` pass) has `n/a` Subagents, Total tokens, Est.
-  cost and per-family cells, and they stay `n/a` in every later running total; a script does not
-  count "no subagent" as a measured 0.
+- **A window with no subagent** (a typical `/fix-mr` pass) shows a **measured 0** for the
+  Subagents row (0 tokens, 0.00 USD; each family `none used`), and Total tokens and Est. cost are
+  real, as are the running totals. The 0 comes only from the explicit statement `--no-agents`,
+  given to both `scripts/subagent-tokens.py` (prints `subagent-tokens: 0`) and
+  `scripts/est-cost.py` (prices the orchestrator alone). A forgotten `--agent` is not a 0: without
+  `--agent` and without `--no-agents` both exit 2. A `subagent-tokens: 0` beside real subagent
+  split lines is not trusted: the record says the split does not sum to the line. An orchestrator
+  with no usage in the window still prints no line, so its cells stay `n/a`.
 
 ### Running it
 
@@ -204,8 +236,9 @@ All three modes are `scripts/cost-table.py`; `--self-test` covers each, with a f
   no `--since`), keeping their stdout lines in one file and their stderr in another. Name only
   agents spawned fresh in the window, since a subagent's usage counts up to `--until` from its
   start: a resumed agent makes the subagent cells `n/a` with a stated reason (post the record
-  without a `subagent-tokens:` / `est-cost-usd:` line). Naming only fresh agents is prose-enforced:
-  no script checks it. Capture the end once
+  without a `subagent-tokens:` / `est-cost-usd:` line). With no subagent in the window, pass
+  `--no-agents` to `subagent-tokens.py` and `est-cost.py` instead of `--agent`. Naming only fresh
+  agents is prose-enforced: no script checks it. Capture the end once
   (`T=$(date -u +%Y-%m-%dT%H:%M:%SZ)`), take the start `S` from `--next-since`, and save the pair
   with its MR number: `WIN="$(git rev-parse --git-dir)/wave-cost-window.txt"; printf '%s %s %s\n' <iid> <S> <T> > "$WIN"`.
   A re-run of the same record reads it back and reuses the pair only when the first field is this
@@ -223,7 +256,9 @@ could not be read or written; 5 refused, the window belongs to an earlier record
 ### What a record shows
 
 - **Sonnet vs Opus.** A tokens and an estimated-cost column per model family, for subagents and
-  for the orchestrator, plus the ledger lines' totals. The per-model figures come from the `model`
+  for the orchestrator, plus the ledger lines' totals. The family is read from the model ID
+  (`sonnet` or `opus` in it); any other model (Fable, Haiku) adds an `Other` pair of columns to
+  that record rather than being dropped or folded into Opus. The per-model figures come from the `model`
   lines the measuring scripts print on stderr (`subagent-tokens: model <id> <N>`,
   `orchestrator-tokens: model <id> <N>`, `est-cost: subagent|orchestrator model <id> <USD> USD`);
   `--split <file>` is those stderr streams concatenated, and no other line in it is read.
@@ -280,7 +315,7 @@ A record 2, as `--comment --ledger ... --split ... --since 2026-11-04T15:38:24Z`
 for a window that used 1,500 Sonnet tokens (the self-test's case; the per-side rows are elided):
 
 ```markdown
-## Cost of this MR (#383) — record 2
+## Cost of this MR (#4859) — record 2
 
 | | Sonnet tokens | Sonnet est. cost | Opus tokens | Opus est. cost | Total tokens | Est. cost |
 |---|---|---|---|---|---|---|

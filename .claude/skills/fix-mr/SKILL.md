@@ -290,6 +290,19 @@ MR !<N>: pipeline green, but the branch CONFLICTS with main — not mergeable.
 `discussions_not_resolved`, `draft_status`, `blocked_status`. Report those verbatim
 rather than calling the MR ready; they need a human.
 
+**Record this pass's cost as a new record**, when the MR already carries a `## Cost of this MR`
+comment and `scripts/cost-ledger enabled` exits 0; off, unreadable, or no record 1, post none. A
+`/fix-mr` pass is a later window, so it never edits an earlier record or the `## Gates` lines:
+the window starts at `python3 scripts/cost-table.py --next-since --mr <N>` and ends now (capture
+`--until` once, save the `<iid> <since> <until>` pair, and read it back only when its first field
+is this MR's iid, with the `WIN=...` lines in `/wave`'s record-K steps; a re-run of the same record
+reuses it, because `--next-since` returns a posted record's own end). Measure it with the same
+three scripts `/wave` uses, and post it with `scripts/cost-table.py --comment --ledger ... --post`.
+A pass that spawned no subagent runs `scripts/subagent-tokens.py --no-agents` and
+`scripts/est-cost.py --no-agents --since ... --until ...`: a measured 0 for the subagent cells,
+never a forgotten `--agent`. A measuring script that cannot run leaves its cells `n/a`; say so in
+the report. The steps and the format are in `docs/harness/cost-ledger.md` § *The cost records*.
+
 **Never merge the MR.** Hand back the URL and stop — auto-merging after a fix is
 exactly the git-workflow rule this repo forbids.
 

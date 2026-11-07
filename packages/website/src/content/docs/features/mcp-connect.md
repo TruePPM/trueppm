@@ -146,7 +146,7 @@ clear message rather than letting every later query fail.
 
 ## What you can ask
 
-The server exposes **19 read-only tools**, each mapping to one existing REST
+The server exposes **19 read-only tools** (a 20th, `get_project_cost`, lands in 0.5), each mapping to one existing REST
 endpoint and returning only what your role permits:
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
@@ -163,6 +163,8 @@ endpoint and returning only what your role permits:
   `get_schedule_derivation` (the server-computed *why* behind a CPM value or Monte
   Carlo percentile — the driving constraint, lag, and calendar contribution),
   `list_risks`.
+- **Cost** — `get_project_cost` (planned for 0.5; project Admins and Owners only,
+  anyone else gets a structured `cost_restricted` result with no figures).
 - **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only), `get_sprint_close_request` (why a sprint asked to close is still open).
 - **Identity** — `whoami`.
 

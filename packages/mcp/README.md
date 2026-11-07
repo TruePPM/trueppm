@@ -118,9 +118,10 @@ separately:
 
 ## Status
 
-The read-tool surface ships in 0.4: **19 read-only tools** across projects and
-programs, tasks and My Work, schedule and risk (including non-mutating what-if
-and schedule derivation), and sprints — each mapping to one existing REST
+The read-tool surface is **20 read-only tools** (19 ship in 0.4; `get_project_cost`
+lands in 0.5) across projects and programs, tasks and My Work, schedule and
+risk (including non-mutating what-if and schedule derivation), project cost, and
+sprints — each mapping to one existing REST
 endpoint and returning only what your role permits. The
 `mcp:read` token scope that marks a token read-only at the API layer lands
 alongside; the read surface admits only owner-scoped `mcp:read` tokens, which

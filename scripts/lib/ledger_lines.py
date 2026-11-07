@@ -1,6 +1,6 @@
 """Reader for the MR cost-ledger lines in a `## Gates` section.
 
-scripts/cost-table.py is the only consumer. The line format has exactly one parser: the
+Its consumers are scripts/cost-table.py and the /kaizen cost snippet (.claude/skills/kaizen § 1g). The line format has exactly one parser: the
 regexes below, applied to the `## Gates` section outside code fences. Keep them in step with
 what `.claude/skills/mr/SKILL.md` tells an agent to write.
 """

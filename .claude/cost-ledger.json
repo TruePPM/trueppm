@@ -1,5 +1,5 @@
 {
-  "_doc": "macrodream/blueprint#348, docs/harness/cost-ledger.md, ADR 0011",
+  "_doc": "docs/harness/cost-ledger.md, ADR-1340",
   "schema": 1,
   "cost-ledger": "on"
 }

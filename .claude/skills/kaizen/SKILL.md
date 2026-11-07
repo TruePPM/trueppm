@@ -261,6 +261,41 @@ Two `completeness-check` readings go beyond yield (see that skill's § Recording
 If most MRs have no `## Gates` section, that is itself the finding — report the adoption
 gap and stop, rather than drawing conclusions from a handful of MRs.
 
+**Cost beside yield.** The same `## Gates` section carries the cost-ledger lines
+(`subagent-tokens:`, `orchestrator-tokens:`, `est-cost-usd:`, or the single marker
+`cost-ledger: off`; `docs/harness/cost-ledger.md`). The yield parser above ignores them (it
+matches `gate:` lines only). Read them with the one parser they have,
+`scripts/lib/ledger_lines.py`, never a second regex:
+
+```bash
+glab mr list -R trueppm/trueppm -M -P 50 -F json 2>/dev/null \
+  | python3 -c "
+import json, statistics, sys
+sys.path.insert(0, 'scripts/lib')
+import ledger_lines as ll
+mrs = json.load(sys.stdin)
+off = [m for m in mrs if any(ll.LEDGER_OFF_RE.match(l) for l in ll.ledger_lines(m.get('description')))]
+rows = [(m['iid'], ll.subagent_tokens(m.get('description')), ll.est_cost_usd(m.get('description'))) for m in mrs if m not in off]
+tok = [t for _, t, _ in rows if t is not None]
+usd = [u for _, _, u in rows if u is not None]
+print('MRs read:', len(mrs), '| cost ledger off:', len(off), '| with subagent-tokens:', len(tok), '| with est-cost-usd:', len(usd))
+if len(tok) >= 5:
+    med = statistics.median(tok)
+    print('median subagent-tokens:', int(med), '| outliers (>2x median):', [i for i, t, _ in rows if t and t > 2 * med])
+if usd:
+    print('mean est-cost-usd: %.2f (list-price estimate, not billed)' % statistics.mean(usd))
+"
+```
+
+- An MR with `cost-ledger: off` recorded nothing **by choice**: report the count as
+  disabled, never as 0, and draw no cost finding from a window of them.
+- MRs with `subagent-tokens:` lines but no `est-cost-usd:` line usually mean the price table
+  aged out (`checked` in `.claude/model-prices.json` is over 90 days old) or a model has no
+  row; re-copy the table from its `source`.
+- `orchestrator-tokens:` is session spend over a window that several branches of one wave
+  share: never sum it across MRs, and never add it to `subagent-tokens:` as an MR's cost.
+- Fewer than 5 MRs with the line is "not enough data yet", the same rule as yield.
+
 ### 1h. Flow metrics — WIP level and worktree age
 
 Cycle time (1a) measures MRs that finished. This measures work that hasn't.
@@ -374,6 +409,8 @@ Print this format to the user:
 <the find-rate table; mark any gate with <10 runs as "insufficient data">
 <one line naming any gate at 0% over ≥10 runs, and any gate above 50% — the second is
 as important to report as the first>
+<cost beside yield: MRs with `subagent-tokens:` / `est-cost-usd:`, the cost-ledger-off count
+(disabled, never 0), median tokens and outliers, or "not enough data yet">
 
 ### Flow (1a, 1h)
 - Median MR cycle time: <Xh> · MRs over 48h: <N>

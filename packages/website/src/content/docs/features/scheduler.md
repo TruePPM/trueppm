@@ -387,15 +387,49 @@ trueppm-scheduler monte-carlo project.json --json --distribution
 
 ## Errors and input limits
 
-Every exception the engine raises subclasses `ValueError`, so a single
-`except ValueError` covers them — but each is individually catchable.
+Every exception the engine *documents* raising subclasses `ValueError` (via the
+common `SchedulerError` base), so one `except ValueError` catches them all — but
+each is individually catchable.
 
 | Exception | Raised when |
 |-----------|-------------|
 | `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` holds the offending task IDs. |
 | `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. Both caps default to `None` (uncapped) — they are opt-in guards for an embedder exposing the engine to untrusted input. |
-| `InvalidScheduleInput` | The input is structurally valid but out of range (see below). |
-| `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project. |
+| `InvalidScheduleInput` | The input is structurally valid but out of range, or the wrong type (see below), including `monte_carlo`'s own `sensitivity_cap`, `max_runs`, `max_tasks`, `max_lag_delta_cells` and `max_index_cells`. Messages that echo a value cap it at 200 characters. |
+| `UnknownTaskError` | `derive_value(project, task_id, …)` is called with a `task_id` that names no task in the project, or (with a supplied `result`) a dependency of that task names a task the `result` lacks. |
+
+**What this guarantee actually covers.** `Project.from_dict()` / `Project.from_json()`
+— the untrusted-input path — type-check and coerce every field, so a malformed
+document of *any* shape raises `InvalidScheduleInput` and never a bare
+AttributeError/TypeError. Constructing `Project`/`Task`/`Dependency` directly in
+Python (the **direct-object API**, as in every example above) is held to the same
+field rules `from_dict()` applies, on every field of `Project`, `Task`,
+`Dependency` and `Calendar` — including the fields the engine never reads: the
+reserved `Calendar.hours_per_day` (a finite number) and `timezone` (a string), the
+computed task dates (`early_start` … `scheduled_start`, plain `date` or `None`)
+and floats (`total_float`/`free_float`, `timedelta`), the `is_critical` and
+`milestone_at_day_end` flags (`bool`), and `delivery_mode` (a `DeliveryMode` or
+`None`, not the string `"scrum"`). `Calendar.working_days` must be an integer in
+`[0, 127]`, and a `calendars` registry must be keyed by string ids. A wrong-typed
+or out-of-range value (`None`, a string, a `datetime`, a bare int where a list or
+`timedelta` is expected, an unhashable value, …) makes `schedule()` and
+`monte_carlo()` raise `InvalidScheduleInput`, not a bare Python exception.
+(`derive_value()` applies the same check when it schedules the project itself,
+i.e. when called without `result=`.)
+
+So any project `schedule()` accepts round-trips: `Project.from_json(p.to_json())`
+loads it back unchanged and schedules it identically. `to_dict()` and `to_json()`
+on `Project` (and `to_dict()` on `Task`, `Dependency` and `Calendar`) apply the
+same rules and raise `InvalidScheduleInput` for a field they cannot serialize.
+Construction itself stays lenient — the check runs when a project is scheduled or
+serialized, so an object can be built partially and filled in first.
+`tests/test_exception_contract.py` pins the per-field guarantee with a
+single-field-mutation sweep over the init fields × 12 adversarial values × both
+`schedule()`/`monte_carlo()` entry points (`Task.id` is excluded from that sweep;
+a non-string task id is covered by the explicit examples in
+`tests/test_contract_fuzz.py`), and `tests/test_roundtrip_contract.py`
+property-tests the round trip, so a future field addition that reopens a gap fails
+a test rather than becoming a silent leak.
 
 Because the engine walks the working calendar one day at a time, it validates
 input up front rather than spinning on a degenerate project (a calendar with no
@@ -485,6 +519,14 @@ expansion = expand_summary_dependencies(
 expansion.tasks         # input tasks with summaries removed — leaves only
 expansion.dependencies  # leaf-level edges, self-links skipped and deduplicated
 ```
+
+:::note[Ships in 0.5]
+In 0.4, a link between a summary and one of its own subtasks (or a summary linked
+to itself) is skipped as a self-link, or turned into an order between sibling
+tasks. In 0.5 the call will refuse it with `CyclicDependencyError` instead, the same
+input `find_cycle` reports as a cycle. A Start-to-Start or Start-to-Finish link *from*
+a summary will still raise `InvalidScheduleInput`, as described below.
+:::
 
 When two links resolve to the same leaf pair — say `build → test` and
 `phase-1 → test` with a 7-day lag — they merge into one edge that keeps the
