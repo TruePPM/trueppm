@@ -24,6 +24,10 @@ EXPECTED_DIR = FIXTURES_DIR / "expected"
 INVALID_DIR = FIXTURES_DIR / "invalid"
 PARSE_REJECTS_DIR = FIXTURES_DIR / "parse_rejects"
 CYCLE_ERRORS_DIR = FIXTURES_DIR / "cycle_errors"
+# Sidecar index recording how each fixture/snapshot came to be (#4732). Lives beside
+# the fixtures but is not one; every glob over FIXTURES_DIR must skip it.
+PROVENANCE_FILE = FIXTURES_DIR / "PROVENANCE.json"
+PROVENANCE_VALUES = frozenset({"hand-verified", "regenerated", "unknown"})
 
 # Regeneration is an explicit, opt-in action — never a side effect of a normal
 # run. A missing expected snapshot HARD-FAILS (#1506); it may only be
@@ -32,6 +36,8 @@ CYCLE_ERRORS_DIR = FIXTURES_DIR / "cycle_errors"
 # so `wasm:conformance` passed green on every pipeline without ever comparing the
 # two engines. Regenerate committed snapshots with, e.g.:
 #   REGEN_EXPECTED=1 pytest packages/scheduler/tests/test_wasm_conformance.py
+# Regenerating re-blesses whatever the engines emit, so a regenerated snapshot
+# MUST update its entry in fixtures/PROVENANCE.json (see that file's _comment).
 REGEN_EXPECTED = os.environ.get("REGEN_EXPECTED") == "1"
 
 # The fixtures live in the sibling packages/wasm-scheduler tree, which exists only
@@ -86,7 +92,7 @@ def fixture_names() -> list[str]:
     ``glob("*.json")`` is deliberately non-recursive: it excludes the
     ``expected/``, ``invalid/``, and ``parse_rejects/`` subdirectories.
     """
-    return sorted(p.stem for p in FIXTURES_DIR.glob("*.json"))
+    return sorted(p.stem for p in FIXTURES_DIR.glob("*.json") if p.name != PROVENANCE_FILE.name)
 
 
 def invalid_fixture_names() -> list[str]:
@@ -327,3 +333,46 @@ def test_cycle_error_payload_and_message(name: str) -> None:
         schedule(project)
     assert excinfo.value.cycle == expected["cycle"]
     assert str(excinfo.value) == expected["message"]
+
+
+def _fixture_files_on_disk() -> set[str]:
+    """Every fixture and snapshot, as a path relative to FIXTURES_DIR (POSIX style)."""
+    return {
+        p.relative_to(FIXTURES_DIR).as_posix()
+        for p in FIXTURES_DIR.rglob("*.json")
+        if p != PROVENANCE_FILE
+    }
+
+
+def _provenance_entries() -> dict[str, dict]:
+    with PROVENANCE_FILE.open() as f:
+        return json.load(f)["entries"]
+
+
+def test_provenance_index_covers_every_fixture() -> None:
+    """Every fixture and snapshot has a provenance entry (#4732)."""
+    missing = sorted(_fixture_files_on_disk() - set(_provenance_entries()))
+    assert not missing, (
+        f"fixtures with no entry in {PROVENANCE_FILE.name}: {missing}. Add an entry "
+        "(use provenance 'unknown' unless history proves otherwise)."
+    )
+
+
+def test_provenance_index_has_no_stale_entries() -> None:
+    """Every provenance entry names a file that exists (#4732)."""
+    stale = sorted(set(_provenance_entries()) - _fixture_files_on_disk())
+    assert not stale, f"{PROVENANCE_FILE.name} names files that do not exist: {stale}"
+
+
+def test_provenance_values_are_allowed() -> None:
+    """Each entry carries an allowed provenance value, an issue key, and evidence (#4732)."""
+    bad = {
+        name: entry
+        for name, entry in _provenance_entries().items()
+        if entry.get("provenance") not in PROVENANCE_VALUES
+        or "issue" not in entry
+        or not entry.get("evidence")
+    }
+    assert not bad, (
+        f"invalid {PROVENANCE_FILE.name} entries (allowed: {sorted(PROVENANCE_VALUES)}): {bad}"
+    )

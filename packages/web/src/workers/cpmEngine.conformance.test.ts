@@ -366,7 +366,8 @@ describe('cpmEngine forward-pass conformance with the shared scheduler fixtures'
     // capability expansions and let both #3535 mechanisms ship. Adding a
     // fixture now forces a one-line decision: assert it, or say why not.
     const fixtureNames = readdirSync(FIXTURES_DIR)
-      .filter((f) => f.endsWith('.json'))
+      // PROVENANCE.json is the sidecar provenance index (#4732), not a fixture.
+      .filter((f) => f.endsWith('.json') && f !== 'PROVENANCE.json')
       .map((f) => f.slice(0, -'.json'.length));
 
     // Guard the guard: a wrong FIXTURES_DIR would make this pass on an empty
