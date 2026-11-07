@@ -8,9 +8,14 @@ fallback — the property the schedule() conformance contract relies on.
 
 from __future__ import annotations
 
+import random
 from datetime import date, timedelta
 
-from trueppm_scheduler.engine import _working_days_between, _WorkingDayCounter
+from trueppm_scheduler.engine import (
+    _count_working_days,
+    _working_days_between,
+    _WorkingDayCounter,
+)
 from trueppm_scheduler.models import Calendar, DateRange
 
 
@@ -59,3 +64,48 @@ def test_out_of_range_falls_back_to_scalar() -> None:
     counter = _WorkingDayCounter.build(date(2026, 1, 10), date(2026, 1, 15), cal)
     lo, hi = date(2026, 1, 1), date(2026, 1, 31)
     assert counter.between(lo, hi) == _working_days_between(lo, hi, cal)
+
+
+def _random_calendar(rng: random.Random) -> Calendar:
+    base = date(2026, 1, 1)
+    exceptions = []
+    for _ in range(rng.randint(0, 8)):
+        start = base + timedelta(days=rng.randint(0, 120))
+        exceptions.append(DateRange(start, start + timedelta(days=rng.randint(0, 6))))
+    return Calendar(working_days=rng.randint(1, 0b1111111), exceptions=exceptions)
+
+
+def test_wrapper_equals_working_days_between_over_random_calendars() -> None:
+    """The wrapper is a pure delegate, regardless of the (ignored) build range (#4713)."""
+    rng = random.Random(4713)
+    for _ in range(40):
+        cal = _random_calendar(rng)
+        lo = date(2026, 1, 1) + timedelta(days=rng.randint(0, 30))
+        counter = _WorkingDayCounter.build(lo, lo + timedelta(days=rng.randint(0, 90)), cal)
+        for _ in range(60):
+            s = date(2025, 12, 1) + timedelta(days=rng.randint(0, 200))
+            e = s + timedelta(days=rng.randint(-5, 90))
+            assert counter.between(s, e) == _working_days_between(s, e, cal), (s, e)
+
+
+def _old_walk_count(start: date, end: date, cal: Calendar) -> int:
+    """The pre-#4692 day walk: working days in the closed range [start, end]."""
+    n = 0
+    d = start
+    while d <= end:
+        n += cal.is_working_day(d)
+        d += timedelta(days=1)
+    return n
+
+
+def test_count_working_days_matches_old_walk_semantics() -> None:
+    """Inclusive end, 0 when start > end, same-day = 1 iff working (#4713)."""
+    rng = random.Random(4713)
+    for _ in range(40):
+        cal = _random_calendar(rng)
+        for _ in range(40):
+            s = date(2025, 12, 15) + timedelta(days=rng.randint(0, 150))
+            e = s + timedelta(days=rng.randint(-4, 60))
+            assert _count_working_days(s, e, cal) == _old_walk_count(s, e, cal), (s, e)
+        d = date(2026, 2, 3)
+        assert _count_working_days(d, d, cal) == int(cal.is_working_day(d))
