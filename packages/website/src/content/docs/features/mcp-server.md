@@ -137,7 +137,7 @@ rather than reason over an incomplete list.
 | `list_projects` | — | Every project you can read, each with your `caller_role`. |
 | `get_project` | `project_id` | Full project metadata and a health overview, with `caller_role`. From 0.5 it will also carry `health_band` and `health_band_source`. |
 | `list_programs` | — | Every program you can read, each with your `caller_role`. |
-| `get_program_health` | `program_id` | Rollup health for one program (single-program; cross-program rollups are Enterprise). |
+| `get_program_health` | `program_id` | Rollup health for one program (single-program; cross-program rollups are Enterprise). The rollup carries the cost KPIs; a caller below program Admin sees each as `{ "available": false, "reason": "cost_restricted" }` rather than a top-level flag. |
 | `list_program_backlog` | `program_id` | A program's backlog intake pool — items ranked by priority, with type, status, story points, and whether each has been pulled into a task. Single-program only. |
 
 Planned for 0.5: `get_project` will return the server's own `health_band` (`on_track`, `at_risk` or `critical`) and a `health_band_source` of `reported` (the project manager set it by hand) or `derived` (computed from at-risk and critical task counts). Read `health_band` as the project's health; it already accounts for the raw `health` field, and `overview.schedule_health` is a separate schedule-performance measure that never overrides it. If the band cannot be read, the result carries `health_band_unavailable` with the reason and no band, so do not infer one.

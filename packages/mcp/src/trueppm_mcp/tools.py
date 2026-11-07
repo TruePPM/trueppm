@@ -593,12 +593,16 @@ async def _get_project_cost(client: TruePPMClient, project_id: str) -> dict[str,
     result is built from the refusal alone, so it cannot carry a cost figure.
 
     ``reason`` is ``requires_project_admin`` when the API gave no refusal envelope (a
-    plain role denial), and ``token_policy`` when it did (the token, kill switch or
-    scope refused the call, not the role), so the model never tells a caller to ask
-    for a role upgrade that would not help. A 404 (project missing, or not readable
-    by the caller) stays an error: mapping it would turn the API's existence oracle
-    into a "you lack the role" answer. The payload is passed through unchanged
-    (not compacted): a null ``budget`` means "no budget set" and must survive.
+    plain role denial), and ``token_policy`` when it did (the instance or project
+    kill switch, or the read-only-method guard, refused the call rather than the
+    role), so the model does not tell a caller to ask for a role upgrade that would
+    not help. A missing ``mcp:read`` scope is not marked by the API, so it can still
+    read as ``requires_project_admin``. A non-member of an existing project has no
+    role and also gets 403, so it is reported as ``cost_restricted``; the API
+    already answers 403 for it, so this adds nothing a caller could not see. Only a
+    404 (project missing or trashed) stays an error. The payload is passed through
+    unchanged (not compacted): a null ``budget`` means "no budget set" and must
+    survive.
     """
     try:
         data = await client.get(f"projects/{project_id}/cost/")
@@ -899,7 +903,8 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Cost is visible to project Admins and Owners only. Any other caller gets
         ``{"cost_restricted": true, "reason": ...}`` with no figures. That is a normal
         answer, not a failure: report that cost is restricted for the caller's role
-        and do not retry. A project that does not exist or is not readable raises an
+        and do not retry. A non-member of the project also gets
+        ``cost_restricted``. A project that does not exist (or is trashed) raises an
         error.
 
         Args:
@@ -1068,6 +1073,10 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
     @server.tool()
     async def get_program_health(program_id: str) -> dict[str, Any]:
         """Rollup health for one program (single-program; cross-program is Enterprise).
+
+        The rollup carries the cost KPIs (``cost_variance``, ``budget_utilization``).
+        A caller below program Admin sees each as ``{"available": false, "reason":
+        "cost_restricted"}``, not a top-level flag, and never a cost value.
 
         Args:
             program_id: The program's UUID.
