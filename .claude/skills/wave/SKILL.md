@@ -306,7 +306,7 @@ it posted, do nothing. If it skipped or failed with the ledger on, post record 1
 is also the path when you want the exact named agents: fetch the description with
 `glab api projects/:id/merge_requests/<iid>`, write its `.description` to a file, and run
 `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`,
-then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until.$CLAUDE_CODE_SESSION_ID"`
+then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until.${CLAUDE_CODE_SESSION_ID:?}"`
 so the next MR's hook window does not re-count this one. Exit 3 (ledger off or unreadable): post
 nothing. Exit 4 or 5: say so in the report. Post with the script, never a hand-written
 `glab mr note`: the script is what later records read back and number from.

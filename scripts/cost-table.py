@@ -611,7 +611,18 @@ LAST_API_ERR = [
 ]  # why the most recent `glab api` call failed (one line, capped), for the exit message
 API_ATTEMPTS = 3
 BACKOFF = (2, 5)  # seconds slept before attempt 2 and 3
-API_TIMEOUT = 40
+API_TIMEOUT = 30
+SLEEP = [
+    time.sleep
+]  # indirection so the self-test (and callers) can skip the real backoff
+API_CALLS_PER_ATTEMPT = 3  # GET user, GET notes (one page), POST/PUT
+
+
+def worst_case_seconds():
+    """Upper bound on one `--post` run when every call hangs: callers that wrap cost-table in a
+    timeout derive it from this so a kill can never land before cost-table's own last attempt."""
+    waits = sum(BACKOFF[min(i, len(BACKOFF) - 1)] for i in range(API_ATTEMPTS - 1))
+    return API_ATTEMPTS * API_CALLS_PER_ATTEMPT * API_TIMEOUT + waits
 
 
 def glab_api(method, path, payload=None):
@@ -651,7 +662,7 @@ def with_retry(attempt, attempts=None, sleep=None):
     record 1 would make every later record exit 5). The last failure's reason is appended.
     """
     attempts = attempts or API_ATTEMPTS
-    sleep = sleep or time.sleep
+    sleep = sleep or SLEEP[0]
     rc, msg = 4, ""
     for n in range(attempts):
         if n:
@@ -895,20 +906,23 @@ def comment_main(argv, enabled, stdout, stderr, api):
         if enabled() != 0:
             print("cost-table: cost ledger off or unreadable; no record", file=stderr)
             return 3
-        own, _f, err = read_records(nums["--mr"], api)
-        if err:
-            print(err, file=stderr)
-            return 4
-        latest = max(own, key=lambda o: o["k"] or 0) if own else None
-        if not latest or not latest["rec"] or not latest["rec"]["end"]:
-            print(
-                "cost-table: no readable record with a window end by this user on !%d"
-                % nums["--mr"],
-                file=stderr,
-            )
-            return 1
-        print(latest["rec"]["end"], file=stdout)
-        return 0
+
+        def latest_end():
+            own, _f, err = read_records(nums["--mr"], api)
+            if err:
+                return 4, err
+            latest = max(own, key=lambda o: o["k"] or 0) if own else None
+            if not latest or not latest["rec"] or not latest["rec"]["end"]:
+                return (
+                    1,
+                    "cost-table: no readable record with a window end by this user on !%d"
+                    % nums["--mr"],
+                )
+            return 0, latest["rec"]["end"]
+
+        rc, m = with_retry(latest_end)
+        print(m, file=stdout if rc == 0 else stderr)
+        return rc
     if (
         follow == ("--file" in opts)
         or (post_it and not nums["--mr"])
@@ -996,6 +1010,8 @@ def main(
 
 def self_test():
     import io
+
+    SLEEP[0] = lambda secs: None
 
     fails, ran = [], [0]
 
@@ -1850,6 +1866,86 @@ def self_test():
         "follow-up: record 2 heading",
         b2.startswith("## Cost of this MR (#4859) %s record 2\n" % DASH),
         b2,
+    )
+    # A record-K POST that fails but lands is updated in place by the retry, never posted twice.
+    kcalls = []
+    kapi = flaky(
+        [note(10, rec1)],
+        kcalls,
+        ("POST", "projects/:id/merge_requests/4901/notes"),
+        landed=True,
+    )
+    ko, ke = io.StringIO(), io.StringIO()
+    krc = comment_main(
+        [
+            "--comment",
+            "--ledger",
+            lpath,
+            "--split",
+            s2path,
+            "--issue",
+            "4859",
+            "--mr",
+            "4901",
+            "--since",
+            S2,
+            "--until",
+            E2,
+            "--post",
+        ],
+        on,
+        ko,
+        ke,
+        kapi,
+    )
+    check(
+        "follow-up: a landed-but-failed POST is PUT on retry, note count unchanged",
+        krc == 0
+        and [c[0] for c in kcalls].count("POST") == 1
+        and "PUT" in [c[0] for c in kcalls]
+        and len(kapi.state["notes"]) == 2,
+        repr((krc, kcalls, ke.getvalue())),
+    )
+    # --next-since retries a transient API failure and tells exit 1 (no record) from exit 4.
+    ncalls = []
+    napi = flaky([note(10, rec1)], ncalls, ("GET", "user"))
+    no, ne = io.StringIO(), io.StringIO()
+    nrc = main(
+        ["--next-since", "--mr", "4901"], enabled=on, stdout=no, stderr=ne, api=napi
+    )
+    check(
+        "next-since: a first-attempt API failure is retried",
+        nrc == 0
+        and re.match(r"^\d{4}-\d\d-\d\dT", no.getvalue()) is not None
+        and [c for c in ncalls if c == ("GET", "user")] == [("GET", "user")] * 2,
+        repr((nrc, no.getvalue(), ne.getvalue())),
+    )
+    no, ne = io.StringIO(), io.StringIO()
+    nrc = main(
+        ["--next-since", "--mr", "4901"],
+        enabled=on,
+        stdout=no,
+        stderr=ne,
+        api=fake([], [], fail=("GET",)),
+    )
+    check("next-since: a persistent API failure exits 4", nrc == 4, repr(nrc))
+    no, ne = io.StringIO(), io.StringIO()
+    nrc = main(
+        ["--next-since", "--mr", "4901"],
+        enabled=on,
+        stdout=no,
+        stderr=ne,
+        api=fake([], []),
+    )
+    check("next-since: really no record exits 1, not 4", nrc == 1, repr(nrc))
+    # The hook's outer timeout is derived from these constants, so it must exceed the worst case.
+    check(
+        "worst case: 3 attempts x 3 calls x API_TIMEOUT + backoff",
+        worst_case_seconds()
+        == API_ATTEMPTS * API_CALLS_PER_ATTEMPT * API_TIMEOUT
+        + sum(BACKOFF[: API_ATTEMPTS - 1])
+        and worst_case_seconds() < 600,
+        repr(worst_case_seconds()),
     )
     check("follow-up: own window stated", "- Window: %s to %s." % (S2, E2) in b2, b2)
     check(

@@ -46,6 +46,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "lib"))
@@ -137,27 +138,84 @@ def find_session_dir(sid, projects_dir):
     return hits[0] if len(hits) == 1 else None
 
 
+READ_ATTEMPTS = 3
+READ_TIMEOUT = 20
+BACKOFF = (2, 5)
+SLEEP = [time.sleep]
+TS_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z")
+
+
 def glab_json(path, cwd):
-    rc, out, _ = run(["glab", "api", path], cwd, timeout=60)
-    try:
-        return json.loads(out) if rc == 0 else None
-    except ValueError:
-        return None
+    """JSON of a GET, retried (a read is idempotent) so one hung call is not a skipped comment."""
+    for n in range(READ_ATTEMPTS):
+        if n:
+            SLEEP[0](BACKOFF[min(n - 1, len(BACKOFF) - 1)])
+        rc, out, _ = run(["glab", "api", path], cwd, timeout=READ_TIMEOUT)
+        if rc != 0:
+            continue
+        try:
+            return json.loads(out)
+        except ValueError:
+            continue
+    return None
 
 
-def already_commented(iid, cwd):
-    """True when a `## Cost of this MR` note exists, None when the notes could not be read.
+def cost_table_timeout():
+    """Outer timeout for a cost-table.py run: its own worst case (it retries internally) plus margin.
+
+    Derived, not hard-coded: a kill before cost-table's last attempt would lose its stderr reason and
+    leave the window marker un-advanced even when a POST had landed.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "cost_table_consts", os.path.join(HERE, "cost-table.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return int(mod.worst_case_seconds()) + 30
+
+
+def cost_notes(iid, cwd, max_pages=20):
+    """Bodies of the `## Cost of this MR` notes, [] when none, None when the notes could not be read.
 
     Unreadable is not 'exists': treating it as such made a flaky `glab api` skip the comment with
     no trace. The caller reports it and posts nothing, so a flaky API still never duplicates.
+    Pages past 100 notes (a long-lived MR); more than max_pages pages reads as unreadable.
     """
-    notes = glab_json("projects/:id/merge_requests/%d/notes?per_page=100" % iid, cwd)
-    if not isinstance(notes, list):
-        return None
-    return any(
-        isinstance(n, dict) and "## Cost of this MR" in str(n.get("body", ""))
-        for n in notes
+    found = []
+    for page in range(1, max_pages + 1):
+        notes = glab_json(
+            "projects/:id/merge_requests/%d/notes?per_page=100&page=%d" % (iid, page),
+            cwd,
+        )
+        if not isinstance(notes, list):
+            return None
+        found += [
+            str(n.get("body", ""))
+            for n in notes
+            if isinstance(n, dict) and "## Cost of this MR" in str(n.get("body", ""))
+        ]
+        if len(notes) < 100:
+            return found
+    return None
+
+
+def window_end(bodies):
+    """The latest window end among existing cost records, or None when none is readable."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "cost_table_parse", os.path.join(HERE, "cost-table.py")
     )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ends = []
+    for b in bodies:
+        rec = mod.parse_record(b)
+        if rec and isinstance(rec.get("end"), str) and TS_RE.match(rec["end"]):
+            ends.append(rec["end"])
+    return max(ends) if ends else None
 
 
 def measure(runner, cwd, env, sdir, since, until):
@@ -315,13 +373,21 @@ def process(payload, projects_dir=None, runner=run):
         )
     if OFF_MARKER_RE.search(str(d.get("description", ""))):
         return quiet("MR description carries cost-ledger: off")
-    seen = already_commented(iid, cwd)
+    seen = cost_notes(iid, cwd)
     if seen is None:
         return (
             "MR cost comment not posted for !%d: could not read its notes (glab api failed). %s"
             % (iid, manual)
         )
     if seen:
+        # A comment that landed while the hook was killed or reported a failure: advance this
+        # session's window to its end, or the next MR re-counts the same work.
+        end = window_end(seen)
+        rc, gd, _ = runner(["git", "rev-parse", "--git-common-dir"], cwd)
+        if end and rc == 0 and gd.strip():
+            gd = os.path.abspath(os.path.join(cwd, gd.strip()))
+            if end > read_since(gd, sid):
+                write_since(gd, sid, end)
         return quiet("a cost comment already exists")
     projects_dir = projects_dir or os.path.join(
         os.path.expanduser("~"), ".claude", "projects"
@@ -384,7 +450,7 @@ def process(payload, projects_dir=None, runner=run):
         m = ISSUE_RE.search(str(d.get("source_branch", "")))
     if m:
         cmd += ["--issue", m.group(1)]
-    rc, out, err = runner(cmd, cwd)
+    rc, out, err = runner(cmd, cwd, timeout=cost_table_timeout())
     for p in (desc, splitf):
         try:
             os.remove(p)
@@ -422,8 +488,12 @@ def process_round(iid, sid, cwd, projects_dir=None, runner=run):
     "never edit an earlier record" rule are cost-table.py's. Returns a message (never raises).
     """
     manual = (
-        "Post it by hand: see docs/harness/cost-ledger.md "
-        "(python3 scripts/cost-table.py --comment --ledger ... --post --mr %d)." % iid
+        "Retry it from the checkout root with: python3 scripts/post-mr-cost.py --round --mr %d%s "
+        "(see docs/harness/cost-ledger.md)."
+        % (
+            iid,
+            " --session " + sid if SESSION_RE.match(sid or "") else " --session <sid>",
+        )
     )
     rc, _, _ = runner(
         [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
@@ -451,7 +521,7 @@ def process_round(iid, sid, cwd, projects_dir=None, runner=run):
         )
     if OFF_MARKER_RE.search(str(d.get("description", ""))):
         return "MR !%d carries `cost-ledger: off`: no record posted." % iid
-    rc, out, _ = runner(
+    rc, out, nerr = runner(
         [
             sys.executable,
             os.path.join(HERE, "cost-table.py"),
@@ -460,8 +530,19 @@ def process_round(iid, sid, cwd, projects_dir=None, runner=run):
             str(iid),
         ],
         cwd,
+        timeout=cost_table_timeout(),
     )
     since = out.strip()
+    if rc not in (0, 1):
+        return (
+            "Record not posted for !%d: could not read its notes (cost-table exit %d%s). %s"
+            % (
+                iid,
+                rc,
+                ": " + reason_of(nerr) if reason_of(nerr) else "",
+                manual,
+            )
+        )
     if rc != 0 or not re.match(
         r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)\Z", since
     ):
@@ -518,7 +599,7 @@ def process_round(iid, sid, cwd, projects_dir=None, runner=run):
     m = ISSUE_RE.search(br) if rc == 0 else None
     if m:
         cmd += ["--issue", m.group(1)]
-    rc, out, err = runner(cmd, cwd)
+    rc, out, err = runner(cmd, cwd, timeout=cost_table_timeout())
     for p in (ledger, splitf):
         try:
             os.remove(p)
@@ -613,6 +694,7 @@ def main():
 
 
 def self_test():
+    SLEEP[0] = lambda secs: None
     # A git hook (pre-push) exports GIT_DIR and friends, which would point the throwaway `git init`
     # repos below at the real checkout.
     for k in (
@@ -792,6 +874,8 @@ def self_test():
     os.makedirs(os.path.join(pdir, "slug", "abc-123"))
     open(os.path.join(pdir, "slug", "abc-123.jsonl"), "w").close()
 
+    TIMEOUTS = []
+
     def full_runner(
         log,
         git_ok=True,
@@ -800,6 +884,7 @@ def self_test():
         table_err="",
         enabled_rc=0,
         since_rc=0,
+        next_err="",
         branch="feat/321-x",
     ):
         def r(cmd, cwd, env=None, timeout=300):
@@ -811,8 +896,10 @@ def self_test():
                 return (0, gdir + "\n", "") if git_ok else (128, "", "")
             if cmd[:2] == ["git", "branch"]:
                 return 0, branch + "\n", ""
+            if name == "cost-table.py":
+                TIMEOUTS.append(timeout)
             if "--next-since" in cmd:
-                return since_rc, "2026-11-07T14:00:00Z\n", ""
+                return since_rc, "2026-11-07T14:00:00Z\n", next_err
             if name in ("subagent-tokens.py", "orchestrator-tokens.py"):
                 if not measure_ok:
                     return 3, "", ""
@@ -922,6 +1009,220 @@ def self_test():
         printed.getvalue(),
     )
     check("manual fallback runs in the checkout it was given", os.getcwd() == cwd0)
+    if os.path.exists(marker):
+        os.remove(marker)
+
+    # G1: the outer cost-table timeout is derived from cost-table's own worst case, with margin.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "ct_consts", os.path.join(HERE, "cost-table.py")
+    )
+    ctm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ctm)
+    TIMEOUTS.clear()
+    with_glab(
+        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=full_runner([]))
+    )
+    check(
+        "cost-table's outer timeout exceeds its own retry worst case and fits the hook's 600s",
+        TIMEOUTS
+        and all(t == cost_table_timeout() for t in TIMEOUTS)
+        and cost_table_timeout() > ctm.worst_case_seconds()
+        and cost_table_timeout() + 2 * (READ_ATTEMPTS * READ_TIMEOUT + sum(BACKOFF))
+        < 600,
+        repr((TIMEOUTS, ctm.worst_case_seconds())),
+    )
+    if os.path.exists(marker):
+        os.remove(marker)
+    # G1: a comment that already exists advances the session window to its end, never backwards.
+    rec_body = "\n".join(
+        ctm.comment_lines(
+            "## Gates\nsubagent-tokens: 1\norchestrator-tokens: 2\n",
+            5,
+            "2026-11-07T14:00:00Z",
+        )
+    )
+    msg = with_glab(
+        ok_desc,
+        [{"body": rec_body}],
+        lambda: process(pl, projects_dir=pdir, runner=full_runner([])),
+    )
+    check(
+        "existing record: quiet, and the window marker moves to its end",
+        msg is None
+        and os.path.exists(marker)
+        and open(marker).read().strip() == "2026-11-07T14:00:00Z",
+        repr(msg),
+    )
+    write_since(gdir, "abc-123", "2026-11-07T18:00:00Z")
+    with_glab(
+        ok_desc,
+        [{"body": rec_body}],
+        lambda: process(pl, projects_dir=pdir, runner=full_runner([])),
+    )
+    check(
+        "existing record never moves the marker backwards",
+        open(marker).read().strip() == "2026-11-07T18:00:00Z",
+    )
+    os.remove(marker)
+    # G2: reads are retried; paging reaches past 100 notes.
+    real_run = globals()["run"]
+    seq = []
+
+    def flaky_run(cmd, cwd, env=None, timeout=300):
+        seq.append(timeout)
+        return (1, "", "boom") if len(seq) == 1 else (0, '{"ok": 1}', "")
+
+    try:
+        globals()["run"] = flaky_run
+        got = glab_json("x", ".")
+        n_after = len(seq)
+        seq.clear()
+        globals()["run"] = lambda cmd, cwd, env=None, timeout=300: (1, "", "boom")
+        got_none = glab_json("x", ".")
+    finally:
+        globals()["run"] = real_run
+    check(
+        "glab_json retries a failed first read",
+        got == {"ok": 1} and n_after == 2 and got_none is None,
+        repr((got, n_after, got_none)),
+    )
+    pages = []
+
+    def paged(path, cwd):
+        pages.append(path)
+        if path.endswith("&page=1"):
+            return [{"body": "x"}] * 99 + [{"body": "## Cost of this MR (#1)"}]
+        return [{"body": "## Cost of this MR (#2)"}]
+
+    try:
+        globals()["glab_json"] = paged
+        found = cost_notes(77, ".")
+    finally:
+        globals()["glab_json"] = real_glab
+    check(
+        "cost_notes pages past 100 notes",
+        found == ["## Cost of this MR (#1)", "## Cost of this MR (#2)"]
+        and len(pages) == 2,
+        repr((found, pages)),
+    )
+    # G2: exit 1 (no record) and exit 4 (API failure) are told apart in --round.
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process_round(
+            77,
+            "abc-123",
+            os.getcwd(),
+            projects_dir=pdir,
+            runner=full_runner(
+                [], since_rc=4, next_err="x\ncost-table: HTTP 502 boom\n"
+            ),
+        ),
+    )
+    check(
+        "round: exit 4 says the notes could not be read, with the reason",
+        "could not read its notes" in msg
+        and "HTTP 502 boom" in msg
+        and "no readable record" not in msg,
+        msg,
+    )
+    # G3 + G5(d): the printed fallback commands run as printed, from the checkout root, via subprocess.
+    root = os.path.dirname(HERE)
+    fake = tempfile.mkdtemp(prefix="post-mr-cost-fakeglab-")
+    with open(os.path.join(fake, "glab"), "w") as f:
+        f.write(
+            '#!/bin/sh\ncase "$2" in\n'
+            "  user) echo '{\"id\": 1}';;\n"
+            '  *notes*) echo \'[{"body": "## Cost of this MR (#1)"}]\';;\n'
+            '  *) echo \'{"description": "x"}\';;\nesac\n'
+        )
+    os.chmod(os.path.join(fake, "glab"), 0o755)
+    penv = dict(os.environ, PATH=fake + os.pathsep + os.environ.get("PATH", ""))
+    penv.pop("CLAUDE_CODE_SESSION_ID", None)
+    fail_round = with_glab(
+        ok_desc,
+        [],
+        lambda: process_round(
+            77,
+            "abc-123",
+            os.getcwd(),
+            projects_dir=pdir,
+            runner=full_runner([], table_rc=4),
+        ),
+    )
+    fail_hook = with_glab(
+        ok_desc,
+        [],
+        lambda: process(pl, projects_dir=pdir, runner=full_runner([], table_rc=4)),
+    )
+    for label, text, mode in (
+        ("round", fail_round, "--round"),
+        ("retry", fail_hook, "--retry"),
+    ):
+        mm = re.search(r"python3 (scripts/post-mr-cost\.py .*?) \(see", text or "")
+        pargs = shlex.split(mm.group(1)) if mm else []
+        check(
+            "%s message prints a %s command" % (label, mode),
+            pargs[1:2] == [mode] and "..." not in (text or ""),
+            repr(text),
+        )
+        if pargs:
+            r = subprocess.run(
+                [sys.executable] + pargs,
+                cwd=root,
+                env=penv,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            check(
+                "%s command runs as printed from the checkout root" % label,
+                r.returncode == 0
+                and "usage" not in r.stderr.lower()
+                and "error" not in r.stderr.lower()
+                and r.stdout.strip() != "",
+                repr((r.returncode, r.stdout, r.stderr)),
+            )
+    # G5(e): a REAL failed cost-table run (stubbed glab exits 1 with stderr) puts its reason in the log line.
+    bad = tempfile.mkdtemp(prefix="post-mr-cost-badglab-")
+    with open(os.path.join(bad, "glab"), "w") as f:
+        f.write("#!/bin/sh\necho 'HTTP 502 boom' >&2\nexit 1\n")
+    os.chmod(os.path.join(bad, "glab"), 0o755)
+    benv = dict(os.environ, PATH=bad + os.pathsep + os.environ.get("PATH", ""))
+    driver = (
+        "import importlib.util,sys;"
+        "s=importlib.util.spec_from_file_location('ct',sys.argv[1]);"
+        "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
+        "m.SLEEP[0]=lambda x:None;"
+        "sys.exit(m.main(sys.argv[2:],enabled=lambda:0))"
+    )
+    base_runner = full_runner([])
+
+    def real_table_runner(cmd, cwd, env=None, timeout=300):
+        if len(cmd) > 1 and cmd[1].endswith("cost-table.py"):
+            return run(
+                [sys.executable, "-c", driver, cmd[1]] + cmd[2:],
+                cwd,
+                env=benv,
+                timeout=120,
+            )
+        return base_runner(cmd, cwd, env=env, timeout=timeout)
+
+    msg = with_glab(
+        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=real_table_runner)
+    )
+    gd3 = tempfile.mkdtemp(prefix="post-mr-cost-log3-")
+    subprocess.run(["git", "init", "-q", gd3], check=False)
+    log_firing(gd3, pl, msg)
+    with open(os.path.join(gd3, ".git", "mr-cost-hook.log"), encoding="utf-8") as f:
+        logged3 = f.read()
+    check(
+        "a real failed cost-table run: its stderr reason reaches the hook message and log line",
+        "HTTP 502 boom" in (msg or "") and "HTTP 502 boom" in logged3,
+        repr((msg, logged3)),
+    )
     if os.path.exists(marker):
         os.remove(marker)
 

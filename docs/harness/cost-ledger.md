@@ -250,14 +250,18 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
   or nothing was measured.
 - **Failures are retried, explained and visible.** `cost-table.py --post` retries the whole
-  read-then-write up to 3 times (2s then 5s backoff, 40s per `glab api` call) when a call fails or
+  read-then-write up to 3 times (2s then 5s backoff, 30s per `glab api` call; the hook's own timeout on it is derived from that worst case, `worst_case_seconds()` in `cost-table.py`, plus margin) when a call fails or
   hangs. It retries from the top, not the single call, because a POST that timed out may have
   landed: the retry re-reads the notes and updates that record 1 in place, so a retry never mints a
   second record 1. When it still fails, cost-table's stderr reason (which call, timeout or exit) is
   appended to the message and written to `mr-cost-hook.log`. A failure or skip is also emitted as a
-  hook `systemMessage`, so the user sees it in the terminal and not only the model.
+  hook `systemMessage`, so the user sees it in the terminal and not only the model. The hook's own
+  reads (MR description, notes, `--next-since`) are retried the same way, the notes are paged past
+  100, and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4). When a cost comment
+  already exists, the session window moves to that record's end (never backwards).
 - **Manual fallback.** The failure message prints a command that works as written:
-  `python3 scripts/post-mr-cost.py --retry --mr <iid> --session <sid>`. It re-runs the hook's own
+  `python3 scripts/post-mr-cost.py --retry --mr <iid> --session <sid>` (a failed `--round` prints the
+  `--round` equivalent); run it from the checkout root. It re-runs the hook's own
   logic for an MR that already exists (same window, same opt-outs), and posts nothing if a cost
   comment is already there.
 - **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload

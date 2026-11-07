@@ -304,7 +304,7 @@ skipped or failed: write the description to a file (or fetch it with
 `glab api projects/:id/merge_requests/<iid>`), run
 `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`
 (drop `--split` when no per-model split was recorded; the comment then says `n/a` with the
-reason), then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until.$CLAUDE_CODE_SESSION_ID"`
+reason), then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until.${CLAUDE_CODE_SESSION_ID:?}"`
 so the next MR's hook window does not re-count it. Exit 3 means the ledger is off or unreadable:
 post nothing. Exit 4 or 5: say so in the report. The format and the later-record rules are in
 `docs/harness/cost-ledger.md` § *The cost records*.
