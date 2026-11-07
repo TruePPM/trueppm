@@ -3046,7 +3046,9 @@ def golden_worktrees(check):
         repo = os.path.join(tmp, "main-checkout")
         g = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "-C", repo]
         subprocess.run(["git", "init", "-q", "-b", "main", repo], check=True)
-        subprocess.run(g + ["commit", "-q", "--allow-empty", "-m", "x"], check=True)
+        subprocess.run(
+            g + ["commit", "-q", "--no-verify", "--allow-empty", "-m", "x"], check=True
+        )
         subprocess.run(
             g
             + [
@@ -3722,7 +3724,9 @@ def _self_test():
     main_co = os.path.join(wd, "main-co")
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "-C", main_co]
     subprocess.run(["git", "init", "-q", main_co], check=True)
-    subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "x"], check=True)
+    subprocess.run(
+        git + ["commit", "-q", "--no-verify", "--allow-empty", "-m", "x"], check=True
+    )
     linked = os.path.join(wd, "101-a")
     subprocess.run(
         git + ["worktree", "add", "-q", "-b", "feat/101-a", linked], check=True
