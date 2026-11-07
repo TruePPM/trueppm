@@ -672,7 +672,7 @@ they will ship with 0.5 or that release will slip:
   fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)); the velocity-sampled duration re-expansion on the wrong
   calendar will be fixed ([#4529](https://gitlab.com/trueppm/trueppm/-/issues/4529)); the Monte Carlo defects in the progress
   and actuals class above will be fixed ([#4430](https://gitlab.com/trueppm/trueppm/-/issues/4430), [#4601](https://gitlab.com/trueppm/trueppm/-/issues/4601), [#4696](https://gitlab.com/trueppm/trueppm/-/issues/4696),
-  [#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822), [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
+  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819), [#4820](https://gitlab.com/trueppm/trueppm/-/issues/4820), [#2645](https://gitlab.com/trueppm/trueppm/-/issues/2645)); an
   in-progress task's sampled duration no longer has its optimistic tail
   truncated by subtracting deterministic elapsed time from the sampled total
   ([#1495](https://gitlab.com/trueppm/trueppm/-/issues/1495)).
@@ -700,8 +700,10 @@ they will ship with 0.5 or that release will slip:
   DOI) will be corrected
   ([#3857](https://gitlab.com/trueppm/trueppm/-/issues/3857)).
 
-May also land in 0.5, but not committed (`release::reserve` or
-`release::stretch`): the FF/SF-into-summary fan-out and `derive_value()`
+May also land in 0.5, but not yet committed (reserve, stretch, or not yet
+triaged): the zero-duration back-solve that can put a Monte Carlo P50 before
+the CPM date
+([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)), the FF/SF-into-summary fan-out and `derive_value()`
 binding/`imposed_date` mismatch above
 ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437),
 [#4438](https://gitlab.com/trueppm/trueppm/-/issues/4438)), the remaining

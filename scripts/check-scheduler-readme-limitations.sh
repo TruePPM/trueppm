@@ -8,7 +8,8 @@
 # README called "not committed" had been relabeled release::committed (#4720).
 #
 # The section is the text from the "**Known limitations open against 0.4**"
-# line up to (not including) the "**Later" line. Rules:
+# line up to (not including) the "**Later" line; the "but not (yet) committed"
+# paragraph inside it is rule (a)'s subject. Rules:
 #   (a) an issue referenced in the "but not committed" paragraph must NOT carry
 #       release::committed — the README would be denying a promise the tracker
 #       made;
@@ -44,7 +45,7 @@ set -euo pipefail
 README_DEFAULT="packages/scheduler/README.md"
 START_RE='^\*\*Known limitations open against'
 END_RE='^\*\*Later'
-NC_RE='^May also land in .*but not committed'
+NC_RE='^May also land in .*but not (yet )?committed'
 ISSUE_URL_RE='trueppm/trueppm/-/issues/[0-9]+'
 EXEMPT_TYPE_RE='^(test|feat|chore|docs|perf|ci|refactor|build)(\(|:)'
 
@@ -67,7 +68,14 @@ if [ -n "$iids" ]; then
 else
   labels=$(printf '%s' "$url" | grep -oE 'labels=[^&]+' | cut -d= -f2)
   page=$(printf '%s' "$url" | grep -oE '&page=[0-9]+' | cut -d= -f2)
-  if [ "${page:-1}" != 1 ]; then echo '[]'; else
+  if [ "${MOCK_BIGPAGE:-0}" = 1 ]; then
+    # Page 1 is a full page of exempt filler; the real issues sit on page 2.
+    if [ "${page:-1}" = 1 ]; then
+      jq -nc '[range(1000;1100) | {iid:., state:"opened", title:"test(scheduler): filler", milestone:null, labels:["scheduler","correctness"]}]'
+    else
+      jq -c --arg l "$labels" '[.[] | select(.state == "opened") | select(.labels as $have | ($l | split(",")) | all(. as $w | $have | index($w)))]' "$MOCK_DB"
+    fi
+  elif [ "${page:-1}" != 1 ]; then echo '[]'; else
     jq -c --arg l "$labels" '[.[] | select(.state == "opened") | select(.labels as $have | ($l | split(",")) | all(. as $w | $have | index($w)))]' "$MOCK_DB"
   fi
 fi
@@ -89,7 +97,7 @@ CURLMOCK
       printf 'Intro prose mentioning %s outside the section.\n\n' "$(u 999)"
       printf '**Known limitations open against 0.4**, grouped by area:\n\n- **CPM**'
       for i in $1; do printf ' — %s' "$(u "$i")"; done
-      printf '\n\nMay also land in 0.5, but not committed: '
+      printf '\n\nMay also land in 0.5, but not yet committed: '
       for i in $2; do printf '%s, ' "$(u "$i")"; done
       printf 'and nothing else.\n\n**Later — a sequence.**\n'
     } >"$tmp/README.md"
@@ -142,6 +150,28 @@ CURLMOCK
     issue 17 opened "fix(scheduler): not scheduler-labeled correctness" correctness
     issue 999 opened "unrelated" scheduler; } | mkdb
   expect pass "a correctness issue without the scheduler label is out of scope"
+
+  { issue 10 opened "fix(scheduler): a defect" scheduler,correctness,release::committed
+    issue 11 opened "fix(scheduler): a reserve defect" scheduler,correctness,release::reserve
+    issue 13 opened "scheduler: a bare-title decision" scheduler,correctness
+    issue 18 opened "fix(scheduler): found only on page 2" scheduler,correctness
+    issue 999 opened "unrelated" scheduler; } | mkdb
+  mkreadme "10 13" "11"
+  rc=0
+  MOCK_BIGPAGE=1 bash "$0" "$tmp/README.md" >"$tmp/out.txt" 2>&1 || rc=$?
+  if [ "$rc" -ne 1 ] || ! grep -q '#18' "$tmp/out.txt"; then
+    echo "SELF-TEST FAILED: an issue on page 2 of the label listing was not seen (exit ${rc})." >&2
+    cat "$tmp/out.txt" >&2
+    exit 1
+  fi
+  echo "SELF-TEST OK: the label listing pages past the first 100 issues."
+
+  # An unlabeled (no release::) issue in the not-committed list is not a rule (a) violation.
+  { issue 10 opened "fix(scheduler): a defect" scheduler,correctness,release::committed
+    issue 19 opened "fix(scheduler): untriaged" scheduler,correctness
+    issue 999 opened "unrelated" scheduler; } | mkdb
+  mkreadme "10" "19"
+  expect pass "an unlabeled issue under 'not yet committed' passes"
 
   printf 'no section here\n' >"$tmp/README.md"
   expect fail "a README with no Known limitations section is rejected"
