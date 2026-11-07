@@ -365,9 +365,28 @@ print(f"P50: {mc.p50}")
 print(f"P80: {mc.p80}  ← recommended commitment date")
 print(f"P95: {mc.p95}")
 
-slip = (mc.p80 - cpm.project_finish).days
-print(f"P80 vs CPM: +{slip} calendar days ({slip/7:.1f} weeks of schedule risk)")
+# Measure the slip in working time. Subtracting the two shown days would count a
+# weekend hop as slip: the end of a Friday and the start of the next Monday are
+# the same point in working time.
+def working_days_after(finish: date, shown: date, at_day_start: bool, cal: Calendar) -> int:
+    """Working days from the end of ``finish`` to the point ``shown`` marks."""
+    if shown <= finish:
+        return 0
+    count = 0
+    day = finish + timedelta(days=1)
+    while day <= shown:
+        count += cal.is_working_day(day)
+        day += timedelta(days=1)
+    # A start-of-day finish is the end of the working day before it.
+    if at_day_start and cal.is_working_day(shown):
+        count -= 1
+    return max(count, 0)
+
+slip = working_days_after(cpm.project_finish, mc.p80, mc.p80_at_day_start, project.calendar)
+print(f"P80 vs CPM: +{slip} working days of schedule risk")
 ```
+
+The library exposes the two shown days and which edge of the day each Monte Carlo percentile sits on (`p50_at_day_start`, `p80_at_day_start`, `p95_at_day_start`), not a ready-made difference. The snippet above counts working days with `Calendar.is_working_day`, the same predicate the engine uses. The API computes this for you: its Monte Carlo forecast carries `delta_vs_cpm`, each percentile against the CPM finish in working time. See the [display rule](/features/scheduler-conventions/) for why two shown days are never subtracted. The snippet assumes the CPM finish is the end of a working day, which holds when the project ends in work rather than in a milestone.
 
 :::tip P80 is the commitment date
 
