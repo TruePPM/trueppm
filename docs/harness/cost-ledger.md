@@ -248,7 +248,8 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
   or nothing was measured.
 - **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload
-  and starts python only when it contains `glab mr create`.
+  and starts python only when it matches `*glab*mr*create*`; python then re-filters with its own
+  stricter `glab mr create` pattern, so a loose shell match is harmless.
 - **What stays silent, and what does not.** A plain `off` (the setting, or `cost-ledger: off` in the
   description) is a choice and is only logged. An **unreadable** setting, or an MR description
   that could not be fetched (so the opt-out marker cannot be checked), posts nothing and is

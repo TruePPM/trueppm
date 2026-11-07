@@ -759,6 +759,13 @@ def self_test():
 
     marker = os.path.join(gdir, "mr-cost-last-until")
 
+    def posted_until(cmds):
+        """The --until value of the cost-table.py post, i.e. the window end the marker must hold."""
+        for c in cmds:
+            if len(c) > 1 and c[1].endswith("cost-table.py") and "--post" in c:
+                return c[c.index("--until") + 1]
+        return None
+
     def with_glab(desc, notes, fn):
         g = globals()["glab_json"]
         try:
@@ -777,8 +784,9 @@ def self_test():
     check("happy path posts", msg is not None and msg.startswith("Posted"))
     check(
         "happy path writes mr-cost-last-until",
-        os.path.exists(marker)
-        and re.match(r"^\d{4}-", open(marker).read()) is not None,
+        posted_until(log) is not None
+        and os.path.exists(marker)
+        and open(marker).read() == posted_until(log) + "\n",
     )
     check(
         "happy path passes --issue from the command only when present",
@@ -905,8 +913,10 @@ def self_test():
     )
     check("round: happy path posts", msg.startswith("Posted"))
     check(
-        "round: advances mr-cost-last-until",
-        os.path.exists(marker),
+        "round: mr-cost-last-until holds the posted window end",
+        posted_until(log) is not None
+        and os.path.exists(marker)
+        and open(marker).read() == posted_until(log) + "\n",
     )
     check(
         "round: issue number comes from the branch name",
