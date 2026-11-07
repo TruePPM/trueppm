@@ -551,6 +551,16 @@ def main():
 
 
 def self_test():
+    # A git hook (pre-push) exports GIT_DIR and friends, which would point the throwaway `git init`
+    # repos below at the real checkout.
+    for k in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_PREFIX",
+    ):
+        os.environ.pop(k, None)
     fails, n = [], [0]
 
     def check(name, cond):
