@@ -471,7 +471,7 @@ def post_from_description(iid, d, cwd, gitdir, command, runner, manual):
     right figures into the description; the description wins over any measurement.
 
     Always passes --until (the split's mtime, else the MR's creation time, else now) so record 1 has a readable window end,
-    which `cost-table.py --next-since` and --round need. It does not touch mr-cost-last-until:
+    which `cost-table.py --next-since` and --round need. It does not touch mr-cost-last-until.<sid>:
     this path measures nothing, and that file is shared by every worktree, so writing the split's
     older mtime could move the plain-/mr window backward.
     """
@@ -1846,7 +1846,10 @@ def self_test():
                 ct - 600, datetime.timezone.utc
             ).strftime(TS_FMT),
         )
-        check("wave MR %d: marker untouched" % iid_, not os.path.exists(marker))
+        check(
+            "wave MR %d: neither the keyed nor the legacy marker is written" % iid_,
+            not os.path.exists(marker) and not os.path.exists(legacy),
+        )
     for label, age, txt in (
         ("absent", None, None),
         ("newer than the MR", -60, None),
@@ -1936,6 +1939,26 @@ def self_test():
             "ledger key %s: rendered by cost-table, never measured" % label,
             len(cmds(log_, ("cost-table.py",))) == 1 and not cmds(log_, measuring),
         )
+    # --retry re-runs process(), so a wave MR must go through the description branch there too.
+    retry_log = []
+    out_ = io.StringIO()
+    with contextlib.redirect_stdout(out_):
+        with_glab(
+            {"description": ledger, "created_at": "2026-11-07T15:00:00.000Z"},
+            [],
+            lambda: cli(
+                ["--retry", "--mr", "3245", "--session", "abc-123"],
+                runner=full_runner(retry_log),
+                projects_dir=pdir,
+            ),
+        )
+    check(
+        "--retry on a wave MR posts from the description and never measures",
+        "from the description's ledger lines" in out_.getvalue()
+        and len(cmds(retry_log, ("cost-table.py",))) == 1
+        and not cmds(retry_log, measuring),
+        out_.getvalue(),
+    )
     check(
         "ledger_in_description: plain text is not a ledger",
         not ledger_in_description(
