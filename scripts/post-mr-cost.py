@@ -31,14 +31,18 @@ the MR opts out, or record 1 is missing or unreadable.
 
 Usage: reads the hook JSON on stdin.  python3 scripts/post-mr-cost.py --self-test
        python3 scripts/post-mr-cost.py --round --mr <iid> [--session <sid>]
+       python3 scripts/post-mr-cost.py --retry --mr <iid> [--session <sid>]   (re-run the hook for an MR)
 Exit:  always 0 as a hook; --self-test 0 ok, 1 failed.
 """
 
+import contextlib
 import datetime
 import glob
+import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -181,6 +185,44 @@ def measure(runner, cwd, env, sdir, since, until):
 OUTCOME = {"why": ""}
 
 
+def state_path(gitdir, sid):
+    """Where this session's window start lives: <git common dir>/mr-cost-last-until.<sid>.
+
+    Why keyed: the common dir is shared by every worktree and parallel session, but the window is
+    per session. One unkeyed file let session B's MR advance A's window start, so A's next MR
+    undercounted by A's own spend in between.
+    """
+    return os.path.join(gitdir, "mr-cost-last-until." + sid)
+
+
+def read_since(gitdir, sid):
+    """This session's window start. Falls back to the legacy unkeyed file only when no keyed one exists."""
+    for path in (state_path(gitdir, sid), os.path.join(gitdir, "mr-cost-last-until")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                cand = f.read().strip()
+        except OSError:
+            continue
+        if re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z", cand):
+            return cand
+        return EPOCH  # a keyed file that is unreadable text is not a reason to fall through to another session's
+    return EPOCH
+
+
+def write_since(gitdir, sid, until):
+    try:
+        with open(state_path(gitdir, sid), "w", encoding="utf-8") as f:
+            f.write(until + "\n")
+    except OSError:
+        pass
+
+
+def reason_of(err, cap=200):
+    """The last non-empty stderr line of a failed script, capped, for the message and the log."""
+    lines = [ln.strip() for ln in (err or "").splitlines() if ln.strip()]
+    return lines[-1][:cap] if lines else ""
+
+
 def quiet(why):
     """Record why the hook stayed silent (for the log) and return None."""
     OUTCOME["why"] = why
@@ -237,9 +279,10 @@ def process(payload, projects_dir=None, runner=run):
             else "not an MR create"
         )
     cwd = payload.get("cwd") or os.getcwd()
+    sid = payload.get("session_id") or ""
     manual = (
-        "Run it by hand: see docs/harness/cost-ledger.md (python3 scripts/cost-table.py --comment --post --mr %d)."
-        % iid
+        "Retry it with: python3 scripts/post-mr-cost.py --retry --mr %d%s (see docs/harness/cost-ledger.md)."
+        % (iid, " --session " + sid if SESSION_RE.match(sid) else "")
     )
     rc, _, _ = runner(
         [sys.executable, os.path.join(HERE, "cost-ledger"), "enabled"], cwd
@@ -255,7 +298,6 @@ def process(payload, projects_dir=None, runner=run):
         )
     if rc != 0:
         return quiet("cost-ledger off (enabled exit %d)" % rc)  # the opt-out
-    sid = payload.get("session_id") or ""
     if not SESSION_RE.match(sid):
         return "MR cost comment skipped for !%d: no usable session id. %s" % (
             iid,
@@ -304,15 +346,7 @@ def process(payload, projects_dir=None, runner=run):
             iid,
             manual,
         )
-    state = os.path.join(gitdir, "mr-cost-last-until")
-    since = EPOCH
-    try:
-        with open(state, encoding="utf-8") as f:
-            cand = f.read().strip()
-        if re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z", cand):
-            since = cand
-    except OSError:
-        pass
+    since = read_since(gitdir, sid)
     until = now_utc()
     env = dict(os.environ, CLAUDE_CODE_SESSION_ID=sid)
     lines, split = measure(runner, cwd, env, sdir, since, until)
@@ -346,6 +380,8 @@ def process(payload, projects_dir=None, runner=run):
     m = re.search(
         r"(?:^|/)(?:feat|fix|docs|chore)/(\d{1,9})-", str(ti.get("command", ""))
     )
+    if not m:
+        m = ISSUE_RE.search(str(d.get("source_branch", "")))
     if m:
         cmd += ["--issue", m.group(1)]
     rc, out, err = runner(cmd, cwd)
@@ -359,16 +395,14 @@ def process(payload, projects_dir=None, runner=run):
     except OSError:
         pass
     if rc != 0:
-        return "MR cost comment failed for !%d (cost-table exit %d). %s" % (
+        why = reason_of(err)
+        return "MR cost comment failed for !%d (cost-table exit %d%s). %s" % (
             iid,
             rc,
+            ": " + why if why else "",
             manual,
         )
-    try:
-        with open(state, "w", encoding="utf-8") as f:
-            f.write(until + "\n")
-    except OSError:
-        pass
+    write_since(gitdir, sid, until)
     return (
         "Posted the `## Cost of this MR` comment on !%d (opt out: scripts/cost-ledger off --local)."
         % iid
@@ -495,15 +529,15 @@ def process_round(iid, sid, cwd, projects_dir=None, runner=run):
     except OSError:
         pass
     if rc != 0:
-        return "Record failed for !%d (cost-table exit %d). %s" % (iid, rc, manual)
-    # Advance the shared marker so the next `glab mr create` does not re-count this round's tokens.
-    try:
-        with open(
-            os.path.join(gitdir, "mr-cost-last-until"), "w", encoding="utf-8"
-        ) as f:
-            f.write(until + "\n")
-    except OSError:
-        pass
+        why = reason_of(err)
+        return "Record failed for !%d (cost-table exit %d%s). %s" % (
+            iid,
+            rc,
+            ": " + why if why else "",
+            manual,
+        )
+    # Advance this session's marker so its next `glab mr create` does not re-count this round's tokens.
+    write_since(gitdir, sid, until)
     return "Posted the cost record for this fix round on !%d (window %s to %s)." % (
         iid,
         since,
@@ -522,6 +556,34 @@ def round_main(argv):
     return 0
 
 
+def retry_main(argv, runner=run, projects_dir=None):
+    """Re-run the hook's own logic for an MR that already exists (the working manual fallback)."""
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="post-mr-cost.py --retry")
+    ap.add_argument("--mr", type=int, required=True)
+    ap.add_argument("--session", default=os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
+    a = ap.parse_args(argv)
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "glab mr create"},
+        "tool_response": "/-/merge_requests/%d" % a.mr,
+        "session_id": a.session,
+        "cwd": os.getcwd(),
+    }
+    msg = process(payload, projects_dir=projects_dir, runner=runner)
+    print(msg or "Nothing to post for !%d: %s." % (a.mr, OUTCOME["why"] or "silent"))
+    return 0
+
+
+def cli(argv, runner=run, projects_dir=None):
+    if argv[:1] == ["--round"]:
+        return round_main(argv[1:])
+    if argv[:1] == ["--retry"]:
+        return retry_main(argv[1:], runner, projects_dir)
+    return main()
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -537,16 +599,16 @@ def main():
         )
         OUTCOME["why"] = "errored: " + type(e).__name__
     if msg:
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PostToolUse",
-                        "additionalContext": msg,
-                    }
-                }
-            )
-        )
+        out = {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": msg,
+            }
+        }
+        if not msg.startswith("Posted"):
+            # additionalContext reaches only the model; systemMessage is what the user sees.
+            out["systemMessage"] = msg
+        print(json.dumps(out))
     return 0
 
 
@@ -563,10 +625,10 @@ def self_test():
         os.environ.pop(k, None)
     fails, n = [], [0]
 
-    def check(name, cond):
+    def check(name, cond, detail=""):
         n[0] += 1
         if not cond:
-            fails.append(name)
+            fails.append(name + (" " + detail if detail else ""))
 
     url = "https://gitlab.com/trueppm/trueppm-suite/-/merge_requests/1745\n"
     check(
@@ -735,6 +797,7 @@ def self_test():
         git_ok=True,
         measure_ok=True,
         table_rc=0,
+        table_err="",
         enabled_rc=0,
         since_rc=0,
         branch="feat/321-x",
@@ -762,12 +825,13 @@ def self_test():
             if name == "est-cost.py":
                 return 0, "", ""
             if name == "cost-table.py":
-                return table_rc, "", ""
+                return table_rc, "", table_err
             return 0, "", ""
 
         return r
 
-    marker = os.path.join(gdir, "mr-cost-last-until")
+    marker = state_path(gdir, "abc-123")
+    legacy = os.path.join(gdir, "mr-cost-last-until")
 
     def posted_until(cmds):
         """The --until value of the cost-table.py post, i.e. the window end the marker must hold."""
@@ -810,6 +874,117 @@ def self_test():
     )
     check("cost-table non-zero is reported", msg is not None and "failed" in msg)
     check("cost-table failure does not advance the marker", not os.path.exists(marker))
+
+    # --- #4861: reason, working fallback, visible failure, per-session window.
+    why_err = (
+        "cost-table: could not post the note (glab api POST x timed out after 40s)\n"
+    )
+    msg = with_glab(
+        ok_desc,
+        [],
+        lambda: process(
+            pl,
+            projects_dir=pdir,
+            runner=full_runner([], table_rc=4, table_err="noise\n" + why_err),
+        ),
+    )
+    check(
+        "failure message carries cost-table's stderr reason",
+        msg is not None and "timed out after 40s" in msg and "exit 4:" in msg,
+        repr(msg),
+    )
+    gd2 = tempfile.mkdtemp(prefix="post-mr-cost-log2-")
+    subprocess.run(["git", "init", "-q", gd2], check=False)
+    log_firing(gd2, pl, msg)
+    with open(os.path.join(gd2, ".git", "mr-cost-hook.log"), encoding="utf-8") as f:
+        check("hook log carries the reason", "timed out after 40s" in f.read())
+    m = re.search(
+        r"python3 (scripts/post-mr-cost\.py [^ ]+(?: [^ ]+)*?) \(see", msg or ""
+    )
+    argv = shlex.split(m.group(1))[1:] if m else []
+    check(
+        "manual fallback names a real mode with --mr and --session",
+        argv[:1] == ["--retry"] and "--mr" in argv and "--session" in argv,
+        repr(argv),
+    )
+    # Execute the printed argv shape through the same dispatcher the script's __main__ uses.
+    printed = io.StringIO()
+    cwd0 = os.getcwd()
+    with contextlib.redirect_stdout(printed):
+        rc_cli = with_glab(
+            ok_desc,
+            [],
+            lambda: cli(argv, runner=full_runner([]), projects_dir=pdir),
+        )
+    check(
+        "manual fallback runs as printed and posts",
+        rc_cli == 0 and printed.getvalue().startswith("Posted"),
+        printed.getvalue(),
+    )
+    check("manual fallback runs in the checkout it was given", os.getcwd() == cwd0)
+    if os.path.exists(marker):
+        os.remove(marker)
+
+    # A failure reaches the user as a systemMessage; success does not.
+    def hook_out(fn_msg):
+        real_process = globals()["process"]
+        real_stdin = sys.stdin
+        buf = io.StringIO()
+        try:
+            globals()["process"] = lambda payload: fn_msg
+            sys.stdin = io.StringIO(json.dumps(dict(pl)))
+            with contextlib.redirect_stdout(buf):
+                main()
+        finally:
+            globals()["process"] = real_process
+            sys.stdin = real_stdin
+        return json.loads(buf.getvalue()) if buf.getvalue().strip() else None
+
+    out = hook_out("MR cost comment failed for !77 (cost-table exit 4). x")
+    check(
+        "failure emits a systemMessage",
+        out is not None
+        and out.get("systemMessage", "").startswith("MR cost comment failed"),
+        repr(out),
+    )
+    out = hook_out("Posted the `## Cost of this MR` comment on !77")
+    check(
+        "success has no systemMessage", out is not None and "systemMessage" not in out
+    )
+    # Two sessions: neither moves the other's window; the legacy unkeyed file is a fallback only.
+    for f in (marker, legacy, state_path(gdir, "other-9")):
+        if os.path.exists(f):
+            os.remove(f)
+    write_since(gdir, "abc-123", "2026-11-07T10:00:00Z")
+    write_since(gdir, "other-9", "2026-11-07T12:00:00Z")
+    check(
+        "per-session window: each session reads its own",
+        read_since(gdir, "abc-123") == "2026-11-07T10:00:00Z"
+        and read_since(gdir, "other-9") == "2026-11-07T12:00:00Z",
+    )
+    write_since(gdir, "other-9", "2026-11-07T15:00:00Z")
+    check(
+        "per-session window: B's post leaves A's untouched",
+        read_since(gdir, "abc-123") == "2026-11-07T10:00:00Z",
+    )
+    check("no state at all -> epoch", read_since(gdir, "fresh-1") == EPOCH)
+    with open(legacy, "w") as f:
+        f.write("2026-11-06T09:00:00Z\n")
+    check(
+        "legacy unkeyed file is read only when no keyed one exists",
+        read_since(gdir, "fresh-1") == "2026-11-06T09:00:00Z"
+        and read_since(gdir, "abc-123") == "2026-11-07T10:00:00Z",
+    )
+    os.remove(legacy)
+    log = []
+    with_glab(
+        ok_desc, [], lambda: process(pl, projects_dir=pdir, runner=full_runner(log))
+    )
+    check(
+        "process writes only the keyed file",
+        os.path.exists(marker) and not os.path.exists(legacy),
+    )
+    os.remove(marker)
     log = []
     msg = with_glab(
         {"description": "## Gates\ncost-ledger: off\n"},
@@ -943,4 +1118,4 @@ def self_test():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--self-test"]:
         sys.exit(self_test())
-    sys.exit(round_main(sys.argv[2:]) if sys.argv[1:2] == ["--round"] else main())
+    sys.exit(cli(sys.argv[1:]))

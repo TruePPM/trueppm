@@ -234,7 +234,9 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   `scripts/post-mr-cost.py`, which posts record 1. It does nothing when `scripts/cost-ledger
   enabled` is not 0, when the MR description carries `cost-ledger: off`, or when this user already
   has a `## Cost of this MR` comment on the MR (so a record is never posted twice). The window runs
-  from the last MR the hook posted for in this clone (`mr-cost-last-until` in the git common dir)
+  from the last MR this session posted for (`mr-cost-last-until.<session id>` in the git common dir;
+  the window is per session because the common dir is shared by every worktree and parallel
+  session, and a legacy unkeyed `mr-cost-last-until` is read only when no keyed file exists)
   or the session start, to now; subagents are the top-level ones that started in that window. The
   session's transcript is found by session id under `~/.claude/projects/*/`, so a session run from
   the main checkout is found whether its agents worked in the checkout or in a
@@ -244,9 +246,20 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   completeness-check fix push after the MR opened, or a rebase with conflict resolution before
   merge, run `python3 scripts/post-mr-cost.py --round --mr <N>`. It posts `## Cost of this MR (#N)
   — record K` for the window since the latest record, with the running total, and advances
-  `mr-cost-last-until` so the next MR does not re-count the round. It posts nothing, and prints one
+  `mr-cost-last-until.<session id>` so the next MR does not re-count the round. It posts nothing, and prints one
   line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
   or nothing was measured.
+- **Failures are retried, explained and visible.** `cost-table.py --post` retries the whole
+  read-then-write up to 3 times (2s then 5s backoff, 40s per `glab api` call) when a call fails or
+  hangs. It retries from the top, not the single call, because a POST that timed out may have
+  landed: the retry re-reads the notes and updates that record 1 in place, so a retry never mints a
+  second record 1. When it still fails, cost-table's stderr reason (which call, timeout or exit) is
+  appended to the message and written to `mr-cost-hook.log`. A failure or skip is also emitted as a
+  hook `systemMessage`, so the user sees it in the terminal and not only the model.
+- **Manual fallback.** The failure message prints a command that works as written:
+  `python3 scripts/post-mr-cost.py --retry --mr <iid> --session <sid>`. It re-runs the hook's own
+  logic for an MR that already exists (same window, same opt-outs), and posts nothing if a cost
+  comment is already there.
 - **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload
   and starts python only when it matches `*glab*mr*create*`; python then re-filters with its own
   stricter `glab mr create` pattern, so a loose shell match is harmless.

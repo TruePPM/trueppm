@@ -62,6 +62,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MAX_DIGITS = 18
@@ -605,18 +606,63 @@ def parse_record(body):
     return {"k": k, "start": start, "end": end, "fams": fams, "total": total}
 
 
+LAST_API_ERR = [
+    ""
+]  # why the most recent `glab api` call failed (one line, capped), for the exit message
+API_ATTEMPTS = 3
+BACKOFF = (2, 5)  # seconds slept before attempt 2 and 3
+API_TIMEOUT = 40
+
+
 def glab_api(method, path, payload=None):
-    """(returncode, stdout) of one `glab api` call; the JSON payload goes through stdin."""
+    """(returncode, stdout) of one `glab api` call; the JSON payload goes through stdin.
+
+    One attempt on purpose: a POST that times out may have landed, so retrying it here could mint a
+    second record. Retries happen a level up (with_retry), which re-reads the notes first.
+    """
     cmd = ["glab", "api", "-X", method, path]
     data = None
     if payload is not None:
         cmd += ["--input", "-", "-H", "Content-Type: application/json"]
         data = json.dumps(payload).encode("utf-8")
+    where = "%s %s" % (method, path.split("?")[0])
     try:
-        r = subprocess.run(cmd, input=data, capture_output=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):
+        r = subprocess.run(cmd, input=data, capture_output=True, timeout=API_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        LAST_API_ERR[0] = "glab api %s timed out after %ds" % (where, API_TIMEOUT)
         return 1, ""
+    except (OSError, subprocess.SubprocessError) as e:
+        LAST_API_ERR[0] = "glab api %s: %s" % (where, type(e).__name__)
+        return 1, ""
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).decode("utf-8", errors="replace").strip()
+        tail = tail.splitlines()[-1] if tail else ""
+        LAST_API_ERR[0] = ("glab api %s exit %d: %s" % (where, r.returncode, tail))[
+            :200
+        ]
     return r.returncode, r.stdout.decode("utf-8", errors="replace")
+
+
+def with_retry(attempt, attempts=None, sleep=None):
+    """(exit code, message) of attempt(), re-run from the top while it exits 4 (an API failure).
+
+    Why the whole attempt and not the single call: attempt() re-reads the notes first, so a POST
+    that timed out but landed is found and updated in place instead of posted twice (a doubled
+    record 1 would make every later record exit 5). The last failure's reason is appended.
+    """
+    attempts = attempts or API_ATTEMPTS
+    sleep = sleep or time.sleep
+    rc, msg = 4, ""
+    for n in range(attempts):
+        if n:
+            sleep(BACKOFF[min(n - 1, len(BACKOFF) - 1)])
+        LAST_API_ERR[0] = ""
+        rc, msg = attempt()
+        if rc != 4:
+            return rc, msg
+    if LAST_API_ERR[0]:
+        msg = "%s (%s; after %d attempts)" % (msg, LAST_API_ERR[0], attempts)
+    return rc, msg
 
 
 def _me(api):
@@ -906,27 +952,30 @@ def comment_main(argv, enabled, stdout, stderr, api):
         if not post_it:
             print(text, file=stdout)
             return 0
-        rc, m = upsert(nums["--mr"], text, api)
+        rc, m = with_retry(lambda: upsert(nums["--mr"], text, api))
         print(m, file=stderr)
         return rc
-    own, foreign, err = read_records(nums["--mr"], api)
-    if err:
-        print(err, file=stderr)
-        return 4
-    rc, m, target, k, prior = plan_followup(own, foreign, since, until)
-    if rc:
-        print(m, file=stderr)
-        return rc
-    text = "\n".join(
-        comment_lines(
-            body, nums["--issue"], until, split, record=k, since=since, prior=prior
+
+    def followup():
+        own, foreign, err = read_records(nums["--mr"], api)
+        if err:
+            return 4, err
+        rc, m, target, k, prior = plan_followup(own, foreign, since, until)
+        if rc:
+            return rc, m
+        text = "\n".join(
+            comment_lines(
+                body, nums["--issue"], until, split, record=k, since=since, prior=prior
+            )
         )
-    )
-    if not post_it:
-        print(text, file=stdout)
-        return 0
-    rc, m = post(nums["--mr"], text, target, api)
-    print(m, file=stderr)
+        if not post_it:
+            print(text, file=stdout)
+            return 0, ""
+        return post(nums["--mr"], text, target, api)
+
+    rc, m = with_retry(followup) if post_it else followup()
+    if m:
+        print(m, file=stderr)
     return rc
 
 
@@ -1658,6 +1707,100 @@ def self_test():
     check("upsert: PUT failure exits 4", rc == 4)
     rc, _ = upsert(7, "B", lambda m, p, b=None: (0, "not json"))
     check("upsert: unparseable listing exits 4", rc == 4)
+
+    # --- retry (#4861): a transient failure on any of the three calls is retried from the top ---
+    slept = []
+
+    def flaky(notes, calls, fail_first, landed=False):
+        """A fake whose first call matching `fail_first` (method, path prefix) fails; a failed POST
+        still lands when `landed` (a timeout after the server accepted it)."""
+        state = {"failed": False, "notes": list(notes)}
+        base = fake([], [])
+
+        def api(method, path, payload=None):
+            calls.append((method, path))
+            hit = (method, path.split("?")[0]) == fail_first and not state["failed"]
+            if hit:
+                state["failed"] = True
+                LAST_API_ERR[0] = "glab api %s timed out after 40s" % method
+                if landed and method == "POST":
+                    state["notes"].append(note(900, payload["body"]))
+                return 1, ""
+            if method == "GET" and path != "user":
+                pg = int(re.search(r"&page=(\d+)&", path).group(1))
+                return 0, json.dumps(state["notes"][(pg - 1) * 100 : pg * 100])
+            if method == "POST":
+                state["notes"].append(note(900, payload["body"]))
+            return base(method, path, payload)
+
+        api.state = state
+        return api
+
+    nap = lambda secs: slept.append(secs)  # noqa: E731
+    mrn = "projects/:id/merge_requests/7/notes"
+    for what, first in (
+        ("GET user", ("GET", "user")),
+        ("GET notes", ("GET", mrn)),
+        ("POST note", ("POST", mrn)),
+    ):
+        calls, slept[:] = [], []
+        api = flaky([], calls, first)
+        rc, _ = with_retry(lambda: upsert(7, "B", api), sleep=nap)
+        check(
+            "retry: a first-attempt failure of %s is retried and posts" % what,
+            rc == 0 and len(api.state["notes"]) == 1 and len(slept) == 1,
+            repr((rc, calls, slept)),
+        )
+    calls = []
+    api = flaky([], calls, ("POST", mrn), landed=True)
+    rc, _ = with_retry(lambda: upsert(7, rec1, api), sleep=nap)
+    check(
+        "retry: a POST that failed but landed is updated in place, never posted twice",
+        rc == 0
+        and [c[0] for c in calls].count("POST") == 1
+        and len(api.state["notes"]) == 1
+        and "PUT" in [c[0] for c in calls],
+        repr((rc, calls)),
+    )
+    slept[:] = []
+    LAST_API_ERR[0] = ""
+    rc, m = with_retry(lambda: upsert(7, "B", fake([], [], fail=("POST",))), sleep=nap)
+    check(
+        "retry: persistent failure exits 4 after 3 attempts with backoff",
+        rc == 4 and slept == list(BACKOFF[:2]),
+        repr((rc, m, slept)),
+    )
+
+    def bad():
+        LAST_API_ERR[0] = "glab api POST x exit 1: 502 Bad Gateway"
+        return 4, "cost-table: could not post the note"
+
+    rc, m = with_retry(bad, sleep=nap)
+    check(
+        "retry: the failing call's reason is in the message",
+        "502 Bad Gateway" in m and "3 attempts" in m,
+        m,
+    )
+    slept[:] = []
+    rc, _ = with_retry(lambda: (5, "doubled"), sleep=nap)
+    check("retry: exit 5 (a refusal) is never retried", rc == 5 and not slept)
+    # glab_api: a hung call becomes (1, "") with the reason recorded, never an exception.
+    real_run = subprocess.run
+
+    def hang(*a, **k):
+        raise subprocess.TimeoutExpired("glab", 40)
+
+    subprocess.run = hang
+    try:
+        LAST_API_ERR[0] = ""
+        r = glab_api("GET", "user")
+    finally:
+        subprocess.run = real_run
+    check(
+        "glab_api: a timeout is (1, '') with a reason",
+        r == (1, "") and "timed out" in LAST_API_ERR[0],
+        repr(LAST_API_ERR),
+    )
     rc, _ = upsert(7, "B", fake([note(i, "x") for i in range(2000)], []))
     check("upsert: more notes than it reads exits 4, posts nothing", rc == 4)
 
