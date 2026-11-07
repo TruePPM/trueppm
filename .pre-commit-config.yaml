@@ -7,6 +7,7 @@ repos:
       - id: ruff
         args: [--fix]
         stages: [pre-commit]
+        exclude: ^scripts/tests/cost-ledger-golden/
       - id: ruff-format
         stages: [pre-commit]
         # The cost-ledger golden fixture is byte-identical across the repos that carry it

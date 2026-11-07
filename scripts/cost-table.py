@@ -697,7 +697,7 @@ def worst_case_seconds():
     return API_ATTEMPTS * API_CALLS_PER_ATTEMPT * API_TIMEOUT + waits
 
 
-PROJECT_RE = re.compile(r"^[0-9A-Za-z_.-]+(?:/[0-9A-Za-z_.-]+){1,10}\Z")
+PROJECT_RE = re.compile(r"^[0-9A-Za-z_.-]+(?:/[0-9A-Za-z_.-]+)+\Z")
 PROJECT = {"path": None}
 
 
@@ -877,31 +877,22 @@ def plan_followup(own, foreign, since, until):
     else:
         recs = sorted((o["rec"] for o in earlier), key=lambda r: r["k"])
         prev = recs[-1]
-        # Every earlier pair, not just the latest: an overlap would be summed twice, so the total
-        # stays n/a once any pair overlaps. A gap, like the current window's, is stated and summed.
-        bad = None
+        # Records are non-overlapping in TOKENS, not in time (macrodream/blueprint#387): each claims what no
+        # earlier record of ITS session claimed, so two sessions' records on one MR may cover the same hours
+        # and still count different tokens. The running total therefore sums the records whatever their
+        # windows; a gap between windows is stated, not a reason to withhold the total.
         gaps = []
+        bad = None
         for a, b in zip(recs, recs[1:]):
             if a["end"] is None:
                 bad = "record %d states no window end" % a["k"]
-            elif b["start"] is not None and b["start"] < a["end"]:
-                bad = (
-                    "record %d starts before record %d ended, so work would be counted twice"
-                    % (b["k"], a["k"])
-                )
-            elif b["start"] is not None and b["start"] > a["end"]:
-                gaps.append((a["end"], b["start"]))
-            if bad:
                 break
+            if b["start"] is not None and b["start"] > a["end"]:
+                gaps.append((a["end"], b["start"]))
         if bad:
             prior["reason"] = bad
         elif prev["end"] is None:
             prior["reason"] = "record %d states no window end" % prev["k"]
-        elif since < prev["end"]:
-            prior["reason"] = (
-                "this window starts before record %d ended, so work would be counted twice"
-                % prev["k"]
-            )
         else:
             prior["records"] = recs
             prior["gaps"] = gaps
@@ -2324,23 +2315,26 @@ def self_test():
         in bg,
         bg,
     )
-    # Overlap: a window that starts before the previous one ended would count work twice.
+    # Overlap in time: another session's record may cover the same hours, so the running total sums both.
     rc, sent, bo, _ = follow([note(10, rec1)], since="2026-11-04T15:00:00Z")
     check(
-        "overlap: total n/a",
-        "Running total: n/a (this window starts before record 1 ended" in bo,
+        "a window that starts before the previous record ended (another session's record): the running total sums both",
+        "Running total: the last row, records 1-2" in bo
+        and "**11,560,862**" in bo
+        and "starts before" not in bo,
         bo,
     )
-    # An earlier pair that overlaps (record 2 starts before record 1 ended) keeps record 3's total n/a.
+    # An earlier pair that overlaps in time (record 2 starts before record 1 ended) still sums into record 3's total.
     ov2 = b2.replace(
         "- Window: %s to %s." % (S2, E2),
         "- Window: 2026-11-04T10:00:00Z to 2026-11-04T17:00:00Z.",
     )
     rc, sent, bo2, _ = follow([note(10, rec1), note(11, ov2)], since=E2, until=E3)
     check(
-        "earlier overlap: record 3 total n/a with a reason",
+        "an earlier pair that overlaps in time: record 3's total still sums all three",
         "%s record 3\n" % DASH in bo2
-        and "Running total: n/a (record 2 starts before record 1 ended" in bo2,
+        and "Running total: the last row, records 1-3" in bo2
+        and "starts before" not in bo2,
         bo2,
     )
     # Record 1 is refused when this user's only note is a parsed record K.
@@ -2554,6 +2548,11 @@ def self_test():
         (parse_record(rec1) or {}).get("k") == 1,
     )
 
+    check(
+        "--project accepts a deeply nested project path (no depth cap)",
+        PROJECT_RE.match("/".join("g%d" % i for i in range(20)) + "/p") is not None
+        and PROJECT_RE.match("not a project") is None,
+    )
     # macrodream/blueprint#387: every API path names its project explicitly when --project is given.
     check(
         "scope_path: :id becomes the URL-encoded project path",

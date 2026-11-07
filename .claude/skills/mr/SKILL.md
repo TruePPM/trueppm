@@ -198,10 +198,12 @@ Rules:
     `python3 scripts/post-mr-cost.py --measure` prints,
     priced per response at list prices from `.claude/model-prices.json`. Paste it unchanged. It is
     a list-price equivalent, not what a subscription charged, and never a measured figure.
-  - Which top-level agents `--measure` counts is decided by each agent's brief (the first message
-    it was sent): a brief that names this branch or its worktree leaf is counted, one that names
-    another `feat|fix|docs|chore/<N>-` branch is left for that branch, and an unnamed gate is
-    counted when it has usage in the window. Name an agent explicitly with `--agent <id>`, and add
+  - Which top-level agents `--measure` counts is decided first by where each agent acts, read from
+    its own transcript (the git worktree, and so the branch, its Edit/Write calls land in, else the
+    one its `cd` / `git -C` calls target), and only when that is unknown by its brief (the first
+    message it was sent): a brief that names this branch or its worktree leaf is counted, one that
+    names another `feat|fix|docs|chore/<N>-` branch or worktree path is left for that branch, and an
+    unnamed gate is counted when it has usage in the window. Name an agent explicitly with `--agent <id>`, and add
     `--pin` (in the branch's own worktree) to record it for this branch so the hook and `--round`
     attribute it the same way. Outside `/wave`, run `python3 scripts/post-mr-cost.py --measure` in
     the branch's worktree: the window is what this session has not yet claimed, so no `--since`

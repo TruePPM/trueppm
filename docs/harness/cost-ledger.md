@@ -250,16 +250,20 @@ interleaved up to that point, and the record's footnote says so.
   `mr-cost-last-until` marker is **never read**, not even as a fallback; delete it if you find one. A state file that exists but
   does not validate posts nothing and says so, because guessing a window would double count. A
   failed post never advances the state.
-- **A POST that landed without the state moving** (the hook was killed after its POST, or
-  `cost-table.py` failed on the response): the next run of the hook, or `--retry`, finds the record, and
-  `reconcile()` advances the state to its end, and the watermark of the agents that record's window
-  would have attributed. Only a record **this session** posted counts: the token user can have records
-  on one MR from other sessions, whose tokens this session never measured, so a record is reconciled
-  only when its `Window: <since> to <until>` start equals this session's current `orchestrator_until`
-  (a session with no state yet: the session transcript's first entry). A record from another
-  session, an old-format record with no window start, one by another user, or one dated after now
-  moves nothing, and a watermark never moves backwards. With nothing to reconcile, `--retry` falls
-  through to `--round` and the hook posts nothing.
+- **A record with no `pending` entry that landed without the state moving (reconcile).** Records this
+  version posts are settled by the write-ahead `pending` claim (below), which covers a landed post on any
+  MR. Reconcile covers only a record with no pending entry: one posted by an older version of this code,
+  or after the state file was lost. The next run of the hook (on an MR that already has a cost comment) or
+  of `--retry` adopts such a record: it posts nothing and advances the state to the record's end, for the
+  orchestrator and for the agents that record's window would have attributed. A record is adopted only if
+  it is **this session's**, which is decided by its window **start**: the token user's own record whose
+  `Window: <since> to <until>` line starts exactly at the session's current `orchestrator_until` (a
+  session with no state yet matches the session's first transcript entry), and whose end is not in the
+  future. A record another session posted on the same MR starts at that session's own watermark, a record
+  by another user is never read, and an older record with no `Window:` line has no start and is never
+  adopted; in those cases the hook posts nothing and leaves the state alone, and `--retry` falls through
+  to `--round`. It never moves a watermark backwards. Only expected failures (an unreadable state, a
+  missing transcript) read as "nothing to adopt"; any other error is reported, not swallowed.
 - **Windows.** Orchestrator: from `orchestrator_until` to now (no state: from the session
   transcript's first entry). Each agent: from its own watermark to now (none: from its first entry);
   a descendant is measured over its own watermark and goes with its top-level parent. A watermark is
@@ -269,13 +273,19 @@ interleaved up to that point, and the record's footnote says so.
 - **Attribution of top-level agents to an MR.** A subagent transcript's `cwd` and `gitBranch` always
   show the session root and `main`, so they cannot say which branch an agent worked on. Two things in
   the transcript can:
-  1. **Where it acts** (strongest). The worktree (`*-wt/<issue>-<slug>`, or this checkout's toplevel)
-     holding the majority of the agent's `Edit` / `Write` / `NotebookEdit` `file_path`s; else the one
+  1. **Where it acts** (strongest). The git worktree, and so the BRANCH, holding the majority of the agent's `Edit` / `Write` / `NotebookEdit` `file_path`s; else the one
      its Bash `cd <path>` and `git -C <path>` (not `show`, `diff` or `log`) calls target most, when one
      leads strictly (a read-only auditor `cd`s into what it audits). When that home is known the agent
      counts for this MR if it is this MR's worktree and not otherwise, and its brief is ignored: a
      port agent's brief names the worktree it reads as well as the one it writes, so the brief cannot
-     tell them apart.
+     tell them apart. A path is resolved with `git worktree list --porcelain` for the hook's repo (the
+     deepest listed worktree containing it): the agent counts for this MR only if that worktree's branch
+     is the MR's source branch. This is what keeps `/wave`'s workers, which run under
+     `<main>/.claude/worktrees/agent-*` while the MR is opened from the main checkout, apart: a path
+     there is a worker's branch, never the main checkout's, and one under `.claude/worktrees/` that git no
+     longer lists is no home at all. Only a path in no listed worktree (another repo's, or one already
+     removed) falls back to the `*-wt/<issue>-<slug>` leaf. Two worktrees written equally often are no
+     home (a strict majority is required), so the `cd` rule decides, then the brief.
   2. **Its brief** (the text of its first `user` entry), when no home is known. It counts if it names
      this MR's source branch, branch leaf or worktree leaf (`<issue>-<slug>`); it is left for another
      record if it names another branch `(feat|fix|docs|chore)/<digits>-...` or another worktree path
@@ -296,6 +306,43 @@ interleaved up to that point, and the record's footnote says so.
   the session's usage with nothing claimed twice. `python3 scripts/post-mr-cost.py --self-test`
   runs it. The directory is byte for byte the same in every repo that carries this harness
   (Blueprint holds the canonical copy), so it names no repo-specific path or issue.
+
+### Concurrency and known limits
+
+- **One post at a time per session.** The state (and the pins) are a read, a post and a write. An
+  exclusive `flock` on `mr-cost-state/<session-id>.lock` is held from reading the watermark through
+  writing it, by the hook, `--round`, `--retry`, reconcile and `--pin`, so two MRs opened at once in one
+  session claim consecutive windows instead of the same one, and neither drops the other's agent
+  watermarks. (No locking on a platform without `fcntl`; the writes stay atomic.)
+- **A post that lands while its state write does not (the write-ahead `pending` claim).** Before a post,
+  inside the lock, the state file gets `"pending": {"mr", "project", "since", "until", "agents"}` beside the
+  unchanged watermarks; after a confirmed post the watermarks move to those values and `pending` is removed.
+  If the POST landed but the commit did not (cost-table exited non-zero after it, a kill, a timeout), the
+  next run of the hook, `--round`, `--retry`, `--measure` or `--pin`, on ANY MR, settles it first by reading
+  the pending MR's notes: a record by the token user with exactly that `Window: S to U` was posted, so the
+  claim is committed; none, with the notes read, was not posted, so the claim is dropped and the window is
+  claimed again exactly once; notes that cannot be read refuse the post (and print the `--retry` command),
+  never a guess (a malformed state or pending entry is reported with the state file's path and the reason,
+  and the fix is to inspect or remove that file, not to retry). `--measure` commits or drops a pending entry
+  but never posts, and `--pin` is written even when the entry cannot be settled. Reconcile stays for
+  a record with no `pending` entry, one posted by an older version of this code or after the state file was
+  lost, where only the window-start rule can tie it to this session.
+- **Known limit: agents that write in a detached-HEAD worktree, or in the main checkout while it is on
+  the default branch, belong to no MR.** Their home is a worktree with no branch, or a branch no MR has as
+  its source, so they are excluded from every record. Run such work in a branch's own worktree.
+- **Known limit: a record edited after it was posted can be claimed twice.** A pending claim is settled
+  by matching the record's `Window: S to U` line. If someone edits the comment so it no longer parses, or
+  changes its window, the claim is read as absent, dropped, and the window is claimed again.
+- **Known limit: a `glab` child that outlives `cost-table.py`'s 300 s timeout.** If it lands its POST after
+  the pending claim was settled as absent (dropped), that window is claimed again and the record exists
+  twice.
+- **Known limit: an agent attributed to a branch that never gets an MR in this session is never claimed.**
+  Attribution sends an agent's tokens to the MR of the branch it works on. If that branch is abandoned,
+  or its MR is opened from another session, no record of this session ever includes the agent. Nothing
+  double counts, but those tokens are in no record. `--agent <id>` on a `--round` for another MR counts
+  them there by hand.
+- **Known limit: a session's first record includes the work done before its MR's issue.** Its
+  orchestrator row starts at the session's first entry, and says so.
 
 ### One repo per hook, and explicit projects
 
@@ -330,18 +377,18 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
   worktree.
 - **The go-ahead snapshot: `--measure`.** `python3 scripts/post-mr-cost.py --measure` prints the
   `subagent-tokens:`, `orchestrator-tokens:` and `est-cost-usd:` lines for the window the next
-  record would cover, for the MR description's `## Gates` section. It posts nothing and advances
-  nothing, so the hook still claims the same tokens at `glab mr create`. It attributes by the
+  record would cover, for the MR description's `## Gates` section. It never posts and never moves a
+  watermark, so the hook still claims the same tokens at `glab mr create`; its only state writes are the
+  pins (`--pin`) and settling a pending claim from an earlier post (committing it if the record landed,
+  dropping it if not). It attributes by the
   current branch and worktree.
-- **Record K: `--round`.** The hook cannot see later work. After a `/fix-mr` pass, a review-fix or
-  completeness-check fix push after the MR opened, or a rebase with conflict resolution before
-  merge, run `python3 scripts/post-mr-cost.py --round --mr <iid>`. It posts `## Cost of this MR
-  (#N) — record K` with the window that session has not yet claimed, never earlier than that MR's
-  latest record end (the `cost-table.py --next-since` value), a running total across records, and
-  advances the state. A re-run posts a record only if the orchestrator or an attributed agent has
-  new usage since the last post; otherwise it says there is nothing measurable. It posts nothing,
-  and prints one line saying why, when the ledger is off, the MR carries `cost-ledger: off`, or
-  record 1 is missing.
+- **Record K: `--round`.** `python3 scripts/post-mr-cost.py --round --mr <iid>` after the push of
+  a fix round (`/fix-mr` does this). It posts `## Cost of this MR (#N) — record K` with the window
+  that session has not yet claimed, whatever other sessions posted on the MR (the MR must already
+  carry a readable record, the `cost-table.py --next-since` value), a running total across records, and
+  advances the state.
+  A re-run posts a record only if the orchestrator or an attributed agent has new usage since the
+  last post; otherwise it says there is nothing measurable.
 - **`--agent <id>`** (repeatable, `--round` and `--measure`): name exact agents (the `agentId:` of
   the Agent tool result) instead of auto-attribution; a named agent is always counted if it has
   usage in the window.
@@ -371,7 +418,8 @@ never runs the three measuring scripts by hand, and nothing writes a window mark
   appended to the message and written to `mr-cost-hook.log`. A failure or skip is also emitted as a
   hook `systemMessage`, so the user sees it in the terminal and not only the model. The hook's own
   reads (MR description, notes, `--next-since`) are retried the same way, the notes are paged past
-  100, and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4).
+  100 (at most 2 pages, 200 notes, to fit the hook's time budget: more reads as unreadable, never as
+  absent), and `--round` tells "no record 1" (exit 1) from "API failure" (exit 4).
 - **Cheap pre-filter.** The hook fires on every Bash call, so `post-mr-cost.sh` buffers the payload
   and starts python only when it matches `*glab*mr*create*`; python then re-filters with its own
   stricter `glab mr create` pattern, so a loose shell match is harmless.
@@ -450,10 +498,12 @@ built only from notes that pass every check:
 A failed check never becomes 0 or a guess: the running-total row reads `n/a` and the record states
 why, from a fixed list (an earlier record did not parse; this user's earlier records are not exactly
 records 1 to K-1, which covers a missing number and a duplicate; an earlier record states no window
-end; a window, or an earlier pair, starts before the previous one ended, which would count work
-twice). A time gap between two windows is not on the list: the total still adds up and the record
-states each stretch this MR has no record for ("This MR has no record for X to Y"), whether it is before this window or
-between two earlier records. The record's number is
+end). Windows that overlap in time are not on the list: records are non-overlapping in tokens, not in
+time (each claims what no earlier record of its own session claimed), so two sessions' records on one MR
+may cover the same hours and the running total simply sums them. A time gap between two windows is not
+on the list either: the total still adds up and the record
+states each stretch this MR has no record for ("This MR has no record for X to Y"), whether it is
+before this window or between two earlier records. The record's number is
 still one past every record number this user's notes carry, so a malformed note is never
 overwritten. A column one record has `n/a` in is `n/a` in the running total; the others still add
 up. No note text is echoed in any message or record.
