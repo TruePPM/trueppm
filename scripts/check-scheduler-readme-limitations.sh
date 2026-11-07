@@ -43,8 +43,8 @@
 set -euo pipefail
 
 README_DEFAULT="packages/scheduler/README.md"
-START_RE='^\*\*Known limitations open against'
-END_RE='^\*\*Later'
+START_RE='^[*][*]Known limitations open against'
+END_RE='^[*][*]Later'
 NC_RE='^May also land in .*but not (yet )?committed'
 ISSUE_URL_RE='trueppm/trueppm/-/issues/[0-9]+'
 EXEMPT_TYPE_RE='^(test|feat|chore|docs|perf|ci|refactor|build)(\(|:)'
