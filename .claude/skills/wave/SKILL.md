@@ -299,11 +299,11 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
 description's ledger lines. Once the resumed agent runs `glab mr create`, the PostToolUse hook
 `.claude/hooks/post-mr-cost.sh` (`scripts/post-mr-cost.py`) posts the `## Cost of this MR` comment
 by itself, unless the ledger is off, the description carries `cost-ledger: off`, or a cost comment
-already exists. It needs nothing passed in: it finds the session's transcript by session id and the
-top-level subagents that started in its window. After you verify the MR, check the hook's
+already exists. Because the description already carries the ledger lines, the hook renders record 1 from
+them (plus the git-dir `wave-cost-split.txt` when it is fresh) and does not re-measure; it measures
+only a description with no ledger lines. After you verify the MR, check the hook's
 `additionalContext` line (or `mr-cost-hook.log` in `git rev-parse --git-common-dir`); if it says
-it posted, do nothing. If it skipped or failed with the ledger on, post record 1 yourself, which
-is also the path when you want the exact named agents: fetch the description with
+it posted, do nothing. If it skipped or failed with the ledger on, post record 1 yourself (a fallback only): fetch the description with
 `glab api projects/:id/merge_requests/<iid>`, write its `.description` to a file, and run
 `COST_SPLIT="$(git rev-parse --git-dir)/wave-cost-split.txt"; python3 scripts/cost-table.py --file <description.md> --comment --post --mr <iid> --issue <N> --until <go-ahead time, UTC> --split "$COST_SPLIT"`,
 then `printf '%s\n' <go-ahead time, UTC> > "$(git rev-parse --git-common-dir)/mr-cost-last-until.${CLAUDE_CODE_SESSION_ID:?}"`

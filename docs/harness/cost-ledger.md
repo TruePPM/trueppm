@@ -233,8 +233,18 @@ Blueprint's cost-comment work (macrodream/blueprint#384).
   hook `.claude/hooks/post-mr-cost.sh` (registered in `.claude/settings.json`) runs
   `scripts/post-mr-cost.py`, which posts record 1. It does nothing when `scripts/cost-ledger
   enabled` is not 0, when the MR description carries `cost-ledger: off`, or when this user already
-  has a `## Cost of this MR` comment on the MR (so a record is never posted twice). The window runs
-  from the last MR this session posted for (`mr-cost-last-until.<session id>` in the git common dir;
+  has a `## Cost of this MR` comment on the MR (so a record is never posted twice).
+  **Which source wins: the description's ledger lines.** When the description carries any
+  `subagent-tokens:`, `orchestrator-tokens:` or `est-cost-usd:` line (a `/wave` MR), the hook
+  renders record 1 from them through `cost-table.py --file` and never measures, so the comment
+  matches the description by construction. A re-measured window cannot be right for a wave: its
+  agents start before the previous MR's post, so the window excludes this MR's agents and can
+  include another's (!3249 read 0.8M tokens against a ledger of 10.8M). The per-model split comes
+  from `wave-cost-split.txt` in the git dir of the checkout the MR was created from, used (with its
+  mtime as `--until`) only when it is older than the MR and at most six hours older; otherwise the
+  per-model cells read n/a and the totals are unchanged. Only a description with no ledger line (a
+  plain `/mr`) is measured: the window runs from the last MR this session posted for
+  (`mr-cost-last-until.<session id>` in the git common dir;
   the window is per session because the common dir is shared by every worktree and parallel
   session, and a legacy unkeyed `mr-cost-last-until` is read only when no keyed file exists)
   or the session start, to now; subagents are the top-level ones that started in that window. The
