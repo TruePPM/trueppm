@@ -98,7 +98,7 @@ parser matches `gate:` lines only. `/kaizen` reads the cost lines separately, th
 `scripts/lib/ledger_lines.py` (§ 1g, *Cost beside yield*). What is checked is the tooling. The `lint:cost-ledger` CI job (and `make cost-ledger-check`,
 part of `make pre-push`) runs the `--self-test` of `scripts/cost-ledger`,
 `scripts/subagent-tokens.py`, `scripts/orchestrator-tokens.py`, `scripts/est-cost.py` and
-`scripts/cost-table.py`. A description-level validator (one `cost-ledger: off` line, no cost lines
+`scripts/cost-table.py`, `scripts/post-mr-cost.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one `cost-ledger: off` line, no cost lines
 beside it, no second `est-cost-usd:`) is not present in this repository; until one exists, the
 lines are only as consistent as the skills that write them.
 
@@ -221,6 +221,39 @@ Work on an MR after its first comment is a further comment, never an edit:
   `--agent` and without `--no-agents` both exit 2. A `subagent-tokens: 0` beside real subagent
   split lines is not trusted: the record says the split does not sum to the line. An orchestrator
   with no usage in the window still prints no line, so its cells stay `n/a`.
+
+### The records post themselves
+
+Provenance: ported from Visiban's `post-mr-cost.py` (visiban/visiban#2128 and follow-ups) and
+Blueprint's cost-comment work (macrodream/blueprint#384).
+
+- **Record 1.** After any `glab mr create` run through Claude Code's Bash tool, the PostToolUse
+  hook `.claude/hooks/post-mr-cost.sh` (registered in `.claude/settings.json`) runs
+  `scripts/post-mr-cost.py`, which posts record 1. It does nothing when `scripts/cost-ledger
+  enabled` is not 0, when the MR description carries `cost-ledger: off`, or when this user already
+  has a `## Cost of this MR` comment on the MR (so a record is never posted twice). The window runs
+  from the last MR the hook posted for in this clone (`mr-cost-last-until` in the git common dir)
+  or the session start, to now; subagents are the top-level ones that started in that window. The
+  session's transcript is found by session id under `~/.claude/projects/*/`, so a session run from
+  the main checkout is found whether its agents worked in the checkout or in a
+  `../trueppm-wt/<leaf>/` worktree. `/wave` names its agents explicitly and is the more exact
+  path (below), but the hook posts first, because it fires at `glab mr create`.
+- **Record K.** The hook cannot see later work. After a `/fix-mr` pass, a review-fix or
+  completeness-check fix push after the MR opened, or a rebase with conflict resolution before
+  merge, run `python3 scripts/post-mr-cost.py --round --mr <N>`. It posts `## Cost of this MR (#N)
+  — record K` for the window since the latest record, with the running total, and advances
+  `mr-cost-last-until` so the next MR does not re-count the round. It posts nothing, and prints one
+  line saying why, when the ledger is off, the MR carries `cost-ledger: off`, record 1 is missing,
+  or nothing was measured.
+- **Fail-soft.** The hook always exits 0. A broken transcript layout, an unreadable notes API or
+  a failed post is reported to the session with the by-hand command, never silently, and never
+  blocks `glab mr create`. An unreadable notes read is reported, not treated as "a comment exists".
+- **It logs every `glab mr create` it sees**, one line each, to `mr-cost-hook.log` in the clone's
+  git common dir: time, session id, MR number and a fixed outcome. No command text or token is
+  logged, and the log rotates at 256 KB. **No line for an MR opened through Claude Code means the
+  hook never ran in that session**, usually because the session started before the hook was in the
+  checkout (hooks load at session start) or the MR was opened another way.
+- **Limit.** An MR opened in the GitLab UI or a plain terminal gets no comment.
 
 ### Running it
 

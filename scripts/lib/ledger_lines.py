@@ -18,19 +18,31 @@ EST_COST_RE = re.compile(
 ORCH_TOKENS_RE = re.compile(r"^\s*(?:[-*]\s*)?orchestrator-tokens:\s*(\d+)\s*$", re.I)
 _ROLE = r"(?:implementer|gate|completeness-check)"
 BUDGET_RE = re.compile(
-    r"^\s*(?:[-*]\s*)?budget-exceeded:\s*(\d+)"
-    r"(?:\s*\(\s*(" + _ROLE + r"\s+\d+(?:\s*,\s*" + _ROLE + r"\s+\d+)*)\s*\))?\s*$",
+    r"^\s*(?:[-*]\s*)?budget-exceeded:\s*([0-9]{1,18})"
+    r"(?:\s*\(\s*("
+    + _ROLE
+    + r"\s+[0-9]{1,18}(?:\s*,\s*"
+    + _ROLE
+    + r"\s+[0-9]{1,18})*)\s*\))?\s*$",
     re.I,
 )
-BUDGET_ROLE_RE = re.compile(r"(" + _ROLE + r")\s+(\d+)", re.I)
+# ASCII digits, at most 18: `\d` also matches other scripts' digits, and int() raises past 4,300.
+BUDGET_ROLE_RE = re.compile(r"(" + _ROLE + r")\s+([0-9]{1,18})", re.I)
 COSTISH_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(cost|turns|tokens|subagent-tokens|orchestrator-tokens|est-cost-usd|budget-exceeded|cost-ledger):",
     re.I,
 )
 # The only value the cost-ledger line takes; an MR with the ledger on writes no such line.
 LEDGER_OFF_RE = re.compile(r"^\s*(?:[-*]\s*)?cost-ledger:\s*off\s*$", re.I)
-HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+# Linear on purpose: `^(#{1,6})\s+(.*?)\s*#*\s*$` backtracks cubically on a heading padded with
+# spaces, and an MR description is user-written. The closing `#`s are stripped in heading_title().
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+
+def heading_title(m):
+    """The lowercased title of a HEADING_RE match, closing `#`s and spaces stripped."""
+    return m.group(2).rstrip(" \t#").strip().lower()
 
 
 def section_lines(body, title="gates"):
@@ -50,11 +62,11 @@ def section_lines(body, title="gates"):
         if h:
             lvl = len(h.group(1))
             if level is None:
-                if h.group(2).strip().lower() == title:
+                if heading_title(h) == title:
                     level = lvl
                 continue
             if lvl <= level:
-                if h.group(2).strip().lower() == title:
+                if heading_title(h) == title:
                     level = lvl
                     continue
                 level = None
@@ -117,3 +129,86 @@ def orchestrator_tokens(body):
         if m:
             return int(m.group(1))
     return None
+
+
+def _self_test():
+    import sys
+    import time
+
+    fails = []
+
+    def check(name, ok):
+        if not ok:
+            fails.append(name)
+
+    def wrap(*lines):
+        return "## Gates\n" + "\n".join(lines) + "\n"
+
+    check("subagent-tokens read", subagent_tokens(wrap("subagent-tokens: 7")) == 7)
+    check(
+        "est-cost-usd read",
+        est_cost_usd(wrap("est-cost-usd: 1.50 (prices 2026-11-01)")) == 1.5,
+    )
+    check(
+        "orchestrator-tokens read",
+        orchestrator_tokens(wrap("orchestrator-tokens: 9")) == 9,
+    )
+    check(
+        "a line outside ## Gates is ignored",
+        subagent_tokens("## Notes\nsubagent-tokens: 7\n") is None,
+    )
+    check(
+        "a fenced line is ignored",
+        subagent_tokens("## Gates\n```\nsubagent-tokens: 7\n```\n") is None,
+    )
+    check(
+        "first of two lines wins",
+        subagent_tokens(wrap("subagent-tokens: 1", "subagent-tokens: 2")) == 1,
+    )
+    check(
+        "budget with roles",
+        budget_exceeded(wrap("budget-exceeded: 3 (implementer 2, gate 1)"))[0] == 3,
+    )
+    check(
+        "budget role split mismatch is dropped",
+        budget_exceeded(wrap("budget-exceeded: 3 (gate 1)")) is None,
+    )
+    check(
+        "budget 5000 digits is None, not a crash",
+        budget_exceeded(wrap("budget-exceeded: " + "9" * 5000)) is None,
+    )
+    check(
+        "budget role 5000 digits is None",
+        budget_exceeded(wrap("budget-exceeded: 1 (gate " + "9" * 5000 + ")")) is None,
+    )
+    check(
+        "budget non-ASCII digits are None",
+        budget_exceeded(wrap("budget-exceeded: \u0663\u0663")) is None,
+    )
+    check(
+        "cost-ledger: off marker",
+        any(LEDGER_OFF_RE.match(ln) for ln in ledger_lines(wrap("cost-ledger: off"))),
+    )
+    t0 = time.time()
+    padded = (
+        "## Gates"
+        + " " * 20000
+        + "x\n# a"
+        + " " * 20000
+        + "b\n## Gates ##\nsubagent-tokens: 7\n"
+    )
+    got = subagent_tokens(padded)
+    check("a heading padded with 20k spaces reads in under 1s", time.time() - t0 < 1)
+    check("a closed ATX heading (`## Gates ##`) still opens the section", got == 7)
+    if fails:
+        for f in fails:
+            print("self-test FAIL: " + f, file=sys.stderr)
+        return 1
+    print("ledger_lines self-test OK")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(_self_test() if sys.argv[1:] == ["--self-test"] else 2)

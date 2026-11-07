@@ -212,7 +212,12 @@ Rules:
     transcript, an unresolved session directory, a stale price table) and put the script's
     `note:` or the reason under `## Notes`. A missing or malformed figure is never written as 0.
     Refresh `.claude/model-prices.json` from its `source` URL when `checked` ages out.
-  - The description carries no `## Cost` table. With the ledger on, the readable table is the
+  - **The comment posts automatically.** A PostToolUse hook (`.claude/hooks/post-mr-cost.sh`) posts
+  record 1 after `glab mr create` unless `scripts/cost-ledger enabled` is not 0, the description
+  carries `cost-ledger: off`, or a cost comment already exists, so do not post a second one by
+  hand. Later work on the open MR gets `python3 scripts/post-mr-cost.py --round --mr <N>`
+  (`docs/harness/cost-ledger.md` § *The records post themselves*).
+- The description carries no `## Cost` table. With the ledger on, the readable table is the
     `## Cost of this MR` comment posted after the MR exists (Step 4).
 - **`0 findings` is a real and expected outcome — record it.** The temptation is to omit
   a gate that found nothing because the line looks like noise. That omission is precisely

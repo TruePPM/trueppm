@@ -37,6 +37,7 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REL = os.path.join(".claude", "cost-ledger.json")
+GIT = shutil.which("git") or "git"  # resolved once; list-form argv everywhere
 KEY = "trueppm.costLedger"
 SCHEMA = 1
 VALUE_RE = re.compile(r'("cost-ledger"\s*:\s*")(on|off)(")')
@@ -64,7 +65,7 @@ def read_git(root, scope):
         if (
             scope == "local"
             and subprocess.run(
-                ["git", "-C", root, "rev-parse", "--git-dir"],
+                [GIT, "-C", root, "rev-parse", "--git-dir"],
                 capture_output=True,
                 timeout=10,
             ).returncode
@@ -72,7 +73,7 @@ def read_git(root, scope):
         ):
             return "unset"
         p = subprocess.run(
-            ["git", "-C", root, "config", "--" + scope, "--get", KEY],
+            [GIT, "-C", root, "config", "--" + scope, "--get", KEY],
             capture_output=True,
             text=True,
             timeout=10,
@@ -158,7 +159,7 @@ def write_project(root, value, err):
 def git_local(root, args):
     try:
         return subprocess.run(
-            ["git", "-C", root, "config", "--local"] + args,
+            [GIT, "-C", root, "config", "--local"] + args,
             capture_output=True,
             text=True,
             timeout=10,
@@ -249,7 +250,7 @@ def self_test():
             os.environ.pop(k, None)
         root = os.path.join(tmp, "repo")
         os.makedirs(os.path.join(root, ".claude"))
-        subprocess.run(["git", "init", "-q", root], check=True)
+        subprocess.run([GIT, "init", "-q", root], check=True)
         pfile = os.path.join(root, REL)
         template = (
             '{\n  "_doc": "docs/harness/cost-ledger.md, ADR-1340",\n'
@@ -257,7 +258,7 @@ def self_test():
         )
 
         def git(scope, value):
-            base = ["git", "-C", root, "config", "--" + scope]
+            base = [GIT, "-C", root, "config", "--" + scope]
             if value is None:
                 subprocess.run(base + ["--unset-all", KEY], capture_output=True)
             else:

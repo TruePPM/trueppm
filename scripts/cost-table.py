@@ -151,8 +151,7 @@ def figures(body):
     body = strip_comments(body or "")
     lines = list(gy.ledger_lines(body))
     has_gates = any(
-        gy.HEADING_RE.match(ln)
-        and gy.HEADING_RE.match(ln).group(2).strip().lower() == "gates"
+        gy.HEADING_RE.match(ln) and gy.heading_title(gy.HEADING_RE.match(ln)) == "gates"
         for ln in _unfenced(body.splitlines())
     )
     out = {"off": any(gy.LEDGER_OFF_RE.match(ln) for ln in lines), "gates": has_gates}
