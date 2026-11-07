@@ -116,7 +116,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 ## What it can answer
 
-The server registers **19 read-only tools**, each mapping to one existing REST
+The server registers **19 read-only tools** (a 20th, `get_project_cost`, is planned for 0.5), each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -137,7 +137,7 @@ rather than reason over an incomplete list.
 | `list_projects` | — | Every project you can read, each with your `caller_role`. |
 | `get_project` | `project_id` | Full project metadata and a health overview, with `caller_role`. From 0.5 it will also carry `health_band` and `health_band_source`. |
 | `list_programs` | — | Every program you can read, each with your `caller_role`. |
-| `get_program_health` | `program_id` | Rollup health for one program (single-program; cross-program rollups are Enterprise). |
+| `get_program_health` | `program_id` | Rollup health for one program (single-program; cross-program rollups are Enterprise). The rollup carries the cost KPIs; a caller below program Admin sees each as `{ "available": false, "reason": "cost_restricted" }` rather than a top-level flag. |
 | `list_program_backlog` | `program_id` | A program's backlog intake pool — items ranked by priority, with type, status, story points, and whether each has been pulled into a task. Single-program only. |
 
 Planned for 0.5: `get_project` will return the server's own `health_band` (`on_track`, `at_risk` or `critical`) and a `health_band_source` of `reported` (the project manager set it by hand) or `derived` (computed from at-risk and critical task counts). Read `health_band` as the project's health; it already accounts for the raw `health` field, and `overview.schedule_health` is a separate schedule-performance measure that never overrides it. If the band cannot be read, the result carries `health_band_unavailable` with the reason and no band, so do not infer one.
@@ -170,6 +170,14 @@ the effect of a perturbation) plus a pointer to `get_schedule_derivation` for th
 full contribution chain. So an answer arrives explained, not bare — and the `why`
 only ever reflects data your token can already read.
 :::
+
+### Project cost
+
+| Tool | Arguments | Returns |
+|------|-----------|---------|
+| `get_project_cost` | `project_id` | A project's budget, actual cost, earned value, cost variance and budget utilization, with the per-person lines and a one-sentence `definitions` entry for every figure. Check `cost_computable` first: when it is `false`, `missing_rate_count` people have no rate and each KPI reports why it has no value instead. |
+
+Planned for 0.5: `get_project_cost` ships in 0.5, with the cost model. Cost is visible to project Admins and Owners only. Any other caller gets `{ "cost_restricted": true, "reason": "requires_project_admin" }` and no budget, rate or cost figure. That is a normal answer, not a failure, so an assistant should say cost is restricted for your role rather than retry. See [Cost model](/features/cost-model/).
 
 ### Sprints
 
