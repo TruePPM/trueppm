@@ -112,10 +112,14 @@ def test_reparent_at_root_with_twelve_siblings(project: Project, client: APIClie
     assert _outline(project) == expected
 
 
-def test_reparent_one_vs_ten_picks_the_right_target_children(
+def test_guard_reparent_into_parent_with_ten_children_appends_last(
     project: Project, client: APIClient
 ) -> None:
-    """Text order puts ``1.10`` before ``1.2``: the new child's slot must still be last."""
+    """Guard, not a regression test for #4845.
+
+    The new child's slot comes from ``len(children) + 1``, so this passes on the old
+    text ordering too. It pins that the existing ten children are left untouched.
+    """
     _t(project, "P", "1")
     for i in range(1, 11):
         _t(project, f"C{i}", f"1.{i}")
@@ -172,4 +176,37 @@ def test_reparent_nested_with_eleven_siblings(project: Project, client: APIClien
     assert response.status_code == 200, response.data
     expected = {"P": "1", "R": "2", "T1": "1.1", "T2": "2.1", "T10a": "1.9.1"}
     expected.update({f"T{i}": f"1.{i - 1}" for i in range(3, 12)})
+    assert _outline(project) == expected
+
+
+def test_group_with_eleven_siblings(project: Project, client: APIClient) -> None:
+    _level(project, "", 11)
+    t2 = Task.objects.get(name="T2")
+
+    response = client.post(
+        f"/api/v1/projects/{project.pk}/tasks/group/", {"task_ids": [str(t2.pk)]}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    container = Task.objects.get(pk=response.data["container"]["id"])
+    expected = {"T1": "1", "T2": "2.1", container.name: "2"}
+    expected.update({f"T{i}": str(i) for i in range(3, 12)})
+    assert _outline(project) == expected
+
+
+def test_ungroup_with_eleven_siblings(project: Project, client: APIClient) -> None:
+    _t(project, "T1", "1")
+    phase = _t(project, "Phase", "2")
+    _t(project, "C1", "2.1")
+    _t(project, "C2", "2.2")
+    for i in range(3, 11):
+        _t(project, f"T{i}", str(i))
+
+    response = client.post(
+        f"/api/v1/projects/{project.pk}/tasks/ungroup/", {"task_id": str(phase.pk)}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    expected = {"T1": "1", "C1": "2", "C2": "3"}
+    expected.update({f"T{i}": str(i + 1) for i in range(3, 11)})
     assert _outline(project) == expected
