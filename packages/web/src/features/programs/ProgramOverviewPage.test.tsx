@@ -73,6 +73,33 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(screen.getAllByText('PHX').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('admins see the empty state with exactly one configure link (#4506)', async () => {
+    mockApi(rollup({ kpis: {}, project_count: 3 }), { my_role: 300 });
+    renderPage();
+    const status = await screen.findByRole('status');
+    expect(within(status).getByText('No KPIs are enabled for this rollup.')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Configure rollup' })).toHaveLength(1);
+    expect(screen.queryByText('Program health')).not.toBeInTheDocument();
+  });
+
+  it('non-admins see a neutral empty state with no configure link (#4506)', async () => {
+    mockApi(rollup({ kpis: {}, project_count: 3 }), { my_role: 200 });
+    renderPage();
+    const status = await screen.findByRole('status');
+    expect(within(status).getByText('No KPIs are enabled for this rollup.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Configure rollup' })).not.toBeInTheDocument();
+  });
+
+  it('carries no Enterprise upsell on the OSS program page (#4506)', async () => {
+    mockApi(rollup({ kpis: { schedule_health: { available: true, value: 'on_track' } } }), {
+      my_role: 300,
+    });
+    renderPage();
+    await screen.findByRole('link', { name: 'Configure rollup' });
+    expect(screen.queryByText(/Enterprise/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Cross-program/)).not.toBeInTheDocument();
+  });
+
   it('renders the health hero with band and policy subtitle', async () => {
     mockApi(rollup({ program_health: 'critical' }));
     renderPage();

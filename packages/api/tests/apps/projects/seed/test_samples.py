@@ -934,3 +934,32 @@ def test_demo_login_refuses_a_row_this_sample_did_not_seed(
 
     real.refresh_from_db()
     assert real.check_password("their-own-secret") is True
+
+
+def test_load_atlas_enables_a_default_rollup_kpi_set(owner: Any) -> None:
+    """The seeded Atlas program lands on a Program Overview with KPI content (#4506)."""
+    program = load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    program.refresh_from_db()
+
+    assert program.rollup_enabled_kpis
+    assert "schedule_health" in program.rollup_enabled_kpis
+
+
+def test_sample_import_into_a_shell_with_an_emptied_rollup_config_populates_it(
+    owner: Any,
+) -> None:
+    """The sample path must not depend on the create-time receiver having run (#4506)."""
+    from trueppm_api.apps.projects.seed.importer import import_seed
+
+    payload = json.loads(SAMPLES["atlas-platform-launch"].path.read_text(encoding="utf-8"))
+    shell = Program.objects.create(name="Shell", methodology=payload["program"]["methodology"])
+    Program.objects.filter(pk=shell.pk).update(rollup_enabled_kpis=[])
+    shell.refresh_from_db()
+    assert shell.rollup_enabled_kpis == []
+
+    program = import_seed(
+        payload, owner=owner, create_users=True, is_sample=True, target_program=shell
+    )
+    program.refresh_from_db()
+
+    assert program.rollup_enabled_kpis

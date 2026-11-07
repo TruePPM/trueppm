@@ -6,7 +6,7 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
-import { ROLE_OWNER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
 
@@ -444,6 +444,8 @@ export function ProgramOverviewPage() {
   const { data: program } = useProgram(programId);
 
   const kpiEntries = rollup ? Object.entries(rollup.kpis) : [];
+  // Only program admins can change the rollup config, so only they get the link.
+  const canConfigure = (program?.my_role ?? 0) >= ROLE_ADMIN;
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
@@ -521,15 +523,21 @@ export function ProgramOverviewPage() {
               className="flex flex-col items-start gap-2 px-4 py-6 rounded-card border border-neutral-border bg-neutral-surface-raised"
               role="status"
             >
-              <p className="text-sm text-neutral-text-primary">No KPIs enabled.</p>
-              <Link
-                to={`/programs/${programId}/settings/rollup`}
-                className="text-xs text-brand-primary underline-offset-2 hover:underline
+              {/* TODO(#4855): show critical project and next milestone here once the
+                  rollup response carries them with no KPIs enabled. */}
+              <p className="text-sm text-neutral-text-primary">
+                No KPIs are enabled for this rollup.
+              </p>
+              {canConfigure && (
+                <Link
+                  to={`/programs/${programId}/settings/rollup`}
+                  className="text-xs text-brand-primary underline-offset-2 hover:underline
                   focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                   focus-visible:outline-none rounded-control"
-              >
-                Configure rollup
-              </Link>
+                >
+                  Configure rollup
+                </Link>
+              )}
             </div>
           ) : (
             <section aria-label="Program KPIs">
@@ -554,7 +562,7 @@ export function ProgramOverviewPage() {
             </section>
           )}
 
-          {rollup.project_count > 0 && (
+          {rollup.project_count > 0 && kpiEntries.length > 0 && (
             <div className="flex flex-col gap-1 border-t border-neutral-border pt-3">
               <Link
                 to={`/programs/${programId}/settings/rollup`}
@@ -564,13 +572,6 @@ export function ProgramOverviewPage() {
               >
                 Configure rollup
               </Link>
-              {/* OSS↔Enterprise boundary affordance (ADR-0070/0088): this rollup is
-                  per-program; comparing across programs is an Enterprise capability.
-                  Rule 169 (#3477): readable prose uses `-secondary`, never `-disabled`. */}
-              <p className="text-xs text-neutral-text-secondary">
-                Rolling up across multiple programs? Cross-program portfolio rollups are part of
-                TruePPM Enterprise.
-              </p>
             </div>
           )}
         </>

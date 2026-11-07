@@ -1270,6 +1270,16 @@ class _SeedImporter:
         # the server will not do.
         if self.is_sample:
             program.sample_anchor_date = self.anchor
+            # The demo's Program Overview must open on content, not "No KPIs
+            # enabled". The create-time receiver normally seeds this, but an adopted
+            # shell or a pre-existing row can reach here with an empty config, and
+            # the sample path must not depend on that ordering (#4506).
+            if not program.rollup_enabled_kpis:
+                from trueppm_api.apps.projects.services import rollup_config_defaults
+
+                program.rollup_enabled_kpis, program.rollup_aggregation_policy = (
+                    rollup_config_defaults(program.methodology)
+                )
         program.save(
             update_fields=[
                 "code",
@@ -1281,6 +1291,8 @@ class _SeedImporter:
                 "mc_history_enabled",
                 "mc_history_attribution_audience",
                 "sample_anchor_date",
+                "rollup_enabled_kpis",
+                "rollup_aggregation_policy",
             ]
         )
         self._grant_program_memberships(program)
