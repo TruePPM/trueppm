@@ -107,6 +107,14 @@ Saving records a **Resource rate changed** entry in the workspace audit log, wit
 
 A rate can only be changed from a signed-in session, not with an API token, because a change re-costs history. Sending `cost_rate` on `PATCH /api/v1/resources/{id}/` is rejected with a pointer to this endpoint.
 
+## Reading cost from an MCP client
+
+An assistant connected through the [MCP server](/features/mcp-server/) reads the same breakdown with the read-only `get_project_cost` tool. It returns the payload described above, including `definitions`, `cost_computable` and `missing_rate_count`.
+
+Below Project Manager the tool answers `cost_restricted` with a reason and no figure; it never returns a budget, rate or cost value, and it is not an error.
+
+**Parity commitment.** Every cost figure the web app shows is reachable through an MCP tool: the project breakdown through `get_project_cost`, and the program rollup's cost KPIs through `get_program_health`, which returns the rollup, cost KPIs included. A cost figure added to the UI without an MCP route is a gap to be filed, not an accepted difference.
+
 ## In the program rollup
 
 When cost data is complete, the program rollup's two cost KPIs compute as program **totals**:

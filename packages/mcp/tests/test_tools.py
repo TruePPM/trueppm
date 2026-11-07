@@ -33,6 +33,7 @@ from trueppm_mcp.tools import (
     _get_monte_carlo_forecast,
     _get_program_health,
     _get_project,
+    _get_project_cost,
     _get_release_forecast,
     _get_schedule_derivation,
     _get_schedule_summary,
@@ -538,6 +539,72 @@ async def test_get_monte_carlo_forecast_returns_latest_run(settings: Settings) -
     async with _client(settings, routes) as client:
         result = await _get_monte_carlo_forecast(client, "p-1")
     assert result["p80"] == "2026-09-15"
+
+
+_COST_PAYLOAD: dict[str, object] = {
+    "project_id": "p-1",
+    "currency": "USD",
+    "budget": None,
+    "actual": "1200.00",
+    "earned_value": None,
+    "cost_variance": {"available": False, "reason": "missing_rates"},
+    "budget_utilization": {"available": False, "reason": "no_budget"},
+    "cost_computable": False,
+    "missing_rate_count": 1,
+    "missing_rate_resources": [{"resource_id": None, "user_id": 7, "name": "Sam"}],
+    "lines": [{"name": "Ana", "hours": "10.00", "rate": "120.00", "cost": "1200.00"}],
+    "definitions": {"actual": "Hours logged x rate."},
+}
+
+
+async def test_get_project_cost_passes_the_payload_through_unchanged(settings: Settings) -> None:
+    """Null budget, KPI reasons, computability and definitions all survive (no compaction)."""
+    routes: Routes = {"projects/p-1/cost/": _json(_COST_PAYLOAD)}
+    async with _client(settings, routes) as client:
+        result = await _get_project_cost(client, "p-1")
+    assert result == {**_COST_PAYLOAD, "cost_restricted": False}
+    assert result["budget"] is None
+    assert result["missing_rate_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        (
+            {"detail": "You do not have permission to perform this action."},
+            "requires_project_admin",
+        ),
+        (
+            {"detail": "no", "refusal": {"verdict": "refused", "reason": "policy"}},
+            "token_policy",
+        ),
+    ],
+)
+async def test_get_project_cost_below_admin_is_a_structured_restriction(
+    settings: Settings, body: dict[str, object], reason: str
+) -> None:
+    """A 403 is an answer, not an error, and carries no rate or cost value."""
+    routes: Routes = {"projects/p-1/cost/": httpx.Response(403, json=body)}
+    async with _client(settings, routes) as client:
+        result = await _get_project_cost(client, "p-1")
+    assert result["cost_restricted"] is True
+    assert result["reason"] == reason
+    assert set(result) == {"project_id", "cost_restricted", "reason", "message"}
+
+
+async def test_get_project_cost_not_found_stays_an_error(settings: Settings) -> None:
+    """A 404 is not mapped to cost_restricted; that would leak the existence oracle."""
+    routes: Routes = {"projects/p-1/cost/": httpx.Response(404, json={"detail": "Not found."})}
+    async with _client(settings, routes) as client:
+        with pytest.raises(ApiError):
+            await _get_project_cost(client, "p-1")
+
+
+async def test_get_project_cost_server_error_stays_an_error(settings: Settings) -> None:
+    routes: Routes = {"projects/p-1/cost/": httpx.Response(500, json={})}
+    async with _client(settings, routes) as client:
+        with pytest.raises(ApiError):
+            await _get_project_cost(client, "p-1")
 
 
 async def test_whatif_passes_through_delta_and_critical_path_change(settings: Settings) -> None:
@@ -1131,6 +1198,7 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         "projects/p-1/forecast/": _json({"cpm_finish": "2026-09-01"}),
         "projects/p-1/risks/": _json(_page([])),
         "projects/p-1/monte-carlo/latest/": _json({"p50": "2026-09-01"}),
+        "projects/p-1/cost/": _json({"cost_computable": True}),
         "projects/p-1/monte-carlo/whatif/": _json(
             {"task_id": "t-1", "critical_path_changed": False}
         ),
@@ -1162,6 +1230,7 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         assert "critical_task_count" in await call("get_schedule_summary", project_id="p-1")
         assert await call("list_risks", project_id="p-1") == {"items": [], "total_count": 0}
         assert (await call("get_monte_carlo_forecast", project_id="p-1"))["p50"] == "2026-09-01"
+        assert (await call("get_project_cost", project_id="p-1"))["cost_computable"] is True
         assert (await call("whatif", project_id="p-1", task_id="t-1", duration_delta=5))[
             "critical_path_changed"
         ] is False
