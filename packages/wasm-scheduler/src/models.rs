@@ -9,14 +9,6 @@ use std::cell::OnceCell;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
-/// Strict `YYYY-MM-DD` date deserialization (#4707).
-///
-/// chrono's `NaiveDate` serde `FromStr` is lenient: it accepts `2026-3-2`, padded
-/// whitespace, `+2026-03-02` and negative years, none of which Python's strict
-/// pre-check (`Project.from_dict`) accepts, and it has no lower bound where Python's
-/// `date.min` is 0001-01-01. A document the server refuses with a 400 must not be
-/// schedulable offline, so every date field goes through this shape: exactly ten
-/// ASCII characters, `\d{4}-\d{2}-\d{2}`, and a year of at least 1.
 /// Parse-time checks for fields this engine ignores but the shared document
 /// contract constrains, so both engines accept the same set (#4708).
 pub mod enum_serde {
@@ -34,18 +26,30 @@ pub mod enum_serde {
         }
     }
 
-    /// `deserialize_with` for an optional integer-valued field (`sprint_length_days`).
+    /// `deserialize_with` for an optional integer field (`sprint_length_days`).
+    ///
+    /// Python pins this to an `int` (`10.0`, `true` and `"10"` are refused), so the
+    /// check reads the raw JSON token: only an integer token passes, not a float
+    /// that happens to be whole.
     pub fn integral_opt<'de, D: Deserializer<'de>>(de: D) -> Result<Option<f64>, D::Error> {
-        match Option::<f64>::deserialize(de)? {
+        match Option::<serde_json::Number>::deserialize(de)? {
             None => Ok(None),
-            Some(v) if v.is_finite() && v.fract() == 0.0 => Ok(Some(v)),
-            Some(v) => Err(D::Error::custom(format!(
-                "sprint_length_days must be an integer (got {v})"
+            Some(n) if n.is_i64() || n.is_u64() => Ok(n.as_f64()),
+            Some(n) => Err(D::Error::custom(format!(
+                "sprint_length_days must be an integer (got {n})"
             ))),
         }
     }
 }
 
+/// Strict `YYYY-MM-DD` date deserialization (#4707).
+///
+/// chrono's `NaiveDate` serde `FromStr` is lenient: it accepts `2026-3-2`, padded
+/// whitespace, `+2026-03-02` and negative years, none of which Python's strict
+/// pre-check (`Project.from_dict`) accepts, and it has no lower bound where Python's
+/// `date.min` is 0001-01-01. A document the server refuses with a 400 must not be
+/// schedulable offline, so every date field goes through this shape: exactly ten
+/// ASCII characters, `\d{4}-\d{2}-\d{2}`, and a year of at least 1.
 pub mod date_serde {
     use chrono::{Datelike, NaiveDate};
     use serde::{de::Error, Deserialize, Deserializer};
