@@ -15,7 +15,23 @@ import pytest
 
 from trueppm_scheduler import Calendar
 
-PAGE = Path(__file__).resolve().parents[2] / "website/src/content/docs/features/scheduler.md"
+
+def _find_page() -> Path:
+    """The scheduler feature page, found by walking up from this file.
+
+    Not a fixed ``parents[N]``: under mutmut's copied ``mutants/tests/`` sandbox a
+    fixed depth lands on ``packages/scheduler`` and the page reads as absent, which
+    the ``skipif`` below would turn into a silent skip (#4880).
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "website/src/content/docs/features/scheduler.md"
+        if candidate.is_file():
+            return candidate
+    return here.parents[2] / "website/src/content/docs/features/scheduler.md"
+
+
+PAGE = _find_page()
 
 # ``(<expr>.p80 - <expr>.project_finish).days`` or any shown-day subtraction.
 _SHOWN_DAY_SUBTRACTION = re.compile(

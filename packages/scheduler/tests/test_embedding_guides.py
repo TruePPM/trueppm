@@ -24,7 +24,25 @@ import pytest
 
 import trueppm_scheduler as ts
 
-_DOCS = Path(__file__).resolve().parents[2] / "website/src/content/docs/embedding"
+
+def _find_docs_dir() -> Path:
+    """The website's ``embedding/`` docs dir, found by walking up from this file.
+
+    Not a fixed ``parents[N]``: mutmut runs this file from the copied
+    ``packages/scheduler/mutants/tests/`` sandbox, one level deeper, where a fixed
+    depth lands on ``packages/scheduler`` and the guides read as missing, which
+    killed ``scheduler:mutation``'s stats pass (#4880). If no ancestor has the
+    directory the layout guess is returned so the read fails loudly, never skips.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "website/src/content/docs/embedding"
+        if candidate.is_dir():
+            return candidate
+    return here.parents[2] / "website/src/content/docs/embedding"
+
+
+_DOCS = _find_docs_dir()
 
 
 def _python_blocks(page: str) -> list[str]:
