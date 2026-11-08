@@ -299,8 +299,24 @@ def _run_csv(project: Project, content: bytes) -> tuple[object, CsvImportRequest
     return result, req
 
 
+SS_SUMMARY_TO_CHILD_CSV = b"""\
+ID,Name,Duration,Predecessors
+1,Phase,1,
+2,  Design,3,1SS
+"""
+
+
 @pytest.mark.django_db
 class TestSummaryLinkEdgeCases:
+    def test_ss_link_from_summary_to_own_child_is_skipped_not_refused(
+        self, project: Project
+    ) -> None:
+        result, req = _run_csv(project, SS_SUMMARY_TO_CHILD_CSV)
+        assert not result.failed()  # type: ignore[attr-defined]
+        assert req.status != CsvImportStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 2
+        assert any("skipped" in w for w in result.result["warnings"])  # type: ignore[attr-defined]
+
     @pytest.mark.parametrize("content", [SUMMARY_TO_GRANDCHILD_CSV, GRANDCHILD_TO_SUMMARY_CSV])
     def test_summary_to_grandchild_is_refused_in_both_directions(
         self, project: Project, content: bytes

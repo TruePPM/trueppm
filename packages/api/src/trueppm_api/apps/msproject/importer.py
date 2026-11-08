@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from trueppm_api.apps.msproject.dataclasses import (
     CONSTRAINT_TYPES_APPLIED_AS_SNET,
@@ -11,10 +11,8 @@ from trueppm_api.apps.msproject.dataclasses import (
     ProjectData,
     TaskData,
 )
+from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
 from trueppm_api.apps.sync.sequence import allocate_for_projects
-
-if TYPE_CHECKING:
-    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
 
 logger = logging.getLogger(__name__)
 
@@ -721,6 +719,27 @@ def build_children_map(data: ProjectData) -> dict[str, list[str]]:
     return engine_children_map(rows)
 
 
+def collect_guard_edges(
+    data: ProjectData, children_map: dict[str, list[str]]
+) -> list[tuple[str, str]]:
+    """The edges to hand ``validate_task_graph``: every link the import will persist.
+
+    ``import_project`` drops (with a warning) each SS/SF link out of a summary
+    instead of refusing the file (ADR-0370, #4830), so those links are excluded
+    here by the same predicate (``find_summary_start_links``) rather than refusing
+    the whole file for a link that would never be written.
+    """
+    from trueppm_api.apps.scheduling.graph_guard import find_summary_start_links
+
+    triples = [
+        (str(link.predecessor_uid), str(td.uid), str(link.dep_type))
+        for td in data.tasks
+        for link in td.predecessor_links
+    ]
+    dropped = set(find_summary_start_links(triples, children_map.keys()))
+    return [(p, s) for p, s, t in triples if (p, s, t) not in dropped]
+
+
 def find_hierarchy_link(
     edges: list[tuple[str, str]], children_map: dict[str, list[str]]
 ) -> tuple[str, str] | None:
@@ -777,6 +796,25 @@ def describe_bad_graph(
     if exc.reason == "self_reference":
         return f"Task {labelled[0]} lists itself as its own predecessor."
     return "Circular dependency: " + " -> ".join(labelled)
+
+
+class ImportGraphRejected(InfeasibleGraphError):
+    """An :class:`InfeasibleGraphError` whose ``str()`` is the uploader-facing sentence.
+
+    ``TaskRunTracker`` persists ``str(exc)`` as the run's ``error_detail`` and that is
+    the only surface a rejected MS Project / Jira import has, so the message has to
+    be the described one: the guard's own text reads a summary-to-child link as an
+    opaque self-loop. Still an ``InfeasibleGraphError`` for callers that branch on
+    ``reason`` / ``offending``.
+    """
+
+    def __init__(self, original: InfeasibleGraphError, detail: str) -> None:
+        super().__init__(original.reason, original.offending, labels=original.labels)
+        self.detail = detail
+        self.args = (detail,)
+
+    def __str__(self) -> str:
+        return self.detail
 
 
 def _import_dependencies(

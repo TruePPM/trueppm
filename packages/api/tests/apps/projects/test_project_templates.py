@@ -193,6 +193,50 @@ def test_validate_refuses_a_dangling_dependency() -> None:
         )
 
 
+def _nested_structure(dep_type: str = "FS", predecessor: str = "p", successor: str = "c") -> dict:
+    return {
+        "version": STRUCTURE_VERSION,
+        "tasks": [
+            {"ref": "p", "name": "Phase", "wbs_path": "1"},
+            {"ref": "c", "name": "Child", "wbs_path": "1.1"},
+        ],
+        "dependencies": [
+            {"predecessor": predecessor, "successor": successor, "dep_type": dep_type}
+        ],
+    }
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("pred,succ", [("p", "c"), ("c", "p")])
+def test_validate_refuses_a_summary_linked_to_its_own_subtask(pred: str, succ: str) -> None:
+    """#4856: bulk-created, such a link would be copied into every adopter."""
+    with pytest.raises(TemplateStructureError, match="cannot be scheduled"):
+        validate_structure(_nested_structure(predecessor=pred, successor=succ))
+
+
+@pytest.mark.django_db
+def test_validate_refuses_a_cyclic_template() -> None:
+    structure = {
+        "version": STRUCTURE_VERSION,
+        "tasks": [
+            {"ref": "a", "name": "A", "wbs_path": "1"},
+            {"ref": "b", "name": "B", "wbs_path": "2"},
+        ],
+        "dependencies": [
+            {"predecessor": "a", "successor": "b"},
+            {"predecessor": "b", "successor": "a"},
+        ],
+    }
+    with pytest.raises(TemplateStructureError, match="cannot be scheduled"):
+        validate_structure(structure)
+
+
+@pytest.mark.django_db
+def test_validate_leaves_a_summary_start_link_to_the_materialize_skip() -> None:
+    """SS out of a summary is skipped with a warning at apply, not a refusal."""
+    validate_structure(_nested_structure(dep_type="SS"))
+
+
 # ---------------------------------------------------------------------------
 # Materialize — shape lands, moment does not
 # ---------------------------------------------------------------------------

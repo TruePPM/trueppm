@@ -171,15 +171,15 @@ def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> 
     """
     from trueppm_scheduler import InvalidScheduleInput
 
-    from trueppm_api.apps.msproject.importer import build_children_map, find_hierarchy_link
+    from trueppm_api.apps.msproject.importer import (
+        build_children_map,
+        collect_guard_edges,
+        find_hierarchy_link,
+    )
     from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError, validate_task_graph
 
-    edges = [
-        (str(link.predecessor_uid), str(task.uid))
-        for task in parsed.project_data.tasks
-        for link in task.predecessor_links
-    ]
     children_map = build_children_map(parsed.project_data)
+    edges = collect_guard_edges(parsed.project_data, children_map)
     try:
         validate_task_graph(edges, children_map=children_map)
     except InfeasibleGraphError as exc:

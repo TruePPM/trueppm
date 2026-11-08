@@ -182,6 +182,13 @@ OUTLINE_GAP_XML = _build_xml(
 )
 
 
+def _ss_task_xml(pred_type: int) -> bytes:
+    """Summary 1 with child 1.1 that lists the summary as predecessor with ``pred_type``."""
+    child = _task(2, "Design", "1.1")
+    child["PredecessorLinks"] = [{"PredecessorUID": 1, "Type": pred_type}]
+    return _build_xml([_task(1, "Phase", "1"), child])
+
+
 class TestBuildChildrenMap:
     def test_outline_gap_matches_the_engines_direct_parent_rule(self) -> None:
         # The guard must not refuse what the engine would schedule.
@@ -413,6 +420,34 @@ class TestImportTaskRejectsBadGraphs:
         assert result.failed()
         assert req.status == ImportRequestStatus.DEAD
         assert Task.objects.filter(project=project).count() == 0
+
+    def test_summary_to_child_error_detail_is_the_described_text(self, project: Project) -> None:
+        from trueppm_api.apps.taskruns.models import TaskRun
+
+        result = import_msproject.apply(
+            kwargs={
+                "project_id": str(project.pk),
+                "file_content_b64": base64.b64encode(SUMMARY_TO_CHILD_XML).decode(),
+                "filename": "nested.xml",
+            },
+            throw=False,
+        )
+        assert result.failed()
+        # What the user sees: TaskRun.error_detail is str(exception).
+        detail = TaskRun.objects.get(project=project).error_detail
+        assert "Phase" in detail
+        assert "its own sub-task" in detail
+        assert "cyclic_dependency" not in detail
+
+    def test_ss_link_from_summary_to_own_child_is_skipped_not_refused(
+        self, project: Project
+    ) -> None:
+        # Type 3 = Start-to-Start. ADR-0370 skips it with a warning; the file imports.
+        result, _req = self._run(project, _ss_task_xml(3), "ss.xml")
+
+        assert not result.failed()
+        assert Task.objects.filter(project=project).count() == 2
+        assert any("skipped" in w for w in result.result["warnings"])
 
     def test_unexpandable_summary_shape_is_dead_not_redispatched(
         self, project: Project, monkeypatch: pytest.MonkeyPatch

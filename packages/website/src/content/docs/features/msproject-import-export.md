@@ -150,6 +150,12 @@ This applies to both entry points — creating a project from a file and importi
 into an existing one.
 :::
 
+:::note[Ships in 0.5]
+Refusing a link between a summary task and a task nested inside it ships in 0.5. In
+the current release such a link is imported, and every recalculation of the project
+then fails.
+:::
+
 ## Export a project
 
 Open the **Actions** menu in the Schedule toolbar and choose **Export to MS Project (.xml)**. The browser downloads the current schedule as MS Project XML 2003+. Export is allowed for **any project member** — Viewer role and above.

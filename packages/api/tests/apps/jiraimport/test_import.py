@@ -300,7 +300,13 @@ class TestImportRejectsSummaryToOwnChild:
             )
         assert result.failed()
         # Celery wraps an exception it cannot unpickle; the wrapper records the class.
-        assert result.result.exc_cls_name == "InfeasibleGraphError"
+        assert result.result.exc_cls_name == "ImportGraphRejected"
+        # The user-visible TaskRun.error_detail is the described text, not the guard's.
+        from trueppm_api.apps.taskruns.models import TaskRun
+
+        detail = TaskRun.objects.get(project=project).error_detail
+        assert "its own sub-task" in detail
+        assert "cyclic_dependency" not in detail
         req.refresh_from_db()
         assert req.status == JiraImportStatus.DEAD
         assert Task.objects.filter(project=project).count() == 0

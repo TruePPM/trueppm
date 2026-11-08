@@ -250,6 +250,12 @@ critical path, so importing it would produce a schedule the engine cannot
 compute. Fix the loop in the sheet and re-upload. The error names the two rows involved.
 :::
 
+:::note[Ships in 0.5]
+Refusing a link between a summary row and a row nested under it ships in 0.5. In
+the current release such a link is imported, and every recalculation of the project
+then fails.
+:::
+
 A Start-to-Start or Start-to-Finish predecessor that points at a **summary row** (a
 row with rows nested under it) is not created, because a summary cannot drive a link
 from its start ([scheduler conventions](/features/scheduler-conventions/)). The rest
