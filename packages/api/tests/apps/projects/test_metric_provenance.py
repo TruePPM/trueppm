@@ -795,6 +795,11 @@ class TestSprintBurnProvenance:
     def test_active_sprints_card_trend_matches_the_owner(
         self, client: APIClient, user: object, project: Project
     ) -> None:
+        """Characterization only: the card and the owner share ``sprint_trend_points``.
+
+        With no snapshot the owner returns null and the card falls back to committed
+        points, an exception recorded in ADR-1314; this pins the shared case.
+        """
         sprint = _active_sprint(project)
         _task(
             project,

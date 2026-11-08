@@ -2880,7 +2880,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
         plan_version_current = project.last_sync_version
         recalculated_at = project.recalculated_at
         today = timezone.localdate()
-        cached = cache.get(mc_latest_cache_key(pk))
+        cached, latest = latest_forecast_result(pk)
         if cached is not None:
             return Response(
                 {
@@ -2902,7 +2902,6 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     ),
                 }
             )
-        latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
         if latest is None:
             return Response(
                 {"detail": "No simulation result available; run a Monte Carlo forecast first."},

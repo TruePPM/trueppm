@@ -302,6 +302,14 @@ The My Work `signals` block keeps ADR-0221's rule: a signal with no backing data
 omitted, not sent as null. It is a shipped contract that the web client keys on, and
 the omission is the not-computable state for those cards. The vocabulary page says so.
 
+### Surfaces left out on purpose
+
+`GET /me/active-sprints/` carries neither `definitions` nor `as_of`, and the sprint
+outcome `velocity` block carries `definitions` but no `as_of`. #4778 names the My Work
+P80, the sprint burn signal and `/burndown/`, so these two are out of scope. Each
+echoes the owner's formula (`trend_pts`, the burn reason) and is listed under Echoes in
+the published vocabulary.
+
 ### Gates (inline)
 
 - **enterprise-check:** OSS. The reader's own projects and their own soonest-ending

@@ -529,6 +529,28 @@ class TestReadBranches:
         assert res.status_code == 200
         assert res.data["forecast_staleness"] == "project_changed"
 
+    def test_the_derivation_endpoint_reads_the_cache_then_the_newest_row(
+        self, admin_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        """Same order as the owner (`latest_forecast_result`): a cache-only forecast
+        (a Member run persists no row, #1502) is served, and once the cache entry
+        expires the newest persisted row is."""
+        admin_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        MonteCarloRun.objects.filter(project=project).delete()
+
+        cache_only = admin_client.get(derivation_url(project.pk))
+        assert cache_only.status_code == 200
+        assert cache_only.data["value"] is not None
+
+        admin_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        cache.clear()
+        fallback = admin_client.get(derivation_url(project.pk))
+        assert fallback.status_code == 200
+        assert fallback.data["runs"] == 100
+
+        MonteCarloRun.objects.filter(project=project).delete()
+        assert admin_client.get(derivation_url(project.pk)).status_code == 404
+
     def test_the_project_overview_agrees_with_the_forecast_payload(
         self, admin_client: APIClient, project: Project, pert_task: Task
     ) -> None:

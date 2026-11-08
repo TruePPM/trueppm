@@ -449,10 +449,7 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('textbox', { name: /^name/i })).toBeVisible();
     // The three peer ways in, same row — Blank selected by default from this CTA.
-    await expect(dialog.getByRole('radio', { name: /^blank/i })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    await expect(dialog.getByRole('radio', { name: /^blank/i })).toHaveAttribute('aria-checked', 'true');
   });
 
   test('empty state — loading the demo lands the contributor on a board (#1054)', async ({

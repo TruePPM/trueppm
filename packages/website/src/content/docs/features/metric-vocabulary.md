@@ -50,7 +50,7 @@ Each owning endpoint returns two extra things beside its figures:
 | Task slip | `finish_delta_days` (`baseline_finish_variance_days` on task rows, the same computation) | `GET /projects/{id}/tasks/{task_id}/baseline/` | `as_of` | A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late. |
 | Sprint burn series | `snapshots` (`series` on My Work) | `GET /sprints/{id}/burndown/` | `as_of` | Per day of the sprint, the story points of its committed tasks that are not complete (a task's remaining points when set, else its story points), as recorded in that day's burn snapshot; pending mid-sprint additions count for nothing until accepted. |
 | Sprint commitment | `sprint.committed_points` | `GET /sprints/{id}/burndown/` | `as_of` | The story points the sprint committed to, snapshotted when it was activated and never recomputed. |
-| Sprint burn pace | `burn_status` | `GET /sprints/{id}/burndown/` | `as_of` | The sprint's burn pace: ahead or behind when the latest snapshot's remaining points are more than 10% of the committed points below or above the straight ideal line from the committed points to zero, on track otherwise, and no data when nothing was committed or no snapshot exists yet. |
+| Sprint burn pace | `burn_status` | `GET /sprints/{id}/burndown/` | `as_of` | The sprint's burn pace: ahead or behind when the latest snapshot's remaining points are more than 10% of the committed points (at least 1 point) below or above the straight ideal line from the committed points to zero, on track otherwise, and no data when nothing was committed or no snapshot exists yet. |
 | Sprint trend | `trend_points` (`trend_pts` on the active-sprints card) | `GET /sprints/{id}/burndown/` | `as_of` | The ideal line's remaining points for today minus the latest snapshot's remaining points; positive means ahead of the ideal line. |
 | Sprint projected finish | `projected_finish_date` | `GET /sprints/{id}/burndown/` | `as_of` | Today plus the remaining points divided by the points burned per elapsed sprint day so far; null when nothing has burned yet or nothing remains. |
 | My Work ship date | `signals.forecast.p80_finish` | `GET /projects/{id}/monte-carlo/latest/`, echoed by `GET /me/work/` | the driving project's `last_run_at`, as `signals.forecast.as_of` | The latest P80 finish among your member projects that are not drafts, each read from that project's latest Monte Carlo result: the same date its forecast endpoint serves. |
@@ -127,7 +127,9 @@ value and carry the owner's definition, so they cannot disagree with it:
   same series and pace as `GET /sprints/{id}/burndown/` for your
   soonest-ending active sprint.
 - **Active-sprints card** (`GET /me/active-sprints/`) reports `trend_pts` with
-  the burndown's formula.
+  the burndown's formula. Until the sprint has a burn snapshot the card counts
+  the committed points as the remaining points, where the burndown reports
+  `trend_points` as null.
 
 ## Two figures that are easy to confuse
 

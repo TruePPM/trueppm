@@ -117,9 +117,9 @@ METRIC_DEFINITIONS: dict[str, str] = {
     ),
     "burn_status": (
         "The sprint's burn pace: ahead or behind when the latest snapshot's remaining "
-        "points are more than 10% of the committed points below or above the straight "
-        "ideal line from the committed points to zero, on track otherwise, and no data "
-        "when nothing was committed or no snapshot exists yet."
+        "points are more than 10% of the committed points (at least 1 point) below or "
+        "above the straight ideal line from the committed points to zero, on track "
+        "otherwise, and no data when nothing was committed or no snapshot exists yet."
     ),
     "trend_points": (
         "The ideal line's remaining points for today minus the latest snapshot's "
