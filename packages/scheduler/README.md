@@ -253,13 +253,17 @@ range of finishes the plan can actually deliver:
 
 | Percentile | Reading | Use it for |
 |------------|---------|------------|
-| `p50` | Half the simulated runs finished on or before this date. In practice it lands close to the CPM finish. | A midpoint, never a commitment |
+| `p50` | Half the simulated runs finished on or before this date. It sits later than the CPM finish by the expected slip. | A midpoint, never a commitment |
 | `p80` | 4 in 5 runs finished by this date. | **The commitment date** — internal and stakeholder plans |
 | `p95` | 19 in 20 runs finished by this date. | Contractual deadlines, launch dates, regulatory submissions |
 
 So a CPM finish of `2026-03-03` and a P80 of `2026-03-14` do not disagree. They
 say: *the plan can finish on March 3, and it will finish by March 14 four times
-out of five.* Committing to March 3 is committing to a coin flip.
+out of five.* On a network of FS and SS links no simulated run finishes before
+the CPM date, so it is the floor of the distribution: the odds of hitting it are
+low, and they fall toward zero as more tasks carry an estimate. Committing to it
+(or to a date between it and P50) is committing to something close to a
+long shot. FF and SF links are the exception: they can pull a finish earlier than CPM.
 
 Two consequences worth internalizing:
 

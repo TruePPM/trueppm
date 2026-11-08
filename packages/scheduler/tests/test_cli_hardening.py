@@ -306,7 +306,7 @@ def test_monte_carlo_percentiles_carry_their_reading(
     # Bare "P50:"/"P80:" labels leave the reader to guess which one to commit to.
     _run(["monte-carlo", "--runs", "500", "--seed", "7", _estimated_file(tmp_path)], monkeypatch)
     out = capsys.readouterr().out
-    assert "midpoint — even odds, not a commitment" in out
+    assert "midpoint — later than the CPM finish, not a commitment" in out
     assert "← commit to this date" in out
     assert "external or contractual deadlines" in out
     # A project with real estimates has a spread, so it must NOT claim collapse.

@@ -24,7 +24,7 @@ This is a statement about fit, not about worth — the constraint is what gives 
 
 **Critical Path Method scheduling.** Every time you create or change a task or dependency, TruePPM runs a full CPM pass — forward, backward, float calculation, and critical-path identification. All four dependency types (FS, SS, FF, SF), each with an optional lead/lag. You always know which tasks drive your deadline and where you have slack.
 
-**Monte Carlo risk analysis.** Add three-point estimates to any task and run a probabilistic simulation. Get P50, P80, and P95 completion dates. The CPM finish date is typically P50 — there's only a 50% chance you'll hit it. Commit to P80.
+**Monte Carlo risk analysis.** Add three-point estimates to any task and run a probabilistic simulation. Get P50, P80, and P95 completion dates. The CPM finish date is the earliest any run can finish on FS/SS networks — the chance you'll hit it is low. Commit to P80.
 
 **Agile sprint workflows.** Full sprint lifecycle: plan → activate → close. Board view with WIP limits, velocity tracking, burndown charts, capacity preflight, and retrospective-to-backlog automation. The Scrum Master gets a native agile surface and never needs to open a Gantt.
 

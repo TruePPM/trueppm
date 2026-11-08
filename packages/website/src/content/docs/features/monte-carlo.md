@@ -135,7 +135,7 @@ operators can raise or remove it.
 
 | Field | Meaning |
 |---|---|
-| `p50` | 50% of simulated runs finished on or before this date. Closest to the deterministic CPM date. |
+| `p50` | 50% of simulated runs finished on or before this date. Later than the deterministic CPM date by the expected slip. |
 | `p80` | 80% of runs finished by this date. The standard commitment date for most project plans. |
 | `p95` | 95% of runs finished by this date. Use for contractual deadlines and hard external commitments. |
 | `p50_at_day_start` / `p80_at_day_start` / `p95_at_day_start` | Which edge of its day each percentile is. `true` means the start of the day: the finish is a milestone that a lag or a floor puts at the start of that day, such as a milestone a one-day lag lands on a Sunday, shown at the start of Monday. `false` means the end of the day. The start of a Monday and the end of the Friday before it are the same point in the working week. When some runs finish at the end of that Friday and others at the start of that Monday, the percentile is shown on whichever of the two days its share of runs reaches, so `p80` is still a date 80% of runs are shown on or before. |
@@ -714,10 +714,10 @@ Exceeding either cap returns HTTP 402 with a structured error body:
 
 ## Interpreting results
 
-**Use P50 as your baseline.** P50 is close to the deterministic CPM finish date.
-The gap between deterministic CPM and P50 is small and usually reflects the
-slight asymmetry in PERT distributions (a long right tail from pessimistic
-scenarios pulling the mean above the mode).
+**Treat P50 as a midpoint, not a baseline.** On a network of FS and SS links the
+CPM finish is the earliest any simulated run can finish: it is the plan with no
+slip, so its probability is low and falls as more work carries an estimate. P50 is
+later by the expected slip. (FF and SF links can pull a run earlier than CPM.)
 
 **Use P80 as your commitment date.** An 80th-percentile date is the standard
 for internal and stakeholder commitments in project management practice. It means
@@ -730,7 +730,7 @@ counts the P95 value is noisy; raise `MC_SIMULATION_CAP` and run more
 simulations for meaningful precision.
 
 **Do not commit to P50.** A P50 date has a 50% probability of being missed by
-definition. Committing to it is equivalent to flipping a coin on every project.
+definition. Committing to it means a project in two misses its date.
 
 ### Velocity and throughput forecasts are a floor
 
