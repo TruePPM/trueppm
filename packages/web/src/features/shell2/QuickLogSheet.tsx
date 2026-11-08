@@ -11,7 +11,6 @@ import {
   formatHours,
   spokenHours,
   stepHours,
-  totalHours,
   type HoursByTask,
 } from './quickLogModel';
 
@@ -20,7 +19,8 @@ const STEP_BTN =
 
 export interface QuickLogSheetProps {
   isOpen: boolean;
-  onClose: () => void;
+  /** `restoreFocus` is false when the close navigates away (the timesheet links). */
+  onClose: (restoreFocus: boolean) => void;
 }
 
 /**
@@ -54,7 +54,7 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
   );
   const taskIds = tasks.map((t) => t.id);
   const entries = buildEntries(taskIds, hours);
-  const total = totalHours(hours);
+  const total = entries.reduce((sum, e) => sum + e.minutes / 60, 0);
 
   function step(taskId: string, name: string, direction: 1 | -1) {
     const current = hours[taskId] ?? 0;
@@ -66,11 +66,11 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
     setRefused([]);
   }
 
-  function close() {
+  function close(restoreFocus = true) {
     setHours({});
     setAnnouncement('');
     setRefused([]);
-    onClose();
+    onClose(restoreFocus);
   }
 
   async function save() {
@@ -85,16 +85,39 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
         minutes: e.minutes,
         entryDate,
       });
-    if (!online) {
+    // A queued write that is refused on reconnect has no sheet left to show it, so it
+    // surfaces as a toast; otherwise the entry would vanish without a trace.
+    const reportQueuedRefusal = (p: Promise<unknown>) =>
+      void p.catch(() => toast.error('A time entry saved offline was refused and not logged.'));
+    const queueOffline = () => {
       // Paused by TanStack until the browser is back online; never awaited.
-      entries.forEach((e) => void send(e).catch(() => undefined));
+      entries.forEach((e) => reportQueuedRefusal(send(e)));
+      toast.info(`Saved ${formatHours(total)} — will send when online.`);
+      close();
+    };
+    if (!online) {
+      queueOffline();
+      return;
+    }
+    setSaving(true);
+    // A paused mutation never settles, so connectivity dropping mid-Save would leave the
+    // sheet on "Saving…" forever. Race the writes against the browser's offline event.
+    const sends = entries.map(send);
+    let dropped: () => void = () => undefined;
+    const wentOffline = new Promise<'offline'>((resolve) => {
+      dropped = () => resolve('offline');
+      window.addEventListener('offline', dropped, { once: true });
+    });
+    const outcome = await Promise.race([Promise.allSettled(sends), wentOffline]);
+    window.removeEventListener('offline', dropped);
+    setSaving(false);
+    if (outcome === 'offline') {
+      sends.forEach(reportQueuedRefusal);
       toast.info(`Saved ${formatHours(total)} — will send when online.`);
       close();
       return;
     }
-    setSaving(true);
-    const results = await Promise.allSettled(entries.map(send));
-    setSaving(false);
+    const results = outcome;
     const failed = entries.filter((_, i) => results[i].status === 'rejected');
     if (failed.length === 0) {
       close();
@@ -122,14 +145,14 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
         {isError ? (
           <p className="text-sm text-p1-text-2">
             Could not load today&apos;s tasks.{' '}
-            <Link to="/me/timesheet" onClick={close} className="underline">
+            <Link to="/me/timesheet" onClick={() => close(false)} className="underline">
               Open the timesheet
             </Link>
           </p>
         ) : tasks.length === 0 ? (
           <p className="text-sm text-p1-text-2" data-testid="quicklog-empty">
             Nothing is due today.{' '}
-            <Link to="/me/timesheet" onClick={close} className="font-medium underline">
+            <Link to="/me/timesheet" onClick={() => close(false)} className="font-medium underline">
               Log time on the timesheet
             </Link>
           </p>
@@ -206,7 +229,7 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
           )}
           <button
             type="button"
-            onClick={close}
+            onClick={() => close()}
             className="h-11 w-full rounded-md border border-p1-hairline text-sm text-p1-text-1 focus:outline-none focus:ring-2 focus:ring-p1-focus"
           >
             Dismiss
@@ -214,7 +237,7 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
           {tasks.length > 0 && (
             <Link
               to="/me/timesheet"
-              onClick={close}
+              onClick={() => close(false)}
               className="flex h-11 items-center justify-center text-sm text-p1-text-2 underline"
             >
               Open full timesheet

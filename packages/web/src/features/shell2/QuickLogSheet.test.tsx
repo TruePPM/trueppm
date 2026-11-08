@@ -4,18 +4,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProvidersAndRouter } from '@/test/utils';
 import { QuickLogSheet } from './QuickLogSheet';
 
-const { useMyWorkMock, mutateAsync, onlineMock, toastInfo } = vi.hoisted(() => ({
+const { useMyWorkMock, mutateAsync, onlineMock, toastInfo, toastError } = vi.hoisted(() => ({
   useMyWorkMock: vi.fn(),
   mutateAsync: vi.fn(),
   onlineMock: vi.fn(() => true),
   toastInfo: vi.fn(),
+  toastError: vi.fn(),
 }));
 vi.mock('@/hooks/useMyWork', () => ({ useMyWork: useMyWorkMock }));
 vi.mock('@/hooks/useCreateTimeEntry', () => ({
   useCreateTimeEntry: () => ({ mutateAsync }),
 }));
 vi.mock('@/hooks/useOnlineStatus', () => ({ useOnlineStatus: onlineMock }));
-vi.mock('@/components/Toast', () => ({ toast: { info: toastInfo } }));
+vi.mock('@/components/Toast', () => ({ toast: { info: toastInfo, error: toastError } }));
 
 const task = (id: string, name: string, group = 'today') => ({
   id,
@@ -103,6 +104,44 @@ describe('QuickLogSheet', () => {
     expect(mutateAsync).toHaveBeenCalledTimes(1);
     expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('will send when online'));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('offline: a queued entry refused on reconnect raises an error toast', async () => {
+    onlineMock.mockReturnValue(false);
+    setTasks([task('a', 'Write spec')]);
+    mutateAsync.mockRejectedValue(new Error('refused'));
+    renderSheet();
+    await userEvent.click(screen.getByRole('button', { name: 'Increase hours on Write spec' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save 0.5h' }));
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('refused')),
+    );
+  });
+
+  it('going offline mid-Save leaves the saving state and queues the write', async () => {
+    setTasks([task('a', 'Write spec')]);
+    mutateAsync.mockReturnValue(new Promise(() => undefined)); // paused
+    const onClose = renderSheet();
+    await userEvent.click(screen.getByRole('button', { name: 'Increase hours on Write spec' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save 0.5h' }));
+    expect(screen.getByRole('button', { name: 'Saving…' })).toBeInTheDocument();
+    window.dispatchEvent(new Event('offline'));
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith(true));
+    expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('will send when online'));
+  });
+
+  it('the Save total counts only listed tasks', async () => {
+    setTasks([task('a', 'Write spec')]);
+    renderSheet();
+    await userEvent.click(screen.getByRole('button', { name: 'Increase hours on Write spec' }));
+    expect(screen.getByRole('button', { name: 'Save 0.5h' })).toBeInTheDocument();
+  });
+
+  it('closing through the timesheet link does not ask for focus restoration', async () => {
+    setTasks([]);
+    const onClose = renderSheet();
+    await userEvent.click(screen.getByRole('link', { name: /timesheet/i }));
+    expect(onClose).toHaveBeenCalledWith(false);
   });
 
   it('empty state links to the timesheet', () => {

@@ -121,7 +121,14 @@ test.describe('phone quick-log sheet (#4762)', () => {
 
     const inc = sheet.getByRole('button', { name: 'Increase hours on Write the spec' });
     expect((await inc.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    for (let i = 0; i < 3; i++) await inc.click();
+    const dec = sheet.getByRole('button', { name: 'Decrease hours on Write the spec' });
+    expect((await dec.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await dec.boundingBox())!.width).toBeGreaterThanOrEqual(44);
+    // Keyboard operation: Enter on the focused stepper steps it.
+    await inc.focus();
+    await page.keyboard.press('Enter');
+    await expect(sheet.getByTestId(`quicklog-value-${TASK_A}`)).toHaveText('0.5h');
+    for (let i = 0; i < 2; i++) await inc.click();
     await expect(sheet.getByTestId(`quicklog-value-${TASK_A}`)).toHaveText('1.5h');
 
     await sheet.getByRole('button', { name: 'Save 1.5h' }).click();

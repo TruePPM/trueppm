@@ -97,10 +97,11 @@ export function BottomBar2() {
       </nav>
       <QuickLogSheet
         isOpen={logOpen}
-        onClose={() => {
+        onClose={(restoreFocus) => {
           setLogOpen(false);
-          // BottomSheet leaves close-side focus restoration to the caller (WCAG 2.4.3).
-          requestAnimationFrame(() => logRef.current?.focus());
+          // BottomSheet leaves close-side focus restoration to the caller (WCAG 2.4.3), but
+          // not when the close navigates away — that would steal focus from the new route.
+          if (restoreFocus) requestAnimationFrame(() => logRef.current?.focus());
         }}
       />
     </>

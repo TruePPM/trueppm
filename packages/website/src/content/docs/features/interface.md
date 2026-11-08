@@ -387,6 +387,8 @@ Other changes you will notice with the flag on:
   Offline, Save queues the entries and the sheet says they will send when you
   are online. Escape or tapping the dimmed page closes the sheet and returns
   focus to the button, and **Open full timesheet** takes you to the full editor.
+  Queued entries are held in the open browser tab only, so closing the tab before
+  you reconnect loses them.
 
 Shell v2 changes chrome only: every page, URL, keyboard shortcut and dialog is
 the same under both shells.
