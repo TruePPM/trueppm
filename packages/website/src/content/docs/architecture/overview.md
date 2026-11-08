@@ -256,3 +256,16 @@ A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree 
 **Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, org identity governance (SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO), immutable audit trail, custom roles, approval workflows, the org-wide Jira/GitLab/ServiceNow integration hub, AI scheduling, cross-program and portfolio scenario modeling, multi-tenancy.
 
 The OSS unit is the **program** (one PM, one or more related projects). The Enterprise unit is the **portfolio** (multiple programs under organizational governance).
+
+## Domain-app layering
+
+The API is one Django app per domain under `packages/api/src/trueppm_api/apps/`. The edges *between* those apps are governed by a declared layering, not by convention.
+
+`packages/api/app-layering.toml` assigns every app to a numbered layer, lowest first: foundation (`sync`, `idempotency`, `taskruns`), identity (`access`, `workspace`, `teams`, `profiles`), project (`projects`, `notifications`), domain (`scheduling`, `resources`, `timetracking`), satellite (importers, webhooks, integrations, agents, SSO, history) and reporting (`observability`). An app may import an app in a **lower** layer, and may import the shared `platform` modules (`core`, `fields`, `permissions`, `workflows`). It may not import a higher layer, and it may not import a peer in the same layer unless that layer is declared `lateral`. Composition roots (`settings`, `urls`, `asgi`, `routing`, `celery`) wire every app together by design and are not checked.
+
+The gate, `scripts/check-app-layering.py`, counts every import (including function-local and `TYPE_CHECKING` imports) and every quoted `trueppm_api.*` module path. It is a ratchet: violations that already existed when the gate was added are recorded in `packages/api/app-layering-baseline.txt`, a ceiling that can only shrink, and any import beyond it fails. The baseline total is printed on every run.
+
+- Run it locally with `make app-layering-check`. It also runs in `make pre-push` and as the `api:app-layering` CI job.
+- Fix a violation by moving the shared code down a layer, or by inverting the dependency so the higher layer registers against a hook the lower layer owns. Then run `python3 scripts/check-app-layering.py --update-baseline` to lock the improvement in. That command refuses to add or raise an entry.
+- A deliberate exception carries `# layering-ok: <reason>` on the import or the comment line directly above it. The reason is required.
+- Adding an app directory fails the gate until the app is assigned a layer in `app-layering.toml`.

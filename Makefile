@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
+        migrations-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check schema-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -144,6 +144,12 @@ bulk-create-server-version-check: ## Detect a VersionedModel bulk_create that le
 	@# a row left at 0 publishes a lock token no client can echo back. Pure static analysis.
 	@python3 scripts/check-bulk-create-server-version.py --self-test
 	@python3 scripts/check-bulk-create-server-version.py
+
+app-layering-check: ## Fail on a new import between domain apps outside the declared layering (#4887)
+	@# Declared layering in packages/api/app-layering.toml; existing violations sit in a
+	@# baseline that can only shrink. Pure static analysis: no Django, no DB, ~1s.
+	@python3 scripts/check-app-layering.py --self-test
+	@python3 scripts/check-app-layering.py
 
 schema-breaking-check: ## Run the api:schema-breaking CI job locally (#4594): Breaking API changes vs the latest v* tag
 	@python3 scripts/check-schema-breaking.py --self-test
@@ -717,6 +723,7 @@ pre-push-checks: migrations-check
 pre-push-checks: migrations-numbering
 pre-push-checks: migrations-constraint-safety
 pre-push-checks: bulk-create-server-version-check
+pre-push-checks: app-layering-check
 pre-push-checks: schema-check
 pre-push-checks: schema-breaking-check
 pre-push-checks: sonar-exclusions-check

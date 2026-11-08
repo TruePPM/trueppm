@@ -761,7 +761,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -813,7 +813,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -850,6 +850,7 @@ scripts:test:
     - bash scripts/tests/check-release-images.test.sh
     - bash scripts/tests/check-migration-constraint-safety.test.sh
     - bash scripts/tests/check-bulk-create-server-version.test.sh
+    - bash scripts/tests/check-app-layering.test.sh
     - bash scripts/tests/check-schema-breaking.test.sh
     - bash scripts/tests/pip-floor.test.sh
 
@@ -3803,6 +3804,28 @@ api:bulk-create-server-version:
     # correct shapes before trusting its verdict on the tree.
     - python3 scripts/check-bulk-create-server-version.py --self-test
     - python3 scripts/check-bulk-create-server-version.py
+
+api:app-layering:
+  # The OSS-to-Enterprise edge is gated (boundary:imports); the edges BETWEEN domain apps
+  # were not, so coupling accumulated until a change in one domain broke another (#4887).
+  # packages/api/app-layering.toml declares which app layer may import which; existing
+  # violations sit in packages/api/app-layering-baseline.txt, a ceiling that can only
+  # shrink. A new upward import fails here; `# layering-ok: <reason>` opts one site out.
+  # Pure static analysis (stdlib ast + tomllib): no Django, no database, ~1s.
+  extends: [.api-no-db, .fast-job]
+  stage: analyze
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script: []
+  script:
+    # Self-test FIRST: prove the gate still rejects an upward import before trusting
+    # its verdict on the tree (#3195).
+    - python3 scripts/check-app-layering.py --self-test
+    - python3 scripts/check-app-layering.py
 
 api:schema-breaking:
   # stability.md promises a deprecation window for every Breaking change (field

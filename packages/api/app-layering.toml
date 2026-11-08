@@ -1,0 +1,60 @@
+# Declared layering between the Django domain apps (#4887).
+#
+# Read by scripts/check-app-layering.py (`make app-layering-check`, CI job
+# `api:app-layering`). The rule: an app may import an app in a LOWER layer, or in
+# the SAME layer only if that layer sets `lateral = true`. Layers are listed
+# lowest first. Everything may import `platform`; `platform` may import no app.
+#
+# This is the INTENDED design, not a description of today's tree: where the code
+# disagrees, the disagreement is a recorded violation in app-layering-baseline.txt,
+# which can only shrink. Every directory under apps/ must be assigned exactly once,
+# so adding an app fails the gate until you place it here.
+#
+# Moving an app to a different layer is an architecture decision (write an ADR) --
+# do not move one just to make the gate pass.
+
+# Shared infrastructure every app may use; it may depend on no app.
+[platform]
+modules = ["core", "fields", "permissions", "workflows"]
+
+# Wiring files that import every app by design; not scanned.
+[composition_roots]
+modules = ["settings", "urls", "asgi", "wsgi", "routing", "celery"]
+
+# Sync protocol, idempotency keys and task-run bookkeeping: mechanisms the domain
+# is built on, which must not know about the domain.
+[[layer]]
+name = "foundation"
+apps = ["idempotency", "sync", "taskruns"]
+
+# Who a user is and what they may touch: tenancy and RBAC. Mutual imports allowed.
+[[layer]]
+name = "identity"
+lateral = true
+apps = ["access", "profiles", "teams", "workspace"]
+
+# The project aggregate root and its notification fan-out.
+[[layer]]
+name = "project"
+lateral = true
+apps = ["projects", "notifications"]
+
+# Domain capabilities hanging off a project. Each depends on `projects`, never on
+# one another -- scheduling must not reach into resources or time tracking (#4688).
+[[layer]]
+name = "domain"
+apps = ["scheduling", "resources", "timetracking"]
+
+# Adapters and add-ons around the domain: importers, outbound integrations, SSO,
+# agent profiles, history. Peers do not import each other.
+[[layer]]
+name = "satellite"
+apps = [
+  "agents", "csvimport", "jiraimport", "msproject",
+  "integrations", "webhooks", "history", "sso", "workflow_engine",
+]
+
+# Read-only views across everything below.
+[[layer]]
+name = "reporting"
+apps = ["observability"]
