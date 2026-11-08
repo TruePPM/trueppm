@@ -380,6 +380,16 @@ Other changes you will notice with the flag on:
   navigation on a phone — and your account menu moves to the top bar. Inside a
   project the tab row and its layout toggles scroll sideways as the lens
   switcher.
+- **A quick-log sheet on the phone.** The center **Log time** button opens a
+  sheet listing the tasks due today, each with a **−** and **+** stepper in
+  half-hour steps. **Save** logs every task you stepped up in one go; a refused
+  entry stays on screen with the server's reason, and offers to save again only
+  when trying again could work.
+  Offline, Save queues the entries and the sheet says they will send when you
+  are online. Escape or tapping the dimmed page closes the sheet and returns
+  focus to the button, and **Open full timesheet** takes you to the full editor.
+  Queued entries are held in the open browser tab only, so closing the tab before
+  you reconnect loses them.
 
 Shell v2 changes chrome only: every page, URL, keyboard shortcut and dialog is
 the same under both shells.

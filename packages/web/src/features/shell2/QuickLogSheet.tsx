@@ -1,0 +1,271 @@
+import { useId, useMemo, useState } from 'react';
+import { Link } from 'react-router';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { useMyWork } from '@/hooks/useMyWork';
+import { useCreateTimeEntry } from '@/hooks/useCreateTimeEntry';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { toast } from '@/components/Toast';
+import { describeWriteRefusal } from '@/lib/writeRefusal';
+import { localTodayIso } from '@/lib/localDate';
+import {
+  buildEntries,
+  formatHours,
+  spokenHours,
+  stepHours,
+  type HoursByTask,
+} from './quickLogModel';
+
+const STEP_BTN =
+  'flex h-11 w-11 items-center justify-center rounded-full border border-p1-hairline text-lg text-p1-text-1 focus:outline-none focus:ring-2 focus:ring-p1-focus aria-disabled:opacity-40';
+
+export interface QuickLogSheetProps {
+  isOpen: boolean;
+  /** `restoreFocus` is false when the close navigates away (the timesheet links). */
+  onClose: (restoreFocus: boolean) => void;
+}
+
+/**
+ * The phone bottom bar's quick-log sheet (shell v2, Pass 1 `phoneLog`): the
+ * viewer's tasks due today, one half-hour stepper each, one Save.
+ *
+ * "Due today" is the server's `group === 'today'` My Work bucket, not a client
+ * date comparison. Writes go through `useCreateTimeEntry` (the same endpoint and
+ * Undo toast as every other capture surface). Offline, TanStack pauses those
+ * mutations and they replay on reconnect, so Save does not wait on them: it
+ * hands them to the queue and closes. Online, Save waits so a refused entry can
+ * stay on screen with the server's reason (`describeWriteRefusal`) in a sibling
+ * `role="alert"` (rule 372); "Save again" is offered only when a replay could succeed.
+ */
+export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
+  const headingId = useId();
+  const online = useOnlineStatus();
+  // Read only while open: the bar is mounted on every phone route and the sheet is rare.
+  const { data, isError, isPending } = useMyWork({ enabled: isOpen });
+  const create = useCreateTimeEntry({ toastErrors: false });
+  const [hours, setHours] = useState<HoursByTask>({});
+  const [announcement, setAnnouncement] = useState('');
+  const [refused, setRefused] = useState<{ name: string; message: string; retryable: boolean }[]>(
+    [],
+  );
+  const [saving, setSaving] = useState(false);
+
+  // Mounted on every phone route, so tolerate an unexpected payload (`p?.results`).
+  const tasks = useMemo(
+    () =>
+      (data?.pages ?? [])
+        .flatMap((p) => p?.results ?? [])
+        .filter((t) => t.group === 'today' && !t.is_phase),
+    [data],
+  );
+  const taskIds = tasks.map((t) => t.id);
+  const entries = buildEntries(taskIds, hours);
+  const total = entries.reduce((sum, e) => sum + e.minutes / 60, 0);
+
+  function step(taskId: string, name: string, direction: 1 | -1) {
+    const current = hours[taskId] ?? 0;
+    const next = stepHours(current, direction);
+    if (next === current) return;
+    setHours((h) => ({ ...h, [taskId]: next }));
+    // One discrete announcement per press — the changed task's value, not a running total.
+    setAnnouncement(`${name}: ${spokenHours(next)}`);
+    setRefused([]);
+  }
+
+  function close(restoreFocus = true) {
+    setHours({});
+    setAnnouncement('');
+    setRefused([]);
+    onClose(restoreFocus);
+  }
+
+  async function save() {
+    if (entries.length === 0 || saving) return;
+    const nameOf = (id: string) => tasks.find((t) => t.id === id)?.name ?? 'a task';
+    const labelOf = (id: string) => nameOf(id);
+    const entryDate = localTodayIso();
+    const send = (e: (typeof entries)[number]) =>
+      create.mutateAsync({
+        taskId: e.taskId,
+        taskLabel: labelOf(e.taskId),
+        minutes: e.minutes,
+        entryDate,
+      });
+    // A queued write that is refused on reconnect has no sheet left to show it, so it
+    // surfaces as a toast; otherwise the entry would vanish without a trace.
+    const reportQueuedRefusal = (p: Promise<unknown>) =>
+      void p.catch(() => toast.error('A time entry saved offline was refused and not logged.'));
+    const queueOffline = () => {
+      // Paused by TanStack until the browser is back online; never awaited.
+      entries.forEach((e) => reportQueuedRefusal(send(e)));
+      toast.info(`Saved ${formatHours(total)} — will send when online.`);
+      close();
+    };
+    if (!online) {
+      queueOffline();
+      return;
+    }
+    setSaving(true);
+    // A paused mutation never settles, so connectivity dropping mid-Save would leave the
+    // sheet on "Saving…" forever. Race the writes against the browser's offline event.
+    const sends = entries.map(send);
+    let dropped: () => void = () => undefined;
+    const wentOffline = new Promise<'offline'>((resolve) => {
+      dropped = () => resolve('offline');
+      window.addEventListener('offline', dropped, { once: true });
+    });
+    const outcome = await Promise.race([Promise.allSettled(sends), wentOffline]);
+    window.removeEventListener('offline', dropped);
+    setSaving(false);
+    if (outcome === 'offline') {
+      sends.forEach(reportQueuedRefusal);
+      toast.info(`Saved ${formatHours(total)} — will send when online.`);
+      close();
+      return;
+    }
+    const results = outcome;
+    const failed = entries.filter((_, i) => results[i].status === 'rejected');
+    if (failed.length === 0) {
+      close();
+      return;
+    }
+    // Keep only the refused rows' values so Save retries just those.
+    setHours(Object.fromEntries(failed.map((e) => [e.taskId, e.minutes / 60])));
+    setRefused(
+      entries.flatMap((e, i) => {
+        const r = results[i];
+        if (r.status !== 'rejected') return [];
+        const d = describeWriteRefusal(r.reason, 'Could not log time.');
+        return d ? [{ name: nameOf(e.taskId), message: d.message, retryable: d.retryable }] : [];
+      }),
+    );
+  }
+
+  return (
+    <BottomSheet
+      isOpen={isOpen}
+      onClose={() => close(true)}
+      titleId={headingId}
+      size="large"
+      mobileOnly={false}
+    >
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-[max(16px,env(safe-area-inset-bottom))]">
+        <h2 id={headingId} className="text-base font-semibold text-p1-text-1">
+          Log time
+        </h2>
+        <p className="-mt-2 text-xs text-p1-text-2">Tasks due today</p>
+
+        {isPending && !isError ? (
+          <p role="status" className="text-sm text-p1-text-2" data-testid="quicklog-loading">
+            Loading today&apos;s tasks…
+          </p>
+        ) : isError ? (
+          <p className="text-sm text-p1-text-2">
+            Could not load today&apos;s tasks.{' '}
+            <Link to="/me/timesheet" onClick={() => close(false)} className="underline">
+              Open the timesheet
+            </Link>
+          </p>
+        ) : tasks.length === 0 ? (
+          <p className="text-sm text-p1-text-2" data-testid="quicklog-empty">
+            Nothing is due today.{' '}
+            <Link to="/me/timesheet" onClick={() => close(false)} className="font-medium underline">
+              Log time on the timesheet
+            </Link>
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-p1-hairline">
+            {tasks.map((t) => {
+              const value = hours[t.id] ?? 0;
+              return (
+                <li key={t.id} className="flex items-center gap-2 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-p1-text-1">{t.name}</div>
+                    <div className="truncate text-xs text-p1-text-2">{t.project_name}</div>
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={`Hours on ${t.name}`}
+                    className="flex items-center gap-1"
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Decrease hours on ${t.name}`}
+                      aria-disabled={value <= 0}
+                      onClick={() => step(t.id, t.name, -1)}
+                      className={STEP_BTN}
+                    >
+                      <span aria-hidden="true">−</span>
+                    </button>
+                    <span
+                      className="w-12 text-center font-mono text-sm text-p1-text-1"
+                      data-testid={`quicklog-value-${t.id}`}
+                    >
+                      {formatHours(value)}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Increase hours on ${t.name}`}
+                      onClick={() => step(t.id, t.name, 1)}
+                      className={STEP_BTN}
+                    >
+                      <span aria-hidden="true">+</span>
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {/* Transition announcements and the refusal live in SIBLING regions (rule 372). */}
+        <p role="status" className="sr-only">
+          {announcement}
+        </p>
+        {refused.length > 0 && (
+          <div role="alert" className="flex flex-col gap-1 text-sm text-p1-critical">
+            {refused.map((r) => (
+              <p key={r.name}>
+                {r.name}: {r.message}
+              </p>
+            ))}
+            {refused.some((r) => r.retryable) && <p>Save again to retry.</p>}
+          </div>
+        )}
+        {!online && (
+          <p className="text-xs text-p1-text-2" data-testid="quicklog-offline">
+            You are offline — entries will send when online.
+          </p>
+        )}
+
+        <div className="flex flex-col gap-2 pt-1">
+          {tasks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void save()}
+              aria-disabled={entries.length === 0 || saving}
+              className="h-11 w-full rounded-md bg-p1-brand text-sm font-medium text-p1-on-brand focus:outline-none focus:ring-2 focus:ring-p1-focus focus:ring-offset-2 aria-disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : entries.length > 0 ? `Save ${formatHours(total)}` : 'Save'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => close()}
+            className="h-11 w-full rounded-md border border-p1-hairline text-sm text-p1-text-1 focus:outline-none focus:ring-2 focus:ring-p1-focus"
+          >
+            Dismiss
+          </button>
+          {tasks.length > 0 && (
+            <Link
+              to="/me/timesheet"
+              onClick={() => close(false)}
+              className="flex h-11 items-center justify-center text-sm text-p1-text-2 underline"
+            >
+              Open full timesheet
+            </Link>
+          )}
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
