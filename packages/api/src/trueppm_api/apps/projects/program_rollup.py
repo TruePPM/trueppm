@@ -339,12 +339,12 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
     rather than blanking the figure, and the count is what lets a client say so.
     Null with ``reason: no_forecast`` when no project has one (rule 119).
 
-    Fixed cost: one ``get_many`` cache read and one ``DISTINCT ON`` query.
+    The per-project read is :func:`metric_provenance.latest_forecast_p80_by_project`,
+    the batched reader My Work's ship date also uses, so the rollup cannot read the
+    owner's order differently from it. Fixed cost: one ``get_many`` cache read and at
+    most one ``DISTINCT ON`` query.
     """
-    from django.core.cache import cache
-
-    from trueppm_api.apps.scheduling.models import MonteCarloRun
-    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+    from trueppm_api.apps.projects.metric_provenance import latest_forecast_p80_by_project
 
     entry: dict[str, Any] = {
         "available": True,
@@ -358,40 +358,23 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
         entry["reason"] = REASON_NO_PROJECTS
         return entry
 
-    keys = {mc_latest_cache_key(pid): pid for pid in project_ids}
-    latest: dict[Any, tuple[datetime.date | None, datetime.datetime | None]] = {}
-    for key, payload in cache.get_many(list(keys)).items():
-        if not isinstance(payload, dict):
-            continue
-        p80 = payload.get("p80")
-        run_at = payload.get("last_run_at")
-        latest[keys[key]] = (
-            datetime.date.fromisoformat(p80) if isinstance(p80, str) else p80,
-            datetime.datetime.fromisoformat(run_at) if isinstance(run_at, str) else run_at,
-        )
-    uncached = [pid for pid in project_ids if pid not in latest]
-    if uncached:
-        for row in (
-            MonteCarloRun.objects.filter(project_id__in=uncached)
-            .order_by("project_id", "-taken_at")
-            .distinct("project_id")
-            .values("project_id", "p80", "taken_at")
-        ):
-            latest[row["project_id"]] = (row["p80"], row["taken_at"])
-
-    dated: list[tuple[datetime.date, datetime.datetime | None, Any]] = [
-        (p80, run_at, pid) for pid, (p80, run_at) in latest.items() if p80 is not None
+    latest = latest_forecast_p80_by_project(project_ids)
+    # Every entry the helper returns has a P80 and a last_run_at: the only cache
+    # writer, ``scheduling.views.run_monte_carlo``, always sets it, and a persisted
+    # run has ``taken_at``. Parsed, because the cache and the row serialize the
+    # timestamp differently and the oldest must be found by time, not by string.
+    dated = [
+        (p80, datetime.datetime.fromisoformat(run_at), pid) for pid, (p80, run_at) in latest.items()
     ]
     entry["projects_without_forecast"] = len(project_ids) - len(dated)
     if not dated:
         entry["reason"] = REASON_NO_FORECAST
         return entry
     # Latest P80 first; a tie names the project deterministically (by id).
-    p80, _, driver = max(dated, key=lambda d: (d[0], str(d[2])))
-    run_times = [run_at for _, run_at, _ in dated if run_at is not None]
+    p80, _, driver = max(dated, key=lambda d: (d[0], d[2]))
     entry["value"] = p80.isoformat()
-    entry["driver_project_id"] = str(driver)
-    entry["as_of"] = min(run_times).isoformat() if run_times else None
+    entry["driver_project_id"] = driver
+    entry["as_of"] = min(run_at for _, run_at, _ in dated).isoformat()
     return entry
 
 

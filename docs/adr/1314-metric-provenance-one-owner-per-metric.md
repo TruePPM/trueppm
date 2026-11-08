@@ -402,7 +402,9 @@ for exists: the persisted `MonteCarloRun` (ADR-0175) plus the cache entry. The
 figure is the latest P80 among the contributing projects. Each project's P80 is
 the latest result `monte-carlo/latest/` serves: the cache entry first, then the
 newest persisted run. That way it cannot disagree with the project forecast it
-names.
+names. The read is `metric_provenance.latest_forecast_p80_by_project`, the batched
+reader the #4778 amendment above added for the My Work ship date, so the two
+echoes share one copy of the owner's order rather than each holding its own.
 
 - **Not a joint simulation.** The program finishes no earlier than its latest
   project, so a joint P80 would be this date or later. The definition says so.
@@ -450,8 +452,8 @@ variance with a baseline but nothing baselined done) and `no_forecast` (P80).
 
 No extra work for `program_health`: it is the SPI pass the headline band always
 ran, and the `schedule_health` KPI now reuses that pass's result instead of
-running it a second time. P80 completion costs one `cache.get_many` and one
-`DISTINCT ON (project_id)` query. A not-computable variance costs one `EXISTS`
+running it a second time. P80 completion costs one `cache.get_many` and at most one
+`DISTINCT ON (project_id)` query, through the shared helper. A not-computable variance costs one `EXISTS`
 query, and only on that path. The query count does not
 grow with the number of projects. A test pins this.
 
