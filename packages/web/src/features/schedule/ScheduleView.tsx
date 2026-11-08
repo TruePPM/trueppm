@@ -1763,6 +1763,9 @@ export function ScheduleView() {
     // project's real weekday mask — same field `useScheduleCommit` already
     // reads for the resize-commit path's working-day count (#2561/#1987).
     workingDaysMask: projectDetail?.effective_calendar?.working_days ?? null,
+    // #4170: the composed calendar the server schedules with, so the cascade
+    // steps through holidays and a custom week instead of a fixed Mon–Fri.
+    calendar: projectDetail?.scheduling_calendar ?? null,
   });
 
   // Keyboard rescheduling — Enter/Arrow/d/Escape (issue #34)
@@ -2094,6 +2097,7 @@ export function ScheduleView() {
     ariaAssertiveRef,
     keyboardModeRef,
     statusDate,
+    calendar: projectDetail?.scheduling_calendar ?? null,
     authoringActive,
     onOpenDatePopover: handleOpenDatePopover,
     // The keyboard path's PATCH (#3141). Shares the pointer path's floor guard and

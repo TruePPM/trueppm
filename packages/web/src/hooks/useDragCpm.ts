@@ -28,6 +28,7 @@ import type {
   ResizeEndMessage,
   ResizeMoveMessage,
   ResizeStartMessage,
+  PreviewCalendar,
   ResultMessage,
 } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
@@ -72,6 +73,13 @@ interface UseDragCpmOptions {
    * eventual PATCH never disagree about how many working days a drag spans.
    */
   workingDaysMask?: number | null;
+  /**
+   * The project's composed calendar (`ProjectDetail.scheduling_calendar`, #4170)
+   * — the mask AND the holidays the server schedules with. Sent to the worker at
+   * gesture start so the cascade steps through holidays instead of a fixed
+   * Mon–Fri week. Null/undefined previews on Mon–Fri.
+   */
+  calendar?: PreviewCalendar | null;
 }
 
 export function useDragCpm({
@@ -82,6 +90,7 @@ export function useDragCpm({
   keyboardModeRef,
   statusDate,
   workingDaysMask,
+  calendar,
 }: UseDragCpmOptions): void {
   const workerRef = useRef<Worker | null>(null);
   const seqRef = useRef(0);
@@ -107,6 +116,10 @@ export function useDragCpm({
   // change must not resubscribe the engine listeners mid-drag.
   const statusDateRef = useRef(statusDate ?? null);
   useEffect(() => { statusDateRef.current = statusDate ?? null; }, [statusDate]);
+  // Same treatment: the calendar arrives with the project detail fetch, after the
+  // engine listeners subscribe, and must not resubscribe them when it lands.
+  const calendarRef = useRef(calendar ?? null);
+  useEffect(() => { calendarRef.current = calendar ?? null; }, [calendar]);
   // Same treatment for the resize preview's mask (#4237) — the mask arrives
   // with the project detail fetch, after the engine listeners are subscribed.
   const workingDaysMaskRef = useRef(workingDaysMask ?? MON_FRI_MASK);
@@ -175,6 +188,7 @@ export function useDragCpm({
         draggedTaskId: ev.id,
         subgraph,
         statusDate: statusDateRef.current,
+        calendar: calendarRef.current,
       };
       worker.postMessage(startMsg);
     });
@@ -257,6 +271,7 @@ export function useDragCpm({
         type: 'RESIZE_START',
         resizedTaskId: ev.id,
         subgraph,
+        calendar: calendarRef.current,
       };
       worker.postMessage(startMsg);
     });

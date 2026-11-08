@@ -258,3 +258,53 @@ describe('cpmWorker protocol', () => {
     });
   });
 });
+
+// --- calendar (#4170) ------------------------------------------------------
+
+describe('cpmWorker calendar threading (#4170)', () => {
+  // Wed 2025-01-15 is a holiday: a 5-day task dragged to Mon 01-13 works
+  // 13, 14, 16, 17, 20 instead of finishing Fri 01-17.
+  const HOLIDAY = { working_days: 0b0011111, exceptions: [{ start: '2025-01-15', end: '2025-01-15' }] };
+
+  const finishOf = (id: string) => lastResult()?.results.find((r) => r.taskId === id)?.earlyFinish;
+
+  it('keeps the DRAG_START calendar resident for every DRAG_MOVE', () => {
+    send({ type: 'DRAG_START', draggedTaskId: 'A', subgraph: SUBGRAPH_A, calendar: HOLIDAY });
+    send({ type: 'DRAG_MOVE', seq: 1, newStartIso: '2025-01-13' });
+    expect(finishOf('A')).toBe('2025-01-20');
+    send({ type: 'DRAG_MOVE', seq: 2, newStartIso: '2025-01-13' });
+    expect(finishOf('A')).toBe('2025-01-20');
+  });
+
+  it('drops the calendar on DRAG_END, so the next gesture without one is Mon–Fri', () => {
+    send({ type: 'DRAG_START', draggedTaskId: 'A', subgraph: SUBGRAPH_A, calendar: HOLIDAY });
+    send({ type: 'DRAG_END' });
+    send({ type: 'DRAG_START', draggedTaskId: 'A', subgraph: SUBGRAPH_A });
+    send({ type: 'DRAG_MOVE', seq: 3, newStartIso: '2025-01-13' });
+    expect(finishOf('A')).toBe('2025-01-17');
+  });
+
+  it('applies a RECALC message’s own calendar', () => {
+    send({
+      type: 'RECALC',
+      seq: 4,
+      draggedTaskId: 'A',
+      newStartIso: '2025-01-13',
+      subgraph: SUBGRAPH_A,
+      calendar: HOLIDAY,
+    });
+    expect(finishOf('A')).toBe('2025-01-20');
+  });
+
+  it('keeps the RESIZE_START calendar resident for every RESIZE_MOVE', () => {
+    // On a calendar with Wed 01-08 off, the server placed 5-day A at Mon 01-06 ..
+    // Mon 01-13. Growing it to 6 days lands on Tue 01-14 (Mon–Fri would say 01-13).
+    const midweek = { working_days: 0b0011111, exceptions: [{ start: '2025-01-08', end: '2025-01-08' }] };
+    const onCalendar = { tasks: [{ ...TASK_A, earlyFinish: '2025-01-13', lateFinish: '2025-01-13' }], edges: [] };
+    send({ type: 'RESIZE_START', resizedTaskId: 'A', subgraph: onCalendar, calendar: midweek });
+    send({ type: 'RESIZE_MOVE', seq: 5, newDurationDays: 6 });
+    expect(finishOf('A')).toBe('2025-01-14');
+    send({ type: 'RESIZE_MOVE', seq: 6, newDurationDays: 6 });
+    expect(finishOf('A')).toBe('2025-01-14');
+  });
+});

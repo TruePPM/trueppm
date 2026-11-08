@@ -43,13 +43,18 @@
  * the span — mirroring `_compute_scheduled_start` — while the relaxation runs
  * on the early window.
  *
- * Calendar fidelity (issue #1493): dates step on a fixed Mon–Fri working week
- * (see `isWorkingDay` below), matching the server's default calendar. Custom
- * calendars and `CalendarException` holidays are not modeled — the web client
- * has no access to that data at drag time (see ADR-0120) — so this is a
- * best-effort estimate, not the source of truth. The post-commit server CPM
- * run reconciles the authoritative dates. This mirrors the same fidelity
- * tradeoff already accepted for the resize-commit preview (issue #951).
+ * Calendar fidelity (issues #1493, #4170): dates step on the project's
+ * COMPOSED calendar — the `working_days` mask and merged `CalendarException`
+ * ranges the server schedules with (`compose_project_calendar`), shipped as
+ * `ProjectDetail.scheduling_calendar` and turned into a predicate by
+ * `workingCalendar.ts`. Omit it and the engine falls back to the server's
+ * default Mon–Fri week. One calendar applies to every task in the pass, which
+ * is exact for the project Schedule: every task in its subgraph belongs to the
+ * project, and both the single-project and the program-scoped (ADR-0120 D3)
+ * server passes schedule a task on its own project's calendar, with lag
+ * counted on the successor's — the same calendar again. A future caller that
+ * previews a subgraph spanning several projects would need a per-task map;
+ * none exists today (see ADR-0784's 2026-11 amendment).
  *
  * Relaxation is BIDIRECTIONAL (issue #3535). The pass places every task AT the
  * date its constraint set implies — later than where it sits when the drag
@@ -82,10 +87,6 @@
  * day a milestone ended on, so the preview draws it where the commit will.
  *
  * Known remaining gaps, all reconciled by the server on commit:
- *  - the fixed Mon–Fri week above (#1493). Quantified in #3535: against the
- *    shared fixtures a holiday week or a six-day mask moves the client's answer
- *    2–7 days off the server's. Nothing in the UI says so beyond the tooltip's
- *    "Estimate — confirmed on drop";
  *  - the project-start floor, which the pull-to-commit prompt (#868/#884)
  *    covers at commit time instead. A drag that pulls work before the project
  *    start now carries its successors back with it, so the preview can show a
@@ -94,6 +95,12 @@
  */
 
 import type { CpmEdge, CpmTask, PreviewMilestone, PreviewTaskResult } from './cpmWorker.types';
+import {
+  buildWorkingDayPredicate,
+  monFriWorkingDay,
+  type PreviewCalendar,
+  type WorkingDayPredicate,
+} from './workingCalendar';
 
 /**
  * Internal mutable task state during the forward pass.
@@ -178,12 +185,21 @@ function toIso(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Calendar-aware date stepping (Mon–Fri fixed working week — see file header)
+// Calendar-aware date stepping (the project's composed calendar — see header)
 // ---------------------------------------------------------------------------
 
+/**
+ * The predicate every stepping helper below reads. Set for the duration of one
+ * pass by {@link runForwardPassCore} and restored afterwards, rather than
+ * threaded through every helper: the pass is synchronous and single-threaded
+ * (it runs inside the worker), so nothing can observe it mid-pass, and the
+ * helpers keep their one-to-one shape with the server's `_finish_from_start` /
+ * `_advance_calendar_days` family.
+ */
+let activeWorkingDay: WorkingDayPredicate = monFriWorkingDay;
+
 function isWorkingDay(ms: number): boolean {
-  const dow = new Date(ms).getUTCDay(); // 0 = Sun … 6 = Sat
-  return dow !== 0 && dow !== 6;
+  return activeWorkingDay(ms);
 }
 
 /** Return `ms` if it falls on a working day, otherwise the next working day. */
@@ -458,6 +474,25 @@ function runForwardPassCore(
   edges: CpmEdge[],
   targetTaskId: string,
   applyOverride: (target: TaskState | undefined) => void,
+  calendar: PreviewCalendar | null | undefined,
+): {
+  results: PreviewTaskResult[];
+  worstMilestone: PreviewMilestone | null;
+} {
+  const previous = activeWorkingDay;
+  activeWorkingDay = buildWorkingDayPredicate(calendar);
+  try {
+    return forwardPass(tasks, edges, targetTaskId, applyOverride);
+  } finally {
+    activeWorkingDay = previous;
+  }
+}
+
+function forwardPass(
+  tasks: CpmTask[],
+  edges: CpmEdge[],
+  targetTaskId: string,
+  applyOverride: (target: TaskState | undefined) => void,
 ): {
   results: PreviewTaskResult[];
   worstMilestone: PreviewMilestone | null;
@@ -502,12 +537,17 @@ export function runCpmForwardPass(
   draggedTaskId: string,
   newStartIso: string,
   statusDate?: string | null,
+  calendar?: PreviewCalendar | null,
 ): {
   results: PreviewTaskResult[];
   worstMilestone: PreviewMilestone | null;
 } {
-  return runForwardPassCore(tasks, edges, draggedTaskId, (dragged) =>
-    applyDrag(dragged, newStartIso, statusDate),
+  return runForwardPassCore(
+    tasks,
+    edges,
+    draggedTaskId,
+    (dragged) => applyDrag(dragged, newStartIso, statusDate),
+    calendar,
   );
 }
 
@@ -528,12 +568,17 @@ export function runCpmResizeForwardPass(
   edges: CpmEdge[],
   resizedTaskId: string,
   newDurationDays: number,
+  calendar?: PreviewCalendar | null,
 ): {
   results: PreviewTaskResult[];
   worstMilestone: PreviewMilestone | null;
 } {
-  return runForwardPassCore(tasks, edges, resizedTaskId, (resized) =>
-    applyResize(resized, newDurationDays),
+  return runForwardPassCore(
+    tasks,
+    edges,
+    resizedTaskId,
+    (resized) => applyResize(resized, newDurationDays),
+    calendar,
   );
 }
 

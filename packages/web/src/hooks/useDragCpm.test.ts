@@ -382,6 +382,43 @@ describe('useDragCpm', () => {
     });
   });
 
+  describe('project calendar (#4170)', () => {
+    const CALENDAR = {
+      working_days: 0b0111111,
+      exceptions: [{ start: '2025-01-15', end: '2025-01-15' }],
+    };
+
+    it('ships the composed calendar with DRAG_START and RESIZE_START', () => {
+      const engine = new ControllableEngine();
+      renderHook(() =>
+        useDragCpm({
+          engine,
+          tasks: TASKS,
+          links: LINKS,
+          ariaLiveRef: makeAriaRef(),
+          calendar: CALENDAR,
+        }),
+      );
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DRAG_START', calendar: CALENDAR }),
+      );
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'RESIZE_START', calendar: CALENDAR }),
+      );
+    });
+
+    it('sends null when the project detail carries no calendar', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DRAG_START', calendar: null }),
+      );
+    });
+  });
+
   describe('resize-task-move event', () => {
     it('posts a RESIZE_MOVE with seq = 1 and the working-day duration for the dropped edge', () => {
       const engine = new ControllableEngine();

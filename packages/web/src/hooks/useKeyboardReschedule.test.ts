@@ -138,6 +138,7 @@ interface RenderOpts {
   ariaLiveRef?: MutableRefObject<HTMLDivElement | null>;
   onOpenDatePopover?: (taskId: string) => void;
   onCommitReschedule?: (taskId: string, newStartIso: string) => void;
+  calendar?: { working_days: number; exceptions: { start: string; end: string }[] } | null;
 }
 
 function renderReschedule(
@@ -161,6 +162,7 @@ function renderReschedule(
       keyboardModeRef,
       onOpenDatePopover,
       onCommitReschedule,
+      calendar: opts.calendar,
     }),
   );
   return {
@@ -520,6 +522,17 @@ describe('useKeyboardReschedule', () => {
       );
       expect(useDragStore.getState().keyboardDelta).toBe(1);
       expect(refs.ariaAssertiveRef.current?.textContent).toBe('1 working day later');
+    });
+
+    it('ships the composed calendar with every RECALC (#4170)', () => {
+      const calendar = { working_days: 0b0111111, exceptions: [{ start: '2025-01-08', end: '2025-01-08' }] };
+      const engine = new ControllableEngine();
+      renderReschedule(engine, { calendar });
+      enterMode(engine);
+      press('ArrowRight');
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'RECALC', calendar }),
+      );
     });
 
     it('nudges five working days with Shift+ArrowRight', () => {

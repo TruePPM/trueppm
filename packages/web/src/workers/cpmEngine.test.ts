@@ -1357,3 +1357,60 @@ describe('runCpmResizeForwardPass', () => {
     expect(results.find((r) => r.taskId === 'A')!.earlyFinish).toBe('2025-01-10');
   });
 });
+
+describe('project calendar in the preview (#4170)', () => {
+  // The case the issue names: a holiday inside the dragged span. A (5d) → FS →
+  // B (3d), dragged to Mon 2025-01-13, with Wed 01-15 off and Mon 01-20 off
+  // (an MLK-style long weekend).
+  const holidays = {
+    working_days: 0b0011111,
+    exceptions: [
+      { start: '2025-01-15', end: '2025-01-15' },
+      { start: '2025-01-20', end: '2025-01-20' },
+    ],
+  };
+  const tasks: CpmTask[] = [
+    task('A', '2025-01-06', '2025-01-10'),
+    task('B', '2025-01-13', '2025-01-15'),
+  ];
+  const edges: CpmEdge[] = [edge('A', 'B', 'FS')];
+
+  it('steps the drag cascade through holidays the way the server will', () => {
+    const { results } = runCpmForwardPass(tasks, edges, 'A', '2025-01-13', null, holidays);
+    const byId = new Map(results.map((r) => [r.taskId, r]));
+    // A works 13, 14, 16, 17, 21; B starts Wed 01-22 and finishes Fri 01-24.
+    expect(byId.get('A')?.earlyFinish).toBe('2025-01-21');
+    expect(byId.get('B')?.earlyStart).toBe('2025-01-22');
+    expect(byId.get('B')?.earlyFinish).toBe('2025-01-24');
+  });
+
+  it('still steps a fixed Mon–Fri week when no calendar is supplied', () => {
+    const { results } = runCpmForwardPass(tasks, edges, 'A', '2025-01-13');
+    expect(results.find((r) => r.taskId === 'B')?.earlyFinish).toBe('2025-01-22');
+  });
+
+  it('snaps a drop onto a holiday to the next working day', () => {
+    const { results } = runCpmForwardPass(tasks, edges, 'A', '2025-01-15', null, holidays);
+    expect(results.find((r) => r.taskId === 'A')?.earlyStart).toBe('2025-01-16');
+  });
+
+  it('uses a non-Mon–Fri mask for both the drag and the resize gesture', () => {
+    // Mon–Sat: A (5d) dragged to Mon 01-13 finishes Fri 01-17; B (3d) follows on
+    // Sat 01-18 — not Mon 01-20 — and finishes Tue 01-21.
+    const sixDay = { working_days: 0b0111111, exceptions: [] };
+    const drag = runCpmForwardPass(tasks, edges, 'A', '2025-01-13', null, sixDay);
+    expect(drag.results.find((r) => r.taskId === 'A')?.earlyFinish).toBe('2025-01-17');
+    expect(drag.results.find((r) => r.taskId === 'B')?.earlyStart).toBe('2025-01-18');
+    expect(drag.results.find((r) => r.taskId === 'B')?.earlyFinish).toBe('2025-01-21');
+
+    // Resizing A (starts Mon 01-06) to 6 days lands on Sat 01-11, not Mon 01-13.
+    const resize = runCpmResizeForwardPass(tasks, edges, 'A', 6, sixDay);
+    expect(resize.results.find((r) => r.taskId === 'A')?.earlyFinish).toBe('2025-01-11');
+  });
+
+  it('does not leak one pass’s calendar into the next', () => {
+    runCpmForwardPass(tasks, edges, 'A', '2025-01-13', null, holidays);
+    const { results } = runCpmForwardPass(tasks, edges, 'A', '2025-01-13');
+    expect(results.find((r) => r.taskId === 'A')?.earlyFinish).toBe('2025-01-17');
+  });
+});

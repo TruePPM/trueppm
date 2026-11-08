@@ -163,7 +163,7 @@ One honest note against your own test — *"does this work on my phone with no s
 | Summary tasks + WBS rollup | Shipped |
 | Hybrid velocity → CPM forecast | Shipped |
 | MS Project import/export | Shipped (UI + API, 0.2) |
-| Gantt drag-to-reschedule (live CPM preview) | Shipped — the drag preview approximates a standard Mon–Fri calendar; the server's authoritative CPM (custom calendars, holidays) reconciles exact dates on commit |
+| Gantt drag-to-reschedule (live CPM preview) | Shipped — the drag preview approximates a standard Mon–Fri calendar; the server's authoritative CPM (custom calendars, holidays) reconciles exact dates on commit. Stepping on the project's own calendar, holidays included, lands in 0.5 ([#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170)) |
 | Baseline capture + comparison UI | Roadmap (0.4) |
 | Structured rebaseline reasons + change control | Roadmap (0.5) |
 | Time tracking (running timer, weekly timesheet) | Roadmap (0.4) |

@@ -27,7 +27,10 @@ approximates the working calendar (it has the weekly `working_days` mask) while
 the engine applies the real one (holiday exception rows the client never
 receives). A five-day span dropped next to a shutdown week *will* land somewhere
 the client did not predict. The client being wrong is the design; hiding it is
-the defect.
+the defect. *(Amended 2026-11, #4170: the drag preview now receives the
+composed calendar, holidays included — see "Amendment — the preview receives the
+composed calendar" below. Reconciliation markers are still needed: the preview
+remains an estimate, and other causes of divergence remain.)*
 
 Rejections have the same shape. `useRescheduleTask.onError` restores the whole
 cache snapshot and the row silently returns to where it was. Only the drag/resize
@@ -142,7 +145,10 @@ all covered without touching their call sites.
 The issue's example toast reads *"Finish moved Oct 13 → Oct 16: the pasted 5-day
 spec freeze lands on the July shutdown week."*
 
-**The client cannot produce that sentence.** `EffectiveCalendar`
+**The client cannot produce that sentence.** *(Written before #4170; the
+exception dates now reach the browser on `ProjectDetail.scheduling_calendar`,
+but the reasoning below still holds — the client knows the holiday exists, not
+that it is what moved this task.)* `EffectiveCalendar`
 (`packages/web/src/api/types.ts`) carries `working_days` (a weekly bitmask) and
 `holiday_count` (**a count**, not the dates). The exception rows that actually
 caused the move are never sent to the browser. Neither is the `task_dates_updated`
@@ -281,6 +287,34 @@ outline reads as "your project is gone".
 - The strip is a second always-present docked element above the forecast bar,
   costing ~28 px of canvas height on short viewports. It collapses to zero height
   when empty.
+
+## Amendment — the preview receives the composed calendar (2026-11, #4170)
+
+The calendar half of the divergence this ADR describes was a data gap, not a
+design property. `ProjectDetailSerializer` now carries `scheduling_calendar`:
+the `working_days` mask and the exception ranges of
+`compose_project_calendar(project)` — the exact value every CPM call site
+schedules with, base plus layers with inheritance resolved, not the raw
+`Calendar` rows. The Schedule passes it to the drag/resize/keyboard preview
+worker at gesture start, and `packages/web/src/workers/workingCalendar.ts`
+builds the same predicate as `Calendar.is_working_day` (mask test, then a binary
+search over merged intervals). `cpmEngine.conformance.test.ts` now asserts the
+holiday and non-Mon–Fri-mask fixtures date-for-date against the Python engine.
+
+**Per-task calendars — decided: one calendar per preview.** The preview applies
+the project's composed calendar to every task it recomputes, and is not sent a
+`calendar_id` → calendar map. This is exact, not an approximation, for the only
+caller there is: the project Schedule previews a subgraph of that project's own
+tasks, and both the single-project pass and the program-scoped pass (ADR-0120
+D3) schedule each task on its own project's calendar, with lag counted on the
+successor's — the same calendar again. A future surface that previews a
+subgraph spanning several projects (a program-level drag) would need the map;
+it does not exist today, and the server still reconciles on commit if one is
+ever built without it.
+
+What this does not change: the preview is still an estimate (ADR-0599), the
+markers in D1–D4 still mark every authored date until the server confirms it,
+and D5's refusal to invent a cause stands.
 
 ## Implementation Notes
 

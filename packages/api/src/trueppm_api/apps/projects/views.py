@@ -1756,6 +1756,10 @@ class ProjectViewSet(
             ).values("role")[:1]
             qs = qs.annotate(_my_role=Subquery(my_role_sq))
         if self.action == "retrieve":
+            # ProjectDetailSerializer.scheduling_calendar composes base + overlay
+            # layers (#4170); the base and program tiers are prefetched on the class
+            # queryset, the layers only here, so the list never pays for them.
+            qs = qs.prefetch_related("calendar_layers__calendar__exceptions")
             # ProjectDetailSerializer.unresolved_assignee_count would otherwise
             # issue a live COUNT() per detail retrieve; fold it into the row as a
             # correlated subquery so the detail fetch is one query (#821).

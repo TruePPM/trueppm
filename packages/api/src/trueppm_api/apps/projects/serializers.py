@@ -362,6 +362,31 @@ class EffectiveCalendarSerializer(serializers.ModelSerializer[Calendar]):
         return len(obj.exceptions.all())
 
 
+class SchedulingCalendarRangeSerializer(serializers.Serializer[Any]):
+    """One inclusive non-working date range of a project's composed calendar (#4170)."""
+
+    start = serializers.DateField(read_only=True)
+    end = serializers.DateField(read_only=True)
+
+
+# Schema-only: ProjectDetailSerializer.get_scheduling_calendar builds the value
+# from scheduling.calendars.scheduling_calendar_payload.
+class SchedulingCalendarSerializer(serializers.Serializer[Any]):
+    """The composed calendar a project's CPM pass schedules with (#4170).
+
+    Unlike ``effective_calendar`` (the resolved base calendar, with only a holiday
+    count), this is the overlay of every calendar applied to the project — the base
+    plus any layered calendars, with inheritance resolved. ``working_days`` is the
+    7-bit weekday mask (bit 0 = Monday) AND-ed across them; ``exceptions`` is the
+    union of their non-working date ranges, inclusive, sorted by start. Ranges may
+    overlap; a day is non-working if its weekday is off or it falls in any range.
+    Detail responses only.
+    """
+
+    working_days = serializers.IntegerField(read_only=True, min_value=0, max_value=127)
+    exceptions = SchedulingCalendarRangeSerializer(many=True, read_only=True)
+
+
 # ---------------------------------------------------------------------------
 # Composable working calendars (#906, ADR-0251)
 # ---------------------------------------------------------------------------
@@ -11508,6 +11533,7 @@ class ProjectDetailSerializer(ProjectSerializer):
     program_detail = serializers.SerializerMethodField()
     my_facets = serializers.SerializerMethodField()
     retired_key_count = serializers.SerializerMethodField()
+    scheduling_calendar = serializers.SerializerMethodField()
 
     class Meta(ProjectSerializer.Meta):
         fields = [
@@ -11519,7 +11545,23 @@ class ProjectDetailSerializer(ProjectSerializer):
             "program_detail",
             "my_facets",
             "retired_key_count",
+            "scheduling_calendar",
         ]
+
+    @extend_schema_field(SchedulingCalendarSerializer)
+    def get_scheduling_calendar(self, obj: Project) -> dict[str, Any]:
+        """The composed calendar this project's CPM pass schedules with (#4170).
+
+        Feeds the Schedule's drag/resize/keyboard preview so it steps through the
+        project's real working days and holidays instead of a fixed Mon-Fri week
+        (ADR-0784 amendment). Detail-only: it inlines exception dates, which the
+        project list must not pay for on every row. The viewset prefetches
+        ``calendar_layers__calendar__exceptions`` on retrieve, so this adds no
+        per-exception query.
+        """
+        from trueppm_api.apps.scheduling.calendars import scheduling_calendar_payload
+
+        return scheduling_calendar_payload(obj)
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_retired_key_count(self, obj: Project) -> int | None:
