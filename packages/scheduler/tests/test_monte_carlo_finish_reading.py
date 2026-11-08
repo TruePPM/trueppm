@@ -111,6 +111,173 @@ def test_work_ending_on_the_shown_day_makes_it_the_end_of_that_day() -> None:
     assert mc.p80_at_day_start is False
 
 
+# ---------------------------------------------------------------------------
+# A closed milestone keeps the edge of its day schedule() gives it (#4601).
+# ---------------------------------------------------------------------------
+
+_TUE, _WED, _SAT = date(2026, 3, 17), date(2026, 3, 18), date(2026, 3, 21)
+
+
+def _closed(tid: str, days: int = 0, **fields: object) -> Task:
+    return Task(
+        id=tid,
+        name=tid,
+        duration=timedelta(days=days),
+        percent_complete=100.0,
+        **fields,  # type: ignore[arg-type]
+    )
+
+
+def _readings(mc: MonteCarloResult) -> set[tuple[date, bool]]:
+    return {
+        (mc.p50, mc.p50_at_day_start),
+        (mc.p80, mc.p80_at_day_start),
+        (mc.p95, mc.p95_at_day_start),
+    }
+
+
+@pytest.mark.parametrize(
+    ("tasks", "links", "expected"),
+    [
+        pytest.param(
+            [_closed("M", actual_start=_TUE, actual_finish=_TUE)],
+            [],
+            (_TUE, True),
+            id="standalone-with-actuals",
+        ),
+        pytest.param(
+            [_closed("M", actual_finish=_TUE)],
+            [],
+            (_TUE, True),
+            id="standalone-actual-finish-only",
+        ),
+        pytest.param([_closed("M")], [], (date(2026, 3, 16), True), id="percent-only"),
+        pytest.param(
+            [_closed("M", planned_start=date(2026, 3, 19))],
+            [],
+            (date(2026, 3, 19), True),
+            id="percent-only-snet",
+        ),
+        pytest.param(
+            [
+                _closed("A", 2, actual_start=date(2026, 3, 16), actual_finish=_TUE),
+                _closed("M", actual_start=_WED, actual_finish=_WED),
+            ],
+            [("A", "M")],
+            (_WED, True),
+            id="after-work-that-ended-the-day-before",
+        ),
+        pytest.param(
+            [
+                _closed("A", 2, actual_start=date(2026, 3, 16), actual_finish=_TUE),
+                _closed("M", actual_start=_TUE, actual_finish=_TUE),
+            ],
+            [("A", "M")],
+            (_TUE, False),
+            id="after-work-that-ended-that-day",
+        ),
+        pytest.param(
+            [
+                _closed("M", actual_start=_TUE, actual_finish=_TUE),
+                Task(id="B", name="B", duration=timedelta(days=2)),
+            ],
+            [],
+            (_TUE, False),
+            id="live-work-ends-on-its-day",
+        ),
+        pytest.param(
+            [_closed("M", actual_start=_SAT, actual_finish=_SAT)],
+            [],
+            (_SAT, True),
+            id="standalone-on-a-weekend",
+        ),
+        pytest.param(
+            [
+                _closed("A", 2, actual_start=date(2026, 3, 19), actual_finish=_SAT),
+                _closed("M", actual_start=_SAT, actual_finish=_SAT),
+            ],
+            [("A", "M")],
+            (_SAT, False),
+            id="weekend-with-work-finishing-that-day",
+        ),
+    ],
+)
+def test_a_closed_milestone_finish_is_read_on_its_cpm_edge(
+    tasks: list[Task], links: list[tuple[str, str]], expected: tuple[date, bool]
+) -> None:
+    """Zero variance reproduces the CPM finish of a closed milestone, edge included (#4601).
+
+    A closed milestone stays an instant on the edge of its day it had live (#4343,
+    #4433, #4525): the start of the day when nothing, or work that ended earlier,
+    placed it. Monte Carlo read every completed column as work ending at the end of
+    its day, so the percentiles sat a working day after the CPM finish.
+    """
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 16),
+        tasks=tasks,
+        dependencies=[Dependency(u, v) for u, v in links],
+    )
+    assert _cpm_reading(project) == expected
+    assert _readings(monte_carlo(project, runs=10, seed=1)) == {expected}
+
+
+def _zero_variance(project: Project) -> Project:
+    """``project`` with every three-point estimate removed, so each run samples ``duration``."""
+    for t in project.tasks:
+        t.optimistic_duration = t.most_likely_duration = t.pessimistic_duration = None
+    return project
+
+
+def _split_milestone_actuals(project: Project) -> bool:
+    """A zero-duration task with differing actual dates: #4458, placed inconsistently today."""
+    return any(
+        t.duration == timedelta(0)
+        and t.actual_start is not None
+        and t.actual_finish is not None
+        and t.actual_start != t.actual_finish
+        for t in project.tasks
+    )
+
+
+@pytest.mark.fuzz
+# The issue's repro: the gate profile's 200 draws rarely close a milestone that
+# finishes the project, so it is pinned rather than left to the search.
+@example(
+    project=Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 16),
+        tasks=[_closed("M", actual_start=_TUE, actual_finish=_TUE)],
+    )
+)
+@given(project=_plausible_projects())
+def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
+    """Every percentile of a deterministic project is the CPM finish, edge included (#4601).
+
+    The edge half is what a closed milestone finishing the project broke. Two input
+    classes with their own open defects are left out: split milestone actuals
+    (#4458), until the engines agree on where such a milestone is, and a completed
+    task finishing before the project start (#4430), which Monte Carlo cannot show
+    before its index begins.
+    """
+    project = _zero_variance(project)
+    if _split_milestone_actuals(project):
+        return
+    try:
+        cpm = schedule(project)
+    except SchedulerError:
+        return
+    # TODO(#4430): drop this carve-out with the one in test_contract_fuzz.
+    if any(t.early_finish is not None and t.early_finish < project.start_date for t in cpm.tasks):
+        return
+    expected = _cpm_reading(project)
+    mc = _simulate(project)
+    assert mc is not None
+    assert _readings(mc) == {expected}
+
+
 @pytest.mark.parametrize(
     ("lag_days", "estimates", "p50_at_day_start"),
     [

@@ -703,6 +703,19 @@ def monte_carlo(
     completed_finish_floor = (
         max(ef_date for _es_date, ef_date in completed_dates.values()) if completed_dates else None
     )
+    # A closed milestone is still an instant on the edge of its day it had live
+    # (#4343, #4433, #4525), and schedule() reports that edge. One shown at the start
+    # of its day finishes there in working time, not at the end of it (#4601).
+    completed_start_ids = frozenset(
+        tid for tid, (_day, start_display) in completed_instants.items() if start_display
+    )
+    # The floor is a start-of-day reading only when every completed task reaching it
+    # is such a milestone: completed work ending that day ends at the end of it.
+    completed_floor_at_day_start = completed_finish_floor is not None and all(
+        tid in completed_start_ids
+        for tid, (_es_date, ef_date) in completed_dates.items()
+        if ef_date == completed_finish_floor
+    )
 
     verbatim_actuals = _mc_verbatim_actuals(
         project, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal, sf_linked_ids
@@ -735,7 +748,8 @@ def monte_carlo(
     # the end of a Friday and the start of the next Monday are the same position.
     # A zero-base column is that instant in the runs that placed it (#4698).
     wt_mat = ef_mat
-    milestone_cols = [task_idx[tid] for tid in milestone_ids]
+    # A closed start-of-day milestone's pinned ES is its instant the same way (#4601).
+    milestone_cols = [task_idx[tid] for tid in milestone_ids | completed_start_ids]
     has_instants = bool(milestone_cols or instant_runs)
     if has_instants:
         wt_mat = ef_mat.copy()
@@ -744,11 +758,13 @@ def monte_carlo(
             col = task_idx[tid]
             wt_mat[is_instant, col] = es_mat[is_instant, col]
     # The floor wins over the index only when it is later; it is a start-of-day
-    # reading exactly when it comes from a milestone shown at the start of its
-    # non-working actual day and no completed work finishes that day or later.
-    floor_at_day_start = milestone_finish_floor is not None and (
+    # reading exactly when every source reaching it is a milestone shown at the start
+    # of its day: a live one on its non-working actual day, or a closed one (#4601).
+    # Completed work finishing that day reads it as the end of the day.
+    live_floor_wins = milestone_finish_floor is not None and (
         completed_finish_floor is None or milestone_finish_floor > completed_finish_floor
     )
+    floor_at_day_start = live_floor_wins or completed_floor_at_day_start
     if milestone_finish_floor is not None:
         # A live milestone shown on its non-working actual day is a finish date the
         # working-day index cannot hold; floor at it as at completed work (#4175).
