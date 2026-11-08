@@ -45,6 +45,45 @@ jupyter notebook packages/scheduler/notebooks/
 
 Negative lag (lead) is supported on every type.
 
+<svg viewBox="0 0 720 340" role="img" aria-label="The four task dependency types. Arrows run from predecessor A to successor B: FS finish to start, SS start to start, FF finish to finish, SF start to finish." style="width:100%;height:auto;max-width:720px;display:block;margin:1.5rem auto" xmlns="http://www.w3.org/2000/svg">
+<style>.tlc{fill:var(--sl-color-bg);stroke:var(--sl-color-gray-4);stroke-width:1}.tla{fill:var(--sl-color-accent-low);stroke:var(--sl-color-accent)}.tlg{fill:var(--sl-color-gray-6);stroke:var(--sl-color-gray-5)}.tlk{stroke-width:2;stroke:var(--sl-color-gray-3)}.tlx{fill:var(--sl-color-white);font-size:14px}.tlb{font-weight:600}.tls{fill:var(--sl-color-gray-2);font-size:12px}.tll{fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.5;stroke-linejoin:round}.tld{stroke-dasharray:5 4}.tlm{fill:var(--sl-color-gray-3)}</style>
+<defs><marker id="tlh" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="tlm" d="M0 0 L8 4 L0 8 Z"/></marker></defs>
+<rect class="tlg" x="10" y="10" width="345" height="155" rx="12"/>
+<text class="tlx tlb" x="26" y="34" text-anchor="start" dominant-baseline="central">FS · Finish-to-Start</text>
+<text class="tls" x="26" y="56" text-anchor="start" dominant-baseline="central">B can start once A has finished</text>
+<rect class="tlg" x="365" y="10" width="345" height="155" rx="12"/>
+<text class="tlx tlb" x="381" y="34" text-anchor="start" dominant-baseline="central">SS · Start-to-Start</text>
+<text class="tls" x="381" y="56" text-anchor="start" dominant-baseline="central">B can start once A has started</text>
+<rect class="tlg" x="10" y="175" width="345" height="155" rx="12"/>
+<text class="tlx tlb" x="26" y="199" text-anchor="start" dominant-baseline="central">FF · Finish-to-Finish</text>
+<text class="tls" x="26" y="221" text-anchor="start" dominant-baseline="central">B can finish once A has finished</text>
+<rect class="tlg" x="365" y="175" width="345" height="155" rx="12"/>
+<text class="tlx tlb" x="381" y="199" text-anchor="start" dominant-baseline="central">SF · Start-to-Finish</text>
+<text class="tls" x="381" y="221" text-anchor="start" dominant-baseline="central">B can finish once A has started</text>
+<path class="tll" d="M164 92 H182 V136 H209" marker-end="url(#tlh)"/>
+<rect class="tla" x="34" y="78" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="99.0" y="92.0" text-anchor="middle" dominant-baseline="central">Task A</text>
+<rect class="tlc" x="210" y="122" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="275.0" y="136.0" text-anchor="middle" dominant-baseline="central">Task B</text>
+<path class="tll" d="M405 92 H389 V136 H444" marker-end="url(#tlh)"/>
+<rect class="tla" x="405" y="78" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="470.0" y="92.0" text-anchor="middle" dominant-baseline="central">Task A</text>
+<rect class="tlc" x="445" y="122" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="510.0" y="136.0" text-anchor="middle" dominant-baseline="central">Task B</text>
+<path class="tll" d="M164 257 H272 V301 H251" marker-end="url(#tlh)"/>
+<rect class="tla" x="34" y="243" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="99.0" y="257.0" text-anchor="middle" dominant-baseline="central">Task A</text>
+<rect class="tlc" x="120" y="287" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="185.0" y="301.0" text-anchor="middle" dominant-baseline="central">Task B</text>
+<path class="tll" d="M565 257 H541 V301 H520" marker-end="url(#tlh)"/>
+<rect class="tla" x="565" y="243" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="630.0" y="257.0" text-anchor="middle" dominant-baseline="central">Task A</text>
+<rect class="tlc" x="389" y="287" width="130" height="28" rx="8"/>
+<text class="tlx tlb" x="454.0" y="301.0" text-anchor="middle" dominant-baseline="central">Task B</text>
+</svg>
+
+Each arrow runs from predecessor A to successor B and connects the two points of those tasks that the link type constrains; lag shifts the constraint on the arrow's target.
+
 `FF` and `SF` constrain the successor's **finish**, and a finish is the *end* of
 its last working day. An `SF` link with zero lag therefore lets the successor
 finish at the *start* of the predecessor's first day, which puts the
