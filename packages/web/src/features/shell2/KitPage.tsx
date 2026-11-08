@@ -1,4 +1,5 @@
 import { Navigate, useNavigate, useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { supportCode } from '@/lib/supportCode';
 import { Button } from '@/components/Button';
@@ -12,7 +13,7 @@ import { Avatar, AvatarStack, UnassignedAvatar } from '@/components/page2/Avatar
 import { HealthBandChip, StatusChip, type StatusTone } from '@/components/page2/StatusChip';
 import { NotComputable } from '@/components/page2/NotComputable';
 import { DefinitionTip } from '@/components/page2/DefinitionTip';
-import { FOCUS_RING, HIT_44 } from '@/components/page2/classes';
+import { FOCUS_RING, HIT_44, PAGE_BUTTON } from '@/components/page2/classes';
 import { TYPE } from '@/components/page2/typeScale';
 import { SHELL_V2_FLAG } from './ShellGate';
 
@@ -147,14 +148,18 @@ function KitPageBody() {
   const navigate = useNavigate();
   const bleed = params.get('width') === 'bleed';
   const filtered = params.get('filtered') === '1';
+  // Mounted under a project route the context header is the visible title.
+  const underContext = useProjectId() !== undefined;
 
-  const toolbarButton = `inline-flex h-8 items-center rounded-md border border-p1-hairline px-3 text-[13px] text-p1-text-1 hover:bg-p1-surface-2 [@media(pointer:coarse)]:h-11 max-md:h-11 ${FOCUS_RING}`;
+  const toolbarButton = `inline-flex h-8 items-center rounded-md border border-p1-hairline px-3 ${TYPE.body} text-p1-text-1 hover:bg-p1-surface-2 [@media(pointer:coarse)]:h-11 max-md:h-11 ${FOCUS_RING}`;
 
   return (
     <PageFrame
       width={bleed ? 'bleed' : 'contained'}
+      titleHidden={underContext}
       header={
         <PageTitle
+          visuallyHidden={underContext}
           back={{ label: 'Home', onBack: () => void navigate('/') }}
           description="Pass 2 page conventions, mounted with fixture data."
         >
@@ -169,7 +174,7 @@ function KitPageBody() {
       toolbarOverride={
         filtered ? (
           <>
-            <span className="text-[13px] text-p1-text-2">2 filters applied</span>
+            <span className={`${TYPE.body} text-p1-text-2`}>2 filters applied</span>
             <button type="button" className={toolbarButton} onClick={noop}>
               Clear filters
             </button>
@@ -263,10 +268,16 @@ function KitPageBody() {
             title="No risks logged yet"
             description="Risks you log here feed the forecast and the health band."
             actions={[
-              <Button key="add" size="sm" onClick={noop}>
+              <Button key="add" size="sm" className={PAGE_BUTTON} onClick={noop}>
                 Log a risk
               </Button>,
-              <Button key="import" size="sm" variant="secondary" onClick={noop}>
+              <Button
+                key="import"
+                size="sm"
+                variant="secondary"
+                className={PAGE_BUTTON}
+                onClick={noop}
+              >
                 Import from CSV
               </Button>,
             ]}

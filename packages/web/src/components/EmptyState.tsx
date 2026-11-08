@@ -28,6 +28,12 @@ interface PageEmptyStateProps {
   icon?: never;
   title: string;
   description?: ReactNode;
+  /**
+   * At most two. Each must be a 44px target on a coarse pointer or phone (rule
+   * 5): the shared `Button` is 28-40px, so pass `PAGE_BUTTON` from
+   * `components/page2/classes` as its `className` (it also swaps in the Pass 2
+   * focus ring).
+   */
   actions?: readonly [ReactNode] | readonly [ReactNode, ReactNode];
   className?: string;
 }

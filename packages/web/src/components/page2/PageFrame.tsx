@@ -18,6 +18,13 @@ export interface PageFrameProps {
    * three rows at most, so a fourth is never available to stack into.
    */
   toolbarOverride?: ReactNode;
+  /**
+   * The header's title is visually hidden (the shell's context header is the
+   * visible title). The toolbar then sits flush under the context header
+   * instead of taking the frame's top padding, which is what keeps the page
+   * inside the 191px budget there.
+   */
+  titleHidden?: boolean;
   children: ReactNode;
 }
 
@@ -37,21 +44,28 @@ const GUTTER = 'px-4 md:px-5 lg:px-6 2xl:px-8';
  *
  * Not a landmark: `AppShell2` owns the one `<main>` (rule 273).
  */
-export function PageFrame({ width, header, toolbar, toolbarOverride, children }: PageFrameProps) {
+export function PageFrame({
+  width,
+  header,
+  toolbar,
+  toolbarOverride,
+  titleHidden = false,
+  children,
+}: PageFrameProps) {
   const toolbarRow = toolbarOverride ?? toolbar;
   const contained = width === 'contained';
   const inner = contained ? 'mx-auto w-full max-w-[1120px]' : 'w-full';
   return (
     <div data-testid="page-frame" data-width={width} className="flex min-h-full flex-col">
       {(header || toolbarRow) && (
-        <div className={`${GUTTER} pt-4 md:pt-5`}>
+        <div className={`${GUTTER} ${titleHidden ? 'pt-0' : 'pt-4 md:pt-5'}`}>
           <div className={`${inner} flex flex-col gap-3`}>
             {header}
             {toolbarRow && (
               <div
                 data-testid="page-frame-toolbar"
                 data-override={toolbarOverride ? 'true' : undefined}
-                className="flex min-h-11 items-center gap-2"
+                className="flex min-h-11 items-center gap-2 md:min-h-9 md:[@media(pointer:coarse)]:min-h-11"
               >
                 {toolbarRow}
               </div>

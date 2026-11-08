@@ -610,6 +610,18 @@ export const routes: RouteObject[] = [
                   // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
                   // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
                   { index: true, element: <ProjectIndexRedirect /> },
+                  // Pass 2 page-kit fixture UNDER the project context header (#4795):
+                  // the only place the "page starts at <= 191px" budget is measurable
+                  // with the real header above it. Redirects home when shell_v2 is off.
+                  {
+                    path: 'shell2-kit',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <KitPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Page kit' } satisfies RouteHandle,
+                  },
                   {
                     path: 'overview',
                     element: (

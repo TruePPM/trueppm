@@ -22,3 +22,11 @@ export const HIT_44 =
  */
 export const FOCUS_RING =
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus focus-visible:ring-offset-2 focus-visible:ring-offset-p1-surface-1';
+
+/**
+ * Pass 2 treatment for the shared `Button` (28/32/40px, brand ring at offset 1):
+ * 44px on a coarse pointer or phone, and the Pass 2 ring. The `!` wins over the
+ * Button's own `focus:` ring recipe, which it cannot be told to drop.
+ */
+export const PAGE_BUTTON =
+  '[@media(pointer:coarse)]:h-11 max-md:h-11 focus:!ring-p1-focus focus:!ring-offset-2 focus:!ring-offset-p1-surface-1';

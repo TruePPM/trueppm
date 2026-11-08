@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { TABLE_HEADER_CELL, TABLE_ROW_HEIGHT } from './page2/DataTable';
@@ -50,7 +50,10 @@ describe('LoadingSkeleton — Pass 2 table variant (rule 439)', () => {
       <LoadingSkeleton
         variant="table"
         label="Loading tasks…"
-        columns={[{ header: 'Task' }, { header: 'Finish', numeric: true }]}
+        columns={[
+          { key: 'task', header: 'Task' },
+          { key: 'finish', header: 'Finish', numeric: true },
+        ]}
         count="24 tasks"
         rows={4}
       />,
@@ -71,8 +74,8 @@ describe('LoadingSkeleton — Pass 2 table variant (rule 439)', () => {
         variant="table"
         label="Loading tasks…"
         columns={[
-          { header: 'Task', width: '240px' },
-          { header: 'Float', width: '96px', numeric: true },
+          { key: 'task', header: 'Task', width: '240px' },
+          { key: 'float', header: 'Float', width: '96px', numeric: true },
         ]}
         rows={2}
       />,
@@ -91,10 +94,34 @@ describe('LoadingSkeleton — Pass 2 table variant (rule 439)', () => {
       <LoadingSkeleton
         variant="table"
         label="Loading…"
-        columns={[{ header: 'Task' }]}
+        columns={[{ key: 'task', header: 'Task' }]}
         density="dense"
       />,
     );
     expect(screen.getAllByTestId('skeleton-row')[0].className).toContain(TABLE_ROW_HEIGHT.dense);
+  });
+});
+
+describe('LoadingSkeleton table — column identity', () => {
+  it('keys cells by column key, so two columns with an empty header both render', () => {
+    const errors: unknown[][] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a) => {
+      errors.push(a);
+    });
+    const { container } = render(
+      <LoadingSkeleton
+        variant="table"
+        label="Loading…"
+        columns={[
+          { key: 'a', header: '' },
+          { key: 'b', header: '' },
+        ]}
+        rows={2}
+      />,
+    );
+    expect(container.querySelectorAll('thead th')).toHaveLength(2);
+    expect(container.querySelectorAll('tbody tr:first-child td')).toHaveLength(2);
+    expect(errors.filter((a) => String(a[0]).includes('same key'))).toHaveLength(0);
+    spy.mockRestore();
   });
 });

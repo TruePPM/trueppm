@@ -74,6 +74,48 @@ test.describe('shell v2 page kit', () => {
       await expectNoA11yViolations(page, testInfo);
     });
 
+    test('under a project context header the page still starts at 191px or less', async ({
+      page,
+    }) => {
+      const projectId = 'e2e-shell2-0000-0000-0000-000000000001';
+      const programId = 'e2e-shell2-prog-0000-0000-000000000001';
+      await page.addInitScript(() => {
+        localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: true }));
+      });
+      await setupAuth(page);
+      await setupCatchAll(page);
+      await setupApiMocks(page, {
+        projects: [
+          {
+            id: projectId,
+            name: 'Atlas Migration',
+            description: '',
+            start_date: '2026-04-01',
+            calendar: 'default',
+            program: programId,
+            program_detail: { id: programId, name: 'Platform Modernization' },
+          },
+        ],
+        projectId,
+      });
+      await page.route('**/api/v1/programs/', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+        }),
+      );
+      await page.goto(`/projects/${projectId}/shell2-kit`);
+      await expect(page.getByTestId('shell2-context-title')).toHaveText('Atlas Migration', {
+        timeout: 10_000,
+      });
+      await expect(page.getByTestId('page-frame-toolbar')).toBeVisible();
+      // Real context header (title row + tab row) above the frame: the body is
+      // what the budget measures.
+      const top = (await body(page).boundingBox())?.y ?? Infinity;
+      expect(top).toBeLessThanOrEqual(191);
+    });
+
     test('a filters-applied row replaces the toolbar, never stacks under it', async ({ page }) => {
       await open(page);
       const plainTop = (await body(page).boundingBox())?.y ?? Number.NaN;
@@ -119,6 +161,21 @@ test.describe('shell v2 page kit', () => {
     });
   }
 
+  test.describe('coarse pointer at desktop width', () => {
+    test.use({ viewport: { width: 1440, height: 900 }, hasTouch: true });
+
+    test('page-state actions and the toolbar are 44px targets', async ({ page }) => {
+      await open(page);
+      const coarse = await page.evaluate(() => window.matchMedia('(pointer: coarse)').matches);
+      test.skip(!coarse, 'Chromium did not emulate a coarse primary pointer here');
+      const empty = page.getByTestId('empty-state');
+      for (const name of ['Log a risk', 'Import from CSV']) {
+        const box = await empty.getByRole('button', { name }).boundingBox();
+        expect(Math.round(box?.height ?? 0)).toBe(44);
+      }
+    });
+  });
+
   test.describe('phone 390', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
@@ -128,6 +185,13 @@ test.describe('shell v2 page kit', () => {
       await open(page);
       await expect(body(page)).toHaveCSS('padding-left', '16px');
       await expect(page.getByRole('button', { name: 'Home' })).toBeVisible();
+      for (const name of ['Log a risk', 'Import from CSV']) {
+        const box = await page
+          .getByTestId('empty-state')
+          .getByRole('button', { name })
+          .boundingBox();
+        expect(Math.round(box?.height ?? 0)).toBe(44);
+      }
 
       const row = table(page).getByRole('row').nth(1);
       expect(Math.round((await row.boundingBox())?.height ?? 0)).toBe(44);

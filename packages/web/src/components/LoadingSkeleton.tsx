@@ -38,6 +38,8 @@ function Ghost({ className }: { className: string }) {
 
 /** The part of a `DataTableColumn` the skeleton reads. */
 interface SkeletonColumn {
+  /** Stable identity; `header` can be empty or repeated (an actions column). */
+  key: string;
   header: string;
   width?: string;
   numeric?: boolean;
@@ -112,7 +114,7 @@ export function LoadingSkeleton({
               <tr>
                 {columns.map((c) => (
                   <th
-                    key={c.header}
+                    key={c.key}
                     style={c.width ? { width: c.width, minWidth: c.width } : undefined}
                     className={`${TABLE_HEADER_CELL} ${c.numeric ? 'text-right' : 'text-left'}`}
                   >
@@ -130,7 +132,7 @@ export function LoadingSkeleton({
                 >
                   {columns.map((c) => (
                     <td
-                      key={c.header}
+                      key={c.key}
                       className="border-b border-p1-hairline px-3 align-middle group-last:border-b-0"
                     >
                       <span
