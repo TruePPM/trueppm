@@ -56,14 +56,27 @@ def mr_cost(iid, api):
         return None, None, "notes unreadable"
     if not own:
         return None, None, "no cost records"
-    windowed = [r["rec"] for r in own if r["rec"] and r["rec"]["start"]]
-    if not windowed:
-        legacy = any(r["rec"] and not r["rec"]["start"] for r in own)
+    # Any record that is not a clean windowed one makes the MR's sum unknowable: a legacy record's cost is
+    # missing and an unparsed one may be. A partial sum reads low, so the MR is excluded, not summed.
+    if any(r["rec"] is None for r in own):
+        return None, None, "a record did not parse"
+    recs = [r["rec"] for r in own]
+    legacy = [r for r in recs if not r["start"]]
+    if legacy:
         return (
             None,
             None,
-            "legacy record (no window start)" if legacy else "records unparseable",
+            "legacy and windowed records: partial"
+            if len(legacy) < len(recs)
+            else "legacy record (no window start)",
         )
+    # Over-count shapes: the same record twice, or windows that share time, would add one stretch twice.
+    if len({r["k"] for r in recs}) != len(recs):
+        return None, None, "duplicate record"
+    ordered = sorted(recs, key=lambda r: (r["start"], r["end"]))
+    if any(b["start"] < a["end"] for a, b in zip(ordered, ordered[1:])):
+        return None, None, "overlapping windows"
+    windowed = recs
     usd = [r["total"][("usd", "all")] for r in windowed]
     tok = [r["total"][("tok", "all")] for r in windowed]
     # One n/a record makes the sum unknowable; a partial sum would read low, which is worse than excluding.
@@ -111,7 +124,9 @@ def summarize(mrs, api):
         out.append(
             "median subagent-tokens: %d | outliers (>2x median): %s" % (med, big)
         )
-    cands = [m for m in live if has_cost_lines(m.get("description"))][:MAX_MRS]
+    withlines = [m for m in live if has_cost_lines(m.get("description"))]
+    cands = withlines[:MAX_MRS]
+    dropped = len(withlines) - len(cands)
     costs, excluded = [], {}
     for m in cands:
         usd, _t, why = mr_cost(m["iid"], api)
@@ -120,6 +135,19 @@ def summarize(mrs, api):
         else:
             costs.append(float(usd))
     ex = sum(excluded.values())
+    # Every MR read is accounted for: costed + excluded + not read (cap) + no cost lines + ledger off.
+    out.append(
+        "accounted: %d costed + %d excluded + %d not read (cap %d) + %d without cost lines + %d ledger off = %d"
+        % (
+            len(costs),
+            ex,
+            dropped,
+            MAX_MRS,
+            len(live) - len(withlines),
+            len(off),
+            len(mrs),
+        )
+    )
     out.append(
         "cost from windowed `## Cost of this MR` records: %d MR(s) | excluded: %d%s"
         % (
@@ -275,10 +303,10 @@ def self_test():
     check(
         "report prints excluded count with reasons",
         "excluded: 2 (legacy record (no window start): 1, record with n/a cost: 1)"
-        in rep[2],
+        in rep[3],
     )
     check("snapshot est-cost-usd is not the mean", not any("30.00" in x for x in rep))
-    check("under 5 windowed MRs is not enough data", rep[3].startswith("fewer than 5"))
+    check("under 5 windowed MRs is not enough data", rep[4].startswith("fewer than 5"))
     big = [{"iid": 200 + i, "description": desc("1.00", 1)} for i in range(5)]
     ap2 = fake_api(
         {200 + i: [(rec(1, A, B, "%d.00" % (i + 1), 10), 7)] for i in range(5)}
@@ -286,6 +314,72 @@ def self_test():
     check(
         "mean over 5 windowed MRs is the mean of record sums",
         "mean per-MR est cost: 3.00 USD" in "\n".join(summarize(big, ap2)),
+    )
+    # Mixed, unparsed and over-count shapes are excluded, never partially summed.
+    D = "2026-11-04T13:00:00Z"
+    E = "2026-11-04T10:30:00Z"
+    shapes = {
+        301: (
+            [(rec(1, None, A, "9.00", 9), 7), (rec(2, A, B, "1.00", 1), 7)],
+            "legacy and windowed records: partial",
+        ),
+        302: (
+            [
+                (rec(1, A, B, "1.00", 1), 7),
+                ("## Cost of this MR (#1) \u2014 record 2\nnot a record", 7),
+            ],
+            "a record did not parse",
+        ),
+        303: (
+            [(rec(1, A, B, "1.00", 1), 7), (rec(1, B, C, "2.00", 2), 7)],
+            "duplicate record",
+        ),
+        304: (
+            [(rec(1, A, B, "1.00", 1), 7), (rec(2, E, C, "2.00", 2), 7)],
+            "overlapping windows",
+        ),
+        305: (
+            [
+                (rec(1, A, B, "1.00", 1), 7),
+                (rec(2, B, C, "2.00", 2), 7),
+                (rec(3, C, D, "3.00", 3), 7),
+            ],
+            None,
+        ),
+    }
+    sapi = fake_api({k: v[0] for k, v in shapes.items()})
+    for iid, (_n, want) in shapes.items():
+        got = mr_cost(iid, sapi)
+        check(
+            "shape %d: %s" % (iid, want),
+            got[2] == want and (want is None) == (got[0] is not None),
+        )
+    check("adjacent windows sum", mr_cost(305, sapi)[0] == decimal.Decimal("6.00"))
+
+    # Every MR read is accounted for, and the cap drops are counted (removing the slice fails this).
+    many = [
+        {"iid": 400 + i, "description": desc("1.00", 1)} for i in range(MAX_MRS + 3)
+    ]
+    many.append({"iid": 999, "description": "## Gates\ngate: x \u2014 0 findings\n"})
+    cap_rep = "\n".join(summarize(many, fake_api({})))
+    check("cap drops are printed", "3 not read (cap %d)" % MAX_MRS in cap_rep)
+    check("MRs without cost lines are counted", "1 without cost lines" in cap_rep)
+    check("accounting sums to MRs read", "= %d" % (MAX_MRS + 4) in cap_rep)
+
+    # A record rendered by cost-table's own renderer, so a renderer change is caught here.
+    gates = "## Gates\nsubagent-tokens: 100\norchestrator-tokens: 200\nest-cost-usd: 1.25 (prices 2026-11-01)\n"
+    rend = "\n".join(ct.comment_lines(gates, 4884, B, None, 1, A)) + "\n"
+    rapi = fake_api({600: [(rend, 7)]})
+    rusd, rtok, rwhy = mr_cost(600, rapi)
+    check(
+        "a renderer-produced windowed record is read",
+        rwhy is None and rusd == decimal.Decimal("1.25") and rtok == 300,
+    )
+    legacy_rend = "\n".join(ct.comment_lines(gates, 4884, B)) + "\n"
+    check(
+        "a renderer-produced legacy record is excluded",
+        mr_cost(601, fake_api({601: [(legacy_rend, 7)]}))[2]
+        == "legacy record (no window start)",
     )
     if fails:
         for f in fails:

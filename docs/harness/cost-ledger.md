@@ -124,10 +124,13 @@ lines are only as consistent as the skills that write them.
   (trueppm#4884).** `/kaizen` (§ *Cost beside yield*) runs `scripts/mr-cost-means.py`, which reads
   each MR's `## Cost of this MR` notes with `cost-table.py`'s parser and sums every record that
   states `Window: S to U` (so a multi-record MR is the sum of its records' own **Total** rows). An
-  MR with only legacy `Window end:` records (their orchestrator row is cumulative from the session
-  start, so they overlap), no records, unreadable notes, or a record whose cost is `n/a` is
-  **excluded** from the cost mean, never read as 0, and the script prints how many were excluded
-  and why. `subagent-tokens:` from `## Gates` is per-branch and is still read from the description.
+  MR is **excluded** from the cost mean, never read as 0, and the script prints how many were
+  excluded and why, when it has: no records; unreadable notes; any record that did not parse; any
+  legacy `Window end:` record, even beside windowed ones (the legacy orchestrator row is cumulative
+  from the session start so it overlaps, and summing only the windowed part would read low); a
+  duplicate record number or two overlapping windows (the sum would count a stretch twice); or a
+  record whose cost is `n/a`. The script also prints an accounting line so every MR read is
+  counted: costed + excluded + not read (the 100-MR cap) + without cost lines + ledger off. `subagent-tokens:` from `## Gates` is per-branch and is still read from the description.
   `cost-table.py` renders a fixed line on any record without a window start (the `--file` path when
   `--since` is not given): its orchestrator row is not windowed and must not be compared or added.
   The hook and `--retry` always pass `--since`, so this only applies to a hand-run `--file`.
