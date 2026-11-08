@@ -10,7 +10,7 @@ Use it with [Deployment](/administration/deployment/) to install, [Backup & Rest
 
 ## Ships today
 
-The chart renders five long-running workloads plus two optional ones. Everything below is verified against `packages/helm/templates/` and `values.yaml`.
+The chart renders six long-running workloads (web, api, celery-worker, celery-beat, PostgreSQL and Valkey), plus three optional pieces: the Ingress, the media PVC and the backup CronJob. The object-storage bucket is yours to provide. Everything below is verified against `packages/helm/templates/` and `values.yaml`.
 
 ```mermaid
 flowchart TB
@@ -108,7 +108,7 @@ flowchart TB
 
     subgraph vkha["PLANNED, NOT SHIPPED: replicated Valkey (#3404)"]
         vkp[("<b>Valkey primary</b>")]:::planned
-        vkr[("<b>Valkey replica(s)</b><br/>with Sentinel")]:::planned
+        vkr[("<b>Valkey replica(s)</b><br/>automatic failover<br/>(mechanism still open)")]:::planned
     end
 
     user --> web
@@ -128,7 +128,7 @@ flowchart TB
     classDef planned fill:#ffffff,stroke:#8a8378,stroke-width:1.5px,stroke-dasharray:5 4,color:#141413
 ```
 
-Dashed boxes are planned. In this diagram only the application tier exists today.
+Dashed boxes are planned. In this diagram only the application tier exists today. The Ingress, media PVC, object storage and backup paths are not redrawn; they are unchanged from [Ships today](#ships-today).
 
 This is the **single-cluster** line: surviving the loss of a pod or node inside one cluster. It does not survive the loss of the cluster or the region. Cross-region replication, geo failover and managed backup verification are Enterprise features and are not drawn here.
 
@@ -136,4 +136,4 @@ A few things to plan around while this is still ahead of you:
 
 - **Managed services remain fully supported** and are the way to get HA or PITR today. Nothing in the planned work removes that option.
 - **A logical backup stays useful.** WAL archiving adds point-in-time recovery; it does not replace the dump-and-restore runbook above, and Valkey is still not part of any backup.
-- **Sentinel client support already exists, but no Sentinel nodes are deployed.** The chart can be pointed at Sentinels you run yourself (`valkey.sentinel`, experimental). What is planned is the chart standing up the replicated Valkey for you.
+- **Sentinel client support already exists, but no Sentinel nodes are deployed.** The chart can be pointed at Sentinels you run yourself (`valkey.sentinel`, experimental). What is planned is the chart standing up a replicated Valkey with automatic failover for you; whether that uses Sentinel or a Valkey operator is still open in [#3404](https://gitlab.com/trueppm/trueppm/-/issues/3404).
