@@ -1477,36 +1477,49 @@ def work_moved_earlier_by_a_slip(
     return out
 
 
-@pytest.mark.fuzz
-@pytest.mark.xfail(
+#: The open #4883 shapes: each moves work earlier when a predecessor slips.
+KNOWN_4883_SHAPES = (
+    SS_SLIP_INTO_A_TIED_SNET_MILESTONE,
+    SS_SLIP_INTO_A_TIED_MONDAY_SNET,
+    FS_SLIP_INTO_A_TIED_MONDAY_SNET,
+    FF_SLIP_INTO_A_TIED_MONDAY_SNET,
+)
+
+_4883_XFAIL = pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason="TODO(#4883): a floor that only ties a milestone's link (#4690) hands its "
     "successors the link's earlier midnight, so slipping a predecessor into the tie "
-    "moves them earlier; when this XPASSes, drop xfail",
+    "moves them earlier; when these XPASS, delete the xfail",
 )
+
+
+@pytest.mark.fuzz
 @given(progress_projects())
-@example(SS_SLIP_INTO_A_TIED_SNET_MILESTONE)
-@example(SS_SLIP_INTO_A_TIED_MONDAY_SNET)
-@example(FS_SLIP_INTO_A_TIED_MONDAY_SNET)
-@example(FF_SLIP_INTO_A_TIED_MONDAY_SNET)
 def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) -> None:
+    """Live: a later predecessor never moves live work downstream of it earlier.
+
+    The generator does not reach #4883's tie shape on the default run, so no filter
+    carves it out; its known repros are pinned below as strict xfails instead.
+    """
     problems = work_moved_earlier_by_a_slip(project, python_run)
     assert not problems, "\n".join([repr(project), *problems])
 
 
-@pytest.mark.parametrize(
-    "project",
-    [
-        SS_SLIP_INTO_A_TIED_SNET_MILESTONE,
-        SS_SLIP_INTO_A_TIED_MONDAY_SNET,
-        FS_SLIP_INTO_A_TIED_MONDAY_SNET,
-        FF_SLIP_INTO_A_TIED_MONDAY_SNET,
-    ],
-)
-def test_each_4883_shape_moves_work_earlier_today(project: RefProject) -> None:
-    """Each pinned #4883 shape fails the relation on its own, so the strict xfail
-    above cannot be held up by one of them alone. Delete with that xfail."""
-    assert work_moved_earlier_by_a_slip(project, python_run) != []
+@_4883_XFAIL
+@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
+def test_slip_into_a_tied_milestone_floor_moves_nothing_earlier(project: RefProject) -> None:
+    problems = work_moved_earlier_by_a_slip(project, python_run)
+    assert not problems, "\n".join(problems)
+
+
+@_4883_XFAIL
+@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
+def test_rust_slip_into_a_tied_milestone_floor_moves_nothing_earlier(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    problems = work_moved_earlier_by_a_slip(project, rust_engine.run)
+    assert not problems, "\n".join(problems)
 
 
 @pytest.mark.fuzz
@@ -1874,6 +1887,7 @@ def test_rust_close_or_start_at_forecast_moves_nothing(
 
 @pytest.mark.fuzz
 @given(project=progress_projects())
+@example(project=SS_SLIP_INTO_A_TIED_SNET_MILESTONE)
 def test_rust_floats_survive_perturbation(rust_engine: RustRunner, project: RefProject) -> None:
     assert_floats_survive_perturbation(project, rust_engine.run)
 
