@@ -214,6 +214,9 @@ test.describe('phone quick-log sheet (#4762)', () => {
     });
     await page.goto('/me/work');
     await expect(bar(page)).toBeVisible({ timeout: 10_000 });
+    // The sheet reads the My Work cache the page filled; going offline before that fetch
+    // lands leaves a never-fetched query paused ("Loading…"), so gate on the row first.
+    await expect(page.getByText('Write the spec').first()).toBeVisible({ timeout: 10_000 });
     await context.setOffline(true);
     await bar(page).click();
     const sheet = page.getByRole('dialog', { name: 'Log time' });
