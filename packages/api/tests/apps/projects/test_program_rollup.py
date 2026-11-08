@@ -3,9 +3,10 @@
 Covers:
 - RBAC: any program member can GET the rollup; non-members 404; anon 401.
 - Empty program → project_count 0, program_health "unknown", zero/None KPIs.
-- Only enabled KPIs appear; the deferred KPI (p80_completion) returns
-  {available: false, reason}; cost KPIs are cost_restricted for a program Member
-  (ADR-1324 — their computation is covered in test_cost.py).
+- Only enabled KPIs appear; cost KPIs are cost_restricted for a program Member
+  (ADR-1324 — their computation is covered in test_cost.py). Provenance
+  (definitions, as_of, rule-119 reasons, program_health as the project band
+  rolled up, p80_completion) is covered in test_program_rollup_provenance.py.
 - Count/score KPIs (critical_tasks, at_risk_tasks, risk_score) roll up as
   program totals regardless of policy.
 - Health/variance KPIs honor the policy: worst vs average reduce differently.
@@ -169,11 +170,17 @@ def test_empty_program_is_unknown_with_zero_kpis(member: object, program: Progra
     data = _client(member).get(_url(program)).data
     assert data["project_count"] == 0
     assert data["program_health"] == "unknown"
-    assert data["kpis"]["schedule_health"] == {"available": True, "value": "unknown"}
+    assert data["program_health_reason"] == "no_projects"
+    assert data["kpis"]["schedule_health"] == {
+        "available": True,
+        "value": "unknown",
+        "reason": "no_projects",
+    }
     assert data["kpis"]["critical_tasks"] == {"available": True, "value": 0}
-    # Variance with no baselines is built-but-no-data → value None.
+    # Variance with no baselines is built-but-no-data → value None, with a reason.
     assert data["kpis"]["baseline_variance"]["available"] is True
     assert data["kpis"]["baseline_variance"]["value"] is None
+    assert data["kpis"]["baseline_variance"]["reason"] == "no_projects"
 
 
 @pytest.mark.django_db
@@ -184,7 +191,7 @@ def test_only_enabled_kpis_appear(member: object, program: Program) -> None:
 
 
 @pytest.mark.django_db
-def test_deferred_and_restricted_kpis_are_unavailable_with_reason(
+def test_restricted_kpis_are_unavailable_and_p80_is_null_with_reason(
     member: object, program: Program
 ) -> None:
     _configure(
@@ -200,7 +207,10 @@ def test_deferred_and_restricted_kpis_are_unavailable_with_reason(
     # A program Member never receives a cost value (ADR-1324 §4).
     assert kpis["cost_variance"] == {"available": False, "reason": "cost_restricted"}
     assert kpis["budget_utilization"] == {"available": False, "reason": "cost_restricted"}
-    assert kpis["p80_completion"] == {"available": False, "reason": "no_montecarlo_store"}
+    # No longer deferred (#4779): computed, and null with a reason on an empty program.
+    assert kpis["p80_completion"]["available"] is True
+    assert kpis["p80_completion"]["value"] is None
+    assert kpis["p80_completion"]["reason"] == "no_projects"
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +294,10 @@ def test_schedule_health_worst_takes_the_critical_project(
     _configure(program, [RollupKpi.SCHEDULE_HEALTH.value], AggregationPolicy.WORST.value)
     data = _client(member).get(_url(program)).data
     assert data["kpis"]["schedule_health"]["value"] == "critical"
-    assert data["program_health"] == "critical"
+    # program_health is the project health band rolled up, not the SPI rollup
+    # (ADR-1314 amendment, #4779): neither project has a critical or low-float
+    # task, so both project bands — and the program's — read on track.
+    assert data["program_health"] == "on_track"
 
 
 @pytest.mark.django_db
@@ -354,8 +367,9 @@ def test_top_contributing_project_tie_break_excludes_phase_rows(
     """The worst-project tie-break's critical_counts must not double-count a
     phase on top of the leaf whose `is_critical` it rolled up (#4276).
 
-    Both projects land in the same health band (critical, SPI 0 via
-    :func:`_make_critical_project`). Project "AAA" has ONE real critical leaf
+    Both projects land in the same project health band (critical: each has open
+    critical-path leaf work, the band ``top_contributing_project`` ranks by since
+    #4779). Project "AAA" has ONE real critical leaf
     wrapped in a phase; project "BBB" has TWO separate critical leaf tasks.
     Unfixed, the phase inflates "AAA"'s count to a tie (2 vs 2), and the
     tie-break's ascending-name fallback then picks "AAA" — the wrong project,
@@ -610,11 +624,14 @@ def test_schedule_health_day_boundary_follows_configured_timezone(
     # 23:30 on 2026-06-15 UTC is still the 15th in UTC but already the 16th at UTC+14.
     frozen_now = datetime.datetime(2026, 6, 15, 23, 30, tzinfo=datetime.UTC)
 
+    # The SPI band is the day-boundary-sensitive one; program_health is the project
+    # health band since #4779 and does not read today.
+    _configure(program, [RollupKpi.SCHEDULE_HEALTH.value], AggregationPolicy.WORST.value)
     with patch("django.utils.timezone.now", return_value=frozen_now):
         with override_settings(TIME_ZONE="UTC"):
-            utc_health = compute_program_rollup(program)["program_health"]
+            utc_health = compute_program_rollup(program)["kpis"]["schedule_health"]["value"]
         with override_settings(TIME_ZONE="Pacific/Kiritimati"):
-            kiritimati_health = compute_program_rollup(program)["program_health"]
+            kiritimati_health = compute_program_rollup(program)["kpis"]["schedule_health"]["value"]
 
     # UTC today = 06-15: the task is not yet due → no due-by-today work → unknown.
     assert utc_health == "unknown"

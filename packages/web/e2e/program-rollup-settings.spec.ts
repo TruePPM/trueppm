@@ -49,10 +49,11 @@ const FIXTURE_PROGRAM = {
 const FIXTURE_CONFIG = {
   enabled_kpis: ['schedule_health', 'milestone_health', 'p80_completion'],
   aggregation_policy: 'worst',
-  // Mirrors the server's DEFERRED_KPI_REASONS (#2404). p80_completion is both
-  // unavailable and already enabled here — the stale-config case the picker has
-  // to keep switchable OFF.
-  // The cost KPIs left that map with the cost model (#754/#3426): they compute.
+  // Exercises the server's DEFERRED_KPI_REASONS lock path (#2404). The server
+  // defers no KPI since #4779 (the cost KPIs left with #754/#3426, p80_completion
+  // with #4779), so this fixture keeps one deferred on purpose: p80_completion is
+  // both unavailable and already enabled here — the stale-config case the picker
+  // has to keep switchable OFF.
   unavailable_kpis: {
     p80_completion: 'no_montecarlo_store',
   },

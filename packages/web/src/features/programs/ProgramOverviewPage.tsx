@@ -25,19 +25,27 @@ type AggregationPolicy = 'worst' | 'average' | 'weighted_by_budget' | 'task_weig
 /**
  * A built KPI: value present (may be null when there is no data yet). `unit` is
  * `calendar_days` for the day variances, the workspace ISO-4217 code for
- * `cost_variance` (whose value is a decimal string), and `ratio` for
- * `budget_utilization` (ADR-1324).
+ * `cost_variance` (whose value is a decimal string), `ratio` for
+ * `budget_utilization` (ADR-1324), and `date` for `p80_completion` (an ISO date).
+ * A null value, or `unknown` for a band, carries the server's `reason` (rule 119,
+ * ADR-1314); `as_of` / `driver_project_id` / `projects_without_forecast` are
+ * `p80_completion` only (#4779).
  */
 interface AvailableKpi {
   available: true;
   value: string | number | null;
   unit?: string;
+  reason?: string;
   projects_without_budget?: number;
   missing_rate_count?: number;
+  as_of?: string | null;
+  driver_project_id?: string | null;
+  projects_without_forecast?: number;
 }
 
 /**
- * A KPI with no value: not built yet (#753), missing per-project cost data
+ * A KPI with no value: not built yet (none today; `no_montecarlo_store` is the
+ * pre-#4779 server's reason for `p80_completion`), missing per-project cost data
  * (`no_budget` / `missing_rates`), or hidden from a caller below program Admin
  * (`cost_restricted`, ADR-1324 §4).
  */
@@ -60,8 +68,15 @@ export interface ProgramRollup {
    */
   policy_unavailable_reason?: 'no_budget' | 'cost_restricted' | null;
   project_count: number;
+  /** The project health band rolled up, or the program manager's report (ADR-1314). */
   program_health: HealthBand;
+  program_health_source?: 'reported' | 'derived';
+  program_health_reason?: 'no_projects' | null;
   kpis: Record<string, RollupKpiEntry>;
+  /** When the server computed the payload; `p80_completion` carries its own. */
+  as_of?: string;
+  /** One server sentence per figure, keyed by `program_health` and KPI name. */
+  definitions?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------

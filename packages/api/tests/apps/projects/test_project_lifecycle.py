@@ -180,10 +180,12 @@ def _commit(project: Project) -> Project:
 
 
 def _overdue_task(project: Project, name: str) -> Task:
-    """A task that drags its project into the ``critical`` schedule-health band.
+    """A task that drags its project into the ``critical`` band on both readings.
 
     SPI = complete-by-today / planned-by-today, so one long-past ``early_finish``
-    with nothing complete is enough.
+    with nothing complete puts schedule health at critical; an overdue open task
+    is on the critical path, which puts the project health band (the one the
+    program rollup and its digest read, #4779) at critical too.
     """
     return Task.objects.create(
         project=project,
@@ -191,6 +193,7 @@ def _overdue_task(project: Project, name: str) -> Task:
         duration=1,
         early_finish=date(2026, 2, 1),
         status=TaskStatus.IN_PROGRESS,
+        is_critical=True,
     )
 
 

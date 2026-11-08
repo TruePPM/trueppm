@@ -1,7 +1,7 @@
 ---
 title: "Programs API"
 description: "Programs, program membership sync, and the program backlog."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 ## Programs
@@ -23,6 +23,7 @@ A program is a container for related projects (see [Programs](/features/programs
 | GET | `/api/v1/programs/{id}/import/jobs/{job_id}/` | Poll one seed import job (Program Manager+). A `job_id` belonging to another program `404`s |
 | POST | `/api/v1/programs/import/validate/` | **Dry run** — validate a JSON seed document and return every diagnostic, **persisting nothing**. Same request shapes and permissions as `import/`. An invalid document is `200 {"valid": false, "errors": [...]}`, not a `400`: the request succeeded, the document is what failed. Also echoes the schema version, program slug/name, project/task/resource counts the file claims, and a `replaces` object naming the program this import would replace (`null` when the slug is free), so you can confirm you grabbed the right file — and see what it would cost — before running the destructive import |
 | GET | `/api/v1/programs/{id}/export/` | Download the program as a canonical JSON seed file (`Content-Disposition: attachment`) |
+| GET | `/api/v1/programs/{id}/rollup/` | The program's rolled-up health and enabled KPIs, computed on read over the program's own projects (any program member; see [below](#the-program-rollup)) |
 | GET | `/api/v1/programs/{id}/rollup-config/` | Read the program rollup KPIs config (enabled KPIs + aggregation policy) |
 | PATCH | `/api/v1/programs/{id}/rollup-config/` | Update the program rollup KPIs config (Program Manager+) |
 | GET | `/api/v1/programs/{id}/risk-policy/` | Read the program risk & dependencies policy |
@@ -35,6 +36,68 @@ A program is a container for related projects (see [Programs](/features/programs
 
 Both write endpoints carry a `6/min` per-account scoped limit (see
 [Rate limiting](/api/reference/#rate-limiting) below).
+
+### The program rollup
+
+`GET /api/v1/programs/{id}/rollup/` owns the program-level figures (ADR-1314):
+the program health band and every KPI the program has enabled in
+[Rollup KPIs](/features/settings/program-rollup/). It reads the program's own
+non-draft projects only, never another program.
+
+:::note[Ships in 0.5]
+`as_of`, `definitions`, `program_health_source`, `program_health_reason`, the
+per-KPI `reason` on a KPI with no value, and a computed `p80_completion` ship in
+0.5. From 0.5 `program_health` will also change meaning: it will roll up each
+project's health band (or be the program manager's own report) instead of each
+project's schedule performance band. In 0.4 the response carries `aggregation_policy`,
+`policy_available`, `policy_unavailable_reason`, `project_count`,
+`program_health` and `kpis`, and `p80_completion` is
+`{"available": false, "reason": "no_montecarlo_store"}`.
+:::
+
+```json
+{
+  "aggregation_policy": "worst",
+  "policy_available": true,
+  "policy_unavailable_reason": null,
+  "project_count": 3,
+  "program_health": "at_risk",
+  "program_health_source": "derived",
+  "program_health_reason": null,
+  "kpis": {
+    "critical_tasks": {"available": true, "value": 4},
+    "baseline_variance": {"available": true, "unit": "calendar_days", "value": null, "reason": "no_baseline"},
+    "p80_completion": {
+      "available": true, "unit": "date", "value": "2027-05-01",
+      "as_of": "2026-11-04T09:12:00+00:00",
+      "driver_project_id": "8c1e…", "projects_without_forecast": 1
+    }
+  },
+  "as_of": "2026-11-07T14:03:11+00:00",
+  "definitions": {
+    "program_health": "The program's health: …",
+    "critical_tasks": "Incomplete leaf tasks on the critical path, summed across the contributing projects.",
+    "baseline_variance": "…",
+    "p80_completion": "…"
+  }
+}
+```
+
+- `program_health` is `on_track`, `at_risk`, `critical`, or `unknown` (only for a
+  program with no projects and no health report, with `program_health_reason:
+  "no_projects"`). `program_health_source` is `reported` when the program
+  manager's health report decided it and `derived` when it is the rollup of the
+  project health bands.
+- Each `kpis` entry is `{"available": false, "reason": ...}` when it cannot be
+  shown to you (the cost KPIs below program and project manager), and otherwise
+  carries `value`. A value of `null`, or `unknown` for a band, comes with a
+  `reason`: `no_projects`, `no_planned_work`, `no_milestones`, `no_baseline`,
+  `no_completed_work`, or `no_forecast`.
+- `p80_completion` carries its own `as_of` (the oldest forecast it read),
+  `driver_project_id`, and `projects_without_forecast`.
+
+The sentences in `definitions` are listed on the
+[metric vocabulary](/features/metric-vocabulary/#program-rollup) page.
 
 ### The program project roster is a narrow row
 
