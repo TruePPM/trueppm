@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from trueppm_scheduler import (
@@ -223,7 +223,23 @@ def _first_task_id(project: Project) -> str:
     return project.tasks[0].id
 
 
+def _none_percent_case() -> tuple[Project, list[str]]:
+    """The #4881 falsifying case: a 2-task FS project with percent_complete=None."""
+    tasks = [Task(id=f"t{i}", name=f"T{i}", duration=timedelta(0)) for i in range(2)]
+    tasks[0].percent_complete = None  # type: ignore[assignment]
+    project = Project(
+        id="p",
+        name="P",
+        start_date=_START,
+        tasks=tasks,
+        dependencies=[Dependency("t0", "t1", dep_type=DependencyType.FS)],
+        calendar=Calendar(working_days=31),
+    )
+    return project, ["task.percent_complete=None"]
+
+
 @given(_mutated_projects())
+@example(_none_percent_case())
 def test_schedule_acceptance_implies_json_round_trip(case: tuple[Project, list[str]]) -> None:
     project, applied = case
     note = f"mutations: {applied}"

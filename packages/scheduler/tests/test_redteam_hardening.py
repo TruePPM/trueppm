@@ -450,9 +450,21 @@ def test_percent_complete_out_of_range_rejected(bad_pct: float) -> None:
         Task.from_dict(doc)
 
 
-@pytest.mark.parametrize("pct", [None, 0.0, 100.0, 42.0])
-def test_percent_complete_in_range_or_none_accepted(pct: float) -> None:
-    """None and values inside [0, 100] (bounds inclusive) are accepted (#1452, #4513).
+def test_percent_complete_none_rejected_by_both_passes() -> None:
+    """An explicit None is refused on the direct-object path, as Task.from_dict
+    refuses a null (#4881); accepting it broke the to_json/from_json round-trip."""
+    project = _one_task_project(percent_complete=None)
+    with pytest.raises(InvalidScheduleInput, match="percent_complete"):
+        schedule(project)
+    with pytest.raises(InvalidScheduleInput, match="percent_complete"):
+        monte_carlo(project, runs=12, seed=1)
+    with pytest.raises(InvalidScheduleInput, match="percent_complete"):
+        Task.from_dict({"id": "a", "name": "a", "duration": 86400.0, "percent_complete": None})
+
+
+@pytest.mark.parametrize("pct", [0.0, 100.0, 42.0])
+def test_percent_complete_in_range_accepted(pct: float) -> None:
+    """Values inside [0, 100] (bounds inclusive) are accepted (#1452, #4513).
     Both passes must accept every value here without raising.
 
     The two passes must also agree on the finish. This fixture has no duration

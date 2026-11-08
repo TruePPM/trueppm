@@ -4493,7 +4493,7 @@ def _is_finite_number(value: object) -> bool:
 
 
 def _validate_task_numerics(t: Task) -> None:
-    """``story_points`` and ``percent_complete`` must be finite numbers when set.
+    """``story_points`` (when set) and ``percent_complete`` must be finite numbers.
 
     ``percent_complete`` (ADR-0132/0136) feeds ``_effective_duration_days``
     (``int(duration * pct/100)``) and ``_is_complete`` (``pct >= 100``); a NaN there
@@ -4503,7 +4503,9 @@ def _validate_task_numerics(t: Task) -> None:
     identical input (#1452). The ``from_dict``/``from_json`` path already rejects
     non-finite here (models.py); this closes the direct-object gap to match it.
 
-    ``None`` is tolerated (read as not-started, as both passes already do). A finite
+    ``None`` is refused (#4881): ``Task.from_dict`` refuses an explicit null for parity
+    with Rust's ``percent_complete: f64``, so accepting it here broke the
+    ``to_json``/``from_json`` round-trip. A finite
     value outside [0, 100] is rejected too (#4513): the passes would clamp it
     (``min(pct, 100)``; a negative reads as not-started), so a sign-flipped or x100
     import bug (0.5 sent as 50, 50 as 5000) scheduled plausibly and silently.
@@ -4514,12 +4516,16 @@ def _validate_task_numerics(t: Task) -> None:
             f"Task {_short_repr(t.id)} story_points must be a finite number (got "
             f"{_short_repr(t.story_points)})."
         )
-    if t.percent_complete is not None and not _is_finite_number(t.percent_complete):
+    if t.percent_complete is None:
+        raise InvalidScheduleInput(
+            f"Task {_short_repr(t.id)} percent_complete must be a finite number (got None)."
+        )
+    if not _is_finite_number(t.percent_complete):
         raise InvalidScheduleInput(
             f"Task {_short_repr(t.id)} percent_complete must be a finite number (got "
             f"{_short_repr(t.percent_complete)})."
         )
-    if t.percent_complete is not None and not 0 <= t.percent_complete <= 100:
+    if not 0 <= t.percent_complete <= 100:
         raise InvalidScheduleInput(
             f"Task {_short_repr(t.id)} percent_complete must be between 0 and 100 "
             f"(got {_short_repr(t.percent_complete)})."

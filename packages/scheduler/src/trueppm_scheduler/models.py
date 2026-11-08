@@ -1516,7 +1516,9 @@ def _validate_task_fields(t: Task) -> None:
                 f"{_short_repr(getattr(t, name))})."
             )
     pct = t.percent_complete
-    if pct is not None and (not _is_finite_real(pct) or not 0 <= pct <= 100):
+    # None is refused as well: Task.from_dict refuses an explicit null (Rust's
+    # ``percent_complete: f64``), so accepting it here broke the round-trip (#4881).
+    if not _is_finite_real(pct) or not 0 <= pct <= 100:
         _invalid(
             f"Task {_short_repr(t.id)} percent_complete must be a number in [0, 100] (got "
             f"{_short_repr(pct)})."

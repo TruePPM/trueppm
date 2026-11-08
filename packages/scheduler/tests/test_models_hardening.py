@@ -624,7 +624,7 @@ def test_validate_task_fields_messages() -> None:
         assert _msg(_validate_task_fields, t) == f"Task 'T' {name} must be a bool (got 1)."
 
 
-@pytest.mark.parametrize("pct", [-0.5, 100.5, "x", True, float("nan"), float("inf")])
+@pytest.mark.parametrize("pct", [None, -0.5, 100.5, "x", True, float("nan"), float("inf")])
 def test_validate_task_percent_complete_message(pct: object) -> None:
     t = _ok_task()
     t.percent_complete = pct  # type: ignore[assignment]
