@@ -10,6 +10,9 @@
 # Run: bash scripts/tests/check-app-layering.test.sh
 set -euo pipefail
 
+# A git hook exports these; fixtures must not inherit the real repository.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GATE="$REPO_ROOT/scripts/check-app-layering.py"
 

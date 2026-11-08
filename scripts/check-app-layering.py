@@ -676,6 +676,17 @@ def _stage(tmp: Path, files: dict[str, str]) -> tuple[Path, Path, Path]:
 
 
 def self_test() -> int:
+    # Under a git hook (pre-push) git exports GIT_DIR / GIT_INDEX_FILE, which would make
+    # every temp fixture look like part of the real repository. Fixtures run as if from
+    # a clean shell.
+    for var in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_PREFIX",
+        "GIT_COMMON_DIR",
+    ):
+        os.environ.pop(var, None)
     failed = 0
 
     def case(
