@@ -408,7 +408,7 @@ Print this format to the user:
 <the find-rate table; mark any gate with <10 runs as "insufficient data">
 <one line naming any gate at 0% over ≥10 runs, and any gate above 50% — the second is
 as important to report as the first>
-<cost beside yield: MRs with `subagent-tokens:` / `est-cost-usd:`, the cost-ledger-off count
+<cost beside yield: MRs with `subagent-tokens:` and with windowed cost records, the excluded count with reasons, the cost-ledger-off count
 (disabled, never 0), median tokens and outliers, or "not enough data yet">
 
 ### Flow (1a, 1h)
