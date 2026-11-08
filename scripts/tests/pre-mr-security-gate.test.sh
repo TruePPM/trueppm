@@ -472,6 +472,59 @@ if [[ "$rr" == *rbac-check* && "$rr" == *security-review* && "$rr" != *broadcast
 else
   fail "routing.py: wrong gate list in deny reason"
 fi
+# Non-canonical names (substring, not prefix, of the basename).
+make_repo n_share_views packages/api/src/trueppm_api/apps/projects/share_views.py "x = 1"
+make_repo n_authn packages/api/src/trueppm_api/core/authentication.py "x = 1"
+make_repo n_share_services packages/api/src/trueppm_api/apps/projects/share_services.py "x = 1"
+make_repo n_throttle packages/api/src/trueppm_api/core/throttling.py "x = 1"
+make_repo n_importer packages/api/src/trueppm_api/apps/msproject/importer.py "x = 1"
+make_repo n_utils packages/api/src/trueppm_api/apps/projects/utils.py "x = 1"
+gates_of() { # <repo> -> space-joined gate names present in the deny reason
+  local rr; rr="$(reason_of "$1")"
+  local out=""
+  [[ "$rr" == *rbac-check* ]] && out+="rbac "
+  [[ "$rr" == *security-review* ]] && out+="sec "
+  [[ "$rr" == *broadcast-check* ]] && out+="bc "
+  echo "$out"
+}
+expect_gates() { # <label> <repo> <want>
+  local got; got="$(gates_of "$2")"
+  if [ "$got" = "$3" ]; then pass "$1 → $3"; else fail "$1 — wanted '$3', got '$got'"; fi
+}
+expect_gates "share_views.py" "$TMP/n_share_views" "rbac sec bc "
+expect_gates "core/authentication.py" "$TMP/n_authn" "rbac sec "
+expect_gates "share_services.py (share is a sensitive stem, services a write path)" "$TMP/n_share_services" "rbac sec bc "
+make_repo n_plain_services packages/api/src/trueppm_api/apps/projects/task_services.py "x = 1"
+expect_gates "task_services.py" "$TMP/n_plain_services" "bc "
+expect_gates "core/throttling.py" "$TMP/n_throttle" "rbac sec "
+expect_gates "msproject/importer.py" "$TMP/n_importer" "rbac sec "
+check "projects/utils.py only → allowed" "$TMP/n_utils" "$MR_CREATE" allow
+
+# Not synthetic: every real *_views.py / *_serializers.py / authentication.py in the tree must be
+# gated, so a rename that slips past the classifier fails here.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REAL="$TMP/real"
+mkdir -p "$REAL"
+(cd "$REAL" && git init -q -b main && git config user.email t@e.com && git config user.name t \
+  && git commit -q --allow-empty -m init && git update-ref refs/remotes/origin/main HEAD)
+real_n=0 real_bad=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  real_n=$((real_n + 1))
+  (cd "$REAL" && git checkout -q -B feat/r main && mkdir -p "$(dirname "$f")" && printf 'x = 1\n' >"$f" \
+    && git add -A && git commit -q -m c)
+  want="rbac sec "
+  case "$f" in *_views.py | *_serializers.py) want="rbac sec bc " ;; esac
+  got="$(gates_of "$REAL")"
+  if [ "$got" != "$want" ]; then real_bad=$((real_bad + 1)); fail "real file $f — wanted '$want', got '$got'"; fi
+done < <(cd "$REPO_ROOT" && find packages/api/src -name '*.py' -not -path '*/migrations/*' \
+  \( -name '*_views.py' -o -name '*_serializers.py' -o -name 'authentication.py' \) | sort)
+if [ "$real_n" -gt 0 ] && [ "$real_bad" -eq 0 ]; then
+  pass "all $real_n real *_views/*_serializers/authentication files are gated"
+elif [ "$real_n" -eq 0 ]; then
+  fail "real-file enumeration found no files"
+fi
+
 # record na: allowed, with a distinct n/a ledger reminder.
 (cd "$TMP/api_serializer" && "$HOOK" record na >/dev/null 2>&1)
 check "marker 'na' for current HEAD → allowed" "$TMP/api_serializer" "$MR_CREATE" allow

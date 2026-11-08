@@ -39,9 +39,9 @@
 #   .claude/hooks/pre-mr-security-gate.sh record skipped   # user said to skip
 #   .claude/hooks/pre-mr-security-gate.sh record na        # gates ran/judged and do not apply
 #
-# `skipped` and `na` are distinct, recorded states so the MR's `## Gates` ledger
-# says `skipped` (applied, user declined) or `n/a` (does not apply), never `0 findings`. Committing moves HEAD and so invalidates
-# the marker; a fourth field fingerprints uncommitted work, so editing after
+# `skipped` and `na` are distinct, recorded states so the MR's `## Gates`
+# ledger says `skipped` (applied, user declined) or `n/a` (does not apply),
+# never `0 findings`. Committing moves HEAD and so invalidates the marker; a fourth field fingerprints uncommitted work, so editing after
 # the gates ran invalidates it too. The marker is agent-written, so it is a
 # visible, auditable record and not a security boundary.
 #
@@ -555,18 +555,12 @@ if [[ -z "$api_src" ]]; then
 fi
 
 # rbac-check + security-review: endpoints, serializers, permissions, realtime entry points, auth/input handling.
+# Classifiers match on a SUBSTRING of the basename, not a prefix: the tree is full of
+# share_views.py, core/auth_views.py, authentication.py, git_webhook_auth.py, throttling.py.
 sensitive=0
 if grep -qE \
-  -e '(^|/)views[^/]*\.py$' \
-  -e '(^|/)serializers[^/]*\.py$' \
-  -e '(^|/)permissions[^/]*\.py$' \
-  -e '(^|/)urls[^/]*\.py$' \
-  -e '(^|/)consumers\.py$' \
-  -e '(^|/)routing\.py$' \
-  -e '(^|/)auth/' \
-  -e '(^|/)sync/' \
-  -e 'file_?handl' \
-  -e '(^|/)uploads?/' \
+  -e '(^|/)[^/]*(views|serializers|permission|auth|throttl|middleware|urls|consumers|routing|ws_|upload|import|webhook|share|file_?handl)[^/]*\.py$' \
+  -e '/(sso|sync|auth|integrations|uploads?)/' \
   <<<"$api_src"; then
   sensitive=1
 fi
@@ -575,13 +569,7 @@ fi
 # is board-scoped, so the agent decides and records n/a when it is not.
 write_path=0
 if grep -qE \
-  -e '(^|/)views[^/]*\.py$' \
-  -e '(^|/)serializers[^/]*\.py$' \
-  -e '(^|/)models[^/]*\.py$' \
-  -e '(^|/)services?[^/]*\.py$' \
-  -e '(^|/)signals[^/]*\.py$' \
-  -e '(^|/)tasks[^/]*\.py$' \
-  -e '(^|/)consumers\.py$' \
+  -e '(^|/)[^/]*(views|serializers|models|services|signals|tasks|consumers)[^/]*\.py$' \
   <<<"$api_src"; then
   write_path=1
 fi
@@ -590,7 +578,7 @@ required=()
 reason_line=""
 if [[ "$sensitive" -eq 1 ]]; then
   required+=("rbac-check" "security-review")
-  reason_line+="API views/serializers/permissions/urls/consumers/routing/auth/sync/upload paths changed — rbac-check and security-review are required. "
+  reason_line+="API views/serializers/permissions/auth/throttling/middleware/urls/consumers/routing/sso/sync/integrations/upload/import/webhook/share paths changed — rbac-check and security-review are required. "
 fi
 if [[ "$write_path" -eq 1 ]]; then
   required+=("broadcast-check")
