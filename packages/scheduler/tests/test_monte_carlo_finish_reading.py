@@ -200,6 +200,27 @@ def _readings(mc: MonteCarloResult) -> set[tuple[date, bool]]:
             (_SAT, False),
             id="weekend-with-work-finishing-that-day",
         ),
+        pytest.param(
+            [_closed("M", actual_start=date(2026, 3, 16), actual_finish=date(2026, 3, 19))],
+            [],
+            (date(2026, 3, 19), True),
+            id="split-actuals",
+        ),
+        pytest.param(
+            [Task(id="A", name="A", duration=timedelta(days=1)), _closed("M", actual_finish=_TUE)],
+            [("A", "M")],
+            (_TUE, True),
+            id="open-predecessor",
+        ),
+        pytest.param(
+            [
+                Task(id="A", name="A", duration=timedelta(days=1)),
+                _closed("M", actual_finish=_TUE, live_day_end_on=_TUE),
+            ],
+            [("A", "M")],
+            (_TUE, False),
+            id="open-predecessor-recorded-end-of-day",
+        ),
     ],
 )
 def test_a_closed_milestone_finish_is_read_on_its_cpm_edge(
@@ -230,17 +251,6 @@ def _zero_variance(project: Project) -> Project:
     return project
 
 
-def _split_milestone_actuals(project: Project) -> bool:
-    """A zero-duration task with differing actual dates: #4458, placed inconsistently today."""
-    return any(
-        t.duration == timedelta(0)
-        and t.actual_start is not None
-        and t.actual_finish is not None
-        and t.actual_start != t.actual_finish
-        for t in project.tasks
-    )
-
-
 @pytest.mark.fuzz
 # The issue's repro: the gate profile's 200 draws rarely close a milestone that
 # finishes the project, so it is pinned rather than left to the search.
@@ -256,15 +266,18 @@ def _split_milestone_actuals(project: Project) -> bool:
 def test_zero_variance_reproduces_the_cpm_reading(project: Project) -> None:
     """Every percentile of a deterministic project is the CPM finish, edge included (#4601).
 
-    The edge half is what a closed milestone finishing the project broke. Two input
-    classes with their own open defects are left out: split milestone actuals
-    (#4458), until the engines agree on where such a milestone is, and a completed
-    task finishing before the project start (#4430), which Monte Carlo cannot show
-    before its index begins.
+    The edge half is what a closed milestone finishing the project broke. A
+    completed task finishing before the project start (#4430) is left out: Monte
+    Carlo cannot show a day before its index begins.
+
+    Split milestone actuals (#4458) are deliberately kept, although the issue
+    suggested excluding them. They are most of the closed milestones this strategy
+    draws that finish the project, so excluding them left the property almost
+    nothing of this issue's class to check. #4458 is about which day the engines
+    link such a milestone from. Monte Carlo reads the shown instant off the same
+    deterministic pass as schedule(), so the two readings must still agree.
     """
     project = _zero_variance(project)
-    if _split_milestone_actuals(project):
-        return
     try:
         cpm = schedule(project)
     except SchedulerError:

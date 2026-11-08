@@ -38,6 +38,7 @@ from trueppm_scheduler.engine.milestones import (
 )
 from trueppm_scheduler.engine.montecarlo.forward import (
     _completed_edge_constraints,
+    _index_offset,
     _mc_forward_pass,
     _mc_milestone_floors,
     _mc_progress_state,
@@ -748,12 +749,25 @@ def monte_carlo(
     # the end of a Friday and the start of the next Monday are the same position.
     # A zero-base column is that instant in the runs that placed it (#4698).
     wt_mat = ef_mat
-    # A closed start-of-day milestone's pinned ES is its instant the same way (#4601).
-    milestone_cols = [task_idx[tid] for tid in milestone_ids | completed_start_ids]
-    has_instants = bool(milestone_cols or instant_runs)
+    milestone_cols = [task_idx[tid] for tid in milestone_ids]
+    # A closed start-of-day milestone sits at its instant, the start of its shown day
+    # (#4601). Read off the instant, not the pinned ES: with split actuals the ES is
+    # ``actual_start`` while the instant is ``actual_finish`` (#4458), and ranking it
+    # at the ES skewed the sensitivity tornado. Run-invariant, so one offset each.
+    closed_positions = {
+        task_idx[tid]: _index_offset(
+            completed_instants[tid][0],
+            offset_of_by_cal[cal_key_of[tid]],
+            wd_index_by_cal[cal_key_of[tid]],
+        )
+        for tid in completed_start_ids
+    }
+    has_instants = bool(milestone_cols or instant_runs or closed_positions)
     if has_instants:
         wt_mat = ef_mat.copy()
         wt_mat[:, milestone_cols] = es_mat[:, milestone_cols]
+        for col, position in closed_positions.items():
+            wt_mat[:, col] = position
         for tid, is_instant in instant_runs.items():
             col = task_idx[tid]
             wt_mat[is_instant, col] = es_mat[is_instant, col]
