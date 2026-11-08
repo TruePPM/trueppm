@@ -437,13 +437,13 @@ function TestConnectionSection({
             <code className="text-[11px]">TRUEPPM_EGRESS_ALLOWLISTED_HOSTS</code> to admit it.
           </p>
           <p className="mt-1.5">
-            This isn&apos;t something you can toggle from this page: it&apos;s a Helm values
-            change and an API redeploy, so loop in your platform team.
+            This isn&apos;t something you can toggle from this page: it&apos;s a Helm values change
+            and an API redeploy, so loop in your platform team.
           </p>
           <p className="mt-1.5">
             The allow-list is process-wide — an allow-listed host also becomes reachable through
-            personal-access-token verification, git-link status refresh, webhook delivery, and
-            SMTP relay checks, not just SSO. Only add hosts you trust.
+            personal-access-token verification, git-link status refresh, webhook delivery, and SMTP
+            relay checks, not just SSO. Only add hosts you trust.
           </p>
           <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
             <a
@@ -818,10 +818,9 @@ export function SsoProviderPanel({
           hint={
             <>
               <p>
-                Gates new account linking and auto-created members only — it has no
-                effect on accounts already linked. To cut off an existing member&apos;s
-                access, deactivate them or remove this provider. Comma- or
-                space-separated.
+                Gates new account linking and auto-created members only — it has no effect on
+                accounts already linked. To cut off an existing member&apos;s access, deactivate
+                them or remove this provider. Comma- or space-separated.
               </p>
               <p className="mt-1">
                 Leaving this blank blocks everyone from signing in via this provider.
@@ -863,32 +862,50 @@ export function SsoProviderPanel({
             ariaLabel="Auto-create members on first SSO sign-in"
           />
         </FieldRow>
-        {autoCreate && (
-          <FieldRow
-            label="Default role"
-            hint="Role granted to auto-created members."
-            error={fieldErrors.default_role}
-            errorId={`${roleId}-err`}
-          >
-            <label htmlFor={roleId} className="sr-only">
-              Default role for auto-created members
-            </label>
-            <select
-              id={roleId}
-              value={defaultRole}
-              onChange={(e) => {
-                setDefaultRole(Number(e.target.value));
-                clearError('default_role');
-              }}
-              {...fieldErrorAria(fieldErrors.default_role, `${roleId}-err`)}
-              className={`${SELECT_CLASS} w-full max-w-[180px]`}
-              style={SELECT_STYLE}
-            >
-              <option value={ROLE_MEMBER}>Member</option>
-              <option value={ROLE_ADMIN}>Admin</option>
-            </select>
-          </FieldRow>
-        )}
+        {/* Rendered disabled (not removed) while auto-create is off so the admin
+            can still see the stored value; the save body omits default_role in
+            that state (#3950) so the disabled control never writes. */}
+        <FieldRow
+          label="Default role"
+          hint={
+            autoCreate
+              ? 'Role granted to auto-created members.'
+              : 'Applies only when Auto-create members is on. Showing the stored role.'
+          }
+          error={autoCreate ? fieldErrors.default_role : undefined}
+          errorId={`${roleId}-err`}
+        >
+          {({ hintId }) => (
+            <>
+              <label htmlFor={roleId} className="sr-only">
+                Default role for auto-created members
+              </label>
+              <select
+                id={roleId}
+                value={defaultRole}
+                disabled={!autoCreate}
+                onChange={(e) => {
+                  setDefaultRole(Number(e.target.value));
+                  clearError('default_role');
+                }}
+                {...fieldErrorAria(
+                  autoCreate ? fieldErrors.default_role : undefined,
+                  `${roleId}-err`,
+                )}
+                aria-describedby={
+                  [hintId, autoCreate && fieldErrors.default_role ? `${roleId}-err` : undefined]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
+                className={`${SELECT_CLASS} w-full max-w-[180px] disabled:opacity-100 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary`}
+                style={SELECT_STYLE}
+              >
+                <option value={ROLE_MEMBER}>Member</option>
+                <option value={ROLE_ADMIN}>Admin</option>
+              </select>
+            </>
+          )}
+        </FieldRow>
         <FieldRow
           label="Enable this provider"
           hint="Requires a complete configuration above."
