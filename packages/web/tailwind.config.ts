@@ -174,6 +174,11 @@ const config: Config = {
           'over-2':         'oklch(var(--p1-over-2) / <alpha-value>)',
           'on-over':        'oklch(var(--p1-on-over) / <alpha-value>)',
           focus:            'oklch(var(--p1-focus) / <alpha-value>)',
+          'heat-1':         'oklch(var(--p1-heat-1) / <alpha-value>)',
+          'heat-2':         'oklch(var(--p1-heat-2) / <alpha-value>)',
+          'heat-3':         'oklch(var(--p1-heat-3) / <alpha-value>)',
+          'heat-4':         'oklch(var(--p1-heat-4) / <alpha-value>)',
+          'heat-5':         'oklch(var(--p1-heat-5) / <alpha-value>)',
         },
         // Risk matrix zone tokens (rule 88). Values driven by CSS custom properties in
         // globals.css so .dark on <html> swaps to higher-opacity dark-mode variants.

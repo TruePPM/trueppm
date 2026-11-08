@@ -262,6 +262,13 @@ const PublicScheduleSharePage = lazy(() =>
   })),
 );
 
+// Chart specimen sheet (#4767) — public, network-free; lazy so it adds nothing to the login bundle.
+const ChartSpecimenPage = lazy(() =>
+  import('@/features/charts/ChartSpecimenPage').then((m) => ({
+    default: m.ChartSpecimenPage,
+  })),
+);
+
 // SSO completion landing (#1392, ADR-0187) — public sibling of the login screen;
 // lazy so the OIDC flow adds nothing to the initial login bundle.
 const SsoCompletePage = lazy(() =>
@@ -535,6 +542,16 @@ export const routes: RouteObject[] = [
           </Suspense>
         ),
         handle: { title: 'Signing You In' } satisfies RouteHandle,
+      },
+      // Public, read-only, network-free specimen sheet of the shared chart layer (#4767).
+      {
+        path: '/design/charts',
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <ChartSpecimenPage />
+          </Suspense>
+        ),
+        handle: { title: 'Chart Specimens' } satisfies RouteHandle,
       },
       // Public route — no auth required (#283, ADR-0245). Read-only board share viewer.
       {
