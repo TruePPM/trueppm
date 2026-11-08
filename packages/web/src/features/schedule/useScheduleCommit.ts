@@ -400,9 +400,12 @@ export function useScheduleCommit({
       // snap-back after the user confirmed a "7d → 7d" popover. Say so instead.
       //
       // Compare two counts taken with the SAME mask, not the stored duration: a
-      // holiday the client cannot see (only `holiday_count` is exposed) would make
-      // a client count differ from the stored value on every task, and equality is
-      // the only question here. Whether a drop on non-working time SHOULD instead
+      // holiday this mask-only count does not see would make a client count
+      // differ from the stored value on every task, and equality is the only
+      // question here. (The holidays do reach the drag preview since #4170, via
+      // `scheduling_calendar`; this pixel→duration count deliberately stays
+      // mask-only, and the live resize preview uses the same count, so the two
+      // agree on the duration the PATCH carries.) Whether a drop on non-working time SHOULD instead
       // consume the next working day is the open semantic in #2562; this guard
       // deliberately does not decide it.
       if (newDuration === workingDaysInclusive(task.start, task.finish, mask)) {
