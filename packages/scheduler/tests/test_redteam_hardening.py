@@ -458,6 +458,11 @@ def test_percent_complete_none_rejected_by_both_passes() -> None:
         schedule(project)
     with pytest.raises(InvalidScheduleInput, match="percent_complete"):
         monte_carlo(project, runs=12, seed=1)
+    # to_dict/to_json share the field validator, so serializing refuses it too.
+    with pytest.raises(InvalidScheduleInput, match="percent_complete"):
+        project.tasks[0].to_dict()
+    with pytest.raises(InvalidScheduleInput, match="percent_complete"):
+        project.to_json()
     with pytest.raises(InvalidScheduleInput, match="percent_complete"):
         Task.from_dict({"id": "a", "name": "a", "duration": 86400.0, "percent_complete": None})
 
