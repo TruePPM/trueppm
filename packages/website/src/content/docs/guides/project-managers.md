@@ -33,13 +33,13 @@ Lag values (positive or negative) are in **calendar days**, not working days. Th
 
 ### Monte Carlo risk analysis
 
-Your CPM finish date is typically P50. There's only a **50% chance** you'll hit the date shown in a traditional Gantt. That's the number most project management tools present as "the date."
+Your CPM finish date is the plan with no slip — on a network of FS and SS links, the earliest any simulated run can finish. The chance of hitting the date shown in a traditional Gantt is low, and it falls as more work carries an estimate. That's the number most project management tools present as "the date."
 
 TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic) to any task and run a Monte Carlo simulation:
 
 | Percentile | What it means |
 |-----------|--------------|
-| **P50** | 50% chance of finishing by this date. Where your CPM date usually lands. |
+| **P50** | 50% chance of finishing by this date. Later than your CPM date by the expected slip. |
 | **P80** | 80% chance. **Commit this date to stakeholders.** |
 | **P95** | 95% chance. Use for contractual or regulatory deadlines. |
 
@@ -111,7 +111,7 @@ The conversation shift that Monte Carlo enables:
 - **Before TruePPM:** "We're on track for October 15th." (unqualified, often wishful)
 - **With TruePPM:** "P50 is October 12th. P80 is October 22nd. We should commit to October 22nd. If you need October 15th, here's what has to go right and what the risk is."
 
-P80 is the defensible number. It's the date with a real probability attached. Stakeholders who push back on P80 are asking you to commit to a coin flip.
+P80 is the defensible number. It's the date with a real probability attached. Stakeholders who push back on P80 are asking you to commit to the plan with no slip.
 
 ## Real-time and mobile
 

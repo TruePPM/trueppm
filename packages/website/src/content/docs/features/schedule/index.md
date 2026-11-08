@@ -34,10 +34,11 @@ diamonds — comes from the **CPM pass**. It is the *earliest feasible* schedule
 what happens if every task takes exactly the duration you estimated, no task
 slips, and no risk fires. That makes it a single point, and an optimistic one.
 
-This matters because a Gantt bar looks like a commitment. It isn't one. In
-practice the CPM finish lands close to the **P50** of the same project's
-[Monte Carlo forecast](/features/monte-carlo/) — meaning roughly even odds of
-hitting it. Committing to the date on the bar is committing to a coin flip.
+This matters because a Gantt bar looks like a commitment. It isn't one. On a
+network of FS and SS links the CPM finish is the earliest any run of the same
+project's [Monte Carlo forecast](/features/monte-carlo/) can finish, so the odds
+of hitting it are low and fall as more work carries an estimate. Committing to
+the date on the bar is committing to the plan with no slip.
 
 The [Forecast](#forecast) bar below the timeline is
 where the confidence bands live. The short version:

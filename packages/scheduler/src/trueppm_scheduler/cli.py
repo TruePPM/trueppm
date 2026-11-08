@@ -133,7 +133,7 @@ def _cmd_monte_carlo(args: argparse.Namespace) -> None:
         return
 
     print(f"\nMonte Carlo — {result.runs:,} runs  ({_display(project.name)})\n")
-    print(f"  P50 (median):  {result.p50}   midpoint — even odds, not a commitment")
+    print(f"  P50 (median):  {result.p50}   midpoint — later than the CPM finish, not a commitment")
     print(f"  P80:           {result.p80}   ← commit to this date")
     print(f"  P95:           {result.p95}   external or contractual deadlines")
     # A collapsed distribution is a correct result (nothing in the plan varies),

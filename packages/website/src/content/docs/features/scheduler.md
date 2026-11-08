@@ -544,7 +544,7 @@ project = Project(
 
 # CPM deterministic baseline
 cpm = schedule(project)
-print(f"CPM finish (P50 proxy): {cpm.project_finish}")
+print(f"CPM finish (the floor): {cpm.project_finish}")
 
 # Monte Carlo
 mc = monte_carlo(project, runs=10_000, seed=42)
@@ -577,7 +577,7 @@ The library exposes the two shown days and which edge of the day each Monte Carl
 
 :::tip P80 is the commitment date
 
-The CPM deterministic finish is typically close to P50 — meaning there is only a **50% chance** the project finishes on the date shown in a traditional Gantt chart. Commit to the P80 date to reflect realistic schedule risk.
+On a network of FS and SS links the CPM deterministic finish is the earliest any simulated run can finish — the plan with no slip — so the chance of hitting the date shown in a traditional Gantt chart is low, and it falls as more work carries an estimate. P50 is later by the expected slip. Commit to the P80 date to reflect realistic schedule risk.
 
 :::
 

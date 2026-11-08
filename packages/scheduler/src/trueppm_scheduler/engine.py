@@ -607,8 +607,10 @@ class MonteCarloResult:
 
     ``p50``/``p80``/``p95`` are completion dates at those confidence levels, not
     three competing estimates: 50%, 80%, and 95% of simulated runs finished on or
-    before each. P80 is the conventional commitment date; P50 sits close to the
-    deterministic :func:`schedule` finish and carries roughly even odds. When all
+    before each. P80 is the conventional commitment date; P50 sits later than the
+    deterministic :func:`schedule` finish by the expected slip. On a network of
+    FS/SS links the CPM finish is the earliest any run can finish, so its own
+    probability is low, not even. When all
     three are equal the project had nothing to vary (no three-point estimates, no
     velocity signal) and the simulation correctly collapsed onto the CPM finish.
 
@@ -4798,8 +4800,9 @@ def schedule(project: Project) -> ScheduleResult:
     computes the *earliest feasible* schedule, i.e. what happens if every task
     takes exactly its estimated ``duration`` and nothing slips. The project finish
     is therefore a single point on a distribution, not a confidence-weighted
-    commitment date — in practice it lands near the P50 of the corresponding
-    :func:`monte_carlo` run, so committing to it is close to a coin flip. Callers
+    commitment date — on a network of FS/SS links it is the earliest any
+    :func:`monte_carlo` run can finish (samples are clamped up to ``duration``),
+    so the odds of hitting it are low and fall as more tasks carry an estimate. Callers
     presenting a CPM date to a human should say which of the two it is; see
     :func:`monte_carlo` for the probabilistic counterpart.
 
