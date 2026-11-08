@@ -17,11 +17,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 run_check() {
-  local file="$1/docker-compose.prod.yml" timeout grace
+  local file="$1/docker-compose.prod.yml" block timeout grace
   [[ -f "$file" ]] || { echo "ERROR: $file not found" >&2; return 1; }
-  timeout="$(grep -vE '^[[:space:]]*#' "$file" | grep -oE 'worker_shutdown_timeout[[:space:]]+[0-9]+s' | head -n1 | grep -oE '[0-9]+' || true)"
-  # Scope stop_grace_period to the top-level nginx service block.
-  grace="$(awk '/^  [a-z0-9_-]+:/ {in_n = ($1 == "nginx:")} in_n && /^    stop_grace_period:/ {print $2; exit}' "$file" | grep -oE '^[0-9]+' || true)"
+  # Both values are scoped to the top-level nginx service block, comments dropped.
+  block="$(awk '/^  [a-z0-9_-]+:/ {in_n = ($1 == "nginx:")} in_n' "$file" | grep -vE '^[[:space:]]*#' || true)"
+  timeout="$(grep -oE 'worker_shutdown_timeout[[:space:]]+[0-9]+s' <<<"$block" | head -n1 | grep -oE '[0-9]+' || true)"
+  grace="$(grep -E '^    stop_grace_period:' <<<"$block" | head -n1 | grep -oE '[0-9]+' || true)"
   if [[ -z "$timeout" ]]; then
     echo "  docker-compose.prod.yml: nginx command has no 'worker_shutdown_timeout Ns' (-g argument; comments ignored)" >&2
     return 1
@@ -48,6 +49,16 @@ if [[ "${1:-}" == "--self-test" ]]; then
   run_check "$tmp" >/dev/null 2>&1 && { echo "SELF-TEST FAILED: missing stop_grace_period not caught" >&2; exit 1; }
   reset; sed 's/^    stop_grace_period: 30s$/    stop_grace_period: 15s/' "$tmp/docker-compose.prod.yml" >"$tmp/x" && mv "$tmp/x" "$tmp/docker-compose.prod.yml"
   run_check "$tmp" >/dev/null 2>&1 && { echo "SELF-TEST FAILED: short stop_grace_period not caught" >&2; exit 1; }
+  # Directive only in another service's block (nginx block loses it).
+  reset; sed 's/worker_shutdown_timeout 20s;//' "$tmp/docker-compose.prod.yml" >"$tmp/x"
+  awk '{print} /^  db:/ {print "    command: [\"x\", \"worker_shutdown_timeout 20s;\"]"}' "$tmp/x" >"$tmp/docker-compose.prod.yml"
+  grep -q 'worker_shutdown_timeout' "$tmp/docker-compose.prod.yml" || { echo "SELF-TEST FAILED: plant did not apply" >&2; exit 1; }
+  run_check "$tmp" >/dev/null 2>&1 && { echo "SELF-TEST FAILED: directive in another service not caught" >&2; exit 1; }
+  # Directive only inside a comment in the nginx block.
+  reset; sed 's/worker_shutdown_timeout 20s;//' "$tmp/docker-compose.prod.yml" >"$tmp/x"
+  awk '{print} /^    stop_grace_period:/ {print "    # worker_shutdown_timeout 20s;"}' "$tmp/x" >"$tmp/docker-compose.prod.yml"
+  grep -q '# worker_shutdown_timeout' "$tmp/docker-compose.prod.yml" || { echo "SELF-TEST FAILED: plant did not apply" >&2; exit 1; }
+  run_check "$tmp" >/dev/null 2>&1 && { echo "SELF-TEST FAILED: commented directive not caught" >&2; exit 1; }
   echo "self-test OK"
   exit 0
 fi
