@@ -57,7 +57,11 @@ compares the committed baseline with the copy at the merge base (the MR diff bas
 ``git merge-base HEAD origin/main`` locally) and fails if an edge was added or a count
 rose. A deliberate re-layering puts ``# raise-ok: <reason>`` on the line directly above
 the edge in the baseline file, where a reviewer sees it in the diff (an env var cannot
-work: push pipelines carry no variables). The check fails closed -- if the CI diff base
+work: push pipelines carry no variables). The marker is honored only while it is NEW
+relative to the base copy -- one already present at the base was spent by the MR that
+added it -- and ``--update-baseline`` drops a marker whose edge is no longer above the
+base count. It is still a self-grant written in the file it guards, a rubber stamp like
+``# layering-ok:``: it removes the silence, not the possibility of a wrong answer. The check fails closed -- if the CI diff base
 or an explicit ``TRUEPPM_LAYERING_BASE_REF`` cannot be resolved the run fails, so the
 job needs ``GIT_DEPTH: 0``. It is skipped, with a printed note, only when there is no
 CI variable and no ``origin/main`` merge base (a local clone with no remote, or a
@@ -69,7 +73,9 @@ Which files are read
 Tracked ``.py`` files only (``git ls-files``), so gitignored residue -- a deleted app's
 leftover ``migrations/`` and ``__pycache__/``, a scratch file -- cannot fail a checkout
 whose tracked tree is clean. Outside a git repository (the self-test fixtures) every
-``.py`` is read. An app is a directory containing ``__init__.py``; a ``.py`` module
+``.py`` is read. A git failure inside a work tree (e.g. ``safe.directory``) is an error,
+not a fallback. An app is a directory containing ``__init__.py``; tracked ``.py`` files in
+an ``apps/<x>/`` without one are an error; a ``.py`` module
 directly under ``apps/`` belongs to no app and is reported as an error.
 
 Opting out
@@ -239,18 +245,45 @@ class ScanResult(NamedTuple):
     opted: list[str]
 
 
-def _source_files(root: Path, pkg_dir: Path) -> list[Path]:
-    """Python files the gate reads: tracked ones in a git checkout, else every ``.py``.
+def _in_git_repo(root: Path) -> bool:
+    """Is ``root`` inside a git work tree? Raises on a git failure that is not "no repo".
 
-    Walking the filesystem would pick up gitignored residue (a deleted app's leftover
-    ``migrations/`` and ``__pycache__/``, a scratch ``.py``) and fail a checkout whose
-    tracked tree is clean. Outside git (self-test fixtures) it falls back to a walk.
+    A failure such as ``safe.directory`` ("dubious ownership") must not read as "not a
+    repository": that would silently re-admit gitignored residue.
     """
-    rel = pkg_dir.relative_to(root).as_posix()
-    rc, out = _git(root, "ls-files", "-z", "--", rel)
-    if rc == 0 and out:
-        return sorted(root / f for f in out.split("\0") if f.endswith(".py") and f)
-    return sorted(pkg_dir.rglob("*.py"))
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    if out.returncode == 0:
+        return out.stdout.strip() == "true"
+    if "not a git repository" in out.stderr:
+        return False
+    raise SystemExit(f"ERROR: git cannot read {root}: {out.stderr.strip()}")
+
+
+def _source_files(root: Path, pkg_dir: Path) -> tuple[list[Path], bool]:
+    """Return ``(python files, tracked_mode)``.
+
+    In a git checkout only tracked ``.py`` files are read: walking the filesystem would
+    pick up gitignored residue (a deleted app's leftover ``migrations/`` and
+    ``__pycache__/``, a scratch ``.py``) and fail a tree whose tracked content is clean.
+    A git failure inside a work tree is an error, never a silent fallback to a walk.
+    Outside git (the self-test fixtures) every ``.py`` is read.
+    """
+    if _in_git_repo(root):
+        rel = pkg_dir.relative_to(root).as_posix()
+        rc, out = _git(root, "ls-files", "-z", "--", rel)
+        if rc != 0:
+            raise SystemExit(f"ERROR: git ls-files failed in {root} (rc {rc})")
+        if out:
+            files = [root / f for f in out.split("\0") if f.endswith(".py") and f]
+            return sorted(files), True
+    return sorted(pkg_dir.rglob("*.py")), False
 
 
 def scan(root: Path, cfg: Config) -> ScanResult:
@@ -260,9 +293,10 @@ def scan(root: Path, cfg: Config) -> ScanResult:
     if not pkg_dir.is_dir():
         raise SystemExit(f"ERROR: {pkg_dir} is not a directory")
 
+    paths, tracked_mode = _source_files(root, pkg_dir)
     files = [
         (path, path.relative_to(pkg_dir).parts)
-        for path in _source_files(root, pkg_dir)
+        for path in paths
         if "migrations" not in path.parts
     ]
     # An app is a directory with an __init__.py among the files read; a directory with
@@ -278,8 +312,18 @@ def scan(root: Path, cfg: Config) -> ScanResult:
         )
     for app in sorted(set(cfg.app_layer) - on_disk):
         errors.append(
-            f"{_CONFIG_REL} assigns a layer to {app!r}, which is not an app directory"
+            f"{_CONFIG_REL} assigns a layer to {app!r}, which is not an app directory "
+            "(a new app not yet `git add`ed? the gate reads tracked files)"
         )
+    if tracked_mode:
+        # Tracked code with no __init__.py would be silently unscanned. Untracked residue
+        # never reaches here, so it stays ignored.
+        has_py = {r[1] for _, r in files if r[0] == "apps" and len(r) >= 3}
+        for app in sorted(has_py - on_disk):
+            errors.append(
+                f"apps/{app}/ has tracked .py files but no __init__.py, so the gate "
+                "would not scan it"
+            )
     tops = {r[0].removesuffix(".py") for _, r in files if r[0] != "apps"} - {"__init__"}
     for name in sorted(tops - cfg.platform - cfg.roots):
         errors.append(
@@ -353,17 +397,15 @@ _BASELINE_HEADER = """\
 _RAISE_OK = "# raise-ok:"
 
 
-def _raise_marks(path: Path) -> tuple[dict[Edge, str], list[str]]:
+def _raise_marks(text: str, name: str) -> tuple[dict[Edge, str], list[str]]:
     """Edges carrying ``# raise-ok: <reason>`` on the line above, plus reasonless markers."""
     marks: dict[Edge, str] = {}
     errors: list[str] = []
-    if not path.exists():
-        return marks, errors
     prev = ""
-    for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for n, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if line.startswith(_RAISE_OK) and not line[len(_RAISE_OK) :].strip():
-            errors.append(f"{path.name}:{n}: {_RAISE_OK} needs a reason")
+            errors.append(f"{name}:{n}: {_RAISE_OK} needs a reason")
         m = _BASELINE_LINE.match(line)
         if m and prev.startswith(_RAISE_OK) and prev[len(_RAISE_OK) :].strip():
             marks[(m[1], m[2])] = prev
@@ -371,11 +413,25 @@ def _raise_marks(path: Path) -> tuple[dict[Edge, str], list[str]]:
     return marks, errors
 
 
-def write_baseline(path: Path, counts: Counter[Edge]) -> None:
-    marks, _ = _raise_marks(path)
+def _file_marks(path: Path) -> tuple[dict[Edge, str], list[str]]:
+    if not path.exists():
+        return {}, []
+    return _raise_marks(path.read_text(encoding="utf-8"), path.name)
+
+
+def write_baseline(
+    path: Path, counts: Counter[Edge], base: Counter[Edge] | None = None
+) -> None:
+    """Write the baseline, carrying a ``# raise-ok:`` forward only while it still raises.
+
+    With a merge-base copy known, a marker whose edge is no longer above the base count
+    is dropped: it has done its job, and leaving it would let a later MR raise the same
+    edge with nothing new in its diff.
+    """
+    marks, _ = _file_marks(path)
     body = ""
     for (s, d), n in sorted(counts.items()):
-        if (s, d) in marks:
+        if (s, d) in marks and (base is None or n > base.get((s, d), 0)):
             body += f"{marks[(s, d)]}\n"
         body += f"{s} -> {d} {n}\n"
     path.write_text(_BASELINE_HEADER + body, encoding="utf-8")
@@ -392,26 +448,33 @@ def _git(root: Path, *args: str) -> tuple[int, str]:
     return out.returncode, out.stdout
 
 
-def _baseline_raised(root: Path, baseline: Path) -> tuple[list[str], list[str]]:
-    """Return ``(raised edges, errors)`` for the baseline versus its merge-base copy.
+class _Base(NamedTuple):
+    counts: Counter[Edge] | None  # None: no base baseline to compare against
+    marks: dict[Edge, str]
+    errors: list[str]
+
+
+def _base_baseline(root: Path, baseline: Path) -> _Base:
+    """The baseline as it stood at the merge base, or why it cannot be read.
 
     Fails closed: if the CI diff base (or an explicit ref) is named but cannot be read,
     that is an error, not a skip. The check is skipped, with a note, only when there is
     no CI variable and no ``origin/main`` to take a merge base against -- a local clone
     with no remote -- or when HEAD is the merge base (a pipeline on ``main``).
     """
-    errors: list[str] = []
-    marks, mark_errors = _raise_marks(baseline)
-    errors += mark_errors
     ref = os.environ.get("TRUEPPM_LAYERING_BASE_REF") or os.environ.get(
         "CI_MERGE_REQUEST_DIFF_BASE_SHA"
     )
     if ref:
         if _git(root, "cat-file", "-e", f"{ref}^{{commit}}")[0] != 0:
-            return [], [
-                f"base ref {ref!r} is not reachable, so the baseline cannot be compared "
-                "against it (shallow clone? the job needs GIT_DEPTH: 0)"
-            ]
+            return _Base(
+                None,
+                {},
+                [
+                    f"base ref {ref!r} is not reachable, so the baseline cannot be compared "
+                    "against it (shallow clone? the job needs GIT_DEPTH: 0)"
+                ],
+            )
     else:
         rc, mb = _git(root, "merge-base", "HEAD", "origin/main")
         _, head = _git(root, "rev-parse", "HEAD")
@@ -419,34 +482,55 @@ def _baseline_raised(root: Path, baseline: Path) -> tuple[list[str], list[str]]:
             print(
                 "  note: no merge base available (no origin/main, or on main) -- baseline-raise check skipped"
             )
-            return [], errors
+            return _Base(None, {}, [])
         ref = mb.strip()
     try:
         rel = baseline.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
-        return [], errors
+        return _Base(None, {}, [])
     rc, listing = _git(root, "ls-tree", ref, "--", rel)
     if rc != 0:
-        return [], errors + [
-            f"git ls-tree {ref} -- {rel} failed; cannot read the base baseline"
-        ]
+        return _Base(
+            None,
+            {},
+            [f"git ls-tree {ref} -- {rel} failed; cannot read the base baseline"],
+        )
     if not listing.strip():
-        return [], errors  # genuinely absent at the base: this change introduces it
+        return _Base(
+            None, {}, []
+        )  # genuinely absent at the base: this change introduces it
     rc, old_text = _git(root, "show", f"{ref}:{rel}")
     if rc != 0:
-        return [], errors + [
-            f"git show {ref}:{rel} failed; cannot read the base baseline"
-        ]
+        return _Base(
+            None, {}, [f"git show {ref}:{rel} failed; cannot read the base baseline"]
+        )
     old: Counter[Edge] = Counter()
     for line in old_text.splitlines():
         m = _BASELINE_LINE.match(line.strip())
         if m:
             old[(m[1], m[2])] = int(m[3])
+    return _Base(old, _raise_marks(old_text, "base baseline")[0], [])
+
+
+def _baseline_raised(root: Path, baseline: Path) -> tuple[list[str], list[str]]:
+    """Return ``(raised edges, errors)`` for the baseline versus its merge-base copy.
+
+    A ``# raise-ok:`` is honored only if it is NEW relative to the base copy: a marker
+    already present at the base was spent by the MR that added it. It is still a
+    self-grant written in the file it guards -- a reviewer reading the diff is the
+    control, not the gate.
+    """
+    marks, errors = _file_marks(baseline)
+    base = _base_baseline(root, baseline)
+    errors = errors[:] + base.errors
+    if base.counts is None:
+        return [], errors
     now = read_baseline(baseline)
     raised = [
-        f"{s} -> {d}: {old.get((s, d), 0)} -> {n}"
+        f"{s} -> {d}: {base.counts.get((s, d), 0)} -> {n}"
         for (s, d), n in sorted(now.items())
-        if n > old.get((s, d), 0) and (s, d) not in marks
+        if n > base.counts.get((s, d), 0)
+        and ((s, d) not in marks or (s, d) in base.marks)
     ]
     return raised, errors
 
@@ -491,7 +575,11 @@ def run(
             for (s, d), n in sorted(new.items()):
                 print(f"  {s} -> {d}: {base.get((s, d), 0)} -> {n}", file=sys.stderr)
             return 1
-        write_baseline(baseline, counts)
+        write_baseline(
+            baseline,
+            counts,
+            _base_baseline(root, baseline).counts if check_base else None,
+        )
         print(f"baseline updated: {sum(counts.values())} sites on {len(counts)} edges")
         return 0
 
@@ -590,11 +678,25 @@ def _stage(tmp: Path, files: dict[str, str]) -> tuple[Path, Path, Path]:
 def self_test() -> int:
     failed = 0
 
-    def case(name: str, expect: int, files: dict[str, str], baseline: str = "") -> None:
+    def case(
+        name: str,
+        expect: int,
+        files: dict[str, str],
+        baseline: str = "",
+        late: dict[str, str] | None = None,
+    ) -> None:
+        """Run one fixture. ``late`` files are written AFTER ``git add``: untracked residue."""
         nonlocal failed
         with tempfile.TemporaryDirectory() as d:
             root, cfg, bl = _stage(Path(d), files)
             bl.write_text(baseline, encoding="utf-8")
+            if late is not None:
+                subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+                subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+                for rel, body in late.items():
+                    f = root / _PKG_REL / rel
+                    f.parent.mkdir(parents=True, exist_ok=True)
+                    f.write_text(body, encoding="utf-8")
             import contextlib
             import io
 
@@ -703,6 +805,21 @@ def self_test() -> int:
         "a bare marker on a line with no import still fails",
         1,
         {"apps/base/m.py": "x = 1  # layering-ok:\n"},
+    )
+    case(
+        "tracked .py in an apps/<x>/ with no __init__.py is an error",
+        1,
+        {"apps/noinit/helper.py": "x = 1\n"},
+        late={},
+    )
+    case(
+        "untracked residue (a dir with a violating .py, a stray .py) is ignored in git",
+        0,
+        {},
+        late={
+            "apps/residue/helper.py": "from trueppm_api.apps.top import t\n",
+            "apps/base/scratch.py": "from trueppm_api.apps.top import t\n",
+        },
     )
     case("baselined violation passes", 0, up, "base -> top 1\n")
     case(

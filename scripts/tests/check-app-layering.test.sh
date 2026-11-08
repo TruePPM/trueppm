@@ -192,6 +192,33 @@ check "with no CI variable and no origin/main the check is skipped" "$rc"
 grep -q "skipped" "$TMP/out" && rc=0 || rc=1
 check "the local skip is announced" "$rc"
 
+# A marker already present at the base was spent by the MR that added it.
+printf '# h\n# raise-ok: first deliberate raise\nbase -> top 2\n' > "$G/packages/api/app-layering-baseline.txt"
+printf 'from trueppm_api.apps.top import x\nfrom trueppm_api.apps.top import y\n' > "$G/$(echo "${PKG#$TMP/tree/}")/apps/base/mod.py"
+git -C "$G" add -A && git -C "$G" -c user.email=t@t -c user.name=t commit -qm marker
+BASE2="$(git -C "$G" rev-parse HEAD)"
+printf '# h\n# raise-ok: first deliberate raise\nbase -> top 3\n' > "$G/packages/api/app-layering-baseline.txt"
+printf 'from trueppm_api.apps.top import x\nfrom trueppm_api.apps.top import y\nfrom trueppm_api.apps.top import z\n' > "$G/$(echo "${PKG#$TMP/tree/}")/apps/base/mod.py"
+if env TRUEPPM_LAYERING_BASE_REF="$BASE2" python3 "$GATE" --root "$G" >"$TMP/out" 2>&1; then rc=1; else rc=0; fi
+check "a marker already present at the base does not license a further raise" "$rc"
+printf '# h\n# raise-ok: second raise, new marker text\nbase -> top 3\n' > "$G/packages/api/app-layering-baseline.txt"
+printf '# h\nbase -> top 2\n' > "$TMP/b.txt"
+# --update-baseline drops a marker whose edge is no longer above the base count
+printf '# h\n# raise-ok: spent\nbase -> top 2\n' > "$G/packages/api/app-layering-baseline.txt"
+printf 'from trueppm_api.apps.top import x\nfrom trueppm_api.apps.top import y\n' > "$G/$(echo "${PKG#$TMP/tree/}")/apps/base/mod.py"
+env TRUEPPM_LAYERING_BASE_REF="$BASE2" python3 "$GATE" --root "$G" --update-baseline >/dev/null 2>&1 || true
+grep -q "^# raise-ok: spent" "$G/packages/api/app-layering-baseline.txt" && rc=1 || rc=0
+check "--update-baseline drops a marker whose edge is no longer above the base count" "$rc"
+
+# A git failure inside a work tree is an error, never a fallback to walking the filesystem.
+mkdir -p "$TMP/shim"
+printf '#!/bin/sh\necho "fatal: detected dubious ownership in repository" >&2\nexit 128\n' > "$TMP/shim/git"
+chmod +x "$TMP/shim/git"
+if PATH="$TMP/shim:$PATH" python3 "$GATE" --root "$G" >"$TMP/out" 2>&1; then rc=1; else rc=0; fi
+check "a git failure inside a work tree is an error, not a silent walk" "$rc"
+grep -q "dubious ownership" "$TMP/out" && rc=0 || rc=1
+check "the git failure is reported" "$rc"
+
 # Untracked residue must not be read: a leftover dir and a stray .py with violations.
 printf '# h\nbase -> top 1\n' > "$G/packages/api/app-layering-baseline.txt"
 printf 'from trueppm_api.apps.top import x\n' > "$G/$(echo "${PKG#$TMP/tree/}")/apps/base/mod.py"
