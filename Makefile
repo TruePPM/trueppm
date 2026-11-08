@@ -692,6 +692,9 @@ compose-project-names-check: ## Fail if a standalone compose file has no `name:`
 	@# a second, and needs no docker daemon.
 	@bash scripts/check-compose-project-names.sh
 
+compose-nginx-shutdown-check: ## Fail if prod compose nginx lacks worker_shutdown_timeout or a longer stop_grace_period (#4366)
+	@bash scripts/check-compose-nginx-shutdown.sh
+
 compose-ports-check: ## Fail if docker-compose.yml publishes a port on a non-loopback interface (#4648)
 	@# The dev stack runs DEBUG + AllowAny + a public SECRET_KEY; #3189 loopback-bound
 	@# db/mailpit but left api/web on 0.0.0.0. Pure text scan; no docker daemon.
@@ -734,6 +737,7 @@ pre-push-checks: compose-image-pins-check
 pre-push-checks: sigpipe-readers-check
 pre-push-checks: served-assets-check
 pre-push-checks: compose-project-names-check
+pre-push-checks: compose-nginx-shutdown-check
 pre-push-checks: compose-ports-check
 pre-push-checks: playwright-pins-check
 pre-push-checks: nul-bytes-check

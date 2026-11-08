@@ -471,7 +471,18 @@ services:
       - >-
         envsubst '$${DOMAIN}' < /etc/nginx/templates/default.conf.template >
         /etc/nginx/conf.d/default.conf && { while :; do sleep 6h; nginx -s
-        reload || true; done & } && exec nginx -g 'daemon off;'
+        reload || true; done & } && exec nginx -g 'worker_shutdown_timeout 20s;
+        daemon off;'
+    # Bounded WebSocket drain (#4366). `docker compose stop` sends the image's
+    # STOPSIGNAL (SIGQUIT), a graceful shutdown that waits for open connections
+    # — and /ws/ is proxied with `proxy_read_timeout 86400s`, so a live viewer
+    # held the container until SIGKILL. `worker_shutdown_timeout 20s` (a MAIN
+    # context directive, so it is passed with `nginx -g` above rather than put
+    # in conf.d, where it is a hard config error) makes nginx close those
+    # sockets itself. The grace period must outlast it: compose's default is
+    # 10s, which would SIGKILL first and make the directive dead. 30s = 20s
+    # drain + 10s margin. scripts/check-compose-nginx-shutdown.sh enforces both.
+    stop_grace_period: 30s
     volumes:
       - ./nginx/active.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./certbot/conf:/etc/letsencrypt:ro
