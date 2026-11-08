@@ -280,8 +280,11 @@ def _validate_dependency_graph(document: dict[str, Any]) -> None:
     """Refuse a document whose links are cyclic or join a summary to its own subtask.
 
     ``materialize_structure`` bulk-creates the edges, bypassing the serializer's
-    cycle check, so a project that already carried such a link would otherwise be
-    copied into every adopter and fail every recalculation there (#4856). The
+    cycle check, so a template carrying such a link would otherwise be copied into
+    every adopter and fail every recalculation there (#4856). Runs from
+    ``validate_structure``, which the publish and preview actions call on the freshly
+    extracted structure and the apply action and ``materialize_structure`` call on the
+    stored one. The
     summary shape comes from the engine's own ``build_children_map`` over the
     document's ``wbs_path`` values. SS/SF links out of a summary are left out of the
     check: materialize skips them with a warning rather than refusing the template.

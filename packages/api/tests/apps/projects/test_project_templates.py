@@ -325,6 +325,35 @@ def test_publish_then_apply_returns_202_and_an_application(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("url", ["publish/", "publish-preview/"])
+def test_publish_refuses_a_summary_linked_to_its_own_subtask(
+    admin_client: APIClient, source_project: Project, url: str
+) -> None:
+    """#4856: the link would be copied into every adopter, so it stops at publish."""
+    from trueppm_api.apps.projects.models import Dependency
+
+    phase = Task.objects.create(project=source_project, name="Phase", duration=0, wbs_path="1")
+    child = Task.objects.create(project=source_project, name="Child", duration=3, wbs_path="1.1")
+    Dependency.objects.create(predecessor=phase, successor=child, dep_type="FS")
+    before = ProjectTemplate.objects.count()
+
+    if url == "publish/":
+        resp = admin_client.post(
+            "/api/v1/project-templates/publish/",
+            {"project": str(source_project.pk), "name": "Bad"},
+            format="json",
+        )
+    else:
+        resp = admin_client.get(
+            "/api/v1/project-templates/publish-preview/", {"project": str(source_project.pk)}
+        )
+
+    assert resp.status_code == 400, resp.data
+    assert "cannot be scheduled" in str(resp.data["project"])
+    assert ProjectTemplate.objects.count() == before
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "field", ["project", "name", "description"], ids=["project", "name", "description"]
 )
