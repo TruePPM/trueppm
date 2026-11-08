@@ -426,7 +426,7 @@ export function useScheduleCommit({
       // the same calendar, so the popover label, the live resize preview
       // (`useDragCpm`) and the committed duration agree for a not-started task
       // — including across a holiday (an in-progress task's anchor still
-      // differs: #4896), where a mask-only count would have added a day the server
+      // differs, see issue 4896), where a mask-only count would have added a day the server
       // then laid past the handle.
       const isWorkingDay = resolveWorkingDayPredicate(
         calendarRef.current,
