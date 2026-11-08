@@ -64,24 +64,46 @@ Two user-only skills need commands the hook otherwise denies:
 
 | Skill | Commands unlocked |
 |---|---|
-| `/mass_merge` | `glab mr merge`, `git push --no-verify` (with or without `--force-with-lease`) |
-| `/release` | `git reset --hard origin/main` (exactly that form, after a failed version bump) |
+| `/mass_merge` | `glab mr merge`, `git push --no-verify` (with or without `--force-with-lease`, also behind `git -C DIR`) |
+| `/release` | `git reset --hard origin/main` (exactly that target, also behind `git -C DIR`) |
 
-The authorization signal has to come from the user, not an agent. The `UserPromptSubmit`
-hook `.claude/hooks/user-skill-unlock.sh` fires only for a prompt the user typed. When that
-prompt starts with `/mass_merge` or `/release` as a whole token, it writes
-`.claude/state/skill-unlock.json` (gitignored) with the skill, the hook input's `session_id`
-and a timestamp. `pre_bash_deny.py` honors the marker only when its `session_id` equals the
-Bash event's and it is under four hours old, and then only for the table above. Everything
-else stays denied with the marker present: bare `--force`, `+ref`, `:ref`, `--delete`,
-`git stash`, `-c core.hooksPath=`, `--no-verify` on other subcommands, a `/release` marker
-used for `glab mr merge`, and so on. Prose that mentions the skill mid-sentence, `/fix-mr`
-and `/mass_merge-foo` write nothing.
+The `UserPromptExpansion` hook `.claude/hooks/user-skill-unlock.sh` writes
+`.claude/state/skill-unlock.json` (gitignored) with the skill, the event's `session_id` and a
+timestamp when `command_name` is exactly `mass_merge` or `release`. `pre_bash_deny.py` honors
+the marker only when its `session_id` equals the Bash event's, it is under four hours old,
+and the Bash event carries neither `agent_id` nor `agent_type`, so the unlock reaches the main
+session only, never a subagent (a session started with `--agent` carries `agent_type` and is
+never unlocked either). Everything else stays denied with the marker present: bare `--force`,
+`+ref`, `:ref`, `--delete`, `git stash`, `-c core.hooksPath=`, `--no-verify` on other
+subcommands, any other `reset --hard` target, a `/release` marker used for `glab mr merge`.
 
-Agents cannot forge it: the Bash tamper guard denies writes, `rm`, `mv`, `cp`, `tee`,
-redirection and `sed -i` aimed at `.claude/state/`, and `pre-tool-safety.sh` blocks
-Edit/Write to it. Reading it is allowed. A missing, unreadable or malformed marker leaves
-the denies in force.
+**What the Claude Code docs guarantee, and what they do not** (hooks reference, checked 2026-11-07):
+
+- `UserPromptExpansion` "Runs when a user-typed command expands into a prompt before reaching
+  Claude", and "typing `/skillname` directly bypasses `PreToolUse`. `UserPromptExpansion` fires
+  on that direct path." Its input has `expansion_type`, `command_name`, `command_args`,
+  `command_source` and `prompt`.
+- The first design used `UserPromptSubmit`. The docs say such hooks "don't fire only on prompts
+  you type": they also run for a session-scoped scheduled task (including a `/loop`
+  iteration), a background subagent reporting back, and a message another session sends to the
+  main conversation, and the input has no field naming who started the turn. That would let
+  those paths forge the marker, so the writer is not a `UserPromptSubmit` hook.
+- **Unverified:** the docs do not say whether a scheduled `/loop /mass_merge`, a cross-session
+  message or a subagent turn that begins with a slash command also fires `UserPromptExpansion`.
+  They also list only one `command_source` value (`"plugin"` in the example), so the hook
+  cannot require a "user" value and does not read the field. Do not describe the marker as
+  proof that a human typed the command.
+
+**This is a guard against mistakes, not a security boundary**, the same framing as the rest of
+this hook; the sandbox is the boundary. The Bash tamper guard denies writes, `rm`, `mv`, `cp`,
+`tee`, redirection and `sed -i` aimed at `.claude/state/`, and `pre-tool-safety.sh` blocks
+Edit, Write and NotebookEdit of it (path normalized and case-folded, so `.Claude/State/x`,
+`.claude//state/x`, `.claude/./state/x` and `.claude/hooks/../state/x` are caught). Known
+bypass routes, which already reach `settings.json` and the hooks as well:
+`python3 -c "open(...,'w')"` and other programs that write the file themselves;
+`printf x > $(echo path)` and a path held in a variable (`d=.claude/state; printf x > $d/...`);
+and `git checkout <branch> -- <path>` / `git restore`. A missing, unreadable or malformed
+marker leaves the denies in force.
 
 ## Blocked by your own hook
 

@@ -2250,14 +2250,19 @@ UNLOCK = {"skill": ""}
 
 
 def load_unlock(event):
-    """Sets UNLOCK["skill"] when the USER invoked a skill that needs a normally denied command.
+    """Sets UNLOCK["skill"] when a user-typed /mass_merge or /release left a valid marker.
 
-    `.claude/hooks/user-skill-unlock.sh` (a UserPromptSubmit hook, so only a prompt the user
-    typed can trigger it) writes `.claude/state/skill-unlock.json`; the tamper guard denies any
-    Bash write to that path and pre-tool-safety.sh denies Edit/Write to it, so an agent cannot
-    forge one. The marker counts only for the session that wrote it and for UNLOCK_TTL seconds.
-    Anything unreadable or malformed leaves the denies in force.
+    `.claude/hooks/user-skill-unlock.sh` (a UserPromptExpansion hook, documented to run when a
+    user-typed command expands into a prompt) writes `.claude/state/skill-unlock.json`. This is
+    a guard against agent mistakes, not a security boundary: the docs do not say whether a
+    scheduled /loop or cross-session slash command also fires that event, and the Bash/Edit
+    tamper guards miss routes such as `python3 -c`. The marker counts only for the session that
+    wrote it, for UNLOCK_TTL seconds, and only in the main session: an event that carries
+    agent_id or agent_type (a subagent) never unlocks. Anything unreadable or malformed leaves
+    the denies in force.
     """
+    if event.get("agent_id") or event.get("agent_type"):
+        return
     sid = event.get("session_id")
     proj = os.environ.get("CLAUDE_PROJECT_DIR", "") or STATE["event_cwd"]
     if not (isinstance(sid, str) and sid and proj.startswith("/")):

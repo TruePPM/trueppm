@@ -429,6 +429,7 @@ failure (see the lease note below) and never rewrites a contributor's branch. Th
 only cost is a merge commit on a branch that `remove_source_branch_after_merge`
 deletes seconds later.
 
+<!-- pre-bash-deny hook: this `--no-verify` push is allowed for agents only in the main session after the user typed `/mass_merge` (marker written by user-skill-unlock.sh; docs/harness/pre-bash-deny.md). -->
 ```bash
 git -C "$WT" fetch origin
 
@@ -458,6 +459,7 @@ fi
 spurious-conflict case above cannot apply), the push needs a lease — and the form
 this skill used to prescribe is broken:
 
+<!-- pre-bash-deny hook: this `--no-verify` push is allowed for agents only in the main session after the user typed `/mass_merge` (marker written by user-skill-unlock.sh; docs/harness/pre-bash-deny.md). -->
 ```bash
 git -C "$WT" fetch origin
 git -C "$WT" rev-parse "origin/$BR"     # assert BY HAND this is the sha you expect
@@ -509,7 +511,7 @@ never going to exist.
 
 Once green, merge and pull the result forward:
 
-<!-- pre-bash-deny hook: `glab mr merge` and `git push --no-verify` are denied for agents unless the user invoked `/mass_merge` this session (marker written by user-skill-unlock.sh; docs/harness/pre-bash-deny.md). -->
+<!-- pre-bash-deny hook: `glab mr merge` is allowed for agents only in the main session after the user typed `/mass_merge` (marker written by user-skill-unlock.sh; docs/harness/pre-bash-deny.md). -->
 ```bash
 glab mr merge <iid> --yes
 git fetch origin                        # pull the new main so the NEXT MR updates on top of this one
@@ -848,7 +850,7 @@ before merging rather than after.
 - **Drive worktree-held branches with `git -C "$WT"`** — `glab mr checkout` fails
   (git 128) on a branch already checked out in a worktree and silently leaves you
   on the wrong branch. The batch's own branches being in worktrees is expected.
-- **Push updated branches with `--no-verify`** — Phase A already ran the full gate
+- *(allowed by the pre-bash-deny hook only in the main session after the user typed `/mass_merge`)* **Push updated branches with `--no-verify`** — Phase A already ran the full gate
   suite on the combined tree; the pre-push hook is redundant latency here and is
   what stalls on an askpass credential prompt.
 - **Never `--force`. If a rebase forced you into a lease, use the BARE

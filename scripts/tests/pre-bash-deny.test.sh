@@ -1232,10 +1232,14 @@ import json, sys
 s = json.load(open(sys.argv[1]))
 cmds = [h["command"] for g in s["hooks"]["PreToolUse"] if g.get("matcher") == "Bash" for h in g["hooks"]]
 assert any("pre-bash-deny.sh" in c for c in cmds), "hook not registered under PreToolUse Bash"
-ups = [h["command"] for g in s["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
-assert any("user-skill-unlock.sh" in c for c in ups), "skill-unlock hook not registered under UserPromptSubmit"
+upe = [h["command"] for g in s["hooks"]["UserPromptExpansion"] for h in g["hooks"]]
+assert any("user-skill-unlock.sh" in c for c in upe), "skill-unlock hook not registered under UserPromptExpansion"
+ups = [h["command"] for g in s["hooks"].get("UserPromptSubmit", []) for h in g["hooks"]]
+assert not any("user-skill-unlock.sh" in c for c in ups), "skill-unlock must not be a UserPromptSubmit hook (it also fires on /loop, subagents, other sessions)"
+edit = [g["matcher"] for g in s["hooks"]["PreToolUse"] if "pre-tool-safety.sh" in str(g["hooks"])]
+assert edit and "NotebookEdit" in edit[0], "pre-tool-safety.sh must cover NotebookEdit"
 PY
-then pass "settings.json registers pre-bash-deny (PreToolUse Bash) and user-skill-unlock (UserPromptSubmit)"; else fail "settings.json wiring"; fi
+then pass "settings.json registers pre-bash-deny (PreToolUse Bash) and user-skill-unlock (UserPromptExpansion)"; else fail "settings.json wiring"; fi
 
 # The git hooks must not advertise --no-verify to the agent that reads their output (blueprint#165).
 if grep -n 'echo.*no-verify' "$ROOT/hooks/pre-commit" "$ROOT/hooks/pre-push" >/dev/null; then
@@ -1531,8 +1535,12 @@ deny_in 'git stash' "$PRJ/.claude/worktrees/agent-abc123"
 UNLOCK_HOOK="$ROOT/.claude/hooks/user-skill-unlock.sh"
 if command -v jq >/dev/null 2>&1; then
   UPROJ="$(mktemp -d)"
-  prompt_hook() { # <prompt> <session_id>
-    python3 -c 'import json,sys; print(json.dumps({"session_id":sys.argv[2],"prompt":sys.argv[1],"cwd":sys.argv[3]}))' "$1" "$2" "$UPROJ" | CLAUDE_PROJECT_DIR="$UPROJ" "$UNLOCK_HOOK" >/dev/null 2>&1
+  # expand_hook <command_name> <session_id> [event] [expansion_type]: a UserPromptExpansion event.
+  expand_hook() {
+    python3 -c 'import json,sys; n=sys.argv[1]; print(json.dumps({"session_id":sys.argv[2],"hook_event_name":sys.argv[4],"expansion_type":sys.argv[5],"command_name":n,"command_args":"1 2","command_source":"project","prompt":"/"+n+" 1 2","cwd":sys.argv[3]}))' "$1" "$2" "$UPROJ" "${3:-UserPromptExpansion}" "${4:-slash_command}" | CLAUDE_PROJECT_DIR="$UPROJ" "$UNLOCK_HOOK" >/dev/null 2>&1
+  }
+  submit_hook() { # <prompt> <session_id>: a UserPromptSubmit event, which must never write the marker
+    python3 -c 'import json,sys; print(json.dumps({"session_id":sys.argv[2],"hook_event_name":"UserPromptSubmit","prompt":sys.argv[1],"cwd":sys.argv[3]}))' "$1" "$2" "$UPROJ" | CLAUDE_PROJECT_DIR="$UPROJ" "$UNLOCK_HOOK" >/dev/null 2>&1
   }
   marker="$UPROJ/.claude/state/skill-unlock.json"
   unlock_cmd() { # <command> <session_id> -> HRC
@@ -1544,15 +1552,19 @@ if command -v jq >/dev/null 2>&1; then
 
   # No marker: denied.
   u_deny 'glab mr merge 5 --yes' S1
-  # Prompt hook: only a leading /mass_merge or /release token writes a marker.
-  prompt_hook 'please run /mass_merge for me' S1
-  if [ ! -e "$marker" ]; then pass "mid-sentence /mass_merge writes no marker"; else fail "mid-sentence /mass_merge wrote a marker"; fi
-  prompt_hook '/fix-mr 12' S1
-  if [ ! -e "$marker" ]; then pass "/fix-mr writes no marker"; else fail "/fix-mr wrote a marker"; fi
-  prompt_hook '/mass_merge-foo' S1
-  if [ ! -e "$marker" ]; then pass "/mass_merge-foo writes no marker"; else fail "/mass_merge-foo wrote a marker"; fi
-  prompt_hook '/mass_merge 1 2 3' S1
-  if [ -f "$marker" ] && [ "$(jq -r '.skill' "$marker")" = mass_merge ] && [ "$(jq -r '.session_id' "$marker")" = S1 ]; then pass "/mass_merge prompt writes the marker"; else fail "/mass_merge prompt did not write the marker"; fi
+  # The hook acts on UserPromptExpansion only, for exactly mass_merge or release.
+  submit_hook '/mass_merge 1 2 3' S1
+  if [ ! -e "$marker" ]; then pass "a UserPromptSubmit /mass_merge prompt writes nothing"; else fail "UserPromptSubmit wrote a marker"; fi
+  expand_hook fix-mr S1
+  if [ ! -e "$marker" ]; then pass "command_name fix-mr writes no marker"; else fail "fix-mr wrote a marker"; fi
+  expand_hook mass_merge-foo S1
+  if [ ! -e "$marker" ]; then pass "command_name mass_merge-foo writes no marker"; else fail "mass_merge-foo wrote a marker"; fi
+  expand_hook mass_merge S1 UserPromptExpansion mcp_prompt
+  if [ ! -e "$marker" ]; then pass "an mcp_prompt expansion writes no marker"; else fail "mcp_prompt wrote a marker"; fi
+  expand_hook mass_merge S1 UserPromptSubmit
+  if [ ! -e "$marker" ]; then pass "a mass_merge event named UserPromptSubmit writes no marker"; else fail "wrong event name wrote a marker"; fi
+  expand_hook mass_merge S1
+  if [ -f "$marker" ] && [ "$(jq -r '.skill' "$marker")" = mass_merge ] && [ "$(jq -r '.session_id' "$marker")" = S1 ]; then pass "a mass_merge UserPromptExpansion event writes the marker"; else fail "mass_merge expansion did not write the marker"; fi
 
   u_allow 'glab mr merge 5 --yes' S1
   u_allow 'git push --no-verify origin feat/x' S1
@@ -1580,10 +1592,18 @@ if command -v jq >/dev/null 2>&1; then
   u_deny 'sed -i s/a/b/ .claude/state/skill-unlock.json' S1
   u_allow 'cat .claude/state/skill-unlock.json' S1
   # Edit/Write to the marker are blocked by pre-tool-safety.sh.
-  for fp in '/repo/.claude/state/skill-unlock.json' '.claude/state/skill-unlock.json'; do
-    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"x"}}))' "$fp" | "$ROOT/.claude/hooks/pre-tool-safety.sh" >/dev/null 2>&1
-    if [ "$?" -eq 2 ]; then pass "Write to $fp blocked"; else fail "Write to $fp not blocked"; fi
+  safety() { # <tool> <key> <path> -> rc of pre-tool-safety.sh on a real-shaped (nested) event
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":sys.argv[1],"tool_input":{sys.argv[2]:sys.argv[3],"content":"x"}}))' "$1" "$2" "$3" | "$ROOT/.claude/hooks/pre-tool-safety.sh" >/dev/null 2>&1
+  }
+  for fp in '/repo/.claude/state/skill-unlock.json' '.claude/state/skill-unlock.json' '/repo/.Claude/State/skill-unlock.json' \
+            '.claude/hooks/../state/skill-unlock.json' '.claude//state/skill-unlock.json' '.claude/./state/skill-unlock.json'; do
+    safety Write file_path "$fp"; if [ "$?" -eq 2 ]; then pass "Write to $fp blocked"; else fail "Write to $fp not blocked"; fi
   done
+  safety NotebookEdit notebook_path '/repo/.claude/state/skill-unlock.json'; if [ "$?" -eq 2 ]; then pass "NotebookEdit of the marker blocked"; else fail "NotebookEdit of the marker not blocked"; fi
+  # The pre-existing lock-file and migration blocks now see the real (nested) event shape too.
+  safety Edit file_path '/repo/packages/web/package-lock.json'; if [ "$?" -eq 2 ]; then pass "real-shaped Edit of a lock file blocked"; else fail "real-shaped lock-file Edit not blocked"; fi
+  safety Edit file_path '/repo/packages/api/src/x/migrations/0001_initial.py'; if [ "$?" -eq 2 ]; then pass "real-shaped Edit of a migration blocked"; else fail "real-shaped migration Edit not blocked"; fi
+  safety Edit file_path '/repo/packages/web/src/hooks/useThing.ts'; if [ "$?" -eq 0 ]; then pass "ordinary Edit allowed"; else fail "ordinary Edit blocked"; fi
 
   # Expired marker: denied.
   python3 - "$marker" <<'PY'
@@ -1599,7 +1619,7 @@ PY
   u_deny 'glab mr merge 5 --yes' S1
 
   # /release marker unlocks only `git reset --hard origin/main`.
-  prompt_hook '/release 0.5.0-alpha.1' S2
+  expand_hook release S2
   if [ "$(jq -r '.skill' "$marker")" = release ]; then pass "/release prompt writes the marker"; else fail "/release prompt did not write the marker"; fi
   u_allow 'git reset --hard origin/main' S2
   u_deny 'git reset --hard origin/main' OTHER
@@ -1608,6 +1628,23 @@ PY
   u_deny 'glab mr merge 5 --yes' S2
   u_deny 'git push --no-verify origin main' S2
   u_deny 'git push --force origin main' S2
+  u_allow 'git -C /x reset --hard origin/main' S2
+  u_deny 'git reset --hard origin/main~1' S2
+  # Compound and -C forms under a mass_merge marker.
+  expand_hook mass_merge S1
+  u_deny 'glab mr merge 1 --yes && git push --force origin br' S1
+  u_allow 'glab mr merge 1 --yes && git push --no-verify origin br' S1
+  u_allow 'git -C /x push --no-verify origin br' S1
+  # The unlock is main-session only: a subagent event (agent_id / agent_type) is never unlocked.
+  agent_cmd() { # <command> <field> -> HRC
+    HERR="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","session_id":"S1","cwd":sys.argv[3],sys.argv[2]:"a1","tool_input":{"command":sys.argv[1]}}))' "$1" "$2" "$UPROJ" | CLAUDE_PROJECT_DIR="$UPROJ" "$HOOK" 2>&1 >/dev/null)"; HRC=$?
+  }
+  for f in agent_id agent_type; do
+    agent_cmd 'glab mr merge 5 --yes' "$f"
+    if [ "$HRC" -eq 2 ] && [ -n "$HERR" ]; then pass "valid marker + $f: glab mr merge denied"; else fail "marker unlocked a subagent ($f)"; fi
+    agent_cmd 'git push --no-verify origin br' "$f"
+    if [ "$HRC" -eq 2 ] && [ -n "$HERR" ]; then pass "valid marker + $f: push --no-verify denied"; else fail "marker unlocked a subagent push ($f)"; fi
+  done
   rm -rf "$UPROJ"
 else
   fail "jq is required for the skill-unlock tests"

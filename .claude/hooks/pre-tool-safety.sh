@@ -2,26 +2,36 @@
 # PreToolUse safety hook — blocks edits to lock files and migration files,
 # warns on CI config and .env files.
 #
-# Receives tool input on stdin as JSON with a "file_path" field.
+# Receives the PreToolUse event on stdin (tool_input.file_path).
 
 set -euo pipefail
 
-# Block: the skill-unlock marker. It is the user's authorization signal for pre-bash-deny.sh
-# (written only by the user-skill-unlock.sh UserPromptSubmit hook), so an agent must not
-# create or alter it. The real Edit/Write event nests the path under tool_input.
+# Real Edit/Write/NotebookEdit events nest the path under tool_input (file_path, or
+# notebook_path for NotebookEdit); fall back to a top-level file_path.
 INPUT_JSON=$(cat)
-STATE_PATH=$(printf '%s' "$INPUT_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('tool_input') or {}).get('file_path') or d.get('file_path') or '')" 2>/dev/null || echo "")
-case "$STATE_PATH" in
-  */.claude/state|*/.claude/state/*|.claude/state/*)
-    echo "BLOCKED: .claude/state/ holds the user's skill-unlock marker; agents must not write it." >&2
-    exit 2
-    ;;
-esac
-
-FILE_PATH=$(printf '%s' "$INPUT_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('file_path',''))" 2>/dev/null || echo "")
+FILE_PATH=$(printf '%s' "$INPUT_JSON" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+t = d.get('tool_input') or {}
+print(t.get('file_path') or t.get('notebook_path') or d.get('file_path') or '')
+" 2>/dev/null || echo "")
 
 if [[ -z "$FILE_PATH" ]]; then
   exit 0
+fi
+
+# Block: the skill-unlock marker (.claude/state/). pre-bash-deny.sh reads it as the user's
+# authorization to run a few denied commands, so an agent must not create or alter it.
+# Normalized and case-folded first (APFS is case-insensitive): `.Claude/State/x`,
+# `.claude//state/x`, `.claude/./state/x` and `.claude/hooks/../state/x` are the same file.
+if python3 -c "
+import os, sys
+p = os.path.normpath(sys.argv[1]).lower()
+parts = p.split(os.sep)
+sys.exit(0 if any(parts[i:i+2] == ['.claude', 'state'] for i in range(len(parts) - 1)) else 1)
+" "$FILE_PATH"; then
+  echo "BLOCKED: .claude/state/ holds the user's skill-unlock marker; agents must not write it." >&2
+  exit 2
 fi
 
 BASENAME=$(basename "$FILE_PATH")
