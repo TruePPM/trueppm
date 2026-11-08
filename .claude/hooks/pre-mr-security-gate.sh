@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # PreToolUse hook (matcher: "Bash") — before Claude runs a `glab mr create`
-# command, inspect the branch diff and, if source (or sensitive) paths
-# changed, BLOCK the command and tell Claude to run the access-control /
-# security gates first (rbac-check + broadcast-check always; security-review
-# when sensitive paths changed).
+# command, inspect the branch diff and BLOCK the command until the gates the
+# diff needs have run: rbac-check + security-review when API views, serializers,
+# permissions, urls, consumers/routing, auth, sync or upload paths changed;
+# broadcast-check when API code that can be a write path changed (the agent
+# decides whether the resource is board-scoped and may record n/a). Web-,
+# scheduler-, mcp-, test- and docs-only diffs are never blocked.
 #
 # ## Why PreToolUse, not UserPromptSubmit (issue #4867; same fix as macrodream/blueprint#11)
 #
@@ -35,9 +37,10 @@
 #
 #   .claude/hooks/pre-mr-security-gate.sh record ran
 #   .claude/hooks/pre-mr-security-gate.sh record skipped   # user said to skip
+#   .claude/hooks/pre-mr-security-gate.sh record na        # gates ran/judged and do not apply
 #
-# `skipped` is a distinct, recorded state so the MR's `## Gates` ledger says
-# `skipped` rather than `0 findings`. Committing moves HEAD and so invalidates
+# `skipped` and `na` are distinct, recorded states so the MR's `## Gates` ledger
+# says `skipped` (applied, user declined) or `n/a` (does not apply), never `0 findings`. Committing moves HEAD and so invalidates
 # the marker; a fourth field fingerprints uncommitted work, so editing after
 # the gates ran invalidates it too. The marker is agent-written, so it is a
 # visible, auditable record and not a security boundary.
@@ -79,8 +82,8 @@ tree_fingerprint() {
 # ── record mode: the gate run writes the marker keyed to HEAD ───────────
 if [[ "${1:-}" == "record" ]]; then
   status="${2:-}"
-  if [[ "$status" != "ran" && "$status" != "skipped" ]]; then
-    echo "usage: pre-mr-security-gate.sh record <ran|skipped>" >&2
+  if [[ "$status" != "ran" && "$status" != "skipped" && "$status" != "na" ]]; then
+    echo "usage: pre-mr-security-gate.sh record <ran|skipped|na>" >&2
     exit 64
   fi
   if ! file="$(state_file)" || ! head_sha="$(git rev-parse HEAD 2>/dev/null)"; then
@@ -90,6 +93,9 @@ if [[ "${1:-}" == "record" ]]; then
   mkdir -p "$(dirname "$file")"
   printf '%s %s %s %s\n' "$head_sha" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(tree_fingerprint)" >"$file"
   echo "pre-mr-security-gate: recorded '$status' for ${head_sha:0:12}."
+  if [[ "$status" == "na" ]]; then
+    echo "Put 'gate: <name> — n/a (<why it does not apply>)' (not 'skipped') for the gates that do not apply in the MR's ## Gates section." >&2
+  fi
   if [[ "$status" == "skipped" ]]; then
     echo "Put 'gate: <name> — skipped' (not '0 findings') for rbac-check, broadcast-check and security-review in the MR's ## Gates section." >&2
   fi
@@ -540,8 +546,57 @@ if [[ -z "$all_changed" ]]; then
   exit 0
 fi
 
-# Skip docs / CI / changelog-only branches — no source touched.
-if ! grep -qE '\.(py|ts|tsx|js|jsx)$' <<<"$all_changed"; then
+# Which gates does this diff need? Only packages/api/src Python can be a view,
+# serializer, permission, consumer or write path; web-, scheduler-, mcp-, test-,
+# docs- and CI-only diffs are never blocked (CLAUDE.md fast-path table).
+api_src="$(grep -E '^packages/api/src/.*\.py$' <<<"$all_changed" | grep -vE '(^|/)(migrations|tests?)/|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$' || true)"
+if [[ -z "$api_src" ]]; then
+  exit 0
+fi
+
+# rbac-check + security-review: endpoints, serializers, permissions, realtime entry points, auth/input handling.
+sensitive=0
+if grep -qE \
+  -e '(^|/)views[^/]*\.py$' \
+  -e '(^|/)serializers[^/]*\.py$' \
+  -e '(^|/)permissions[^/]*\.py$' \
+  -e '(^|/)urls[^/]*\.py$' \
+  -e '(^|/)consumers\.py$' \
+  -e '(^|/)routing\.py$' \
+  -e '(^|/)auth/' \
+  -e '(^|/)sync/' \
+  -e 'file_?handl' \
+  -e '(^|/)uploads?/' \
+  <<<"$api_src"; then
+  sensitive=1
+fi
+
+# broadcast-check: anything that can be a write path. The hook cannot know whether the resource
+# is board-scoped, so the agent decides and records n/a when it is not.
+write_path=0
+if grep -qE \
+  -e '(^|/)views[^/]*\.py$' \
+  -e '(^|/)serializers[^/]*\.py$' \
+  -e '(^|/)models[^/]*\.py$' \
+  -e '(^|/)services?[^/]*\.py$' \
+  -e '(^|/)signals[^/]*\.py$' \
+  -e '(^|/)tasks[^/]*\.py$' \
+  -e '(^|/)consumers\.py$' \
+  <<<"$api_src"; then
+  write_path=1
+fi
+
+required=()
+reason_line=""
+if [[ "$sensitive" -eq 1 ]]; then
+  required+=("rbac-check" "security-review")
+  reason_line+="API views/serializers/permissions/urls/consumers/routing/auth/sync/upload paths changed — rbac-check and security-review are required. "
+fi
+if [[ "$write_path" -eq 1 ]]; then
+  required+=("broadcast-check")
+  reason_line+="API code that can be a write path changed — broadcast-check is required. This hook cannot tell whether the resource is board-scoped: you decide, and if it is not, record the gate as n/a. "
+fi
+if [[ "${#required[@]}" -eq 0 ]]; then
   exit 0
 fi
 
@@ -554,37 +609,16 @@ if [[ -n "$target_dir" ]] && file="$(state_file "$target_dir")" && [[ -f "$file"
     if [[ "${m_status:-}" == "ran" ]]; then
       exit 0
     elif [[ "${m_status:-}" == "skipped" ]]; then
-      jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: "Security gate was recorded as SKIPPED for this HEAD. The MR ## Gates section must say `gate: security-review — skipped` (and the same for rbac-check / broadcast-check), not a findings count."}}'
+      jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: "Security gates were recorded as SKIPPED for this HEAD. The MR ## Gates section must say `gate: <name> — skipped (<reason>)` for each required gate, not a findings count."}}'
+      exit 0
+    elif [[ "${m_status:-}" == "na" ]]; then
+      jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", additionalContext: "Security gates were recorded as N/A for this HEAD. The MR ## Gates section must say `gate: <name> — n/a (<why it does not apply>)`, not `skipped` and not a findings count."}}'
       exit 0
     fi
   fi
 fi
 
-# Sensitive-path detection. Order: cheapest patterns first.
-sensitive=0
-if grep -qE \
-  -e '(^|/)views[^/]*\.py$' \
-  -e '(^|/)serializers[^/]*\.py$' \
-  -e '(^|/)permissions[^/]*\.py$' \
-  -e '(^|/)consumers\.py$' \
-  -e '(^|/)routing\.py$' \
-  -e '(^|/)auth/' \
-  -e '(^|/)sync/' \
-  -e 'file_?handl' \
-  -e '(^|/)uploads?/' \
-  <<<"$all_changed"; then
-  sensitive=1
-fi
-
-# Every source-touching MR gets the RBAC and broadcast gates; sensitive paths add full security-review.
-required=("rbac-check" "broadcast-check")
-reason_line="Source files changed; rbac-check and broadcast-check are required before this MR is opened."
-if [[ "$sensitive" -eq 1 ]]; then
-  required+=("security-review")
-  reason_line+=" Sensitive paths detected (views/serializers/permissions/consumers/routing/auth/sync/file-handling) — full security-review is also required."
-fi
-
-reason=$'Pre-MR security gate (.claude/hooks/pre-mr-security-gate.sh fired):\n\n'"$reason_line"$'\n\nThis MR-creating call is blocked until the required gates run. Run the following gates, in order, as a single parallel agent batch, then consolidate:\n\n'"$(printf -- '- %s\n' "${required[@]}")"$'\nFinding-handling rules:\n- Any 🔴 finding (including `unconfirmed:`) → do not retry this command. Surface the findings to the user and ask whether to proceed.\n- 🟡/🟢 findings → summarize inline, then proceed.\n\nOnce the gates have actually run against the current HEAD, record that and retry the same command:\n\n  .claude/hooks/pre-mr-security-gate.sh record ran\n\nIf the user explicitly told you to skip the gates, run `record skipped` instead and report `skipped` in the MR ## Gates section. The record is keyed to the current HEAD sha; a new commit invalidates it.'
+reason=$'Pre-MR security gate (.claude/hooks/pre-mr-security-gate.sh fired):\n\n'"$reason_line"$'\n\nThis MR-creating call is blocked until the required gates run. Run the following gates, in order, as a single parallel agent batch, then consolidate:\n\n'"$(printf -- '- %s\n' "${required[@]}")"$'\nFinding-handling rules:\n- Any 🔴 finding (including `unconfirmed:`) → do not retry this command. Surface the findings to the user and ask whether to proceed.\n- 🟡/🟢 findings → summarize inline, then proceed.\n\nOnce the gates have actually run against the current HEAD, record that and retry the same command:\n\n  .claude/hooks/pre-mr-security-gate.sh record ran\n\nIf a gate does not apply (e.g. the resource is not board-scoped), run `record na` and report `n/a (<why>)` in the MR ## Gates section. If the user explicitly told you to skip the gates, run `record skipped` instead and report `skipped` there; never use `skipped` for a gate that does not apply. The record is keyed to the current HEAD sha; a new commit invalidates it.'
 
 jq -n --arg reason "$reason" '{
   hookSpecificOutput: {

@@ -127,12 +127,25 @@ Rules for the description:
 
 `.claude/hooks/pre-mr-security-gate.sh` is a PreToolUse hook on the Bash tool. It **blocks
 `glab mr create`** (and `git push -o merge_request.create`, `glab api -X POST .../merge_requests`)
-on a branch that touches source files until `rbac-check` and `broadcast-check` have run — plus
-`security-review` when views, serializers, permissions, consumers/routing, auth, sync, or upload
-paths changed. Docs/CI/changelog-only branches pass. After the gates run against the current HEAD,
-record that and retry: `.claude/hooks/pre-mr-security-gate.sh record ran`. If the user said to skip
-the gates, run `record skipped` and write `gate: <name> — skipped` (not `0 findings`) for each in
-the `## Gates` section. Committing or editing after the record invalidates it.
+until the gates the diff needs have run:
+
+- `rbac-check` + `security-review` when `packages/api/src` views, serializers, permissions, urls,
+  consumers/routing, auth, sync, or upload paths changed;
+- `broadcast-check` when `packages/api/src` code that can be a write path changed (views,
+  serializers, models, services, signals, tasks, consumers). The hook cannot tell whether the
+  resource is board-scoped; you decide.
+
+Web-, scheduler-, mcp-, test-, docs-, and CI-only diffs are not blocked. After the gates run
+against the current HEAD, record it and retry the same command:
+
+- `.claude/hooks/pre-mr-security-gate.sh record ran` — write the findings count per gate.
+- `.claude/hooks/pre-mr-security-gate.sh record na` — the gate does not apply (e.g. the resource is
+  not board-scoped); write `gate: <name> — n/a (<why>)`.
+- `.claude/hooks/pre-mr-security-gate.sh record skipped` — the gate applied and the user said to
+  skip it; write `gate: <name> — skipped (<reason>)`.
+
+Never write `skipped` for a gate that does not apply. Committing or editing after the record
+invalidates it.
 
 ### The Gates section
 

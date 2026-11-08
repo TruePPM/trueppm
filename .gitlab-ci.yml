@@ -737,7 +737,7 @@ scripts:test:
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
-        - "{.claude/hooks/pre-mr-security-gate.sh,scripts/tests/pre-mr-security-gate.test.sh}"
+        - "{.claude/hooks/pre-mr-security-gate.sh,.claude/settings.json,scripts/tests/pre-mr-security-gate.test.sh}"
         - scripts/tests/wt-prune.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh
@@ -787,7 +787,7 @@ scripts:test:
         - scripts/release-default-summary.py
         - scripts/release-page-summary.sh
         - scripts/tests/wt-args.test.sh
-        - "{.claude/hooks/pre-mr-security-gate.sh,scripts/tests/pre-mr-security-gate.test.sh}"
+        - "{.claude/hooks/pre-mr-security-gate.sh,.claude/settings.json,scripts/tests/pre-mr-security-gate.test.sh}"
         - scripts/tests/wt-prune.test.sh
         - scripts/tests/wt-reserve.test.sh
         - scripts/tests/wt-stash.test.sh

@@ -291,6 +291,9 @@ Only once this clears does the Step 5 agent, resumed, finish the branch:
    `glab mr create` directly. `/mr` is `disable-model-invocation` — an agent
    cannot call it and must not try. `.claude/skills/mr/SKILL.md` is the canonical
    format for both paths.
+   The PreToolUse hook `pre-mr-security-gate.sh` denies `glab mr create` on an API diff until
+   the required gates are run and `record ran|na|skipped` is recorded for the current HEAD —
+   see the "pre-MR security gate hook" subsection of `mr/SKILL.md` — then retry.
 10. Include `Closes #NNN` in the MR description, a `## Gates` section with one
    `gate: <name> — <N> findings` line per gate run, including every
    completeness-check line from this step (`0 findings` is a real outcome; never

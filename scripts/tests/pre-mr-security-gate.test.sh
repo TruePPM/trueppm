@@ -99,9 +99,9 @@ check() { # <label> <repo-dir> <command> <want: deny|allow>
 
 # ── Fixture repos ────────────────────────────────────────────────────────
 
-make_repo sensitive app/views.py "def view(): pass"
+make_repo sensitive packages/api/src/trueppm_api/app/views.py "def view(): pass"
 make_repo docs_only README.md "some docs"
-make_repo nonsensitive app/utils.py "def util(): pass"
+make_repo nonsensitive packages/api/src/trueppm_api/app/models.py "x = 1"
 
 MR_CREATE='glab mr create --title "x" --target-branch main --description "desc"'
 
@@ -155,7 +155,7 @@ check "opt-out phrase only in description body → still denied" \
 
 # ── Case 5: source changed but nothing sensitive still requires the gate
 # (rbac-check is required on every source-touching branch). ─────────────
-check "glab mr create + non-sensitive source diff → denied" \
+check "glab mr create + broadcast-only (models.py) diff → denied" \
   "$TMP/nonsensitive" "$MR_CREATE" deny
 
 # ── Case 6: a docs-only branch never fires the gate at all. ─────────────
@@ -223,16 +223,16 @@ check "glab api --field= implicit POST → denied" \
   "$TMP/sensitive" 'glab api projects/g%2Fp/merge_requests --field=title=x' deny
 
 # ── marker file keyed to HEAD. ───────────────────────────────
-make_repo marked app/views.py "def view(): pass"
+make_repo marked packages/api/src/trueppm_api/app/views.py "def view(): pass"
 check "no marker → denied" "$TMP/marked" "$MR_CREATE" deny
 (cd "$TMP/marked" && "$HOOK" record ran >/dev/null)
 check "marker 'ran' for current HEAD → allowed" "$TMP/marked" "$MR_CREATE" allow
 check "marker also covers the bypass forms (same HEAD)" \
   "$TMP/marked" 'env glab -R g/p mr create' allow
-echo "# edit after the gates ran" >>"$TMP/marked/app/views.py"
+echo "# edit after the gates ran" >>"$TMP/marked/packages/api/src/trueppm_api/app/views.py"
 check "uncommitted edit after 'record ran' → marker invalidated → denied" \
   "$TMP/marked" "$MR_CREATE" deny
-(cd "$TMP/marked" && git checkout -q -- app/views.py)
+(cd "$TMP/marked" && git checkout -q -- packages/api/src/trueppm_api/app/views.py)
 check "edit reverted → marker valid again → allowed" "$TMP/marked" "$MR_CREATE" allow
 (cd "$TMP/marked" && git commit -q --allow-empty -m "move head")
 check "HEAD moved → marker invalidated → denied" "$TMP/marked" "$MR_CREATE" deny
@@ -322,8 +322,8 @@ mkdir -p "$ORCH"
   git update-ref refs/remotes/origin/main HEAD
   git worktree add -q -b feat/w "$TMP/orch-wt" main
   cd "$TMP/orch-wt" || exit 1
-  mkdir -p app
-  printf 'def view(): pass\n' >app/views.py
+  mkdir -p packages/api/src/trueppm_api/app
+  printf 'def view(): pass\n' >packages/api/src/trueppm_api/app/views.py
   git add -A
   git commit -q -m "feat: change"
 )
@@ -374,10 +374,10 @@ check_cwd "marker recorded in the branch's worktree → --source-branch from the
   "$ORCH" "$ORCH" "$MR_CREATE --source-branch feat/w" allow
 check_cwd "the same marker → event cwd = the worktree allowed" \
   "$ORCH" "$TMP/orch-wt" "$MR_CREATE" allow
-printf 'x = 1\n' >"$TMP/orch-wt/app/extra.py"
+printf 'x = 1\n' >"$TMP/orch-wt/packages/api/src/trueppm_api/app/extra.py"
 check_cwd "an untracked file in the branch's worktree after the marker → denied again" \
   "$ORCH" "$ORCH" "$MR_CREATE --source-branch feat/w" deny
-rm -f "$TMP/orch-wt/app/extra.py"
+rm -f "$TMP/orch-wt/packages/api/src/trueppm_api/app/extra.py"
 
 # ── Worktree targeting: the target is parsed in every spelling, an MR that cannot be placed
 # is denied. ────────────────
@@ -392,8 +392,8 @@ mkdir -p "$ORCH2"
   git update-ref refs/remotes/origin/main HEAD
   git worktree add -q -b feat/v "$TMP/orch2-wt" main
   cd "$TMP/orch2-wt" || exit 1
-  mkdir -p app
-  printf 'def view(): pass\n' >app/views.py
+  mkdir -p packages/api/src/trueppm_api/app
+  printf 'def view(): pass\n' >packages/api/src/trueppm_api/app/views.py
   git add -A
   git commit -q -m "feat: change"
 )
@@ -440,26 +440,42 @@ import json, sys
 print(json.load(sys.stdin)["hookSpecificOutput"]["permissionDecisionReason"])
 ')
 }
-make_repo api_serializer packages/api/src/trueppm_api/projects/serializers_task.py "x = 1"
-make_repo api_consumer packages/api/src/trueppm_api/core/consumers.py "x = 1"
-make_repo api_routing packages/api/src/trueppm_api/core/routing.py "x = 1"
+A='packages/api/src/trueppm_api/app'
+make_repo api_serializer $A/serializers.py "x = 1"
+make_repo api_consumer $A/consumers.py "x = 1"
+make_repo api_routing $A/routing.py "x = 1"
 make_repo web_only packages/web/src/lib/format.ts "export const x = 1"
-for r in nonsensitive web_only; do
+make_repo sched_only packages/scheduler/src/trueppm_scheduler/cpm.py "x = 1"
+make_repo mcp_only packages/mcp/src/server.py "x = 1"
+make_repo api_test_only packages/api/tests/test_views.py "x = 1"
+make_repo api_migration_only $A/migrations/0001_x.py "x = 1"
+for r in web_only sched_only mcp_only api_test_only api_migration_only docs_only; do
+  check "$r: glab mr create → allowed (no gate applies)" "$TMP/$r" "$MR_CREATE" allow
+done
+rr="$(reason_of "$TMP/nonsensitive")"
+if [[ "$rr" == *broadcast-check* && "$rr" != *rbac-check* && "$rr" != *security-review* && "$rr" == *"record na"* ]]; then
+  pass "models.py: names broadcast-check only, with the n/a hint"
+else
+  fail "models.py: wrong gate list in deny reason"
+fi
+for r in sensitive api_serializer api_consumer; do
   rr="$(reason_of "$TMP/$r")"
-  if [[ "$rr" == *rbac-check* && "$rr" == *broadcast-check* && "$rr" != *security-review* ]]; then
-    pass "$r: names rbac-check + broadcast-check, not security-review"
+  if [[ "$rr" == *rbac-check* && "$rr" == *broadcast-check* && "$rr" == *security-review* ]]; then
+    pass "$r: names rbac-check + security-review + broadcast-check"
   else
     fail "$r: wrong gate list in deny reason"
   fi
 done
-for r in sensitive api_serializer api_consumer api_routing; do
-  rr="$(reason_of "$TMP/$r")"
-  if [[ "$rr" == *rbac-check* && "$rr" == *broadcast-check* && "$rr" == *security-review* ]]; then
-    pass "$r: names rbac-check + broadcast-check + security-review"
-  else
-    fail "$r: sensitive path should add security-review"
-  fi
-done
+rr="$(reason_of "$TMP/api_routing")"
+if [[ "$rr" == *rbac-check* && "$rr" == *security-review* && "$rr" != *broadcast-check* ]]; then
+  pass "routing.py: rbac-check + security-review, no broadcast-check"
+else
+  fail "routing.py: wrong gate list in deny reason"
+fi
+# record na: allowed, with a distinct n/a ledger reminder.
+(cd "$TMP/api_serializer" && "$HOOK" record na >/dev/null 2>&1)
+check "marker 'na' for current HEAD → allowed" "$TMP/api_serializer" "$MR_CREATE" allow
+if grep -q ' na ' "$TMP/api_serializer/.claude/state/pre-mr-gate"; then pass "na is recorded distinctly in the marker"; else fail "na is recorded distinctly in the marker"; fi
 
 # The old UserPromptSubmit wiring must be gone, the Bash matcher present.
 SETTINGS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.claude/settings.json"
