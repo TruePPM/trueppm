@@ -147,6 +147,11 @@ describe.each([
       'over-2',
       'on-over',
       'focus',
+      'heat-1',
+      'heat-2',
+      'heat-3',
+      'heat-4',
+      'heat-5',
     ]) {
       expect(tokens[name], `${theme}: --p1-${name} missing`).toBeDefined();
     }
@@ -182,6 +187,19 @@ describe.each([
     expect(onTint('risk-text', 'risk-tint')).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
     expect(onTint('ok', 'ok-tint')).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
     expect(onTint('info', 'info-tint')).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  });
+
+  it('heat steps carry AA ink (text-1 on 1-3, on-brand on 4-5) and rise monotonically in contrast with the sheet', () => {
+    for (const n of [1, 2, 3, 4, 5]) {
+      const ink = n >= 4 ? 'on-brand' : 'text-1';
+      expect(
+        contrast(tokens[ink], tokens[`heat-${n}`]),
+        `${theme}: heat-${n}`,
+      ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    }
+    const sheet = tokens['surface-1'];
+    const vs = [1, 2, 3, 4, 5].map((n) => contrast(tokens[`heat-${n}`], sheet));
+    for (let i = 1; i < vs.length; i += 1) expect(vs[i]).toBeGreaterThan(vs[i - 1]);
   });
 
   it('focus ring clears 3:1 against the sheet (WCAG 1.4.11)', () => {

@@ -392,6 +392,15 @@
     --p1-over-2:        0.77 0.14 58;   /* >115% load */
     --p1-on-over:       0.25 0.05 50;
     --p1-focus:         0.52 0.15 255;
+    /* Heat palette (#4767) — five single-hue sequential steps for 0–100% load, then
+       the over-allocation pair above (--p1-over-1 / --p1-over-2). Light runs
+       pale→deep, dark runs dim→bright, so "more" always reads as more contrast
+       against the sheet. Steps 4–5 carry on-brand ink, 1–3 carry text-1. */
+    --p1-heat-1:        0.94 0.025 250;
+    --p1-heat-2:        0.86 0.055 250;
+    --p1-heat-3:        0.76 0.09  250;
+    --p1-heat-4:        0.54 0.12  252;
+    --p1-heat-5:        0.44 0.13  255;
   }
 
   .dark {
@@ -423,6 +432,29 @@
     --p1-over-2:        0.78 0.14 58;
     --p1-on-over:       0.20 0.04 50;
     --p1-focus:         0.74 0.13 255;
+    --p1-heat-1:        0.28 0.03  250;
+    --p1-heat-2:        0.36 0.06  250;
+    --p1-heat-3:        0.46 0.09  250;
+    --p1-heat-4:        0.66 0.12  252;
+    --p1-heat-5:        0.76 0.13  255;
+  }
+
+  /* ── Shared chart layer forced-colors repaint (#4767) ─────────────────────
+     Charts under features/charts/ are SVG, so the UA remaps their system-color
+     properties but not oklch(var(--p1-*)) fills. Under (forced-colors: active)
+     every mark is repainted with system-color keywords; series stay apart by
+     dash pattern and marker shape, never hue (rule 244's principle, applied to
+     SVG). !important is required to beat the inline style the marks carry.   */
+  @media (forced-colors: active) {
+    .chart-line { stroke: CanvasText !important; }
+    .chart-line-muted { stroke: GrayText !important; }
+    .chart-band { fill: Highlight !important; fill-opacity: 0.25 !important; stroke: Highlight !important; }
+    .chart-zone { fill: Canvas !important; stroke: CanvasText !important; }
+    .chart-heat { forced-color-adjust: none; background: Canvas !important; border: 1px solid CanvasText; color: CanvasText !important; }
+    .chart-mark { fill: CanvasText !important; stroke: Canvas !important; }
+    .chart-text { fill: CanvasText !important; }
+    .chart-rule { stroke: CanvasText !important; }
+    .chart-grid { stroke: GrayText !important; }
   }
 
   /* ── Working-calendar day-type tokens (ADR-0251, #906) ────────────────────
