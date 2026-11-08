@@ -1622,6 +1622,10 @@ def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, A
       - ``on_track`` — within +/-10% of ideal.
     ``trend_points`` is signed (positive = ahead of ideal). ``snapshots`` must be
     ordered ascending by date (the caller passes the burndown series).
+
+    ``burn_status_reason`` says why a ``no_data`` status is not computable (rule 119,
+    #4778): ``no_commitment`` (nothing committed at activation) or ``no_snapshots``
+    (no burn snapshot written yet); null whenever a pace was computed.
     """
     import math
     from datetime import timedelta
@@ -1630,15 +1634,16 @@ def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, A
 
     committed = sprint.committed_points or 0
     if committed <= 0 or not snapshots:
-        return {"burn_status": "no_data", "trend_points": None, "projected_finish_date": None}
+        return {
+            "burn_status": "no_data",
+            "burn_status_reason": "no_commitment" if committed <= 0 else "no_snapshots",
+            "trend_points": None,
+            "projected_finish_date": None,
+        }
 
     today = timezone.localdate()
-    window = (sprint.finish_date - sprint.start_date).days + 1
-    elapsed = (today - sprint.start_date).days + 1
-    day = max(1, min(elapsed, window))
     remaining = snapshots[-1].remaining_points
-    ideal_now = committed * (1 - day / window) if window > 0 else 0
-    trend_points = round(ideal_now - remaining)  # positive = ahead of ideal
+    day, trend_points = sprint_trend_points(sprint, remaining, today)
 
     threshold = max(1, round(committed * 0.1))
     if trend_points > threshold:
@@ -1657,9 +1662,26 @@ def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, A
 
     return {
         "burn_status": burn_status,
+        "burn_status_reason": None,
         "trend_points": trend_points,
         "projected_finish_date": projected_finish_date,
     }
+
+
+def sprint_trend_points(sprint: Any, remaining: int, today: date) -> tuple[int, int]:
+    """The sprint day and the signed points ahead of the linear ideal line.
+
+    The one formula for sprint pace (ADR-1314 amendment, #4778). The burndown owner
+    (:func:`compute_sprint_burn_status`) and the ``/me/active-sprints/`` card both
+    call it, so the two cannot drift — they used to carry two copies. ``day`` is
+    clamped to ``[1, window]``. Returns ``(day, trend_points)``; positive is ahead.
+    """
+    committed = sprint.committed_points or 0
+    window = (sprint.finish_date - sprint.start_date).days + 1
+    elapsed = (today - sprint.start_date).days + 1
+    day = max(1, min(elapsed, window))
+    ideal_now = committed * (1 - day / window) if window > 0 else 0
+    return day, round(ideal_now - remaining)
 
 
 def me_work_signals(
@@ -1682,7 +1704,8 @@ def me_work_signals(
         (:func:`program_rollup._schedule_health_by_project`). Omitted when every
         member project is ``unknown`` (no baseline / CPM basis yet).
       - ``forecast`` — the latest (max) Monte-Carlo P80 finish across the member
-        projects that have a persisted :class:`MonteCarloRun`. Omitted when none do.
+        projects, each read from the forecast owner's latest result (cache entry,
+        else newest persisted run; ADR-1314). Omitted when no project has a P80.
       - ``sprint_burndown`` — the real :class:`SprintBurnSnapshot` series for the
         user's soonest-ending active sprint (the clock that matters most), plus the
         server-computed burn pace. Omitted when the user has no active sprint with a
@@ -1798,33 +1821,52 @@ def _schedule_health_signal(member_project_ids: list[Any], today: date) -> dict[
 def _forecast_signal(member_project_ids: list[Any]) -> dict[str, Any] | None:
     """Latest Monte-Carlo P80 finish across the user's member projects.
 
-    Latest run per project via DISTINCT ON (one query), then the max P80 across
-    them — the honest "when is everything I'm on done at 80% confidence". Projects
-    with no persisted run contribute nothing.
+    An ECHO of the forecast owner, ``GET /projects/{id}/monte-carlo/latest/``
+    (ADR-1314, amended by #4778): each project's P80 is the owner's latest result —
+    the cache entry first, then the newest persisted run — read through
+    :func:`latest_forecast_p80_by_project`. This used to read the persisted
+    ``MonteCarloRun`` only, so after a Member-triggered run (cache refreshed, no row
+    persisted, #1502) the My Work card showed a different date from the project's own
+    forecast for up to a day. The max across projects is the honest "when is
+    everything I'm on done at 80% confidence"; ``as_of`` is the driving project's
+    ``last_run_at``, the owner's as_of. Projects with no P80 contribute nothing.
     """
-    from trueppm_api.apps.scheduling.models import MonteCarloRun
-
-    latest_runs = list(
-        MonteCarloRun.objects.filter(project_id__in=member_project_ids, p80__isnull=False)
-        .order_by("project_id", "-taken_at")
-        .distinct("project_id")
-        .select_related("project")
+    from trueppm_api.apps.projects.metric_provenance import (
+        MY_WORK_FORECAST_DEFINED,
+        definitions_by_field,
+        latest_forecast_p80_by_project,
     )
-    # p80 is non-null by the filter above; ``or date.min`` only satisfies the
-    # type-checker for the max key (the fallback can never be selected).
-    lead_run = max(latest_runs, key=lambda r: r.p80 or date.min, default=None)
-    if lead_run is None or lead_run.p80 is None:
+    from trueppm_api.apps.projects.models import Project
+
+    latest = latest_forecast_p80_by_project(member_project_ids)
+    if not latest:
+        return None
+    # Tie on the date breaks on project id so the driving project is deterministic.
+    lead_id, (p80, last_run_at) = max(latest.items(), key=lambda kv: (kv[1][0], kv[0]))
+    project_name = Project.objects.filter(pk=lead_id).values_list("name", flat=True).first()
+    if project_name is None:
         return None
     return {
-        "p80_finish": lead_run.p80.isoformat(),
-        "project_id": str(lead_run.project_id),
-        "project_name": lead_run.project.name,
-        "as_of": lead_run.taken_at.isoformat(),
+        "p80_finish": p80.isoformat(),
+        "project_id": lead_id,
+        "project_name": project_name,
+        "as_of": last_run_at,
+        "definitions": definitions_by_field(MY_WORK_FORECAST_DEFINED),
     }
 
 
 def _sprint_burndown_signal(lead_sprint: Any) -> dict[str, Any] | None:
-    """Real burn snapshot series plus server-computed pace for the lead sprint."""
+    """The lead sprint's burn series and pace: an ECHO of ``/sprints/{id}/burndown/``.
+
+    ADR-1314 (amended by #4778) names the sprint burndown endpoint the owner of the
+    sprint burn figures. This reads the same snapshot rows in the same order and calls
+    the same :func:`compute_sprint_burn_status`, so the card and the sprint's own
+    chart cannot disagree; it carries the same ``as_of`` and ``definitions``.
+    """
+    from trueppm_api.apps.projects.metric_provenance import (
+        MY_WORK_SPRINT_BURN_DEFINED,
+        definitions_by_field,
+    )
     from trueppm_api.apps.projects.models import SprintBurnSnapshot
 
     snapshots = list(
@@ -1842,8 +1884,11 @@ def _sprint_burndown_signal(lead_sprint: Any) -> dict[str, Any] | None:
             for s in snapshots
         ],
         "burn_status": burn["burn_status"],
+        "burn_status_reason": burn["burn_status_reason"],
         "trend_points": burn["trend_points"],
         "projected_finish_date": burn["projected_finish_date"],
+        "as_of": timezone.now().isoformat(),
+        "definitions": definitions_by_field(MY_WORK_SPRINT_BURN_DEFINED),
     }
 
 

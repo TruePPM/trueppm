@@ -94,6 +94,26 @@ describe('MyWorkSideColumn', () => {
     expect(screen.getByText(/Apollo Platform · 80% confidence · as of/)).toBeInTheDocument();
   });
 
+  it("renders the server's definition of the ship date, not a client gloss (#4778)", async () => {
+    const definition = 'The latest P80 finish among your member projects (server sentence).';
+    renderWithRouter(
+      <MyWorkSideColumn
+        tasks={[task()]}
+        activeSprints={[]}
+        forecast={{
+          p80_finish: '2026-08-14',
+          project_id: 'p9',
+          project_name: 'Apollo Platform',
+          as_of: '2026-07-01T09:12:00Z',
+          definitions: { p80_finish: definition },
+        }}
+      />,
+    );
+    const trigger = screen.getByRole('button', { name: '80% confidence' });
+    trigger.focus();
+    expect(await screen.findByText(definition)).toBeInTheDocument();
+  });
+
   it('renders the forecast panel even when the user has no sprint or critical work', () => {
     const { container } = renderWithRouter(
       <MyWorkSideColumn

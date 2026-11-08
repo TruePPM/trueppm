@@ -111,11 +111,15 @@ from trueppm_api.apps.profiles.services import annotate_is_pinned
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
     BURN_DEFINED,
+    BURN_STATUS_REASON_CHOICES,
     METRIC_DEFINITIONS,
+    MY_WORK_FORECAST_DEFINED,
+    MY_WORK_SPRINT_BURN_DEFINED,
     OVERVIEW_DEFINED,
     STATUS_SUMMARY_DEFINED,
     UTILIZATION_DEFINED,
     definitions_field,
+    definitions_field_by_field,
     definitions_for,
     task_slip_definitions,
 )
@@ -16798,7 +16802,16 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     def burndown(self, request: Request, pk: str | None = None) -> Response:
         """Return the sprint, its actual burn series, and the server-computed
         burn pace (#984): burn_status + projected_finish_date, so MCP/mobile read
-        the pace verdict from REST instead of re-deriving it client-side."""
+        the pace verdict from REST instead of re-deriving it client-side.
+
+        The OWNER of the sprint burn figures (ADR-1314 amendment, #4778): the My
+        Work card and the active-sprints feed echo it. ``as_of`` is when the pace
+        was computed — it is measured against today's place on the ideal line, so
+        it ages even when no snapshot changes."""
+        from trueppm_api.apps.projects.metric_provenance import (
+            SPRINT_BURNDOWN_DEFINED,
+            definitions_by_field,
+        )
         from trueppm_api.apps.projects.services import compute_sprint_burn_status
 
         sprint = self._sprint_or_404(pk)
@@ -16809,8 +16822,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             "sprint": SprintSerializer(sprint).data,
             "snapshots": SprintBurnSnapshotSerializer(snapshot_list, many=True).data,
             "burn_status": burn["burn_status"],
+            "burn_status_reason": burn["burn_status_reason"],
             "trend_points": burn["trend_points"],
             "projected_finish_date": burn["projected_finish_date"],
+            "as_of": timezone.now(),
+            "definitions": definitions_by_field(SPRINT_BURNDOWN_DEFINED),
         }
         return Response(payload, status=status.HTTP_200_OK)
 
@@ -18150,6 +18166,7 @@ class MeActiveSprintsView(APIView):
     def get(self, request: Request) -> Response:
         from trueppm_api.apps.projects.services import (
             capacity_summaries_for_sprints,
+            sprint_trend_points,
             velocity_summary,
         )
         from trueppm_api.apps.projects.signal_privacy_services import (
@@ -18223,14 +18240,13 @@ class MeActiveSprintsView(APIView):
         velocity_cache: dict[str, dict[str, Any]] = {}
         for sprint in sprints:
             window = (sprint.finish_date - sprint.start_date).days + 1
-            elapsed = (today - sprint.start_date).days + 1
-            day = max(1, min(elapsed, window))
 
             committed = sprint.committed_points or 0
             snapshot_list: list[Any] = getattr(sprint, "_latest_snapshot_list", [])
             remaining = snapshot_list[0].remaining_points if snapshot_list else committed
-            ideal_now = committed * (1 - day / window) if window > 0 else 0
-            trend_pts = round(ideal_now - remaining)  # positive = ahead
+            # The burndown owner's pace formula (ADR-1314 amendment, #4778), not a
+            # second copy of it: this card echoes `/sprints/{id}/burndown/`.
+            day, trend_pts = sprint_trend_points(sprint, remaining, today)
 
             cap = capacities[sprint.pk]
             project_id = str(sprint.project_id)
@@ -18584,10 +18600,27 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                                     name="MeWorkForecastSignal",
                                     required=False,
                                     fields={
-                                        "p80_finish": serializers.DateField(),
+                                        "p80_finish": serializers.DateField(
+                                            help_text=(
+                                                "Echo of the forecast owner, "
+                                                "GET /projects/{id}/monte-carlo/latest/ "
+                                                "(ADR-1314): the max of each member "
+                                                "project's latest P80, cache entry first "
+                                                "then the newest persisted run."
+                                            )
+                                        ),
                                         "project_id": serializers.UUIDField(),
                                         "project_name": serializers.CharField(),
-                                        "as_of": serializers.DateTimeField(),
+                                        "as_of": serializers.DateTimeField(
+                                            help_text=(
+                                                "The driving project's forecast "
+                                                "last_run_at (the owner's as_of)."
+                                            )
+                                        ),
+                                        "definitions": definitions_field_by_field(
+                                            "MeWorkForecastDefinitions",
+                                            MY_WORK_FORECAST_DEFINED,
+                                        ),
                                     },
                                 ),
                                 "sprint_burndown": inline_serializer(
@@ -18606,11 +18639,25 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                                             },
                                         ),
                                         "burn_status": serializers.CharField(),
+                                        "burn_status_reason": serializers.ChoiceField(
+                                            choices=BURN_STATUS_REASON_CHOICES,
+                                            allow_null=True,
+                                        ),
                                         "trend_points": serializers.IntegerField(allow_null=True),
                                         "projected_finish_date": serializers.DateField(
                                             allow_null=True
                                         ),
+                                        "as_of": serializers.DateTimeField(),
+                                        "definitions": definitions_field_by_field(
+                                            "MeWorkSprintBurndownDefinitions",
+                                            MY_WORK_SPRINT_BURN_DEFINED,
+                                        ),
                                     },
+                                    help_text=(
+                                        "Echo of the sprint burn owner, "
+                                        "GET /sprints/{id}/burndown/ (ADR-1314): the same "
+                                        "snapshots and the same pace computation."
+                                    ),
                                 ),
                                 "utilization": inline_serializer(
                                     name="MeWorkUtilizationSignal",
