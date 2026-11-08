@@ -6,8 +6,9 @@ Why this exists
 The OSS-to-Enterprise edge is gated (``scripts/check-enterprise-imports.sh``), but
 nothing gated the edges *between* the ~22 domain apps under
 ``packages/api/src/trueppm_api/apps/``. Cross-domain coupling therefore accumulated
-unnoticed: at the time this gate was written the apps shared 221 distinct directed
-edges across 1,314 import sites. This gate declares the intended layering in one
+unnoticed: at the time this gate was written the apps shared 162 distinct directed
+edges (app to app, app to platform, platform to app) across several hundred import
+sites. This gate declares the intended layering in one
 file, records today's violations in a baseline that can only shrink, and fails any
 import that is not in the baseline.
 
@@ -43,19 +44,42 @@ violation do not conflict. ``--update-baseline`` only ever lowers or removes ent
 it refuses to add or raise one (once the file exists), so the baseline cannot be used to launder a new
 violation. The baseline total is printed on every run so shrinkage is visible.
 
+Nothing in the file format stops a person editing a count *up* by hand, so the gate
+also compares the committed baseline with the copy at the merge base (the MR diff base
+in CI, ``git merge-base HEAD origin/main`` locally) and fails if an edge was added or a
+count rose. Override with ``TRUEPPM_ALLOW_LAYERING_RAISE=1`` for a deliberate
+re-layering (say so in the MR). When no base ref is reachable -- a shallow clone, a
+pipeline on ``main`` itself -- the check prints a note and is skipped; when the base
+has no baseline file (the MR that introduced it) it passes.
+
 Opting out
 ----------
 A deliberate exception carries ``# layering-ok: <reason>`` inside the import or in the
-comment block directly above it. The reason is required. Like ``# safe-bulk-create:``
+comment block directly above it (a blank line ends the block). The reason is required,
+and a bare ``# layering-ok:`` fails the gate wherever it appears, even on a legal
+import. The number of opted-out sites is printed on every run. Like ``# safe-bulk-create:``
 this is a rubber stamp: it removes the silence, not the possibility of a wrong answer.
 
 What this gate cannot see
 -------------------------
 * ``apps.get_model("projects.Task")`` and ``ForeignKey("projects.Task")`` string
   references -- model coupling by label, not by module path.
+* Module paths built at runtime: f-strings, concatenation, and
+  ``importlib.import_module(variable)``. Only a string constant that is *wholly* a dotted
+  ``trueppm_api.*`` path is counted; a path embedded in a longer string is not.
+* ``from trueppm_api import apps`` followed by ``apps.projects.models`` attribute access:
+  the import names ``apps``, not the app, so the edge is invisible.
 * Imports through a re-export (``from trueppm_api.core import something_that_is_an_app_thing``).
 * Which names are imported: importing a constant counts the same as a model.
 * Test code (``packages/api/tests``) -- tests legitimately cross domains.
+
+Why a custom script rather than ``import-linter``
+-------------------------------------------------
+It adds no dependency (so the ``dependency`` gate does not apply and the CI job needs
+nothing beyond ``python3``), it keeps per-edge *site counts*, which the ratchet needs
+(import-linter's ignore list is per import chain, not a ceiling that tolerates a count
+shrinking), and it ships a ``--self-test`` and a shell test like its sibling gates
+(``check-bulk-create-server-version.py``), so the gate proves it can still fail.
 
 Usage:
     python3 scripts/check-app-layering.py [--root DIR] [--config FILE] [--baseline FILE]
@@ -68,7 +92,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import re
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -137,14 +163,15 @@ def _file_unit(rel: tuple[str, ...], cfg: Config) -> str | None:
 
 
 def _has_marker(lines: list[str], first: int, last: int) -> bool | str:
-    """Return True if a ``# layering-ok: <reason>`` covers the import, 'empty' if no reason."""
+    """Return True if a ``# layering-ok: <reason>`` covers the import, 'empty' if no reason.
+
+    The comment block directly above the import counts; a blank line ends it, so a
+    stale marker separated from its import by white space cannot silently apply.
+    """
     candidates = list(lines[first - 1 : last])
     i = first - 2
     while i >= 0:
         stripped = lines[i].strip()
-        if not stripped:
-            i -= 1
-            continue
         if not stripped.startswith("#"):
             break
         candidates.append(stripped)
@@ -184,7 +211,7 @@ def _imports(tree: ast.Module, pkg: list[str]):
 
 def scan(
     root: Path, cfg: Config
-) -> tuple[Counter[Edge], dict[Edge, list[str]], list[str], int]:
+) -> tuple[Counter[Edge], dict[Edge, list[str]], list[str], int, list[str]]:
     """Return (violation counts, sites per edge, config/marker errors, total edges seen)."""
     pkg_dir = root / _PKG_REL
     errors: list[str] = []
@@ -217,6 +244,7 @@ def scan(
     counts: Counter[Edge] = Counter()
     sites: dict[Edge, list[str]] = {}
     seen: set[Edge] = set()
+    opted: list[str] = []
     for path in sorted(pkg_dir.rglob("*.py")):
         if "migrations" in path.parts:
             continue
@@ -236,18 +264,19 @@ def scan(
             ):
                 continue
             seen.add((src, dst))
-            if not cfg.violates(src, dst):
-                continue
             where = f"{'/'.join((_PKG_REL, *rel))}:{lineno}"
             marker = _has_marker(lines, lineno, end)
             if marker == "empty":
                 errors.append(f"{where}: {_MARKER} needs a reason")
                 continue
+            if not cfg.violates(src, dst):
+                continue
             if marker:
+                opted.append(where)
                 continue
             counts[(src, dst)] += 1
             sites.setdefault((src, dst), []).append(where)
-    return counts, sites, errors, len(seen)
+    return counts, sites, errors, len(seen), opted
 
 
 def read_baseline(path: Path) -> Counter[Edge]:
@@ -278,6 +307,53 @@ def write_baseline(path: Path, counts: Counter[Edge]) -> None:
     path.write_text(_BASELINE_HEADER + body, encoding="utf-8")
 
 
+def _git(root: Path, *args: str) -> str | None:
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), *args], capture_output=True, text=True, check=True
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return out.stdout
+
+
+def _baseline_raised(root: Path, baseline: Path) -> list[str]:
+    """Edges whose count rose (or that appeared) versus the merge-base baseline."""
+    if os.environ.get("TRUEPPM_ALLOW_LAYERING_RAISE") == "1":
+        print("  note: TRUEPPM_ALLOW_LAYERING_RAISE=1 -- baseline-raise check skipped")
+        return []
+    ref = os.environ.get("TRUEPPM_LAYERING_BASE_REF") or os.environ.get(
+        "CI_MERGE_REQUEST_DIFF_BASE_SHA"
+    )
+    if not ref:
+        mb = _git(root, "merge-base", "HEAD", "origin/main")
+        head = _git(root, "rev-parse", "HEAD")
+        ref = mb.strip() if mb and mb != head else None
+    if not ref or _git(root, "cat-file", "-e", f"{ref}^{{commit}}") is None:
+        print(
+            "  note: no merge-base ref available (shallow clone or main) -- baseline-raise check skipped"
+        )
+        return []
+    try:
+        rel = baseline.resolve().relative_to(root.resolve())
+    except ValueError:
+        return []
+    old_text = _git(root, "show", f"{ref}:{rel.as_posix()}")
+    if old_text is None:
+        return []  # base has no baseline: this change introduces it
+    old: Counter[Edge] = Counter()
+    for line in old_text.splitlines():
+        m = _BASELINE_LINE.match(line.strip())
+        if m:
+            old[(m[1], m[2])] = int(m[3])
+    now = read_baseline(baseline)
+    return [
+        f"{s} -> {d}: {old.get((s, d), 0)} -> {n}"
+        for (s, d), n in sorted(now.items())
+        if n > old.get((s, d), 0)
+    ]
+
+
 def run(
     root: Path,
     config: Path,
@@ -285,9 +361,10 @@ def run(
     *,
     update: bool = False,
     graph: bool = False,
+    check_base: bool = False,
 ) -> int:
     cfg = Config(tomllib.loads(config.read_text(encoding="utf-8")))
-    counts, sites, errors, seen = scan(root, cfg)
+    counts, sites, errors, seen, opted = scan(root, cfg)
     base = read_baseline(baseline)
 
     if graph:
@@ -324,8 +401,18 @@ def run(
     cur_total, base_total = sum(counts.values()), sum(base.values())
     print(
         f"app layering: {cur_total} violating import sites on {len(counts)} edges "
-        f"(baseline {base_total} on {len(base)} edges)"
+        f"(baseline {base_total} on {len(base)} edges); {len(opted)} opted out via {_MARKER}"
     )
+    raised = _baseline_raised(root, baseline) if check_base else []
+    if raised:
+        print("\nLAYERING BASELINE RAISED against the merge base:\n")
+        for line in raised:
+            print(f"  {line}")
+        print(
+            "\nThe baseline is a ceiling that only shrinks. Fix the violation instead, or, for a "
+            "deliberate re-layering, set TRUEPPM_ALLOW_LAYERING_RAISE=1 and say so in the MR."
+        )
+        return 1
     if slack:
         n = sum(slack.values())
         print(
@@ -361,7 +448,7 @@ Do NOT raise the baseline to make this pass. See CLAUDE.md § Domain-app layerin
 
 _FIXTURE_CFG = """\
 [platform]
-modules = ["core"]
+modules = ["core", "fields"]
 [composition_roots]
 modules = ["settings"]
 [[layer]]
@@ -446,6 +533,46 @@ def self_test() -> int:
         0,
         {"apps/base/m.py": "from trueppm_api.core import x\n"},
     )
+    case(
+        "`from trueppm_api.apps import x` names the app",
+        1,
+        {"apps/base/m.py": "from trueppm_api.apps import top\n"},
+    )
+    case(
+        "migrations are skipped",
+        0,
+        {"apps/base/migrations/0001_x.py": "from trueppm_api.apps.top import t\n"},
+    )
+    case(
+        "TYPE_CHECKING import is counted",
+        1,
+        {
+            "apps/base/m.py": "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n    from trueppm_api.apps.top.models import T\n"
+        },
+    )
+    case(
+        "module-level dotted `import a.b.c` is counted",
+        1,
+        {"apps/base/m.py": "import trueppm_api.apps.top.models.sub\n"},
+    )
+    case(
+        "top-level platform file importing an app is rejected",
+        1,
+        {"fields.py": "from trueppm_api.apps.base import x\n"},
+    )
+    case(
+        "marker separated by a blank line does not apply",
+        1,
+        {
+            "apps/base/m.py": "# layering-ok: stale\n\nfrom trueppm_api.apps.top import t\n"
+        },
+    )
+    case(
+        "bare marker on a legal import still fails",
+        1,
+        {"apps/top/m.py": "from trueppm_api.apps.base import x  # layering-ok:\n"},
+    )
     case("baselined violation passes", 0, up, "base -> top 1\n")
     case(
         "count above baseline fails",
@@ -487,7 +614,12 @@ def main(argv: list[str] | None = None) -> int:
     config = args.config or args.root / _CONFIG_REL
     baseline = args.baseline or args.root / _BASELINE_REL
     return run(
-        args.root, config, baseline, update=args.update_baseline, graph=args.graph
+        args.root,
+        config,
+        baseline,
+        update=args.update_baseline,
+        graph=args.graph,
+        check_base=args.baseline is None,
     )
 
 

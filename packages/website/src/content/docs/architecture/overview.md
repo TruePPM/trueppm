@@ -261,11 +261,29 @@ The OSS unit is the **program** (one PM, one or more related projects). The Ente
 
 The API is one Django app per domain under `packages/api/src/trueppm_api/apps/`. The edges *between* those apps are governed by a declared layering, not by convention.
 
-`packages/api/app-layering.toml` assigns every app to a numbered layer, lowest first: foundation (`sync`, `idempotency`, `taskruns`), identity (`access`, `workspace`, `teams`, `profiles`), project (`projects`, `notifications`), domain (`scheduling`, `resources`, `timetracking`), satellite (importers, webhooks, integrations, agents, SSO, history) and reporting (`observability`). An app may import an app in a **lower** layer, and may import the shared `platform` modules (`core`, `fields`, `permissions`, `workflows`). It may not import a higher layer, and it may not import a peer in the same layer unless that layer is declared `lateral`. Composition roots (`settings`, `urls`, `asgi`, `routing`, `celery`) wire every app together by design and are not checked.
+`packages/api/app-layering.toml` assigns every app to a layer, lowest first:
 
-The gate, `scripts/check-app-layering.py`, counts every import (including function-local and `TYPE_CHECKING` imports) and every quoted `trueppm_api.*` module path. It is a ratchet: violations that already existed when the gate was added are recorded in `packages/api/app-layering-baseline.txt`, a ceiling that can only shrink, and any import beyond it fails. The baseline total is printed on every run.
+1. **foundation**: `idempotency`, `taskruns`.
+2. **core** (lateral): `access`, `profiles`, `teams`, `workspace`, `projects`, `notifications`, `scheduling`, `resources`, `timetracking`, `sync`. These are mutually coupled by nature (one task write touches RBAC, scheduling, sync and notifications), so imports among them are allowed.
+3. **satellite** (lateral): `agents`, `csvimport`, `jiraimport`, `msproject`, `integrations`, `webhooks`, `history`, `sso`, `workflow_engine`.
+4. **reporting**: `observability`.
+
+An app may import an app in a **lower** layer, or in the same layer when that layer is declared `lateral`. It may also import the shared `platform` modules (`core`, `fields`, `permissions`, `workflows`). It may not import a higher layer, and a platform module may not import an app. Composition roots (`settings`, `urls`, `asgi`, `routing`, `celery`) wire every app together by design and are not checked.
+
+The gate, `scripts/check-app-layering.py`, counts every `import` statement (including function-local and `TYPE_CHECKING` imports) and every string constant that is *wholly* a dotted `trueppm_api.*` module path, such as an `include("...")` target. Migrations are skipped. It is a ratchet: the violations that existed when the gate was added are recorded in `packages/api/app-layering-baseline.txt`, a ceiling that can only shrink, and any import beyond it fails. The baseline total is printed on every run. The recorded violations are mostly the core and platform reaching *up*: `access` to `agents`, `integrations` and `webhooks`; `projects` to `agents`, `integrations`, `webhooks` and the importers; platform modules to apps; and several apps to `observability`.
 
 - Run it locally with `make app-layering-check`. It also runs in `make pre-push` and as the `api:app-layering` CI job.
 - Fix a violation by moving the shared code down a layer, or by inverting the dependency so the higher layer registers against a hook the lower layer owns. Then run `python3 scripts/check-app-layering.py --update-baseline` to lock the improvement in. That command refuses to add or raise an entry.
-- A deliberate exception carries `# layering-ok: <reason>` on the import or the comment line directly above it. The reason is required.
+- Editing the baseline file by hand to raise a count is caught too: the gate compares it with the merge-base copy and fails unless `TRUEPPM_ALLOW_LAYERING_RAISE=1` is set for a deliberate re-layering. The comparison is skipped, with a printed note, when no merge-base ref is available.
+- A deliberate exception carries `# layering-ok: <reason>` on the import or in the comment block directly above it (a blank line ends the block). The reason is required, and a bare marker fails even on a legal import. The number of opted-out sites is printed on every run.
 - Adding an app directory fails the gate until the app is assigned a layer in `app-layering.toml`.
+
+### What the gate cannot see
+
+The gate reads import statements and whole-string module paths. It does not see:
+
+- module paths built at runtime: f-strings, concatenation, or `importlib.import_module(variable)`;
+- `from trueppm_api import apps` followed by attribute access such as `apps.projects.models`;
+- model references by label: `apps.get_model("projects.Task")` and `ForeignKey("projects.Task")`;
+- which names an import pulls in, so importing a constant counts the same as importing a model;
+- test code, which legitimately crosses domains.

@@ -125,6 +125,48 @@ mkdir -p "$PKG/apps/ghost"
 if run_gate; then rc=1; else rc=0; fi
 check "an app directory with no declared layer fails" "$rc"
 
+stage base <<'PY'
+# layering-ok: stale, separated by a blank line
+
+from trueppm_api.apps.top import x
+PY
+if run_gate; then rc=1; else rc=0; fi
+check "a marker separated from the import by a blank line does not apply" "$rc"
+
+stage base <<'PY'
+# layering-ok: sanctioned hook
+from trueppm_api.apps.top import x
+PY
+run_gate; grep -q "1 opted out" "$TMP/out" && rc=0 || rc=1
+check "the opted-out site count is printed on every run" "$rc"
+
+# Baseline-raise check against the merge base, in a throwaway git repo.
+stage base <<'PY'
+from trueppm_api.apps.top import x
+PY
+echo "base -> top 1" > "$BASE"
+G="$TMP/tree"
+git -C "$G" init -q && git -C "$G" -c user.email=t@t -c user.name=t add -A >/dev/null
+mkdir -p "$G/packages/api" && cp "$BASE" "$G/packages/api/app-layering-baseline.txt"
+cp "$CFG" "$G/packages/api/app-layering.toml"
+git -C "$G" add -A && git -C "$G" -c user.email=t@t -c user.name=t commit -qm base
+BASE_SHA="$(git -C "$G" rev-parse HEAD)"
+env_gate() { env TRUEPPM_LAYERING_BASE_REF="$BASE_SHA" "$@" python3 "$GATE" --root "$G" >"$TMP/out" 2>&1; }
+env_gate && rc=0 || rc=1
+check "an unchanged committed baseline passes the merge-base check" "$rc"
+printf '# h\nbase -> top 2\n' > "$G/packages/api/app-layering-baseline.txt"
+printf 'from trueppm_api.apps.top import x\nfrom trueppm_api.apps.top import y\n' > "$G/$(echo "${PKG#$TMP/tree/}")/apps/base/mod.py"
+if env_gate; then rc=1; else rc=0; fi
+check "a hand-raised baseline count fails the merge-base check" "$rc"
+grep -q "BASELINE RAISED" "$TMP/out" && rc=0 || rc=1
+check "the raise failure names the edge" "$rc"
+env_gate TRUEPPM_ALLOW_LAYERING_RAISE=1 && rc=0 || rc=1
+check "TRUEPPM_ALLOW_LAYERING_RAISE=1 overrides the raise check" "$rc"
+env_gate TRUEPPM_LAYERING_BASE_REF=deadbeef && rc=0 || rc=1
+check "an unreachable base ref skips the check instead of failing" "$rc"
+grep -q "skipped" "$TMP/out" && rc=0 || rc=1
+check "the skip is announced" "$rc"
+
 # The real tree must be clean against its committed baseline, or the gate cannot be on.
 python3 "$GATE" >"$TMP/real" 2>&1 && rc=0 || { cat "$TMP/real"; rc=1; }
 check "the committed tree passes against the committed baseline" "$rc"

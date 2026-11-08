@@ -21,34 +21,30 @@ modules = ["core", "fields", "permissions", "workflows"]
 [composition_roots]
 modules = ["settings", "urls", "asgi", "wsgi", "routing", "celery"]
 
-# Sync protocol, idempotency keys and task-run bookkeeping: mechanisms the domain
-# is built on, which must not know about the domain.
+# Mechanisms the domain is built on, which must not know about the domain.
 [[layer]]
 name = "foundation"
-apps = ["idempotency", "sync", "taskruns"]
+apps = ["idempotency", "taskruns"]
 
-# Who a user is and what they may touch: tenancy and RBAC. Mutual imports allowed.
+# The domain core: tenancy/RBAC, the project aggregate, scheduling, resources, time
+# tracking, notifications and the sync protocol over them. These are mutually coupled
+# by nature (a task write touches RBAC, scheduling, sync and notifications), so the
+# layer is lateral: imports among them are allowed. The gate's job here is to keep the
+# core from reaching UP into satellites or reporting.
 [[layer]]
-name = "identity"
+name = "core"
 lateral = true
-apps = ["access", "profiles", "teams", "workspace"]
+apps = [
+  "access", "profiles", "teams", "workspace", "projects",
+  "notifications", "scheduling", "resources", "timetracking", "sync",
+]
 
-# The project aggregate root and its notification fan-out.
-[[layer]]
-name = "project"
-lateral = true
-apps = ["projects", "notifications"]
-
-# Domain capabilities hanging off a project. Each depends on `projects`, never on
-# one another -- scheduling must not reach into resources or time tracking (#4688).
-[[layer]]
-name = "domain"
-apps = ["scheduling", "resources", "timetracking"]
-
-# Adapters and add-ons around the domain: importers, outbound integrations, SSO,
-# agent profiles, history. Peers do not import each other.
+# Adapters and add-ons around the core: importers, outbound integrations, SSO, agent
+# profiles, history, the workflow engine. They may use the core and may couple to each
+# other; the core must not import them.
 [[layer]]
 name = "satellite"
+lateral = true
 apps = [
   "agents", "csvimport", "jiraimport", "msproject",
   "integrations", "webhooks", "history", "sso", "workflow_engine",
