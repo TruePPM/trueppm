@@ -111,6 +111,8 @@ export default defineConfig({
         // imported, and check-added-files-covered.mjs would flag it forever.
         // Its re-exports are validated by tsc; the underlying modules are tested.
         'src/components/dialog/index.ts',
+        // Same rationale for the shared chart layer's barrel: re-exports only.
+        'src/features/charts/index.ts',
         // Type-only module: exports a single `interface RouteHandle` and no
         // executable statements, so istanbul never records it in lcov even when
         // imported, and check-added-files-covered.mjs would flag it forever.
