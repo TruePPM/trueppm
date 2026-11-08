@@ -1530,7 +1530,7 @@ allow_in 'make pre-push' "$PRJ/.claude/worktrees/agent-abc123"
 deny_in 'git stash' "$PRJ/.claude/worktrees/agent-abc123"
 
 # --- TruePPM (#4868): user-invoked skill unlock marker ------------------------------------------
-# /mass_merge and /release need a few commands the hook otherwise denies. A UserPromptSubmit hook
+# /mass_merge and /release need a few commands the hook otherwise denies. A UserPromptExpansion hook
 # writes a session-scoped marker only for a prompt the user typed; pre-bash-deny.sh reads it.
 UNLOCK_HOOK="$ROOT/.claude/hooks/user-skill-unlock.sh"
 if command -v jq >/dev/null 2>&1; then
