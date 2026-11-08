@@ -569,8 +569,9 @@ release it is scheduled for:
   late-finish seed can ignore a
   start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
-  *into* a summary task do not fan out to every leaf the way the successor
-  side does
+  *into* a summary fan out to every leaf, so every leaf (not only the
+  latest-finishing one) must finish no earlier than the link requires — short
+  leaves lose float
   ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); a completed
   task with no recorded actuals can be moved later than the data date, a
   non-monotonicity where knowing less about a task slips the schedule
