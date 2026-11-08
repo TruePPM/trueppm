@@ -1232,8 +1232,10 @@ import json, sys
 s = json.load(open(sys.argv[1]))
 cmds = [h["command"] for g in s["hooks"]["PreToolUse"] if g.get("matcher") == "Bash" for h in g["hooks"]]
 assert any("pre-bash-deny.sh" in c for c in cmds), "hook not registered under PreToolUse Bash"
+ups = [h["command"] for g in s["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+assert any("user-skill-unlock.sh" in c for c in ups), "skill-unlock hook not registered under UserPromptSubmit"
 PY
-then pass "settings.json registers the hook under PreToolUse Bash"; else fail "settings.json wiring"; fi
+then pass "settings.json registers pre-bash-deny (PreToolUse Bash) and user-skill-unlock (UserPromptSubmit)"; else fail "settings.json wiring"; fi
 
 # The git hooks must not advertise --no-verify to the agent that reads their output (blueprint#165).
 if grep -n 'echo.*no-verify' "$ROOT/hooks/pre-commit" "$ROOT/hooks/pre-push" >/dev/null; then
@@ -1522,5 +1524,93 @@ allow_in 'git add packages/web/src/hooks/useThing.ts' "$PRJ"
 # so ordinary development commands there are allowed and the global denies still apply.
 allow_in 'make pre-push' "$PRJ/.claude/worktrees/agent-abc123"
 deny_in 'git stash' "$PRJ/.claude/worktrees/agent-abc123"
+
+# --- TruePPM (#4868): user-invoked skill unlock marker ------------------------------------------
+# /mass_merge and /release need a few commands the hook otherwise denies. A UserPromptSubmit hook
+# writes a session-scoped marker only for a prompt the user typed; pre-bash-deny.sh reads it.
+UNLOCK_HOOK="$ROOT/.claude/hooks/user-skill-unlock.sh"
+if command -v jq >/dev/null 2>&1; then
+  UPROJ="$(mktemp -d)"
+  prompt_hook() { # <prompt> <session_id>
+    python3 -c 'import json,sys; print(json.dumps({"session_id":sys.argv[2],"prompt":sys.argv[1],"cwd":sys.argv[3]}))' "$1" "$2" "$UPROJ" | CLAUDE_PROJECT_DIR="$UPROJ" "$UNLOCK_HOOK" >/dev/null 2>&1
+  }
+  marker="$UPROJ/.claude/state/skill-unlock.json"
+  unlock_cmd() { # <command> <session_id> -> HRC
+    HERR="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","session_id":sys.argv[2],"cwd":sys.argv[3],"tool_input":{"command":sys.argv[1]}}))' "$1" "$2" "$UPROJ" | CLAUDE_PROJECT_DIR="$UPROJ" "$HOOK" 2>&1 >/dev/null)"
+    HRC=$?
+  }
+  u_allow() { unlock_cmd "$1" "$2"; if [ "$HRC" -eq 0 ] && [ -z "$HERR" ]; then pass "unlocked allow: $1"; else fail "should allow with marker (rc=$HRC, $HERR): $1"; fi; }
+  u_deny() { unlock_cmd "$1" "$2"; if [ "$HRC" -eq 2 ] && [ -n "$HERR" ]; then pass "still deny: $1 ($2)"; else fail "should deny (rc=$HRC): $1 ($2)"; fi; }
+
+  # No marker: denied.
+  u_deny 'glab mr merge 5 --yes' S1
+  # Prompt hook: only a leading /mass_merge or /release token writes a marker.
+  prompt_hook 'please run /mass_merge for me' S1
+  if [ ! -e "$marker" ]; then pass "mid-sentence /mass_merge writes no marker"; else fail "mid-sentence /mass_merge wrote a marker"; fi
+  prompt_hook '/fix-mr 12' S1
+  if [ ! -e "$marker" ]; then pass "/fix-mr writes no marker"; else fail "/fix-mr wrote a marker"; fi
+  prompt_hook '/mass_merge-foo' S1
+  if [ ! -e "$marker" ]; then pass "/mass_merge-foo writes no marker"; else fail "/mass_merge-foo wrote a marker"; fi
+  prompt_hook '/mass_merge 1 2 3' S1
+  if [ -f "$marker" ] && [ "$(jq -r '.skill' "$marker")" = mass_merge ] && [ "$(jq -r '.session_id' "$marker")" = S1 ]; then pass "/mass_merge prompt writes the marker"; else fail "/mass_merge prompt did not write the marker"; fi
+
+  u_allow 'glab mr merge 5 --yes' S1
+  u_allow 'git push --no-verify origin feat/x' S1
+  u_allow 'git push --no-verify --force-with-lease origin feat/x' S1
+  u_deny 'glab mr merge 5 --yes' OTHER
+  u_deny 'git push --no-verify origin feat/x' OTHER
+  # The marker unlocks only that skill's commands.
+  u_deny 'git push --force origin feat/x' S1
+  u_deny 'git push --no-verify --force origin feat/x' S1
+  u_deny 'git push origin +feat/x' S1
+  u_deny 'git push origin :feat/x' S1
+  u_deny 'git push --delete origin feat/x' S1
+  u_deny 'git stash' S1
+  u_deny 'git -c core.hooksPath=/tmp/x commit -m x' S1
+  u_deny 'git commit --no-verify -m x' S1
+  u_deny 'git reset --hard origin/main' S1
+  u_deny 'glab api -X PUT projects/1/merge_requests/5/merge' S1
+  # An agent cannot forge or remove the marker through Bash.
+  u_deny "echo '{}' > .claude/state/skill-unlock.json" X
+  u_deny "echo '{}' > $marker" X
+  u_deny 'rm -f .claude/state/skill-unlock.json' S1
+  u_deny 'tee .claude/state/skill-unlock.json < /dev/null' S1
+  u_deny 'cp /tmp/x .claude/state/skill-unlock.json' S1
+  u_deny 'mv /tmp/x .claude/state/skill-unlock.json' S1
+  u_deny 'sed -i s/a/b/ .claude/state/skill-unlock.json' S1
+  u_allow 'cat .claude/state/skill-unlock.json' S1
+  # Edit/Write to the marker are blocked by pre-tool-safety.sh.
+  for fp in '/repo/.claude/state/skill-unlock.json' '.claude/state/skill-unlock.json'; do
+    python3 -c 'import json,sys; print(json.dumps({"tool_name":"Write","tool_input":{"file_path":sys.argv[1],"content":"x"}}))' "$fp" | "$ROOT/.claude/hooks/pre-tool-safety.sh" >/dev/null 2>&1
+    if [ "$?" -eq 2 ]; then pass "Write to $fp blocked"; else fail "Write to $fp not blocked"; fi
+  done
+
+  # Expired marker: denied.
+  python3 - "$marker" <<'PY'
+import json, sys, time
+p = sys.argv[1]
+m = json.load(open(p)); m["ts"] = int(time.time()) - 5 * 3600
+json.dump(m, open(p, "w"))
+PY
+  u_deny 'glab mr merge 5 --yes' S1
+  u_deny 'git push --no-verify origin feat/x' S1
+  # Malformed marker: denied.
+  echo 'not json' > "$marker"
+  u_deny 'glab mr merge 5 --yes' S1
+
+  # /release marker unlocks only `git reset --hard origin/main`.
+  prompt_hook '/release 0.5.0-alpha.1' S2
+  if [ "$(jq -r '.skill' "$marker")" = release ]; then pass "/release prompt writes the marker"; else fail "/release prompt did not write the marker"; fi
+  u_allow 'git reset --hard origin/main' S2
+  u_deny 'git reset --hard origin/main' OTHER
+  u_deny 'git reset --hard HEAD~3' S2
+  u_deny 'git reset --hard' S2
+  u_deny 'glab mr merge 5 --yes' S2
+  u_deny 'git push --no-verify origin main' S2
+  u_deny 'git push --force origin main' S2
+  rm -rf "$UPROJ"
+else
+  fail "jq is required for the skill-unlock tests"
+fi
 
 exit "$rc"

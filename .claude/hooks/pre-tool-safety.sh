@@ -6,7 +6,19 @@
 
 set -euo pipefail
 
-FILE_PATH=$(cat | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('file_path',''))" 2>/dev/null || echo "")
+# Block: the skill-unlock marker. It is the user's authorization signal for pre-bash-deny.sh
+# (written only by the user-skill-unlock.sh UserPromptSubmit hook), so an agent must not
+# create or alter it. The real Edit/Write event nests the path under tool_input.
+INPUT_JSON=$(cat)
+STATE_PATH=$(printf '%s' "$INPUT_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('tool_input') or {}).get('file_path') or d.get('file_path') or '')" 2>/dev/null || echo "")
+case "$STATE_PATH" in
+  */.claude/state|*/.claude/state/*|.claude/state/*)
+    echo "BLOCKED: .claude/state/ holds the user's skill-unlock marker; agents must not write it." >&2
+    exit 2
+    ;;
+esac
+
+FILE_PATH=$(printf '%s' "$INPUT_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('file_path',''))" 2>/dev/null || echo "")
 
 if [[ -z "$FILE_PATH" ]]; then
   exit 0

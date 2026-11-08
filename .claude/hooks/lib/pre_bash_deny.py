@@ -3,6 +3,7 @@ import re
 import shlex
 import signal
 import sys
+import time
 import os
 from urllib.parse import unquote_plus
 
@@ -2243,6 +2244,41 @@ def config_is_write(rest):
     return len(pos) != 1
 
 
+UNLOCK_TTL = 4 * 3600
+UNLOCK_SKILLS = ("mass_merge", "release")
+UNLOCK = {"skill": ""}
+
+
+def load_unlock(event):
+    """Sets UNLOCK["skill"] when the USER invoked a skill that needs a normally denied command.
+
+    `.claude/hooks/user-skill-unlock.sh` (a UserPromptSubmit hook, so only a prompt the user
+    typed can trigger it) writes `.claude/state/skill-unlock.json`; the tamper guard denies any
+    Bash write to that path and pre-tool-safety.sh denies Edit/Write to it, so an agent cannot
+    forge one. The marker counts only for the session that wrote it and for UNLOCK_TTL seconds.
+    Anything unreadable or malformed leaves the denies in force.
+    """
+    sid = event.get("session_id")
+    proj = os.environ.get("CLAUDE_PROJECT_DIR", "") or STATE["event_cwd"]
+    if not (isinstance(sid, str) and sid and proj.startswith("/")):
+        return
+    path = os.path.join(proj, ".claude", "state", "skill-unlock.json")
+    try:
+        if os.path.islink(path) or not os.path.isfile(path):
+            return
+        with open(path) as fh:
+            m = json.load(fh)
+        age = time.time() - float(m["ts"])
+        if (
+            m.get("session_id") == sid
+            and m.get("skill") in UNLOCK_SKILLS
+            and -60 <= age <= UNLOCK_TTL
+        ):
+            UNLOCK["skill"] = m["skill"]
+    except Exception:
+        return
+
+
 def check_git(args):
     args = strip_redirects(args)
     i, sub = 0, None
@@ -2302,6 +2338,8 @@ def check_git(args):
         )
     for a in option_words(rest) if sub in MESSAGE_SUBCOMMANDS else rest:
         if a == "--no-verify" or abbrev(a, "--no-verify", 6):
+            if sub == "push" and UNLOCK["skill"] == "mass_merge":
+                continue  # /mass_merge pushes its rebased branches with --no-verify
             deny(
                 "`--no-verify` skips the git hooks; CLAUDE.md forbids it. Fix what the hook reports instead."
             )
@@ -2407,7 +2445,11 @@ def check_git(args):
                 "bare `git stash` (and push/pop/apply/drop/clear) is forbidden. "
                 + STASH_HINT
             )
-    elif sub == "reset" and any(abbrev(a, "--hard", 4) for a in rest):
+    elif (
+        sub == "reset"
+        and any(abbrev(a, "--hard", 4) for a in rest)
+        and not (UNLOCK["skill"] == "release" and rest in (["--hard", "origin/main"],))
+    ):
         deny(
             "`git reset --hard` discards uncommitted work silently; commit or copy aside first, or ask the user."
         )
@@ -2431,7 +2473,9 @@ def check_glab(args):
         deny(
             "`glab alias` can rename a denied subcommand past this hook; spell the command out."
         )
-    if pos[:2] in (["mr", "merge"], ["mr", "accept"]):
+    if pos[:2] in (["mr", "merge"], ["mr", "accept"]) and not (
+        UNLOCK["skill"] == "mass_merge" and pos[:2] == ["mr", "merge"]
+    ):
         deny(
             "`glab mr merge` is forbidden: a coding agent never merges an MR (CLAUDE.md). Hand the MR URL to the user."
         )
@@ -2715,6 +2759,7 @@ PROTECTED = re.compile(
     r"|^\$\{?[a-z_][a-z0-9_]*\}?/hooks(?:/|$)"
     r"|(?:^|/)\.claude/(?:hooks(?:/|$)|settings(?:\.[^/]*)?\.json$)"
     r"|^/.*/hooks/(?:pre-commit|pre-push)$"  # a sibling worktree's hooks/
+    r"|(?:^|/)\.claude/state(?:/|$)"  # the skill-unlock marker (#4868)
     r"|(?:^|/)scripts/lib/harness-paths\.txt$"  # the harness list itself (blueprint#118, ADR 0010)
     # The INSTALLED hooks and the config that can relocate them (blueprint#168): removing or relinking
     # .git/hooks/pre-push, or setting core.hooksPath in .git/config, amounts to --no-verify.
@@ -2727,6 +2772,7 @@ DOTDOT = re.compile(r"\.\.(?:/\.\.)*")
 # (components, exact): `exact` means the path must end there, a prefix also covers children.
 GLOB_PROTECTED = [
     ([".claude", "hooks"], False),
+    ([".claude", "state"], False),
     (["hooks"], False),
     ([".claude", "settings.json"], True),
     ([".claude", "settings.local.json"], True),
@@ -4545,6 +4591,7 @@ try:
     )  # the harness kills a hook at its timeout and that does not block: deny first
     STATE["event_cwd"] = event.get("cwd") if isinstance(event.get("cwd"), str) else ""
     set_worker(event)
+    load_unlock(event)
     if WORKER["root"]:
         worker_scan_text(command)
     analyze(command)

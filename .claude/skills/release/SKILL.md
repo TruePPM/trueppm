@@ -199,6 +199,8 @@ Land any fixes as a `docs/` MR **before** the tags are pushed; the tags must poi
 
 **If `git push origin main` is blocked by `schema-check` reporting only a `version` diff**, the venv's installed `trueppm-api` metadata is stale (the script refreshes it, but a different venv than `packages/api/.venv` may be the one pushing). Fix: `uv pip install --python packages/api/.venv/bin/python --no-deps -e packages/api`, then push again. Never `--no-verify`.
 
+The pre-bash-deny hook allows `git reset --hard origin/main` only because the user invoked `/release` this session (marker written by `user-skill-unlock.sh`; see `docs/harness/pre-bash-deny.md`); any other `--hard` target is denied.
+
 If the script fails, read its error before doing anything. It fails closed before step 4 for everything except a failed `uv lock` or openapi export. If it dies after step 4, `git reset --hard origin/main` discards the partial bump; delete any local tags it made first (`git tag -d`).
 
 ## Step 3 — Push

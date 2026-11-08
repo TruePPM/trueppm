@@ -762,7 +762,8 @@ scripts:test:
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
         - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
-        - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py}
+        - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
+        - .claude/settings.json
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -813,7 +814,8 @@ scripts:test:
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
         - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh}
-        - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py}
+        - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh}
+        - .claude/settings.json
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh

@@ -509,6 +509,7 @@ never going to exist.
 
 Once green, merge and pull the result forward:
 
+<!-- pre-bash-deny hook: `glab mr merge` and `git push --no-verify` are denied for agents unless the user invoked `/mass_merge` this session (marker written by user-skill-unlock.sh; docs/harness/pre-bash-deny.md). -->
 ```bash
 glab mr merge <iid> --yes
 git fetch origin                        # pull the new main so the NEXT MR updates on top of this one
