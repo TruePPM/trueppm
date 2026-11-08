@@ -28,7 +28,6 @@ async function open(page: Page, query = '', theme?: 'dark') {
   await expect(page.getByRole('heading', { level: 1, name: 'Page kit' })).toBeVisible();
 }
 
-const frame = (page: Page) => page.getByTestId('page-frame');
 const body = (page: Page) => page.getByTestId('page-frame-body');
 const table = (page: Page) => page.getByRole('region', { name: 'Fixture tasks' });
 
@@ -41,12 +40,18 @@ test.describe('shell v2 page kit', () => {
     }, testInfo) => {
       await open(page);
 
-      // Page starts at 191px or less; gutter 32; content capped at 1120.
-      const top = (await frame(page).boundingBox())?.y ?? Infinity;
+      // The PAGE (the body, below the title and toolbar rows) starts at 191px or
+      // less; gutter 32; content capped at 1120. Measured on the body, not the
+      // frame: the frame's top sits just under the top bar whatever stacks inside it.
+      const top = (await body(page).boundingBox())?.y ?? Infinity;
       expect(top).toBeLessThanOrEqual(191);
       await expect(body(page)).toHaveCSS('padding-left', '32px');
       const inner = (await body(page).locator('> div').boundingBox())?.width ?? 0;
       expect(inner).toBeLessThanOrEqual(1120);
+
+      // The table skeleton's rows are the table's rows.
+      const ghost = page.getByTestId('skeleton-row').first();
+      expect(Math.round((await ghost.boundingBox())?.height ?? 0)).toBe(36);
 
       // Table: 32px header, 36px rows, numbers right-aligned.
       const header = table(page).getByRole('columnheader', { name: 'Task' });
@@ -70,7 +75,13 @@ test.describe('shell v2 page kit', () => {
     });
 
     test('a filters-applied row replaces the toolbar, never stacks under it', async ({ page }) => {
+      await open(page);
+      const plainTop = (await body(page).boundingBox())?.y ?? Number.NaN;
       await open(page, '&filtered=1');
+      // Replacing the row costs no height: the page starts exactly where it did.
+      const filteredTop = (await body(page).boundingBox())?.y ?? Number.NaN;
+      expect(Math.abs(filteredTop - plainTop)).toBeLessThanOrEqual(1);
+      expect(filteredTop).toBeLessThanOrEqual(191);
       await expect(page.getByTestId('page-frame-toolbar')).toHaveCount(1);
       await expect(page.getByTestId('page-frame-toolbar')).toHaveAttribute('data-override', 'true');
       await expect(page.getByRole('button', { name: 'Filter', exact: true })).toHaveCount(0);
@@ -93,6 +104,21 @@ test.describe('shell v2 page kit', () => {
     });
   });
 
+  for (const [width, gutter] of [
+    [1024, '24px'],
+    [768, '20px'],
+  ] as const) {
+    test.describe(`${width}`, () => {
+      test.use({ viewport: { width, height: 900 } });
+
+      test(`${gutter} gutter`, async ({ page }) => {
+        await open(page);
+        await expect(body(page)).toHaveCSS('padding-left', gutter);
+        await expect(body(page)).toHaveCSS('padding-right', gutter);
+      });
+    });
+  }
+
   test.describe('phone 390', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
@@ -105,6 +131,8 @@ test.describe('shell v2 page kit', () => {
 
       const row = table(page).getByRole('row').nth(1);
       expect(Math.round((await row.boundingBox())?.height ?? 0)).toBe(44);
+      const ghost = page.getByTestId('skeleton-row').first();
+      expect(Math.round((await ghost.boundingBox())?.height ?? 0)).toBe(44);
 
       const identity = table(page).getByRole('rowheader').first();
       await expect(identity).toHaveCSS('border-right-width', '0px');

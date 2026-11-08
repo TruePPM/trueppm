@@ -37,7 +37,8 @@ const TONE_CLASS: Record<StatusTone, string> = {
   risk: 'bg-p1-risk-tint text-p1-risk-text',
   ok: 'bg-p1-ok-tint text-p1-ok',
   info: 'bg-p1-info-tint text-p1-info',
-  neutral: 'bg-p1-surface-2 text-p1-text-2',
+  // The hairline keeps the chip's shape on a hovered table row, which is also surface-2.
+  neutral: 'border border-p1-hairline bg-p1-surface-2 text-p1-text-2',
 };
 
 export interface StatusChipProps {

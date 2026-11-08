@@ -250,7 +250,7 @@ function KitPageBody() {
           <LoadingSkeleton
             variant="table"
             label="Loading tasks…"
-            columns={['Task', 'ID', 'Status', 'Finish']}
+            columns={COLUMNS}
             count="24 tasks"
             rows={3}
           />

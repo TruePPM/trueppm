@@ -64,4 +64,12 @@ describe('QueryErrorState — Pass 2 page variant (rule 439)', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Retry' }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
+
+  it('uses the kit focus ring with offset on Retry', () => {
+    render(<QueryErrorState variant="page" stillWorks="x" supportCode="NET-000000" />);
+    expect(screen.getByRole('button', { name: 'Retry' })).toHaveClass(
+      'focus-visible:ring-2',
+      'focus-visible:ring-offset-2',
+    );
+  });
 });

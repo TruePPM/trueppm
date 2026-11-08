@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 
+import { TYPE } from './page2/typeScale';
 import { useEmptyStateAnnouncement } from './emptyStateAnnouncements';
 
 interface WarmEmptyStateProps {
@@ -99,10 +100,8 @@ function PageEmptyState({ title, description, actions, className = '' }: PageEmp
       data-variant="page"
       className={`flex flex-col items-start gap-2 py-8 text-left motion-safe:animate-empty-state-in ${className}`}
     >
-      <h2 className="text-[15px] font-semibold leading-[22px] text-p1-text-1">{title}</h2>
-      {description && (
-        <p className="max-w-[480px] text-[13px] leading-[20px] text-p1-text-2">{description}</p>
-      )}
+      <h2 className={`${TYPE.section} text-p1-text-1`}>{title}</h2>
+      {description && <p className={`max-w-[480px] ${TYPE.body} text-p1-text-2`}>{description}</p>}
       {actions && <div className="mt-2 flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );

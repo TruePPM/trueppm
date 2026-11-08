@@ -1,3 +1,11 @@
+import {
+  TABLE_CLASS,
+  TABLE_HEADER_CELL,
+  TABLE_REGION,
+  TABLE_ROW_HEIGHT,
+  type DataTableDensity,
+} from '@/components/page2/DataTable';
+
 // ---------------------------------------------------------------------------
 // LoadingSkeleton — the shared rule-248 loading ghost.
 //
@@ -28,6 +36,13 @@ function Ghost({ className }: { className: string }) {
   );
 }
 
+/** The part of a `DataTableColumn` the skeleton reads. */
+interface SkeletonColumn {
+  header: string;
+  width?: string;
+  numeric?: boolean;
+}
+
 export interface LoadingSkeletonProps {
   /**
    * Accessible name for the status node, in rule-248 form — e.g. `"Loading
@@ -48,8 +63,14 @@ export interface LoadingSkeletonProps {
    * height, so nothing moves when the data paints.
    */
   variant?: 'shell' | 'rows' | 'table';
-  /** `table` only: the real column headers. */
-  columns?: ReadonlyArray<string>;
+  /**
+   * `table` only: the real columns. Pass the SAME column array the `DataTable`
+   * will render — a `DataTableColumn` satisfies this shape — so header text,
+   * widths and alignment match the table that replaces the skeleton.
+   */
+  columns?: ReadonlyArray<SkeletonColumn>;
+  /** `table` only: the density the real table will render at. */
+  density?: DataTableDensity;
   /** `table` only: a count already known before the rows ("24 tasks"), shown as real text. */
   count?: string;
   /** How many content ghosts to render. */
@@ -73,6 +94,7 @@ export function LoadingSkeleton({
   className = '',
   columns = [],
   count,
+  density = 'default',
 }: LoadingSkeletonProps) {
   if (variant === 'table') {
     return (
@@ -82,32 +104,44 @@ export function LoadingSkeleton({
             {count}
           </p>
         )}
-        <div
-          aria-hidden="true"
-          className="overflow-hidden rounded-md border border-p1-hairline bg-p1-surface-1"
-        >
-          <div className="flex h-8 items-center border-b border-p1-hairline">
-            {columns.map((c) => (
-              <span
-                key={c}
-                className="min-w-0 flex-1 truncate px-3 text-xs font-medium text-p1-text-2"
-              >
-                {c}
-              </span>
-            ))}
-          </div>
-          {Array.from({ length: rows }).map((_, i) => (
-            <div
-              key={i}
-              className="flex h-9 items-center border-b border-p1-hairline last:border-b-0"
-            >
-              {columns.map((c) => (
-                <span key={c} className="flex-1 px-3">
-                  <span className="block h-3 w-3/5 rounded motion-safe:animate-pulse bg-p1-surface-3" />
-                </span>
+        {/* The same region, table, header cells, column widths and row heights
+            as `DataTable`, so the painted rows land exactly where the ghosts were. */}
+        <div aria-hidden="true" className={TABLE_REGION}>
+          <table className={TABLE_CLASS}>
+            <thead>
+              <tr>
+                {columns.map((c) => (
+                  <th
+                    key={c.header}
+                    style={c.width ? { width: c.width, minWidth: c.width } : undefined}
+                    className={`${TABLE_HEADER_CELL} ${c.numeric ? 'text-right' : 'text-left'}`}
+                  >
+                    {c.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: rows }).map((_, i) => (
+                <tr
+                  key={i}
+                  data-testid="skeleton-row"
+                  className={`${TABLE_ROW_HEIGHT[density]} group`}
+                >
+                  {columns.map((c) => (
+                    <td
+                      key={c.header}
+                      className="border-b border-p1-hairline px-3 align-middle group-last:border-b-0"
+                    >
+                      <span
+                        className={`block h-3 w-3/5 rounded bg-p1-surface-3 motion-safe:animate-pulse ${c.numeric ? 'ml-auto' : ''}`}
+                      />
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </div>
-          ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );

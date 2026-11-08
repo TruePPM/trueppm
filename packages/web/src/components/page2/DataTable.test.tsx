@@ -72,4 +72,11 @@ describe('DataTable (rule 439)', () => {
     expect(region).toHaveAttribute('data-scrolled', 'true');
     expect(screen.getByRole('rowheader', { name: 'Alpha' })).toHaveClass('border-r');
   });
+
+  it('wears the kit focus ring with offset, not an inset ring', () => {
+    render(<DataTable caption="Tasks" columns={COLS} rows={ROWS} rowKey={(r) => r.id} />);
+    const region = screen.getByRole('region', { name: 'Tasks' });
+    expect(region).toHaveClass('focus-visible:ring-2', 'focus-visible:ring-offset-2');
+    expect(region.className).not.toContain('ring-inset');
+  });
 });

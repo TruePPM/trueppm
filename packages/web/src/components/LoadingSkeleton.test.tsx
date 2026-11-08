@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { LoadingSkeleton } from './LoadingSkeleton';
+import { TABLE_HEADER_CELL, TABLE_ROW_HEIGHT } from './page2/DataTable';
 
 describe('LoadingSkeleton (#2431, rule 248)', () => {
   it('exposes one named status node so the wait-for-paint gate can resolve on it', () => {
@@ -49,7 +50,7 @@ describe('LoadingSkeleton — Pass 2 table variant (rule 439)', () => {
       <LoadingSkeleton
         variant="table"
         label="Loading tasks…"
-        columns={['Task', 'Finish']}
+        columns={[{ header: 'Task' }, { header: 'Finish', numeric: true }]}
         count="24 tasks"
         rows={4}
       />,
@@ -62,5 +63,38 @@ describe('LoadingSkeleton — Pass 2 table variant (rule 439)', () => {
     const ghosts = container.querySelectorAll('.motion-safe\\:animate-pulse');
     expect(ghosts).toHaveLength(8);
     expect(container.querySelector('.animate-pulse')).toBeNull();
+  });
+
+  it('uses the DataTable row heights, column widths and alignment so nothing moves on paint', () => {
+    const { container } = render(
+      <LoadingSkeleton
+        variant="table"
+        label="Loading tasks…"
+        columns={[
+          { header: 'Task', width: '240px' },
+          { header: 'Float', width: '96px', numeric: true },
+        ]}
+        rows={2}
+      />,
+    );
+    for (const row of screen.getAllByTestId('skeleton-row')) {
+      expect(row.className).toContain(TABLE_ROW_HEIGHT.default);
+    }
+    const headers = container.querySelectorAll('th');
+    expect(headers[0]).toHaveStyle({ width: '240px' });
+    expect(headers[1]).toHaveClass('text-right');
+    expect(headers[1].className).toContain(TABLE_HEADER_CELL);
+  });
+
+  it('follows the density the real table will use', () => {
+    render(
+      <LoadingSkeleton
+        variant="table"
+        label="Loading…"
+        columns={[{ header: 'Task' }]}
+        density="dense"
+      />,
+    );
+    expect(screen.getAllByTestId('skeleton-row')[0].className).toContain(TABLE_ROW_HEIGHT.dense);
   });
 });

@@ -1,3 +1,5 @@
+import { FOCUS_RING } from './page2/classes';
+import { TYPE } from './page2/typeScale';
 import type { ReactNode } from 'react';
 
 interface BaseQueryErrorStateProps {
@@ -124,13 +126,13 @@ function PageQueryErrorState({
       data-variant="page"
       className={`flex flex-col items-start gap-2 border-t border-p1-hairline py-8 text-left ${className}`}
     >
-      <p className="text-[15px] font-semibold leading-[22px] text-p1-text-1">{message}</p>
-      <p className="max-w-[480px] text-[13px] leading-[20px] text-p1-text-2">{stillWorks}</p>
+      <p className={`${TYPE.section} text-p1-text-1`}>{message}</p>
+      <p className={`max-w-[480px] ${TYPE.body} text-p1-text-2`}>{stillWorks}</p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={retry}
-          className="inline-flex h-8 items-center rounded-md border border-p1-hairline-strong bg-p1-surface-1 px-3 text-[13px] font-medium text-p1-text-1 hover:bg-p1-surface-2 focus:outline-none focus:ring-2 focus:ring-p1-focus focus:ring-offset-2 focus:ring-offset-p1-surface-1 [@media(pointer:coarse)]:h-11 max-md:h-11"
+          className={`inline-flex h-8 items-center rounded-md border border-p1-hairline-strong bg-p1-surface-1 px-3 font-medium text-p1-text-1 hover:bg-p1-surface-2 [@media(pointer:coarse)]:h-11 max-md:h-11 ${TYPE.body} ${FOCUS_RING}`}
         >
           Retry
         </button>

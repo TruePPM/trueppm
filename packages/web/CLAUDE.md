@@ -102,7 +102,7 @@ These rules are enforced at review time. Violations block merge.
 *How a value tells the truth about itself — including to someone who cannot see it.*
 
 120. **Health/variance values pair color with a non-color signal (rule-12 reinforcement for rollups).** → [rule](../../docs/design/invariants/120-health-variance-values-pair-color-with-a-non-color-signal.md)
-119. **A configured-but-not-computable metric renders as a muted card with a reason, never hidden.** → [rule](../../docs/design/invariants/119-a-configured-but-not-computable-metric-renders-as-a-muted.md)
+119. **A configured-but-not-computable metric renders as a muted card with a reason, never hidden.** On shell v2 it is the one-line `NotComputable` instead (rule 439). → [rule](../../docs/design/invariants/119-a-configured-but-not-computable-metric-renders-as-a-muted.md)
 161. **A responsive abbreviation must always carry its full accessible name.** → [rule](../../docs/design/invariants/161-a-responsive-abbreviation-must-always-carry-its-full.md)
 171. **`aria-label` on a non-widget element (`<p>`/`<div>`/`<span>`) does NOT suppress its descendant text in NVDA/JAWS — to expose a multi-span line as ONE accessible string, mark every visible child `aria-hidden`.** → [rule](../../docs/design/invariants/171-aria-label-on-a-non-widget-element-p-div-span-does-not.md)
 216. **A status adornment inside a header decides `aria-hidden` vs `role="img"`+`aria-label` by whether its meaning is ALREADY in the header's accessible name — never by "it's a small glyph, hide it".** → [rule](../../docs/design/invariants/216-a-status-adornment-inside-a-header-decides-aria-hidden-vs.md)

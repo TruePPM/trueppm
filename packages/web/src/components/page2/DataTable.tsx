@@ -1,4 +1,6 @@
 import { useState, type ReactNode, type UIEvent } from 'react';
+import { FOCUS_RING } from './classes';
+import { TYPE } from './typeScale';
 
 export interface DataTableColumn<R> {
   key: string;
@@ -30,11 +32,25 @@ export interface DataTableProps<R> {
 }
 
 const COARSE = '[@media(pointer:coarse)]:h-11 max-md:h-11';
-const ROW_HEIGHT: Record<DataTableDensity, string> = {
+/**
+ * Row heights per density. Exported so the table skeleton (`LoadingSkeleton
+ * variant="table"`) paints its ghost rows at exactly these heights — a skeleton
+ * row that is 36px on a phone where the real row is 44px moves the page when
+ * the data lands.
+ */
+export const TABLE_ROW_HEIGHT: Record<DataTableDensity, string> = {
   default: `h-9 ${COARSE}`,
   dense: `h-8 ${COARSE}`,
   narrative: 'h-16',
 };
+
+/** The scroll region's frame; shared with the table skeleton. */
+export const TABLE_REGION = 'overflow-auto rounded-md border border-p1-hairline bg-p1-surface-1';
+/** The `<table>` itself: separate borders so the sticky cells keep their hairlines. */
+export const TABLE_CLASS = `w-full border-separate border-spacing-0 ${TYPE.body} text-p1-text-1`;
+/** A header cell: 32px, sticky, meta step. */
+export const TABLE_HEADER_CELL =
+  'sticky top-0 h-8 whitespace-nowrap border-b border-p1-hairline bg-p1-surface-1 px-3 text-xs font-medium text-p1-text-2';
 
 /**
  * The Pass 2 table (rule 439): 36px rows, a 32px sticky header, no zebra
@@ -76,9 +92,9 @@ export function DataTable<R>({
       onScroll={onScroll}
       data-testid="data-table"
       data-scrolled={scrolled ? 'true' : undefined}
-      className={`overflow-auto rounded-md border border-p1-hairline focus:outline-none focus:ring-2 focus:ring-inset focus:ring-p1-focus ${className}`}
+      className={`${TABLE_REGION} ${FOCUS_RING} ${className}`}
     >
-      <table className="w-full border-separate border-spacing-0 text-[13px] leading-[20px] text-p1-text-1">
+      <table className={TABLE_CLASS}>
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
@@ -88,7 +104,7 @@ export function DataTable<R>({
                 scope="col"
                 style={c.width ? { width: c.width, minWidth: c.width } : undefined}
                 className={[
-                  'sticky top-0 h-8 whitespace-nowrap border-b border-p1-hairline bg-p1-surface-1 px-3 text-xs font-medium text-p1-text-2',
+                  TABLE_HEADER_CELL,
                   c.numeric ? 'text-right' : 'text-left',
                   i === 0 ? `left-0 z-20 ${identityEdge}` : 'z-10',
                 ].join(' ')}
@@ -100,7 +116,7 @@ export function DataTable<R>({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row)} className={`${ROW_HEIGHT[density]} group`}>
+            <tr key={rowKey(row)} className={`${TABLE_ROW_HEIGHT[density]} group`}>
               {columns.map((c, i) => {
                 const Tag = i === 0 ? 'th' : 'td';
                 return (
