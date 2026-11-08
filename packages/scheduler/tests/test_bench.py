@@ -344,3 +344,77 @@ def test_monte_carlo_max_lag_delta_cells_rejects_before_allocating() -> None:
     finally:
         tracemalloc.stop()
     assert peak < 5_000_000
+
+
+def _make_realistic_project(n: int) -> Project:
+    """A branching project with PERT, percent-complete and pinned-start tasks."""
+    import random
+
+    rng = random.Random(1)
+    tasks: list[Task] = []
+    deps: list[Dependency] = []
+    for i in range(n):
+        extra: dict[str, object] = {}
+        if i % 5 == 0:
+            extra.update(
+                optimistic_duration=timedelta(days=1),
+                most_likely_duration=timedelta(days=3),
+                pessimistic_duration=timedelta(days=6),
+            )
+        if i % 7 == 0:
+            extra["percent_complete"] = 25.0
+        if i % 11 == 0:
+            extra["planned_start"] = date(2026, 2, 2) + timedelta(days=rng.randint(0, 60))
+        tasks.append(
+            Task(
+                id=f"t{i}",
+                name=f"Task {i}",
+                duration=timedelta(days=rng.randint(1, 10)),
+                **extra,  # type: ignore[arg-type]
+            )
+        )
+        if i:
+            for p in {rng.randrange(max(0, i - 30), i) for _ in range(2)}:
+                deps.append(
+                    Dependency(
+                        predecessor_id=f"t{p}",
+                        successor_id=f"t{i}",
+                        dep_type=DependencyType.FS,
+                        lag=timedelta(0),
+                    )
+                )
+    return Project(
+        id="bench",
+        name="Bench",
+        start_date=date(2026, 1, 5),
+        tasks=tasks,
+        dependencies=deps,
+        calendar=Calendar(working_days=31, hours_per_day=8.0, timezone="UTC"),
+    )
+
+
+def test_input_validation_stays_a_small_share_of_schedule() -> None:
+    """Validation must stay under 15% of ``schedule()`` at 10k tasks (#4711).
+
+    It was 24-31% when every valid field built an error-message f-string it never
+    used. Both sides are timed in one process and best-of-N, so host speed cancels;
+    the ratio sits near 10% with the fast paths and fails if they are lost.
+    """
+    from trueppm_scheduler.engine import _validate_project
+
+    project = _make_realistic_project(10_000)
+
+    def best(fn: object, runs: int) -> float:
+        times = []
+        for _ in range(runs):
+            start = time.perf_counter()
+            fn()  # type: ignore[operator]
+            times.append(time.perf_counter() - start)
+        return min(times)
+
+    schedule_s = best(lambda: schedule(project), 5)
+    validate_s = best(lambda: _validate_project(project), 7)
+    assert validate_s < 0.15 * schedule_s, (
+        f"validation took {validate_s * 1000:.1f} ms of a {schedule_s * 1000:.1f} ms "
+        f"schedule() ({100 * validate_s / schedule_s:.0f}%); budget is 15%."
+    )

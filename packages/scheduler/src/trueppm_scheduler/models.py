@@ -1479,6 +1479,22 @@ def _validate_calendar_fields(cal: Calendar, label: str) -> None:
             _invalid(f"{label} exception end ({exc.end}) must be >= start ({exc.start}).")
 
 
+def _timedelta_field_fast(t: Task, name: str, value: Any, *, optional: bool) -> None:
+    """Validate one task timedelta field, formatting its label only when it fails.
+
+    An exact ``timedelta`` with no microseconds is a whole number of seconds, which a
+    float holds exactly (``timedelta.max`` is ~8.64e13 s, far below 2**53), so it always
+    round-trips and the full check is skipped. Anything else — ``None`` on a required
+    field, a subclass, a fractional-second value — takes :func:`_check_timedelta_field`
+    unchanged.
+    """
+    if type(value) is timedelta and not value.microseconds:
+        return
+    if value is None and optional:
+        return
+    _check_timedelta_field(value, f"Task {_short_repr(t.id)} {name}", optional=optional)
+
+
 _TASK_DATE_FIELDS = (
     "planned_start",
     "planned_finish",
@@ -1499,31 +1515,43 @@ def _validate_task_fields(t: Task) -> None:
     The engine overwrites the computed dates/floats on its own copy, so it never
     *read* a garbage input value there; but ``to_dict`` serializes it verbatim and
     the result would not load back.
+
+    This runs once per task on every ``schedule()``, so a valid field must cost no
+    string formatting: each field takes an exact-type fast path (``type(x) is ...``,
+    never ``isinstance``, so a ``bool`` in an int slot or a ``datetime`` in a date slot
+    is not waved through) and only a field that misses it reaches the full check, with
+    its label built there. Fields are visited in the same order as the full checks, so
+    the first error reported for a multi-error task is unchanged.
     """
     _check_str_field(t.id, "Task id")
-    _check_str_field(t.name, f"Task {_short_repr(t.id)} name")
-    _check_timedelta_field(t.duration, f"Task {_short_repr(t.id)} duration", optional=False)
-    for name in ("total_float", "free_float"):
-        _check_timedelta_field(getattr(t, name), f"Task {_short_repr(t.id)} {name}", optional=False)
-    for name in ("optimistic_duration", "most_likely_duration", "pessimistic_duration"):
-        _check_timedelta_field(getattr(t, name), f"Task {_short_repr(t.id)} {name}", optional=True)
+    tid = t.id
+    if type(t.name) is not str:
+        _check_str_field(t.name, f"Task {_short_repr(tid)} name")
+    _timedelta_field_fast(t, "duration", t.duration, optional=False)
+    _timedelta_field_fast(t, "total_float", t.total_float, optional=False)
+    _timedelta_field_fast(t, "free_float", t.free_float, optional=False)
+    _timedelta_field_fast(t, "optimistic_duration", t.optimistic_duration, optional=True)
+    _timedelta_field_fast(t, "most_likely_duration", t.most_likely_duration, optional=True)
+    _timedelta_field_fast(t, "pessimistic_duration", t.pessimistic_duration, optional=True)
     for name in _TASK_DATE_FIELDS:
-        _check_plain_date_field(getattr(t, name), f"Task {_short_repr(t.id)} {name}")
+        value = getattr(t, name)
+        if value is not None and type(value) is not date:
+            _check_plain_date_field(value, f"Task {_short_repr(tid)} {name}")
     for name in ("is_critical", "milestone_at_day_end"):
-        if not isinstance(getattr(t, name), bool):
+        if type(getattr(t, name)) is not bool:
             _invalid(
-                f"Task {_short_repr(t.id)} {name} must be a bool (got "
+                f"Task {_short_repr(tid)} {name} must be a bool (got "
                 f"{_short_repr(getattr(t, name))})."
             )
     pct = t.percent_complete
     if pct is not None and (not _is_finite_real(pct) or not 0 <= pct <= 100):
         _invalid(
-            f"Task {_short_repr(t.id)} percent_complete must be a number in [0, 100] (got "
+            f"Task {_short_repr(tid)} percent_complete must be a number in [0, 100] (got "
             f"{_short_repr(pct)})."
         )
     if t.story_points is not None and not _is_finite_real(t.story_points):
         _invalid(
-            f"Task {_short_repr(t.id)} story_points must be a finite number (got "
+            f"Task {_short_repr(tid)} story_points must be a finite number (got "
             f"{_short_repr(t.story_points)})."
         )
     # A plain "scrum" string serializes to the same JSON as DeliveryMode.SCRUM but is
@@ -1531,10 +1559,11 @@ def _validate_task_fields(t: Task) -> None:
     # scrum — refuse rather than let the two forms of one project disagree.
     if t.delivery_mode is not None and not isinstance(t.delivery_mode, DeliveryMode):
         _invalid(
-            f"Task {_short_repr(t.id)} delivery_mode must be a DeliveryMode or None (got "
+            f"Task {_short_repr(tid)} delivery_mode must be a DeliveryMode or None (got "
             f"{_short_repr(t.delivery_mode)})."
         )
-    _check_str_field(t.calendar_id, f"Task {_short_repr(t.id)} calendar_id", optional=True)
+    if t.calendar_id is not None and type(t.calendar_id) is not str:
+        _check_str_field(t.calendar_id, f"Task {_short_repr(tid)} calendar_id", optional=True)
 
 
 def _validate_dependency_fields(d: Dependency) -> None:
@@ -1544,6 +1573,9 @@ def _validate_dependency_fields(d: Dependency) -> None:
     if not isinstance(d.dep_type, DependencyType):
         allowed = ", ".join(t.value for t in DependencyType)
         _invalid(f"Invalid dependency type {_short_repr(d.dep_type)}; must be one of: {allowed}.")
+    # Exact-type fast path (see ``_timedelta_field_fast``): label only built on a miss.
+    if type(d.lag) is timedelta and not d.lag.microseconds:
+        return
     _check_timedelta_field(
         d.lag,
         f"Dependency {_short_repr(d.predecessor_id)} → {_short_repr(d.successor_id)} lag",
