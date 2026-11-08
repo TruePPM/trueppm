@@ -463,3 +463,83 @@ git-link status refresh, webhook delivery, and SMTP relay checks, some of which
 take user-supplied URLs. Only allow-list a host that is at least as trusted as your
 identity provider, and list the specific IdP host — never a broad internal name.
 :::
+
+### If the allow-list does not fix it: check your own NetworkPolicy
+
+`TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` only relaxes TruePPM's own application-level
+check. It does not open a network path. The chart's NetworkPolicy does not
+restrict the API or worker pods' egress by default (see [Ports and
+firewall](/administration/networking/#ports-and-firewall)), but if your cluster
+applies its own default-deny egress policy (common with Calico or Cilium), that
+policy is a second control plane, and it can still drop the connection after the
+allow-list has done its part.
+
+The two failures look different in **Test connection**:
+
+- **Blocked by the application guard**: the result carries the egress-guard hint
+  that points at `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS`. Set the variable.
+- **Dropped by a NetworkPolicy**: the connection hangs and times out, so the
+  result is a plain "provider unreachable" or `jwks_unreachable` with no
+  allow-list hint. If you have set the variable and still see this, suspect the
+  network layer.
+
+Only the **API pods** make these calls (OIDC discovery, token exchange, and JWKS
+fetches happen during login and **Test connection**), so they are the pods that
+need an egress rule to the identity provider. Two rules are commonly missed:
+
+- **DNS.** A default-deny egress policy that omits port 53 makes every hostname
+  fail to resolve, including the IdP's.
+- **The IdP itself.** Allow the IdP's namespace and port (or, for an external
+  IdP, its address range on 443).
+
+An example for an in-cluster Keycloak in the `sso` namespace, applied in the
+namespace where TruePPM runs:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trueppm-api-egress-idp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Egress
+  egress:
+    - to:                       # DNS
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:                       # the identity provider
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: sso
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      ports:
+        - { protocol: TCP, port: 8080 }
+```
+
+Adjust the labels and port to your cluster. Because a NetworkPolicy is additive,
+a policy like this must be added alongside any egress rules the API pods already
+need (the database, Valkey, SMTP, object storage), not in place of them.
+
+To check the network path on its own, bypassing TruePPM's guard, make a request
+from inside an API pod. The API image is minimal and has no `curl`, so use
+Python:
+
+```bash
+kubectl exec -n <namespace> deploy/<fullname>-api -- python -c \
+  "import urllib.request as u; print(u.urlopen('https://<idp-host>/.well-known/openid-configuration', timeout=5).status)"
+```
+
+A `200` means the network path is open and the problem is elsewhere. A timeout
+or `Temporary failure in name resolution` points at the NetworkPolicy (or DNS)
+rather than at TruePPM. This check does not apply the allow-list, so it proves
+only the network layer.
