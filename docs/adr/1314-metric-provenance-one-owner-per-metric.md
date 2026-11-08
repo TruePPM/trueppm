@@ -254,8 +254,12 @@ No new owner is added for the My Work ship date. It is the §1 forecast owner,
   after a Member-triggered run (cache refreshed, no row, #1502) the card on the
   Contributor home showed a different P80 from the project's own forecast for up to
   a day. Each project's P80 is now read in the owner's order, cache entry first,
-  then the newest persisted run, through one helper,
-  `metric_provenance.latest_forecast_p80_by_project`. The newest run is taken
+  then the newest persisted run, through
+  `metric_provenance.latest_forecast_p80_by_project`. That is the batched form of
+  `metric_provenance.latest_forecast_result`, which the owner itself
+  (`MonteCarloLatestView`), status-summary's `monte_carlo_p80` and the overview's
+  forecast fields now all call. Before this, each of the three held its own inline
+  copy of the cache-then-newest-row read. The newest run is taken
   whatever its P80, as the owner does. The signal used to filter on `p80 IS NOT NULL`,
   which reported an older run's date when the newest had none. `as_of` is the
   driving project's `last_run_at`, the owner's as_of. The max across projects and
@@ -273,8 +277,10 @@ No new owner is added for the My Work ship date. It is the §1 forecast owner,
   points ("nothing burned"), because `trend_pts` is the card list's sort key and is
   not nullable. The owner reports `no_data` with `burn_status_reason: no_snapshots`.
   Once a snapshot exists, the two agree. A test pins that.
-- The sprint outcome's `velocity.burn_status` already called
-  `compute_sprint_burn_status` and is an echo as it stands.
+- The sprint outcome's `velocity` block (`GET /sprints/{id}/outcome/`) already
+  called `compute_sprint_burn_status`. It now also carries `burn_status_reason` and
+  the owner's `definitions` for `burn_status`, `trend_points` and
+  `projected_finish_date`, so a `no_data` there names its cause as the owner does.
 
 ### Sprint burn is not project burn
 
@@ -311,10 +317,12 @@ the omission is the not-computable state for those cards. The vocabulary page sa
 - `metric_provenance.py`: the six new sentences, `SPRINT_BURNDOWN_DEFINED`,
   `MY_WORK_SPRINT_BURN_DEFINED`, `MY_WORK_FORECAST_DEFINED`, `definitions_by_field`,
   `definitions_field_by_field`, `BURN_STATUS_REASON_CHOICES`,
-  `latest_forecast_p80_by_project`.
+  `latest_forecast_result`, `latest_forecast_p80_by_project`.
 - `services.py`: `compute_sprint_burn_status` (reason), `sprint_trend_points`,
-  `_forecast_signal`, `_sprint_burndown_signal`.
-- `views.py`: `SprintViewSet.burndown`, `MeActiveSprintsView`, the `/me/work` schema.
+  `_forecast_signal`, `_sprint_burndown_signal`, `_velocity_block`.
+- `projects/views.py`: `SprintViewSet.burndown`, `MeActiveSprintsView`, the `/me/work`
+  schema, and the forecast reads in `status_summary` and `ProjectOverviewView`.
+  `scheduling/views.py`: `MonteCarloLatestView`.
 - Tests: `packages/api/tests/apps/projects/test_metric_provenance.py`
   (`TestMyWorkForecastEchoesTheOwner`, `TestSprintBurnProvenance`).
 - Cost: the forecast echo is one cache `get_many` plus at most one DISTINCT ON query

@@ -22,10 +22,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 # One sentence per metric. The key is the payload field the sentence defines. Edit a
 # sentence here and in
@@ -210,16 +213,46 @@ def definitions_field_by_field(name: str, fields: dict[str, str]) -> Any:
     )
 
 
+def latest_forecast_result(
+    project_id: Any, runs: QuerySet[Any] | None = None
+) -> tuple[dict[str, Any] | None, Any | None]:
+    """A project's latest Monte Carlo result: ``(cache_entry, None)`` or ``(None, run)``.
+
+    The per-project reader of "the latest forecast" (ADR-1314, #4778). The owner
+    (``monte-carlo/latest/``) and its echoes (status-summary's ``monte_carlo_p80``,
+    the overview's forecast fields) all call it, so none of them can read in a
+    different order. The order: the cache entry first, then the newest persisted
+    ``MonteCarloRun`` once the 24-hour entry has expired. A Member-triggered run
+    refreshes the cache and persists no row (#1502), so a reader of the persisted
+    row alone serves a different forecast than the owner for up to a day.
+
+    ``runs`` narrows the fallback query (``.only(...)``) for a caller that needs a
+    few columns; the run is the newest by ``taken_at`` whatever its P80. The run is
+    ``None`` when there is a cache entry (not queried) or no run at all. Batched
+    over many projects, :func:`latest_forecast_p80_by_project` applies the same order.
+    """
+    from django.core.cache import cache
+
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    # Lazy: scheduling.views imports this module at load time.
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+    entry = cache.get(mc_latest_cache_key(project_id))
+    if entry is not None:
+        return entry, None
+    qs = runs if runs is not None else MonteCarloRun.objects.all()
+    return None, qs.filter(project_id=project_id).order_by("-taken_at").first()
+
+
 def latest_forecast_p80_by_project(project_ids: Iterable[Any]) -> dict[str, tuple[date, str]]:
     """Each project's P80 and ``last_run_at`` from the forecast owner's latest result.
 
-    The ONE reader for "the latest forecast" outside ``monte-carlo/latest/`` itself
-    (ADR-1314). It reads in the owner's order: the cache entry first, then the
-    newest persisted ``MonteCarloRun`` once the 24-hour entry has expired. A
-    Member-triggered run refreshes the cache and persists no row (#1502), so a
-    reader of the persisted row alone serves a different P80 than the owner for up
-    to a day — the disagreement #4760 fixed in status-summary and #4778 fixed in
-    My Work.
+    The batched form of :func:`latest_forecast_result`, for the My Work signal
+    (#4778): the same order (cache entry first, then the newest persisted run)
+    over many projects in one cache round trip and one DISTINCT ON query. My Work
+    used to read the persisted row alone, the disagreement #4760 fixed in
+    status-summary.
 
     The persisted fallback takes each project's NEWEST run, whatever its P80, as the
     owner does. A newest run with no P80 means the owner has no P80 to show, so the

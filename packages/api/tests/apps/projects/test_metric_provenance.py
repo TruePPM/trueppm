@@ -811,6 +811,39 @@ class TestSprintBurnProvenance:
         (card,) = [c for c in cards if c["sprint"]["id"] == str(sprint.pk)]
         assert card["sprint"]["trend_pts"] == owner["trend_points"]
 
+    @pytest.mark.parametrize(
+        ("committed", "snapshot", "reason"),
+        [(40, False, "no_snapshots"), (None, True, "no_commitment"), (40, True, None)],
+    )
+    def test_sprint_outcome_echoes_the_owners_reason_and_definitions(
+        self,
+        client: APIClient,
+        project: Project,
+        committed: int | None,
+        snapshot: bool,
+        reason: str | None,
+    ) -> None:
+        sprint = _active_sprint(project, committed=committed)
+        if snapshot:
+            _snapshot(sprint, 0, 30)
+        # The velocity block is team-band only (ADR-0104): an OWNER reads it as null,
+        # so read it as a MEMBER.
+        member = User.objects.create_user(username="prov-member", password="pw")
+        ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+        member_client = APIClient()
+        member_client.force_authenticate(user=member)
+
+        owner = member_client.get(f"/api/v1/sprints/{sprint.pk}/burndown/").json()
+        outcome = member_client.get(f"/api/v1/sprints/{sprint.pk}/outcome/").json()
+        velocity = outcome["velocity"]
+        assert velocity is not None
+
+        assert owner["burn_status_reason"] == reason
+        for field in ("burn_status", "burn_status_reason", "trend_points", "projected_finish_date"):
+            assert velocity[field] == owner[field], field
+        for field in ("burn_status", "trend_points", "projected_finish_date"):
+            assert velocity["definitions"][field] == owner["definitions"][field]
+
     def test_non_member_is_refused(self, stranger_client: APIClient, project: Project) -> None:
         sprint = _active_sprint(project)
         resp = stranger_client.get(f"/api/v1/sprints/{sprint.pk}/burndown/")

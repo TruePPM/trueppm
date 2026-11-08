@@ -1078,8 +1078,12 @@ export interface SprintOutcome {
     velocity_delta_points: number | null;
     rolling_avg_points: number | null;
     burn_status: 'ahead' | 'on_track' | 'behind' | 'no_data';
+    /** Why `burn_status` is `no_data` (rule 119, #4778); null when a pace was computed. */
+    burn_status_reason?: 'no_commitment' | 'no_snapshots' | null;
     trend_points: number | null;
     projected_finish_date: string | null;
+    /** The sprint burndown owner's sentences for the three burn figures (ADR-1314). */
+    definitions?: MetricDefinitions;
   } | null;
   didnt_ship: DidntShipItem[];
   didnt_ship_summary: {

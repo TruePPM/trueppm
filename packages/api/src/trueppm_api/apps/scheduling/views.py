@@ -52,7 +52,10 @@ from trueppm_api.apps.access.permissions import (
     declare_scope_in_body,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.metric_provenance import forecast_commitment_facts
+from trueppm_api.apps.projects.metric_provenance import (
+    forecast_commitment_facts,
+    latest_forecast_result,
+)
 from trueppm_api.apps.projects.models import (
     Dependency,
     EstimationMode,
@@ -1160,7 +1163,9 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
         """
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
-        cached = cache.get(mc_latest_cache_key(pk))
+        # The shared reader (ADR-1314, #4778): status-summary, the overview and My
+        # Work read the same order through the same helper, so they cannot disagree.
+        cached, latest = latest_forecast_result(pk)
         if cached is not None:
             # Added time is layered on at read time, never taken from the entry — the
             # entry has no premium keys to take (ADR-0698 §2). A cached forecast can be
@@ -1199,7 +1204,6 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 }
             )
 
-        latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
         if latest is None:
             return Response(
                 {"detail": "No simulation result available."},

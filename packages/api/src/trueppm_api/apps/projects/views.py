@@ -13,7 +13,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import InvalidPage
 from django.core.paginator import Paginator as DjangoPaginator
@@ -121,6 +120,7 @@ from trueppm_api.apps.projects.metric_provenance import (
     definitions_field,
     definitions_field_by_field,
     definitions_for,
+    latest_forecast_result,
     task_slip_definitions,
 )
 from trueppm_api.apps.projects.models import (
@@ -4029,18 +4029,13 @@ class ProjectViewSet(
         # the figure's owner (ADR-1314). Reading only the persisted row made the two
         # differ for a whole day after a Member-triggered run, which refreshes the
         # cache but persists no attributed row (#1502).
-        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
-
-        cached_mc = cache.get(mc_latest_cache_key(project.pk))
+        cached_mc, latest_mc_run = latest_forecast_result(
+            project.pk, MonteCarloRun.objects.only("p80")
+        )
         if cached_mc is not None:
             latest_p80 = cached_mc.get("p80")
         else:
-            latest_p80 = (
-                MonteCarloRun.objects.filter(project=project)
-                .order_by("-taken_at")
-                .values_list("p80", flat=True)
-                .first()
-            )
+            latest_p80 = latest_mc_run.p80 if latest_mc_run is not None else None
 
         # The band is a SERVER fact, not something the shell can work out from the
         # two counts below it (#3501). Only the server sees the manual
@@ -13318,26 +13313,6 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         # health reads, rollups — can reach it without running a simulation
         # (#2483). One indexed row; `.only()` because the persisted distribution
         # on the same table can be hundreds of KB and nothing here reads it.
-        from trueppm_api.apps.scheduling.forecast_staleness import forecast_staleness_from_run
-        from trueppm_api.apps.scheduling.models import MonteCarloRun
-        from trueppm_api.apps.scheduling.risk_premium import build_risk_premium
-
-        latest_run = (
-            MonteCarloRun.objects.filter(project=project)
-            .only(
-                "p80",
-                "cpm_finish",
-                "taken_at",
-                "diagnostic",
-                "plan_version",
-                # The edge-of-day readings the premium is measured in working time
-                # from (#4204); omitting them here would be one deferred query each.
-                "p80_at_day_start",
-                "cpm_finish_at_day_start",
-            )
-            .order_by("-taken_at")
-            .first()
-        )
         from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 
         # The same "latest result" GET /monte-carlo/latest/ serves (ADR-1314): the
@@ -13347,11 +13322,30 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         # forecast endpoint for the same project.
         from trueppm_api.apps.scheduling.forecast_staleness import (
             forecast_staleness_for_payload,
+            forecast_staleness_from_run,
         )
-        from trueppm_api.apps.scheduling.risk_premium import risk_premium_for_forecast_payload
-        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+        from trueppm_api.apps.scheduling.models import MonteCarloRun
+        from trueppm_api.apps.scheduling.risk_premium import (
+            build_risk_premium,
+            risk_premium_for_forecast_payload,
+        )
 
-        cached_mc = cache.get(mc_latest_cache_key(project.pk))
+        # One reader for the owner and both echoes (#4778). The run is fetched only
+        # on a cache miss; its columns are the ones the premium and staleness read.
+        cached_mc, latest_run = latest_forecast_result(
+            project.pk,
+            MonteCarloRun.objects.only(
+                "p80",
+                "cpm_finish",
+                "taken_at",
+                "diagnostic",
+                "plan_version",
+                # The edge-of-day readings the premium is measured in working time
+                # from (#4204); omitting them here would be one deferred query each.
+                "p80_at_day_start",
+                "cpm_finish_at_day_start",
+            ),
+        )
 
         # Composed only when the P80 or CPM finish is a start-of-day reading.
         if cached_mc is not None:

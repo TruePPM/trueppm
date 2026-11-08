@@ -18,6 +18,9 @@ import { setupCatchAll } from './fixtures/api-mocks';
 const PROJECT_ID = 'e2e-mywork-00000000-0000-0000-0000-000000000499';
 const TASK_ID = 'task-mywork-aaaa';
 const SPRINT_ID = 'sprint-mywork-bbbb';
+const FORECAST_DEFINITION =
+  'The latest P80 finish among your member projects that are not drafts, each read from ' +
+  "that project's latest Monte Carlo result: the same date its forecast endpoint serves.";
 
 const ACTIVE_SPRINT = {
   id: SPRINT_ID,
@@ -446,7 +449,10 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('textbox', { name: /^name/i })).toBeVisible();
     // The three peer ways in, same row — Blank selected by default from this CTA.
-    await expect(dialog.getByRole('radio', { name: /^blank/i })).toHaveAttribute('aria-checked', 'true');
+    await expect(dialog.getByRole('radio', { name: /^blank/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   });
 
   test('empty state — loading the demo lands the contributor on a board (#1054)', async ({
@@ -629,6 +635,8 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
               project_id: PROJECT_ID,
               project_name: 'Design App',
               as_of: '2026-07-01T09:12:00Z',
+              // The server's sentence (ADR-1314, #4778) — rendered verbatim.
+              definitions: { p80_finish: FORECAST_DEFINITION },
             },
             sprint_burndown: {
               sprint_id: SPRINT_ID,
@@ -640,8 +648,17 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
                 { date: '2026-05-22', remaining_points: 22 },
               ],
               burn_status: 'behind',
+              burn_status_reason: null,
               trend_points: -6,
               projected_finish_date: '2026-06-05',
+              as_of: '2026-05-22T12:00:00Z',
+              definitions: {
+                series: 'Per day of the sprint, the story points not yet complete.',
+                committed_points: 'The story points the sprint committed to.',
+                burn_status: "The sprint's burn pace.",
+                trend_points: "The ideal line's remaining points minus the latest snapshot's.",
+                projected_finish_date: 'Today plus the remaining points over the burn rate.',
+              },
             },
             // #1912: the caller's own load vs their own capacity on the lead
             // sprint — over-allocated here (46h booked against 40h capacity).
@@ -679,6 +696,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(page.getByRole('heading', { name: 'Ship-date forecast' })).toBeVisible();
     await expect(page.getByText('Aug 14, 2026')).toBeVisible();
     await expect(page.getByText(/Design App · 80% confidence · as of/)).toBeVisible();
+    // The definition is the server's sentence, shown on hover/focus (#4778).
+    await page.getByRole('button', { name: '80% confidence' }).focus();
+    await expect(page.getByText(FORECAST_DEFINITION)).toBeVisible();
   });
 
   test('a blocked task shows the Blocked badge, type chip, age, and reason (#476/#855/#1135)', async ({

@@ -2189,7 +2189,14 @@ def _commitment_block(sprint: Any) -> dict[str, Any]:
 
 
 def _velocity_block(sprint: Any) -> dict[str, Any]:
-    """Velocity delta + burn status. Callers gate this on ``can_read_signal`` (ADR-0104)."""
+    """Velocity delta + burn status. Callers gate this on ``can_read_signal`` (ADR-0104).
+
+    The burn fields echo the sprint burndown owner (ADR-1314 amendment, #4778): the
+    same computation, its ``burn_status_reason`` (so a ``no_data`` here names its
+    cause as the owner does), and the owner's sentences for those three figures.
+    """
+    from trueppm_api.apps.projects.metric_provenance import definitions_for
+
     snapshot_list = list(sprint.burn_snapshots.all().order_by("snapshot_date"))
     burn = compute_sprint_burn_status(sprint, snapshot_list)
     summary_v = velocity_summary(sprint.project_id)
@@ -2199,8 +2206,10 @@ def _velocity_block(sprint: Any) -> dict[str, Any]:
         "velocity_delta_points": entry["delta_vs_prior_points"] if entry else None,
         "rolling_avg_points": summary_v["rolling_avg_points"],
         "burn_status": burn["burn_status"],
+        "burn_status_reason": burn["burn_status_reason"],
         "trend_points": burn["trend_points"],
         "projected_finish_date": burn["projected_finish_date"],
+        "definitions": definitions_for(["burn_status", "trend_points", "projected_finish_date"]),
     }
 
 
