@@ -1241,6 +1241,10 @@ class ProjectSocketController {
   // A 4001 since the last successful open. The first one re-mints a ticket (see
   // the close handler); a second in a row is treated as a real auth failure.
   private authRejected = false;
+  // Set once by stop(), never cleared. Every async entry point checks it first:
+  // the shared `mountedRef` cannot tell a stopped controller from its live
+  // successor, because the effect re-arms it synchronously after cleanup (#4422).
+  private stopped = false;
 
   // ADR-1285 (#4386): applies sequenced frames in seq order, holding one that
   // arrived ahead of its predecessor briefly instead of dropping the predecessor as
@@ -1256,6 +1260,7 @@ class ProjectSocketController {
 
   // Parse → seq-gate → O(1) dispatch for one incoming frame.
   private readonly handleMessage = (event: MessageEvent<string>): void => {
+    if (this.stopped) return;
     let envelope: WsEnvelope;
     try {
       envelope = JSON.parse(event.data) as WsEnvelope;
@@ -1289,14 +1294,16 @@ class ProjectSocketController {
   }
 
   private scheduleReconnect(): void {
+    if (this.stopped) return;
     this.retryTimer = setTimeout(() => {
+      if (this.stopped) return;
       this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS);
       this.connect();
     }, this.backoffMs);
   }
 
   private connect(): void {
-    if (!this.cfg.mountedRef.current) return;
+    if (this.stopped || !this.cfg.mountedRef.current) return;
 
     const pid = this.cfg.projectIdRef.current;
     const token = this.cfg.tokenRef.current;
@@ -1309,14 +1316,15 @@ class ProjectSocketController {
       .then((ticket) => {
         // The component may have unmounted, or projectId changed, during the
         // ticket round-trip — bail rather than open a stale socket.
-        if (!this.cfg.mountedRef.current || this.cfg.projectIdRef.current !== pid) return;
+        if (this.stopped || !this.cfg.mountedRef.current || this.cfg.projectIdRef.current !== pid)
+          return;
         // Pass the last-processed sequence so a reconnect replays only the
         // missed events (ADR-0236). 0 on a fresh mount → the server skips
         // replay and the initial REST load provides current state.
         this.openSocket(pid, ticket, this.cfg.lastSeqRef.current);
       })
       .catch(() => {
-        if (!this.cfg.mountedRef.current) return;
+        if (this.stopped || !this.cfg.mountedRef.current) return;
         // A failed mint usually means the session expired (apiClient already
         // ran refresh-and-retry). Treat it like the 4001 auth-reject close so
         // we don't retry into a void; otherwise back off and try again.
@@ -1340,7 +1348,7 @@ class ProjectSocketController {
     ws.addEventListener('message', this.handleMessage);
 
     ws.addEventListener('close', (event) => {
-      if (!this.cfg.mountedRef.current) return;
+      if (this.stopped || !this.cfg.mountedRef.current) return;
       // ADR-1285 (#4386): any held frame is still waiting for its predecessor.
       // Drop it, cursor untouched, before any reconnect path below. Otherwise the
       // 750 ms window would expire during the >= 1 s backoff and apply it, moving
@@ -1383,6 +1391,7 @@ class ProjectSocketController {
     });
 
     ws.addEventListener('open', () => {
+      if (this.stopped) return;
       // An accepted socket is not yet a live one: a policy refusal is
       // accept-then-close (#4375), so `open` fires and the 4001/4003 close follows
       // in the same tick. Marking live here is still right for every healthy
@@ -1395,6 +1404,7 @@ class ProjectSocketController {
     ws.addEventListener(
       'message',
       () => {
+        if (this.stopped) return;
         this.authRejected = false;
       },
       { once: true },
@@ -1409,12 +1419,13 @@ class ProjectSocketController {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.retryTimer !== null) clearTimeout(this.retryTimer);
     // Drop held frames, cursor untouched (see SeqGate.dropHeld): a held frame must
     // not be delivered after teardown, possibly into a project the user has left.
-    // A same-project successor controller replays it from the cursor. Note #4422
-    // (open): a stopped controller can keep reconnecting after a token change and
-    // share the live cursor; that pre-existing bug is not fixed here.
+    // A same-project successor controller replays it from the cursor. `stopped`
+    // keeps this controller's late close/open/timer events from reconnecting or
+    // touching the cursor and connection store the successor now owns (#4422).
     this.gate.dispose();
     if (this.ws) {
       this.ws.removeEventListener('message', this.handleMessage);
