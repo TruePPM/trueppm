@@ -95,7 +95,10 @@ The **perturbation oracle** in the same file checks float without any model. It
 draws the same progress inputs, including the shapes the reference refuses, then
 slips each live task through `planned_start`: by its total float the shown
 project finish must not move and by one more day it must; by its free float
-nothing live downstream may move and by one more day something must. It cannot
+nothing live downstream may move later and by one more day something must move
+later. A successor moved *earlier* delays nothing, so it does not spend free
+float (#4882); a separate live property, "slipping a predecessor never moves
+work earlier", polices that instead. It cannot
 see a bug that moves early dates while keeping floats consistent. The reference
 properties above cover that class, except for a completed milestone with
 recorded actuals — #4433's shape, which the reference refuses and which stays
@@ -113,6 +116,14 @@ that turns red when the issue is resolved, so the filter must be deleted then:
 - the open #4436 (understated float beside a start-of-day milestone finish) —
   `_ends_in_a_start_of_day_finish_gap`, in the perturbation properties only,
   narrowed to the slipped task and the work its slip carried.
+
+One further open defect is pinned without a filter, because the generator does
+not reach it: the open #4883 (a floor that only ties a milestone's link, #4690,
+hands its successors the link's earlier midnight, so slipping a predecessor into
+the tie moves them earlier). The live property
+`test_slipping_a_predecessor_never_moves_work_earlier` carves nothing out; the
+known repros (`KNOWN_4883_SHAPES`) are strict xfails on Python and Rust. If the
+nightly fuzz reaches the shape, that property goes red rather than hiding it.
 
 The Rust engine is checked two ways. Locally, when `cargo` is on `PATH`, the
 Rust properties build the crate's `oracle_runner` example and feed it the same

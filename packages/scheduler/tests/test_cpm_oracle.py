@@ -1130,7 +1130,9 @@ def float_perturbation_violations(
     * Total float ``TF``: a slip of ``TF`` working days (on the task's own calendar)
       leaves the shown project finish where it is; ``TF + 1`` moves it later.
     * Free float ``FF`` (when below ``TF``): a slip of ``FF`` moves no live task
-      downstream of it (:func:`_live_descendants`); ``FF + 1`` moves at least one.
+      downstream of it (:func:`_live_descendants`) later; ``FF + 1`` moves at least
+      one later. A successor moved *earlier* by a slip delays nothing, so it does not
+      spend free float; that shape is policed separately (#4882, #4883).
 
     A slip the engine does not realize — the task lands somewhere other than the
     SNET asked for, because a finish link right-aligns it — proves nothing and is
@@ -1171,11 +1173,14 @@ def float_perturbation_violations(
             after = run(_with_snet(project, tid, day))
             if first_working_on_or_after(after.tasks[tid].early_start, cal) != day:
                 continue
+            # Free float is the delay that delays no successor (PMBOK), so only a
+            # successor held *later* spends it. One held earlier is a monotonicity
+            # break, not float: :func:`work_moved_earlier_by_a_slip` (#4882, #4883).
             moved_downstream = [
                 s
                 for s in live
                 if _held_at(after.tasks[s], project.durations[s] == 0, project.calendar_of(s))
-                != _held_at(base.tasks[s], project.durations[s] == 0, project.calendar_of(s))
+                > _held_at(base.tasks[s], project.durations[s] == 0, project.calendar_of(s))
             ]
             if bool(moved_downstream) != should_move:
                 out.append(
@@ -1385,8 +1390,141 @@ def test_float_beside_a_start_of_day_milestone_finish(project: RefProject) -> No
     assert not problems, "\n".join(problems)
 
 
+#: #4882, found by the nightly fuzz: ``T1(1d) -SS+1d-> T2``, a milestone with an
+#: SNET on Saturday 01-10 snapped to Monday on its Monday-to-Friday week, and
+#: ``T2 -FS-> T4, T5`` on the seven-day project week. Slipping ``T1`` to Friday
+#: puts the link at Saturday 00:00, shown at the start of Monday, so the SNET only
+#: ties it (#4690) and ``T4``/``T5`` count from Saturday instead of Monday: they
+#: move two days *earlier*. ``T1``'s free float of 4 is right (nothing is delayed);
+#: the earlier move is #4883's monotonicity break.
+SS_SLIP_INTO_A_TIED_SNET_MILESTONE = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T0": 0, "T1": 1, "T2": 0, "T3": 0, "T4": 0, "T5": 0},
+    links=(
+        RefLink("T1", "T2", "SS", 1),
+        RefLink("T0", "T3", "FS", 0),
+        RefLink("T1", "T3", "FS", 0),
+        RefLink("T2", "T4", "FS", 0),
+        RefLink("T2", "T5", "FS", 0),
+    ),
+    calendar=RefCalendar(working_mask=_SEVEN_DAY),
+    planned_start={"T2": date(2026, 1, 10), "T3": date(2026, 1, 13)},
+    calendars={
+        "five": RefCalendar(working_mask=MON_TO_FRI),
+        "four": RefCalendar(working_mask=_FOUR_DAY),
+        "seven": RefCalendar(working_mask=_SEVEN_DAY),
+    },
+    task_calendar={"T1": "five", "T2": "five"},
+)
+
+
+def _slip_into_a_tied_monday_snet(kind: str) -> RefProject:
+    """#4883's siblings: ``T1(1d) -<kind>+1d-> T2 -FS-> T4``, ``T2`` with a Monday
+    SNET on a Monday-to-Friday week, ``T4`` on the seven-day project week. Slipping
+    ``T1`` from Thursday to Friday makes the link tie the SNET, and ``T4`` moves from
+    Monday back onto the weekend. A weekend SNET is not needed."""
+    return RefProject(
+        start=date(2026, 1, 5),
+        durations={"T1": 1, "T2": 0, "T4": 0},
+        links=(RefLink("T1", "T2", kind, 1), RefLink("T2", "T4", "FS", 0)),
+        calendar=RefCalendar(working_mask=_SEVEN_DAY),
+        planned_start={"T2": date(2026, 1, 12)},
+        calendars={"five": RefCalendar(working_mask=MON_TO_FRI)},
+        task_calendar={"T1": "five", "T2": "five"},
+    )
+
+
+SS_SLIP_INTO_A_TIED_MONDAY_SNET = _slip_into_a_tied_monday_snet("SS")
+FS_SLIP_INTO_A_TIED_MONDAY_SNET = _slip_into_a_tied_monday_snet("FS")
+FF_SLIP_INTO_A_TIED_MONDAY_SNET = _slip_into_a_tied_monday_snet("FF")
+
+
+def work_moved_earlier_by_a_slip(
+    project: RefProject, run: Callable[[RefProject], EngineRun], max_slip: int = 7
+) -> list[str]:
+    """Slipping a live task later never moves a live task downstream of it earlier.
+
+    Each live task with work is slipped 1..``max_slip`` working days through
+    ``planned_start`` (skipped where the engine does not realize the slip, as in
+    :func:`float_perturbation_violations`); every live descendant's position, as
+    free float reads it (:func:`_held_at`), must be at or after where it was.
+    Model-free and metamorphic: a later predecessor can only add to what holds its
+    successors.
+    """
+    base = run(project)
+    out: list[str] = []
+    for tid, n in sorted(project.durations.items()):
+        if n == 0 or _complete(project, tid):
+            continue
+        cal = project.calendar_of(tid)
+        first = first_working_on_or_after(base.tasks[tid].early_start, cal)
+        live = _live_descendants(project, tid)
+        for slip in range(1, max_slip + 1):
+            day = _working_days_after(first, slip, cal)
+            after = run(_with_snet(project, tid, day))
+            if first_working_on_or_after(after.tasks[tid].early_start, cal) != day:
+                continue
+            for s in live:
+                is_ms, s_cal = project.durations[s] == 0, project.calendar_of(s)
+                was, now = (
+                    _held_at(base.tasks[s], is_ms, s_cal),
+                    _held_at(after.tasks[s], is_ms, s_cal),
+                )
+                if now < was:
+                    out.append(
+                        f"{tid} slipped {slip} wd to {day}: {s} moved earlier {was} -> {now}"
+                    )
+    return out
+
+
+#: The open #4883 shapes: each moves work earlier when a predecessor slips.
+KNOWN_4883_SHAPES = (
+    SS_SLIP_INTO_A_TIED_SNET_MILESTONE,
+    SS_SLIP_INTO_A_TIED_MONDAY_SNET,
+    FS_SLIP_INTO_A_TIED_MONDAY_SNET,
+    FF_SLIP_INTO_A_TIED_MONDAY_SNET,
+)
+
+_4883_XFAIL = pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="TODO(#4883): a floor that only ties a milestone's link (#4690) hands its "
+    "successors the link's earlier midnight, so slipping a predecessor into the tie "
+    "moves them earlier; when these XPASS, delete the xfail",
+)
+
+
 @pytest.mark.fuzz
 @given(progress_projects())
+def test_slipping_a_predecessor_never_moves_work_earlier(project: RefProject) -> None:
+    """Live: a later predecessor never moves live work downstream of it earlier.
+
+    The generator does not reach #4883's tie shape on the default run, so no filter
+    carves it out; its known repros are pinned below as strict xfails instead.
+    """
+    problems = work_moved_earlier_by_a_slip(project, python_run)
+    assert not problems, "\n".join([repr(project), *problems])
+
+
+@_4883_XFAIL
+@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
+def test_slip_into_a_tied_milestone_floor_moves_nothing_earlier(project: RefProject) -> None:
+    problems = work_moved_earlier_by_a_slip(project, python_run)
+    assert not problems, "\n".join(problems)
+
+
+@_4883_XFAIL
+@pytest.mark.parametrize("project", KNOWN_4883_SHAPES)
+def test_rust_slip_into_a_tied_milestone_floor_moves_nothing_earlier(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    problems = work_moved_earlier_by_a_slip(project, rust_engine.run)
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.fuzz
+@given(progress_projects())
+@example(SS_SLIP_INTO_A_TIED_SNET_MILESTONE)
 def test_python_floats_survive_perturbation(project: RefProject) -> None:
     """Total and free float agree with what slipping the task actually does."""
     assert_floats_survive_perturbation(project, python_run)
@@ -1749,6 +1887,7 @@ def test_rust_close_or_start_at_forecast_moves_nothing(
 
 @pytest.mark.fuzz
 @given(project=progress_projects())
+@example(project=SS_SLIP_INTO_A_TIED_SNET_MILESTONE)
 def test_rust_floats_survive_perturbation(rust_engine: RustRunner, project: RefProject) -> None:
     assert_floats_survive_perturbation(project, rust_engine.run)
 
