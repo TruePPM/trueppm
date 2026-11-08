@@ -4376,9 +4376,12 @@ def _validate_task_date_types(t: Task) -> None:
             f"Task {_short_repr(t.id)} duration must be a timedelta (got "
             f"{_short_repr(t.duration)})."
         )
-    _require_plain_date(t.planned_start, f"Task {_short_repr(t.id)} planned_start")
-    _require_plain_date(t.actual_start, f"Task {_short_repr(t.id)} actual_start")
-    _require_plain_date(t.actual_finish, f"Task {_short_repr(t.id)} actual_finish")
+    # Exact-type fast path: a plain ``date`` (or None) needs no label. A ``datetime``
+    # is a ``date`` subclass, so it must miss the fast path and reach the full check.
+    for name in ("planned_start", "actual_start", "actual_finish"):
+        value = getattr(t, name)
+        if value is not None and type(value) is not date:
+            _require_plain_date(value, f"Task {_short_repr(t.id)} {name}")
 
 
 def _validate_task_actual_order(t: Task) -> None:
@@ -4438,6 +4441,21 @@ def _unknown_calendar_id_message(task_id: str, calendar_id: str) -> str:
     )
 
 
+def _is_valid_duration(td: object) -> bool:
+    """``True`` only when ``td`` is an exact ``timedelta`` that ``_check_duration`` accepts.
+
+    A fast pre-check so the per-task validator can skip building an error label for
+    the overwhelmingly common valid value; ``False`` means "run the full check", not
+    "invalid".
+    """
+    return (
+        type(td) is timedelta
+        and not td.seconds
+        and not td.microseconds
+        and 0 <= td.days <= MAX_DURATION_DAYS
+    )
+
+
 def _validate_task_durations(t: Task) -> None:
     """Duration bounds, plus the ordering of a complete three-point estimate.
 
@@ -4447,7 +4465,10 @@ def _validate_task_durations(t: Task) -> None:
     the user's own pessimistic bound (#1069). Partial estimates are not validated:
     Monte Carlo only samples when all three are present.
     """
-    _check_duration(t.duration, f"Task {_short_repr(t.id)} duration")
+    # Exact-type fast path: a whole-day, in-range ``timedelta`` passes ``_check_duration``
+    # by construction, so its label is only built for a value that fails it.
+    if not _is_valid_duration(t.duration):
+        _check_duration(t.duration, f"Task {_short_repr(t.id)} duration")
     for field_name, value in (
         ("optimistic_duration", t.optimistic_duration),
         ("most_likely_duration", t.most_likely_duration),
@@ -4464,7 +4485,8 @@ def _validate_task_durations(t: Task) -> None:
                     f"Task {_short_repr(t.id)} {field_name} must be a timedelta (got "
                     f"{_short_repr(value)})."
                 )
-            _check_duration(value, f"Task {_short_repr(t.id)} {field_name}")
+            if not _is_valid_duration(value):
+                _check_duration(value, f"Task {_short_repr(t.id)} {field_name}")
 
     if (
         t.optimistic_duration is None
@@ -4602,10 +4624,13 @@ def _validate_dependencies(project: Project) -> None:
         seen_edges.add(key)
         # Sub-day lag schedules differently across engines and can drive a late date
         # before an early date (#1818); reject a non-whole-day lag like a duration.
-        _check_whole_days(
-            dep.lag,
-            f"Dependency {_short_repr(dep.predecessor_id)} → {_short_repr(dep.successor_id)} lag",
-        )
+        # The label is only built when the lag is not already a whole number of days.
+        if dep.lag.seconds or dep.lag.microseconds:
+            _check_whole_days(
+                dep.lag,
+                f"Dependency {_short_repr(dep.predecessor_id)} → "
+                f"{_short_repr(dep.successor_id)} lag",
+            )
         if abs(dep.lag.days) > MAX_LAG_DAYS:
             raise InvalidScheduleInput(
                 f"Dependency {_short_repr(dep.predecessor_id)} → {_short_repr(dep.successor_id)} "
