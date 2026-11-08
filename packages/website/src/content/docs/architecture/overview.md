@@ -165,7 +165,7 @@ flowchart LR
     mcp -->|"REST, read-only"| api
     api -->|"pip: trueppm-scheduler<br/>>=0.4,<0.5"| sched
     wasm -.-|"CI conformance<br/>(wasm:conformance)"| sched
-    wasm -.->|"planned (#1777),<br/>not wired today"| web
+    web -.->|"planned (#1777),<br/>not wired today"| wasm
 ```
 
 Solid arrows are dependencies that exist today (the arrow points at what is depended on); dashed lines are a scaffold, a CI-only check, or planned work, and `packages/wasm-scheduler` is not yet used by any client.
@@ -217,7 +217,7 @@ flowchart TB
     end
 
     subgraph oss["trueppm-suite (Apache 2.0)"]
-        ext["Extension points<br/>settings includes, URL patterns,<br/>extension signals, task-source registry"]
+        ext["Extension points<br/>settings includes,<br/>extension signals, task-source registry"]
         core["Community core<br/>scheduler, API, web"]
         ext --- core
     end
