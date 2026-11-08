@@ -1,4 +1,5 @@
 import { screen, waitFor } from '@testing-library/react';
+import { AxiosError } from 'axios';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProvidersAndRouter } from '@/test/utils';
@@ -27,7 +28,7 @@ const task = (id: string, name: string, group = 'today') => ({
 });
 
 function setTasks(results: ReturnType<typeof task>[], isError = false) {
-  useMyWorkMock.mockReturnValue({ data: { pages: [{ results }] }, isError });
+  useMyWorkMock.mockReturnValue({ data: { pages: [{ results }] }, isError, isPending: false });
 }
 
 function renderSheet(onClose = vi.fn()) {
@@ -130,11 +131,62 @@ describe('QuickLogSheet', () => {
     expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('will send when online'));
   });
 
-  it('the Save total counts only listed tasks', async () => {
+  it('the Save total ignores a stepped task that dropped out of the list', async () => {
+    setTasks([task('a', 'Write spec'), task('b', 'Review')]);
+    const { rerender } = renderWithProvidersAndRouter(<QuickLogSheet isOpen onClose={vi.fn()} />);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Increase hours on Review' })[0]);
+    await userEvent.click(
+      screen.getAllByRole('button', { name: 'Increase hours on Write spec' })[0],
+    );
     setTasks([task('a', 'Write spec')]);
+    rerender(<QuickLogSheet isOpen onClose={vi.fn()} />);
+    expect(screen.getAllByRole('button', { name: 'Save 0.5h' }).length).toBeGreaterThan(0);
+  });
+
+  it('shows a loading row, not the empty state, while the read is pending', () => {
+    useMyWorkMock.mockReturnValue({ data: undefined, isError: false, isPending: true });
+    renderSheet();
+    expect(screen.getByTestId('quicklog-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('quicklog-empty')).not.toBeInTheDocument();
+  });
+
+  it('a 403 shows the server reason with no retry wording', async () => {
+    setTasks([task('a', 'Write spec')]);
+    mutateAsync.mockRejectedValue(
+      new AxiosError('x', '403', undefined, undefined, {
+        status: 403,
+        data: { detail: 'You do not have permission to log time here.' },
+      } as never),
+    );
     renderSheet();
     await userEvent.click(screen.getByRole('button', { name: 'Increase hours on Write spec' }));
-    expect(screen.getByRole('button', { name: 'Save 0.5h' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Save 0.5h' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('You do not have permission to log time here.');
+    expect(alert).not.toHaveTextContent(/again|retry/i);
+  });
+
+  it('a 400 shows the validation message and offers a retry only when replay could work', async () => {
+    setTasks([task('a', 'Write spec')]);
+    mutateAsync.mockRejectedValue(
+      new AxiosError('x', '400', undefined, undefined, {
+        status: 400,
+        data: { entry_date: ['Date is too far in the past.'] },
+      } as never),
+    );
+    renderSheet();
+    await userEvent.click(screen.getByRole('button', { name: 'Increase hours on Write spec' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save 0.5h' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Date is too far in the past.');
+  });
+
+  it('a network failure is retryable', async () => {
+    setTasks([task('a', 'Write spec')]);
+    mutateAsync.mockRejectedValue(new Error('Network Error'));
+    renderSheet();
+    await userEvent.click(screen.getByRole('button', { name: 'Increase hours on Write spec' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Save 0.5h' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Save again to retry.');
   });
 
   it('closing through the timesheet link does not ask for focus restoration', async () => {

@@ -383,7 +383,8 @@ Other changes you will notice with the flag on:
 - **A quick-log sheet on the phone.** The center **Log time** button opens a
   sheet listing the tasks due today, each with a **−** and **+** stepper in
   half-hour steps. **Save** logs every task you stepped up in one go; a refused
-  entry stays on screen with the reason so you can fix it and save again.
+  entry stays on screen with the server's reason, and offers to save again only
+  when trying again could work.
   Offline, Save queues the entries and the sheet says they will send when you
   are online. Escape or tapping the dimmed page closes the sheet and returns
   focus to the button, and **Open full timesheet** takes you to the full editor.

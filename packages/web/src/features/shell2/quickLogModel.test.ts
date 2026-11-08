@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  MAX_HOURS,
-  buildEntries,
-  formatHours,
-  spokenHours,
-  stepHours,
-  totalHours,
-} from './quickLogModel';
+import { MAX_HOURS, buildEntries, formatHours, spokenHours, stepHours } from './quickLogModel';
 
 describe('stepHours', () => {
   it('steps by half an hour', () => {
@@ -46,12 +39,5 @@ describe('buildEntries', () => {
   });
   it('ignores values for tasks no longer listed', () => {
     expect(buildEntries(['a'], { gone: 2 })).toEqual([]);
-  });
-});
-
-describe('totalHours', () => {
-  it('sums the sheet', () => {
-    expect(totalHours({ a: 1.5, b: 0.5 })).toBe(2);
-    expect(totalHours({})).toBe(0);
   });
 });

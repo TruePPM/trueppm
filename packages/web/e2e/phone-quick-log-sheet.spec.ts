@@ -72,7 +72,7 @@ async function setup(page: Page, tasks: ReturnType<typeof task>[]) {
   );
 }
 
-// Scoped to the bottom bar: the top bar's own Log time popover shares the accessible name.
+// Scoped to the bottom bar so the locator stays unambiguous if another Log time control mounts.
 const bar = (page: Page) =>
   page
     .getByRole('navigation', { name: 'Primary navigation' })
@@ -149,6 +149,16 @@ test.describe('phone quick-log sheet (#4762)', () => {
     await expect(logButton).toBeFocused();
   });
 
+  test('tapping the scrim closes the sheet and returns focus to the button', async ({ page }) => {
+    await setup(page, [task(TASK_A, 'Write the spec', 'today')]);
+    await page.goto('/me/work');
+    await bar(page).click();
+    await expect(page.getByRole('dialog', { name: 'Log time' })).toBeVisible();
+    await page.getByTestId('bottom-sheet-scrim').dispatchEvent('pointerdown');
+    await expect(page.getByRole('dialog', { name: 'Log time' })).toHaveCount(0);
+    await expect(bar(page)).toBeFocused();
+  });
+
   test('empty state links to the timesheet', async ({ page }) => {
     await setup(page, []);
     await page.goto('/me/work');
@@ -175,7 +185,7 @@ test.describe('phone quick-log sheet (#4762)', () => {
     const sheet = page.getByRole('dialog', { name: 'Log time' });
     await sheet.getByRole('button', { name: 'Increase hours on Write the spec' }).click();
     await sheet.getByRole('button', { name: 'Save 0.5h' }).click();
-    await expect(sheet.getByRole('alert')).toContainText('Write the spec');
+    await expect(sheet.getByRole('alert')).toContainText('Write the spec: Forbidden');
     await expect(sheet).toBeVisible();
   });
 

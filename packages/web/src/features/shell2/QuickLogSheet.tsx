@@ -5,6 +5,7 @@ import { useMyWork } from '@/hooks/useMyWork';
 import { useCreateTimeEntry } from '@/hooks/useCreateTimeEntry';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { toast } from '@/components/Toast';
+import { describeWriteRefusal } from '@/lib/writeRefusal';
 import { localTodayIso } from '@/lib/localDate';
 import {
   buildEntries,
@@ -32,16 +33,20 @@ export interface QuickLogSheetProps {
  * Undo toast as every other capture surface). Offline, TanStack pauses those
  * mutations and they replay on reconnect, so Save does not wait on them: it
  * hands them to the queue and closes. Online, Save waits so a refused entry can
- * stay on screen with its reason in a sibling `role="alert"` (rule 372).
+ * stay on screen with the server's reason (`describeWriteRefusal`) in a sibling
+ * `role="alert"` (rule 372); "Save again" is offered only when a replay could succeed.
  */
 export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
   const headingId = useId();
   const online = useOnlineStatus();
-  const { data, isError } = useMyWork();
+  // Read only while open: the bar is mounted on every phone route and the sheet is rare.
+  const { data, isError, isPending } = useMyWork({ enabled: isOpen });
   const create = useCreateTimeEntry({ toastErrors: false });
   const [hours, setHours] = useState<HoursByTask>({});
   const [announcement, setAnnouncement] = useState('');
-  const [refused, setRefused] = useState<string[]>([]);
+  const [refused, setRefused] = useState<{ name: string; message: string; retryable: boolean }[]>(
+    [],
+  );
   const [saving, setSaving] = useState(false);
 
   // Mounted on every phone route, so tolerate an unexpected payload (`p?.results`).
@@ -125,13 +130,20 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
     }
     // Keep only the refused rows' values so Save retries just those.
     setHours(Object.fromEntries(failed.map((e) => [e.taskId, e.minutes / 60])));
-    setRefused(failed.map((e) => nameOf(e.taskId)));
+    setRefused(
+      entries.flatMap((e, i) => {
+        const r = results[i];
+        if (r.status !== 'rejected') return [];
+        const d = describeWriteRefusal(r.reason, 'Could not log time.');
+        return d ? [{ name: nameOf(e.taskId), message: d.message, retryable: d.retryable }] : [];
+      }),
+    );
   }
 
   return (
     <BottomSheet
       isOpen={isOpen}
-      onClose={close}
+      onClose={() => close(true)}
       titleId={headingId}
       size="large"
       mobileOnly={false}
@@ -142,7 +154,11 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
         </h2>
         <p className="-mt-2 text-xs text-p1-text-2">Tasks due today</p>
 
-        {isError ? (
+        {isPending && !isError ? (
+          <p role="status" className="text-sm text-p1-text-2" data-testid="quicklog-loading">
+            Loading today&apos;s tasks…
+          </p>
+        ) : isError ? (
           <p className="text-sm text-p1-text-2">
             Could not load today&apos;s tasks.{' '}
             <Link to="/me/timesheet" onClick={() => close(false)} className="underline">
@@ -206,9 +222,14 @@ export function QuickLogSheet({ isOpen, onClose }: QuickLogSheetProps) {
           {announcement}
         </p>
         {refused.length > 0 && (
-          <p role="alert" className="text-sm text-p1-critical">
-            Could not log time on {refused.join(', ')}. Check the entries and try again.
-          </p>
+          <div role="alert" className="flex flex-col gap-1 text-sm text-p1-critical">
+            {refused.map((r) => (
+              <p key={r.name}>
+                {r.name}: {r.message}
+              </p>
+            ))}
+            {refused.some((r) => r.retryable) && <p>Save again to retry.</p>}
+          </div>
         )}
         {!online && (
           <p className="text-xs text-p1-text-2" data-testid="quicklog-offline">

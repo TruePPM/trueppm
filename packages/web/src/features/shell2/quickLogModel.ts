@@ -40,8 +40,3 @@ export function buildEntries(taskIds: string[], hours: HoursByTask): QuickLogEnt
     .filter((id) => (hours[id] ?? 0) > 0)
     .map((id) => ({ taskId: id, minutes: Math.round((hours[id] ?? 0) * 60) }));
 }
-
-/** Total hours across the sheet — drives the Save button label, never a live region. */
-export function totalHours(hours: HoursByTask): number {
-  return Object.values(hours).reduce((sum, h) => sum + h, 0);
-}

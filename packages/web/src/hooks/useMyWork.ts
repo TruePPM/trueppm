@@ -286,8 +286,9 @@ export interface MyWorkPage {
  * `refetchOnWindowFocus` is on so a user returning from another tab — where
  * they may have changed task state — sees fresh data without a manual reload.
  */
-export function useMyWork() {
+export function useMyWork({ enabled = true }: { enabled?: boolean } = {}) {
   return useInfiniteQuery<MyWorkPage>({
+    enabled,
     queryKey: ['me', 'work'],
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
