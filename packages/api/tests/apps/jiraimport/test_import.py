@@ -262,3 +262,43 @@ def test_jira_import_persists_mapped_status(project: Project) -> None:
     # would otherwise persist. Non-terminal statuses stay 0%.
     assert by_name["Shipped work"].percent_complete == 100.0
     assert by_name["Active work"].percent_complete == 0.0
+
+
+@pytest.mark.django_db
+class TestImportRejectsSummaryToOwnChild:
+    """#4856: the Jira importer validates with the summary hierarchy (children_map)."""
+
+    def test_summary_to_own_child_link_marks_request_dead_and_creates_no_tasks(
+        self, project: Project
+    ) -> None:
+        from trueppm_api.apps.jiraimport.tasks import import_jira
+
+        # The Jira parser emits a flat WBS today, so nest the first two issues by
+        # hand: PROJ-1 becomes the summary of PROJ-2, which CHAIN_EXPORT already
+        # links PROJ-1 -> PROJ-2.
+        data = parse_jira_xml(CHAIN_EXPORT)
+        data.tasks[0].outline_number, data.tasks[0].outline_level = "1", 1
+        data.tasks[1].outline_number, data.tasks[1].outline_level = "1.1", 2
+        data.tasks[2].outline_number, data.tasks[2].outline_level = "2", 1
+
+        req = JiraImportRequest.objects.create(
+            project=project,
+            filename="nested.xml",
+            file_content_b64=base64.b64encode(CHAIN_EXPORT).decode("ascii"),
+            status=JiraImportStatus.DISPATCHED,
+        )
+        with patch("trueppm_api.apps.jiraimport.parser.parse_jira_xml", return_value=data):
+            result = import_jira.apply(
+                kwargs={
+                    "project_id": str(project.pk),
+                    "file_content_b64": req.file_content_b64,
+                    "filename": req.filename,
+                    "import_request_id": str(req.pk),
+                },
+                throw=False,
+            )
+        assert result.failed()
+        assert "InfeasibleGraphError" in repr(result.result)
+        req.refresh_from_db()
+        assert req.status == JiraImportStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 0

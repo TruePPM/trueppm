@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from trueppm_api.apps.msproject.importer import (
+    build_children_map,
     collect_dependency_edges,
     describe_bad_graph,
 )
@@ -87,7 +88,7 @@ def _task(uid: int, name: str, outline: str, preds: list[int] | None = None) -> 
         "UID": uid,
         "Name": name,
         "OutlineNumber": outline,
-        "OutlineLevel": 1,
+        "OutlineLevel": outline.count(".") + 1,
         "Duration": "PT8H0M0S",
     }
     if preds:
@@ -113,6 +114,41 @@ ACYCLIC_XML = _build_xml(
         _task(2, "Build", "2", preds=[1]),
     ]
 )
+
+
+# A summary and its own child, linked in the child-depends-on-summary direction (#4856).
+SUMMARY_TO_CHILD_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Design", "1.1", preds=[1]),
+    ]
+)
+
+# Same pair, linked the other way: the summary depends on its own child.
+CHILD_TO_SUMMARY_XML = _build_xml(
+    [
+        _task(1, "Phase", "1", preds=[2]),
+        _task(2, "Design", "1.1"),
+    ]
+)
+
+# A summary may depend on a task outside it: the control for the nesting check.
+SUMMARY_TO_SIBLING_XML = _build_xml(
+    [
+        _task(1, "Phase", "1"),
+        _task(2, "Design", "1.1"),
+        _task(3, "Ship", "2", preds=[1]),
+    ]
+)
+
+
+class TestBuildChildrenMap:
+    def test_maps_a_summary_to_its_direct_children(self) -> None:
+        parsed = parse_xml(SUMMARY_TO_SIBLING_XML)
+        assert build_children_map(parsed) == {"1": ["2"]}
+
+    def test_flat_file_has_no_summaries(self) -> None:
+        assert build_children_map(parse_xml(ACYCLIC_XML)) == {}
 
 
 class TestCollectDependencyEdges:
@@ -153,6 +189,35 @@ class TestGuardRejectsBadGraphs:
     def test_acyclic_file_passes(self) -> None:
         parsed = parse_xml(ACYCLIC_XML)
         validate_task_graph(collect_dependency_edges(parsed))
+
+
+class TestGuardRejectsSummaryToOwnDescendant:
+    """#4856: the engine refuses these links on every recalculation, so refuse at import."""
+
+    @pytest.mark.parametrize("xml", [SUMMARY_TO_CHILD_XML, CHILD_TO_SUMMARY_XML])
+    def test_link_between_a_summary_and_its_child_is_rejected(self, xml: bytes) -> None:
+        parsed = parse_xml(xml)
+        edges = collect_dependency_edges(parsed)
+        # Blind without the hierarchy: this is the bug.
+        validate_task_graph(edges)
+        with pytest.raises(InfeasibleGraphError):
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+
+    def test_summary_depending_on_an_outside_task_is_accepted(self) -> None:
+        parsed = parse_xml(SUMMARY_TO_SIBLING_XML)
+        validate_task_graph(
+            collect_dependency_edges(parsed), children_map=build_children_map(parsed)
+        )
+
+    def test_message_names_the_summary_and_its_child(self) -> None:
+        parsed = parse_xml(SUMMARY_TO_CHILD_XML)
+        edges = collect_dependency_edges(parsed)
+        with pytest.raises(InfeasibleGraphError) as exc:
+            validate_task_graph(edges, children_map=build_children_map(parsed))
+        detail = describe_bad_graph(parsed, exc.value, edges)
+        assert "Phase" in detail
+        assert "Design" in detail
+        assert "its own sub-task" in detail
 
 
 class TestDescribeBadGraph:
@@ -254,6 +319,16 @@ class TestImportTaskRejectsBadGraphs:
 
         project.refresh_from_db()
         assert project.name == original_name
+
+    @pytest.mark.parametrize("xml", [SUMMARY_TO_CHILD_XML, CHILD_TO_SUMMARY_XML])
+    def test_summary_to_own_child_file_creates_no_tasks_and_is_dead(
+        self, project: Project, xml: bytes
+    ) -> None:
+        result, req = self._run(project, xml, "nested.xml")
+
+        assert result.failed()
+        assert req.status == ImportRequestStatus.DEAD
+        assert Task.objects.filter(project=project).count() == 0
 
     def test_acyclic_file_still_imports(self, project: Project) -> None:
         # The guard must not reject well-formed files.

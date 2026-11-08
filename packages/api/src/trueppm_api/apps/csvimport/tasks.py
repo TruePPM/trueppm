@@ -169,6 +169,7 @@ def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> 
     the next recalc. Validated in uid space — a relabeling of the eventual
     PKs — so nothing is created if the graph is bad.
     """
+    from trueppm_api.apps.msproject.importer import build_children_map, find_hierarchy_link
     from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError, validate_task_graph
 
     edges = [
@@ -176,11 +177,15 @@ def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> 
         for task in parsed.project_data.tasks
         for link in task.predecessor_links
     ]
+    children_map = build_children_map(parsed.project_data)
     try:
-        validate_task_graph(edges)
+        validate_task_graph(edges, children_map=children_map)
     except InfeasibleGraphError as exc:
         if import_request_id:
-            _mark_import_dead(import_request_id, _describe_bad_graph(exc))
+            _mark_import_dead(
+                import_request_id,
+                _describe_bad_graph(exc, find_hierarchy_link(edges, children_map)),
+            )
         raise
 
 
@@ -347,7 +352,9 @@ def _uid_to_row(uid: str) -> str:
         return f"task {uid}"
 
 
-def _describe_bad_graph(exc: InfeasibleGraphError) -> str:
+def _describe_bad_graph(
+    exc: InfeasibleGraphError, hierarchy_link: tuple[str, str] | None = None
+) -> str:
     """Explain a rejected dependency graph in terms of the uploaded file.
 
     Built from ``exc.reason``/``exc.offending`` rather than ``str(exc)``: the
@@ -357,6 +364,13 @@ def _describe_bad_graph(exc: InfeasibleGraphError) -> str:
     and needs the two reasons distinguished — a self-referencing row is a
     different edit from a multi-row loop.
     """
+    if hierarchy_link is not None:
+        summary_row, child_row = (_uid_to_row(uid) for uid in hierarchy_link)
+        return (
+            f"The Predecessors column links {summary_row} to {child_row}, which is nested "
+            "inside it. A summary row cannot depend on, or be a predecessor of, a row "
+            "indented under it. Remove the link and re-upload."
+        )
     rows = [_uid_to_row(uid) for uid in exc.offending]
     if exc.reason == "self_reference" and rows:
         return f"The Predecessors column on {rows[0]} lists that same row as its own predecessor."

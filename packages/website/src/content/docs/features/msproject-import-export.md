@@ -139,7 +139,8 @@ control. Export is available to any project member (see below).
 
 :::caution[A circular predecessor link rejects the whole file]
 If the file's predecessor links form a cycle (task 1 depends on 2, and 2 depends
-on 1), or a task lists itself as its own predecessor, the import is rejected
+on 1), a task lists itself as its own predecessor, or a summary task is linked to
+a task nested inside it (in either direction), the import is rejected
 **before anything is written** — no tasks, no dependencies, and no change to the
 project name or start date. A cyclic network has no critical path, so importing
 it would produce a schedule the engine cannot compute. Fix the loop in MS Project

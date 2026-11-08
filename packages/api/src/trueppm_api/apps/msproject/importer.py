@@ -699,7 +699,67 @@ def collect_dependency_edges(data: ProjectData) -> list[tuple[str, str]]:
     ]
 
 
-def describe_bad_graph(data: ProjectData, exc: InfeasibleGraphError) -> str:
+def build_children_map(data: ProjectData) -> dict[str, list[str]]:
+    """Return ``{summary_uid: [direct_child_uid, ...]}`` in the file's own uid space.
+
+    The hierarchy is derived with :func:`_build_wbs_paths`, the same function
+    :func:`import_project` persists ``wbs_path`` from, so the guard sees the
+    summary/child structure the rows will actually have. Passing this to
+    ``validate_task_graph`` is what lets it expand a summary's edges onto its
+    leaves and refuse a summary-to-own-descendant link, which
+    ``expand_summary_dependencies`` would otherwise raise on at every later
+    recalculation (#4856). A task whose immediate parent path is missing (a skipped
+    outline level) attaches to its nearest existing ancestor.
+    """
+    paths = _build_wbs_paths(data.tasks)
+    uid_by_path: dict[str, str] = {}
+    for td, path in zip(data.tasks, paths, strict=True):
+        if path:
+            uid_by_path.setdefault(path, str(td.uid))
+    children: dict[str, list[str]] = {}
+    for td, path in zip(data.tasks, paths, strict=True):
+        uid = str(td.uid)
+        parts = path.split(".") if path else []
+        for end in range(len(parts) - 1, 0, -1):
+            parent_uid = uid_by_path.get(".".join(parts[:end]))
+            if parent_uid is not None:
+                if parent_uid != uid:
+                    children.setdefault(parent_uid, []).append(uid)
+                break
+    return children
+
+
+def find_hierarchy_link(
+    edges: list[tuple[str, str]], children_map: dict[str, list[str]]
+) -> tuple[str, str] | None:
+    """Return the first ``(summary_uid, descendant_uid)`` pair a link joins, in either direction.
+
+    A link between a summary and a task inside it is what ``validate_task_graph``
+    reports as an opaque self-loop on the descendant; this names the real pair so
+    the message can say what to fix.
+    """
+    parent_of = {child: parent for parent, kids in children_map.items() for child in kids}
+
+    def ancestors(uid: str) -> set[str]:
+        seen: set[str] = set()
+        while uid in parent_of and parent_of[uid] not in seen:
+            uid = parent_of[uid]
+            seen.add(uid)
+        return seen
+
+    for predecessor, successor in edges:
+        if predecessor in ancestors(successor):
+            return predecessor, successor
+        if successor in ancestors(predecessor):
+            return successor, predecessor
+    return None
+
+
+def describe_bad_graph(
+    data: ProjectData,
+    exc: InfeasibleGraphError,
+    edges: list[tuple[str, str]] | None = None,
+) -> str:
     """Name the offending tasks of a rejected graph in the uploader's terms.
 
     Built from ``exc.reason``/``exc.offending`` rather than ``str(exc)``, whose
@@ -710,6 +770,15 @@ def describe_bad_graph(data: ProjectData, exc: InfeasibleGraphError) -> str:
     a multi-task loop.
     """
     names = {str(td.uid): td.name for td in data.tasks}
+    if exc.reason == "cyclic_dependency" and edges is not None:
+        link = find_hierarchy_link(edges, build_children_map(data))
+        if link is not None:
+            summary_uid, child_uid = link
+            return (
+                f"Task {names.get(summary_uid, 'unknown task')} (uid {summary_uid}) is linked "
+                f"to its own sub-task {names.get(child_uid, 'unknown task')} (uid {child_uid}). "
+                "A summary task cannot depend on, or be a predecessor of, a task inside it."
+            )
     labelled = [f"{names.get(uid, 'unknown task')} (uid {uid})" for uid in exc.offending]
     if exc.reason == "self_reference":
         return f"Task {labelled[0]} lists itself as its own predecessor."

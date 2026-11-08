@@ -12,7 +12,7 @@ from django.utils import timezone
 from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
 from trueppm_api.apps.csvimport.services import enqueue_csv_import
 from trueppm_api.apps.csvimport.tasks import _do_csv_import_drain
-from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.projects.models import Calendar, Project, Task
 
 from .fixtures import REFERENCE_CSV
 
@@ -236,3 +236,47 @@ class TestBeatRegistration:
         entry = settings.CELERY_BEAT_SCHEDULE["drain-csv-import-queue"]
         assert entry["task"] == "csv.drain_import_queue"
         assert entry["schedule"] == 30.0
+
+
+# Row 3 (uid 2) is indented under row 2 (uid 1) and lists it as its predecessor, so
+# a summary is linked to its own child (#4856).
+SUMMARY_TO_CHILD_CSV = b"""\
+ID,Name,Duration,Predecessors
+1,Phase,1,
+2,  Design,3,1
+"""
+
+# The reverse direction: the summary depends on its own child.
+CHILD_TO_SUMMARY_CSV = b"""\
+ID,Name,Duration,Predecessors
+1,Phase,1,2
+2,  Design,3,
+"""
+
+
+@pytest.mark.django_db
+class TestImportRejectsSummaryToOwnChild:
+    @pytest.mark.parametrize("content", [SUMMARY_TO_CHILD_CSV, CHILD_TO_SUMMARY_CSV])
+    def test_link_is_refused_with_a_row_level_message_and_nothing_is_written(
+        self, project: Project, content: bytes
+    ) -> None:
+        from trueppm_api.apps.csvimport.tasks import import_csv
+
+        req = _make_request(project, file_content_b64=base64.b64encode(content).decode("ascii"))
+        result = import_csv.apply(
+            kwargs={
+                "project_id": str(project.pk),
+                "file_content_b64": req.file_content_b64,
+                "filename": req.filename,
+                "import_request_id": str(req.pk),
+            },
+            throw=False,
+        )
+        assert result.failed()
+        req.refresh_from_db()
+        assert req.status == CsvImportStatus.DEAD
+        error = req.result_summary["error"]
+        assert "row 2" in error
+        assert "row 3" in error
+        assert "nested" in error
+        assert Task.objects.filter(project=project).count() == 0

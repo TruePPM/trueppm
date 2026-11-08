@@ -94,6 +94,7 @@ def _reject_infeasible_graph(
     forever (ADR-0092) — the same reason a parse failure marks the row DEAD.
     """
     from trueppm_api.apps.msproject.importer import (
+        build_children_map,
         collect_dependency_edges,
         describe_bad_graph,
     )
@@ -102,8 +103,11 @@ def _reject_infeasible_graph(
         validate_task_graph,
     )
 
+    edges = collect_dependency_edges(project_data)
     try:
-        validate_task_graph(collect_dependency_edges(project_data))
+        # children_map lets the guard see a summary-to-own-descendant link, which
+        # the engine refuses on every recalculation (#4856).
+        validate_task_graph(edges, children_map=build_children_map(project_data))
     except InfeasibleGraphError as exc:
         # ImportRequest has no result_summary column to persist the detail on
         # (unlike CsvImportRequest), so the TaskRunTracker's FAILED message is the
@@ -112,7 +116,7 @@ def _reject_infeasible_graph(
         logger.warning(
             "import.msproject: rejected %s — %s",
             filename,
-            describe_bad_graph(project_data, exc),
+            describe_bad_graph(project_data, exc, edges),
         )
         if import_request_id:
             _mark_import_dead(import_request_id)
