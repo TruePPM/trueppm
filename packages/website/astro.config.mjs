@@ -334,6 +334,7 @@ export default defineConfig({
           label: "Administration",
           items: [
             { slug: "administration/deployment" },
+            { slug: "administration/topology" },
             { slug: "administration/networking" },
             { slug: "administration/openshift" },
             { slug: "administration/sizing" },
