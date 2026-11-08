@@ -569,8 +569,9 @@ release it is scheduled for:
   late-finish seed can ignore a
   start-of-day project finish on wider calendars
   ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)); FF/SF links
-  *into* a summary task do not fan out to every leaf the way the successor
-  side does
+  *into* a summary fan out to every leaf, so every leaf (not only the
+  latest-finishing one) must finish no earlier than the link requires — short
+  leaves lose float
   ([#4437](https://gitlab.com/trueppm/trueppm/-/issues/4437)); a completed
   task with no recorded actuals can be moved later than the data date, a
   non-monotonicity where knowing less about a task slips the schedule
@@ -589,7 +590,12 @@ release it is scheduled for:
   reference engines
   ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)); the Python engine and the reference oracle disagree on
   `free_float` for an FF-1 link into a four-day-calendar task with actuals
-  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790), [#4789](https://gitlab.com/trueppm/trueppm/-/issues/4789)); and several
+  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790), [#4789](https://gitlab.com/trueppm/trueppm/-/issues/4789)); free float is
+  overstated for an SS+1 link into an SNET milestone on a five-day calendar, so
+  slipping within free float still moves successors
+  ([#4882](https://gitlab.com/trueppm/trueppm/-/issues/4882)); the forward pass is not monotone, so slipping a
+  predecessor can move a floored milestone's successors earlier
+  ([#4883](https://gitlab.com/trueppm/trueppm/-/issues/4883)); and several
   MS-Project-parity cases — SF out of a milestone, mixed SF+FS/SS/FF at the
   project-start floor — remain unverified against a real MS Project export
   ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
@@ -640,7 +646,9 @@ release it is scheduled for:
   dataclasses document their fields in source comments rather than
   Google-style `Attributes:` sections, so they do not render in a generated
   API reference
-  ([#4471](https://gitlab.com/trueppm/trueppm/-/issues/4471)); and the API's seed importer bypasses the graph-validation guard,
+  ([#4471](https://gitlab.com/trueppm/trueppm/-/issues/4471)); `schedule()`
+  accepts `percent_complete=None` where `from_json` refuses it, an asymmetry
+  in the round-trip ([#4881](https://gitlab.com/trueppm/trueppm/-/issues/4881)); and the API's seed importer bypasses the graph-validation guard,
   so a seed can write a cyclic dependency graph straight into CPM
   ([#2589](https://gitlab.com/trueppm/trueppm/-/issues/2589)).
 - **WASM engine** — `wasm-scheduler` errors are untyped strings at 17 call
@@ -692,7 +700,7 @@ they will ship with 0.5 or that release will slip:
   ([#4631](https://gitlab.com/trueppm/trueppm/-/issues/4631), [#4702](https://gitlab.com/trueppm/trueppm/-/issues/4702)), start-of-day milestone total float ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)),
   zero-duration tasks with differing actuals ([#4458](https://gitlab.com/trueppm/trueppm/-/issues/4458)), the late-finish seed
   on wider calendars ([#4436](https://gitlab.com/trueppm/trueppm/-/issues/4436)), the `free_float` oracle disagreement
-  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)), and the seed importer's missing graph validation ([#2589](https://gitlab.com/trueppm/trueppm/-/issues/2589)).
+  ([#4790](https://gitlab.com/trueppm/trueppm/-/issues/4790)), the SS+1 free-float overstatement into an SNET milestone ([#4882](https://gitlab.com/trueppm/trueppm/-/issues/4882)), the `percent_complete=None` round-trip asymmetry ([#4881](https://gitlab.com/trueppm/trueppm/-/issues/4881)), and the seed importer's missing graph validation ([#2589](https://gitlab.com/trueppm/trueppm/-/issues/2589)).
 - **Scheduling semantics** — the calendar-day-vs-working-day lag question will be
   decided ([#2535](https://gitlab.com/trueppm/trueppm/-/issues/2535));
   deadline-driven negative float will surface "behind committed date" in CPM
@@ -716,7 +724,7 @@ MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
 [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), the very-low-run-count percentile imprecision
 ([#4540](https://gitlab.com/trueppm/trueppm/-/issues/4540)), the closed-milestone frozen-edge path dependence
-([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)), and a
+([#4574](https://gitlab.com/trueppm/trueppm/-/issues/4574)), the non-monotone forward pass at a floored milestone ([#4883](https://gitlab.com/trueppm/trueppm/-/issues/4883)), and a
 `monte_carlo(return_samples=True)` option to hand back the raw matrices
 ([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)).
 
