@@ -28,7 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "lib"))
 import ledger_lines as ll  # noqa: E402
 
-MAX_MRS = 100  # notes reads are bounded: one per MR that carries cost lines, and no more than this
+MAX_MRS = 100  # notes reads are bounded: one per live MR, and no more than this
 _CT = []
 
 
@@ -100,13 +100,6 @@ def mr_cost(iid, api, author_id=None):
         sum(usd, decimal.Decimal(0)),
         sum(tok) if all(t is not None for t in tok) else None,
         None,
-    )
-
-
-def has_cost_lines(description):
-    return any(
-        f(description) is not None
-        for f in (ll.subagent_tokens, ll.est_cost_usd, ll.orchestrator_tokens)
     )
 
 

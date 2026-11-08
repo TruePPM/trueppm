@@ -144,6 +144,10 @@ lines are only as consistent as the skills that write them.
   file is lost, the next record on a fresh MR starts from the session's first entry and can count
   tokens already in other MRs' records. Records carry no session id, so `scripts/mr-cost-means.py`
   cannot detect it and sums such an MR as if it were sound. Tracked in `macrodream/blueprint#391`.
+- **Known limit: the MR author is a trusted author.** Because a record by the MR's author counts, an
+  MR author (including a fork contributor) can post a `## Cost of this MR` note on their own MR
+  that `scripts/mr-cost-means.py` sums. The impact is limited to the `/kaizen` cost mean, and that
+  author can already edit the MR description, so it grants nothing new.
 - A window of disabled MRs is not evidence that cost fell.
 
 ## The `subagent-tokens:` line and the layout dependency
