@@ -95,8 +95,8 @@ What off does not change:
 Nothing in CI reads an MR description for cost lines: the lines are advisory and no gate requires
 them. The two readers of a description that do exist leave them alone: `lint:mr-followups`
 (`scripts/check-mr-followups.sh`) only reacts to follow-up wording, and the `/kaizen` gate-yield
-parser matches `gate:` lines only. `/kaizen` reads the cost lines separately, through
-`scripts/lib/ledger_lines.py` (§ 1g, *Cost beside yield*). What is checked is the tooling. The
+parser matches `gate:` lines only. `/kaizen` reads the cost lines separately (§ 1g, *Cost beside yield*): `subagent-tokens:` from the description through
+`scripts/lib/ledger_lines.py`, and per-MR cost from the `## Cost of this MR` comments through `scripts/mr-cost-means.py`. What is checked is the tooling. The
 `lint:cost-ledger` CI job (and `make cost-ledger-check`, part of `make pre-push`) runs the
 `--self-test` of `scripts/cost-ledger`, `scripts/subagent-tokens.py`,
 `scripts/orchestrator-tokens.py`, `scripts/est-cost.py`, `scripts/cost-table.py`,
@@ -491,7 +491,7 @@ token's user could not be read or written; 5 refused, the window belongs to an e
   done before this MR's issue, that
   the cost is a list-price estimate from `.claude/model-prices.json` with its price date, the
   `budget-exceeded:` count (record K: `n/a`, not measured for a later window), and the
-  non-overlap sentence: "Records do not overlap: the orchestrator row is this session's spend since
+  non-overlap sentence (windowed records only; a record with no window start says instead that its orchestrator row is not windowed and must not be compared or added): "Records do not overlap: the orchestrator row is this session's spend since
   its previous cost record, across every branch it worked, and each subagent is counted only for
   usage after its previous record. Records from one session add up to its total." (Comments posted
   before trueppm#4865 carry the older never-add sentence and still parse.) A record K states each

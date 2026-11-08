@@ -51,9 +51,12 @@ def mr_cost(iid, api):
     `Window end:` records (their orchestrator row is cumulative and overlaps other MRs), unreadable
     notes, or a record whose figure is `n/a`. Records without a window start are never summed."""
     ct = _cost_table()
-    own, _foreign, err = ct.read_records(iid, api)
+    own, foreign, err = ct.read_records(iid, api)
     if err:
         return None, None, "notes unreadable"
+    # A record by another user is never read, so summing only the own part would read low: exclude.
+    if foreign:
+        return None, None, "records by another user"
     if not own:
         return None, None, "no cost records"
     # Any record that is not a clean windowed one makes the MR's sum unknowable: a legacy record's cost is
@@ -73,6 +76,8 @@ def mr_cost(iid, api):
     # Over-count shapes: the same record twice, or windows that share time, would add one stretch twice.
     if len({r["k"] for r in recs}) != len(recs):
         return None, None, "duplicate record"
+    if sorted(r["k"] for r in recs) != list(range(1, len(recs) + 1)):
+        return None, None, "record numbers not 1..n"
     ordered = sorted(recs, key=lambda r: (r["start"], r["end"]))
     if any(b["start"] < a["end"] for a, b in zip(ordered, ordered[1:])):
         return None, None, "overlapping windows"
@@ -274,7 +279,8 @@ def self_test():
         "no records excluded", mr_cost(999, fake_api({999: []}))[2] == "no cost records"
     )
     check(
-        "foreign-authored record is not read", mr_cost(105, api)[2] == "no cost records"
+        "all-foreign records: MR excluded, not read as no records",
+        mr_cost(105, api) == (None, None, "records by another user"),
     )
     check("n/a figure excluded, not 0", mr_cost(106, api)[2] == "record with n/a cost")
     check("unreadable notes excluded", mr_cost(500, api)[2] == "notes unreadable")
@@ -337,6 +343,15 @@ def self_test():
         304: (
             [(rec(1, A, B, "1.00", 1), 7), (rec(2, E, C, "2.00", 2), 7)],
             "overlapping windows",
+        ),
+        306: (
+            [(rec(1, A, B, "1.00", 1), 7), (rec(3, B, C, "2.00", 2), 7)],
+            "record numbers not 1..n",
+        ),
+        307: ([(rec(2, A, B, "1.00", 1), 7)], "record numbers not 1..n"),
+        308: (
+            [(rec(1, A, B, "1.00", 1), 7), (rec(2, B, C, "2.00", 2), 99)],
+            "records by another user",
         ),
         305: (
             [

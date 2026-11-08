@@ -6,7 +6,7 @@ Why this exists. `/mr` and `/wave` write the cost ledger as bare lines at the en
 as one paragraph, so a person reading a merged MR could not read the tokens or the cost.
 This renders the figures as an MR comment with a Sonnet vs Opus split. The comment is the only
 human-readable cost table: there is no `## Cost` section in the description. The ledger lines
-stay where they are; this is a rendering, never a second source of the numbers.
+stay where they are. The comments are also the non-overlapping source of an MR's cost: scripts/mr-cost-means.py\nsums their windowed records (#4884), while the `## Gates` lines are go-ahead snapshots.
 
 Records. Record 1 is the comment `/wave` posts once the MR is open,
 from the description's ledger lines; its heading is `## Cost of this MR (#N)`, so a comment posted
@@ -543,13 +543,15 @@ def _render(
         out.append(
             "- Agents over their /wave budget (`budget-exceeded:`): n/a (no well-formed line in `## Gates`)."
         )
-    out += [
-        "- Records do not overlap: the orchestrator row is this session's spend since its previous cost record, across "
-        "every branch it worked, and each subagent is counted only for usage after its previous record. "
-        "Records from one session add up to its total.",
-        "",
-        FOOTER_1 if record == 1 else FOOTER_K,
-    ]
+    if record > 1 or since is not None:
+        # Only a windowed record can claim non-overlap; a record with no window start says the opposite
+        # (LEGACY_WINDOW_NOTE above), and stating both would contradict (#4884).
+        out.append(
+            "- Records do not overlap: the orchestrator row is this session's spend since its previous cost record, across "
+            "every branch it worked, and each subagent is counted only for usage after its previous record. "
+            "Records from one session add up to its total."
+        )
+    out += ["", FOOTER_1 if record == 1 else FOOTER_K]
     return out, own
 
 
@@ -1381,11 +1383,23 @@ def self_test():
         "Window end: 2026-11-04T15:30:00Z.",
         "prices 2026-11-03",
         "(`budget-exceeded:`): 1 (implementer 1)",
-        "Records do not overlap: the orchestrator row is this session's spend since its previous cost record, across "
-        "every branch it worked, and each subagent is counted only for usage after its previous record. "
-        "Records from one session add up to its total.",
     ):
         check("comment: " + want[:40], want in com, com)
+    check(
+        "comment: a windowless record states it is not windowed and does NOT claim non-overlap (#4884)",
+        LEGACY_WINDOW_NOTE in com and "Records do not overlap" not in com,
+        com,
+    )
+    wcom = "\n".join(
+        comment_lines(
+            withb, 4859, "2026-11-04T15:30:00Z", split, 1, "2026-11-04T15:00:00Z"
+        )
+    )
+    check(
+        "comment: a windowed record keeps the non-overlap sentence and not the legacy note",
+        "Records do not overlap" in wcom and LEGACY_WINDOW_NOTE not in wcom,
+        wcom,
+    )
     check(
         "comment: the retired never-add footnote is gone",
         "must not be added" not in com
