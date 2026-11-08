@@ -492,24 +492,18 @@ is a main-context nginx directive — it cannot live in the chart-mounted
 `default.conf`, which is included inside nginx's `http {}` block — so it is
 set once, in the `trueppm/web` image's own `nginx.conf`.
 
-**This reaches Helm (and a bare `docker run` of the image) but not Docker
-Compose.** Under the chart, the web Deployment's container runs this image's
-nginx directly, so the fix applies. Under both `docker-compose.prod.yml` and
-`docker-compose.demo.yml`, the `trueppm/web` image is used only by the
-one-shot `web-build` init container (`cp -r /usr/share/nginx/html/. /dist/`),
-which copies the static bundle out and exits — its nginx process, patched
-directive and all, never starts, in either stack. The container that
-actually serves traffic is a separate, unmodified `nginx:1.27-alpine` image
-in both — but only `docker-compose.prod.yml`'s has the underlying bug: it
-renders `nginx/app.conf.template` or `app-http.conf.template` (picked by
-`init-prod.sh`'s TLS mode), both of which proxy `/ws/` with the same
-unbounded `proxy_read_timeout 86400s` and no `worker_shutdown_timeout`.
-`docker-compose.demo.yml` renders `nginx/demo.conf.template`, whose `/ws/`
-already `return 404`s — the same no-WebSocket-traffic posture as the chart's
-own demo branches, so there is nothing to fix there. Tracked in
-[`#4366`](https://gitlab.com/trueppm/trueppm/-/issues/4366), scoped to
-`docker-compose.prod.yml` only. `docker-compose.yml` (dev) is unaffected
-either way: its `web` service runs the Vite dev server, not nginx.
+**Docker Compose gets the same bound by a different route.** The `trueppm/web`
+image is used by both compose stacks only for the one-shot `web-build` init
+container, so its baked `nginx.conf` never runs there. In
+`docker-compose.prod.yml` the serving container is a separate stock
+`nginx:1.27-alpine`, whose command passes `worker_shutdown_timeout 20s;` via
+`nginx -g` (a main-context directive, so it cannot go in the rendered
+`conf.d` template) and which sets `stop_grace_period: 30s` so Compose does not
+SIGKILL at its 10s default before the drain bound applies (#4366). Without
+both, `docker compose stop` with a live `/ws/` viewer waited out the full grace
+period. `docker-compose.demo.yml` needs no change: `nginx/demo.conf.template`
+already `return 404`s `/ws/`. `docker-compose.yml` (dev) runs the Vite dev
+server, not nginx.
 
 Related: `CELERY_BROKER_TRANSPORT_OPTIONS["visibility_timeout"]` is now bounded
 at 900s in `settings/base.py`. Tasks carry `acks_late=True`, so a killed worker

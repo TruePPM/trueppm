@@ -2768,6 +2768,21 @@ compose:project-names:
     - bash scripts/check-compose-project-names.sh --self-test
     - bash scripts/check-compose-project-names.sh
 
+compose:nginx-shutdown:
+  extends: .fast-job
+  # docker-compose.prod.yml's serving nginx bounds its /ws/ drain with
+  # worker_shutdown_timeout and a longer stop_grace_period (#4366). Text scan.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep gawk
+  script:
+    - bash scripts/check-compose-nginx-shutdown.sh --self-test
+    - bash scripts/check-compose-nginx-shutdown.sh
+
 compose:ports:
   extends: .fast-job
   # docker-compose.yml runs settings.dev (DEBUG, AllowAny, public SECRET_KEY), so
