@@ -3814,6 +3814,19 @@ describe('useProjectWebSocket — stopped controller is inert (#4422)', () => {
 
     expect(MockWebSocket.instances.length).toBe(2);
     expect(MockWebSocket.instances.every((w, i) => i === 0 || w.url.includes('proj-2'))).toBe(true);
+
+    // The orphan must not feed the previous project's seqs into the new cursor:
+    // a frame on it, then a forced reconnect of the live socket, carries no `since`.
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', seqFrame(1));
+    });
+    act(() => {
+      MockWebSocket.instances[1].dispatch('close', { code: 1006 });
+      vi.advanceTimersByTime(1_100);
+    });
+    expect(MockWebSocket.instances.length).toBe(3);
+    expect(MockWebSocket.instances[2].url).toContain('proj-2');
+    expect(MockWebSocket.instances[2].url).not.toContain('since=');
   });
 
   it('a backoff timer armed before stop() cannot reconnect after a token change', () => {
