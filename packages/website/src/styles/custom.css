@@ -128,3 +128,17 @@ svg[id^="mermaid-"] marker path {
     --sl-content-margin-inline: auto;
   }
 }
+
+/* Mermaid block-beta dependency diagrams (features/scheduler). Mermaid's own
+   `.cluster span, p { color: #8b90a0 }` rule is more specific than a classDef
+   color and leaves the <p> inside each node at 2.7-3.2:1 on the pale panel
+   fills. Scoped to block diagrams so other Mermaid types are untouched. */
+svg[aria-roledescription="block"] .pt p,
+svg[aria-roledescription="block"] .ta p,
+svg[aria-roledescription="block"] .tb p,
+svg[aria-roledescription="block"] .ttl p {
+  color: #141413 !important;
+}
+svg[aria-roledescription="block"] .edgeLabel p {
+  color: #fff !important;
+}

@@ -80,6 +80,13 @@ run_check() {
       echo "  VIOLATION: $rel has $fences mermaid fence(s) but only $rendered rendered diagram(s) in ${html#"$dist"/} (mermaid ids: $ids)" >&2
       fail=1
     fi
+    # Block-beta diagrams cannot carry accTitle/accDescr, so the build gives each
+    # one role="img" + aria-label (astro.config.mjs). Fail if one is unnamed.
+    unnamed="$(grep -o '<svg[^>]*aria-roledescription="block"[^>]*>' "$html" | grep -vc 'aria-label=' || true)"
+    if [ "${unnamed:-0}" -gt 0 ]; then
+      echo "  VIOLATION: $rel has $unnamed block diagram(s) with no aria-label in ${html#"$dist"/}" >&2
+      fail=1
+    fi
   done < <(grep -rl '^```mermaid' "$docs" || true)
 
   if [ "$found_any" -eq 0 ]; then
@@ -153,6 +160,15 @@ self_test() {
   status=0; run_check "$docs" "$dist" "$log" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 0 ]; then
     echo "SELF-TEST FAIL: a correctly rendered diagram was reported as missing (exit $status)" >&2
+    return 1
+  fi
+
+  # Case 1b: a block-beta diagram with no aria-label must fail.
+  printf '<html><body><svg aria-roledescription="block" id="mermaid-0"></svg></body></html>\n' \
+    > "$dist/architecture/overview/index.html"
+  status=0; run_check "$docs" "$dist" "$log" >/dev/null 2>&1 || status=$?
+  if [ "$status" -ne 1 ]; then
+    echo "SELF-TEST FAIL: an unnamed block diagram was not caught (exit $status)" >&2
     return 1
   fi
 

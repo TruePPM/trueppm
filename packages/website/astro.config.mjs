@@ -31,6 +31,43 @@ function rehypeFixMermaidLineBreaks() {
       children: line,
     }));
   };
+  // Mermaid's block-beta grammar has no accTitle/accDescr, so its SVGs carry no
+  // accessible name. Give each one role="img" and a label built from its own
+  // panel titles (the nodes classed `ttl`), so a screen reader gets one
+  // description instead of 40 loose "start"/"finish" fragments. Block diagrams
+  // only; every other Mermaid type already emits <title>/<desc> via acc*.
+  const BLOCK_SUMMARY = {
+    FS: "Finish-to-Start dependency: B can start once A has finished.",
+    SS: "Start-to-Start dependency: B can start once A has started.",
+    FF: "Finish-to-Finish dependency: B can finish once A has finished.",
+    SF: "Start-to-Finish dependency: B can finish once A has started.",
+  };
+  const textOf = (n) =>
+    n.type === "text" ? n.value : (n.children || []).map(textOf).join("");
+  const collectTitles = (n, out) => {
+    const cls = n.properties?.className;
+    const names = Array.isArray(cls) ? cls : String(cls || "").split(" ");
+    if (n.type === "element" && n.tagName === "g" && names.includes("ttl")) {
+      out.push(textOf(n).trim());
+      return;
+    }
+    for (const c of n.children || []) collectTitles(c, out);
+  };
+  const labelBlockSvg = (svg) => {
+    const roleDesc =
+      svg.properties?.ariaRoleDescription ??
+      svg.properties?.ariaRoledescription ??
+      svg.properties?.["aria-roledescription"];
+    if ([roleDesc].flat().join(" ") !== "block") return;
+    const titles = [];
+    collectTitles(svg, titles);
+    const code = (titles[0] || "").split(/[^A-Z]/)[0];
+    const lead = BLOCK_SUMMARY[code] || "Dependency diagram.";
+    svg.properties.role = "img";
+    svg.properties.ariaLabel =
+      `${lead} Task A (the predecessor) is drawn above task B (the successor) with time running left to right, ` +
+      `and an arrow joins the two ends the link constrains. Panels: ${titles.join("; ")}.`;
+  };
   const walk = (node, inMermaid) => {
     if (!node || !node.children) return;
     const isMermaidSvg =
@@ -38,6 +75,7 @@ function rehypeFixMermaidLineBreaks() {
       node.tagName === "svg" &&
       typeof node.properties?.id === "string" &&
       node.properties.id.startsWith("mermaid");
+    if (isMermaidSvg) labelBlockSvg(node);
     const within = inMermaid || isMermaidSvg;
     if (
       within &&

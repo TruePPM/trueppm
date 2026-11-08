@@ -173,7 +173,7 @@ block-beta
         columns 10
         bT["FF + 2d lag (calendar days)"]:10
         space:10
-        space:1 bAs["start"]:1 bAm["A"]:3 bAf["finish"]:1 space:3 space:1
+        space:1 bAs["start"]:1 bAm["A"]:4 bAf["finish"]:1 space:2 space:1
         space:10
         space:10
         space:1 space:3 bBs["start"]:1 bBm["B"]:3 bBf["finish"]:1 space:1
@@ -240,7 +240,6 @@ a task predecessor and a milestone predecessor. A positive lag counts from the
 predecessor's start itself, not from that earlier working day, so a weekend just
 before the start does not absorb it: a predecessor starting Monday with `SF+2d`
 finishes its successor on Tuesday, as MS Project does.
-
 
 #### Lag is in calendar days, durations are in working days
 
