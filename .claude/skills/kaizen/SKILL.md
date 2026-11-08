@@ -264,32 +264,34 @@ gap and stop, rather than drawing conclusions from a handful of MRs.
 **Cost beside yield.** The same `## Gates` section carries the cost-ledger lines
 (`subagent-tokens:`, `orchestrator-tokens:`, `est-cost-usd:`, or the single marker
 `cost-ledger: off`; `docs/harness/cost-ledger.md`). The yield parser above ignores them (it
-matches `gate:` lines only). Read them with the one parser they have,
-`scripts/lib/ledger_lines.py`, never a second regex:
+matches `gate:` lines only). The lines are read with `scripts/lib/ledger_lines.py`, never a
+second regex, and the whole report is one tested script. **Per-MR cost does not come from
+`## Gates`**: its `est-cost-usd:` and `orchestrator-tokens:` are go-ahead snapshots whose
+orchestrator share overlaps every other MR of the same wave (and a legacy `Window end:`-only
+record is cumulative from the session start), so a mean of them is inflated and later MRs in a
+session look the most expensive. The script instead sums each MR's non-overlapping
+`## Cost of this MR` records (`Window: S to U`), read from the MR notes with `cost-table.py`'s
+parser; `subagent-tokens:` (per-branch) still comes from the description.
 
 ```bash
 glab mr list -R trueppm/trueppm -M -P 50 -F json 2>/dev/null \
-  | python3 -c "
-import json, statistics, sys
-sys.path.insert(0, 'scripts/lib')
-import ledger_lines as ll
-mrs = json.load(sys.stdin)
-off = [m for m in mrs if any(ll.LEDGER_OFF_RE.match(l) for l in ll.ledger_lines(m.get('description')))]
-rows = [(m['iid'], ll.subagent_tokens(m.get('description')), ll.est_cost_usd(m.get('description'))) for m in mrs if m not in off]
-tok = [t for _, t, _ in rows if t is not None]
-usd = [u for _, _, u in rows if u is not None]
-print('MRs read:', len(mrs), '| cost ledger off:', len(off), '| with subagent-tokens:', len(tok), '| with est-cost-usd:', len(usd))
-if len(tok) >= 5:
-    med = statistics.median(tok)
-    print('median subagent-tokens:', int(med), '| outliers (>2x median):', [i for i, t, _ in rows if t and t > 2 * med])
-if usd:
-    print('mean est-cost-usd: %.2f (list-price estimate, not billed)' % statistics.mean(usd))
-"
+  | python3 scripts/mr-cost-means.py --project trueppm/trueppm
 ```
 
+- MR notes are untrusted: the script parses them with fixed regexes, reads only notes by the
+  token's own user or the MR's author (so a different maintainer running /kaizen still reads the
+  hook's records), and echoes none of the text. It makes one notes read per live MR, whether or
+  not its description carries cost lines (the hook posts records regardless), at most 100.
+- An MR is **excluded** if it has no records, a record that did not parse, any legacy
+  (`Window end:`-only) record (even beside windowed ones: the sum would be partial), a duplicate
+  record number or an identical window, record numbers that are not exactly 1..n, a note by
+  anyone else (neither the token user nor the MR author; never read, so the rest would sum low), a record whose cost is `n/a`, or unreadable
+  notes. Partially overlapping windows are summed (different sessions overlap in time, not tokens). Excluded MRs are left out of the cost mean, never counted as 0; the script
+  prints the excluded count and the reasons, plus an accounting line (costed + excluded + not read
+  by the 100-MR cap + ledger off = MRs read). Report those, do not repair them.
 - An MR with `cost-ledger: off` recorded nothing **by choice**: report the count as
   disabled, never as 0, and draw no cost finding from a window of them.
-- MRs with `subagent-tokens:` lines but no `est-cost-usd:` line usually mean the price table
+- A record whose cost reads `n/a` (excluded above) usually means the price table
   aged out (`checked` in `.claude/model-prices.json` is over 90 days old) or a model has no
   row; re-copy the table from its `source`.
 - `orchestrator-tokens:` is session spend over a window that several branches of one wave
@@ -411,7 +413,7 @@ Print this format to the user:
 <the find-rate table; mark any gate with <10 runs as "insufficient data">
 <one line naming any gate at 0% over ≥10 runs, and any gate above 50% — the second is
 as important to report as the first>
-<cost beside yield: MRs with `subagent-tokens:` / `est-cost-usd:`, the cost-ledger-off count
+<cost beside yield: MRs with `subagent-tokens:` and with windowed cost records, the excluded count with reasons, the cost-ledger-off count
 (disabled, never 0), median tokens and outliers, or "not enough data yet">
 
 ### Flow (1a, 1h)

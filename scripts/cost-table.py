@@ -6,7 +6,7 @@ Why this exists. `/mr` and `/wave` write the cost ledger as bare lines at the en
 as one paragraph, so a person reading a merged MR could not read the tokens or the cost.
 This renders the figures as an MR comment with a Sonnet vs Opus split. The comment is the only
 human-readable cost table: there is no `## Cost` section in the description. The ledger lines
-stay where they are; this is a rendering, never a second source of the numbers.
+stay where they are. The comments are also the non-overlapping source of an MR's cost: scripts/mr-cost-means.py\nsums their windowed records (#4884), while the `## Gates` lines are go-ahead snapshots.
 
 Records. Record 1 is the comment `/wave` posts once the MR is open,
 from the description's ledger lines; its heading is `## Cost of this MR (#N)`, so a comment posted
@@ -303,6 +303,13 @@ def _valid_ts(text):
         return False
 
 
+# A record with no window start (#4884). Its orchestrator row is not windowed, so it may be cumulative from the
+# session start and overlap other MRs' records. Readers (scripts/mr-cost-means.py) never sum such a record.
+LEGACY_WINDOW_NOTE = (
+    "- This record has no complete window (no start or no end): its orchestrator row is not windowed, so it must not be compared "
+    "with another MR's cost or added to it."
+)
+
 FIRST_RECORD = (
     "- This is the session's first record, so the orchestrator row starts at the session's start and "
     "includes work done before this MR's issue."
@@ -494,6 +501,7 @@ def _render(
             "- Window end: %s. Both figures stop at the go-ahead to push; later work on this MR goes in later records."
             % (end if end else "n/a (%s)" % why)
         )
+        out.append(LEGACY_WINDOW_NOTE)
     else:
         out.append(
             "- Window: %s to %s. This record counts only the work in this window; the running-total row adds the earlier records."
@@ -535,13 +543,15 @@ def _render(
         out.append(
             "- Agents over their /wave budget (`budget-exceeded:`): n/a (no well-formed line in `## Gates`)."
         )
-    out += [
-        "- Records do not overlap: the orchestrator row is this session's spend since its previous cost record, across "
-        "every branch it worked, and each subagent is counted only for usage after its previous record. "
-        "Records from one session add up to its total.",
-        "",
-        FOOTER_1 if record == 1 else FOOTER_K,
-    ]
+    if record > 1 or (since is not None and end):
+        # Only a windowed record can claim non-overlap; a record with no window start says the opposite
+        # (LEGACY_WINDOW_NOTE above), and stating both would contradict (#4884).
+        out.append(
+            "- Records do not overlap: the orchestrator row is this session's spend since its previous cost record, across "
+            "every branch it worked, and each subagent is counted only for usage after its previous record. "
+            "Records from one session add up to its total."
+        )
+    out += ["", FOOTER_1 if record == 1 else FOOTER_K]
     return out, own
 
 
@@ -787,10 +797,12 @@ def err_rc(err):
     return 5 if TOO_MANY in err else 4
 
 
-def read_records(iid, api, max_pages=NOTES_MAX_PAGES):
+def read_records(iid, api, max_pages=NOTES_MAX_PAGES, also_trusted=()):
     """(records, foreign count, error message): records are this user's notes with the comment
     heading, as {'id', 'k' (heading number or None), 'rec' (parse_record or None)}, oldest first.
-    Notes by anyone else are counted, never read."""
+    Notes by anyone else are counted, never read. `also_trusted` is a read-only reader's extra author ids
+    (scripts/mr-cost-means.py passes the MR author's); every posting path leaves it empty, so the check
+    that decides whose record a post or update may touch is unchanged."""
     me = _me(api)
     if me is None:
         return (
@@ -821,7 +833,11 @@ def read_records(iid, api, max_pages=NOTES_MAX_PAGES):
                 continue
             author = note.get("author")
             aid = author.get("id") if isinstance(author, dict) else None
-            if not isinstance(aid, int) or isinstance(aid, bool) or aid != me:
+            if (
+                not isinstance(aid, int)
+                or isinstance(aid, bool)
+                or (aid != me and aid not in also_trusted)
+            ):
                 foreign += 1
                 continue
             own.append(
@@ -1373,11 +1389,31 @@ def self_test():
         "Window end: 2026-11-04T15:30:00Z.",
         "prices 2026-11-03",
         "(`budget-exceeded:`): 1 (implementer 1)",
-        "Records do not overlap: the orchestrator row is this session's spend since its previous cost record, across "
-        "every branch it worked, and each subagent is counted only for usage after its previous record. "
-        "Records from one session add up to its total.",
     ):
         check("comment: " + want[:40], want in com, com)
+    check(
+        "comment: a windowless record states it is not windowed and does NOT claim non-overlap (#4884)",
+        LEGACY_WINDOW_NOTE in com and "Records do not overlap" not in com,
+        com,
+    )
+    wcom = "\n".join(
+        comment_lines(
+            withb, 4859, "2026-11-04T15:30:00Z", split, 1, "2026-11-04T15:00:00Z"
+        )
+    )
+    scom = "\n".join(comment_lines(withb, 4859, None, split, 1, "2026-11-04T15:00:00Z"))
+    check(
+        "comment: --since without --until renders no complete window and no non-overlap claim (#4884)",
+        LEGACY_WINDOW_NOTE in scom
+        and "Window end: n/a" in scom
+        and "Records do not overlap" not in scom,
+        scom,
+    )
+    check(
+        "comment: a windowed record keeps the non-overlap sentence and not the legacy note",
+        "Records do not overlap" in wcom and LEGACY_WINDOW_NOTE not in wcom,
+        wcom,
+    )
     check(
         "comment: the retired never-add footnote is gone",
         "must not be added" not in com
@@ -1431,6 +1467,11 @@ def self_test():
     check(
         "comment: no window end is n/a",
         "Window end: n/a (no window end given)" in bare,
+        bare,
+    )
+    check(
+        "comment: a record with no window start says its orchestrator row is not windowed (#4884)",
+        LEGACY_WINDOW_NOTE in bare and "not windowed" in bare,
         bare,
     )
     check(

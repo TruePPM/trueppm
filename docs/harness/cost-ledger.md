@@ -95,12 +95,12 @@ What off does not change:
 Nothing in CI reads an MR description for cost lines: the lines are advisory and no gate requires
 them. The two readers of a description that do exist leave them alone: `lint:mr-followups`
 (`scripts/check-mr-followups.sh`) only reacts to follow-up wording, and the `/kaizen` gate-yield
-parser matches `gate:` lines only. `/kaizen` reads the cost lines separately, through
-`scripts/lib/ledger_lines.py` (§ 1g, *Cost beside yield*). What is checked is the tooling. The
+parser matches `gate:` lines only. `/kaizen` reads the cost lines separately (§ 1g, *Cost beside yield*): `subagent-tokens:` from the description through
+`scripts/lib/ledger_lines.py`, and per-MR cost from the `## Cost of this MR` comments through `scripts/mr-cost-means.py`. What is checked is the tooling. The
 `lint:cost-ledger` CI job (and `make cost-ledger-check`, part of `make pre-push`) runs the
 `--self-test` of `scripts/cost-ledger`, `scripts/subagent-tokens.py`,
 `scripts/orchestrator-tokens.py`, `scripts/est-cost.py`, `scripts/cost-table.py`,
-`scripts/post-mr-cost.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one
+`scripts/post-mr-cost.py`, `scripts/mr-cost-means.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one
 `cost-ledger: off` line, no cost lines beside it, no second `est-cost-usd:`) is not present in
 this repository; until one exists, the
 lines are only as consistent as the skills that write them.
@@ -120,6 +120,34 @@ lines are only as consistent as the skills that write them.
   `post-mr-cost.py --measure` snapshots taken at the go-ahead, which claim nothing, so the lines of
   two MRs from one session can still cover the same stretch. Read the comments, not the lines, when
   adding up a session.
+- **Per-MR cost for a reader comes from the windowed records, not the `## Gates` snapshot
+  (trueppm#4884).** `/kaizen` (§ *Cost beside yield*) runs `scripts/mr-cost-means.py`, which reads
+  each MR's `## Cost of this MR` notes with `cost-table.py`'s parser and sums every record that
+  states `Window: S to U` (so a multi-record MR is the sum of its records' own **Total** rows). An
+  MR is **excluded** from the cost mean, never read as 0, and the script prints how many were
+  excluded and why, when it has: no records; unreadable notes; any record that did not parse; any
+  legacy `Window end:` record, even beside windowed ones (the legacy orchestrator row is cumulative
+  from the session start so it overlaps, and summing only the windowed part would read low); a
+  note by anyone but the token user or the MR's author (a record counts if either posted it, so a
+  different maintainer running `/kaizen` still reads the hook's records; a third party's note is never
+  read, so summing the rest would read low); record numbers that are not
+  exactly 1..n; a duplicate record number or an identical window (S and U both equal), which would
+  count a stretch twice; or a record whose cost is `n/a`. Partially overlapping windows are summed:
+  records from different sessions on one MR overlap in time but never in tokens. Every live MR's
+  notes are read, whether or not its description has cost lines (the hook posts records regardless),
+  up to a 100-MR cap. The script prints an accounting line whose total is the sum of its terms:
+  costed + excluded + not read (the cap) + ledger off. `subagent-tokens:` from `## Gates` is per-branch and is still read from the description.
+  `cost-table.py` renders a fixed line on any record without a complete window (the `--file` path when
+  `--since` or `--until` is not given): its orchestrator row is not windowed and must not be compared or added.
+  The hook and `--retry` always pass `--since`, so this only applies to a hand-run `--file`.
+- **Known limit: a lost session state file is undetectable to the readers.** If the session's state
+  file is lost, the next record on a fresh MR starts from the session's first entry and can count
+  tokens already in other MRs' records. Records carry no session id, so `scripts/mr-cost-means.py`
+  cannot detect it and sums such an MR as if it were sound. Tracked in `macrodream/blueprint#391`.
+- **Known limit: the MR author is a trusted author.** Because a record by the MR's author counts, an
+  MR author (including a fork contributor) can post a `## Cost of this MR` note on their own MR
+  that `scripts/mr-cost-means.py` sums. The impact is limited to the `/kaizen` cost mean, and that
+  author can already edit the MR description, so it grants nothing new.
 - A window of disabled MRs is not evidence that cost fell.
 
 ## The `subagent-tokens:` line and the layout dependency
@@ -212,8 +240,9 @@ Work on an MR after its first comment is a further comment, never an edit:
   pass, a re-measure. Its heading is `## Cost of this MR (#<issue>) — record K`, it states its
   window start and end, its figures come from the measuring scripts' own stdout lines for that
   window (not from the description), and it adds a running-total row across records 1..K.
-- **The `## Gates` ledger lines are the go-ahead snapshot.** Nothing sums the later records except
-  each record's own running-total row.
+- **The `## Gates` ledger lines are the go-ahead snapshot.** Within a session, only each record's own
+  running-total row sums the later records; across a whole MR, `scripts/mr-cost-means.py` sums its
+  windowed records for `/kaizen` (trueppm#4884).
 - **One record per window.** A re-run for the same window (same start and end) updates that
   window's record, which must be the latest; a different window posts a new one. An earlier
   record is never edited: record 1 is refused (exit 5) once a record 2 exists, and so is a window
@@ -477,7 +506,7 @@ token's user could not be read or written; 5 refused, the window belongs to an e
   done before this MR's issue, that
   the cost is a list-price estimate from `.claude/model-prices.json` with its price date, the
   `budget-exceeded:` count (record K: `n/a`, not measured for a later window), and the
-  non-overlap sentence: "Records do not overlap: the orchestrator row is this session's spend since
+  non-overlap sentence (windowed records only; a record with no complete window says instead that its orchestrator row is not windowed and must not be compared or added): "Records do not overlap: the orchestrator row is this session's spend since
   its previous cost record, across every branch it worked, and each subagent is counted only for
   usage after its previous record. Records from one session add up to its total." (Comments posted
   before trueppm#4865 carry the older never-add sentence and still parse.) A record K states each
