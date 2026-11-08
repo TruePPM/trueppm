@@ -623,6 +623,8 @@ A backup you have never restored is a hypothesis, not a backup. Prove it:
 
 - [Deployment](/administration/deployment/) — the stateful services and the
   managed-datastore path.
+- [Deployment Topology](/administration/topology/) — diagrams of what the chart
+  deploys, which volumes hold data, and where the backup reads from.
 - [Durability & Redundancy](/administration/durability/) — what is authoritative,
   what is reconstructible, and the redundancy ladder this backup sits on.
 - [Beat Liveness](/administration/beat-liveness/) — detecting the dead scheduler

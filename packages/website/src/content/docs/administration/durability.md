@@ -439,6 +439,8 @@ Be explicit about the gaps, so nobody plans around a capability that is not ther
 
 ## Related pages
 
+- [Deployment Topology](/administration/topology/) — diagrams of the Helm
+  deployment today and the planned HA topology.
 - [Backup & Restore](/administration/backup-restore/) — the runbook: taking a
   backup on Compose and Helm, restoring onto a fresh stack, what is and is not
   captured, and the drill cadence.

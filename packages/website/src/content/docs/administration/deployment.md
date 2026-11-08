@@ -143,7 +143,8 @@ The Helm chart in `packages/helm/` deploys TruePPM on any Kubernetes cluster
 (kind, k3s, EKS, GKE, AKS, or bare-metal) with bundled sub-charts for
 PostgreSQL and Valkey (the BSD-licensed Linux Foundation fork of Redis;
 wire-compatible). The bundled datastores are intended for dev / demo / CI; for
-production, disable them and point at managed services (see below).
+production, disable them and point at managed services (see below). For a
+diagram of what the chart deploys, see [Deployment Topology](/administration/topology/).
 
 To install, follow the [production install walkthrough](#production-install-walkthrough)
 below. It works for an evaluation cluster too: the app will not start until you
