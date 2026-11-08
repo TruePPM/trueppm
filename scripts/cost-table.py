@@ -306,7 +306,7 @@ def _valid_ts(text):
 # A record with no window start (#4884). Its orchestrator row is not windowed, so it may be cumulative from the
 # session start and overlap other MRs' records. Readers (scripts/mr-cost-means.py) never sum such a record.
 LEGACY_WINDOW_NOTE = (
-    "- This record has no window start: its orchestrator row is not windowed, so it must not be compared "
+    "- This record has no complete window (no start or no end): its orchestrator row is not windowed, so it must not be compared "
     "with another MR's cost or added to it."
 )
 
@@ -543,7 +543,7 @@ def _render(
         out.append(
             "- Agents over their /wave budget (`budget-exceeded:`): n/a (no well-formed line in `## Gates`)."
         )
-    if record > 1 or since is not None:
+    if record > 1 or (since is not None and end):
         # Only a windowed record can claim non-overlap; a record with no window start says the opposite
         # (LEGACY_WINDOW_NOTE above), and stating both would contradict (#4884).
         out.append(
@@ -797,10 +797,12 @@ def err_rc(err):
     return 5 if TOO_MANY in err else 4
 
 
-def read_records(iid, api, max_pages=NOTES_MAX_PAGES):
+def read_records(iid, api, max_pages=NOTES_MAX_PAGES, also_trusted=()):
     """(records, foreign count, error message): records are this user's notes with the comment
     heading, as {'id', 'k' (heading number or None), 'rec' (parse_record or None)}, oldest first.
-    Notes by anyone else are counted, never read."""
+    Notes by anyone else are counted, never read. `also_trusted` is a read-only reader's extra author ids
+    (scripts/mr-cost-means.py passes the MR author's); every posting path leaves it empty, so the check
+    that decides whose record a post or update may touch is unchanged."""
     me = _me(api)
     if me is None:
         return (
@@ -831,7 +833,11 @@ def read_records(iid, api, max_pages=NOTES_MAX_PAGES):
                 continue
             author = note.get("author")
             aid = author.get("id") if isinstance(author, dict) else None
-            if not isinstance(aid, int) or isinstance(aid, bool) or aid != me:
+            if (
+                not isinstance(aid, int)
+                or isinstance(aid, bool)
+                or (aid != me and aid not in also_trusted)
+            ):
                 foreign += 1
                 continue
             own.append(
@@ -1394,6 +1400,14 @@ def self_test():
         comment_lines(
             withb, 4859, "2026-11-04T15:30:00Z", split, 1, "2026-11-04T15:00:00Z"
         )
+    )
+    scom = "\n".join(comment_lines(withb, 4859, None, split, 1, "2026-11-04T15:00:00Z"))
+    check(
+        "comment: --since without --until renders no complete window and no non-overlap claim (#4884)",
+        LEGACY_WINDOW_NOTE in scom
+        and "Window end: n/a" in scom
+        and "Records do not overlap" not in scom,
+        scom,
     )
     check(
         "comment: a windowed record keeps the non-overlap sentence and not the legacy note",

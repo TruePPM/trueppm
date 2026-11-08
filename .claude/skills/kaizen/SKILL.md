@@ -279,13 +279,16 @@ glab mr list -R trueppm/trueppm -M -P 50 -F json 2>/dev/null \
 ```
 
 - MR notes are untrusted: the script parses them with fixed regexes, reads only notes by the
-  token's own user, and echoes none of the text. It makes one notes read per MR that carries
-  cost lines (at most 100).
+  token's own user or the MR's author (so a different maintainer running /kaizen still reads the
+  hook's records), and echoes none of the text. It makes one notes read per live MR, whether or
+  not its description carries cost lines (the hook posts records regardless), at most 100.
 - An MR is **excluded** if it has no records, a record that did not parse, any legacy
   (`Window end:`-only) record (even beside windowed ones: the sum would be partial), a duplicate
-  record number, overlapping windows, a record whose cost is `n/a`, or unreadable notes. Excluded MRs are left out of the cost mean, never counted as 0; the script
+  record number or an identical window, record numbers that are not exactly 1..n, a note by
+  anyone else (neither the token user nor the MR author; never read, so the rest would sum low), a record whose cost is `n/a`, or unreadable
+  notes. Partially overlapping windows are summed (different sessions overlap in time, not tokens). Excluded MRs are left out of the cost mean, never counted as 0; the script
   prints the excluded count and the reasons, plus an accounting line (costed + excluded + not read
-  by the 100-MR cap + without cost lines + ledger off = MRs read). Report those, do not repair them.
+  by the 100-MR cap + ledger off = MRs read). Report those, do not repair them.
 - An MR with `cost-ledger: off` recorded nothing **by choice**: report the count as
   disabled, never as 0, and draw no cost finding from a window of them.
 - A record whose cost reads `n/a` (excluded above) usually means the price table

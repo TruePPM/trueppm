@@ -10,7 +10,7 @@ windowed records' own **Total** rows. `subagent-tokens:` from `## Gates` is per-
 
 An MR with no windowed record is EXCLUDED from cost means, never read as 0, and the excluded count is
 printed with the reason. The records are parsed by cost-table.py's parser (one parser), which reads only
-notes by the token's own user and treats note text as untrusted data: nothing is echoed.
+notes by the token's own user or the MR's author and treats note text as untrusted data: nothing is echoed.
 
 Usage:
   glab mr list -R trueppm/trueppm -M -P 50 -F json | python3 scripts/mr-cost-means.py --project trueppm/trueppm
@@ -44,14 +44,24 @@ def _cost_table():
     return _CT[0]
 
 
-def mr_cost(iid, api):
+def mr_cost(iid, api, author_id=None):
     """(usd or None, tokens or None, reason or None) for one MR from its windowed records.
 
     A reason means the MR is excluded from the cost means (never read as 0): no records, only legacy
-    `Window end:` records (their orchestrator row is cumulative and overlaps other MRs), unreadable
-    notes, or a record whose figure is `n/a`. Records without a window start are never summed."""
+    `Window end:` records (their orchestrator row is cumulative and overlaps other MRs), any record that
+    did not parse, any legacy record beside windowed ones, any note by another user, record numbers that
+    are not exactly 1..n, an exact-duplicate window, unreadable notes, or a record whose figure is `n/a`.
+    Records without a window start are never summed. Partially overlapping windows ARE summed: records
+    of different sessions on one MR overlap in time but never in tokens."""
     ct = _cost_table()
-    own, foreign, err = ct.read_records(iid, api)
+    # Trusted authors: the token user (whoever runs /kaizen) or the MR's author, who is who the hook posts as.
+    # A note by anyone else still excludes the MR.
+    trusted = (
+        (author_id,)
+        if isinstance(author_id, int) and not isinstance(author_id, bool)
+        else ()
+    )
+    own, foreign, err = ct.read_records(iid, api, also_trusted=trusted)
     if err:
         return None, None, "notes unreadable"
     # A record by another user is never read, so summing only the own part would read low: exclude.
@@ -73,14 +83,13 @@ def mr_cost(iid, api):
             if len(legacy) < len(recs)
             else "legacy record (no window start)",
         )
-    # Over-count shapes: the same record twice, or windows that share time, would add one stretch twice.
+    # Over-count shapes: the same record twice, or the same window twice, would add one stretch twice.
     if len({r["k"] for r in recs}) != len(recs):
         return None, None, "duplicate record"
     if sorted(r["k"] for r in recs) != list(range(1, len(recs) + 1)):
         return None, None, "record numbers not 1..n"
-    ordered = sorted(recs, key=lambda r: (r["start"], r["end"]))
-    if any(b["start"] < a["end"] for a, b in zip(ordered, ordered[1:])):
-        return None, None, "overlapping windows"
+    if len({(r["start"], r["end"]) for r in recs}) != len(recs):
+        return None, None, "duplicate window"
     windowed = recs
     usd = [r["total"][("usd", "all")] for r in windowed]
     tok = [r["total"][("tok", "all")] for r in windowed]
@@ -129,28 +138,32 @@ def summarize(mrs, api):
         out.append(
             "median subagent-tokens: %d | outliers (>2x median): %s" % (med, big)
         )
-    withlines = [m for m in live if has_cost_lines(m.get("description"))]
-    cands = withlines[:MAX_MRS]
-    dropped = len(withlines) - len(cands)
+    # The hook posts records whether or not the description carries cost lines, so every live MR is read
+    # (bounded by the cap and printed), not only those with `## Gates` cost lines.
+    cands = live[:MAX_MRS]
+    dropped = len(live) - len(cands)
     costs, excluded = [], {}
     for m in cands:
-        usd, _t, why = mr_cost(m["iid"], api)
+        a = m.get("author")
+        usd, _t, why = mr_cost(
+            m["iid"], api, a.get("id") if isinstance(a, dict) else None
+        )
         if why:
             excluded[why] = excluded.get(why, 0) + 1
         else:
             costs.append(float(usd))
     ex = sum(excluded.values())
-    # Every MR read is accounted for: costed + excluded + not read (cap) + no cost lines + ledger off.
+    # Every MR read is accounted for. The total is the SUM of the terms, never len(mrs), so a dropped term
+    # shows up as a total that no longer equals the number of MRs read (the self-test asserts it).
     out.append(
-        "accounted: %d costed + %d excluded + %d not read (cap %d) + %d without cost lines + %d ledger off = %d"
+        "accounted: %d costed + %d excluded + %d not read (cap %d) + %d ledger off = %d"
         % (
             len(costs),
             ex,
             dropped,
             MAX_MRS,
-            len(live) - len(withlines),
             len(off),
-            len(mrs),
+            len(costs) + ex + dropped + len(off),
         )
     )
     out.append(
@@ -234,10 +247,10 @@ def self_test():
         )
         return body
 
-    def fake_api(notes_by_iid):
+    def fake_api(notes_by_iid, me=7):
         def api(method, path):
             if path == "user":
-                return 0, json.dumps({"id": 7})
+                return 0, json.dumps({"id": me})
             iid = int(path.split("merge_requests/")[1].split("/")[0])
             if iid not in notes_by_iid:
                 return 1, ""
@@ -308,7 +321,7 @@ def self_test():
     )
     check(
         "report prints excluded count with reasons",
-        "excluded: 2 (legacy record (no window start): 1, record with n/a cost: 1)"
+        "excluded: 3 (legacy record (no window start): 1, notes unreadable: 1, record with n/a cost: 1)"
         in rep[3],
     )
     check("snapshot est-cost-usd is not the mean", not any("30.00" in x for x in rep))
@@ -342,7 +355,11 @@ def self_test():
         ),
         304: (
             [(rec(1, A, B, "1.00", 1), 7), (rec(2, E, C, "2.00", 2), 7)],
-            "overlapping windows",
+            None,
+        ),
+        309: (
+            [(rec(1, A, B, "1.00", 1), 7), (rec(2, A, B, "2.00", 2), 7)],
+            "duplicate window",
         ),
         306: (
             [(rec(1, A, B, "1.00", 1), 7), (rec(3, B, C, "2.00", 2), 7)],
@@ -369,17 +386,67 @@ def self_test():
             "shape %d: %s" % (iid, want),
             got[2] == want and (want is None) == (got[0] is not None),
         )
+    check(
+        "partially overlapping windows are summed (different sessions)",
+        mr_cost(304, sapi)[0] == decimal.Decimal("3.00"),
+    )
+    # Trusted authors: the token user OR the MR author. Token user 9 (another maintainer) runs /kaizen.
+    tapi = fake_api(
+        {
+            801: [
+                (rec(1, A, B, "1.00", 1), 8),
+                (rec(2, B, C, "2.00", 2), 8),
+            ],  # by the MR author
+            802: [
+                (rec(1, A, B, "1.00", 1), 8),
+                (rec(2, B, C, "2.00", 2), 55),
+            ],  # plus a third party
+            803: [(rec(1, A, B, "1.00", 1), 9)],  # by the token user
+        },
+        me=9,
+    )
+    check(
+        "MR author's records are summed when a different user runs it",
+        mr_cost(801, tapi, 8)[0] == decimal.Decimal("3.00"),
+    )
+    check(
+        "without the MR author id they are another user's",
+        mr_cost(801, tapi)[2] == "records by another user",
+    )
+    check(
+        "a third party's note still excludes",
+        mr_cost(802, tapi, 8)[2] == "records by another user",
+    )
+    check(
+        "the token user's records still count",
+        mr_cost(803, tapi, 8)[0] == decimal.Decimal("1.00"),
+    )
+    # The offline fixture path carries the MR author like a live `glab mr list` row does.
+    live_rep = summarize([{"iid": 801, "description": "x", "author": {"id": 8}}], tapi)
+    check("summarize passes the MR author through", "1 costed" in live_rep[1])
     check("adjacent windows sum", mr_cost(305, sapi)[0] == decimal.Decimal("6.00"))
 
     # Every MR read is accounted for, and the cap drops are counted (removing the slice fails this).
     many = [
         {"iid": 400 + i, "description": desc("1.00", 1)} for i in range(MAX_MRS + 3)
     ]
-    many.append({"iid": 999, "description": "## Gates\ngate: x \u2014 0 findings\n"})
+    many.append({"iid": 999, "description": "## Gates\ncost-ledger: off\n"})
     cap_rep = "\n".join(summarize(many, fake_api({})))
     check("cap drops are printed", "3 not read (cap %d)" % MAX_MRS in cap_rep)
-    check("MRs without cost lines are counted", "1 without cost lines" in cap_rep)
-    check("accounting sums to MRs read", "= %d" % (MAX_MRS + 4) in cap_rep)
+    check("ledger-off MRs are counted", "1 ledger off" in cap_rep)
+    check(
+        "accounting total (a sum of its terms) equals MRs read",
+        "= %d" % (MAX_MRS + 4) in cap_rep,
+    )
+    # Records exist whether or not `## Gates` carries cost lines (the hook posts them regardless).
+    nolines = summarize(
+        [{"iid": 701, "description": "## Gates\ngate: x \u2014 0 findings\n"}],
+        fake_api({701: [(rec(1, A, B, "2.00", 2), 7)]}),
+    )
+    check(
+        "an MR with records but no Gates cost lines is costed",
+        "1 costed" in nolines[1] and "= 1" in nolines[1],
+    )
 
     # A record rendered by cost-table's own renderer, so a renderer change is caught here.
     gates = "## Gates\nsubagent-tokens: 100\norchestrator-tokens: 200\nest-cost-usd: 1.25 (prices 2026-11-01)\n"
