@@ -274,8 +274,10 @@ The gate, `scripts/check-app-layering.py`, counts every `import` statement (incl
 
 - Run it locally with `make app-layering-check`. It also runs in `make pre-push` and as the `api:app-layering` CI job.
 - Fix a violation by moving the shared code down a layer, or by inverting the dependency so the higher layer registers against a hook the lower layer owns. Then run `python3 scripts/check-app-layering.py --update-baseline` to lock the improvement in. That command refuses to add or raise an entry.
-- Editing the baseline file by hand to raise a count is caught too: the gate compares it with the merge-base copy and fails unless `TRUEPPM_ALLOW_LAYERING_RAISE=1` is set for a deliberate re-layering. The comparison is skipped, with a printed note, when no merge-base ref is available.
-- A deliberate exception carries `# layering-ok: <reason>` on the import or in the comment block directly above it (a blank line ends the block). The reason is required, and a bare marker fails even on a legal import. The number of opted-out sites is printed on every run.
+- The ratchet is count-based, so it has two honest limits. A new *edge* always fails, but within an existing edge a site that was fixed and not yet locked in leaves slack that a new violation on the same edge can reuse; every run prints that slack with the command that locks it in. And two MRs can each pass alone yet red the merged tree (one removes a baselined site, the other removes the same one and adds another); rebase onto `origin/main` and re-run.
+- Editing the baseline file by hand to raise a count is caught: the gate compares it with the merge-base copy and fails unless the edge has a `# raise-ok: <reason>` comment on the line directly above it, which a reviewer sees in the diff. The comparison fails closed when the CI diff base cannot be read, and is skipped, with a printed note, only in a local clone with no `origin/main`.
+- The gate reads tracked Python files only, so gitignored leftovers do not affect it.
+- A deliberate exception carries `# layering-ok: <reason>` on the import or in the comment block directly above it (a blank line ends the block). The reason is required, and a bare marker fails on any line of a scanned file. The number of opted-out sites is printed on every run.
 - Adding an app directory fails the gate until the app is assigned a layer in `app-layering.toml`.
 
 ### What the gate cannot see
@@ -286,4 +288,5 @@ The gate reads import statements and whole-string module paths. It does not see:
 - `from trueppm_api import apps` followed by attribute access such as `apps.projects.models`;
 - model references by label: `apps.get_model("projects.Task")` and `ForeignKey("projects.Task")`;
 - which names an import pulls in, so importing a constant counts the same as importing a model;
+- imports of a composition root (for example `trueppm_api.celery`), which are ignored by design;
 - test code, which legitimately crosses domains.

@@ -44,20 +44,40 @@ violation do not conflict. ``--update-baseline`` only ever lowers or removes ent
 it refuses to add or raise one (once the file exists), so the baseline cannot be used to launder a new
 violation. The baseline total is printed on every run so shrinkage is visible.
 
-Nothing in the file format stops a person editing a count *up* by hand, so the gate
-also compares the committed baseline with the copy at the merge base (the MR diff base
-in CI, ``git merge-base HEAD origin/main`` locally) and fails if an edge was added or a
-count rose. Override with ``TRUEPPM_ALLOW_LAYERING_RAISE=1`` for a deliberate
-re-layering (say so in the MR). When no base ref is reachable -- a shallow clone, a
-pipeline on ``main`` itself -- the check prints a note and is skipped; when the base
-has no baseline file (the MR that introduced it) it passes.
+The count-based ratchet is honest about one limit. A new *edge* always fails, but within
+an edge a site that was fixed and not locked in (``--update-baseline``) leaves slack
+that a new violation on the same edge can reuse and pass. Failing on slack would make two
+MRs that each fix a violation conflict, so instead every run prints the slack loudly with
+the command that locks it in. For the same reason two MRs can each pass alone and red
+the merged tree (A removes baselined site X; B, forked earlier, removes X and adds Y on
+the same edge): the failure text says to rebase onto origin/main and re-run.
+
+Nothing in the file format stops a person editing a count *up* by hand, so the gate also
+compares the committed baseline with the copy at the merge base (the MR diff base in CI,
+``git merge-base HEAD origin/main`` locally) and fails if an edge was added or a count
+rose. A deliberate re-layering puts ``# raise-ok: <reason>`` on the line directly above
+the edge in the baseline file, where a reviewer sees it in the diff (an env var cannot
+work: push pipelines carry no variables). The check fails closed -- if the CI diff base
+or an explicit ``TRUEPPM_LAYERING_BASE_REF`` cannot be resolved the run fails, so the
+job needs ``GIT_DEPTH: 0``. It is skipped, with a printed note, only when there is no
+CI variable and no ``origin/main`` merge base (a local clone with no remote, or a
+pipeline on ``main``); it passes when the base genuinely has no baseline file (the MR
+that introduced it).
+
+Which files are read
+--------------------
+Tracked ``.py`` files only (``git ls-files``), so gitignored residue -- a deleted app's
+leftover ``migrations/`` and ``__pycache__/``, a scratch file -- cannot fail a checkout
+whose tracked tree is clean. Outside a git repository (the self-test fixtures) every
+``.py`` is read. An app is a directory containing ``__init__.py``; a ``.py`` module
+directly under ``apps/`` belongs to no app and is reported as an error.
 
 Opting out
 ----------
 A deliberate exception carries ``# layering-ok: <reason>`` inside the import or in the
 comment block directly above it (a blank line ends the block). The reason is required,
-and a bare ``# layering-ok:`` fails the gate wherever it appears, even on a legal
-import. The number of opted-out sites is printed on every run. Like ``# safe-bulk-create:``
+and a bare ``# layering-ok:`` fails the gate on any line of a scanned file, even away
+from an import. The number of opted-out sites is printed on every run. Like ``# safe-bulk-create:``
 this is a rubber stamp: it removes the silence, not the possibility of a wrong answer.
 
 What this gate cannot see
@@ -71,6 +91,8 @@ What this gate cannot see
   the import names ``apps``, not the app, so the edge is invisible.
 * Imports through a re-export (``from trueppm_api.core import something_that_is_an_app_thing``).
 * Which names are imported: importing a constant counts the same as a model.
+* Imports of a composition root (``trueppm_api.celery``, ``settings``, ``urls``):
+  roots wire everything together by design, so an app importing one is ignored.
 * Test code (``packages/api/tests``) -- tests legitimately cross domains.
 
 Why a custom script rather than ``import-linter``
@@ -83,7 +105,8 @@ shrinking), and it ships a ``--self-test`` and a shell test like its sibling gat
 
 Usage:
     python3 scripts/check-app-layering.py [--root DIR] [--config FILE] [--baseline FILE]
-    python3 scripts/check-app-layering.py --graph          # print the measured graph
+    python3 scripts/check-app-layering.py --graph          # print the violating edges
+    python3 scripts/check-app-layering.py --graph --all    # print EVERY cross-unit edge with site counts
     python3 scripts/check-app-layering.py --update-baseline
     python3 scripts/check-app-layering.py --self-test
 """
@@ -99,6 +122,7 @@ import sys
 import tempfile
 import tomllib
 from collections import Counter
+from typing import NamedTuple
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -162,8 +186,8 @@ def _file_unit(rel: tuple[str, ...], cfg: Config) -> str | None:
     return None
 
 
-def _has_marker(lines: list[str], first: int, last: int) -> bool | str:
-    """Return True if a ``# layering-ok: <reason>`` covers the import, 'empty' if no reason.
+def _has_marker(lines: list[str], first: int, last: int) -> bool:
+    """Is the import covered by ``# layering-ok: <reason>`` (reason non-empty)?
 
     The comment block directly above the import counts; a blank line ends it, so a
     stale marker separated from its import by white space cannot silently apply.
@@ -176,11 +200,9 @@ def _has_marker(lines: list[str], first: int, last: int) -> bool | str:
             break
         candidates.append(stripped)
         i -= 1
-    for line in candidates:
-        if _MARKER in line:
-            reason = line.split(_MARKER, 1)[1].strip()
-            return True if reason else "empty"
-    return False
+    return any(
+        _MARKER in line and line.split(_MARKER, 1)[1].strip() for line in candidates
+    )
 
 
 def _imports(tree: ast.Module, pkg: list[str]):
@@ -209,18 +231,46 @@ def _imports(tree: ast.Module, pkg: list[str]):
             yield n.lineno, n.end_lineno or n.lineno, n.value.split(".")
 
 
-def scan(
-    root: Path, cfg: Config
-) -> tuple[Counter[Edge], dict[Edge, list[str]], list[str], int, list[str]]:
-    """Return (violation counts, sites per edge, config/marker errors, total edges seen)."""
+class ScanResult(NamedTuple):
+    counts: Counter[Edge]  # violating edges, opt-outs excluded
+    sites: dict[Edge, list[str]]
+    errors: list[str]
+    all_edges: Counter[Edge]  # every cross-unit edge, violating or not
+    opted: list[str]
+
+
+def _source_files(root: Path, pkg_dir: Path) -> list[Path]:
+    """Python files the gate reads: tracked ones in a git checkout, else every ``.py``.
+
+    Walking the filesystem would pick up gitignored residue (a deleted app's leftover
+    ``migrations/`` and ``__pycache__/``, a scratch ``.py``) and fail a checkout whose
+    tracked tree is clean. Outside git (self-test fixtures) it falls back to a walk.
+    """
+    rel = pkg_dir.relative_to(root).as_posix()
+    rc, out = _git(root, "ls-files", "-z", "--", rel)
+    if rc == 0 and out:
+        return sorted(root / f for f in out.split("\0") if f.endswith(".py") and f)
+    return sorted(pkg_dir.rglob("*.py"))
+
+
+def scan(root: Path, cfg: Config) -> ScanResult:
+    """Scan the package; see the module docstring for what is counted."""
     pkg_dir = root / _PKG_REL
     errors: list[str] = []
     if not pkg_dir.is_dir():
         raise SystemExit(f"ERROR: {pkg_dir} is not a directory")
 
-    apps_dir = pkg_dir / "apps"
+    files = [
+        (path, path.relative_to(pkg_dir).parts)
+        for path in _source_files(root, pkg_dir)
+        if "migrations" not in path.parts
+    ]
+    # An app is a directory with an __init__.py among the files read; a directory with
+    # only __pycache__/ or migrations/ left behind is not one.
     on_disk = {
-        p.name for p in apps_dir.iterdir() if p.is_dir() and not p.name.startswith("_")
+        r[1]
+        for _, r in files
+        if r[0] == "apps" and len(r) == 3 and r[2] == "__init__.py"
     }
     for app in sorted(on_disk - set(cfg.app_layer)):
         errors.append(
@@ -230,30 +280,34 @@ def scan(
         errors.append(
             f"{_CONFIG_REL} assigns a layer to {app!r}, which is not an app directory"
         )
-    for top in sorted(
-        p for p in pkg_dir.iterdir() if p.name not in {"apps", "__pycache__"}
-    ):
-        name = top.name.removesuffix(".py")
-        if top.suffix not in ("", ".py") or name in {"__init__", "py"}:
-            continue
-        if name not in cfg.platform and name not in cfg.roots:
+    tops = {r[0].removesuffix(".py") for _, r in files if r[0] != "apps"} - {"__init__"}
+    for name in sorted(tops - cfg.platform - cfg.roots):
+        errors.append(
+            f"top-level module {name!r} is neither platform nor a composition root"
+        )
+    for _, r in files:
+        if r[0] == "apps" and len(r) == 2 and r[1] != "__init__.py":
             errors.append(
-                f"top-level module {name!r} is neither platform nor a composition root"
+                f"apps/{r[1]} is a module directly under apps/, outside any app; "
+                "the gate would not scan it"
             )
 
     counts: Counter[Edge] = Counter()
+    all_edges: Counter[Edge] = Counter()
     sites: dict[Edge, list[str]] = {}
-    seen: set[Edge] = set()
     opted: list[str] = []
-    for path in sorted(pkg_dir.rglob("*.py")):
-        if "migrations" in path.parts:
-            continue
-        rel = path.relative_to(pkg_dir).parts
+    for path, rel in files:
         src = _file_unit(rel, cfg)
         if src is None or (src != _PLATFORM and src not in cfg.app_layer):
             continue
         text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
+        shown = "/".join((_PKG_REL, *rel))
+        # A reasonless marker is an error wherever it sits, so a half-written opt-out
+        # cannot lurk until someone moves an import under it.
+        for i, line in enumerate(lines, 1):
+            if _MARKER in line and not line.split(_MARKER, 1)[1].strip():
+                errors.append(f"{shown}:{i}: {_MARKER} needs a reason")
         pkg = ["trueppm_api", *rel[:-1]]
         for lineno, end, parts in _imports(ast.parse(text), pkg):
             dst = _unit_of_module(parts, cfg)
@@ -263,20 +317,15 @@ def scan(
                 or (dst != _PLATFORM and dst not in cfg.app_layer)
             ):
                 continue
-            seen.add((src, dst))
-            where = f"{'/'.join((_PKG_REL, *rel))}:{lineno}"
-            marker = _has_marker(lines, lineno, end)
-            if marker == "empty":
-                errors.append(f"{where}: {_MARKER} needs a reason")
-                continue
+            all_edges[(src, dst)] += 1
             if not cfg.violates(src, dst):
                 continue
-            if marker:
-                opted.append(where)
+            if _has_marker(lines, lineno, end):
+                opted.append(f"{shown}:{lineno}")
                 continue
             counts[(src, dst)] += 1
-            sites.setdefault((src, dst), []).append(where)
-    return counts, sites, errors, len(seen), opted
+            sites.setdefault((src, dst), []).append(f"{shown}:{lineno}")
+    return ScanResult(counts, sites, errors, all_edges, opted)
 
 
 def read_baseline(path: Path) -> Counter[Edge]:
@@ -299,59 +348,107 @@ _BASELINE_HEADER = """\
 # One `<src> -> <dst> <import-site count>` line per violating edge. Fix a violation, then
 # lock it in with `python3 scripts/check-app-layering.py --update-baseline`; that command
 # refuses to add or raise an entry. `platform` is core/fields/permissions/workflows.
+# A deliberate raise is a hand edit with `# raise-ok: <reason>` on the line above the edge.
 """
+_RAISE_OK = "# raise-ok:"
+
+
+def _raise_marks(path: Path) -> tuple[dict[Edge, str], list[str]]:
+    """Edges carrying ``# raise-ok: <reason>`` on the line above, plus reasonless markers."""
+    marks: dict[Edge, str] = {}
+    errors: list[str] = []
+    if not path.exists():
+        return marks, errors
+    prev = ""
+    for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if line.startswith(_RAISE_OK) and not line[len(_RAISE_OK) :].strip():
+            errors.append(f"{path.name}:{n}: {_RAISE_OK} needs a reason")
+        m = _BASELINE_LINE.match(line)
+        if m and prev.startswith(_RAISE_OK) and prev[len(_RAISE_OK) :].strip():
+            marks[(m[1], m[2])] = prev
+        prev = line
+    return marks, errors
 
 
 def write_baseline(path: Path, counts: Counter[Edge]) -> None:
-    body = "".join(f"{s} -> {d} {n}\n" for (s, d), n in sorted(counts.items()))
+    marks, _ = _raise_marks(path)
+    body = ""
+    for (s, d), n in sorted(counts.items()):
+        if (s, d) in marks:
+            body += f"{marks[(s, d)]}\n"
+        body += f"{s} -> {d} {n}\n"
     path.write_text(_BASELINE_HEADER + body, encoding="utf-8")
 
 
-def _git(root: Path, *args: str) -> str | None:
+def _git(root: Path, *args: str) -> tuple[int, str]:
+    """Run git; returns ``(returncode, stdout)``, rc -1 when git cannot be run."""
     try:
         out = subprocess.run(
-            ["git", "-C", str(root), *args], capture_output=True, text=True, check=True
+            ["git", "-C", str(root), *args], capture_output=True, text=True
         )
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return out.stdout
+    except OSError:
+        return -1, ""
+    return out.returncode, out.stdout
 
 
-def _baseline_raised(root: Path, baseline: Path) -> list[str]:
-    """Edges whose count rose (or that appeared) versus the merge-base baseline."""
-    if os.environ.get("TRUEPPM_ALLOW_LAYERING_RAISE") == "1":
-        print("  note: TRUEPPM_ALLOW_LAYERING_RAISE=1 -- baseline-raise check skipped")
-        return []
+def _baseline_raised(root: Path, baseline: Path) -> tuple[list[str], list[str]]:
+    """Return ``(raised edges, errors)`` for the baseline versus its merge-base copy.
+
+    Fails closed: if the CI diff base (or an explicit ref) is named but cannot be read,
+    that is an error, not a skip. The check is skipped, with a note, only when there is
+    no CI variable and no ``origin/main`` to take a merge base against -- a local clone
+    with no remote -- or when HEAD is the merge base (a pipeline on ``main``).
+    """
+    errors: list[str] = []
+    marks, mark_errors = _raise_marks(baseline)
+    errors += mark_errors
     ref = os.environ.get("TRUEPPM_LAYERING_BASE_REF") or os.environ.get(
         "CI_MERGE_REQUEST_DIFF_BASE_SHA"
     )
-    if not ref:
-        mb = _git(root, "merge-base", "HEAD", "origin/main")
-        head = _git(root, "rev-parse", "HEAD")
-        ref = mb.strip() if mb and mb != head else None
-    if not ref or _git(root, "cat-file", "-e", f"{ref}^{{commit}}") is None:
-        print(
-            "  note: no merge-base ref available (shallow clone or main) -- baseline-raise check skipped"
-        )
-        return []
+    if ref:
+        if _git(root, "cat-file", "-e", f"{ref}^{{commit}}")[0] != 0:
+            return [], [
+                f"base ref {ref!r} is not reachable, so the baseline cannot be compared "
+                "against it (shallow clone? the job needs GIT_DEPTH: 0)"
+            ]
+    else:
+        rc, mb = _git(root, "merge-base", "HEAD", "origin/main")
+        _, head = _git(root, "rev-parse", "HEAD")
+        if rc != 0 or not mb.strip() or mb == head:
+            print(
+                "  note: no merge base available (no origin/main, or on main) -- baseline-raise check skipped"
+            )
+            return [], errors
+        ref = mb.strip()
     try:
-        rel = baseline.resolve().relative_to(root.resolve())
+        rel = baseline.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
-        return []
-    old_text = _git(root, "show", f"{ref}:{rel.as_posix()}")
-    if old_text is None:
-        return []  # base has no baseline: this change introduces it
+        return [], errors
+    rc, listing = _git(root, "ls-tree", ref, "--", rel)
+    if rc != 0:
+        return [], errors + [
+            f"git ls-tree {ref} -- {rel} failed; cannot read the base baseline"
+        ]
+    if not listing.strip():
+        return [], errors  # genuinely absent at the base: this change introduces it
+    rc, old_text = _git(root, "show", f"{ref}:{rel}")
+    if rc != 0:
+        return [], errors + [
+            f"git show {ref}:{rel} failed; cannot read the base baseline"
+        ]
     old: Counter[Edge] = Counter()
     for line in old_text.splitlines():
         m = _BASELINE_LINE.match(line.strip())
         if m:
             old[(m[1], m[2])] = int(m[3])
     now = read_baseline(baseline)
-    return [
+    raised = [
         f"{s} -> {d}: {old.get((s, d), 0)} -> {n}"
         for (s, d), n in sorted(now.items())
-        if n > old.get((s, d), 0)
+        if n > old.get((s, d), 0) and (s, d) not in marks
     ]
+    return raised, errors
 
 
 def run(
@@ -361,30 +458,30 @@ def run(
     *,
     update: bool = False,
     graph: bool = False,
+    graph_all: bool = False,
     check_base: bool = False,
 ) -> int:
     cfg = Config(tomllib.loads(config.read_text(encoding="utf-8")))
-    counts, sites, errors, seen, opted = scan(root, cfg)
+    res = scan(root, cfg)
+    counts, sites, errors, opted = res.counts, res.sites, list(res.errors), res.opted
     base = read_baseline(baseline)
 
     if graph:
-        for (s, d), n in sorted(counts.items()):
+        shown = res.all_edges if graph_all else counts
+        for (s, d), n in sorted(shown.items()):
             print(f"{s} -> {d} {n}")
-        print(
-            f"{len(counts)} violating edges, {sum(counts.values())} sites ({seen} edges total)"
-        )
+        what = "edges" if graph_all else "violating edges"
+        print(f"{len(shown)} {what}, {sum(shown.values())} sites")
         return 0
-
-    if errors:
-        print("\nLAYERING CONFIG/MARKER ERRORS:\n", file=sys.stderr)
-        for e in errors:
-            print(f"  {e}", file=sys.stderr)
-        return 1
 
     new = {e: n for e, n in counts.items() if n > base.get(e, 0)}
     slack = {e: base[e] - counts.get(e, 0) for e in base if counts.get(e, 0) < base[e]}
 
     if update:
+        if errors:
+            for e in errors:
+                print(f"  {e}", file=sys.stderr)
+            return 1
         # A missing baseline is the one-time bootstrap; after that it only shrinks.
         if new and baseline.exists():
             print(
@@ -403,22 +500,34 @@ def run(
         f"app layering: {cur_total} violating import sites on {len(counts)} edges "
         f"(baseline {base_total} on {len(base)} edges); {len(opted)} opted out via {_MARKER}"
     )
-    raised = _baseline_raised(root, baseline) if check_base else []
+    raised: list[str] = []
+    if check_base:
+        raised, base_errors = _baseline_raised(root, baseline)
+        errors += base_errors
+    if errors:
+        print("\nLAYERING CONFIG/MARKER/BASELINE ERRORS:\n", file=sys.stderr)
+        for e in errors:
+            print(f"  {e}", file=sys.stderr)
+        return 1
+    if slack:
+        print(
+            f"\n  !! {sum(slack.values())} baselined site(s) have been fixed but the baseline still "
+            "allows them. Until it is lowered, a NEW violation on the same edge reuses that "
+            "allowance and passes. Lock the improvement in now:\n"
+            "       python3 scripts/check-app-layering.py --update-baseline"
+        )
+        for (s, d), n in sorted(slack.items()):
+            print(f"       {s} -> {d}: {n} fixed")
     if raised:
         print("\nLAYERING BASELINE RAISED against the merge base:\n")
         for line in raised:
             print(f"  {line}")
         print(
-            "\nThe baseline is a ceiling that only shrinks. Fix the violation instead, or, for a "
-            "deliberate re-layering, set TRUEPPM_ALLOW_LAYERING_RAISE=1 and say so in the MR."
+            f"\nThe baseline is a ceiling that only shrinks. Fix the violation instead, or, for "
+            f"a deliberate re-layering, put `{_RAISE_OK} <reason>` on the line above the edge "
+            "in the baseline file so a reviewer sees it in the diff."
         )
         return 1
-    if slack:
-        n = sum(slack.values())
-        print(
-            f"  {n} site(s) fixed since the baseline was recorded -- lock them in with "
-            "`python3 scripts/check-app-layering.py --update-baseline`"
-        )
     if new:
         print(
             "\nLAYERING VIOLATION: new cross-app imports outside the declared layering:\n"
@@ -437,7 +546,10 @@ The layering lives in {_CONFIG_REL}: an app may import apps in a lower layer (an
     registry the lower layer owns.
   - If the import is a deliberate exception, add `{_MARKER} <reason>` inside the import
     or on the comment line directly above it.
-Do NOT raise the baseline to make this pass. See CLAUDE.md § Domain-app layering."""
+If this is a count that is only one over after a merge: another MR may have removed a
+baselined site on this edge while this branch removed the same one, so each passes
+alone. Rebase onto origin/main, re-run the gate, and run `--update-baseline`.
+Do NOT raise the baseline to make this pass. See CLAUDE.md, Key Design Principles (4)."""
         )
         return 1
     print("OK: no layering violations beyond the baseline.")
@@ -464,6 +576,7 @@ def _stage(tmp: Path, files: dict[str, str]) -> tuple[Path, Path, Path]:
     pkg = tmp / _PKG_REL
     for app in ("base", "top", "other"):
         (pkg / "apps" / app).mkdir(parents=True, exist_ok=True)
+        (pkg / "apps" / app / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "core").mkdir(parents=True, exist_ok=True)
     (pkg / "settings").mkdir(exist_ok=True)
     for rel, body in files.items():
@@ -573,6 +686,24 @@ def self_test() -> int:
         1,
         {"apps/top/m.py": "from trueppm_api.apps.base import x  # layering-ok:\n"},
     )
+    case(
+        "a leftover dir with only migrations/ and no __init__.py is not an app",
+        0,
+        {
+            "apps/residue/migrations/0001_x.py": "x = 1\n",
+            "apps/residue/helper.py": "from trueppm_api.apps.top import t\n",
+        },
+    )
+    case(
+        "a module directly under apps/ is flagged",
+        1,
+        {"apps/stray.py": "x = 1\n"},
+    )
+    case(
+        "a bare marker on a line with no import still fails",
+        1,
+        {"apps/base/m.py": "x = 1  # layering-ok:\n"},
+    )
     case("baselined violation passes", 0, up, "base -> top 1\n")
     case(
         "count above baseline fails",
@@ -607,6 +738,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--graph", action="store_true", help="print violating edges and exit"
     )
+    ap.add_argument(
+        "--all",
+        action="store_true",
+        help="with --graph: every edge, not only violations",
+    )
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args(argv)
     if args.self_test:
@@ -619,6 +755,7 @@ def main(argv: list[str] | None = None) -> int:
         baseline,
         update=args.update_baseline,
         graph=args.graph,
+        graph_all=args.all,
         check_base=args.baseline is None,
     )
 

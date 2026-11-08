@@ -3815,8 +3815,8 @@ api:app-layering:
   extends: [.api-no-db, .fast-job]
   variables:
     # Full history so the baseline-raise check can read the merge-base copy of
-    # app-layering-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA). On main, or if the SHA
-    # is unreachable, the check prints a note and is skipped.
+    # app-layering-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA). The check fails closed
+    # if that SHA is unreachable; on main it prints a note and is skipped.
     GIT_DEPTH: "0"
   stage: analyze
   needs:
