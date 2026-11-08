@@ -21,8 +21,8 @@ run_check() {
   [[ -f "$file" ]] || { echo "ERROR: $file not found" >&2; return 1; }
   # Both values are scoped to the top-level nginx service block, comments dropped.
   block="$(awk '/^  [a-z0-9_-]+:/ {in_n = ($1 == "nginx:")} in_n' "$file" | grep -vE '^[[:space:]]*#' || true)"
-  timeout="$(grep -oE 'worker_shutdown_timeout[[:space:]]+[0-9]+s' <<<"$block" | head -n1 | grep -oE '[0-9]+' || true)"
-  grace="$(grep -E '^    stop_grace_period:' <<<"$block" | head -n1 | grep -oE '[0-9]+' || true)"
+  timeout="$(grep -oE 'worker_shutdown_timeout[[:space:]]+[0-9]+s' <<<"$block" | sed -n 1p | grep -oE '[0-9]+' || true)"
+  grace="$(grep -E '^    stop_grace_period:' <<<"$block" | sed -n 1p | grep -oE '[0-9]+' || true)"
   if [[ -z "$timeout" ]]; then
     echo "  docker-compose.prod.yml: nginx command has no 'worker_shutdown_timeout Ns' (-g argument; comments ignored)" >&2
     return 1
