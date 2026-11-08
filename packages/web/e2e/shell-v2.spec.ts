@@ -328,16 +328,13 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       await expect(rail(page)).toHaveCount(0);
       const bar = page.getByRole('navigation', { name: 'Primary navigation' });
       await expect(bar).toBeVisible();
-      await expect(bar.getByRole('link')).toHaveCount(4); // Home · Inbox · Log time · Work
+      await expect(bar.getByRole('link')).toHaveCount(3); // Home · Inbox · Work (Log time is a button)
       await expect(bar.getByRole('link', { name: /Work/ })).toHaveAttribute('href', '/work');
-      for (const name of ['Home', 'Inbox', 'Log time', 'Work']) {
+      for (const name of ['Home', 'Inbox', 'Work']) {
         await expect(bar.getByRole('link', { name: new RegExp(name) })).toBeVisible();
       }
+      await expect(bar.getByRole('button', { name: 'Log time' })).toBeVisible();
       await expect(bar.getByRole('link', { name: /Home/ })).toHaveAttribute('aria-current', 'page');
-      await expect(bar.getByRole('link', { name: 'Log time' })).toHaveAttribute(
-        'href',
-        '/me/timesheet',
-      );
       await expect(bar.getByRole('button', { name: 'Search' })).toBeVisible();
       // No rail on a phone, so the account menu rides in the top bar.
       await expect(page.getByRole('button', { name: /Account/ })).toBeVisible();
