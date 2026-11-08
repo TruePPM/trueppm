@@ -135,6 +135,61 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "read from that project's latest Monte Carlo result: the same date its "
         "forecast endpoint serves."
     ),
+    # ── programs/{id}/rollup (#4779) ──────────────────────────────────────
+    # The payload keys these by KPI name; the "rollup." prefix only keeps them apart
+    # from the project-level sentences above (schedule_health is both).
+    "program_health": (
+        "Each contributing project's schedule performance band (the SPI proxy: "
+        "completed planned work divided by work planned by today) combined under the "
+        "program's aggregation policy, leaving out projects with nothing planned yet; "
+        "unknown when none has. Not the project health band."
+    ),
+    "rollup.schedule_health": (
+        "Each contributing project's schedule performance band (the SPI proxy) "
+        "combined under the program's aggregation policy, leaving out projects with "
+        "nothing planned yet. The same value as program health."
+    ),
+    "rollup.milestone_health": (
+        "Each contributing project's milestone band, combined under the program's "
+        "aggregation policy: critical when an incomplete milestone's forecast finish "
+        "has passed, at risk when one is due within 7 calendar days, on track "
+        "otherwise; projects with no milestones are left out. Not the program health "
+        "band."
+    ),
+    "rollup.critical_tasks": (
+        "Incomplete leaf tasks on the critical path, summed across the contributing projects."
+    ),
+    "rollup.at_risk_tasks": (
+        "Incomplete leaf tasks with 5 or fewer working days of total float, summed "
+        "across the contributing projects."
+    ),
+    "rollup.risk_score": (
+        "Probability times impact of every open or mitigating risk, summed across the "
+        "contributing projects."
+    ),
+    "rollup.baseline_variance": (
+        "Each contributing project's forecast finish minus its active-baseline finish, "
+        "in calendar days measured in working time, combined under the program's "
+        "aggregation policy; positive means later than the baseline."
+    ),
+    "rollup.schedule_variance": (
+        "Each contributing project's mean lateness of completed baselined tasks (actual "
+        "finish minus baselined finish, in calendar days measured in working time), "
+        "combined under the program's aggregation policy; positive means late."
+    ),
+    "rollup.cost_variance": (
+        "Earned value minus actual cost, summed across the contributing projects, in "
+        "the workspace currency; negative means over budget."
+    ),
+    "rollup.budget_utilization": (
+        "Actual cost across the contributing projects divided by their total budget; "
+        "1.0 means the whole budget is spent."
+    ),
+    "rollup.p80_completion": (
+        "The latest P80 finish among the contributing projects' own Monte Carlo "
+        "forecasts. Not a joint simulation of the program, whose P80 would be this "
+        "date or later."
+    ),
 }
 
 #: The figures each owning endpoint defines in its ``definitions`` map (ADR-1314).

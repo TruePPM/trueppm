@@ -11,7 +11,7 @@ summary, the forecast's commitment fields (`commitment_date`,
 `burn_status_reason` ship in 0.5. In 0.4 the figures below exist on the same
 endpoints, but without a definition, an `as_of`, or a commitment comparison,
 and the My Work ship-date forecast can lag the project's own forecast by up to
-a day.
+a day. Also in 0.5: P80 completion computes (in 0.4 it is unavailable).
 :::
 
 The same project figure can appear in several places: the project header, the
@@ -55,6 +55,48 @@ Each owning endpoint returns two extra things beside its figures:
 | Sprint projected finish | `projected_finish_date` | `GET /sprints/{id}/burndown/` | `as_of` | Today plus the remaining points divided by the points burned per elapsed sprint day so far; null when nothing has burned yet or nothing remains. |
 | My Work ship date | `signals.forecast.p80_finish` | `GET /projects/{id}/monte-carlo/latest/`, echoed by `GET /me/work/` | the driving project's `last_run_at`, as `signals.forecast.as_of` | The latest P80 finish among your member projects that are not drafts, each read from that project's latest Monte Carlo result: the same date its forecast endpoint serves. |
 
+## Program rollup
+
+One program's figures are owned by `GET /programs/{id}/rollup/`. It reads the
+program's own projects only, never several programs. The response carries
+`as_of` and a `definitions` map like the project endpoints. `definitions` always
+holds `program_health`, plus one sentence for each KPI the program has turned on,
+keyed by the KPI's name.
+
+| Metric | Field | Owner | As of | Definition |
+|---|---|---|---|---|
+| Program health | `program_health` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's schedule performance band (the SPI proxy: completed planned work divided by work planned by today) combined under the program's aggregation policy, leaving out projects with nothing planned yet; unknown when none has. Not the project health band. |
+| Schedule performance (program) | `kpis.schedule_health` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's schedule performance band (the SPI proxy) combined under the program's aggregation policy, leaving out projects with nothing planned yet. The same value as program health. |
+| Milestone health | `kpis.milestone_health` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's milestone band, combined under the program's aggregation policy: critical when an incomplete milestone's forecast finish has passed, at risk when one is due within 7 calendar days, on track otherwise; projects with no milestones are left out. Not the program health band. |
+| Critical tasks (program) | `kpis.critical_tasks` | `GET /programs/{id}/rollup/` | `as_of` | Incomplete leaf tasks on the critical path, summed across the contributing projects. |
+| At-risk tasks (program) | `kpis.at_risk_tasks` | `GET /programs/{id}/rollup/` | `as_of` | Incomplete leaf tasks with 5 or fewer working days of total float, summed across the contributing projects. |
+| Risk score | `kpis.risk_score` | `GET /programs/{id}/rollup/` | `as_of` | Probability times impact of every open or mitigating risk, summed across the contributing projects. |
+| Baseline variance | `kpis.baseline_variance` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's forecast finish minus its active-baseline finish, in calendar days measured in working time, combined under the program's aggregation policy; positive means later than the baseline. |
+| Schedule variance | `kpis.schedule_variance` | `GET /programs/{id}/rollup/` | `as_of` | Each contributing project's mean lateness of completed baselined tasks (actual finish minus baselined finish, in calendar days measured in working time), combined under the program's aggregation policy; positive means late. |
+| Cost variance | `kpis.cost_variance` | `GET /programs/{id}/rollup/` | `as_of` | Earned value minus actual cost, summed across the contributing projects, in the workspace currency; negative means over budget. |
+| Budget utilization | `kpis.budget_utilization` | `GET /programs/{id}/rollup/` | `as_of` | Actual cost across the contributing projects divided by their total budget; 1.0 means the whole budget is spent. |
+| P80 completion | `kpis.p80_completion` | `GET /programs/{id}/rollup/` | `kpis.p80_completion.as_of` | The latest P80 finish among the contributing projects' own Monte Carlo forecasts. Not a joint simulation of the program, whose P80 would be this date or later. |
+
+**Program health is the schedule performance rollup, not the project health
+band.** It is the same value as the `schedule_health` KPI: each project's SPI
+band combined under the program's aggregation policy. It does not roll up the
+project health bands, because that band reads critical whenever any open leaf
+task is on the critical path, which on real schedules is nearly every project
+with open work. A program built from those bands would read Critical almost
+always. A health report filed on the program does not change this figure.
+
+**P80 completion** is the latest of the projects' own P80 finish dates. Each
+project's P80 is the one `GET /projects/{id}/monte-carlo/latest/` returns for it.
+The aggregation policy does not apply: a program finishes when its last project
+does, and an average of finish dates is not a date. The entry also carries:
+
+- `driver_project_id`: the project whose P80 is the latest.
+- `as_of`: the oldest run among the forecasts it read. The figure is only as
+  current as its oldest input.
+- `projects_without_forecast`: how many projects have no forecast with a P80.
+  They are left out, so the value is the latest P80 of the projects that have
+  one.
+
 ## Commitment
 
 The P80-versus-commitment figure compares the forecast with a commitment date.
@@ -94,6 +136,22 @@ The My Work `signals` block follows its own older rule: a card whose figure has
 no backing data is left out of `signals` rather than sent as `null`. A missing
 `signals.forecast` means none of your projects has a P80 forecast yet.
 
+On the program rollup, a KPI keeps its `value` (`null`, or `unknown` for a band)
+and gains a `reason`:
+
+- `no_projects`: the program has no contributing project. `program_health`
+  carries this as `program_health_reason`.
+- `no_planned_work`: schedule performance, when no project has work planned by
+  today. `program_health` carries this as `program_health_reason` too.
+- `no_milestones`: milestone health, when no project has a milestone.
+- `no_baseline`: the two variances, when no project has an active baseline with
+  dates.
+- `no_completed_work`: schedule variance, when no baselined task is complete yet.
+- `no_forecast`: P80 completion, when no project has a forecast with a P80.
+
+The cost KPIs keep their own reasons, described on the
+[cost model](/features/cost-model/) page.
+
 ## Who sees the commitment
 
 The forecast is readable by every project member, Viewer and up. When the
@@ -109,7 +167,6 @@ should not be read as the forecast, load or burn figures above:
 
 - A person's load across several projects, `/sprints/{id}/capacity/`, and the
   My Work `signals.utilization` figure (#4777).
-- The program rollup's metrics (#4779).
 
 Older screens that show schedule performance under the word "Health" are being
 relabeled in #4780.

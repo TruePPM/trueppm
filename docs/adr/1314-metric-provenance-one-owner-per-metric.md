@@ -231,8 +231,8 @@ percentile sampling, and a client-written definition. The P80 tooltip in
 Status: Accepted (2026-11-07, #4778). Implemented in the same change. It settles the
 #4778 half of the Consequences bullet above that left "the My Work
 `signals.forecast.p80_finish` and the sprint burn sources" for later; the #4779 half
-(program rollup) is unaffected. The rows below extend the §1 owner table. They sit
-here, not in it, so the two amendments to this ADR do not edit the same lines.
+(program rollup) is settled by the amendment that follows. The rows below extend the
+§1 owner table. They sit here, not in it, so §1 stays as it was Accepted.
 
 ### Owners
 
@@ -336,3 +336,127 @@ the published vocabulary.
 - Cost: the forecast echo is one cache `get_many` plus at most one DISTINCT ON query
   and one project-name lookup, which is constant in the number of projects. The sprint
   figures add no query.
+
+## Amendment — program rollup metrics (2026-11-07, #4779)
+
+Supersedes, for the program rollup only, the Consequences line that left "the
+program rollup's metrics (#4779)" without an owner. The Executive home renders
+`ProgramOverviewPage`, which reads these figures from the rollup, so they need the
+same three things every project figure has: an owner, a definition and an as_of.
+One program at a time. Nothing here aggregates across programs, which stays
+Enterprise (ADR-0070, ADR-0088).
+
+### Owner table
+
+| Metric | Owner | Field | as_of |
+|---|---|---|---|
+| Program health | `GET /programs/{id}/rollup/` | `program_health` (+ `program_health_reason`) | `as_of` |
+| Schedule performance (program) | rollup | `kpis.schedule_health` | `as_of` |
+| Milestone health | rollup | `kpis.milestone_health` | `as_of` |
+| Critical / at-risk tasks (program) | rollup | `kpis.critical_tasks`, `kpis.at_risk_tasks` | `as_of` |
+| Risk score | rollup | `kpis.risk_score` | `as_of` |
+| Baseline / schedule variance | rollup | `kpis.baseline_variance`, `kpis.schedule_variance` | `as_of` |
+| Cost variance / budget utilization | rollup | `kpis.cost_variance`, `kpis.budget_utilization` | `as_of` |
+| P80 completion | rollup | `kpis.p80_completion` | `kpis.p80_completion.as_of` |
+
+The payload carries `as_of` (when the server computed it) and a typed
+`definitions` map: `program_health` always, plus one sentence per enabled KPI,
+keyed by the KPI's name. The sentences live in `METRIC_DEFINITIONS` under
+`program_health` and `rollup.<kpi>`. The prefix is there because `schedule_health`
+is also a project figure with its own sentence. The metric-vocabulary page states
+each sentence once, enforced by the existing sync test.
+
+### Program health stays the SPI rollup
+
+Decision (maintainer, 2026-11-07, on #4779): `program_health` is unchanged. It is
+the SPI `schedule_health` bands rolled up under the aggregation policy, as
+ADR-0088 defines it, and it is **not** a rollup of the project health band.
+
+This amendment first proposed rolling up `compute_health_band`, so that a program
+overview and the project rows beside it could not show two health vocabularies.
+That was rejected on the data: the project band is critical whenever any
+incomplete leaf task is on the critical path, and on real CPM output every project
+with open work has a critical leaf (the longest path is never empty). Rolled up
+under the default worst-case policy, nearly every program would read Critical, so
+the figure would carry no information. The earlier example of a program "late on
+SPI yet on track" cannot arise from CPM data for the same reason, and is not a
+case this ADR relies on.
+
+The disagreement risk is handled by naming instead. The definition of
+`program_health` says it is the SPI rollup and "Not the project health band", the
+way `schedule_health` says "Not the project health band" at project level, so a
+client renders the sentence it is handed rather than its own.
+
+- `Program.health` (the program manager's filed report) does not feed the payload,
+  as before this amendment, so there is no `program_health_source`.
+- `program_health_reason` is added (rule 119): `no_projects` for an empty program,
+  `no_planned_work` when no contributing project has work planned by today, else
+  null.
+- `top_contributing_project` and the weekly program-health digest keep ranking and
+  filtering on the same SPI bands the headline reads.
+
+### P80 completion is computed
+
+`p80_completion` was deferred (`no_montecarlo_store`, #753). The store it waited
+for exists: the persisted `MonteCarloRun` (ADR-0175) plus the cache entry. The
+figure is the latest P80 among the contributing projects. Each project's P80 is
+the latest result `monte-carlo/latest/` serves: the cache entry first, then the
+newest persisted run. That way it cannot disagree with the project forecast it
+names. The read is `metric_provenance.latest_forecast_p80_by_project`, the batched
+reader the #4778 amendment above added for the My Work ship date, so the two
+echoes share one copy of the owner's order rather than each holding its own.
+
+- **Not a joint simulation.** The program finishes no earlier than its latest
+  project, so a joint P80 would be this date or later. The definition says so.
+- **Policy-independent**, like the counts. A mean of finish dates is not a
+  completion date.
+- **`as_of`** is the oldest `last_run_at` among the forecasts read, so the figure
+  is dated by its oldest input.
+- **Partial rollup.** Projects with no forecast (or none with a P80) are left
+  out. `projects_without_forecast` counts them, so a client can say the figure
+  excludes them. `driver_project_id` names the project whose P80 it is.
+- `DEFERRED_KPI_REASONS` is now empty. The config endpoint still publishes it as
+  `unavailable_kpis` for any future KPI without a source.
+
+### Not computable (rule 119)
+
+A configured KPI that cannot be computed keeps its `value` (`null`, or `unknown`
+for a band) and gains a `reason`. `available` keeps its meaning ("this KPI can be
+shown to this caller"), so the existing `available: false` reasons for cost are
+unchanged. Reasons: `no_projects`, `no_planned_work` (schedule performance),
+`no_milestones`, `no_baseline` (the variances), `no_completed_work` (schedule
+variance with a baseline but nothing baselined done) and `no_forecast` (P80).
+
+### Gates, inline
+
+- **enterprise-check:** OSS. Every figure is computed over one program's own
+  projects (`Project.program = this program`), and the program is the unit a
+  single PM runs. No figure reads another program.
+- **ai-review:** each figure an MCP client reads (`get_program_health` returns the
+  payload as is) now has a definition and an as_of it can cite. P80 completion is
+  explainable: it names its driver project, which the client can then explain with
+  that project's own forecast. Read-only, so there are no agent writes. MCP's
+  opted-out projects (ADR-0678) are excluded before any figure is computed, as
+  before.
+- **threat-model (STRIDE):** the read gate does not change. It is program
+  membership (`IsProgramMember`, 404 for others). The one new exposure is
+  information disclosure. A program member who is not a member of a project
+  learns that project's P80 date when it is the program's latest, and its id as
+  `driver_project_id`. This is the same class as the existing rollup KPIs (a
+  one-project program's schedule band is that project's band) and the program's
+  project roster, which program members already see. Accepted for the same reason
+  ADR-0088 accepted the rollup. No forecast detail beyond the one date is exposed:
+  no distribution, sensitivity or commitment. No write path, no broadcast.
+
+### Cost
+
+No extra work for `program_health`: it is the SPI pass the headline band always
+ran, and the `schedule_health` KPI now reuses that pass's result instead of
+running it a second time. P80 completion costs one `cache.get_many` and at most one
+`DISTINCT ON (project_id)` query, through the shared helper. A not-computable variance costs one `EXISTS`
+query, and only on that path. The query count does not
+grow with the number of projects. A test pins this.
+
+Implementation: `program_rollup.py` (`p80_completion_entry`,
+`_kpi_entries`, `_variance_entry`), `ProgramRollupSerializer`, tests in
+`tests/apps/projects/test_program_rollup_provenance.py`.

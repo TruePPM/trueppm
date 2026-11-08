@@ -9,6 +9,7 @@ import { SampleDataBanner } from './SampleDataBanner';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
+import { fmtUtcLong } from '@/lib/formatUtcDate';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
@@ -25,19 +26,27 @@ type AggregationPolicy = 'worst' | 'average' | 'weighted_by_budget' | 'task_weig
 /**
  * A built KPI: value present (may be null when there is no data yet). `unit` is
  * `calendar_days` for the day variances, the workspace ISO-4217 code for
- * `cost_variance` (whose value is a decimal string), and `ratio` for
- * `budget_utilization` (ADR-1324).
+ * `cost_variance` (whose value is a decimal string), `ratio` for
+ * `budget_utilization` (ADR-1324), and `date` for `p80_completion` (an ISO date).
+ * A null value, or `unknown` for a band, carries the server's `reason` (rule 119,
+ * ADR-1314); `as_of` / `driver_project_id` / `projects_without_forecast` are
+ * `p80_completion` only (#4779).
  */
 interface AvailableKpi {
   available: true;
   value: string | number | null;
   unit?: string;
+  reason?: string;
   projects_without_budget?: number;
   missing_rate_count?: number;
+  as_of?: string | null;
+  driver_project_id?: string | null;
+  projects_without_forecast?: number;
 }
 
 /**
- * A KPI with no value: not built yet (#753), missing per-project cost data
+ * A KPI with no value: not built yet (none today; `no_montecarlo_store` is the
+ * pre-#4779 server's reason for `p80_completion`), missing per-project cost data
  * (`no_budget` / `missing_rates`), or hidden from a caller below program Admin
  * (`cost_restricted`, ADR-1324 §4).
  */
@@ -60,8 +69,14 @@ export interface ProgramRollup {
    */
   policy_unavailable_reason?: 'no_budget' | 'cost_restricted' | null;
   project_count: number;
+  /** The SPI schedule-health rollup under the aggregation policy (ADR-0088, ADR-1314). */
   program_health: HealthBand;
+  program_health_reason?: 'no_projects' | 'no_planned_work' | null;
   kpis: Record<string, RollupKpiEntry>;
+  /** When the server computed the payload; `p80_completion` carries its own. */
+  as_of?: string;
+  /** One server sentence per figure, keyed by `program_health` and KPI name. */
+  definitions?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +128,22 @@ const DEFERRED_REASON_LABEL: Record<UnavailableKpi['reason'], string> = {
   missing_rates: 'Needs a rate for everyone on the project',
   cost_restricted: 'Restricted to managers of every project',
 };
+
+// Plain-language copy for the rule-119 `reason` a figure carries when its value is
+// null (or a band is `unknown`). Unknown codes fall back to a generic line rather
+// than printing the machine string.
+const NO_VALUE_REASON_LABEL: Record<string, string> = {
+  no_projects: 'No projects in this program',
+  no_planned_work: 'No work planned yet',
+  no_milestones: 'No milestones yet',
+  no_baseline: 'Needs an active baseline',
+  no_completed_work: 'No baselined work complete yet',
+  no_forecast: 'No project has a forecast yet',
+};
+
+export function noValueReason(reason: string | undefined): string | undefined {
+  return reason === undefined ? undefined : (NO_VALUE_REASON_LABEL[reason] ?? 'No data yet');
+}
 
 /** The reason line, naming how much is missing when the server says (ADR-1324 §3). */
 function unavailableSub(entry: UnavailableKpi): string {
@@ -284,12 +315,46 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
 
   if (HEALTH_KPIS.has(key)) {
     const band = (entry.value as HealthBand) ?? 'unknown';
-    return { key, label, value: HEALTH_LABEL[band], variant: HEALTH_VARIANT[band], muted: false };
+    return {
+      key,
+      label,
+      value: HEALTH_LABEL[band],
+      sub: band === 'unknown' ? noValueReason(entry.reason) : undefined,
+      variant: HEALTH_VARIANT[band],
+      muted: false,
+    };
   }
 
   if (VARIANCE_KPIS.has(key)) {
     const { display, variant } = formatVariance(entry.value as number | null);
-    return { key, label, value: display, sub: 'vs baseline', variant, muted: false };
+    return {
+      key,
+      label,
+      value: display,
+      sub: entry.value === null ? noValueReason(entry.reason) : 'vs baseline',
+      variant,
+      muted: false,
+    };
+  }
+
+  if (entry.unit === 'date') {
+    // An ISO calendar date, formatted UTC-pinned (web-rule 189). Projects with no
+    // forecast are left out of the date by the server, so the card says so.
+    const date = typeof entry.value === 'string' ? fmtUtcLong(entry.value) : null;
+    const skipped = entry.projects_without_forecast ?? 0;
+    return {
+      key,
+      label,
+      value: date ?? '—',
+      sub:
+        date === null
+          ? noValueReason(entry.reason)
+          : skipped > 0
+            ? `excludes ${skipped} ${skipped === 1 ? 'project' : 'projects'} without a forecast`
+            : undefined,
+      variant: 'neutral',
+      muted: false,
+    };
   }
 
   if (key === 'cost_variance') {
@@ -299,7 +364,12 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       key,
       label,
       value: amount === null ? '—' : formatMoney(amount, entry.unit),
-      sub: amount === null ? undefined : amount < 0 ? 'over budget' : 'under budget',
+      sub:
+        amount === null
+          ? noValueReason(entry.reason)
+          : amount < 0
+            ? 'over budget'
+            : 'under budget',
       variant: amount !== null && amount < 0 ? 'at-risk' : 'neutral',
       muted: false,
     };
@@ -311,7 +381,7 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       key,
       label,
       value: ratio === null ? '—' : `${Math.round(ratio * 100)}%`,
-      sub: ratio === null ? undefined : 'of budget spent',
+      sub: ratio === null ? noValueReason(entry.reason) : 'of budget spent',
       variant: ratio !== null && ratio > 1 ? 'at-risk' : 'neutral',
       muted: false,
     };
@@ -324,6 +394,7 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
     key,
     label,
     value: num === null ? '—' : String(num),
+    sub: num === null ? noValueReason(entry.reason) : undefined,
     variant: isAttentionKpi && (num ?? 0) > 0 ? 'at-risk' : 'neutral',
     muted: false,
   };
@@ -404,6 +475,8 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
 
   const projects = `${rollup.project_count} project${rollup.project_count === 1 ? '' : 's'}`;
   const subtitle = `${POLICY_LABEL[rollup.aggregation_policy]} across ${projects}`;
+  const unknownReason =
+    band === 'unknown' ? noValueReason(rollup.program_health_reason ?? undefined) : undefined;
 
   return (
     <div className="flex flex-col gap-1 pb-2 border-b border-neutral-border">
@@ -417,6 +490,7 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
         <span className="text-xs text-neutral-text-secondary">{subtitle}</span>
       </div>
       {/* Rule 169 (#3477): readable prose uses `-secondary`, never `-disabled`. */}
+      {unknownReason && <p className="text-xs text-neutral-text-secondary">{unknownReason}</p>}
       {!rollup.policy_available && (
         <p className="text-xs text-neutral-text-secondary">
           {rollup.policy_unavailable_reason === 'no_budget'
@@ -435,8 +509,9 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
 /**
  * Landing page for a program (/programs/:programId). Renders the computed
  * rollup of the enabled KPIs (ADR-0088, #713): a program health hero plus a
- * KPI strip. Deferred KPIs (cost/EVM #754, Monte Carlo store #753) appear muted
- * with the reason rather than hidden, so a PM sees why a toggled KPI is blank.
+ * KPI strip. A KPI that is hidden from the caller or lacks per-project data
+ * (the cost KPIs), or has no value yet, appears with the server's reason rather
+ * than hidden, so a PM sees why a toggled KPI is blank (rule 119, ADR-1314).
  */
 export function ProgramOverviewPage() {
   const programId = useProgramId();

@@ -278,9 +278,10 @@ locked, the switch stays available to turn **off** so you can clear it, and the
 overview shows a dash with the reason instead of a number.
 
 :::note[Ships in 0.5]
-When 0.5 lands, **Cost variance (CV)** and **Budget utilization** are no longer
-locked: they compute from the [cost model](/features/cost-model/) (project
-budgets and resource rates), and only **P80 date** stays locked. A cost KPI
+When 0.5 lands, no signal is locked. **Cost variance (CV)** and **Budget
+utilization** compute from the [cost model](/features/cost-model/) (project
+budgets and resource rates), and **P80 date** computes from each project's
+latest Monte Carlo forecast (the latest of their P80 dates). A cost KPI
 that cannot compute names what is missing instead (a project with no budget,
 or people with no rate), and shows a value only to someone who is Program
 Manager or above on the program **and** Project Manager or above on every

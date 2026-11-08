@@ -5,11 +5,25 @@ Reads the per-program rollup config shipped by #527 (``rollup_enabled_kpis`` +
 rolled-up KPI values across the program's *own* projects. Intra-program only —
 cross-program aggregation is Enterprise (ADR-0070).
 
-Design (ADR-0088):
+Design (ADR-0088, amended by ADR-1314 for #4779):
 
-- **9 KPIs are computable.** ``p80_completion`` is deferred to a persistent Monte
-  Carlo store (#753) and returns ``{"available": False, "reason": ...}`` so the UI can
-  explain *why* a toggled KPI shows nothing rather than fabricating a zero.
+- **Every figure has one definition and an as_of (ADR-1314).** The payload carries
+  ``as_of`` (when it was computed) and a ``definitions`` map with one sentence per
+  figure it carries, from :data:`~.metric_provenance.METRIC_DEFINITIONS`. A figure
+  that is configured but cannot be computed keeps its ``value`` (null, or
+  ``unknown`` for a band) and gains a machine ``reason`` — never omitted (rule 119).
+- **``program_health`` is the SPI ``schedule_health`` rollup (ADR-0088).** Each
+  contributing project's schedule performance band (the SPI proxy) combined under
+  the aggregation policy. It is deliberately NOT a rollup of the project health
+  band (``views.compute_health_band``): that band reads critical whenever any open
+  leaf sits on the critical path, which on real CPM data is nearly every project
+  with open work, so rolling it up would read Critical for nearly every program.
+  ``Program.health`` (the manager's filed report) does not feed this payload, as
+  before #4779.
+- **``p80_completion``** is the latest P80 among the contributing projects' own
+  forecasts, read from the same latest result ``monte-carlo/latest/`` serves (the
+  cache entry, else the newest persisted run). Policy-independent: a program
+  finishes when its last project does, and a mean of finish dates is no date.
 - **Cost KPIs (ADR-1324, #754).** ``cost_variance`` / ``budget_utilization`` come from
   :func:`~trueppm_api.apps.projects.cost.project_cost_facts` as program totals (Σ CV,
   ΣAC / ΣBAC). They are unavailable with an actionable reason (``no_budget`` /
@@ -39,13 +53,14 @@ async side effects (ADR-0088 Durable Execution: all N/A).
 from __future__ import annotations
 
 import datetime
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import Any
 
 from django.db.models import BooleanField, Count, F, Max, Q, Sum
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
+from trueppm_api.apps.projects.metric_provenance import METRIC_DEFINITIONS
 from trueppm_api.apps.projects.models import (
     AggregationPolicy,
     Baseline,
@@ -68,11 +83,24 @@ from trueppm_api.apps.projects.models import (
 # the settings picker offered all ten toggles as if they were live, so enabling
 # one of these saved a config that could never render — a control that lies.
 # The two cost KPIs left this map with the cost model (#754, ADR-1324; #3426):
-# they now compute, or name the per-project data that is missing. When #753
-# (Monte Carlo store) lands, deleting the last entry lights that toggle up too.
-DEFERRED_KPI_REASONS = {
-    RollupKpi.P80_COMPLETION.value: "no_montecarlo_store",
-}
+# they now compute, or name the per-project data that is missing. ``p80_completion``
+# left it with #4779: the persisted ``MonteCarloRun`` (ADR-0175) plus the cache entry
+# are the store it waited on. Kept (empty) because the config endpoint publishes it
+# and a future KPI without a source belongs here, not in a client list.
+DEFERRED_KPI_REASONS: dict[str, str] = {}
+
+# Why a configured figure has no value (rule 119, ADR-1314). Stable strings: the web
+# layer and MCP clients branch on them.
+REASON_NO_PROJECTS = "no_projects"  # the program has no contributing project
+REASON_NO_PLANNED_WORK = "no_planned_work"  # no project has work planned by today
+REASON_NO_MILESTONES = "no_milestones"  # no project has a milestone task
+REASON_NO_BASELINE = "no_baseline"  # no project has an active baseline with dates
+REASON_NO_COMPLETED_WORK = "no_completed_work"  # baselines exist, nothing baselined is done
+REASON_NO_FORECAST = "no_forecast"  # no project has a Monte Carlo forecast with a P80
+
+#: Each rollup KPI's key in METRIC_DEFINITIONS. Namespaced because two of the KPI
+#: names (``schedule_health``) are also project-level figures with their own sentence.
+ROLLUP_DEFINITION_KEY: dict[str, str] = {kpi.value: f"rollup.{kpi.value}" for kpi in RollupKpi}
 
 _COST_KPIS = frozenset({RollupKpi.COST_VARIANCE.value, RollupKpi.BUDGET_UTILIZATION.value})
 
@@ -101,8 +129,10 @@ def compute_program_rollup(
     ``kpis`` map keyed by the program's enabled :class:`RollupKpi` values. Each
     entry is either ``{"available": True, "value": ..., ["unit": ...]}`` (value
     may be ``None`` when a built KPI has no data yet, e.g. no active baseline) or
-    ``{"available": False, "reason": ...}`` for a KPI whose per-project source is
-    not built yet (#753) or cannot be computed from the program's data.
+    ``{"available": False, "reason": ...}`` for a KPI hidden from the caller or
+    missing per-project data (the cost KPIs). A configured figure with no value keeps
+    its null (``unknown`` for a band) and carries a rule-119 ``reason``. The payload
+    also carries ``as_of`` and a ``definitions`` map (ADR-1314, #4779).
 
     ``cost_viewer`` is the user the cost KPIs are computed for, passed only once the
     caller has established they are program Admin+ (ADR-1324 §4). A value is returned
@@ -116,9 +146,10 @@ def compute_program_rollup(
     "cost_restricted"`` (see :func:`_policy_weights`). The weekly digest passes no
     ``cost_viewer``, so its health dot for a budget-weighted program is the average.
 
-    Pure read: deterministic for a given DB state, no writes, safe to call on
-    every GET.
+    Pure read: deterministic for a given DB state (and Monte Carlo cache), no
+    writes, safe to call on every GET.
     """
+    as_of = timezone.now()
     today = timezone.localdate()
     policy = program.rollup_aggregation_policy or AggregationPolicy.WORST.value
     enabled = list(program.rollup_enabled_kpis or [])
@@ -150,60 +181,28 @@ def compute_program_rollup(
     cost_kpis = _cost_kpis(enabled, project_ids, sees_cost=sees_cost)
 
     # schedule_health per project is always needed: it is both a KPI and the
-    # source of the headline program health dot (drives Program.health=AUTO).
+    # source of the headline program health dot (ADR-0088). Also drives the weekly
+    # program-health digest.
     schedule_health_by_project = _schedule_health_by_project(project_ids, today)
     program_health = _reduce_health(
         list(schedule_health_by_project.values()), effective_policy, task_weights, project_ids
     )
 
-    kpis: dict[str, dict[str, Any]] = {}
-    for kpi in enabled:
-        if kpi in DEFERRED_KPI_REASONS:
-            kpis[kpi] = {"available": False, "reason": DEFERRED_KPI_REASONS[kpi]}
-        elif kpi in cost_kpis:
-            kpis[kpi] = cost_kpis[kpi]
-        elif kpi == RollupKpi.SCHEDULE_HEALTH.value:
-            kpis[kpi] = {
-                "available": True,
-                "value": _reduce_health(
-                    list(schedule_health_by_project.values()),
-                    effective_policy,
-                    task_weights,
-                    project_ids,
-                ),
-            }
-        elif kpi == RollupKpi.MILESTONE_HEALTH.value:
-            bands = list(_milestone_health_by_project(project_ids, today).values())
-            kpis[kpi] = {
-                "available": True,
-                "value": _reduce_health(bands, effective_policy, task_weights, project_ids),
-            }
-        elif kpi == RollupKpi.CRITICAL_TASKS.value:
-            kpis[kpi] = {"available": True, "value": _critical_task_total(project_ids)}
-        elif kpi == RollupKpi.AT_RISK_TASKS.value:
-            kpis[kpi] = {"available": True, "value": _at_risk_task_total(project_ids)}
-        elif kpi == RollupKpi.RISK_SCORE.value:
-            kpis[kpi] = {"available": True, "value": _risk_score_total(project_ids)}
-        elif kpi == RollupKpi.BASELINE_VARIANCE.value:
-            kpis[kpi] = {
-                "available": True,
-                "unit": "calendar_days",
-                "value": _reduce_variance(
-                    _baseline_variance_by_project(project_ids),
-                    effective_policy,
-                    task_weights,
-                ),
-            }
-        elif kpi == RollupKpi.SCHEDULE_VARIANCE.value:
-            kpis[kpi] = {
-                "available": True,
-                "unit": "calendar_days",
-                "value": _reduce_variance(
-                    _schedule_variance_by_project(project_ids),
-                    effective_policy,
-                    task_weights,
-                ),
-            }
+    kpis = _kpi_entries(
+        enabled,
+        project_ids,
+        today=today,
+        policy=effective_policy,
+        weights=task_weights,
+        cost_kpis=cost_kpis,
+        schedule_bands=schedule_health_by_project,
+    )
+
+    definitions = {"program_health": METRIC_DEFINITIONS["program_health"]}
+    for kpi in kpis:
+        key = ROLLUP_DEFINITION_KEY.get(kpi)
+        if key is not None:
+            definitions[kpi] = METRIC_DEFINITIONS[key]
 
     return {
         "aggregation_policy": policy,
@@ -211,8 +210,172 @@ def compute_program_rollup(
         "policy_unavailable_reason": policy_unavailable_reason,
         "project_count": len(project_ids),
         "program_health": program_health,
+        # An unknown band says why (rule 119): no projects, or none has work planned.
+        "program_health_reason": (
+            None
+            if program_health != "unknown"
+            else (REASON_NO_PROJECTS if not project_ids else REASON_NO_PLANNED_WORK)
+        ),
         "kpis": kpis,
+        "as_of": as_of.isoformat(),
+        "definitions": definitions,
     }
+
+
+def _kpi_entries(
+    enabled: list[str],
+    project_ids: list[Any],
+    *,
+    today: datetime.date,
+    policy: str,
+    weights: dict[Any, float],
+    cost_kpis: dict[str, dict[str, Any]],
+    schedule_bands: dict[Any, str],
+) -> dict[str, dict[str, Any]]:
+    """One entry per enabled KPI, in config order; only the enabled ones are computed.
+
+    A figure that is configured but has no value keeps its ``value`` (null, or
+    ``unknown`` for a band) and carries a ``reason`` (rule 119, ADR-1314).
+    """
+
+    def band_entry(bands: dict[Any, str], reason_if_unknown: str) -> dict[str, Any]:
+        value = _reduce_health([bands[pid] for pid in project_ids], policy, weights, project_ids)
+        entry: dict[str, Any] = {"available": True, "value": value}
+        if value == "unknown":
+            entry["reason"] = REASON_NO_PROJECTS if not project_ids else reason_if_unknown
+        return entry
+
+    builders: dict[str, Callable[[], dict[str, Any]]] = {
+        # The same per-project bands the headline program_health reduced: one SPI
+        # pass serves both.
+        RollupKpi.SCHEDULE_HEALTH.value: lambda: band_entry(schedule_bands, REASON_NO_PLANNED_WORK),
+        RollupKpi.MILESTONE_HEALTH.value: lambda: band_entry(
+            _milestone_health_by_project(project_ids, today), REASON_NO_MILESTONES
+        ),
+        RollupKpi.CRITICAL_TASKS.value: lambda: {
+            "available": True,
+            "value": _critical_task_total(project_ids),
+        },
+        RollupKpi.AT_RISK_TASKS.value: lambda: {
+            "available": True,
+            "value": _at_risk_task_total(project_ids),
+        },
+        RollupKpi.RISK_SCORE.value: lambda: {
+            "available": True,
+            "value": _risk_score_total(project_ids),
+        },
+        RollupKpi.BASELINE_VARIANCE.value: lambda: _variance_entry(
+            _reduce_variance(_baseline_variance_by_project(project_ids), policy, weights),
+            project_ids,
+            completed_work_matters=False,
+        ),
+        RollupKpi.SCHEDULE_VARIANCE.value: lambda: _variance_entry(
+            _reduce_variance(_schedule_variance_by_project(project_ids), policy, weights),
+            project_ids,
+            completed_work_matters=True,
+        ),
+        RollupKpi.P80_COMPLETION.value: lambda: p80_completion_entry(project_ids),
+    }
+
+    kpis: dict[str, dict[str, Any]] = {}
+    for kpi in enabled:
+        if kpi in DEFERRED_KPI_REASONS:
+            kpis[kpi] = {"available": False, "reason": DEFERRED_KPI_REASONS[kpi]}
+        elif kpi in cost_kpis:
+            kpis[kpi] = cost_kpis[kpi]
+        elif kpi in builders:
+            kpis[kpi] = builders[kpi]()
+
+    # Rule 119 backstop: a configured figure with no value on an empty program says
+    # so (the cost totals return a null value with no reason for that case).
+    if not project_ids:
+        for entry in kpis.values():
+            if entry.get("available") and entry.get("value") is None and "reason" not in entry:
+                entry["reason"] = REASON_NO_PROJECTS
+    return kpis
+
+
+def _variance_entry(
+    value: float | None, project_ids: list[Any], *, completed_work_matters: bool
+) -> dict[str, Any]:
+    """A day-variance KPI entry, with the rule-119 reason when it has no value.
+
+    The reason costs one indexed query, run only on the null path: whether any
+    contributing project has an active baseline with dates. Without one the
+    comparison has no basis (``no_baseline``); with one, a null schedule variance
+    means no baselined task is complete yet (``no_completed_work``).
+    """
+    entry: dict[str, Any] = {"available": True, "unit": "calendar_days", "value": value}
+    if value is not None:
+        return entry
+    if not project_ids:
+        entry["reason"] = REASON_NO_PROJECTS
+        return entry
+    has_baseline = Baseline.objects.filter(
+        project_id__in=project_ids, is_active=True, is_deleted=False, has_cpm_dates=True
+    ).exists()
+    entry["reason"] = (
+        REASON_NO_COMPLETED_WORK if has_baseline and completed_work_matters else REASON_NO_BASELINE
+    )
+    return entry
+
+
+def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
+    """The ``p80_completion`` KPI: the latest project P80 across the program.
+
+    Each project's P80 is the latest result ``GET /projects/{id}/monte-carlo/latest/``
+    serves — the cache entry first, the newest persisted ``MonteCarloRun`` after its
+    TTL — so the program figure cannot disagree with the project forecast it names
+    (ADR-1314). A Member-triggered run refreshes only the cache (#1502), which is why
+    the cache is read at all.
+
+    The latest of the per-project P80s, not a joint simulation: the program finishes
+    no earlier than its latest project, so a joint P80 would be this date or later.
+    The policy does not apply — a mean of finish dates is not a completion date.
+
+    ``as_of`` is the OLDEST ``last_run_at`` among the forecasts read: the figure is
+    only as current as its stalest input. ``projects_without_forecast`` counts the
+    contributing projects with no forecast (or none with a P80); they are left out
+    rather than blanking the figure, and the count is what lets a client say so.
+    Null with ``reason: no_forecast`` when no project has one (rule 119).
+
+    The per-project read is :func:`metric_provenance.latest_forecast_p80_by_project`,
+    the batched reader My Work's ship date also uses, so the rollup cannot read the
+    owner's order differently from it. Fixed cost: one ``get_many`` cache read and at
+    most one ``DISTINCT ON`` query.
+    """
+    from trueppm_api.apps.projects.metric_provenance import latest_forecast_p80_by_project
+
+    entry: dict[str, Any] = {
+        "available": True,
+        "unit": "date",
+        "value": None,
+        "as_of": None,
+        "driver_project_id": None,
+        "projects_without_forecast": len(project_ids),
+    }
+    if not project_ids:
+        entry["reason"] = REASON_NO_PROJECTS
+        return entry
+
+    latest = latest_forecast_p80_by_project(project_ids)
+    # Every entry the helper returns has a P80 and a last_run_at: the only cache
+    # writer, ``scheduling.views.run_monte_carlo``, always sets it, and a persisted
+    # run has ``taken_at``. Parsed, because the cache and the row serialize the
+    # timestamp differently and the oldest must be found by time, not by string.
+    dated = [
+        (p80, datetime.datetime.fromisoformat(run_at), pid) for pid, (p80, run_at) in latest.items()
+    ]
+    entry["projects_without_forecast"] = len(project_ids) - len(dated)
+    if not dated:
+        entry["reason"] = REASON_NO_FORECAST
+        return entry
+    # Latest P80 first; a tie names the project deterministically (by id).
+    p80, _, driver = max(dated, key=lambda d: (d[0], d[2]))
+    entry["value"] = p80.isoformat()
+    entry["driver_project_id"] = driver
+    entry["as_of"] = min(run_at for _, run_at, _ in dated).isoformat()
+    return entry
 
 
 def _policy_weights(

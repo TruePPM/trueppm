@@ -32,19 +32,23 @@ Ten KPIs can be enabled. The page groups them into three sections for scannabili
 
 | KPI | Identifier | What it shows |
 |-----|-----------|---------------|
-| Schedule health | `schedule_health` | Rollup of the schedule health band of each project (not the manual project health report), combined by the aggregation policy |
-| Schedule variance (SV) | `schedule_variance` | Earned-value schedule variance vs. the saved baseline (negative = behind plan) |
-| Baseline variance | `baseline_variance` | Aggregate schedule and cost variance vs. the most recent saved baseline |
-| Critical task count | `critical_tasks` | Total tasks on the critical path across all projects in the program |
-| Milestone health | `milestone_health` | Share of program milestones on track vs. slipped past their planned date |
+| Schedule health | `schedule_health` | Each project's schedule performance band (the SPI proxy), combined by the aggregation policy. The same value as the program health dot |
+| Schedule variance (SV) | `schedule_variance` | Each project's mean lateness of completed baselined tasks, in days, combined by the aggregation policy (positive = late) |
+| Baseline variance | `baseline_variance` | Each project's forecast finish minus its active-baseline finish, in days, combined by the aggregation policy (positive = later than the baseline) |
+| Critical task count | `critical_tasks` | Incomplete tasks on the critical path, summed across the program's projects |
+| Milestone health | `milestone_health` | Each project's milestone band (critical when an open milestone's forecast finish has passed, at risk when one is due within 7 days), combined by the aggregation policy |
 
 ### Risk
 
 | KPI | Identifier | What it shows |
 |-----|-----------|---------------|
-| At-risk tasks | `at_risk_tasks` | Tasks flagged at-risk or already overdue |
-| Risk score | `risk_score` | Weighted mean of open risk scores (probability × impact) across the risk register |
-| P80 completion date | `p80_completion` | Monte Carlo P80 — the date by which 80% of simulated outcomes complete |
+| At-risk tasks | `at_risk_tasks` | Incomplete tasks with 5 or fewer working days of float, summed across the program's projects |
+| Risk score | `risk_score` | Probability × impact of every open or mitigating risk, summed across the program's projects |
+| P80 completion date | `p80_completion` | The latest P80 finish among the projects' own Monte Carlo forecasts |
+
+The exact definition of each KPI, and what the API returns when one cannot be
+computed, are on the [metric vocabulary](/features/metric-vocabulary/#program-rollup)
+page. The rollup response carries the same sentences in its `definitions` map.
 
 ### Cost
 
@@ -63,15 +67,20 @@ Only enabled KPIs appear on the program overview and its rollup tiles. KPI toggl
 
 ### KPIs that are not available yet
 
-One of the KPIs above has no backing data source yet and is **shown but locked** in the picker:
+:::note[Ships in 0.5]
+When 0.5 lands, every KPI will have a source and none will be locked. **P80
+completion date** will compute from each project's latest Monte Carlo forecast:
+the latest of those P80 dates, naming the project that sets it, dated by the
+oldest forecast it read. Projects without a forecast will be left out and counted.
+In the current release it is locked with the reason `no_montecarlo_store`
+("needs stored Monte Carlo runs").
+:::
 
-| KPI | Locked because | Reason code |
-|-----|----------------|-------------|
-| P80 completion date | Needs stored Monte Carlo runs | `no_montecarlo_store` |
-
-Their switches cannot be turned **on** — enabling one would save a KPI that could never render a value. Each row states why, and `GET /api/v1/programs/{id}/rollup-config/` returns the same set as `unavailable_kpis` (an identifier → reason-code map) so any API client can render the same explanation instead of hard-coding the list. The map is empty once every KPI has a source.
+A KPI with no backing data source is **shown but locked** in the picker. Its switch cannot be turned **on** — enabling one would save a KPI that could never render a value. Each row states why, and `GET /api/v1/programs/{id}/rollup-config/` returns the same set as `unavailable_kpis` (an identifier → reason-code map) so any API client can render the same explanation instead of hard-coding the list. The map is empty once every KPI has a source.
 
 A KPI that is already enabled — because it was switched on earlier, or because the methodology defaults below seeded it — stays switchable **off** so you can clear it. Until you do, the overview shows a dash with the reason rather than a fabricated number: `GET /rollup/` returns `{"available": false, "reason": "..."}` for it.
+
+An enabled KPI that has a source but no data yet (no baseline for the variances, no forecast for P80 completion) keeps its place in the response with a `null` value, or `unknown` for a band, and a `reason` saying what is missing.
 
 The methodology defaults deliberately still seed these KPIs where they fit the methodology. That is forward-looking rather than an oversight: the intent ("this program should show cost variance") is recorded now, and the tile starts rendering on its own once the backing data lands — no settings change and no migration.
 
@@ -91,7 +100,7 @@ Defaults are a starting point. Once seeded, the config is yours: changing the pr
 
 ## Health aggregation policy
 
-The aggregation policy decides how the individual project health signals combine into the **one** program health dot shown on the overview. It is a single program-wide choice (a radio group), not a per-KPI setting. Because it changes what executives see at a glance, this control uses an **explicit Save** with an "Unsaved changes" prompt rather than saving on every click.
+The aggregation policy decides how the individual project health signals combine into the **one** program health dot shown on the overview. That dot is the rollup of each project's schedule performance band, the same value as the Schedule health KPI; it is not a rollup of the project health chips. It is a single program-wide choice (a radio group), not a per-KPI setting. Because it changes what executives see at a glance, this control uses an **explicit Save** with an "Unsaved changes" prompt rather than saving on every click.
 
 | Policy | Identifier | How project health combines |
 |--------|-----------|------------------------------|

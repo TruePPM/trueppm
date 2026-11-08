@@ -3192,10 +3192,10 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
             "type": "object",
             "additionalProperties": {"type": "string"},
             "description": (
-                "KPI identifier → stable machine reason it cannot produce a value yet "
-                "(e.g. no_montecarlo_store). Same reason strings the "
-                "/rollup/ response returns for a deferred KPI. Empty once every KPI "
-                "has a backing source."
+                "KPI identifier → stable machine reason it has no backing source. "
+                "Same reason strings the /rollup/ response returns for a deferred "
+                "KPI. Empty since every KPI has a source (p80_completion computes "
+                "from #4779)."
             ),
         }
     )
@@ -3241,11 +3241,12 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
     """One entry of the ``kpis`` map in :func:`compute_program_rollup` (ADR-0088, #3652).
 
     Shape depends on ``available``: an available KPI carries ``value`` (and
-    ``unit`` for the two day-variance KPIs); a deferred one carries ``reason``
-    instead. Both extra fields are ``required=False`` because only one branch's
-    keys are ever present on a given entry — declaring both keeps the schema a
-    real object (unlike the ``{"type": "object"}`` this replaces) without
-    inventing values the deferred branch never sends.
+    ``unit`` for the day variances, the cost KPIs and ``p80_completion``); an
+    unavailable one carries ``reason`` instead. An available KPI whose value is
+    null or ``unknown`` carries a ``reason`` too (rule 119, ADR-1314). The extra
+    fields are ``required=False`` because only some are present on a given entry —
+    declaring them keeps the schema a real object (unlike the ``{"type": "object"}``
+    this replaces) without inventing values a branch never sends.
     """
 
     available = serializers.BooleanField(read_only=True)
@@ -3256,24 +3257,100 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
         help_text=(
             "calendar_days for the two day-variance KPIs; the workspace ISO-4217 "
             "currency code for cost_variance (whose value is a decimal string); "
-            "ratio for budget_utilization (1.0 = whole budget spent)."
+            "ratio for budget_utilization (1.0 = whole budget spent); date for "
+            "p80_completion (whose value is an ISO-8601 date)."
         ),
     )
     reason = serializers.CharField(
         read_only=True,
         required=False,
         help_text=(
-            "Why the KPI has no value: no_montecarlo_store (not built yet), "
+            "Why the KPI has no value. On an unavailable entry (available false): "
             "no_budget (a contributing project has no budget), missing_rates "
             "(someone in scope has no rate), or cost_restricted (the caller is not "
             "program Admin+ and project Admin+ on every contributing project, so "
-            "may not see cost). ADR-1324."
+            "may not see cost; ADR-1324). On an available entry whose value is null "
+            "or unknown (rule 119, ADR-1314): no_projects (no contributing project), "
+            "no_planned_work (schedule_health: no project has work planned by today), "
+            "no_milestones (milestone_health), no_baseline (the day variances: no "
+            "project has an active baseline with dates), no_completed_work "
+            "(schedule_variance: no baselined task is complete yet), or no_forecast "
+            "(p80_completion: no project has a Monte Carlo forecast with a P80)."
         ),
     )
     # Cost-KPI detail (ADR-1324 §3) — present on cost_variance / budget_utilization
     # whenever the caller may see cost, so a reason names how much is missing.
     projects_without_budget = serializers.IntegerField(read_only=True, required=False)
     missing_rate_count = serializers.IntegerField(read_only=True, required=False)
+    # p80_completion detail (ADR-1314 amendment, #4779).
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "p80_completion only: the oldest last_run_at among the project forecasts "
+            "it read, so the figure is dated by its stalest input; null with no value."
+        ),
+    )
+    driver_project_id = serializers.UUIDField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text="p80_completion only: the project whose P80 is the program's latest.",
+    )
+    projects_without_forecast = serializers.IntegerField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "p80_completion only: contributing projects with no forecast carrying a "
+            "P80. They are left out of the value, which is then the latest P80 of the "
+            "projects that have one."
+        ),
+    )
+
+
+class ProgramRollupDefinitionsSerializer(serializers.Serializer[dict[str, str]]):
+    """The rollup's ``definitions`` map (ADR-1314 amendment, #4779).
+
+    ``program_health`` is always defined; each KPI key is present only while that
+    KPI is enabled, which is why those fields are not required. Typed rather than a
+    free-form object so the e2e schema guard and generated clients know the keys.
+    """
+
+    program_health = serializers.CharField(
+        read_only=True, help_text=METRIC_DEFINITIONS["program_health"]
+    )
+
+    schedule_variance = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.schedule_variance"]
+    )
+    cost_variance = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.cost_variance"]
+    )
+    budget_utilization = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.budget_utilization"]
+    )
+    schedule_health = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.schedule_health"]
+    )
+    critical_tasks = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.critical_tasks"]
+    )
+    at_risk_tasks = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.at_risk_tasks"]
+    )
+    baseline_variance = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.baseline_variance"]
+    )
+    milestone_health = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.milestone_health"]
+    )
+    risk_score = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.risk_score"]
+    )
+    p80_completion = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.p80_completion"]
+    )
 
 
 class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
@@ -3297,8 +3374,28 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
         ),
     )
     project_count = serializers.IntegerField(read_only=True)
-    program_health = serializers.CharField(read_only=True)
+    program_health = serializers.ChoiceField(
+        choices=["on_track", "at_risk", "critical", "unknown"],
+        read_only=True,
+        help_text=METRIC_DEFINITIONS["program_health"],
+    )
+    program_health_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why program_health is unknown (rule 119): no_projects, or no_planned_work "
+            "when no contributing project has work planned by today; else null."
+        ),
+    )
     kpis = serializers.DictField(child=ProgramRollupKpiEntrySerializer(), read_only=True)
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When the server computed this payload (ADR-1314). Every figure here is "
+            "read live at that moment, except p80_completion, which carries its own."
+        ),
+    )
+    definitions = ProgramRollupDefinitionsSerializer(read_only=True)
 
 
 class ProgramScheduleLaneSerializer(serializers.Serializer[dict[str, Any]]):

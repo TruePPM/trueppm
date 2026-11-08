@@ -44,28 +44,32 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'schedule_health',
         label: 'Schedule health',
-        description: 'Rollup of the schedule health band of each project (not the manual project health report), combined by the aggregation policy.',
+        description:
+          'Each project\'s schedule performance band (the SPI proxy), combined by the aggregation policy. The same value as program health.',
       },
       {
         id: 'schedule_variance',
         label: 'Schedule variance (SV)',
         description:
-          'Earned-value schedule variance vs. the saved baseline. Negative = behind plan.',
+          'Each project\'s mean lateness of completed baselined tasks, in days, combined by the aggregation policy. Positive = late.',
       },
       {
         id: 'baseline_variance',
         label: 'Baseline variance',
-        description: 'Aggregate schedule and cost variance vs. the most recent saved baseline.',
+        description:
+          'Each project\'s forecast finish minus its active-baseline finish, in days, combined by the aggregation policy. Positive = later than the baseline.',
       },
       {
         id: 'critical_tasks',
         label: 'Critical task count',
-        description: 'Total tasks on the critical path across all projects in the program.',
+        description:
+          'Incomplete tasks on the critical path, summed across the program\'s projects.',
       },
       {
         id: 'milestone_health',
         label: 'Milestone health',
-        description: 'Share of program milestones on track vs. slipped past their planned date.',
+        description:
+          'Each project\'s milestone band (critical when an open milestone\'s forecast finish has passed, at risk when one is due within 7 days), combined by the aggregation policy.',
       },
     ],
   },
@@ -75,18 +79,20 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'at_risk_tasks',
         label: 'At-risk tasks',
-        description: 'Tasks flagged at-risk or already overdue.',
+        description:
+          'Incomplete tasks with 5 or fewer working days of float, summed across the program\'s projects.',
       },
       {
         id: 'risk_score',
         label: 'Risk score',
         description:
-          'Weighted mean of open risk scores (probability × impact) across the risk register.',
+          'Probability × impact of every open or mitigating risk, summed across the program\'s projects.',
       },
       {
         id: 'p80_completion',
         label: 'P80 completion date',
-        description: 'Monte Carlo P80 — the date by which 80% of simulated outcomes complete.',
+        description:
+          'The latest P80 finish among the projects\' own Monte Carlo forecasts. Not a joint simulation of the program.',
       },
     ],
   },

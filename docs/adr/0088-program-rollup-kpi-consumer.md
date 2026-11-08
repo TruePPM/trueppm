@@ -3,6 +3,12 @@
 ## Status
 Accepted (decisions ratified by Kelly, 2026-05-25)
 
+Amended by ADR-1314 (#4779): `p80_completion` now computes from the persisted
+Monte Carlo runs plus the cache (it is no longer unavailable with
+`no_montecarlo_store`), and the payload gained `as_of`, a `definitions` map and
+rule-119 `reason`s. `program_health` is unchanged. The text below records the
+original decision and is not rewritten.
+
 ## Context
 #527 (ADR-0169) shipped the **config** for program-overview KPI rollups — two
 columns on `Program` (`rollup_enabled_kpis`, `rollup_aggregation_policy`) and the

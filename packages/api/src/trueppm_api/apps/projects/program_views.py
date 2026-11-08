@@ -3058,9 +3058,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
 
         Consumes the #527 config (``rollup_enabled_kpis`` +
         ``rollup_aggregation_policy``) and returns the rolled-up values per
-        ADR-0088 — the program health dot, the active policy (and whether it
-        could be honored), the contributing project count, and a per-KPI map
-        where deferred KPIs carry ``{"available": False, "reason": ...}``.
+        ADR-0088 — the program health band, the active policy (and whether it
+        could be honored), the contributing project count, and a per-KPI map.
+        This endpoint owns the program-level figures (ADR-1314 amendment, #4779):
+        it carries ``as_of`` and a ``definitions`` map, ``program_health`` is the
+        SPI schedule-health rollup (ADR-0088), and a
+        configured figure with no value carries a ``reason`` instead of being
+        dropped.
 
         Read-only and computed on demand (no persisted rollup row), so it always
         reflects the projects' current state. Permission: any program member.

@@ -3,9 +3,10 @@
 Covers:
 - RBAC: any program member can GET the rollup; non-members 404; anon 401.
 - Empty program → project_count 0, program_health "unknown", zero/None KPIs.
-- Only enabled KPIs appear; the deferred KPI (p80_completion) returns
-  {available: false, reason}; cost KPIs are cost_restricted for a program Member
-  (ADR-1324 — their computation is covered in test_cost.py).
+- Only enabled KPIs appear; cost KPIs are cost_restricted for a program Member
+  (ADR-1324 — their computation is covered in test_cost.py). Provenance
+  (definitions, as_of, rule-119 reasons, p80_completion) is covered in
+  test_program_rollup_provenance.py.
 - Count/score KPIs (critical_tasks, at_risk_tasks, risk_score) roll up as
   program totals regardless of policy.
 - Health/variance KPIs honor the policy: worst vs average reduce differently.
@@ -169,11 +170,17 @@ def test_empty_program_is_unknown_with_zero_kpis(member: object, program: Progra
     data = _client(member).get(_url(program)).data
     assert data["project_count"] == 0
     assert data["program_health"] == "unknown"
-    assert data["kpis"]["schedule_health"] == {"available": True, "value": "unknown"}
+    assert data["program_health_reason"] == "no_projects"
+    assert data["kpis"]["schedule_health"] == {
+        "available": True,
+        "value": "unknown",
+        "reason": "no_projects",
+    }
     assert data["kpis"]["critical_tasks"] == {"available": True, "value": 0}
-    # Variance with no baselines is built-but-no-data → value None.
+    # Variance with no baselines is built-but-no-data → value None, with a reason.
     assert data["kpis"]["baseline_variance"]["available"] is True
     assert data["kpis"]["baseline_variance"]["value"] is None
+    assert data["kpis"]["baseline_variance"]["reason"] == "no_projects"
 
 
 @pytest.mark.django_db
@@ -184,7 +191,7 @@ def test_only_enabled_kpis_appear(member: object, program: Program) -> None:
 
 
 @pytest.mark.django_db
-def test_deferred_and_restricted_kpis_are_unavailable_with_reason(
+def test_restricted_kpis_are_unavailable_and_p80_is_null_with_reason(
     member: object, program: Program
 ) -> None:
     _configure(
@@ -200,7 +207,10 @@ def test_deferred_and_restricted_kpis_are_unavailable_with_reason(
     # A program Member never receives a cost value (ADR-1324 §4).
     assert kpis["cost_variance"] == {"available": False, "reason": "cost_restricted"}
     assert kpis["budget_utilization"] == {"available": False, "reason": "cost_restricted"}
-    assert kpis["p80_completion"] == {"available": False, "reason": "no_montecarlo_store"}
+    # No longer deferred (#4779): computed, and null with a reason on an empty program.
+    assert kpis["p80_completion"]["available"] is True
+    assert kpis["p80_completion"]["value"] is None
+    assert kpis["p80_completion"]["reason"] == "no_projects"
 
 
 # ---------------------------------------------------------------------------

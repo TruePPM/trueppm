@@ -70,7 +70,6 @@ DELETE /api/v1/programs/{id}/pin/
 POST /api/v1/programs/{id}/pin/
 POST /api/v1/programs/{id}/remove-sample/
 POST /api/v1/programs/{id}/reopen/
-GET /api/v1/programs/{id}/rollup/
 GET /api/v1/programs/{id}/task-search/
 POST /api/v1/programs/{id}/transfer-sponsorship/
 GET /api/v1/programs/{program_pk}/api-token-audit/

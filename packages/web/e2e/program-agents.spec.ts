@@ -86,7 +86,7 @@ const ROLLUP = {
   policy_available: true,
   project_count: 2,
   program_health: 'at_risk',
-  kpis: { p80_completion: { available: true, value: 'Nov 2' } },
+  kpis: { p80_completion: { available: true, unit: 'date', value: '2027-11-02' } },
 };
 
 type Page = import('@playwright/test').Page;
@@ -166,7 +166,7 @@ test.describe('Program agent-oversight panel', () => {
 
     // Switch to Forecast impact — see the rollup P80 + the honest N=0 strip.
     await page.getByRole('tab', { name: 'Forecast impact' }).click();
-    await expect(page.getByText('Nov 2')).toBeVisible();
+    await expect(page.getByText(/November 2, 2027/)).toBeVisible();
     await expect(page.getByText(/No agent-completed work yet/i)).toBeVisible();
   });
 

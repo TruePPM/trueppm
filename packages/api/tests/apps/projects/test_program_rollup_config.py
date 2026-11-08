@@ -312,11 +312,11 @@ def test_get_advertises_unavailable_kpis(owner: object, hybrid_program: Program)
     """
     resp = _client(owner).get(_url(hybrid_program))
     assert resp.status_code == 200
-    # The two cost KPIs left this map with the cost model (#754/#3426, ADR-1324):
-    # they compute, or name the per-project data that is missing.
-    assert resp.data["unavailable_kpis"] == {
-        "p80_completion": "no_montecarlo_store",
-    }
+    # The two cost KPIs left this map with the cost model (#754/#3426, ADR-1324),
+    # and p80_completion with #4779 (it reads the persisted Monte Carlo runs): every
+    # KPI now computes, or names the data that is missing. The map stays published,
+    # empty, so a future KPI without a source has a server fact to land in.
+    assert resp.data["unavailable_kpis"] == {}
 
 
 @pytest.mark.django_db
@@ -334,14 +334,20 @@ def test_unavailable_kpis_matches_the_rollup_engine(owner: object, hybrid_progra
 
 @pytest.mark.django_db
 def test_unavailable_kpis_is_read_only(owner: object, hybrid_program: Program) -> None:
-    """A caller cannot mark a KPI available by PATCHing the advertisement."""
+    """A caller cannot rewrite the advertisement by PATCHing it.
+
+    The server defers no KPI since #4779, so the probe writes a non-empty map and
+    checks the response still carries the engine's (empty) one.
+    """
+    from trueppm_api.apps.projects.program_rollup import DEFERRED_KPI_REASONS
+
     resp = _client(owner).patch(
         _url(hybrid_program),
-        {"unavailable_kpis": {}},
+        {"unavailable_kpis": {"schedule_health": "no_montecarlo_store"}},
         format="json",
     )
     assert resp.status_code == 200
-    assert resp.data["unavailable_kpis"] != {}
+    assert resp.data["unavailable_kpis"] == DEFERRED_KPI_REASONS
 
 
 @pytest.mark.django_db
@@ -368,19 +374,23 @@ def test_patch_still_accepts_an_already_stored_unavailable_kpi(
 
 
 @pytest.mark.django_db
-def test_rollup_reports_stored_unavailable_kpi_as_unavailable(
+def test_rollup_reports_a_stored_p80_completion_with_a_reason(
     owner: object, hybrid_program: Program
 ) -> None:
-    """The overview keeps explaining the blank rather than fabricating a value."""
+    """A stored p80_completion explains its blank rather than fabricating a value.
+
+    It was deferred until #4779; it now computes, and an empty program has no
+    forecast to read, so the value is null with a reason (rule 119).
+    """
     hybrid_program.rollup_enabled_kpis = ["p80_completion"]
     hybrid_program.save(update_fields=["rollup_enabled_kpis"])
 
     resp = _client(owner).get(f"/api/v1/programs/{hybrid_program.pk}/rollup/")
     assert resp.status_code == 200
-    assert resp.data["kpis"]["p80_completion"] == {
-        "available": False,
-        "reason": "no_montecarlo_store",
-    }
+    entry = resp.data["kpis"]["p80_completion"]
+    assert entry["available"] is True
+    assert entry["value"] is None
+    assert entry["reason"] == "no_projects"
 
 
 # ---------------------------------------------------------------------------
