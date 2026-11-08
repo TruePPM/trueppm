@@ -312,6 +312,33 @@ subgraph spanning several projects (a program-level drag) would need the map;
 it does not exist today, and the server still reconciles on commit if one is
 ever built without it.
 
+**Every client-side working-day count uses the same calendar.** The Schedule
+resolves one value (`scheduling_calendar`, or the base mask from an older
+server) and feeds it to the drag/keyboard cascade, the resize pixel→duration
+count, the resize commit's label and no-op guard, and the keyboard nudge step
+(`resolveWorkingDayPredicate`). The server's `planned_finish` → `duration`
+derivation moved to the same composed calendar
+(`project_working_day_duration`); before, it counted on `project.calendar`'s
+mask alone while CPM laid the result on the composed calendar, so a resize
+across a holiday stored a day too many and landed past the handle. A handle
+dropped *on* a non-working day snaps **back** — that day adds nothing to the
+count, so the finish is the working day before it — on the preview, the
+popover, and the server alike. Whether it should instead consume the next
+working day is still #2562's question.
+
+**Freshness, and the residual.** The calendar rides on the project detail
+(60 s `staleTime`). The writes this client makes that can change it refetch it:
+the project's applied calendars, a program's calendar, and the workspace
+calendar or its override policy. Writes made elsewhere — another admin editing a
+shared calendar or its holidays, or a program/workspace reassignment — reach an
+open Schedule through `project_calendar_changed`, which now refetches the
+detail (surfacing its actor is #3245's remainder). What stays stale until the
+next refetch is any change that reaches the calendar rows without passing
+through `_enqueue_calendar_recalc` (the event's only emitter), and any change
+made while this client's socket is down. In both cases the preview is wrong in
+the direction this ADR already handles: the commit lands where the server
+says, and the reconciliation marker shows it.
+
 What this does not change: the preview is still an estimate (ADR-0599), the
 markers in D1–D4 still mark every authored date until the server confirms it,
 and D5's refusal to invent a cause stands.

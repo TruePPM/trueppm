@@ -113,8 +113,14 @@ export function useUpdateWorkspaceSettings() {
       const res = await apiClient.patch<WorkspaceSettings>('/workspace/', toRaw(patch));
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, patch) => {
       void queryClient.invalidateQueries({ queryKey: ['workspace-settings'] });
+      // The workspace calendar (and its override policy) feeds every inheriting
+      // project's composed `scheduling_calendar`, which the drag preview steps on
+      // (#4170) — refetch every cached project detail.
+      if (patch.calendar !== undefined || patch.calendarOverridePolicy !== undefined) {
+        void queryClient.invalidateQueries({ queryKey: ['project'] });
+      }
     },
   });
 }

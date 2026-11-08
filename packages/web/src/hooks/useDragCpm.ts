@@ -38,11 +38,11 @@ import {
   PINNED_DRAG_EXPLANATION,
 } from '@/features/schedule/pinnedByActuals';
 import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
+import { MON_FRI_MASK, resizeMoveFinishIso } from '@/features/schedule/useScheduleCommit';
 import {
-  MON_FRI_MASK,
-  resizeMoveFinishIso,
-  workingDaysInclusive,
-} from '@/features/schedule/useScheduleCommit';
+  countWorkingDaysInclusive,
+  resolveWorkingDayPredicate,
+} from '@/workers/workingCalendar';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -297,10 +297,14 @@ export function useDragCpm({
       // task's own start is not a duration this gesture can preview.
       if (newFinish < resized.start) return;
 
-      const newDurationDays = workingDaysInclusive(
+      // The same count, on the same calendar, as the commit's
+      // `planned_finish` → `duration` derivation (#4170): with a holiday in the
+      // extended span, a mask-only count would add a day the worker then lays
+      // past the handle, previewing a finish the user did not point at.
+      const newDurationDays = countWorkingDaysInclusive(
         resized.start,
         newFinish,
-        workingDaysMaskRef.current,
+        resolveWorkingDayPredicate(calendarRef.current, workingDaysMaskRef.current),
       );
 
       const seq = ++seqRef.current;

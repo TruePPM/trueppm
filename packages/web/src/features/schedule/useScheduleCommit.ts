@@ -11,6 +11,12 @@ import { dateToLeft, dragDropStartIso, leftToDate } from './engine';
 import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import type { Task, ApiSprint } from '@/types';
 import type { CommitAction } from './ScheduleCommitPopover';
+import {
+  countWorkingDaysInclusive,
+  lastWorkingDayOnOrBefore,
+  resolveWorkingDayPredicate,
+  type PreviewCalendar,
+} from '@/workers/workingCalendar';
 
 /**
  * Orchestrates the pull-to-commit gate on Schedule canvas drag and resize (ADR-0067).
@@ -98,9 +104,17 @@ export interface UseScheduleCommitOptions {
    * The project's effective working-day bitmask (`effective_calendar.working_days`,
    * ADR-0441 / #1987). Defaults to Mon–Fri when absent (older payloads / the list
    * cache), matching the server's own `working_day_duration` fallback. Drives the
-   * resize popover's duration label and the no-op-resize guard (#2561).
+   * resize popover's duration label and the no-op-resize guard (#2561) — only
+   * when `calendar` is absent.
    */
   workingDaysMask?: number | null;
+  /**
+   * The project's composed calendar (`ProjectDetail.scheduling_calendar`, #4170).
+   * When present, the resize label and no-op guard count working days on it —
+   * holidays and layered weekdays included — exactly as the server derives the
+   * stored `duration` from `planned_finish` (`project_working_day_duration`).
+   */
+  calendar?: PreviewCalendar | null;
   visibleTasks: Task[];
   allTasks: Task[];
   sprints: ApiSprint[];
@@ -184,20 +198,13 @@ function isWorkingDayUtc(ms: number, mask: number): boolean {
 }
 
 /**
- * Working days in `[startIso, finishIso]` inclusive under the project calendar's
- * weekday mask — a client-side estimate of the duration the server computes from
- * `planned_finish` (#951).
+ * Working days in `[startIso, finishIso]` inclusive under a weekday mask alone.
  *
- * The server stays authoritative on commit; this is used to label the commit
- * popover and to detect a resize that resolves to no duration change at all
- * (#2561 — dropping the handle on a non-working day counts zero extra working
- * days, so the drag cannot move `duration`).
- *
- * Blind to holidays: the calendar payload carries `holiday_count`, not the
- * exception dates, so a holiday the weekly mask treats as working is counted
- * here and excluded by the server. The no-op guard compares two counts taken
- * with this same function, so a holiday inside the unchanged prefix cancels out;
- * the residue is a holiday landing in the extended region (#1498).
+ * The mask-only form, kept for callers that have no composed calendar. A resize
+ * counts through {@link countWorkingDaysInclusive} with
+ * `resolveWorkingDayPredicate(calendar, mask)` instead, so a holiday inside the
+ * span is excluded exactly as the server excludes it when it derives `duration`
+ * from `planned_finish` (#4170).
  */
 export function workingDaysInclusive(startIso: string, finishIso: string, mask: number): number {
   const startMs = new Date(startIso + 'T00:00:00Z').getTime();
@@ -256,6 +263,7 @@ export function useScheduleCommit({
   projectStartDate,
   effectiveFloorDate,
   workingDaysMask,
+  calendar,
   visibleTasks,
   allTasks,
   sprints,
@@ -290,6 +298,10 @@ export function useScheduleCommit({
   useEffect(() => {
     workingDaysMaskRef.current = workingDaysMask ?? MON_FRI_MASK;
   }, [workingDaysMask]);
+  const calendarRef = useRef(calendar ?? null);
+  useEffect(() => {
+    calendarRef.current = calendar ?? null;
+  }, [calendar]);
 
   const computeAnchor = useCallback(
     (
@@ -389,26 +401,35 @@ export function useScheduleCommit({
       // the stored working-day duration (e.g. 2) and proposed a phantom resize.
       if (newFinish < task.start) return;
       if (newFinish === task.finish) return;
-      // Duration is derived server-side from `planned_finish` via the project
-      // calendar (#951); this working-day estimate only labels the popover.
-      const mask = workingDaysMaskRef.current;
-      const newDuration = workingDaysInclusive(task.start, newFinish, mask);
+      // The PATCH carries `planned_finish` (the handle date), and the server
+      // derives the stored `duration` from it as the working days in
+      // [start, planned_finish] on the project's COMPOSED calendar
+      // (`project_working_day_duration`, #4170). This count is the same rule on
+      // the same calendar, so the popover label, the live resize preview
+      // (`useDragCpm`) and the committed duration agree — including across a
+      // holiday, where a mask-only count would have added a day the server
+      // then laid past the handle.
+      const isWorkingDay = resolveWorkingDayPredicate(
+        calendarRef.current,
+        workingDaysMaskRef.current,
+      );
+      const newDuration = countWorkingDaysInclusive(task.start, newFinish, isWorkingDay);
       // #2561: the finish DATE moved but the WORKING-day span did not, because the
-      // user dropped the handle on a non-working day. `planned_finish` resolves to
-      // the same duration server-side, so the PATCH would be a no-op and the CPM
-      // refetch would redraw the bar where it started — reading as an unexplained
-      // snap-back after the user confirmed a "7d → 7d" popover. Say so instead.
+      // user dropped the handle on a non-working day (a weekend or a holiday).
+      // `planned_finish` resolves to the same duration server-side, so the PATCH
+      // would be a no-op and the CPM refetch would redraw the bar where it
+      // started — reading as an unexplained snap-back after the user confirmed a
+      // "7d → 7d" popover. Say so instead.
       //
-      // Compare two counts taken with the SAME mask, not the stored duration: a
-      // holiday this mask-only count does not see would make a client count
-      // differ from the stored value on every task, and equality is the only
-      // question here. (The holidays do reach the drag preview since #4170, via
-      // `scheduling_calendar`; this pixel→duration count deliberately stays
-      // mask-only, and the live resize preview uses the same count, so the two
-      // agree on the duration the PATCH carries.) Whether a drop on non-working time SHOULD instead
-      // consume the next working day is the open semantic in #2562; this guard
-      // deliberately does not decide it.
-      if (newDuration === workingDaysInclusive(task.start, task.finish, mask)) {
+      // A drop ON a non-working day snaps BACK: that day adds nothing to the
+      // count, so the finish is the last working day before it — on both the
+      // preview and the server. Whether it should instead consume the next
+      // working day is the open semantic in #2562; this does not decide it.
+      //
+      // Compare two counts taken with the SAME predicate, not the stored
+      // duration, so a stale or differently-derived stored value cannot make an
+      // unchanged span read as a change.
+      if (newDuration === countWorkingDaysInclusive(task.start, task.finish, isWorkingDay)) {
         setScheduleActionToast({
           message: `${formatDayLabel(newFinish)} isn't a working day — this task still finishes ${formatDayLabel(task.finish)}.`,
         });
@@ -417,8 +438,12 @@ export function useScheduleCommit({
         }
         return;
       }
+      // Draw (and send) the finish where the derived duration actually ends: a
+      // handle dropped ON a non-working day snaps back to the working day before
+      // it, which is where the server's count and the live preview put it too.
+      const landedFinish = lastWorkingDayOnOrBefore(newFinish, task.start, isWorkingDay);
       engine.updateTask(id, {
-        finish: newFinish,
+        finish: landedFinish,
         duration: newDuration,
       });
       const newBarLeft = dateToLeft(task.start, scales);
@@ -436,7 +461,7 @@ export function useScheduleCommit({
         originalFinish: task.finish,
         originalDuration: task.duration,
         newStart: task.start,
-        newFinish,
+        newFinish: landedFinish,
         newDuration,
         anchor,
         error: null,

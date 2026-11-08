@@ -1564,6 +1564,20 @@ export function ScheduleView() {
   // `start_date`. Passing `undefined` while the query is in flight is safe —
   // `useColumnWidths` derives visibility every render instead of latching it.
   const { data: projectDetail } = useProject(projectIdUndef);
+  // The calendar every client-side working-day step and count on this page uses
+  // (#4170): the composed calendar the server schedules with, or — from a server
+  // that predates `scheduling_calendar` — the base weekday mask alone. One value
+  // fed to the drag/keyboard preview, the resize count and the resize commit, so
+  // none of them can pick a different calendar from the others. Memoized: the
+  // worker and the predicate cache key on its identity.
+  const effectiveMask = projectDetail?.effective_calendar?.working_days ?? null;
+  const schedulingCalendar = projectDetail?.scheduling_calendar;
+  const previewCalendar = useMemo(
+    () =>
+      schedulingCalendar ??
+      (effectiveMask != null ? { working_days: effectiveMask, exceptions: [] } : null),
+    [schedulingCalendar, effectiveMask],
+  );
   const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths(
     projectDetail?.effective_methodology,
   );
@@ -1765,7 +1779,7 @@ export function ScheduleView() {
     workingDaysMask: projectDetail?.effective_calendar?.working_days ?? null,
     // #4170: the composed calendar the server schedules with, so the cascade
     // steps through holidays and a custom week instead of a fixed Mon–Fri.
-    calendar: projectDetail?.scheduling_calendar ?? null,
+    calendar: previewCalendar,
   });
 
   // Keyboard rescheduling — Enter/Arrow/d/Escape (issue #34)
@@ -1805,6 +1819,9 @@ export function ScheduleView() {
     // #2561: the resize popover's working-day count and its no-op guard need the
     // project's real weekday mask (ADR-0441 / #1987), not a Mon–Fri constant.
     workingDaysMask: projectDetail?.effective_calendar?.working_days ?? null,
+    // #4170: the resize label and no-op guard count on the composed calendar,
+    // the same rule the server uses to turn `planned_finish` into `duration`.
+    calendar: previewCalendar,
     visibleTasks,
     allTasks,
     sprints,
@@ -2097,7 +2114,7 @@ export function ScheduleView() {
     ariaAssertiveRef,
     keyboardModeRef,
     statusDate,
-    calendar: projectDetail?.scheduling_calendar ?? null,
+    calendar: previewCalendar,
     authoringActive,
     onOpenDatePopover: handleOpenDatePopover,
     // The keyboard path's PATCH (#3141). Shares the pointer path's floor guard and

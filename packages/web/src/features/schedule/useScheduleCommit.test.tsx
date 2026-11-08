@@ -178,6 +178,8 @@ function renderCommit(
     nullAria?: boolean;
     /** Project working-day bitmask (#2561). Omitted → the hook's Mon–Fri fallback. */
     workingDaysMask?: number | null;
+    /** The composed calendar (#4170). Omitted → the mask alone. */
+    calendar?: { working_days: number; exceptions: { start: string; end: string }[] } | null;
   } = {},
 ) {
   const ariaAssertiveRef = opts.nullAria
@@ -205,6 +207,7 @@ function renderCommit(
         projectStartDate: opts.projectStartDate ?? null,
         effectiveFloorDate: opts.effectiveFloorDate ?? null,
         workingDaysMask: opts.workingDaysMask,
+        calendar: opts.calendar,
         visibleTasks: opts.visibleTasks ?? tasks,
         allTasks: tasks,
         sprints,
@@ -384,6 +387,59 @@ describe('useScheduleCommit', () => {
       );
     },
   );
+
+  describe('on the composed calendar (#4170)', () => {
+    // Tue 2026-01-20 is a holiday (1px/day scale: right=N → inclusive finish 01-N).
+    const HOLIDAY_TUE = {
+      working_days: 0b0011111,
+      exceptions: [{ start: '2026-01-20', end: '2026-01-20' }],
+    };
+
+    it('does not count a holiday in the extended span', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        tasks: [TASK_FRIDAY_FINISH],
+        calendar: HOLIDAY_TUE,
+      });
+      // Handle on Wed 01-21: 12..16, 19, 21 = 7 working days (a mask-only count says 8).
+      act(() => engine.emit('resize-task-end', { id: 'tf', right: 21, cancelled: false }));
+      expect(result.current.state!.action).toMatchObject({ kind: 'resize', newDurationDays: 7 });
+      expect(result.current.state!.newFinish).toBe('2026-01-21');
+    });
+
+    it('snaps a handle dropped ON a holiday back to the working day before it', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        tasks: [TASK_FRIDAY_FINISH],
+        calendar: HOLIDAY_TUE,
+      });
+      // Dropped on Tue 01-20 (the holiday): 12..16, 19 = 6 days, ending Mon 01-19 —
+      // where the server's derived duration and the live preview both put it.
+      act(() => engine.emit('resize-task-end', { id: 'tf', right: 20, cancelled: false }));
+      expect(result.current.state!.action).toMatchObject({ kind: 'resize', newDurationDays: 6 });
+      expect(result.current.state!.newFinish).toBe('2026-01-19');
+      expect(engine.updateTaskCalls.at(-1)?.patch).toMatchObject({ finish: '2026-01-19' });
+    });
+
+    it('treats a drop whose only extra days are holidays as no change', () => {
+      // Mon 01-19 and Tue 01-20 off: dropping on 01-20 adds no working day to a
+      // task ending Fri 01-16, exactly like the weekend case above.
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        tasks: [TASK_FRIDAY_FINISH],
+        calendar: {
+          working_days: 0b0011111,
+          exceptions: [{ start: '2026-01-19', end: '2026-01-20' }],
+        },
+      });
+      act(() => engine.emit('resize-task-end', { id: 'tf', right: 20, cancelled: false }));
+      expect(result.current.state).toBeNull();
+      expect(patchMock).not.toHaveBeenCalled();
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        "Jan 20 isn't a working day — this task still finishes Jan 16.",
+      );
+    });
+  });
 
   it('announces the suppressed resize on the assertive live region (#2561)', () => {
     const engine = new ControllableEngine();

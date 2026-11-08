@@ -85,6 +85,14 @@ export function useUpdateProgram(): UseMutationResult<Program, Error, UpdateProg
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['programs'] });
       void queryClient.invalidateQueries({ queryKey: ['programs', variables.programId] });
+      // A program calendar is inherited by every member project without its own
+      // (ADR-0441), and each project detail carries the composed
+      // `scheduling_calendar` the Schedule's drag preview steps on (#4170). Which
+      // cached projects belong to this program is not knowable here, so refetch
+      // every project detail — only mounted ones actually re-request.
+      if ('calendar' in variables.patch) {
+        void queryClient.invalidateQueries({ queryKey: ['project'] });
+      }
     },
   });
 }

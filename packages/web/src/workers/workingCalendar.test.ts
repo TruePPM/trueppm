@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildWorkingDayPredicate,
+  countWorkingDaysInclusive,
+  lastWorkingDayOnOrBefore,
   mergeExceptionRanges,
+  resolveWorkingDayPredicate,
   monFriWorkingDay,
   type PreviewCalendar,
 } from './workingCalendar';
@@ -96,5 +99,34 @@ describe('buildWorkingDayPredicate', () => {
   it('memoizes per calendar object', () => {
     const cal: PreviewCalendar = { working_days: 0b0011111, exceptions: [] };
     expect(buildWorkingDayPredicate(cal)).toBe(buildWorkingDayPredicate(cal));
+  });
+});
+
+describe('resolveWorkingDayPredicate / countWorkingDaysInclusive / lastWorkingDayOnOrBefore', () => {
+  const holiday = {
+    working_days: 0b0011111,
+    exceptions: [{ start: '2026-03-05', end: '2026-03-05' }],
+  };
+
+  it('prefers the composed calendar, then the mask, then Mon–Fri', () => {
+    const composed = resolveWorkingDayPredicate(holiday, 0b1111111);
+    expect(composed(ms('2026-03-05'))).toBe(false);
+    const maskOnly = resolveWorkingDayPredicate(null, 0b1111111);
+    expect(maskOnly(ms('2026-03-07'))).toBe(true); // Sat
+    expect(resolveWorkingDayPredicate(null, null)).toBe(monFriWorkingDay);
+  });
+
+  it('counts inclusively, excluding holidays, never below 1', () => {
+    const p = resolveWorkingDayPredicate(holiday);
+    expect(countWorkingDaysInclusive('2026-03-02', '2026-03-06', p)).toBe(4);
+    expect(countWorkingDaysInclusive('2026-03-07', '2026-03-08', p)).toBe(1);
+  });
+
+  it('snaps a non-working day back to the working day before, never past the floor', () => {
+    const p = resolveWorkingDayPredicate(holiday);
+    expect(lastWorkingDayOnOrBefore('2026-03-05', '2026-03-02', p)).toBe('2026-03-04');
+    expect(lastWorkingDayOnOrBefore('2026-03-08', '2026-03-02', p)).toBe('2026-03-06');
+    expect(lastWorkingDayOnOrBefore('2026-03-06', '2026-03-02', p)).toBe('2026-03-06');
+    expect(lastWorkingDayOnOrBefore('2026-03-08', '2026-03-08', p)).toBe('2026-03-08');
   });
 });

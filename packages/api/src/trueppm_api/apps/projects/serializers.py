@@ -4040,7 +4040,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Write-only target finish date (#951). The Gantt resize handler sends the
     # date the user dropped the bar's right edge on instead of a calendar-day
     # duration; ``validate()`` converts it to a working-day ``duration`` via the
-    # project calendar so a bar dragged across a weekend or holiday commits the
+    # project's composed calendar so a bar dragged across a weekend or holiday commits the
     # correct working-day count, not the inflated calendar span. Never persisted —
     # ``duration`` remains the stored field; this is popped in ``validate()``.
     planned_finish = serializers.DateField(required=False, allow_null=True, write_only=True)
@@ -5160,7 +5160,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         """
         planned_finish = attrs.pop("planned_finish", None)
         if planned_finish is not None and not is_milestone:
-            from trueppm_api.apps.projects.services import working_day_duration
+            from trueppm_api.apps.projects.services import project_working_day_duration
 
             # Anchor the duration on the same start the bar paints from — the CPM
             # ``early_start`` (the web ``task.start``), which is where the left
@@ -5190,9 +5190,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     {"planned_finish": "Finish date is too far from the start date."}
                 )
             project = self.instance.project if self.instance is not None else attrs.get("project")
+            # The composed calendar (#4170), not ``project.calendar``'s mask: CPM lays
+            # the duration on the composed one, so counting on anything else lands
+            # the finish off the handle whenever a holiday or layer is in the span.
             attrs["duration"] = max(
-                1,
-                working_day_duration(eff_start, planned_finish, getattr(project, "calendar", None)),
+                1, project_working_day_duration(eff_start, planned_finish, project)
             )
 
     def _task_project_id_from(self, attrs: dict[str, Any]) -> Any:

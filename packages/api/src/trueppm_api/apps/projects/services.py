@@ -316,9 +316,45 @@ def working_day_duration(start: date, finish: date, calendar: Any | None) -> int
     scheduler ``Calendar`` (``scheduling/tasks.py`` passes ``working_days`` only),
     so the duration derived here round-trips back to the same finish date through
     a recalc. Defaults to Mon–Fri (mask 31) when the project has no calendar.
+
+    Mask-only: it ignores holidays, layers and inheritance. The resize path uses
+    :func:`project_working_day_duration` instead (#4170).
     """
     mask = calendar.working_days if calendar is not None else 31
     return _working_days(start, finish, mask)
+
+
+def project_working_day_duration(start: date, finish: date, project: Any | None) -> int:
+    """Working days in ``[start, finish]`` inclusive on the project's COMPOSED calendar.
+
+    The resize path's ``planned_finish`` → ``duration`` derivation (#4170). It used
+    to count on ``project.calendar``'s weekday mask alone (:func:`working_day_duration`),
+    while CPM then laid that duration on ``compose_project_calendar(project)`` —
+    inherited base, layered calendars and every ``CalendarException``. A bar dragged
+    across a holiday therefore stored one working day too many and landed a day past
+    the handle, and an inherited or layer-narrowed week counted against the wrong
+    mask. Counting on the composed calendar makes the derived duration round-trip to
+    exactly ``planned_finish`` (or, for a finish dropped on a non-working day, the last
+    working day before it), and it is the same rule the web's resize preview and
+    commit popover count with (``countWorkingDaysInclusive``), so all three agree.
+
+    Callers bound the span first (the serializer's ``MAX_TASK_SPAN_DAYS``); the walk is
+    one O(log E) ``is_working_day`` per day. ``None`` project → Mon–Fri.
+    """
+    if project is None:
+        return _working_days(start, finish, 31)
+    from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+    cal = compose_project_calendar(project)
+    total = 0
+    cur = start
+    while cur <= finish:
+        if cal.is_working_day(cur):
+            total += 1
+        if cur >= date.max:
+            break
+        cur += timedelta(days=1)
+    return total
 
 
 def _initials(name: str) -> str:

@@ -143,3 +143,64 @@ export function buildWorkingDayPredicate(
   cache.set(calendar, predicate);
   return predicate;
 }
+
+const maskOnly = new Map<number, WorkingDayPredicate>();
+
+/**
+ * The predicate every client-side working-day count should use (#4170): the
+ * composed calendar when the server sent one, otherwise the weekday mask alone
+ * (an older server's `effective_calendar.working_days`), otherwise Mon–Fri.
+ *
+ * One resolver, so the drag preview, the resize pixel→duration count, the
+ * resize commit's label and no-op guard, and the keyboard nudge step cannot
+ * each pick a different calendar.
+ */
+export function resolveWorkingDayPredicate(
+  calendar: PreviewCalendar | null | undefined,
+  fallbackMask?: number | null,
+): WorkingDayPredicate {
+  if (calendar) return buildWorkingDayPredicate(calendar);
+  if (fallbackMask == null) return monFriWorkingDay;
+  let hit = maskOnly.get(fallbackMask);
+  if (!hit) {
+    hit = buildWorkingDayPredicate({ working_days: fallbackMask, exceptions: [] });
+    maskOnly.set(fallbackMask, hit);
+  }
+  return hit;
+}
+
+/**
+ * Working days in `[startIso, finishIso]` inclusive under `isWorkingDay`, at
+ * least 1 — the client mirror of the server's `project_working_day_duration`,
+ * which turns a resize's `planned_finish` into the stored `duration`.
+ */
+export function countWorkingDaysInclusive(
+  startIso: string,
+  finishIso: string,
+  isWorkingDay: WorkingDayPredicate,
+): number {
+  const startMs = Date.parse(`${startIso.slice(0, 10)}T00:00:00Z`);
+  const finishMs = Date.parse(`${finishIso.slice(0, 10)}T00:00:00Z`);
+  let count = 0;
+  for (let ms = startMs; ms <= finishMs; ms += MS_PER_DAY) {
+    if (isWorkingDay(ms)) count += 1;
+  }
+  return Math.max(1, count);
+}
+
+/**
+ * The last working day on or before `iso`, not earlier than `floorIso` — where a
+ * finish dropped on a non-working day actually lands (#4170). The day it was
+ * dropped on adds nothing to the working-day count, so the server's derived
+ * duration ends on the working day before it; the bar is drawn there too.
+ */
+export function lastWorkingDayOnOrBefore(
+  iso: string,
+  floorIso: string,
+  isWorkingDay: WorkingDayPredicate,
+): string {
+  const floorMs = Date.parse(`${floorIso.slice(0, 10)}T00:00:00Z`);
+  let ms = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+  while (ms > floorMs && !isWorkingDay(ms)) ms -= MS_PER_DAY;
+  return new Date(ms).toISOString().slice(0, 10);
+}

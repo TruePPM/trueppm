@@ -34,6 +34,7 @@ import {
 } from '@/features/schedule/pinnedByActuals';
 import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
 import { keyboardNudgeStart } from '@/features/schedule/scheduleUtils';
+import { resolveWorkingDayPredicate } from '@/workers/workingCalendar';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -197,7 +198,14 @@ export function useKeyboardReschedule({
       if (!worker || !taskId) return;
 
       cumulativeDeltaRef.current = newDelta;
-      const newStart = keyboardNudgeStart(origStartRef.current, origAtDayEndRef.current, newDelta);
+      // Step on the same calendar the worker previews with (#4170), so "1 working
+      // day later" never lands on a holiday or skips a working Saturday.
+      const newStart = keyboardNudgeStart(
+        origStartRef.current,
+        origAtDayEndRef.current,
+        newDelta,
+        resolveWorkingDayPredicate(calendarRef.current),
+      );
       const subgraph = buildSubgraph(taskId, tasksRef.current, linksRef.current);
       const seq = ++seqRef.current;
 
@@ -313,6 +321,7 @@ export function useKeyboardReschedule({
         origStartRef.current,
         origAtDayEndRef.current,
         cumulativeDeltaRef.current,
+        resolveWorkingDayPredicate(calendarRef.current),
       );
       const taskId = selectedTaskIdRef.current;
       commitDrag(confirmedStart);

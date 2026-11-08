@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { buildWorkingDayPredicate } from '@/workers/workingCalendar';
 import {
   formatShortDate,
   nudgeWorkingDays,
@@ -252,5 +253,32 @@ describe('computeInitialFraming', () => {
       kind: 'scroll',
       scrollLeft: 1232,
     });
+  });
+});
+
+describe('nudgeWorkingDays on a project calendar (#4170)', () => {
+  const sixDay = buildWorkingDayPredicate({ working_days: 0b0111111, exceptions: [] });
+  const holidayWed = buildWorkingDayPredicate({
+    working_days: 0b0011111,
+    exceptions: [{ start: '2025-03-19', end: '2025-03-19' }],
+  });
+
+  it('steps onto a working Saturday instead of skipping it', () => {
+    expect(nudgeWorkingDays('2025-03-14', 1, sixDay)).toBe('2025-03-15'); // Fri → Sat
+    expect(nudgeWorkingDays('2025-03-15', 1, sixDay)).toBe('2025-03-17'); // Sat → Mon
+  });
+
+  it('steps over a holiday in both directions', () => {
+    expect(nudgeWorkingDays('2025-03-18', 1, holidayWed)).toBe('2025-03-20'); // Tue → Thu
+    expect(nudgeWorkingDays('2025-03-20', -1, holidayWed)).toBe('2025-03-18');
+  });
+
+  it('threads the calendar through keyboardNudgeStart, end-of-day milestones included', () => {
+    expect(keyboardNudgeStart('2025-03-18', false, 1, holidayWed)).toBe('2025-03-20');
+    expect(keyboardNudgeStart('2025-03-17', true, 1, holidayWed)).toBe('2025-03-20');
+  });
+
+  it('keeps the Mon–Fri default when no calendar is given', () => {
+    expect(nudgeWorkingDays('2025-03-14', 1)).toBe('2025-03-17');
   });
 });
