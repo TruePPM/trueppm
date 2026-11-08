@@ -38,10 +38,10 @@ interface ReconcileState {
   /** "Show N changes" — narrows the outline to rows carrying a marker (§D8). */
   reviewFilterActive: boolean;
   /**
-   * The project's effective working-day bitmask, published by `ScheduleView`.
+   * The project's composed working-day bitmask (`scheduling_calendar.working_days`,
+   * #4170 — the base mask AND-ed with every layer), published by `ScheduleView`.
    * The sole input to the cause qualifier — and the only cause the client can
-   * prove (ADR-0784 §D5). Defaults to Mon–Fri, matching the server's own
-   * `working_day_duration` fallback.
+   * prove (ADR-0784 §D5). Defaults to Mon–Fri, the server's own fallback.
    */
   workingDaysMask: number;
 

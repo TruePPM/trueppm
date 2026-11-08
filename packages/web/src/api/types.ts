@@ -155,6 +155,20 @@ export interface EffectiveCalendar {
 }
 
 /**
+ * The composed calendar a project's CPM pass schedules with (#4170) — detail
+ * responses only (`ProjectDetailSerializer.scheduling_calendar`). Unlike
+ * {@link EffectiveCalendar} (the resolved BASE calendar, holiday count only),
+ * this is the overlay of every applied calendar (base + layers): the AND-ed
+ * weekday mask and the union of their exception ranges, inclusive ISO dates.
+ * The Schedule's drag/resize/keyboard preview steps on it. Ranges arrive sorted
+ * but may overlap — readers merge them (`workers/workingCalendar.ts`).
+ */
+export interface SchedulingCalendar {
+  working_days: number;
+  exceptions: { start: string; end: string }[];
+}
+
+/**
  * Which scope supplied a project's `effective_calendar` (ADR-0441, issue #1987):
  * the project's own override, its program, the workspace default, or nothing up
  * the chain (the hardcoded Mon-Fri/8h/UTC system default).

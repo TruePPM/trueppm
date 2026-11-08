@@ -7,6 +7,7 @@ import type {
   ProjectDefaultView,
   ProjectHealth,
   ProjectVisibility,
+  SchedulingCalendar,
 } from '@/api/types';
 import type { BoardCadence, Methodology } from '@/types';
 import type {
@@ -58,6 +59,12 @@ export interface ApiProjectDetail {
   effective_calendar?: EffectiveCalendar | null;
   /** Which scope supplied `effective_calendar` (ADR-0441, issue #1987). */
   calendar_source?: ProjectCalendarSource;
+  /**
+   * The composed calendar CPM schedules with — base + layers, with exception
+   * dates (#4170). Feeds the Schedule's drag preview. Optional: absent on a
+   * response from a server that predates #4170, which previews on Mon–Fri.
+   */
+  scheduling_calendar?: SchedulingCalendar;
   /**
    * Program UUID this project belongs to (ADR-0070), or null for a standalone
    * project. Drives the cross-project dependency picker (ADR-0120): the schedule

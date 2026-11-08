@@ -679,7 +679,7 @@ def build_sched_graph(
     )
 
 
-def build_sched_calendar(cal: Calendar | None) -> Any:
+def build_sched_calendar(cal: Calendar | None, *, skip_malformed: bool = False) -> Any:
     """Convert a Django ``Calendar`` (plus its ``CalendarException`` rows) into a
     scheduler ``Calendar`` dataclass.
 
@@ -700,6 +700,12 @@ def build_sched_calendar(cal: Calendar | None) -> Any:
             (e.g. via ``prefetch_related("calendar__exceptions")``) to avoid an
             N+1 query per project.
 
+        skip_malformed: Drop (and log) a ``CalendarException`` whose end precedes its
+            start instead of letting ``DateRange`` raise. Read paths that only
+            DISPLAY a calendar (the drag preview's ``scheduling_calendar``, #4170)
+            pass ``True`` so one bad row cannot 500 every project shell bound to the
+            calendar; the CPM path keeps the default and fails loudly.
+
     Returns:
         A ``trueppm_scheduler.models.Calendar`` with ``exceptions`` populated
         from the calendar's ``CalendarException`` rows.
@@ -710,13 +716,27 @@ def build_sched_calendar(cal: Calendar | None) -> Any:
     if cal is None:
         return SchedCalendar(working_days=31, hours_per_day=8.0, timezone="UTC")
 
+    rows = list(cal.exceptions.all())
+    if skip_malformed:
+        valid = [
+            r
+            for r in rows
+            if r.exc_start is not None and r.exc_end is not None and r.exc_end >= r.exc_start
+        ]
+        if len(valid) != len(rows):
+            logger.warning(
+                "Calendar %s has %d malformed exception row(s) (end before start); "
+                "skipped for display",
+                cal.pk,
+                len(rows) - len(valid),
+            )
+        rows = valid
+
     return SchedCalendar(
         working_days=cal.working_days,
         hours_per_day=cal.hours_per_day,
         timezone=cal.timezone,
-        exceptions=[
-            DateRange(start=exc.exc_start, end=exc.exc_end) for exc in cal.exceptions.all()
-        ],
+        exceptions=[DateRange(start=exc.exc_start, end=exc.exc_end) for exc in rows],
     )
 
 

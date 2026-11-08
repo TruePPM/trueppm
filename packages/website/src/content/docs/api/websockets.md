@@ -232,7 +232,9 @@ The set is open-ended and grows as features land; current event types include:
   through REST, which re-applies the privacy gate
 - **Working-time calendar**: `project_calendar_changed` — the project's *effective*
   calendar changed. Fired on the affected projects for a Calendar edit, a
-  calendar-exception edit, or a program/workspace calendar reassignment; Calendar
+  calendar-exception edit, a program/workspace calendar reassignment, or a
+  replacement of the project's applied calendars (`PUT /projects/{id}/calendars/`
+  — this trigger ships in 0.5); Calendar
   itself is a shared org-level resource with no channel of its own. The payload
   carries `actor`, the display name of whoever made the edit (empty for a system or
   unauthenticated write) — a calendar edit can move finish dates on a project whose

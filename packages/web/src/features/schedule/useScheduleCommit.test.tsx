@@ -178,6 +178,8 @@ function renderCommit(
     nullAria?: boolean;
     /** Project working-day bitmask (#2561). Omitted → the hook's Mon–Fri fallback. */
     workingDaysMask?: number | null;
+    /** The composed calendar (#4170). Omitted → the mask alone. */
+    calendar?: { working_days: number; exceptions: { start: string; end: string }[] } | null;
   } = {},
 ) {
   const ariaAssertiveRef = opts.nullAria
@@ -205,6 +207,7 @@ function renderCommit(
         projectStartDate: opts.projectStartDate ?? null,
         effectiveFloorDate: opts.effectiveFloorDate ?? null,
         workingDaysMask: opts.workingDaysMask,
+        calendar: opts.calendar,
         visibleTasks: opts.visibleTasks ?? tasks,
         allTasks: tasks,
         sprints,
@@ -254,20 +257,21 @@ describe('useScheduleCommit', () => {
   it('opens the popover on a real drag and moves the bar via engine.updateTask', () => {
     const engine = new ControllableEngine();
     const { result } = renderCommit(engine);
-    // Day 30 → 2026-01-31 in our deterministic 1-px-per-day scale
+    // Day 30 → Sat 2026-01-31 in our deterministic 1-px-per-day scale, which the
+    // server snaps FORWARD to Mon 02-02 as an SNET — so the proposal says 02-02 (#4170).
     act(() => engine.emit('drag-task-end', { id: 't1', left: 30, cancelled: false }));
     expect(result.current.state).not.toBeNull();
     expect(result.current.state!.action.kind).toBe('reschedule');
     expect(result.current.state!.action).toMatchObject({
       kind: 'reschedule',
       oldStartIso: '2026-01-10',
-      newStartIso: '2026-01-31',
+      newStartIso: '2026-02-02',
     });
     expect(result.current.state!.originalStart).toBe('2026-01-10');
-    expect(result.current.state!.newStart).toBe('2026-01-31');
+    expect(result.current.state!.newStart).toBe('2026-02-02');
     expect(engine.updateTaskCalls).toHaveLength(1);
     expect(engine.updateTaskCalls[0]?.id).toBe('t1');
-    expect(engine.updateTaskCalls[0]?.patch.start).toBe('2026-01-31');
+    expect(engine.updateTaskCalls[0]?.patch.start).toBe('2026-02-02');
     expect(typeof engine.updateTaskCalls[0]?.patch.finish).toBe('string');
   });
 
@@ -384,6 +388,59 @@ describe('useScheduleCommit', () => {
       );
     },
   );
+
+  describe('on the composed calendar (#4170)', () => {
+    // Tue 2026-01-20 is a holiday (1px/day scale: right=N → inclusive finish 01-N).
+    const HOLIDAY_TUE = {
+      working_days: 0b0011111,
+      exceptions: [{ start: '2026-01-20', end: '2026-01-20' }],
+    };
+
+    it('does not count a holiday in the extended span', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        tasks: [TASK_FRIDAY_FINISH],
+        calendar: HOLIDAY_TUE,
+      });
+      // Handle on Wed 01-21: 12..16, 19, 21 = 7 working days (a mask-only count says 8).
+      act(() => engine.emit('resize-task-end', { id: 'tf', right: 21, cancelled: false }));
+      expect(result.current.state!.action).toMatchObject({ kind: 'resize', newDurationDays: 7 });
+      expect(result.current.state!.newFinish).toBe('2026-01-21');
+    });
+
+    it('snaps a handle dropped ON a holiday back to the working day before it', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        tasks: [TASK_FRIDAY_FINISH],
+        calendar: HOLIDAY_TUE,
+      });
+      // Dropped on Tue 01-20 (the holiday): 12..16, 19 = 6 days, ending Mon 01-19 —
+      // where the server's derived duration and the live preview both put it.
+      act(() => engine.emit('resize-task-end', { id: 'tf', right: 20, cancelled: false }));
+      expect(result.current.state!.action).toMatchObject({ kind: 'resize', newDurationDays: 6 });
+      expect(result.current.state!.newFinish).toBe('2026-01-19');
+      expect(engine.updateTaskCalls.at(-1)?.patch).toMatchObject({ finish: '2026-01-19' });
+    });
+
+    it('treats a drop whose only extra days are holidays as no change', () => {
+      // Mon 01-19 and Tue 01-20 off: dropping on 01-20 adds no working day to a
+      // task ending Fri 01-16, exactly like the weekend case above.
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, {
+        tasks: [TASK_FRIDAY_FINISH],
+        calendar: {
+          working_days: 0b0011111,
+          exceptions: [{ start: '2026-01-19', end: '2026-01-20' }],
+        },
+      });
+      act(() => engine.emit('resize-task-end', { id: 'tf', right: 20, cancelled: false }));
+      expect(result.current.state).toBeNull();
+      expect(patchMock).not.toHaveBeenCalled();
+      expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+        "Jan 20 isn't a working day — this task still finishes Jan 16.",
+      );
+    });
+  });
 
   it('announces the suppressed resize on the assertive live region (#2561)', () => {
     const engine = new ControllableEngine();
@@ -507,7 +564,7 @@ describe('useScheduleCommit', () => {
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith(
         '/tasks/t1/',
-        { planned_start: '2026-01-31' },
+        { planned_start: '2026-02-02' },
         {
           demoRefusalHandled: true,
         },
@@ -532,7 +589,7 @@ describe('useScheduleCommit', () => {
     // `demoRefusalHandled` config (#3926): it has no anchored surface, so the global
     // demo toast is its affordance.
     await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-31' }),
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-02-02' }),
     );
   });
 
@@ -1148,7 +1205,7 @@ describe('useScheduleCommit — missing aria-live region', () => {
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith(
         '/tasks/t1/',
-        { planned_start: '2026-01-31' },
+        { planned_start: '2026-02-02' },
         {
           demoRefusalHandled: true,
         },
@@ -1462,10 +1519,10 @@ describe('useScheduleCommit — read-only demo refusal (ADR-1197 D3/D4, #3926)',
     );
     const { result } = dragAndConfirm(engine);
     await waitFor(() => expect(result.current.state?.demoRefusal).toBe(true));
-    // left: 20 → 2026-01-21, a 5-day task → finish 2026-01-26.
+    // left: 20 → Wed 2026-01-21, a 5-day task → 21, 22, 23, 26, 27: finish Tue 01-27.
     expect(useDemoOverlayStore.getState().entries.get('t1')).toEqual({
       start: '2026-01-21',
-      finish: '2026-01-26',
+      finish: '2026-01-27',
       duration: undefined,
     });
     // `onMutate` still opens the preview entries — what must NOT happen is any of
@@ -1583,6 +1640,87 @@ describe('useScheduleCommit — read-only demo refusal (ADR-1197 D3/D4, #3926)',
     expect(useDemoOverlayStore.getState().entries.size).toBe(0);
     expect(Object.values(useReconcileStore.getState().entries).map((e) => e.status)).toContain(
       'rejected',
+    );
+  });
+});
+
+describe('useScheduleCommit — reschedules land on the composed calendar (#4170)', () => {
+  // 1px/day scale: left N → 2026-01-(N+1). TASK_A is a 5-working-day task.
+  const HOLIDAY_WED_21 = {
+    working_days: 0b0011111,
+    exceptions: [{ start: '2026-01-21', end: '2026-01-21' }],
+  };
+  const SIX_DAY = { working_days: 0b0111111, exceptions: [] };
+
+  it('drag-end onto a holiday proposes the next working day and a working-day finish', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { calendar: HOLIDAY_WED_21 });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 20, cancelled: false }));
+    // Wed 01-21 is off → Thu 01-22; 22, 23, 26, 27, 28 → Wed 01-28.
+    expect(result.current.state!.action).toMatchObject({ newStartIso: '2026-01-22' });
+    expect(result.current.state!.newFinish).toBe('2026-01-28');
+    expect(engine.updateTaskCalls.at(-1)?.patch).toMatchObject({
+      start: '2026-01-22',
+      finish: '2026-01-28',
+    });
+  });
+
+  it('drag-end on a six-day week counts the working Saturday', () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { calendar: SIX_DAY });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 21, cancelled: false }));
+    // Thu 01-22: 22, 23, 24 (Sat), 26, 27 → Tue 01-27 (Mon–Fri would say 01-28).
+    expect(result.current.state!.newStart).toBe('2026-01-22');
+    expect(result.current.state!.newFinish).toBe('2026-01-27');
+  });
+
+  it('a keyboard reschedule onto a holiday PATCHes the day the server lands on', async () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, { calendar: HOLIDAY_WED_21 });
+    act(() => result.current.commitKeyboardReschedule('t1', '2026-01-21'));
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-22' }),
+    );
+  });
+
+  it('snap-to-floor steps off a holiday floor and draws a working-day finish', async () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, {
+      calendar: { working_days: 0b0011111, exceptions: [{ start: '2026-01-20', end: '2026-01-20' }] },
+      projectStartDate: '2026-01-20',
+      effectiveFloorDate: '2026-01-20',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    expect(result.current.beforeStartPrompt).not.toBeNull();
+    act(() => result.current.handleSnapToProjectStart());
+    // Tue 01-20 is off → Wed 01-21; 21, 22, 23, 26, 27 → Tue 01-27.
+    expect(engine.updateTaskCalls.at(-1)?.patch).toMatchObject({
+      start: '2026-01-21',
+      finish: '2026-01-27',
+    });
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-21' }),
+    );
+  });
+
+  it('snap-to-floor on a six-day week keeps a Saturday floor', async () => {
+    const engine = new ControllableEngine();
+    const { result } = renderCommit(engine, {
+      calendar: SIX_DAY,
+      projectStartDate: '2026-01-17',
+      effectiveFloorDate: '2026-01-17',
+    });
+    act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+    act(() => result.current.handleConfirm());
+    act(() => result.current.handleSnapToProjectStart());
+    // Sat 01-17 works: 17, 19, 20, 21, 22 → Thu 01-22.
+    expect(engine.updateTaskCalls.at(-1)?.patch).toMatchObject({
+      start: '2026-01-17',
+      finish: '2026-01-22',
+    });
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-17' }),
     );
   });
 });

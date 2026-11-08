@@ -6,18 +6,20 @@
  * and the polite announcement — and three copies of it would drift.
  *
  * The load-bearing rule here is §D5: **we state the fact and never invent a
- * cause.** The client cannot know why the engine moved a date. `EffectiveCalendar`
- * carries `working_days` (a weekly bitmask) and `holiday_count` — *a count*, not
- * the exception dates — and the `task_dates_updated` delta carries no reason. A
- * planner told "the July shutdown week" who then finds no shutdown configured
- * will stop trusting every other marker on the screen, so the only qualifier we
- * add is the one the weekly mask can actually prove.
+ * cause.** The client cannot know why the engine moved a date. Since #4170 it does
+ * receive the composed calendar's exception dates (`scheduling_calendar`), but
+ * that says a holiday exists, not that it is what moved THIS task — the
+ * `task_dates_updated` delta carries no reason, and a dependency cascade or a
+ * constraint can move the same date. A planner told "the July shutdown week"
+ * who then finds the shift came from elsewhere will stop trusting every other
+ * marker on the screen, so the only qualifier we add is the one the weekly mask
+ * can actually prove.
  */
 
 import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
 import type { ReconcileEntry, ReconcileField } from './reconcileState';
 
-/** Mon–Fri (1+2+4+8+16) — the server's `working_day_duration` default. */
+/** Mon–Fri (1+2+4+8+16) — the server's default calendar. */
 export const MON_FRI_MASK = 31;
 
 /**

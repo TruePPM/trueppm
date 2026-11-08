@@ -310,6 +310,18 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
   });
 
+  it('refetches the project detail and calendars on project_calendar_changed (#4170)', () => {
+    // The detail carries `scheduling_calendar`, which the drag preview steps on:
+    // a holiday another admin adds must reach this client's preview.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('project_calendar_changed');
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['calendars'] });
+  });
+
   it('refreshes shellStats on project_updated so the health chip follows the report', () => {
     // #3501: the top bar's chip word is the server's `health_band`, which folds
     // in the manual `Project.health` report. A PM filing a status emits

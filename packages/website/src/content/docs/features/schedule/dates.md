@@ -1,7 +1,7 @@
 ---
 title: "Schedule dates"
 description: "Committed, computed and actual dates on the Schedule: what each one means, when the server changes a date, and scheduling before the project start."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 ## Committed vs computed start dates
@@ -223,12 +223,21 @@ and a task with a committed **start no earlier than** date is never pulled back
 through it.
 
 A corner label reads *"Preview — server confirms on drop"*, because this is a
-browser-side estimate on a plain Monday–Friday week: it does not know the
-project's holiday exceptions or a custom calendar, so near a shutdown week it
-can be several days out, and the CPM pass on drop is what decides. At most ten
+browser-side estimate and the CPM pass on drop is what decides. The estimate
+steps on the project's own calendar — its working week and every holiday or
+shutdown from the base calendar and any layered calendars — so a bar dragged
+across a holiday previews the date the server will commit. At most ten
 ghosts are drawn at once; beyond that a **+N more affected** count tells you the
 blast radius is larger than what is on screen. Press **Esc** to back out with
 nothing changed.
+
+:::note[Ships in 0.5]
+Stepping on the project's calendar lands in 0.5
+([#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170)). In 0.4 the preview
+steps a plain Monday–Friday week: it does not know the project's holiday
+exceptions or a custom working week, so near a shutdown it can be several days
+out until the drop lands.
+:::
 
 **A bar whose dates come from recorded actuals will not move.** Once a task is
 complete *and* carries a recorded actual start or finish, the scheduling engine

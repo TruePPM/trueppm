@@ -182,3 +182,84 @@ test.describe('Schedule preview overlay (#2819)', () => {
     );
   });
 });
+
+/**
+ * The preview steps through the project's holidays (#4170).
+ *
+ * `ProjectDetail.scheduling_calendar` carries the composed calendar the server
+ * schedules with. Before #4170 the worker stepped a fixed Mon–Fri week, so a
+ * nudge across a holiday previewed a date the commit then contradicted. The
+ * milestone announcement is the observable: it is the worker's own answer,
+ * posted to the schedule's polite live region.
+ */
+test.describe('Schedule preview uses the project calendar (#4170)', () => {
+  const CAL_PROJECT_ID = 'e2e-prevcal-0000-0000-0000-000000004170';
+  const calTasks = [
+    { ...task('cal-a', 'Pour slab', '2026-04-06', '2026-04-10', '1') },
+    {
+      ...task('cal-m', 'Slab cured', '2026-04-10', '2026-04-10', '2'),
+      duration: 0,
+      is_milestone: true,
+      predecessor_count: 1,
+    },
+  ];
+  const calDeps = [
+    {
+      id: 'dep-cal',
+      predecessor: 'cal-a',
+      successor: 'cal-m',
+      dep_type: 'FS',
+      lag: 0,
+      is_critical: false,
+    },
+  ];
+
+  async function open(page: import('@playwright/test').Page, schedulingCalendar: unknown) {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: [
+        {
+          id: CAL_PROJECT_ID,
+          name: 'Calendar Preview Project',
+          description: '',
+          start_date: '2026-04-01',
+          status_date: '2026-04-01',
+          calendar: 'default',
+          ...(schedulingCalendar ? { scheduling_calendar: schedulingCalendar } : {}),
+        },
+      ],
+      projectId: CAL_PROJECT_ID,
+      tasks: calTasks,
+      dependencies: calDeps,
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/projects/${CAL_PROJECT_ID}/schedule`);
+    await expect(page.getByRole('option', { name: /Pour slab/ })).toBeVisible();
+  }
+
+  async function nudgeOneDay(page: import('@playwright/test').Page) {
+    await page.getByRole('option', { name: /Pour slab/ }).focus();
+    await page.keyboard.press('r');
+    await expect(page.getByTestId('preview-overlay')).toBeVisible();
+    await page.keyboard.press('ArrowRight');
+  }
+
+  test('a holiday inside the nudged span delays the previewed milestone', async ({ page }) => {
+    // Wed Apr 8 is off: the 5-day slab now works Tue 7, Thu 9, Fri 10, Mon 13,
+    // Tue 14, so the milestone moves Fri Apr 10 → Tue Apr 14.
+    await open(page, {
+      working_days: 31,
+      exceptions: [{ start: '2026-04-08', end: '2026-04-08' }],
+    });
+    await nudgeOneDay(page);
+    await expect(page.getByTestId('schedule-act-live')).toHaveText('Slab cured slips 4 days');
+  });
+
+  test('without a calendar the preview keeps the Mon–Fri week', async ({ page }) => {
+    // Control for the case above: the same nudge finishes Mon Apr 13.
+    await open(page, null);
+    await nudgeOneDay(page);
+    await expect(page.getByTestId('schedule-act-live')).toHaveText('Slab cured slips 3 days');
+  });
+});

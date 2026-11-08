@@ -18,7 +18,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
-from trueppm_api.apps.projects.services import working_day_duration
+from trueppm_api.apps.projects.services import project_working_day_duration
 
 User = get_user_model()
 
@@ -69,25 +69,25 @@ _RECALC = "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"
 
 
 # ---------------------------------------------------------------------------
-# Service helper — working_day_duration
+# Service helper — project_working_day_duration
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_working_day_duration_skips_weekend(calendar: Calendar) -> None:
+def test_working_day_duration_skips_weekend(project: Project) -> None:
     # Mon 2026-04-06 → Mon 2026-04-13 spans one weekend: 8 calendar days but
     # only 6 working days (Mon–Fri + the following Mon).
-    assert working_day_duration(date(2026, 4, 6), date(2026, 4, 13), calendar) == 6
+    assert project_working_day_duration(date(2026, 4, 6), date(2026, 4, 13), project) == 6
 
 
 @pytest.mark.django_db
-def test_working_day_duration_single_day(calendar: Calendar) -> None:
-    assert working_day_duration(date(2026, 4, 6), date(2026, 4, 6), calendar) == 1
+def test_working_day_duration_single_day(project: Project) -> None:
+    assert project_working_day_duration(date(2026, 4, 6), date(2026, 4, 6), project) == 1
 
 
-def test_working_day_duration_defaults_to_mon_fri_without_calendar() -> None:
-    # No calendar → Mon–Fri mask (31). Same span, same answer.
-    assert working_day_duration(date(2026, 4, 6), date(2026, 4, 13), None) == 6
+def test_working_day_duration_defaults_to_mon_fri_without_project() -> None:
+    # No project → Mon–Fri. Same span, same answer.
+    assert project_working_day_duration(date(2026, 4, 6), date(2026, 4, 13), None) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -215,3 +215,102 @@ def test_planned_finish_is_write_only_not_in_representation(
     results = r.data.get("results", r.data)
     first = next(t for t in results if t["id"] == str(task.pk))
     assert "planned_finish" not in first
+
+
+# ---------------------------------------------------------------------------
+# #4170 — the derivation counts on the COMPOSED calendar CPM schedules with
+# ---------------------------------------------------------------------------
+
+
+def _patch_finish(client: APIClient, task: Task, finish: str) -> int:
+    with patch(_BROADCAST), patch(_RECALC):
+        r = client.patch(f"/api/v1/tasks/{task.pk}/", {"planned_finish": finish}, format="json")
+    assert r.status_code == 200, r.content
+    task.refresh_from_db()
+    return int(task.duration)
+
+
+@pytest.mark.django_db
+def test_planned_finish_excludes_a_holiday_in_the_span(
+    client: APIClient, task: Task, calendar: Calendar, membership: ProjectMembership
+) -> None:
+    """Mon 04-06 → Fri 04-10 with Thu 04-09 off is 4 working days, so the task the
+    CPM pass lays out finishes on the handle date instead of the Monday after."""
+    from trueppm_api.apps.projects.models import CalendarException
+
+    CalendarException.objects.create(
+        calendar=calendar, exc_start=date(2026, 4, 9), exc_end=date(2026, 4, 9)
+    )
+    assert _patch_finish(client, task, "2026-04-10") == 4
+
+
+@pytest.mark.django_db
+def test_planned_finish_dropped_on_a_holiday_snaps_back(
+    client: APIClient, task: Task, calendar: Calendar, membership: ProjectMembership
+) -> None:
+    """A drop ON a non-working day adds nothing: the finish is the working day before."""
+    from trueppm_api.apps.projects.models import CalendarException
+
+    CalendarException.objects.create(
+        calendar=calendar, exc_start=date(2026, 4, 9), exc_end=date(2026, 4, 9)
+    )
+    # Mon 06, Tue 07, Wed 08 — Thu 09 is the holiday the handle sits on.
+    assert _patch_finish(client, task, "2026-04-09") == 3
+
+
+@pytest.mark.django_db
+def test_planned_finish_counts_a_layer_holiday_and_narrowed_week(
+    client: APIClient, task: Task, project: Project, membership: ProjectMembership
+) -> None:
+    """An overlay layer's holiday and its narrower week are applied too (ADR-0251)."""
+    from trueppm_api.apps.projects.models import CalendarException, ProjectCalendarLayer
+
+    mon_thu = Calendar.objects.create(name="Mon-Thu", working_days=0b0001111)
+    CalendarException.objects.create(
+        calendar=mon_thu, exc_start=date(2026, 4, 7), exc_end=date(2026, 4, 7)
+    )
+    ProjectCalendarLayer.objects.create(
+        project=project, calendar=mon_thu, role="holidays", sort_order=0
+    )
+    # Mon 06 .. Mon 13 on Mon-Thu minus Tue 07: 06, 08, 09, 13.
+    assert _patch_finish(client, task, "2026-04-13") == 4
+
+
+@pytest.mark.django_db
+def test_planned_finish_uses_the_inherited_program_calendar(user: object) -> None:
+    """A project with no calendar of its own counts on its program's (ADR-0441)."""
+    from trueppm_api.apps.projects.models import Program
+
+    six_day = Calendar.objects.create(name="Six", working_days=0b0111111)
+    program = Program.objects.create(name="Prog", calendar=six_day)
+    project = Project.objects.create(name="Inh", start_date=date(2026, 4, 1), program=program)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+    t = Task.objects.create(project=project, name="T", duration=3, early_start=date(2026, 4, 6))
+    c = APIClient()
+    c.force_authenticate(user=user)
+    # Mon 06 .. Sat 11 on Mon-Sat is 6 working days (5 on the Mon-Fri default).
+    assert _patch_finish(c, t, "2026-04-11") == 6
+
+
+@pytest.mark.django_db
+def test_derived_duration_round_trips_through_cpm(
+    client: APIClient,
+    task: Task,
+    calendar: Calendar,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """The stored duration, laid out by the real CPM pass, finishes on the handle."""
+    from trueppm_api.apps.projects.models import CalendarException
+    from trueppm_api.apps.scheduling.tasks import _run_schedule
+
+    CalendarException.objects.create(
+        calendar=calendar, exc_start=date(2026, 4, 9), exc_end=date(2026, 4, 9)
+    )
+    project.start_date = date(2026, 4, 6)
+    project.status_date = date(2026, 4, 6)
+    project.save()
+    _patch_finish(client, task, "2026-04-10")
+    _run_schedule(str(project.pk), tracker=None)
+    task.refresh_from_db()
+    assert task.early_finish == date(2026, 4, 10)

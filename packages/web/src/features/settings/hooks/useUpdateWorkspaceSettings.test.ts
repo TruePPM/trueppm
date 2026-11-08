@@ -151,6 +151,23 @@ describe('useUpdateWorkspaceSettings', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspace-settings'] });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['project'] });
+  });
+
+  it.each([
+    ['calendar', { calendar: 'cal-ws' }],
+    ['calendar override policy', { calendarOverridePolicy: 'inherit' as const }],
+  ])('refetches every project detail when the workspace %s changes (#4170)', async (_l, patch) => {
+    const qc = makeQC();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateWorkspaceSettings(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate(patch);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project'] });
   });
 
   it('does NOT invalidate when the PATCH fails', async () => {

@@ -28,6 +28,7 @@ import type {
   ResizeEndMessage,
   ResizeMoveMessage,
   ResizeStartMessage,
+  PreviewCalendar,
   ResultMessage,
 } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
@@ -37,11 +38,11 @@ import {
   PINNED_DRAG_EXPLANATION,
 } from '@/features/schedule/pinnedByActuals';
 import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
+import { MON_FRI_MASK, resizeMoveFinishIso } from '@/features/schedule/useScheduleCommit';
 import {
-  MON_FRI_MASK,
-  resizeMoveFinishIso,
-  workingDaysInclusive,
-} from '@/features/schedule/useScheduleCommit';
+  countWorkingDaysInclusive,
+  resolveWorkingDayPredicate,
+} from '@/workers/workingCalendar';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -72,6 +73,13 @@ interface UseDragCpmOptions {
    * eventual PATCH never disagree about how many working days a drag spans.
    */
   workingDaysMask?: number | null;
+  /**
+   * The project's composed calendar (`ProjectDetail.scheduling_calendar`, #4170)
+   * — the mask AND the holidays the server schedules with. Sent to the worker at
+   * gesture start so the cascade steps through holidays instead of a fixed
+   * Mon–Fri week. Null/undefined previews on Mon–Fri.
+   */
+  calendar?: PreviewCalendar | null;
 }
 
 export function useDragCpm({
@@ -82,6 +90,7 @@ export function useDragCpm({
   keyboardModeRef,
   statusDate,
   workingDaysMask,
+  calendar,
 }: UseDragCpmOptions): void {
   const workerRef = useRef<Worker | null>(null);
   const seqRef = useRef(0);
@@ -107,6 +116,10 @@ export function useDragCpm({
   // change must not resubscribe the engine listeners mid-drag.
   const statusDateRef = useRef(statusDate ?? null);
   useEffect(() => { statusDateRef.current = statusDate ?? null; }, [statusDate]);
+  // Same treatment: the calendar arrives with the project detail fetch, after the
+  // engine listeners subscribe, and must not resubscribe them when it lands.
+  const calendarRef = useRef(calendar ?? null);
+  useEffect(() => { calendarRef.current = calendar ?? null; }, [calendar]);
   // Same treatment for the resize preview's mask (#4237) — the mask arrives
   // with the project detail fetch, after the engine listeners are subscribed.
   const workingDaysMaskRef = useRef(workingDaysMask ?? MON_FRI_MASK);
@@ -175,6 +188,7 @@ export function useDragCpm({
         draggedTaskId: ev.id,
         subgraph,
         statusDate: statusDateRef.current,
+        calendar: calendarRef.current,
       };
       worker.postMessage(startMsg);
     });
@@ -257,15 +271,16 @@ export function useDragCpm({
         type: 'RESIZE_START',
         resizedTaskId: ev.id,
         subgraph,
+        calendar: calendarRef.current,
       };
       worker.postMessage(startMsg);
     });
 
     // resize-move: convert the dragged pixel to a working-day duration through
-    // the SAME snap + no-op math `useScheduleCommit`'s resize-task-end commit
-    // path uses (`resizeMoveFinishIso` / `workingDaysInclusive`, #4237), so the
-    // live preview and the eventual PATCH never disagree about what a given
-    // pixel means. `ev.right` is canvas-origin x of the bar's right edge (rule
+    // the SAME snap + count `useScheduleCommit`'s resize-task-end commit path
+    // uses (`resizeMoveFinishIso` / `countWorkingDaysInclusive` on
+    // `resolveWorkingDayPredicate`, #4237, #4170), so the live preview and the
+    // eventual PATCH never disagree about what a given pixel means. `ev.right` is canvas-origin x of the bar's right edge (rule
     // 57), the resize counterpart of `drag-task-move`'s `ev.left`.
     const offResizeMove = engine.on('resize-task-move', (ev) => {
       const worker = workerRef.current;
@@ -282,10 +297,14 @@ export function useDragCpm({
       // task's own start is not a duration this gesture can preview.
       if (newFinish < resized.start) return;
 
-      const newDurationDays = workingDaysInclusive(
+      // The same count, on the same calendar, as the commit's
+      // `planned_finish` → `duration` derivation (#4170): with a holiday in the
+      // extended span, a mask-only count would add a day the worker then lays
+      // past the handle, previewing a finish the user did not point at.
+      const newDurationDays = countWorkingDaysInclusive(
         resized.start,
         newFinish,
-        workingDaysMaskRef.current,
+        resolveWorkingDayPredicate(calendarRef.current, workingDaysMaskRef.current),
       );
 
       const seq = ++seqRef.current;

@@ -47,7 +47,7 @@ const FIXTURES_DIR = resolve(
  *
  * The list is explicit rather than derived so the scope decision is reviewable,
  * and `describes a fixture cpmEngine.ts can actually schedule` re-checks each
- * entry against the predicate — a fixture that gains a calendar exception or a
+ * entry against the predicate — a fixture that gains a per-task calendar or a
  * SNET constraint fails there rather than producing a mystery date mismatch
  * below.
  *
@@ -87,6 +87,19 @@ const IN_SCOPE_FIXTURES = [
   // predecessors, and into a milestone) counts from the start instant, so the
   // weekend before it cannot absorb the lag. One source task, Mon-Fri.
   'sf_positive_lag_monday_start',
+  // #4170: the project's composed calendar now reaches the preview
+  // (`ProjectDetail.scheduling_calendar`), and this adapter threads each
+  // fixture's `calendar` through exactly that path. These were the five
+  // "engine gap: holidays / mask" exclusions #3535 measured at 2-7 days off.
+  'calendar_exceptions',
+  'fs_lag_holiday_week',
+  'six_day_mask',
+  'ss_lag_alt_weekend',
+  'reserved_fields_inert',
+  // #4170: written for this change — a Mon-Sat mask with overlapping and
+  // adjacent holiday ranges inside the span, across FS, SS+lag, FF+lag and a
+  // milestone, so the client's interval merge is exercised too.
+  'drag_span_holiday_six_day_mask',
 ] as const;
 
 /**
@@ -110,14 +123,9 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // fix is exercised on the A->M->B chain.
   milestone_free_float_successor_lag_cap: 'adapter: 2 source tasks',
   canonical_to_json_roundtrip: 'serialization fixture, not a scheduling scenario',
-  // Calendar capability the browser does not have at drag time (ADR-0120).
-  calendar_exceptions: 'engine gap: CalendarException holidays not modeled',
-  // #4715: the reserved-field values are inert here too, but the fixture carries an
-  // exception range, which this engine does not model.
-  reserved_fields_inert: 'engine gap: CalendarException holidays not modeled',
-  fs_lag_holiday_week: 'engine gap: CalendarException holidays not modeled',
-  six_day_mask: 'engine gap: fixed Mon-Fri week, no six-day mask',
-  ss_lag_alt_weekend: 'engine gap: fixed Mon-Fri week, alternate weekend mask',
+  // Per-task calendars stay out on purpose (#4170): the Schedule previews one
+  // project, whose every task the server schedules on that project's calendar,
+  // so the preview is given one calendar. See ADR-0784's 2026-11 amendment.
   per_task_calendar_duration: 'engine gap: per-task calendars not modeled',
   per_task_calendar_six_day: 'engine gap: per-task calendars not modeled',
   per_task_calendar_backward_float: 'engine gap: per-task calendars not modeled',
@@ -195,8 +203,8 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_milestone_recorded_on_forecast_moves_nothing:
     'adapter: does not thread actuals/status date',
   // #4079. Covered on a Mon-Fri week by `milestone_instant_links` (in scope);
-  // this one adds a holiday and an SNET milestone for the two server engines.
-  milestone_instants_all_link_types: 'engine gap: CalendarException holidays not modeled',
+  // this one adds a holiday (modeled since #4170) and an SNET milestone.
+  milestone_instants_all_link_types: 'adapter: seeds all tasks at project start, overriding SNET',
   // #4173. The weekend-lag reading itself is asserted in `cpmEngine.test.ts`,
   // which can seed the fixture's two work sources directly.
   milestone_lag_after_weekend: 'adapter: 3 source tasks',
@@ -280,7 +288,7 @@ interface Fixture {
   start_date: string;
   tasks: FixtureTask[];
   dependencies: FixtureDependency[];
-  calendar: { working_days: number; exceptions: unknown[] };
+  calendar: { working_days: number; exceptions: { start: string; end: string }[] };
   calendars?: unknown;
 }
 
@@ -379,6 +387,14 @@ describe('cpmEngine forward-pass conformance with the shared scheduler fixtures'
     expect(unclassified, 'add these to IN_SCOPE_FIXTURES or OUT_OF_SCOPE').toEqual([]);
   });
 
+  it('asserts at least one holiday fixture and one non-Mon–Fri mask (#4170)', () => {
+    // Non-vacuity for the calendar widening: if every calendar fixture slid back
+    // out of scope, the threading below would be asserted by nothing.
+    const cals = IN_SCOPE_FIXTURES.map((n) => loadFixture(n).calendar);
+    expect(cals.some((c) => c.exceptions.length > 0)).toBe(true);
+    expect(cals.some((c) => c.working_days !== 31)).toBe(true);
+  });
+
   it('does not both assert and excuse the same fixture', () => {
     const contradictory = IN_SCOPE_FIXTURES.filter((n) => n in OUT_OF_SCOPE);
     expect(contradictory).toEqual([]);
@@ -388,10 +404,8 @@ describe('cpmEngine forward-pass conformance with the shared scheduler fixtures'
     it('describes a fixture cpmEngine.ts can actually schedule', () => {
       const fixture = loadFixture(name);
 
-      // The engine hardcodes a Mon–Fri week (0b0011111 = 31) and models no
-      // holidays, so anything else is a calendar it cannot reproduce.
-      expect(fixture.calendar.working_days).toBe(31);
-      expect(fixture.calendar.exceptions).toEqual([]);
+      // The project calendar (mask + exceptions) is threaded through (#4170);
+      // a per-task calendar registry is not.
       expect(fixture.calendars ?? null).toBeNull();
       for (const t of fixture.tasks) {
         expect(t.planned_start ?? null).toBeNull(); // no SNET support
@@ -410,7 +424,20 @@ describe('cpmEngine forward-pass conformance with the shared scheduler fixtures'
       const expected = loadExpected(name);
       const { tasks, edges, sourceId } = toWireSubgraph(fixture);
 
-      const { results } = runCpmForwardPass(tasks, edges, sourceId, fixture.start_date);
+      // The fixture's calendar goes in exactly as `scheduling_calendar` would
+      // carry it — raw ranges, merged by the engine's own `workingCalendar.ts`.
+      const calendar = {
+        working_days: fixture.calendar.working_days,
+        exceptions: fixture.calendar.exceptions,
+      };
+      const { results } = runCpmForwardPass(
+        tasks,
+        edges,
+        sourceId,
+        fixture.start_date,
+        undefined,
+        calendar,
+      );
 
       expect(results).toHaveLength(fixture.tasks.length);
       const byId = new Map(results.map((r) => [r.taskId, r]));

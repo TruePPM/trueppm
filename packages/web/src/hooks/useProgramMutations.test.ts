@@ -94,6 +94,18 @@ describe('useUpdateProgram', () => {
     expect(patchMock).toHaveBeenCalledWith('/programs/prog-1/', { name: 'Renamed' });
     expect(spy).toHaveBeenCalledWith({ queryKey: ['programs'] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ['programs', 'prog-1'] });
+    // No calendar in the patch: member projects' details are left alone.
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: ['project'] });
+  });
+
+  it('refetches every project detail when the program calendar changes (#4170)', async () => {
+    // Inheriting member projects' `scheduling_calendar` follows the program's.
+    patchMock.mockResolvedValue({ data: { id: 'prog-1', calendar: 'cal-2' } });
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateProgram(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ programId: 'prog-1', patch: { calendar: 'cal-2' } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['project'] });
   });
 });
 

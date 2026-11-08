@@ -362,6 +362,31 @@ class EffectiveCalendarSerializer(serializers.ModelSerializer[Calendar]):
         return len(obj.exceptions.all())
 
 
+class SchedulingCalendarRangeSerializer(serializers.Serializer[Any]):
+    """One inclusive non-working date range of a project's composed calendar (#4170)."""
+
+    start = serializers.DateField(read_only=True)
+    end = serializers.DateField(read_only=True)
+
+
+# Schema-only: ProjectDetailSerializer.get_scheduling_calendar builds the value
+# from scheduling.calendars.scheduling_calendar_payload.
+class SchedulingCalendarSerializer(serializers.Serializer[Any]):
+    """The composed calendar a project's CPM pass schedules with (#4170).
+
+    Unlike ``effective_calendar`` (the resolved base calendar, with only a holiday
+    count), this is the overlay of every calendar applied to the project — the base
+    plus any layered calendars, with inheritance resolved. ``working_days`` is the
+    7-bit weekday mask (bit 0 = Monday) AND-ed across them; ``exceptions`` is the
+    union of their non-working date ranges, inclusive, sorted by start. Ranges may
+    overlap; a day is non-working if its weekday is off or it falls in any range.
+    Detail responses only.
+    """
+
+    working_days = serializers.IntegerField(read_only=True, min_value=0, max_value=127)
+    exceptions = SchedulingCalendarRangeSerializer(many=True, read_only=True)
+
+
 # ---------------------------------------------------------------------------
 # Composable working calendars (#906, ADR-0251)
 # ---------------------------------------------------------------------------
@@ -4015,7 +4040,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Write-only target finish date (#951). The Gantt resize handler sends the
     # date the user dropped the bar's right edge on instead of a calendar-day
     # duration; ``validate()`` converts it to a working-day ``duration`` via the
-    # project calendar so a bar dragged across a weekend or holiday commits the
+    # project's composed calendar so a bar dragged across a weekend or holiday commits the
     # correct working-day count, not the inflated calendar span. Never persisted —
     # ``duration`` remains the stored field; this is popped in ``validate()``.
     planned_finish = serializers.DateField(required=False, allow_null=True, write_only=True)
@@ -5135,12 +5160,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         """
         planned_finish = attrs.pop("planned_finish", None)
         if planned_finish is not None and not is_milestone:
-            from trueppm_api.apps.projects.services import working_day_duration
+            from trueppm_api.apps.projects.services import project_working_day_duration
 
-            # Anchor the duration on the same start the bar paints from — the CPM
-            # ``early_start`` (the web ``task.start``), which is where the left
-            # edge sits and what ``duration`` combines with to produce
-            # ``early_finish``. ``early_start >= planned_start`` always holds, so a
+            # Anchor the duration on the CPM ``early_start`` — what ``duration``
+            # combines with to produce ``early_finish``. For a not-started task this
+            # is also where the bar paints from (the web ``task.start``); for an
+            # in-progress one the web paints from the span start instead, so the two
+            # anchors differ (#4896). ``early_start >= planned_start`` always holds, so a
             # task scheduled purely by CPM (null ``planned_start``) still resolves.
             # A planned_start sent in the same request (combined move) takes
             # precedence; the committed planned_start is the last fallback.
@@ -5164,11 +5190,58 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 raise serializers.ValidationError(
                     {"planned_finish": "Finish date is too far from the start date."}
                 )
-            project = self.instance.project if self.instance is not None else attrs.get("project")
+            # The composed calendar (#4170), not ``project.calendar``'s mask: CPM lays
+            # the duration on the composed one, so counting on anything else lands
+            # the finish off the handle whenever a holiday or layer is in the span.
             attrs["duration"] = max(
                 1,
-                working_day_duration(eff_start, planned_finish, getattr(project, "calendar", None)),
+                project_working_day_duration(
+                    eff_start,
+                    planned_finish,
+                    None,
+                    calendar=self._composed_calendar_for(attrs),
+                ),
             )
+
+    def _composed_calendar_for(self, attrs: dict[str, Any]) -> Any:
+        """The project's composed scheduler calendar, memoized for this request.
+
+        Composing costs several queries (applied calendars, layers, exceptions,
+        the workspace tier). A bulk edit (``task_bulk``) or a sync upload applies up
+        to hundreds of rows through a fresh ``TaskSerializer`` each, all in one
+        request, so the cache lives on the underlying ``HttpRequest`` — the one
+        object every row's context shares — keyed by project id. Nothing in a task
+        write changes a calendar, so one composition is valid for the whole request.
+        Keyed on the project id, and the ``Project`` row is loaded only on a miss, so
+        a cached row costs no query at all. No request falls back to composing
+        directly; no project at all yields the Mon–Fri default.
+        """
+        from trueppm_scheduler.models import Calendar as SchedCalendar
+
+        from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+        project_id = self._task_project_id_from(attrs)
+        if project_id is None:
+            return SchedCalendar()
+
+        def _compose() -> Any:
+            project = attrs.get("project") if self.instance is None else None
+            if project is None:
+                project = Project.objects.get(pk=project_id)
+            return compose_project_calendar(project)
+
+        request = self.context.get("request")
+        holder = getattr(request, "_request", request)
+        if holder is None:
+            return _compose()
+        cache: dict[str, Any] | None = getattr(holder, "_trueppm_composed_calendars", None)
+        if cache is None:
+            cache = {}
+            holder._trueppm_composed_calendars = cache
+        key = str(project_id)
+        if key not in cache:
+            cache[key] = _compose()
+        return cache[key]
 
     def _task_project_id_from(self, attrs: dict[str, Any]) -> Any:
         """The task's project id — from the instance on update, ``attrs`` on create."""
@@ -11508,6 +11581,7 @@ class ProjectDetailSerializer(ProjectSerializer):
     program_detail = serializers.SerializerMethodField()
     my_facets = serializers.SerializerMethodField()
     retired_key_count = serializers.SerializerMethodField()
+    scheduling_calendar = serializers.SerializerMethodField()
 
     class Meta(ProjectSerializer.Meta):
         fields = [
@@ -11519,7 +11593,23 @@ class ProjectDetailSerializer(ProjectSerializer):
             "program_detail",
             "my_facets",
             "retired_key_count",
+            "scheduling_calendar",
         ]
+
+    @extend_schema_field(SchedulingCalendarSerializer)
+    def get_scheduling_calendar(self, obj: Project) -> dict[str, Any]:
+        """The composed calendar this project's CPM pass schedules with (#4170).
+
+        Feeds the Schedule's drag/resize/keyboard preview so it steps through the
+        project's real working days and holidays instead of a fixed Mon-Fri week
+        (ADR-0784 amendment). Detail-only: it inlines exception dates, which the
+        project list must not pay for on every row. The viewset prefetches
+        ``calendar_layers__calendar__exceptions`` on retrieve, so this adds no
+        per-exception query.
+        """
+        from trueppm_api.apps.scheduling.calendars import scheduling_calendar_payload
+
+        return scheduling_calendar_payload(obj)
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_retired_key_count(self, obj: Project) -> int | None:

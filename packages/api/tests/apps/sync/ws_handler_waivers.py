@@ -42,9 +42,10 @@ genuinely is one.
 are correctly broadcast, on commit, and live in ``FROZEN_WS_EVENT_TYPES``; nothing in
 ``packages/web/src`` names them. This is the cluster that named the class.
 
-**(b) FRONTEND MISSING — #3245.** ``project_calendar_changed`` carries the actor label
-#3174 built and no client subscribes to it. Same shape as (a), found by a different audit
-that was not looking for (a)'s findings.
+**(b) FRONTEND MISSING — #3245 (waiver retired by #4170).** ``project_calendar_changed``
+had no client subscriber. #4170 registered one (it refetches the project detail's
+``scheduling_calendar`` and the calendar caches), so the waiver is gone; surfacing the
+event's actor label is the part of #3245 still open.
 
 **(c) STRUCTURALLY UNDELIVERABLE — #836.** The five ``program_*`` events fan out on the
 channel group ``project_{program_id}``. There is no ``ws/v1/programs/`` route and
@@ -98,11 +99,6 @@ UNHANDLED_WAIVERS = {
         "peer's project list live (ADR-0202).",
         issue=2847,
     ),
-    "project_calendar_changed": Waiver(
-        reason="No client subscribes, so the actor label #3174 added to the payload reaches "
-        "nobody and a calendar swap does not move a peer's schedule live.",
-        issue=3245,
-    ),
     "program_closed": Waiver(
         reason="Undeliverable, not unhandled: fans out on project_{program_id}, and no "
         "ws/v1/programs/ route exists for any group_add() to join. A handler would be "
@@ -150,7 +146,7 @@ UNEMITTED_WAIVERS = {
 }
 
 # The ratchet. Each must equal its dict's length; see the module docstring.
-UNHANDLED_WAIVER_BUDGET = 12
+UNHANDLED_WAIVER_BUDGET = 11
 UNEMITTED_WAIVER_BUDGET = 1
 
 LEDGER = WaiverLedger(
