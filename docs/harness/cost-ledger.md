@@ -100,7 +100,7 @@ parser matches `gate:` lines only. `/kaizen` reads the cost lines separately, th
 `lint:cost-ledger` CI job (and `make cost-ledger-check`, part of `make pre-push`) runs the
 `--self-test` of `scripts/cost-ledger`, `scripts/subagent-tokens.py`,
 `scripts/orchestrator-tokens.py`, `scripts/est-cost.py`, `scripts/cost-table.py`,
-`scripts/post-mr-cost.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one
+`scripts/post-mr-cost.py`, `scripts/mr-cost-means.py` and `scripts/lib/ledger_lines.py`. A description-level validator (one
 `cost-ledger: off` line, no cost lines beside it, no second `est-cost-usd:`) is not present in
 this repository; until one exists, the
 lines are only as consistent as the skills that write them.
@@ -120,6 +120,17 @@ lines are only as consistent as the skills that write them.
   `post-mr-cost.py --measure` snapshots taken at the go-ahead, which claim nothing, so the lines of
   two MRs from one session can still cover the same stretch. Read the comments, not the lines, when
   adding up a session.
+- **Per-MR cost for a reader comes from the windowed records, not the `## Gates` snapshot
+  (trueppm#4884).** `/kaizen` (§ *Cost beside yield*) runs `scripts/mr-cost-means.py`, which reads
+  each MR's `## Cost of this MR` notes with `cost-table.py`'s parser and sums every record that
+  states `Window: S to U` (so a multi-record MR is the sum of its records' own **Total** rows). An
+  MR with only legacy `Window end:` records (their orchestrator row is cumulative from the session
+  start, so they overlap), no records, unreadable notes, or a record whose cost is `n/a` is
+  **excluded** from the cost mean, never read as 0, and the script prints how many were excluded
+  and why. `subagent-tokens:` from `## Gates` is per-branch and is still read from the description.
+  `cost-table.py` renders a fixed line on any record without a window start (the `--file` path when
+  `--since` is not given): its orchestrator row is not windowed and must not be compared or added.
+  The hook and `--retry` always pass `--since`, so this only applies to a hand-run `--file`.
 - A window of disabled MRs is not evidence that cost fell.
 
 ## The `subagent-tokens:` line and the layout dependency

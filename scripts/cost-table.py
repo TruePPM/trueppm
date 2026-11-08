@@ -303,6 +303,13 @@ def _valid_ts(text):
         return False
 
 
+# A record with no window start (#4884). Its orchestrator row is not windowed, so it may be cumulative from the
+# session start and overlap other MRs' records. Readers (scripts/mr-cost-means.py) never sum such a record.
+LEGACY_WINDOW_NOTE = (
+    "- This record has no window start: its orchestrator row is not windowed, so it must not be compared "
+    "with another MR's cost or added to it."
+)
+
 FIRST_RECORD = (
     "- This is the session's first record, so the orchestrator row starts at the session's start and "
     "includes work done before this MR's issue."
@@ -494,6 +501,7 @@ def _render(
             "- Window end: %s. Both figures stop at the go-ahead to push; later work on this MR goes in later records."
             % (end if end else "n/a (%s)" % why)
         )
+        out.append(LEGACY_WINDOW_NOTE)
     else:
         out.append(
             "- Window: %s to %s. This record counts only the work in this window; the running-total row adds the earlier records."
@@ -1431,6 +1439,11 @@ def self_test():
     check(
         "comment: no window end is n/a",
         "Window end: n/a (no window end given)" in bare,
+        bare,
+    )
+    check(
+        "comment: a record with no window start says its orchestrator row is not windowed (#4884)",
+        LEGACY_WINDOW_NOTE in bare and "not windowed" in bare,
         bare,
     )
     check(

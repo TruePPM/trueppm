@@ -575,6 +575,7 @@ cost-ledger-check: ## Run the lint:cost-ledger CI job locally (the cost-ledger s
 	@python3 scripts/est-cost.py --self-test
 	@python3 scripts/cost-table.py --self-test
 	@python3 scripts/post-mr-cost.py --self-test
+	@python3 scripts/mr-cost-means.py --self-test
 	@python3 scripts/lib/ledger_lines.py --self-test
 
 web-types-drift-check: ## Run the lint:web-types-drift CI job locally (#2633)
