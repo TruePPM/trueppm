@@ -36,7 +36,8 @@ export function ForecastBasisHelp() {
           <p>
             The dates on the timeline come from the <strong>CPM schedule</strong> — the earliest
             everything can finish if every task takes exactly as long as estimated and nothing
-            slips. It is one date, and an optimistic one: on FS/SS links no simulated run finishes earlier.
+            slips. It is one date, and an optimistic one: on FS/SS links no simulated run finishes
+            earlier.
           </p>
           <p>
             A Monte Carlo run re-plays the schedule thousands of times with the durations varying,
@@ -45,7 +46,8 @@ export function ForecastBasisHelp() {
           <ul className="flex flex-col gap-1 text-xs text-neutral-text-secondary">
             <li>
               <strong className="text-neutral-text-primary">P50</strong> — half of runs finished by
-              here. Later than the CPM date by the expected slip, so it is a midpoint, not a promise.
+              here. Later than the CPM date by the expected slip, so it is a midpoint, not a
+              promise.
             </li>
             <li>
               <strong className="text-neutral-text-primary">P80</strong> — 4 in 5 runs finished by

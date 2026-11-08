@@ -3,7 +3,7 @@
 Samples are clamped up to ``Task.duration`` (#3765), so on a network of FS/SS
 links no run finishes before CPM and P(finish <= CPM) falls toward 0 as more
 tasks carry an estimate. The docs once called the CPM date "a coin flip" near
-P50. This pins the claim on synthetic 200-task estimated FS and SS networks and
+P50. This pins the claim on a synthetic 200-task estimated FS chain and a staggered SS+2 chain and
 keeps the stale wording out of every site that was corrected.
 """
 
@@ -58,6 +58,8 @@ def _website_docs() -> Path | None:
 
 
 def _estimated_chain(n: int, dep_type: DependencyType) -> Project:
+    """``n`` estimated tasks chained by ``dep_type``; SS links carry a 2-day lag so they stagger."""
+    lag = timedelta(days=2) if dep_type is DependencyType.SS else timedelta(0)
     tasks = [
         Task(
             id=f"t{i}",
@@ -70,7 +72,7 @@ def _estimated_chain(n: int, dep_type: DependencyType) -> Project:
         for i in range(n)
     ]
     deps = [
-        Dependency(predecessor_id=f"t{i - 1}", successor_id=f"t{i}", dep_type=dep_type)
+        Dependency(predecessor_id=f"t{i - 1}", successor_id=f"t{i}", dep_type=dep_type, lag=lag)
         for i in range(1, n)
     ]
     return Project(
