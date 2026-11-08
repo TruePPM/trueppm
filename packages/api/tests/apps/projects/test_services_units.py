@@ -100,13 +100,13 @@ from trueppm_api.apps.projects.services import (
     notify_carryover_assignees,
     notify_sprint_membership_change,
     pending_scope_advisory,
+    project_working_day_duration,
     rollup_config_defaults,
     scheduler_velocity_inputs,
     shift_project_start_if_needed,
     sprint_duration_change_payload,
     sprint_pending_count,
     sprint_scope_change_payload,
-    working_day_duration,
 )
 
 # 2026-01-05 is a Monday — every weekday-sensitive fixture below anchors here so
@@ -193,13 +193,16 @@ class TestWorkingDays:
         """The final-increment guard stops at date.max rather than raising OverflowError."""
         assert _working_days(date.max, date.max, 127) == 1
 
-    def test_working_day_duration_uses_the_calendar_mask(self) -> None:
-        """A 7-day calendar counts the weekend; the same window on Mon–Fri does not."""
-        seven_day = SimpleNamespace(working_days=127)
-        assert working_day_duration(MONDAY, MONDAY + timedelta(days=6), seven_day) == 7
+    def test_project_working_day_duration_counts_on_a_passed_calendar(self) -> None:
+        """A pre-composed calendar is used as-is: a 7-day one counts the weekend."""
+        from trueppm_scheduler.models import Calendar as SchedCalendar
 
-    def test_working_day_duration_defaults_to_mon_fri_without_a_calendar(self) -> None:
-        assert working_day_duration(MONDAY, MONDAY + timedelta(days=6), None) == 5
+        seven_day = SchedCalendar(working_days=127)
+        end = MONDAY + timedelta(days=6)
+        assert project_working_day_duration(MONDAY, end, None, calendar=seven_day) == 7
+
+    def test_project_working_day_duration_defaults_to_mon_fri_without_a_project(self) -> None:
+        assert project_working_day_duration(MONDAY, MONDAY + timedelta(days=6), None) == 5
 
 
 # ---------------------------------------------------------------------------

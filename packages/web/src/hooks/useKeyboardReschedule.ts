@@ -25,7 +25,7 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { GanttEngine } from '@/features/schedule/engine';
 import type { Task, TaskLink } from '@/types';
-import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
+import type { PreviewCalendar, RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/schedule/buildSubgraph';
 import {
@@ -34,6 +34,7 @@ import {
 } from '@/features/schedule/pinnedByActuals';
 import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
 import { keyboardNudgeStart } from '@/features/schedule/scheduleUtils';
+import { resolveWorkingDayPredicate } from '@/workers/workingCalendar';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -77,6 +78,12 @@ export interface UseKeyboardRescheduleOptions {
    */
   statusDate?: string | null;
   /**
+   * The project's composed calendar (`ProjectDetail.scheduling_calendar`,
+   * #4170), so a nudge's cascade preview steps through holidays the way the
+   * commit will. Null/undefined previews on Mon–Fri.
+   */
+  calendar?: PreviewCalendar | null;
+  /**
    * True while the focused Timeline bar can be authored — build mode is on AND
    * this reader may edit the row (#2784).
    *
@@ -108,6 +115,7 @@ export function useKeyboardReschedule({
   ariaAssertiveRef,
   keyboardModeRef,
   statusDate,
+  calendar,
   authoringActive = false,
   onOpenDatePopover,
   onCommitReschedule,
@@ -131,6 +139,8 @@ export function useKeyboardReschedule({
   // status-date change must not tear down and rebuild the key bindings.
   const statusDateRef = useRef(statusDate ?? null);
   useEffect(() => { statusDateRef.current = statusDate ?? null; }, [statusDate]);
+  const calendarRef = useRef(calendar ?? null);
+  useEffect(() => { calendarRef.current = calendar ?? null; }, [calendar]);
   // Same treatment again: toggling build mode must not tear down and rebuild
   // the document listener, which would drop an in-flight reschedule.
   const authoringActiveRef = useRef(authoringActive);
@@ -188,7 +198,14 @@ export function useKeyboardReschedule({
       if (!worker || !taskId) return;
 
       cumulativeDeltaRef.current = newDelta;
-      const newStart = keyboardNudgeStart(origStartRef.current, origAtDayEndRef.current, newDelta);
+      // Step on the same calendar the worker previews with (#4170), so "1 working
+      // day later" never lands on a holiday or skips a working Saturday.
+      const newStart = keyboardNudgeStart(
+        origStartRef.current,
+        origAtDayEndRef.current,
+        newDelta,
+        resolveWorkingDayPredicate(calendarRef.current),
+      );
       const subgraph = buildSubgraph(taskId, tasksRef.current, linksRef.current);
       const seq = ++seqRef.current;
 
@@ -199,6 +216,7 @@ export function useKeyboardReschedule({
         newStartIso: newStart,
         subgraph,
         statusDate: statusDateRef.current,
+        calendar: calendarRef.current,
       };
       worker.postMessage(msg);
       setKeyboardDelta(newDelta);
@@ -303,6 +321,7 @@ export function useKeyboardReschedule({
         origStartRef.current,
         origAtDayEndRef.current,
         cumulativeDeltaRef.current,
+        resolveWorkingDayPredicate(calendarRef.current),
       );
       const taskId = selectedTaskIdRef.current;
       commitDrag(confirmedStart);

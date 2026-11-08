@@ -69134,6 +69134,14 @@
                         "type": "integer",
                         "nullable": true,
                         "readOnly": true
+                    },
+                    "scheduling_calendar": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SchedulingCalendar"
+                            }
+                        ],
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -69193,6 +69201,7 @@
                     "program_detail",
                     "recalculated_at",
                     "retired_key_count",
+                    "scheduling_calendar",
                     "server_date",
                     "server_version",
                     "start_date",
@@ -73762,6 +73771,49 @@
                         "nullable": true
                     }
                 }
+            },
+            "SchedulingCalendar": {
+                "type": "object",
+                "description": "The composed calendar a project's CPM pass schedules with (#4170).\n\nUnlike ``effective_calendar`` (the resolved base calendar, with only a holiday\ncount), this is the overlay of every calendar applied to the project — the base\nplus any layered calendars, with inheritance resolved. ``working_days`` is the\n7-bit weekday mask (bit 0 = Monday) AND-ed across them; ``exceptions`` is the\nunion of their non-working date ranges, inclusive, sorted by start. Ranges may\noverlap; a day is non-working if its weekday is off or it falls in any range.\nDetail responses only.",
+                "properties": {
+                    "working_days": {
+                        "type": "integer",
+                        "maximum": 127,
+                        "minimum": 0,
+                        "readOnly": true
+                    },
+                    "exceptions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SchedulingCalendarRange"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "exceptions",
+                    "working_days"
+                ]
+            },
+            "SchedulingCalendarRange": {
+                "type": "object",
+                "description": "One inclusive non-working date range of a project's composed calendar (#4170).",
+                "properties": {
+                    "start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "end": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "end",
+                    "start"
+                ]
             },
             "ScopeEnum": {
                 "enum": [

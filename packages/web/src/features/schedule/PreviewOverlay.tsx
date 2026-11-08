@@ -397,9 +397,10 @@ export function PreviewOverlay({ engine, tasks, containerRef }: Props) {
       </div>
 
       {/* Top-left disclosure. Normally the estimate label (issue #1493): the drag
-          preview is a client-side approximation (fixed Mon–Fri calendar, no
-          custom-calendar/holiday awareness), so a slip or CP badge here reads as
-          a prediction rather than the confirmed server result.
+          preview is a client-side forward pass (on the project's composed
+          calendar since #4170, but still no backward pass and no server-side
+          reconciliation), so a slip or CP badge here reads as a prediction
+          rather than the confirmed server result.
 
           When the dragged bar is pinned by recorded actuals it is replaced by the
           reason the drop will do nothing (#2819). The gesture is deliberately

@@ -166,6 +166,55 @@ def test_get_applied_calendars_returns_base_and_ordered_overlays(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_put_broadcasts_project_calendar_changed_on_commit(
+    project: Project,
+    holidays_calendar: Calendar,
+    scheduler_client: APIClient,
+) -> None:
+    """Applying calendars changes this project's effective calendar (#4170).
+
+    Other members' open Schedules re-read ``scheduling_calendar`` on this event, so
+    it must fire — after commit, with the published ``{id, actor}`` payload.
+    """
+    from unittest.mock import MagicMock, patch
+
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+        resp = scheduler_client.put(
+            _url(project),
+            {"overlays": [{"calendar_id": str(holidays_calendar.id), "role": "holidays"}]},
+            format="json",
+        )
+    assert resp.status_code == 200
+    events = [c.args for c in bcast.call_args_list if c.args[1] == "project_calendar_changed"]
+    assert events == [
+        (
+            str(project.pk),
+            "project_calendar_changed",
+            {"id": str(project.pk), "actor": "sched_user"},
+        )
+    ]
+
+
+@pytest.mark.django_db
+def test_put_broadcasts_nothing_when_the_transaction_rolls_back(
+    project: Project,
+    holidays_calendar: Calendar,
+    scheduler_client: APIClient,
+) -> None:
+    """Under a test transaction that never commits, on_commit never runs: no event."""
+    from unittest.mock import MagicMock, patch
+
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+        resp = scheduler_client.put(
+            _url(project),
+            {"overlays": [{"calendar_id": str(holidays_calendar.id), "role": "holidays"}]},
+            format="json",
+        )
+    assert resp.status_code == 200
+    assert not [c for c in bcast.call_args_list if c.args[1] == "project_calendar_changed"]
+
+
+@pytest.mark.django_db(transaction=True)
 def test_put_replaces_applied_set_and_enqueues_recompute(
     project: Project,
     base_calendar: Calendar,

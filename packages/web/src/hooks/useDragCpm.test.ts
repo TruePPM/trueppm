@@ -5,7 +5,8 @@ import { useDragStore } from '@/stores/dragStore';
 import { GanttEngineStub } from '@/features/schedule/engine';
 import type { GanttEngineEventMap } from '@/features/schedule/engine';
 import type { GanttScaleData } from '@/features/schedule/engine';
-import type { ResultMessage } from '@/workers/cpmWorker.types';
+import type { ResizeMoveMessage, ResultMessage } from '@/workers/cpmWorker.types';
+import { runCpmResizeForwardPass } from '@/workers/cpmEngine';
 import type { Task, TaskLink } from '@/types';
 import { createRef, type MutableRefObject } from 'react';
 
@@ -382,6 +383,43 @@ describe('useDragCpm', () => {
     });
   });
 
+  describe('project calendar (#4170)', () => {
+    const CALENDAR = {
+      working_days: 0b0111111,
+      exceptions: [{ start: '2025-01-15', end: '2025-01-15' }],
+    };
+
+    it('ships the composed calendar with DRAG_START and RESIZE_START', () => {
+      const engine = new ControllableEngine();
+      renderHook(() =>
+        useDragCpm({
+          engine,
+          tasks: TASKS,
+          links: LINKS,
+          ariaLiveRef: makeAriaRef(),
+          calendar: CALENDAR,
+        }),
+      );
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DRAG_START', calendar: CALENDAR }),
+      );
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'RESIZE_START', calendar: CALENDAR }),
+      );
+    });
+
+    it('sends null when the project detail carries no calendar', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DRAG_START', calendar: null }),
+      );
+    });
+  });
+
   describe('resize-task-move event', () => {
     it('posts a RESIZE_MOVE with seq = 1 and the working-day duration for the dropped edge', () => {
       const engine = new ControllableEngine();
@@ -444,6 +482,46 @@ describe('useDragCpm', () => {
         seq: 1,
         newDurationDays: 9,
       });
+    });
+
+    it('a resize past a holiday previews the finish ON the handle date (#4170)', () => {
+      // Tue 2025-01-14 is a holiday. The handle (right=192 → exclusive edge
+      // 01-17) points at Thu 01-16. Counted on the composed calendar that is 8
+      // working days; a mask-only count says 9, which the worker — stepping on
+      // the same calendar — would lay out to Fri 01-17, a day past the handle.
+      const calendar = {
+        working_days: 0b0011111,
+        exceptions: [{ start: '2025-01-14', end: '2025-01-14' }],
+      };
+      const engine = new ControllableEngine();
+      renderHook(() =>
+        useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef: makeAriaRef(), calendar }),
+      );
+      void act(() => engine.emit('resize-task', { id: 't1' }));
+      workerMock.postMessage.mockClear();
+      void act(() => engine.emit('resize-task-move', { id: 't1', right: 192 }));
+      const move = workerMock.postMessage.mock.calls.at(-1)?.[0] as ResizeMoveMessage;
+      expect(move.newDurationDays).toBe(8);
+
+      // Feed that count to the engine the worker runs, on the same calendar.
+      // (buildSubgraph is mocked in this file, so the wire task is built by hand.)
+      const wire = {
+        id: 't1',
+        name: 'Task 1',
+        earlyStart: '2025-01-06',
+        earlyFinish: '2025-01-10',
+        lateFinish: '2025-01-10',
+        durationDays: 5,
+        isMilestone: false,
+      };
+      const { results } = runCpmResizeForwardPass(
+        [wire],
+        [],
+        't1',
+        move.newDurationDays,
+        calendar,
+      );
+      expect(results.find((r) => r.taskId === 't1')?.earlyFinish).toBe('2025-01-16');
     });
   });
 

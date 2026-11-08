@@ -1,7 +1,7 @@
 ---
 title: "Schedule view"
 description: "Canvas-rendered Schedule (Gantt-style) with critical path, baselines, milestones, and the unscheduled gutter."
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 This is the home view for a PM planning and tracking a project's timeline. The **Schedule view** is TruePPM's project-timeline surface — what the rest of the industry calls a *Gantt chart*. TruePPM calls it **Schedule** in the product because the view does more than a historical Gantt chart: the **critical path** (the chain of dependent tasks that determines the earliest the project can finish), baselines, milestones, the unscheduled gutter, and a live re-forecast driven by **CPM** — the Critical Path Method, the calculation engine that works out every task's dates from durations and dependencies — off sprint velocity all live in the same canvas.
@@ -236,7 +236,11 @@ That has one consequence worth knowing, because it looks like a glitch the first
 
 To genuinely add a day, drag to the **next working day** — past a Friday finish on a Monday–Friday calendar, that's the following Monday. The same rule follows whatever calendar the project actually uses: on a six-day work week, Saturday *is* a working day and dragging onto it extends the task by one day.
 
-If your project has holidays or shutdowns configured, the count on the canvas can differ from the stored duration by those days; the value the server calculates is authoritative, and it is what you see after the schedule re-forecasts.
+Holidays and shutdowns count the same way. A holiday inside the span you drag over is not a working day, so it adds nothing: drop the edge on the day you want the task to end and it ends there. Dropping the edge **on** a holiday ends the task on the working day before it. The live preview, the confirmation popover and the saved duration all use the project's own calendar, including any layered holiday calendars, so they agree.
+
+:::note[Ships in 0.5]
+Holiday-aware resizing lands in 0.5 ([#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170)). In 0.4 the count on the canvas and the saved duration use only the calendar's weekly pattern, so a holiday inside the dragged span is counted as a working day and the task ends one working day past where you dropped it once the schedule re-forecasts.
+:::
 
 ## Live re-forecast
 

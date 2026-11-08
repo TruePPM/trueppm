@@ -305,20 +305,37 @@ def _layered_working_days(cal: Any, start: date, finish: date) -> int:
     return total
 
 
-def working_day_duration(start: date, finish: date, calendar: Any | None) -> int:
-    """Working-day count in ``[start, finish]`` inclusive under a project calendar.
+def project_working_day_duration(
+    start: date, finish: date, project: Any | None, *, calendar: Any | None = None
+) -> int:
+    """Working days in ``[start, finish]`` inclusive on the project's COMPOSED calendar.
 
-    This is the inverse of the scheduler's ``_finish_from_start`` (engine.py): a
-    task whose stored ``duration`` is *D* occupies *D* working days, so resolving a
-    Gantt bar resize to a dropped finish date must store the *working*-day span —
-    not the raw calendar span — or a bar dragged across a weekend commits an
-    inflated duration (#951). The weekday mask matches how the CPM pass builds its
-    scheduler ``Calendar`` (``scheduling/tasks.py`` passes ``working_days`` only),
-    so the duration derived here round-trips back to the same finish date through
-    a recalc. Defaults to Mon–Fri (mask 31) when the project has no calendar.
+    The ``planned_finish`` → ``duration`` derivation (#951, #4170). It used to count on
+    ``project.calendar``'s weekday mask alone, while CPM then laid that duration on
+    ``compose_project_calendar(project)`` — inherited base, layered calendars and every
+    ``CalendarException``. A bar dragged across a holiday therefore stored one working
+    day too many and landed a day past the handle, and an inherited or layer-narrowed
+    week counted against the wrong mask. Counting on the composed calendar makes the
+    derived duration round-trip to exactly ``planned_finish`` (or, for a finish dropped
+    on a non-working day, the last working day before it).
+
+    The web's resize preview and commit popover count with the same rule
+    (``countWorkingDaysInclusive``), so for a **not-started** task all three agree. An
+    in-progress task does not yet: the client anchors the count on the bar's span
+    start, the server on ``early_start`` (the remaining-work window) — #4896.
+
+    ``calendar`` lets a caller that writes many rows of one project pass an
+    already-composed scheduler ``Calendar`` (the serializer memoizes one per request)
+    instead of re-composing it — several queries — per row. Callers bound the span
+    first (the serializer's ``MAX_TASK_SPAN_DAYS``). ``None`` project → Mon–Fri.
     """
-    mask = calendar.working_days if calendar is not None else 31
-    return _working_days(start, finish, mask)
+    if calendar is None:
+        if project is None:
+            return _working_days(start, finish, 31)
+        from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+        calendar = compose_project_calendar(project)
+    return _layered_working_days(calendar, start, finish)
 
 
 def _initials(name: str) -> str:

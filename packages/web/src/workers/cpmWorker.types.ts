@@ -5,18 +5,22 @@
  * subgraph of a dragged task. All dates are ISO strings to avoid structured-
  * clone issues with Date objects across the worker boundary.
  *
- * Calendar fidelity (issue #1493): the worker approximates the server's
- * calendar-aware CPM with a fixed Mon–Fri working week — it has no access to
- * the project's custom `WorkCalendar`/`CalendarException` rows (those live
- * server-side only; see ADR-0120). This is a live-preview estimate, not the
- * source of truth: the post-commit server CPM run reconciles the real dates,
- * including any custom calendar or holiday effects this preview cannot see.
+ * Calendar fidelity (issues #1493, #4170): the gesture-start messages carry the
+ * project's composed calendar (`ProjectDetail.scheduling_calendar` — weekday
+ * mask plus exception ranges), so the worker steps through the same working
+ * days and holidays the server schedules with. Absent, it falls back to the
+ * server's default Mon–Fri week. This is still a live-preview estimate, not the
+ * source of truth: the post-commit server CPM run reconciles the real dates.
  *
  * Progress fidelity (issue #2813): the progress fields below are what let the
  * engine apply ADR-0132's three floors. They are optional so a caller that
  * knows nothing about progress still gets the pre-#2813 (progress-blind)
  * behavior rather than a silently wrong one; `buildSubgraph` always sends them.
  */
+
+import type { PreviewCalendar } from './workingCalendar';
+
+export type { PreviewCalendar };
 
 /** Minimal task shape for the in-browser CPM engine. */
 export interface CpmTask {
@@ -129,6 +133,12 @@ export interface DragStartMessage {
    * DRAGGED task only — see the note in `cpmEngine.ts`.
    */
   statusDate?: string | null;
+  /**
+   * The project's composed calendar (`ProjectDetail.scheduling_calendar`,
+   * #4170), resident for the whole gesture like the subgraph. Null/absent
+   * steps on the server's default Mon–Fri week.
+   */
+  calendar?: PreviewCalendar | null;
 }
 
 /**
@@ -170,6 +180,8 @@ export interface RecalcMessage {
   };
   /** See {@link DragStartMessage.statusDate}. */
   statusDate?: string | null;
+  /** See {@link DragStartMessage.calendar}. */
+  calendar?: PreviewCalendar | null;
 }
 
 /**
@@ -191,6 +203,8 @@ export interface ResizeStartMessage {
     tasks: CpmTask[];
     edges: CpmEdge[];
   };
+  /** See {@link DragStartMessage.calendar}. */
+  calendar?: PreviewCalendar | null;
 }
 
 /**

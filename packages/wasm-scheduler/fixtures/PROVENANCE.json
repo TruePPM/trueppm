@@ -56,6 +56,11 @@
       "issue": "#39",
       "evidence": "30dad8272: added; no regeneration or hand-derivation statement in history"
     },
+    "drag_span_holiday_six_day_mask.json": {
+      "provenance": "unknown",
+      "issue": "#4170",
+      "evidence": "#4170: added by hand for the drag-preview calendar conformance (Mon-Sat mask, overlapping and adjacent holidays inside the span)"
+    },
     "driving_edge_cross_calendar_ff.json": {
       "provenance": "unknown",
       "issue": null,
@@ -95,6 +100,11 @@
       "provenance": "unknown",
       "issue": "#39",
       "evidence": "a16bebdc3: last change carries no regeneration or hand-derivation statement"
+    },
+    "expected/drag_span_holiday_six_day_mask.json": {
+      "provenance": "regenerated",
+      "issue": "#4170",
+      "evidence": "#4170: produced with REGEN_EXPECTED=1 from the Python engine; A-M dates also checked by hand against the Mon-Sat mask and the merged Mar 5-6 / Mar 11-13 closures"
     },
     "expected/driving_edge_cross_calendar_ff.json": {
       "provenance": "unknown",

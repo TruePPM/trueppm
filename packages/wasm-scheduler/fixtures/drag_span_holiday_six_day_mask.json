@@ -1,0 +1,28 @@
+{
+  "id": "p-drag-span-holiday-six-day-mask",
+  "name": "Mon-Sat mask with overlapping and adjacent holidays inside the dragged span",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 345600.0},
+    {"id": "B", "name": "Task B", "duration": 259200.0},
+    {"id": "C", "name": "Task C", "duration": 172800.0},
+    {"id": "D", "name": "Task D", "duration": 86400.0},
+    {"id": "M", "name": "Milestone M", "duration": 0.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "C", "dep_type": "SS", "lag": 172800.0},
+    {"predecessor_id": "C", "successor_id": "D", "dep_type": "FF", "lag": 86400.0},
+    {"predecessor_id": "D", "successor_id": "M", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 63,
+    "exceptions": [
+      {"start": "2026-03-05", "end": "2026-03-06"},
+      {"start": "2026-03-12", "end": "2026-03-13"},
+      {"start": "2026-03-11", "end": "2026-03-12"}
+    ],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

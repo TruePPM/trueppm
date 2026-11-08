@@ -1601,3 +1601,59 @@ def test_a_cross_project_cycle_between_readable_projects_names_every_node(
     assert "" not in offending
     assert {str(a1.pk), str(b1.pk)} <= set(offending)
     assert not Dependency.objects.filter(predecessor=b1, successor=a1).exists()
+
+
+@pytest.mark.django_db
+def test_planned_finish_rows_compose_the_calendar_once_per_request(
+    owner_client: APIClient, project: Project
+) -> None:
+    """Each ``planned_finish`` row derives its duration on the composed calendar
+    (#4170). Composing costs several queries, so it is memoized for the request: a
+    batch of many such rows composes once, and its per-row query cost is no higher
+    than an identical batch that never needs the calendar."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from trueppm_api.apps.projects.models import CalendarException
+    from trueppm_api.apps.scheduling import calendars
+
+    calendar = project.calendar
+    assert calendar is not None
+    CalendarException.objects.create(
+        calendar=calendar, exc_start=date(2026, 4, 9), exc_end=date(2026, 4, 9)
+    )
+
+    def fresh_tasks(n: int) -> list[Task]:
+        return [
+            Task.objects.create(
+                project=project, name=f"T{i}", duration=2, early_start=date(2026, 4, 6)
+            )
+            for i in range(n)
+        ]
+
+    def batch(rows: list[Task], data: dict[str, object]) -> int:
+        ops = [{"op": "update", "id": str(t.pk), "data": data} for t in rows]
+        with _no_side_effects(), CaptureQueriesContext(connection) as ctx:
+            r = owner_client.post(url(project), {"operations": ops}, format="json")
+        assert r.status_code == 207, r.data
+        assert len(r.data["applied"]) == len(rows)
+        return len(ctx.captured_queries)
+
+    real_compose = calendars.compose_project_calendar
+    with patch.object(calendars, "compose_project_calendar", wraps=real_compose) as spy:
+        pf_one = batch(fresh_tasks(1), {"planned_finish": "2026-04-10"})
+        pf_rows = fresh_tasks(8)
+        pf_many = batch(pf_rows, {"planned_finish": "2026-04-10"})
+    # One composition per request, whatever the row count.
+    assert spy.call_count == 2
+    # Holiday Thu 04-09 excluded: Mon 06 .. Fri 10 is 4 working days.
+    assert set(
+        Task.objects.filter(pk__in=[t.pk for t in pf_rows]).values_list("duration", flat=True)
+    ) == {4}
+
+    # The same shapes writing `duration` directly need no calendar at all. The
+    # marginal cost of seven more rows must be the same either way: the calendar
+    # adds nothing per row.
+    plain_one = batch(fresh_tasks(1), {"duration": 4})
+    plain_many = batch(fresh_tasks(8), {"duration": 4})
+    assert pf_many - pf_one <= plain_many - plain_one, (pf_one, pf_many, plain_one, plain_many)

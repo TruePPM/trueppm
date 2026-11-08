@@ -1,6 +1,7 @@
 ---
 title: AI-native by design
 description: Why TruePPM is a sound source of truth for AI agents — a discoverable OpenAPI surface, a read-only MCP server, a deterministic scheduling engine that computes answers instead of guessing them, citable provenance, and a self-hosted footprint where nothing leaves your box.
+documentedFor: "0.5"
 ---
 
 If you are evaluating TruePPM as the system an AI agent reads from and writes to,
@@ -93,10 +94,17 @@ types, lead/lag on every link, cycle detection, and P50/P80/P95 forecasts (see
 [Monte Carlo forecasting](/features/monte-carlo/)). A second Rust + petgraph
 CPM implementation (`packages/wasm-scheduler`) is validated against it by a
 shared conformance fixture suite in CI; today that Rust engine is a conformance
-reference only — the web client's drag preview runs a calendar-approximate
-TypeScript worker, reconciled by the authoritative server CPM on commit, and
-wiring the WASM build into the browser for in-browser and offline recompute is
-future work (#1777).
+reference only — the web client's drag preview runs a TypeScript worker that
+steps on the project's own calendar (its working week and holidays) and is
+reconciled by the authoritative server CPM on commit, and wiring the WASM build
+into the browser for in-browser and offline recompute is future work (#1777).
+
+:::note[Ships in 0.5]
+The drag preview steps on the project's own calendar from 0.5
+([#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170)). In 0.4 it is
+calendar-approximate: it steps a fixed Monday–Friday week and does not see
+holidays, so its estimate can differ from the date the server commits.
+:::
 
 Because the engine is deterministic and separable, the same inputs always produce
 the same schedule, and that schedule can be validated without a running database or

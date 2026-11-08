@@ -65,8 +65,8 @@ export function MilestoneDeltaTooltip({ milestoneLeft, timelineTop }: Props) {
         >
           {deltaLabel}
         </p>
-        {/* Issue #1493: this delta is a client-side estimate (fixed Mon–Fri
-            calendar, no custom-calendar/holiday awareness) — the server CPM
+        {/* Issue #1493: this delta is a client-side estimate (the browser's
+            forward pass, on the project calendar since #4170) — the server CPM
             run reconciles the confirmed date on drop. Font floor (rule 50,
             issue #1023): text-xs, never text-xs, in features/schedule. */}
         <p className="text-xs text-neutral-text-disabled mt-0.5 leading-tight">

@@ -26,6 +26,7 @@ import { runCpmForwardPass, runCpmResizeForwardPass } from './cpmEngine';
 import type {
   CpmEdge,
   CpmTask,
+  PreviewCalendar,
   PreviewMilestone,
   PreviewTaskResult,
   ResultMessage,
@@ -50,6 +51,9 @@ let residentMode: 'drag' | 'resize' | null = null;
 // resize — that floor clamps the DRAGGED task's start, and a resize never
 // moves its task's start.
 let residentStatusDate: string | null = null;
+// The project's composed calendar for the active gesture (#4170) — resident for
+// the same reason: a drag does not change which days are working.
+let residentCalendar: PreviewCalendar | null = null;
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
@@ -60,6 +64,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       residentEdges = msg.subgraph.edges;
       residentTargetTaskId = msg.draggedTaskId;
       residentStatusDate = msg.statusDate ?? null;
+      residentCalendar = msg.calendar ?? null;
       residentMode = 'drag';
       return;
 
@@ -68,6 +73,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       residentEdges = msg.subgraph.edges;
       residentTargetTaskId = msg.resizedTaskId;
       residentStatusDate = null;
+      residentCalendar = msg.calendar ?? null;
       residentMode = 'resize';
       return;
 
@@ -77,6 +83,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       residentEdges = null;
       residentTargetTaskId = null;
       residentStatusDate = null;
+      residentCalendar = null;
       residentMode = null;
       return;
 
@@ -95,6 +102,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         msg.newStartIso,
         msg.seq,
         residentStatusDate,
+        residentCalendar,
       );
       return;
     }
@@ -109,7 +117,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         return;
       }
 
-      postResizeResult(residentTasks, residentEdges, residentTargetTaskId, msg.newDurationDays, msg.seq);
+      postResizeResult(
+        residentTasks,
+        residentEdges,
+        residentTargetTaskId,
+        msg.newDurationDays,
+        msg.seq,
+        residentCalendar,
+      );
       return;
     }
 
@@ -123,6 +138,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         msg.newStartIso,
         msg.seq,
         msg.statusDate ?? null,
+        msg.calendar ?? null,
       );
       return;
   }
@@ -160,6 +176,7 @@ function postResult(
   newStartIso: string,
   seq: number,
   statusDate: string | null,
+  calendar: PreviewCalendar | null,
 ): void {
   const { results, worstMilestone } = runCpmForwardPass(
     tasks,
@@ -167,6 +184,7 @@ function postResult(
     draggedTaskId,
     newStartIso,
     statusDate,
+    calendar,
   );
   emitResult(draggedTaskId, results, worstMilestone, seq);
 }
@@ -178,12 +196,14 @@ function postResizeResult(
   resizedTaskId: string,
   newDurationDays: number,
   seq: number,
+  calendar: PreviewCalendar | null,
 ): void {
   const { results, worstMilestone } = runCpmResizeForwardPass(
     tasks,
     edges,
     resizedTaskId,
     newDurationDays,
+    calendar,
   );
   emitResult(resizedTaskId, results, worstMilestone, seq);
 }

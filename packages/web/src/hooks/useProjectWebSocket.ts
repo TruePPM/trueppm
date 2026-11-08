@@ -10,6 +10,7 @@
  *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated)
  *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
+ *   project_calendar_changed → invalidate project (scheduling_calendar) + calendars
  *   task_created / task_deleted / task_restored → invalidate tasks
  *   task_updated → invalidate tasks, unless self-echo (actor_id === current user) or a
  *                  duplicate/replayed version (ADR-0152, #327)
@@ -362,6 +363,19 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // The tasks cache is maintained by task_dates_updated (ADR-0091); the
     // coarse compat event no longer invalidates it. Pill + stats only.
     void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
+  });
+
+  // --- Working-time calendar changed (#4170; the event is #2845's) ---
+  on('project_calendar_changed', () => {
+    // Fired for every project whose EFFECTIVE calendar changed — a Calendar row
+    // edit, a holiday added or removed, or an upstream program/workspace
+    // reassignment, by anyone. The project detail carries `scheduling_calendar`,
+    // which the Schedule's drag preview steps on, so a stale copy would preview on
+    // last week's holidays until the 60 s staleTime ran out. The calendar
+    // settings caches read the same rows. Dates themselves arrive separately via
+    // task_dates_updated. Surfacing the event's `actor` is #3245's remainder.
+    void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
+    void queryClient.invalidateQueries({ queryKey: ['calendars'] });
   });
 
   // --- Per-task CPM date deltas (ADR-0091) ---

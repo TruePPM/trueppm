@@ -67,7 +67,9 @@ word.**
    *Shipped mechanism:* a hand-written TypeScript CPM forward pass in a Web Worker
    (`packages/web/src/workers/cpmEngine.ts`), deliberately lower-fidelity
    (approximates a Mon–Fri week; does not model custom calendars) and capped to a
-   small number of preview bars.
+   small number of preview bars. *(Amended 2026-11, #4170: the preview now steps on
+   the project's composed calendar — see ADR-0784, "Amendment — the preview receives
+   the composed calendar". It is still a non-persisted estimate.)*
    *Bounded by:* the preview is never persisted; on commit the write goes through
    the API and the server CPM reconciles the authoritative dates
    ([ADR-0027](0027-incremental-cpm-recompute.md)).

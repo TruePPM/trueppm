@@ -98,7 +98,7 @@ def resolve_applied_calendars(project: Project) -> list[Calendar]:
     return result
 
 
-def compose_project_calendar(project: Project) -> Any:
+def compose_project_calendar(project: Project, *, skip_malformed: bool = False) -> Any:
     """Fold a project's applied calendars into one scheduler ``Calendar`` (#906).
 
     ``working_days`` = bitwise-AND of every applied mask; ``exceptions`` = union of
@@ -116,7 +116,46 @@ def compose_project_calendar(project: Project) -> Any:
     from trueppm_scheduler.models import Calendar as SchedCalendar
 
     applied = resolve_applied_calendars(project)
-    return SchedCalendar.compose([build_sched_calendar(c) for c in applied])
+    return SchedCalendar.compose(
+        [build_sched_calendar(c, skip_malformed=skip_malformed) for c in applied]
+    )
+
+
+def scheduling_calendar_payload(project: Project) -> dict[str, Any]:
+    """The composed calendar a project schedules with, as the drag preview needs it (#4170).
+
+    The web drag/resize/keyboard preview (``packages/web/src/workers/cpmEngine.ts``)
+    is a non-authoritative client recompute (ADR-0599). It used to step dates on a
+    fixed Mon-Fri week because the browser was never sent the real calendar, so on
+    any project with a holiday inside the dragged span the preview showed a date the
+    server contradicted on commit. This payload closes that gap with the SAME value
+    every CPM call site schedules with — :func:`compose_project_calendar` — rather
+    than the raw ``Calendar`` rows, so layers (ADR-0251), inheritance (ADR-0441) and
+    any enterprise-registered resolver are all already folded in and the client
+    never re-derives which calendars apply.
+
+    Exception ranges are emitted as the composed calendar holds them (the union of
+    every applied calendar's rows), sorted, with exact duplicates dropped. Interval
+    coalescing is deliberately left to the reader: it is a lookup-index detail of
+    ``Calendar._exception_intervals`` (private, and its shape has changed twice),
+    and dropping a duplicate pair changes no day's working status.
+
+    ``hours_per_day``/``timezone`` are omitted: the engine schedules in whole days
+    and does not consume them (#826), so a preview has nothing to do with them.
+
+    Callers must have prefetched what :func:`compose_project_calendar` documents.
+
+    A malformed exception row (end before start) is skipped with a warning rather
+    than raised (``skip_malformed``): this is on every project-detail GET, and one
+    bad row on a shared calendar must not take down the shell of every project bound
+    to it. The CPM path does not skip — it should fail loudly on the same row.
+    """
+    cal = compose_project_calendar(project, skip_malformed=True)
+    ranges = sorted({(e.start, e.end) for e in cal.exceptions})
+    return {
+        "working_days": cal.working_days,
+        "exceptions": [{"start": s.isoformat(), "end": e.isoformat()} for s, e in ranges],
+    }
 
 
 def project_sched_calendars(project_ids: Iterable[Any]) -> dict[str, Any]:

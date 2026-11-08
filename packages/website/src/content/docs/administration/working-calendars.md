@@ -1,7 +1,7 @@
 ---
 title: Working Calendars
 description: Set the working-day calendar at the workspace, program, and project scope, with parent-to-child inheritance and an Enterprise lock-down policy.
-documentedFor: "0.4"
+documentedFor: "0.5"
 ---
 
 A project's **working calendar** — its working days, hours per day, timezone, and
@@ -164,6 +164,11 @@ the effective calendar without re-implementing the precedence chain itself:
 | `effective_calendar` | Project, Program | The resolved calendar that actually applies at this scope. |
 | `calendar_source` | Project, Program | Where the effective calendar came from: `project`, `program`, `workspace`, or `system_default`. |
 | `inherited_calendar` | Program | The calendar the program would use if its own `calendar` override were cleared — what drives the "Inherited from workspace" indicator. |
+| `scheduling_calendar` | Project (detail only) | The calendar the schedule is actually computed on: the effective calendar plus any layered calendars, as one weekday mask (`working_days`) and the list of non-working date ranges (`exceptions`, inclusive `start`/`end`). The Schedule's drag preview steps on it. |
+
+:::note[Ships in 0.5]
+`scheduling_calendar` lands in 0.5 ([#4170](https://gitlab.com/trueppm/trueppm/-/issues/4170)). In 0.4 the project detail carries only `effective_calendar`, whose `holiday_count` is a count, not the dates.
+:::
 
 The writable `calendar` field on Project, Program, and Workspace is unchanged in shape —
 this is an additive, non-breaking change. Existing projects that already set an explicit
