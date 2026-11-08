@@ -262,7 +262,7 @@ say: *the plan can finish on March 3, and it will finish by March 14 four times
 out of five.* On a network of FS and SS links no simulated run finishes before
 the CPM date, so it is the floor of the distribution: the odds of hitting it are
 low, and they fall toward zero as more tasks carry an estimate. Committing to it
-(or to a date between it and P50) is committing to something close to a
+(or to a date between it and P50) is committing to a
 long shot. FF and SF links are the exception: they can pull a finish earlier than CPM.
 
 Two consequences worth internalizing:

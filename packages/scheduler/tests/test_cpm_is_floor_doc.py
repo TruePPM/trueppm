@@ -2,15 +2,17 @@
 
 Samples are clamped up to ``Task.duration`` (#3765), so on a network of FS/SS
 links no run finishes before CPM and P(finish <= CPM) falls toward 0 as more
-tasks carry an estimate. The README once called the CPM date "a coin flip" near
-P50. This pins the claim on a 200-task estimated FS chain and keeps the stale
-wording out of the docs.
+tasks carry an estimate. The docs once called the CPM date "a coin flip" near
+P50. This pins the claim on synthetic 200-task estimated FS and SS networks and
+keeps the stale wording out of every site that was corrected.
 """
 
 from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
+
+import pytest
 
 from trueppm_scheduler import (
     Calendar,
@@ -24,17 +26,38 @@ from trueppm_scheduler import (
 
 STALE_PHRASES = ("coin flip", "close to the CPM finish", "close to P50", "even odds")
 
+_SCHEDULER_SITES = (
+    "README.md",
+    "src/trueppm_scheduler/engine.py",
+    "src/trueppm_scheduler/cli.py",
+    "notebooks/02-monte-carlo.ipynb",
+)
+_WEBSITE_SITES = (
+    "features/scheduler.md",
+    "features/monte-carlo.md",
+    "features/schedule/index.md",
+    "guides/project-managers.md",
+    "overview/index.md",
+)
 
-def _find_readme() -> Path | None:
-    """README found by walking ancestors (mutmut copies tests under ``mutants/``, #4880)."""
+
+def _scheduler_root() -> Path | None:
+    """The scheduler package root, found by walking ancestors (mutmut copies, #4880)."""
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "README.md"
-        if candidate.is_file() and "trueppm-scheduler" in candidate.read_text(encoding="utf-8"):
+        if (parent / "README.md").is_file() and (parent / "src/trueppm_scheduler").is_dir():
+            return parent
+    return None
+
+
+def _website_docs() -> Path | None:
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "website/src/content/docs"
+        if candidate.is_dir():
             return candidate
     return None
 
 
-def _estimated_fs_chain(n: int) -> Project:
+def _estimated_chain(n: int, dep_type: DependencyType) -> Project:
     tasks = [
         Task(
             id=f"t{i}",
@@ -47,7 +70,7 @@ def _estimated_fs_chain(n: int) -> Project:
         for i in range(n)
     ]
     deps = [
-        Dependency(predecessor_id=f"t{i - 1}", successor_id=f"t{i}", dep_type=DependencyType.FS)
+        Dependency(predecessor_id=f"t{i - 1}", successor_id=f"t{i}", dep_type=dep_type)
         for i in range(1, n)
     ]
     return Project(
@@ -60,8 +83,9 @@ def _estimated_fs_chain(n: int) -> Project:
     )
 
 
-def test_cpm_finish_is_the_floor_of_the_distribution() -> None:
-    project = _estimated_fs_chain(200)
+@pytest.mark.parametrize("dep_type", [DependencyType.FS, DependencyType.SS])
+def test_cpm_finish_is_the_floor_of_the_distribution(dep_type: DependencyType) -> None:
+    project = _estimated_chain(200, dep_type)
     cpm = schedule(project)
     mc = monte_carlo(project, runs=5_000, seed=4700)
     assert mc.distribution[0] >= cpm.project_finish
@@ -70,9 +94,22 @@ def test_cpm_finish_is_the_floor_of_the_distribution() -> None:
     assert mc.p50 > cpm.project_finish
 
 
-def test_readme_does_not_call_cpm_a_coin_flip() -> None:
-    readme = _find_readme()
-    assert readme is not None, "scheduler README not found from any ancestor"
-    text = readme.read_text(encoding="utf-8")
+def _assert_clean(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
     for phrase in STALE_PHRASES:
-        assert phrase not in text, f"stale phrase {phrase!r} is back in the README"
+        assert phrase not in text, f"stale phrase {phrase!r} is back in {path.name}"
+
+
+def test_scheduler_sources_do_not_call_cpm_a_coin_flip() -> None:
+    root = _scheduler_root()
+    assert root is not None, "scheduler package root not found from any ancestor"
+    for rel in _SCHEDULER_SITES:
+        _assert_clean(root / rel)
+
+
+def test_website_pages_do_not_call_cpm_a_coin_flip() -> None:
+    docs = _website_docs()
+    if docs is None:
+        pytest.skip("website docs tree is not present (standalone scheduler package)")
+    for rel in _WEBSITE_SITES:
+        _assert_clean(docs / rel)
