@@ -15,6 +15,7 @@ interface RollupShape {
   policy_unavailable_reason?: string | null;
   project_count: number;
   program_health: string;
+  program_health_reason?: string | null;
   kpis: Record<string, unknown>;
 }
 
@@ -170,6 +171,13 @@ describe('ProgramOverviewPage (#713)', () => {
     const reason = await screen.findByText('Needs a saved Monte Carlo run');
     expect(reason.className).toMatch(/text-neutral-text-secondary/);
     expect(reason.className).not.toMatch(/text-neutral-text-disabled/);
+  });
+
+  it('says why the program health is unknown (rule 119, #4779)', async () => {
+    mockApi(rollup({ program_health: 'unknown', program_health_reason: 'no_planned_work' }));
+    renderPage();
+    expect(await screen.findByLabelText('Program health: Unknown')).toBeInTheDocument();
+    expect(screen.getByText('No work planned yet')).toBeInTheDocument();
   });
 
   it('renders an available p80_completion as a date that says what it excludes (#4779)', async () => {

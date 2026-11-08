@@ -129,8 +129,10 @@ def compute_program_rollup(
     ``kpis`` map keyed by the program's enabled :class:`RollupKpi` values. Each
     entry is either ``{"available": True, "value": ..., ["unit": ...]}`` (value
     may be ``None`` when a built KPI has no data yet, e.g. no active baseline) or
-    ``{"available": False, "reason": ...}`` for a KPI whose per-project source is
-    not built yet (#753) or cannot be computed from the program's data.
+    ``{"available": False, "reason": ...}`` for a KPI hidden from the caller or
+    missing per-project data (the cost KPIs). A configured figure with no value keeps
+    its null (``unknown`` for a band) and carries a rule-119 ``reason``. The payload
+    also carries ``as_of`` and a ``definitions`` map (ADR-1314, #4779).
 
     ``cost_viewer`` is the user the cost KPIs are computed for, passed only once the
     caller has established they are program Admin+ (ADR-1324 §4). A value is returned
@@ -193,6 +195,7 @@ def compute_program_rollup(
         policy=effective_policy,
         weights=task_weights,
         cost_kpis=cost_kpis,
+        schedule_bands=schedule_health_by_project,
     )
 
     definitions = {"program_health": METRIC_DEFINITIONS["program_health"]}
@@ -227,6 +230,7 @@ def _kpi_entries(
     policy: str,
     weights: dict[Any, float],
     cost_kpis: dict[str, dict[str, Any]],
+    schedule_bands: dict[Any, str],
 ) -> dict[str, dict[str, Any]]:
     """One entry per enabled KPI, in config order; only the enabled ones are computed.
 
@@ -242,9 +246,9 @@ def _kpi_entries(
         return entry
 
     builders: dict[str, Callable[[], dict[str, Any]]] = {
-        RollupKpi.SCHEDULE_HEALTH.value: lambda: band_entry(
-            _schedule_health_by_project(project_ids, today), REASON_NO_PLANNED_WORK
-        ),
+        # The same per-project bands the headline program_health reduced: one SPI
+        # pass serves both.
+        RollupKpi.SCHEDULE_HEALTH.value: lambda: band_entry(schedule_bands, REASON_NO_PLANNED_WORK),
         RollupKpi.MILESTONE_HEALTH.value: lambda: band_entry(
             _milestone_health_by_project(project_ids, today), REASON_NO_MILESTONES
         ),

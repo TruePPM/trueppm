@@ -147,7 +147,7 @@ METRIC_DEFINITIONS: dict[str, str] = {
     "rollup.schedule_health": (
         "Each contributing project's schedule performance band (the SPI proxy) "
         "combined under the program's aggregation policy, leaving out projects with "
-        "nothing planned yet. Not the program health band."
+        "nothing planned yet. The same value as program health."
     ),
     "rollup.milestone_health": (
         "Each contributing project's milestone band, combined under the program's "

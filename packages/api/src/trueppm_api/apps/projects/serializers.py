@@ -3192,10 +3192,10 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
             "type": "object",
             "additionalProperties": {"type": "string"},
             "description": (
-                "KPI identifier → stable machine reason it cannot produce a value yet "
-                "(e.g. no_montecarlo_store). Same reason strings the "
-                "/rollup/ response returns for a deferred KPI. Empty once every KPI "
-                "has a backing source."
+                "KPI identifier → stable machine reason it has no backing source. "
+                "Same reason strings the /rollup/ response returns for a deferred "
+                "KPI. Empty since every KPI has a source (p80_completion computes "
+                "from #4779)."
             ),
         }
     )

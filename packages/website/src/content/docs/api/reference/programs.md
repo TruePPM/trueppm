@@ -73,7 +73,7 @@ schedule performance band. In 0.4 the response carries `aggregation_policy`,
   },
   "as_of": "2026-11-07T14:03:11+00:00",
   "definitions": {
-    "program_health": "The program's health: …",
+    "program_health": "Each contributing project's schedule performance band (the SPI proxy: completed planned work divided by work planned by today) combined under the program's aggregation policy, leaving out projects with nothing planned yet; unknown when none has. Not the project health band.",
     "critical_tasks": "Incomplete leaf tasks on the critical path, summed across the contributing projects.",
     "baseline_variance": "…",
     "p80_completion": "…"

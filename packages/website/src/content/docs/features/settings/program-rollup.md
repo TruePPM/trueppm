@@ -32,7 +32,7 @@ Ten KPIs can be enabled. The page groups them into three sections for scannabili
 
 | KPI | Identifier | What it shows |
 |-----|-----------|---------------|
-| Schedule health | `schedule_health` | Each project's schedule performance band (the SPI proxy), combined by the aggregation policy. Not the program health band |
+| Schedule health | `schedule_health` | Each project's schedule performance band (the SPI proxy), combined by the aggregation policy. The same value as the program health dot |
 | Schedule variance (SV) | `schedule_variance` | Each project's mean lateness of completed baselined tasks, in days, combined by the aggregation policy (positive = late) |
 | Baseline variance | `baseline_variance` | Each project's forecast finish minus its active-baseline finish, in days, combined by the aggregation policy (positive = later than the baseline) |
 | Critical task count | `critical_tasks` | Incomplete tasks on the critical path, summed across the program's projects |

@@ -66834,7 +66834,7 @@
                         "additionalProperties": {
                             "type": "string"
                         },
-                        "description": "KPI identifier → stable machine reason it cannot produce a value yet (e.g. no_montecarlo_store). Same reason strings the /rollup/ response returns for a deferred KPI. Empty once every KPI has a backing source.",
+                        "description": "KPI identifier → stable machine reason it has no backing source. Same reason strings the /rollup/ response returns for a deferred KPI. Empty since every KPI has a source (p80_completion computes from #4779).",
                         "readOnly": true
                     }
                 },
@@ -66871,7 +66871,7 @@
                     "schedule_health": {
                         "type": "string",
                         "readOnly": true,
-                        "description": "Each contributing project's schedule performance band (the SPI proxy) combined under the program's aggregation policy, leaving out projects with nothing planned yet. Not the program health band."
+                        "description": "Each contributing project's schedule performance band (the SPI proxy) combined under the program's aggregation policy, leaving out projects with nothing planned yet. The same value as program health."
                     },
                     "critical_tasks": {
                         "type": "string",

@@ -24,11 +24,20 @@ describe('AgentForecastImpact', () => {
         policy_available: true,
         project_count: 3,
         program_health: 'at_risk',
-        kpis: { p80_completion: { available: true, value: 'Nov 2' } },
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: '2027-11-02',
+            projects_without_forecast: 1,
+          },
+        },
       },
     });
     renderWithClient(<AgentForecastImpact programId="prog-1" onViewActivity={() => {}} />);
-    expect(await screen.findByText('Nov 2')).toBeInTheDocument();
+    expect(await screen.findByText(/November 2, 2027/)).toBeInTheDocument();
+    expect(screen.queryByText('2027-11-02')).not.toBeInTheDocument();
+    expect(screen.getByText('excludes 1 project without a forecast')).toBeInTheDocument();
     expect(screen.getByText(/No agent-completed work yet/i)).toBeInTheDocument();
   });
 
@@ -44,5 +53,27 @@ describe('AgentForecastImpact', () => {
     });
     renderWithClient(<AgentForecastImpact programId="prog-1" onViewActivity={() => {}} />);
     expect(await screen.findByText(/No saved Monte Carlo run/i)).toBeInTheDocument();
+  });
+
+  it('explains why there is no date when the server computed none (#4779)', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        aggregation_policy: 'worst',
+        policy_available: true,
+        project_count: 2,
+        program_health: 'unknown',
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: null,
+            reason: 'no_forecast',
+            projects_without_forecast: 2,
+          },
+        },
+      },
+    });
+    renderWithClient(<AgentForecastImpact programId="prog-1" onViewActivity={() => {}} />);
+    expect(await screen.findByText('No project has a forecast yet')).toBeInTheDocument();
   });
 });

@@ -141,7 +141,7 @@ const NO_VALUE_REASON_LABEL: Record<string, string> = {
   no_forecast: 'No project has a forecast yet',
 };
 
-function noValueReason(reason: string | undefined): string | undefined {
+export function noValueReason(reason: string | undefined): string | undefined {
   return reason === undefined ? undefined : (NO_VALUE_REASON_LABEL[reason] ?? 'No data yet');
 }
 
@@ -475,6 +475,8 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
 
   const projects = `${rollup.project_count} project${rollup.project_count === 1 ? '' : 's'}`;
   const subtitle = `${POLICY_LABEL[rollup.aggregation_policy]} across ${projects}`;
+  const unknownReason =
+    band === 'unknown' ? noValueReason(rollup.program_health_reason ?? undefined) : undefined;
 
   return (
     <div className="flex flex-col gap-1 pb-2 border-b border-neutral-border">
@@ -488,6 +490,7 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
         <span className="text-xs text-neutral-text-secondary">{subtitle}</span>
       </div>
       {/* Rule 169 (#3477): readable prose uses `-secondary`, never `-disabled`. */}
+      {unknownReason && <p className="text-xs text-neutral-text-secondary">{unknownReason}</p>}
       {!rollup.policy_available && (
         <p className="text-xs text-neutral-text-secondary">
           {rollup.policy_unavailable_reason === 'no_budget'
@@ -506,8 +509,9 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
 /**
  * Landing page for a program (/programs/:programId). Renders the computed
  * rollup of the enabled KPIs (ADR-0088, #713): a program health hero plus a
- * KPI strip. Deferred KPIs (cost/EVM #754, Monte Carlo store #753) appear muted
- * with the reason rather than hidden, so a PM sees why a toggled KPI is blank.
+ * KPI strip. A KPI that is hidden from the caller or lacks per-project data
+ * (the cost KPIs), or has no value yet, appears with the server's reason rather
+ * than hidden, so a PM sees why a toggled KPI is blank (rule 119, ADR-1314).
  */
 export function ProgramOverviewPage() {
   const programId = useProgramId();

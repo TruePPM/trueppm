@@ -448,13 +448,13 @@ variance with a baseline but nothing baselined done) and `no_forecast` (P80).
 
 ### Cost
 
-One extra grouped query for the project bands (`risk_counts_by_project`), which
-replaces the SPI pass the headline band used to run unconditionally (that pass
-now runs only when the `schedule_health` KPI is enabled). P80 completion costs one
-`cache.get_many` and one `DISTINCT ON (project_id)` query. A not-computable
-variance costs one `EXISTS` query, and only on that path. The query count does not
+No extra work for `program_health`: it is the SPI pass the headline band always
+ran, and the `schedule_health` KPI now reuses that pass's result instead of
+running it a second time. P80 completion costs one `cache.get_many` and one
+`DISTINCT ON (project_id)` query. A not-computable variance costs one `EXISTS`
+query, and only on that path. The query count does not
 grow with the number of projects. A test pins this.
 
-Implementation: `program_rollup.py` (`project_health_bands`,
-`p80_completion_entry`, `_kpi_entries`), `ProgramRollupSerializer`, tests in
+Implementation: `program_rollup.py` (`p80_completion_entry`,
+`_kpi_entries`, `_variance_entry`), `ProgramRollupSerializer`, tests in
 `tests/apps/projects/test_program_rollup_provenance.py`.
