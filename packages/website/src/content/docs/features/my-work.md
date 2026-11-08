@@ -78,6 +78,14 @@ ships last among those you're on, but only once a forecast has actually been run
 it. A project with no forecast, no baseline, or no burndown history yet contributes no
 signal, so a card or panel never shows a made-up number.
 
+:::note[Ships in 0.5]
+In 0.5, the panel's date will be the one each project's own forecast shows, including
+a run that a team member started and that was not saved to the forecast history. In
+0.4 the panel reads only saved runs, so it can lag the project's forecast by up to a
+day. Hovering or focusing **80% confidence** will show the server's definition of the
+date, and the [Metric vocabulary](/features/metric-vocabulary/) page will list it.
+:::
+
 ## My projects health *(shipped in 0.4)*
 
 If you're on **two or more projects**, a compact **My projects** strip sits above

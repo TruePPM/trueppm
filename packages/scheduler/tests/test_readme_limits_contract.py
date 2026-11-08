@@ -91,3 +91,35 @@ class TestReadmeLimitsContract:
             "README 'Limits for embedders' table has drifted from the exported "
             f"constants (documented, actual): {mismatched}"
         )
+
+
+class TestReadmeSummaryFanOutStatement:
+    """The README's #4437 limitation must state the engine's real behavior (#4706).
+
+    FF/SF links into a summary fan out to every leaf; the README once said the
+    opposite. Pin the corrected wording and the engine behavior it describes.
+    """
+
+    def test_readme_states_ff_sf_into_summary_fan_out(self) -> None:
+        text = " ".join(_README_PATH.read_text().split())
+        assert (
+            "FF/SF links *into* a summary fan out to every leaf, so every leaf "
+            "(not only the latest-finishing one) must finish no earlier than the "
+            "link requires — short leaves lose float"
+        ) in text
+        assert "do not fan out to every leaf" not in text
+
+    def test_engine_fans_ff_and_sf_into_every_leaf(self) -> None:
+        from datetime import timedelta
+
+        from trueppm_scheduler import Dependency, DependencyType, Task
+
+        for dep_type in (DependencyType.FF, DependencyType.SF):
+            tasks = [Task(id=i, name=i, duration=timedelta(days=1)) for i in "XSAB"]
+            result = _engine.expand_summary_dependencies(
+                tasks, [Dependency("X", "S", dep_type)], {"S": ["A", "B"]}
+            )
+            assert {(d.predecessor_id, d.successor_id) for d in result.dependencies} == {
+                ("X", "A"),
+                ("X", "B"),
+            }

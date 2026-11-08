@@ -15,6 +15,7 @@
  * single-column list with no empty rail.
  */
 import { WarningIcon } from '@/components/Icons';
+import { Tooltip } from '@/components/Tooltip';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useMyWork';
@@ -33,15 +34,7 @@ function formatAsOf(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function Panel({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count: string;
-  children: ReactNode;
-}) {
+function Panel({ title, count, children }: { title: string; count: string; children: ReactNode }) {
   return (
     <section className="rounded-card border border-neutral-border bg-neutral-surface-raised">
       <header className="flex items-baseline justify-between gap-2 border-b border-neutral-border/60 px-4 py-2.5">
@@ -79,7 +72,27 @@ export function MyWorkSideColumn({
               {formatShipDate(forecast.p80_finish)}
             </p>
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
-              {forecast.project_name} · 80% confidence · as of {formatAsOf(forecast.as_of)}
+              {forecast.project_name} ·{' '}
+              {/* The definition is the SERVER's sentence (ADR-1314, #4778): this date is
+                  the latest of several projects' P80s, which a client-written gloss
+                  would describe as one project's. Plain text when absent. */}
+              {forecast.definitions?.p80_finish ? (
+                <Tooltip content={forecast.definitions.p80_finish}>
+                  <button
+                    type="button"
+                    className="relative cursor-help rounded border-b border-dotted border-neutral-border
+                      before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-full
+                      before:min-w-[44px] before:-translate-x-1/2 before:-translate-y-1/2
+                      before:content-[''] focus-visible:outline-none focus-visible:ring-2
+                      focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  >
+                    80% confidence
+                  </button>
+                </Tooltip>
+              ) : (
+                '80% confidence'
+              )}{' '}
+              · as of {formatAsOf(forecast.as_of)}
             </p>
           </div>
         </Panel>
@@ -94,9 +107,7 @@ export function MyWorkSideColumn({
                 className="flex items-center justify-between gap-3 border-b border-neutral-border/40 px-4 py-2.5 last:border-b-0"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-neutral-text-primary">
-                    {s.name}
-                  </p>
+                  <p className="truncate text-sm font-medium text-neutral-text-primary">{s.name}</p>
                   <p className="truncate text-xs text-neutral-text-secondary">
                     {s.project_name} · {s.task_count} task{s.task_count === 1 ? '' : 's'}
                   </p>
@@ -133,7 +144,10 @@ export function MyWorkSideColumn({
                   aria-label="On the critical path"
                   role="img"
                 >
-                  <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
+                  <WarningIcon
+                    className="inline-block h-3 w-3 align-[-0.125em]"
+                    aria-hidden="true"
+                  />
                 </span>
                 <Link
                   to={t.url}

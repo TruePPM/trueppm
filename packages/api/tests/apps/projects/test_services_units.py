@@ -501,12 +501,22 @@ class TestComputeSprintBurnStatus:
         result = compute_sprint_burn_status(_burn_sprint(0), [SimpleNamespace(remaining_points=10)])
         assert result == {
             "burn_status": "no_data",
+            "burn_status_reason": "no_commitment",
             "trend_points": None,
             "projected_finish_date": None,
         }
 
     def test_no_snapshots_is_no_data(self) -> None:
-        assert compute_sprint_burn_status(_burn_sprint(100), [])["burn_status"] == "no_data"
+        result = compute_sprint_burn_status(_burn_sprint(100), [])
+        assert result["burn_status"] == "no_data"
+        # Rule 119: the not-computable case names its cause (#4778).
+        assert result["burn_status_reason"] == "no_snapshots"
+
+    def test_a_computed_pace_carries_no_reason(self) -> None:
+        result = compute_sprint_burn_status(
+            _burn_sprint(100), [SimpleNamespace(remaining_points=50)]
+        )
+        assert result["burn_status_reason"] is None
 
     def test_well_under_the_ideal_line_reads_ahead(self) -> None:
         result = compute_sprint_burn_status(

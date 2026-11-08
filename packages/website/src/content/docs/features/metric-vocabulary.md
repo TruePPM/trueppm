@@ -6,10 +6,12 @@ documentedFor: "0.5"
 
 :::note[Ships in 0.5]
 The `definitions` map, the `as_of` timestamps, the blocked count on the status
-summary, and the forecast's commitment fields (`commitment_date`,
-`commitment_source`, `p80_delta_vs_commitment_days`) ship in 0.5. In 0.4 the
-figures below exist on the same endpoints, but without a definition, an
-`as_of`, or a commitment comparison.
+summary, the forecast's commitment fields (`commitment_date`,
+`commitment_source`, `p80_delta_vs_commitment_days`), and the sprint burndown's
+`burn_status_reason` ship in 0.5. In 0.4 the figures below exist on the same
+endpoints, but without a definition, an `as_of`, or a commitment comparison,
+and the My Work ship-date forecast can lag the project's own forecast by up to
+a day.
 :::
 
 The same project figure can appear in several places: the project header, the
@@ -46,6 +48,12 @@ Each owning endpoint returns two extra things beside its figures:
 | Burn series | `series` | `GET /projects/{id}/burn/` | `as_of` | Per day, the remaining (burndown) or completed (burnup) task count or story points, replayed from task history. |
 | Planned (baseline) series | `baseline_series` | `GET /projects/{id}/burn/` | `as_of` | Per day, the same quantity as planned by the active baseline; absent when the project has no active baseline with dates. |
 | Task slip | `finish_delta_days` (`baseline_finish_variance_days` on task rows, the same computation) | `GET /projects/{id}/tasks/{task_id}/baseline/` | `as_of` | A task's slip: its forecast finish minus its active-baseline finish, in calendar days measured in working time; positive means late. |
+| Sprint burn series | `snapshots` (`series` on My Work) | `GET /sprints/{id}/burndown/` | `as_of` | Per day of the sprint, the story points of its committed tasks that are not complete (a task's remaining points when set, else its story points), as recorded in that day's burn snapshot; pending mid-sprint additions count for nothing until accepted. |
+| Sprint commitment | `sprint.committed_points` | `GET /sprints/{id}/burndown/` | `as_of` | The story points the sprint committed to, snapshotted when it was activated and never recomputed. |
+| Sprint burn pace | `burn_status` | `GET /sprints/{id}/burndown/` | `as_of` | The sprint's burn pace: ahead or behind when the latest snapshot's remaining points are more than 10% of the committed points (at least 1 point) below or above the straight ideal line from the committed points to zero, on track otherwise, and no data when nothing was committed or no snapshot exists yet. |
+| Sprint trend | `trend_points` (`trend_pts` on the active-sprints card) | `GET /sprints/{id}/burndown/` | `as_of` | The ideal line's remaining points for today minus the latest snapshot's remaining points; positive means ahead of the ideal line. |
+| Sprint projected finish | `projected_finish_date` | `GET /sprints/{id}/burndown/` | `as_of` | Today plus the remaining points divided by the points burned per elapsed sprint day so far; null when nothing has burned yet or nothing remains. |
+| My Work ship date | `signals.forecast.p80_finish` | `GET /projects/{id}/monte-carlo/latest/`, echoed by `GET /me/work/` | the driving project's `last_run_at`, as `signals.forecast.as_of` | The latest P80 finish among your member projects that are not drafts, each read from that project's latest Monte Carlo result: the same date its forecast endpoint serves. |
 
 ## Commitment
 
@@ -75,6 +83,17 @@ reason. It is never left out of the response. For the commitment delta,
 The overview's `team_utilization_pct` works the same way: when it is null,
 `team_utilization_reason` explains why.
 
+A sprint's `burn_status` of `no_data` comes with `burn_status_reason`:
+
+- `no_commitment`: the sprint committed no story points when it was activated.
+- `no_snapshots`: no burn snapshot has been written for the sprint yet.
+
+It is null whenever a pace was computed.
+
+The My Work `signals` block follows its own older rule: a card whose figure has
+no backing data is left out of `signals` rather than sent as `null`. A missing
+`signals.forecast` means none of your projects has a P80 forecast yet.
+
 ## Who sees the commitment
 
 The forecast is readable by every project member, Viewer and up. When the
@@ -90,12 +109,27 @@ should not be read as the forecast, load or burn figures above:
 
 - A person's load across several projects, `/sprints/{id}/capacity/`, and the
   My Work `signals.utilization` figure (#4777).
-- The My Work `signals.forecast.p80_finish` figure and the sprint burn sources
-  (#4778).
 - The program rollup's metrics (#4779).
 
 Older screens that show schedule performance under the word "Health" are being
 relabeled in #4780.
+
+## Echoes
+
+Some screens show a figure that another endpoint owns. They read the owner's
+value and carry the owner's definition, so they cannot disagree with it:
+
+- **My Work ship date** (`GET /me/work/`, `signals.forecast`) is the latest of
+  your projects' P80 dates, each read the way `monte-carlo/latest/` reads it:
+  the most recent run first, even when that run was started by a Member and was
+  not saved to the forecast history. Its `as_of` is that run's `last_run_at`.
+- **My Work sprint card** (`GET /me/work/`, `signals.sprint_burndown`) is the
+  same series and pace as `GET /sprints/{id}/burndown/` for your
+  soonest-ending active sprint.
+- **Active-sprints card** (`GET /me/active-sprints/`) reports `trend_pts` with
+  the burndown's formula. Until the sprint has a burn snapshot the card counts
+  the committed points as the remaining points, where the burndown reports
+  `trend_points` as null.
 
 ## Two figures that are easy to confuse
 
@@ -105,6 +139,11 @@ relabeled in #4780.
   from the overview and is a ratio of completed planned work. It reads `unknown`
   when nothing is planned yet. A surface that labels it "Health" shows a second
   health value that can disagree with the first.
+- **Sprint burn** and **project burn** are different figures. The sprint burn
+  (`GET /sprints/{id}/burndown/`) counts only the sprint's committed tasks, from
+  the daily snapshots. The project burn (`GET /projects/{id}/burn/`) counts
+  every task in the project, replayed from task history. For a project with one
+  active sprint the two still differ by every task outside the sprint.
 - **Blocked count** on the status summary is the full count. The `count` on
   `GET /projects/{id}/blocked/` is the number of rows in that list, which stops
   at the list's row limit.

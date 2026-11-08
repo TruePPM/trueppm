@@ -41536,7 +41536,7 @@
         "/api/v1/sprints/{id}/burndown/": {
             "get": {
                 "operationId": "v1_sprints_burndown_retrieve",
-                "description": "Return the sprint, its actual burn series, and the server-computed\nburn pace (#984): burn_status + projected_finish_date, so MCP/mobile read\nthe pace verdict from REST instead of re-deriving it client-side.",
+                "description": "Return the sprint, its actual burn series, and the server-computed\nburn pace (#984): burn_status + projected_finish_date, so MCP/mobile read\nthe pace verdict from REST instead of re-deriving it client-side.\n\nThe OWNER of the sprint burn figures (ADR-1314 amendment, #4778): the My\nWork card and the active-sprints feed echo it. ``as_of`` is when the pace\nwas computed — it is measured against today's place on the ideal line, so\nit ages even when no snapshot changes.",
                 "summary": "Get a sprint's burndown series",
                 "parameters": [
                     {
@@ -54183,6 +54183,15 @@
                     "ids"
                 ]
             },
+            "BurnStatusReasonEnum": {
+                "enum": [
+                    "no_commitment",
+                    "no_snapshots"
+                ],
+                "type": "string",
+                "description": "* `no_commitment` - no_commitment\n* `no_snapshots` - no_snapshots",
+                "x-trueppm-enum": "open"
+            },
             "CadenceTypeEnum": {
                 "enum": [
                     "weekly",
@@ -58686,12 +58695,25 @@
                     "truncated"
                 ]
             },
+            "MeWorkForecastDefinitions": {
+                "type": "object",
+                "properties": {
+                    "p80_finish": {
+                        "type": "string",
+                        "description": "The latest P80 finish among your member projects that are not drafts, each read from that project's latest Monte Carlo result: the same date its forecast endpoint serves."
+                    }
+                },
+                "required": [
+                    "p80_finish"
+                ]
+            },
             "MeWorkForecastSignal": {
                 "type": "object",
                 "properties": {
                     "p80_finish": {
                         "type": "string",
-                        "format": "date"
+                        "format": "date",
+                        "description": "Echo of the forecast owner, GET /projects/{id}/monte-carlo/latest/ (ADR-1314): the max of each member project's latest P80, cache entry first then the newest persisted run."
                     },
                     "project_id": {
                         "type": "string",
@@ -58702,11 +58724,21 @@
                     },
                     "as_of": {
                         "type": "string",
-                        "format": "date-time"
+                        "format": "date-time",
+                        "description": "The driving project's forecast last_run_at (the owner's as_of)."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeWorkForecastDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
                     "as_of",
+                    "definitions",
                     "p80_finish",
                     "project_id",
                     "project_name"
@@ -58892,12 +58924,49 @@
                         "$ref": "#/components/schemas/MeWorkForecastSignal"
                     },
                     "sprint_burndown": {
-                        "$ref": "#/components/schemas/MeWorkSprintBurndownSignal"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeWorkSprintBurndownSignal"
+                            }
+                        ],
+                        "description": "Echo of the sprint burn owner, GET /sprints/{id}/burndown/ (ADR-1314): the same snapshots and the same pace computation."
                     },
                     "utilization": {
                         "$ref": "#/components/schemas/MeWorkUtilizationSignal"
                     }
                 }
+            },
+            "MeWorkSprintBurndownDefinitions": {
+                "type": "object",
+                "properties": {
+                    "series": {
+                        "type": "string",
+                        "description": "Per day of the sprint, the story points of its committed tasks that are not complete (a task's remaining points when set, else its story points), as recorded in that day's burn snapshot; pending mid-sprint additions count for nothing until accepted."
+                    },
+                    "committed_points": {
+                        "type": "string",
+                        "description": "The story points the sprint committed to, snapshotted when it was activated and never recomputed."
+                    },
+                    "burn_status": {
+                        "type": "string",
+                        "description": "The sprint's burn pace: ahead or behind when the latest snapshot's remaining points are more than 10% of the committed points (at least 1 point) below or above the straight ideal line from the committed points to zero, on track otherwise, and no data when nothing was committed or no snapshot exists yet."
+                    },
+                    "trend_points": {
+                        "type": "string",
+                        "description": "The ideal line's remaining points for today minus the latest snapshot's remaining points; positive means ahead of the ideal line."
+                    },
+                    "projected_finish_date": {
+                        "type": "string",
+                        "description": "Today plus the remaining points divided by the points burned per elapsed sprint day so far; null when nothing has burned yet or nothing remains."
+                    }
+                },
+                "required": [
+                    "burn_status",
+                    "committed_points",
+                    "projected_finish_date",
+                    "series",
+                    "trend_points"
+                ]
             },
             "MeWorkSprintBurndownSignal": {
                 "type": "object",
@@ -58921,6 +58990,17 @@
                     "burn_status": {
                         "type": "string"
                     },
+                    "burn_status_reason": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/BurnStatusReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "trend_points": {
                         "type": "integer",
                         "nullable": true
@@ -58929,11 +59009,26 @@
                         "type": "string",
                         "format": "date",
                         "nullable": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeWorkSprintBurndownDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
                     "burn_status",
+                    "burn_status_reason",
                     "committed_points",
+                    "definitions",
                     "projected_finish_date",
                     "series",
                     "sprint_id",
@@ -74497,6 +74592,19 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "burn_status_reason": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Why burn_status is no_data (rule 119): no_commitment when the sprint committed no points at activation, no_snapshots when no burn snapshot exists yet. Null whenever a pace was computed.\n\n* `no_commitment` - no_commitment\n* `no_snapshots` - no_snapshots",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/BurnStatusReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "trend_points": {
                         "type": "integer",
                         "readOnly": true,
@@ -74507,13 +74615,62 @@
                         "format": "date",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "When the server computed this payload. The pace is measured against today's point on the ideal line, so it ages even when no snapshot changes."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintBurndownDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "burn_status",
+                    "burn_status_reason",
+                    "definitions",
+                    "projected_finish_date",
+                    "snapshots",
+                    "sprint",
+                    "trend_points"
+                ]
+            },
+            "SprintBurndownDefinitions": {
+                "type": "object",
+                "properties": {
+                    "snapshots": {
+                        "type": "string",
+                        "description": "Per day of the sprint, the story points of its committed tasks that are not complete (a task's remaining points when set, else its story points), as recorded in that day's burn snapshot; pending mid-sprint additions count for nothing until accepted."
+                    },
+                    "committed_points": {
+                        "type": "string",
+                        "description": "The story points the sprint committed to, snapshotted when it was activated and never recomputed."
+                    },
+                    "burn_status": {
+                        "type": "string",
+                        "description": "The sprint's burn pace: ahead or behind when the latest snapshot's remaining points are more than 10% of the committed points (at least 1 point) below or above the straight ideal line from the committed points to zero, on track otherwise, and no data when nothing was committed or no snapshot exists yet."
+                    },
+                    "trend_points": {
+                        "type": "string",
+                        "description": "The ideal line's remaining points for today minus the latest snapshot's remaining points; positive means ahead of the ideal line."
+                    },
+                    "projected_finish_date": {
+                        "type": "string",
+                        "description": "Today plus the remaining points divided by the points burned per elapsed sprint day so far; null when nothing has burned yet or nothing remains."
                     }
                 },
                 "required": [
                     "burn_status",
+                    "committed_points",
                     "projected_finish_date",
                     "snapshots",
-                    "sprint",
                     "trend_points"
                 ]
             },
