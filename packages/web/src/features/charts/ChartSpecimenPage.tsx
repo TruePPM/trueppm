@@ -1,3 +1,4 @@
+import { HEALTH_BAND_LABEL } from '../../lib/healthBand';
 import { HeatCellBox, HeatLegend } from './HeatScale';
 import { RiskZoneBand } from './RiskZoneBand';
 import { SCurveChart, forecastToSCurveProps } from './SCurveChart';
@@ -43,12 +44,18 @@ export function ChartSpecimenPage() {
       <section aria-label="Risk zones" data-testid="specimen-zones">
         <RiskZoneBand
           title="Schedule risk zones"
-          definition="How far the P80 finish sits from the commitment: on track, watch, or at risk."
+          definition="How far the P80 finish sits from the commitment: on track, at risk, or critical."
           unit="d"
           zones={[
-            { key: 'ok', label: 'On track', from: -10, to: 0, tone: 'ok' },
-            { key: 'watch', label: 'Watch', from: 0, to: 5, tone: 'risk' },
-            { key: 'risk', label: 'At risk', from: 5, to: 15, tone: 'critical' },
+            { key: 'on_track', label: HEALTH_BAND_LABEL.on_track, from: -10, to: 0, tone: 'ok' },
+            { key: 'at_risk', label: HEALTH_BAND_LABEL.at_risk, from: 0, to: 5, tone: 'risk' },
+            {
+              key: 'critical',
+              label: HEALTH_BAND_LABEL.critical,
+              from: 5,
+              to: 15,
+              tone: 'critical',
+            },
           ]}
           markers={[
             { key: 'p50', at: 1, label: 'P50' },
