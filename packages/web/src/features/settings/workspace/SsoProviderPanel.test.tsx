@@ -349,6 +349,31 @@ describe('SsoProviderPanel — credentials & policy controls', () => {
     expect(screen.getByLabelText('Default role for auto-created members')).toBeEnabled();
   });
 
+  it('shows the stored role, not an unsaved draft, while auto-create is off; draft returns on re-enable (#3977)', async () => {
+    const user = userEvent.setup();
+    renderPanel({ mode: 'edit', existing: KEYCLOAK });
+    const toggle = screen.getByRole('switch', { name: 'Auto-create members on first SSO sign-in' });
+    const select = screen.getByLabelText('Default role for auto-created members');
+    expect(select).toHaveValue('100');
+    await user.selectOptions(select, '300');
+    await user.click(toggle);
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue('100');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    const arg = h.updateMutateAsync.mock.calls[0][0] as { body: Record<string, unknown> };
+    expect(arg.body).not.toHaveProperty('default_role');
+    await user.click(toggle);
+    expect(screen.getByLabelText('Default role for auto-created members')).toHaveValue('300');
+  });
+
+  it('create mode hint does not claim a stored role (#3977)', () => {
+    renderPanel();
+    expect(
+      screen.getByLabelText('Default role for auto-created members'),
+    ).toHaveAccessibleDescription(/New members default to Member/);
+    expect(screen.queryByText(/Showing the stored role/)).not.toBeInTheDocument();
+  });
+
   it('sends auto_create_members and the chosen default role on save', async () => {
     const user = userEvent.setup();
     renderPanel();

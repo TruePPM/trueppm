@@ -167,7 +167,7 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
   test('edit panel: Default role stays visible but disabled while auto-create is off (#3977)', async ({
     page,
   }) => {
-    await setup(page, [{ ...KEYCLOAK, auto_create_members: false, default_role: 300 }]);
+    await setup(page, [{ ...KEYCLOAK, auto_create_members: false, default_role: 100 }]);
     await page.goto('/settings#sso');
 
     await expect(page.getByText('SSO sign-in is live')).toBeVisible();
@@ -175,9 +175,13 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
 
     const role = page.getByLabel('Default role for auto-created members');
     await expect(role).toBeDisabled();
-    await expect(role).toHaveValue('300');
+    await expect(role).toHaveValue('100');
     await page.getByRole('switch', { name: 'Auto-create members on first SSO sign-in' }).click();
     await expect(role).toBeEnabled();
+    // An unsaved draft is not shown as the stored value once auto-create is off.
+    await role.selectOption('300');
+    await page.getByRole('switch', { name: 'Auto-create members on first SSO sign-in' }).click();
+    await expect(role).toHaveValue('100');
   });
 
   test('test connection: a reachable issuer reports success inline', async ({ page }) => {
