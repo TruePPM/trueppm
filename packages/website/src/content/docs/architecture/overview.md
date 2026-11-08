@@ -151,6 +151,25 @@ Every mutation is followed by a `broadcast_board_event()` call deferred inside `
 
 ## Packages
 
+```mermaid
+flowchart LR
+    web["packages/web<br/>React client"]
+    mobile["packages/mobile<br/>scaffold, not built"]
+    mcp["packages/mcp<br/>read-only MCP server"]
+    api["packages/api<br/>Django + DRF + Channels"]
+    sched["packages/scheduler<br/>trueppm-scheduler"]
+    wasm["packages/wasm-scheduler<br/>Rust + WASM engine"]
+
+    web -->|"REST + WebSocket"| api
+    mobile -.->|"REST + WebSocket<br/>(not yet implemented)"| api
+    mcp -->|"REST, read-only"| api
+    api -->|"pip: trueppm-scheduler<br/>>=0.4,<0.5"| sched
+    wasm -.-|"CI conformance<br/>(wasm:conformance)"| sched
+    wasm -.->|"planned (#1777),<br/>not wired today"| web
+```
+
+Solid arrows are dependencies that exist today (the arrow points at what is depended on); dashed lines are a scaffold, a CI-only check, or planned work, and `packages/wasm-scheduler` is not yet used by any client.
+
 ### packages/scheduler
 
 Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`. See [Scheduling as a separate package](#scheduling-as-a-separate-package) above — this page does not document the engine's internals.
@@ -186,6 +205,33 @@ This Astro Starlight site. Built with `npx astro build`; deploys to GitLab Pages
 Helm 3 chart with vendored first-party sub-charts for PostgreSQL and Valkey (under `packages/helm/charts/`, using the official `postgres` and `valkey/valkey` images). Separate `values-dev.yaml` and `values-prod.yaml` overlays.
 
 ## OSS / Enterprise boundary
+
+```mermaid
+flowchart TB
+    subgraph ent["trueppm-enterprise (proprietary, separate repo)"]
+        direction LR
+        gov["Portfolio governance"]
+        idg["Org identity<br/>SAML / SCIM / LDAP"]
+        hub["Integration hub"]
+        aud["Audit trail<br/>and approvals"]
+    end
+
+    subgraph oss["trueppm-suite (Apache 2.0)"]
+        ext["Extension points<br/>settings includes, URL patterns,<br/>extension signals, task-source registry"]
+        core["Community core<br/>scheduler, API, web"]
+        ext --- core
+    end
+
+    gov -->|registers against| ext
+    idg -->|registers against| ext
+    hub -->|registers against| ext
+    aud -->|registers against| ext
+
+    note["make enterprise-boundary-check<br/>(CI: boundary:imports) enforces:<br/>no OSS import of trueppm_enterprise"]
+    note ~~~ oss
+```
+
+Arrows run from Enterprise to the Community extension points and never the other way; the check named in the note fails the build if the core imports from `trueppm_enterprise`.
 
 The community edition must never import from `trueppm_enterprise`. The dependency is strictly one-way: enterprise → core.
 

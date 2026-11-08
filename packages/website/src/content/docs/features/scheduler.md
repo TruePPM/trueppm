@@ -45,6 +45,28 @@ jupyter notebook packages/scheduler/notebooks/
 
 Negative lag (lead) is supported on every type.
 
+```mermaid
+flowchart LR
+    subgraph fs["FS"]
+        direction LR
+        fs_a["A finish"] -->|"FS"| fs_b["B start"]
+    end
+    subgraph ss["SS"]
+        direction LR
+        ss_a["A start"] -->|"SS"| ss_b["B start"]
+    end
+    subgraph ff["FF"]
+        direction LR
+        ff_a["A finish"] -->|"FF"| ff_b["B finish"]
+    end
+    subgraph sf["SF"]
+        direction LR
+        sf_a["A start"] -->|"SF"| sf_b["B finish"]
+    end
+```
+
+Each arrow runs from predecessor A to successor B and connects the two points of those tasks that the link type constrains; lag shifts the constraint on the arrow's target.
+
 `FF` and `SF` constrain the successor's **finish**, and a finish is the *end* of
 its last working day. An `SF` link with zero lag therefore lets the successor
 finish at the *start* of the predecessor's first day, which puts the
