@@ -1879,3 +1879,25 @@ export function CelebrationIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/** Person with a plus — the "unassigned, assign someone" avatar slot (shell v2 Pass 2). */
+export function UserPlusIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <circle cx="6.5" cy="5.25" r="2.5" />
+      <path d="M1.75 13.25c.5-2.4 2.4-3.75 4.75-3.75s4.25 1.35 4.75 3.75" />
+      <path d="M12.75 4.5v4M10.75 6.5h4" />
+    </svg>
+  );
+}

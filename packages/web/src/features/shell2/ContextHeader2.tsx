@@ -11,13 +11,13 @@ import { useShellStats } from '@/hooks/useShellStats';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
-import { HEALTH_BAND_LABEL, type HealthBand } from '@/lib/healthBand';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { formatRelative } from '@/lib/formatRelative';
 import { programPath, projectPath, segmentAfterRef } from '@/lib/refPath';
 import { ChevronDownIcon } from '@/components/Icons';
-import { Tooltip } from '@/components/Tooltip';
+import { HealthBandChip } from '@/components/page2/StatusChip';
+import { DefinitionTip } from '@/components/page2/DefinitionTip';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { resolveContextTabs, type ContextTabsModel } from './contextTabs';
 
@@ -36,28 +36,6 @@ const PROGRAM_VIEW_LABEL: Record<string, string> = {
 };
 const PROGRAM_VIEWS = Object.keys(PROGRAM_VIEW_LABEL);
 
-/** Health chip: the band word is the SERVER's band (rule 397), with a non-color glyph (rule 120). */
-const HEALTH_GLYPH: Record<HealthBand, string> = { critical: '▲', at_risk: '◆', on_track: '✓' };
-const HEALTH_CLASS: Record<HealthBand, string> = {
-  critical: 'bg-p1-critical-tint text-p1-critical',
-  at_risk: 'bg-p1-risk-tint text-p1-risk-text',
-  on_track: 'bg-p1-ok-tint text-p1-ok',
-};
-
-function HealthChip({ band }: { band: HealthBand }) {
-  return (
-    <span
-      data-testid="shell2-health"
-      className={`inline-flex h-[22px] items-center gap-1.5 rounded-full px-2 text-xs font-medium ${HEALTH_CLASS[band]}`}
-    >
-      <span aria-hidden="true" className="text-xs leading-none">
-        {HEALTH_GLYPH[band]}
-      </span>
-      {HEALTH_BAND_LABEL[band]}
-    </span>
-  );
-}
-
 /** The server band, an error you can retry, or nothing while it loads — never an empty chip that hides a failed read (rule 246). */
 function HealthSlot() {
   const { data: stats, error, refetch } = useShellStats();
@@ -72,12 +50,9 @@ function HealthSlot() {
     );
   }
   if (!stats?.healthBand) return null;
-  return <HealthChip band={stats.healthBand} />;
+  // The band word is the SERVER's band (rules 397, 442) with a non-color glyph (rule 120).
+  return <HealthBandChip band={stats.healthBand} data-testid="shell2-health" />;
 }
-
-/** A 44px hit area around a control shorter than 44px (rules 5, 330): sized, never inset; only valid where no ancestor clips overflow. */
-const HIT_44 =
-  "relative before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-full before:min-w-[44px] before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']";
 
 /** The P80 stamp: the server's value, the server's definition on hover/focus, and its `as_of` (`last_run_at`). */
 export function ForecastStamp({ projectId }: { projectId: string }) {
@@ -101,18 +76,7 @@ export function ForecastStamp({ projectId }: { projectId: string }) {
       {/* The definition is the SERVER's sentence (ADR-1314) — a client-written one
           described the number in words the server never used. Without one (a payload
           from before it shipped) the label is plain text, not an empty tooltip. */}
-      {definition ? (
-        <Tooltip content={definition}>
-          <button
-            type="button"
-            className={`${HIT_44} cursor-help rounded border-b border-dotted border-p1-hairline-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus`}
-          >
-            P80
-          </button>
-        </Tooltip>
-      ) : (
-        <span>P80</span>
-      )}
+      <DefinitionTip term="P80" definition={definition} />
       <span className="font-mono font-semibold tabular-nums text-p1-text-1">
         {fmtUtcShort(mc.p80)}
       </span>

@@ -1,8 +1,11 @@
 import type { ComponentType, ReactNode, SVGProps } from 'react';
 
+import { TYPE } from './page2/typeScale';
 import { useEmptyStateAnnouncement } from './emptyStateAnnouncements';
 
-export interface EmptyStateProps {
+interface WarmEmptyStateProps {
+  /** `warm` (default) — the centered v2 block with an icon-in-circle. */
+  variant?: 'warm';
   /** Surface icon (from components/Icons) — rendered decoratively in a circle. */
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   /** Short, encouraging heading — the warm replacement for a bare "No data" line. */
@@ -14,6 +17,28 @@ export interface EmptyStateProps {
   /** Extra container classes (e.g. `h-full` when the host must fill its area). */
   className?: string;
 }
+
+interface PageEmptyStateProps {
+  /**
+   * `page` — the shell v2 Pass 2 empty state (rule 439): left-aligned, no
+   * illustration, at most two actions. The tuple type is the "at most two":
+   * a third action does not compile.
+   */
+  variant: 'page';
+  icon?: never;
+  title: string;
+  description?: ReactNode;
+  /**
+   * At most two. Each must be a 44px target on a coarse pointer or phone (rule
+   * 5): the shared `Button` is 28-40px, so pass `PAGE_BUTTON` from
+   * `components/page2/classes` as its `className` (it also swaps in the Pass 2
+   * focus ring).
+   */
+  actions?: readonly [ReactNode] | readonly [ReactNode, ReactNode];
+  className?: string;
+}
+
+export type EmptyStateProps = WarmEmptyStateProps | PageEmptyStateProps;
 
 /**
  * Shared warm empty / first-run state (issue 1171, design-system-v2 row 10).
@@ -34,15 +59,19 @@ export interface EmptyStateProps {
  * one surface say it once. The icon stays decorative and the `<h2>` stays a
  * real heading, reachable by heading navigation (#3198).
  */
-export function EmptyState({
+export function EmptyState(props: EmptyStateProps) {
+  useEmptyStateAnnouncement(props.title);
+  if (props.variant === 'page') return <PageEmptyState {...props} />;
+  return <WarmEmptyState {...props} />;
+}
+
+function WarmEmptyState({
   icon: Icon,
   title,
   description,
   action,
   className = '',
-}: EmptyStateProps) {
-  useEmptyStateAnnouncement(title);
-
+}: WarmEmptyStateProps) {
   return (
     <div
       // Stable handle for specs that used to scope on the removed `role="status"`
@@ -60,6 +89,26 @@ export function EmptyState({
         </p>
       )}
       {action && <div className="mt-5 flex items-center gap-2">{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * Pass 2 empty state. Left-aligned so it starts where the content it replaces
+ * would have started, with no illustration: the Pass 2 audit found the centered
+ * icon block read as a loading spinner on a wide sheet. Same announcement and
+ * heading contract as the warm block (no role; the shell's polite region speaks).
+ */
+function PageEmptyState({ title, description, actions, className = '' }: PageEmptyStateProps) {
+  return (
+    <div
+      data-testid="empty-state"
+      data-variant="page"
+      className={`flex flex-col items-start gap-2 py-8 text-left motion-safe:animate-empty-state-in ${className}`}
+    >
+      <h2 className={`${TYPE.section} text-p1-text-1`}>{title}</h2>
+      {description && <p className={`max-w-[480px] ${TYPE.body} text-p1-text-2`}>{description}</p>}
+      {actions && <div className="mt-2 flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

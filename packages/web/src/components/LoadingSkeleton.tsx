@@ -1,3 +1,11 @@
+import {
+  TABLE_CLASS,
+  TABLE_HEADER_CELL,
+  TABLE_REGION,
+  TABLE_ROW_HEIGHT,
+  type DataTableDensity,
+} from '@/components/page2/DataTable';
+
 // ---------------------------------------------------------------------------
 // LoadingSkeleton — the shared rule-248 loading ghost.
 //
@@ -28,6 +36,15 @@ function Ghost({ className }: { className: string }) {
   );
 }
 
+/** The part of a `DataTableColumn` the skeleton reads. */
+interface SkeletonColumn {
+  /** Stable identity; `header` can be empty or repeated (an actions column). */
+  key: string;
+  header: string;
+  width?: string;
+  numeric?: boolean;
+}
+
 export interface LoadingSkeletonProps {
   /**
    * Accessible name for the status node, in rule-248 form — e.g. `"Loading
@@ -41,8 +58,23 @@ export interface LoadingSkeletonProps {
    *
    * `rows` — a compact stack sized for an in-page settings section, honoring the
    * settings density exception (which covers size, not the skeleton contract).
+   *
+   * `table` — the shell v2 Pass 2 table skeleton (rule 439): real chrome first.
+   * The header renders the REAL column names (pass `columns`) and a known
+   * count (`count`), and only the cell values are ghosts, at the 36px row
+   * height, so nothing moves when the data paints.
    */
-  variant?: 'shell' | 'rows';
+  variant?: 'shell' | 'rows' | 'table';
+  /**
+   * `table` only: the real columns. Pass the SAME column array the `DataTable`
+   * will render — a `DataTableColumn` satisfies this shape — so header text,
+   * widths and alignment match the table that replaces the skeleton.
+   */
+  columns?: ReadonlyArray<SkeletonColumn>;
+  /** `table` only: the density the real table will render at. */
+  density?: DataTableDensity;
+  /** `table` only: a count already known before the rows ("24 tasks"), shown as real text. */
+  count?: string;
   /** How many content ghosts to render. */
   rows?: number;
   /** Extra classes on the status wrapper — spacing is the caller's business. */
@@ -62,10 +94,68 @@ export function LoadingSkeleton({
   variant = 'rows',
   rows = 3,
   className = '',
+  columns = [],
+  count,
+  density = 'default',
 }: LoadingSkeletonProps) {
+  if (variant === 'table') {
+    return (
+      <div role="status" aria-label={label} className={`flex flex-col gap-2 ${className}`}>
+        {count && (
+          <p aria-hidden="true" className="text-xs text-p1-text-2">
+            {count}
+          </p>
+        )}
+        {/* The same region, table, header cells, column widths and row heights
+            as `DataTable`, so the painted rows land exactly where the ghosts were. */}
+        <div aria-hidden="true" className={TABLE_REGION}>
+          <table className={TABLE_CLASS}>
+            <thead>
+              <tr>
+                {columns.map((c) => (
+                  <th
+                    key={c.key}
+                    style={c.width ? { width: c.width, minWidth: c.width } : undefined}
+                    className={`${TABLE_HEADER_CELL} ${c.numeric ? 'text-right' : 'text-left'}`}
+                  >
+                    {c.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: rows }).map((_, i) => (
+                <tr
+                  key={i}
+                  data-testid="skeleton-row"
+                  className={`${TABLE_ROW_HEIGHT[density]} group`}
+                >
+                  {columns.map((c) => (
+                    <td
+                      key={c.key}
+                      className="border-b border-p1-hairline px-3 align-middle group-last:border-b-0"
+                    >
+                      <span
+                        className={`block h-3 w-3/5 rounded bg-p1-surface-3 motion-safe:animate-pulse ${c.numeric ? 'ml-auto' : ''}`}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
   if (variant === 'shell') {
     return (
-      <div role="status" aria-label={label} className={`flex h-full flex-col gap-4 p-4 ${className}`}>
+      <div
+        role="status"
+        aria-label={label}
+        className={`flex h-full flex-col gap-4 p-4 ${className}`}
+      >
         {/* Toolbar band — every surface opens with one, so ghosting it keeps the
             layout from jumping when the real toolbar paints. */}
         <div className="flex items-center gap-3">

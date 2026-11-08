@@ -418,8 +418,10 @@
     /* Dark status text sits 2–4 L-points above the Pass 1 sheet values and the
        tints run at 10% (not 16%): at 16% the composited chip background lifted
        enough that critical-on-critical-tint measured 3.48:1. These values clear
-       4.5:1 on the chip AND keep ≥7:1 on the bare sheet. */
-    --p1-critical:      0.76 0.16 27;
+       4.5:1 on the chip AND keep ≥7:1 on the bare sheet. Critical moved 0.76 →
+       0.78 for Pass 2 (#4795): its chip on a hovered table row (surface-2)
+       measured 4.45:1. */
+    --p1-critical:      0.78 0.16 27;
     --p1-critical-tint: oklch(0.72 0.16 27 / 0.10);
     --p1-risk:          0.80 0.13 75;
     --p1-risk-text:     0.84 0.12 80;

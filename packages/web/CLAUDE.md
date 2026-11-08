@@ -95,13 +95,14 @@ These rules are enforced at review time. Violations block merge.
 147. **Body ink and dark surfaces are navy.** `--neutral-text-primary` = navy `#1B2A4A` (light) / reversed `#E9EDF3` (dark). → [rule](../../docs/design/invariants/147-body-ink-and-dark-surfaces-are-navy.md)
 144. **Primary actions use the shared `Button` component** (`src/components/Button.tsx`), not ad-hoc `bg-brand-primary` fills. → [rule](../../docs/design/invariants/144-primary-actions-use-the-shared-button-component.md)
 148. **Three type families (brand §06):** `font-display` (Space Grotesk) for display/wordmark/big numbers; `font-sans` (Inter) for UI/body; `.tppm-mono` (JetBrains Mono, rule 8c) for data. → [rule](../../docs/design/invariants/148-three-type-families-brand-06.md)
+441. **A destructive zone keeps the existing danger (red) treatment — `Button variant="danger"` and the existing danger tokens; Pass 2 does not neutralize it (maintainer ruling 2026-11-07, #4795).** → [rule](../../docs/design/invariants/441-a-destructive-zone-keeps-the-danger-red-treatment.md)
 
 ## Signal encoding
 
 *How a value tells the truth about itself — including to someone who cannot see it.*
 
 120. **Health/variance values pair color with a non-color signal (rule-12 reinforcement for rollups).** → [rule](../../docs/design/invariants/120-health-variance-values-pair-color-with-a-non-color-signal.md)
-119. **A configured-but-not-computable metric renders as a muted card with a reason, never hidden.** → [rule](../../docs/design/invariants/119-a-configured-but-not-computable-metric-renders-as-a-muted.md)
+119. **A configured-but-not-computable metric renders as a muted card with a reason, never hidden.** On shell v2 it is the one-line `NotComputable` instead (rule 439). → [rule](../../docs/design/invariants/119-a-configured-but-not-computable-metric-renders-as-a-muted.md)
 161. **A responsive abbreviation must always carry its full accessible name.** → [rule](../../docs/design/invariants/161-a-responsive-abbreviation-must-always-carry-its-full.md)
 171. **`aria-label` on a non-widget element (`<p>`/`<div>`/`<span>`) does NOT suppress its descendant text in NVDA/JAWS — to expose a multi-span line as ONE accessible string, mark every visible child `aria-hidden`.** → [rule](../../docs/design/invariants/171-aria-label-on-a-non-widget-element-p-div-span-does-not.md)
 216. **A status adornment inside a header decides `aria-hidden` vs `role="img"`+`aria-label` by whether its meaning is ALREADY in the header's accessible name — never by "it's a small glyph, hide it".** → [rule](../../docs/design/invariants/216-a-status-adornment-inside-a-header-decides-aria-hidden-vs.md)
@@ -124,6 +125,8 @@ These rules are enforced at review time. Violations block merge.
 413. **A chart label that collides with its neighbor moves to a new ROW — the marker it names never moves, and the packing is a generic N-label layout problem, not a special case for one named pair.** → [rule](../../docs/design/invariants/413-a-chart-label-that-collides-with-its-neighbor-moves-to-a.md)
 416. **A real, nonzero-denominator computed zero is a value, not a health signal — it must never wear the on-track/success color.** → [rule](../../docs/design/invariants/416-a-real-nonzero-denominator-computed-zero-is-a-value-not.md)
 421. **`aria-label` on a roleless element is prohibited outright — hiding descendants (rule 171) stops the double-read but does not make the attribute legal; delete it and add a real `sr-only` sibling span instead.** → [rule](../../docs/design/invariants/421-aria-label-on-a-roleless-element-is-prohibited-outright.md)
+440. **A status chip is red only for critical or blocked, amber for every "watch this", never brand, and always carries a glyph — use `StatusChip`, whose tone type has no brand member.** → [rule](../../docs/design/invariants/440-a-status-chip-is-red-only-for-critical-or-blocked.md)
+442. **The RAG chip is a presentation of the server's health band (`HealthBandChip`, `HEALTH_BAND_LABEL`) — no client-side thresholds, no second health vocabulary (maintainer ruling 2026-11-07, #4795).** → [rule](../../docs/design/invariants/442-the-rag-chip-is-a-presentation-of-the-server-health-band.md)
 
 ## Redundancy
 
@@ -203,6 +206,7 @@ These rules are enforced at review time. Violations block merge.
 412. **`input[type="date"]` exposes NO `textbox` role — locate it with `getByLabel`, never `getByRole('textbox')`, and pass `{ exact: true }` in Playwright.** → [rule](../../docs/design/invariants/412-input-type-date-exposes-no-textbox-role-locate-it-with.md)
 433. **The `hidden` attribute is authoritative over display utilities, and a collapsed state is proven in a real browser — never by a jsdom `not.toBeVisible()`.** → [rule](../../docs/design/invariants/433-the-hidden-attribute-is-authoritative.md)
 436. **A navigation surface holds a fixed number of items at rest — rail 5 + pins <= 7, context tabs <= 5 + More, phone bar 5 with no overflow — and a tab surface that needs more folds behind ONE More control instead of growing another row.** → [rule](../../docs/design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md)
+439. **A shell v2 page composes the Pass 2 page kit (`components/page2/` + the `page`/`table` state variants) — it never restates a gutter, a title size, a row height or a loading/empty/error/not-computable state.** → [rule](../../docs/design/invariants/439-a-shell-v2-page-composes-the-pass-2-page-kit.md)
 
 ## Dialogs, focus and keyboard
 
