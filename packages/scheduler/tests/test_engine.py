@@ -2317,6 +2317,49 @@ class TestCompletedFullDuration:
         # finish (#1863). Completion overrides the zero-float => critical rule.
         assert not t.is_critical
 
+    def test_completed_task_finishing_last_leaves_critical_path_empty(self) -> None:
+        """``is_critical`` is zero total float AND not completed (#4723). When a
+        completed task holds the project finish, it has TF 0 but is not critical, no
+        live task reaches ``project_finish``, and ``critical_path`` is empty — so
+        "the latest critical early_finish is project_finish" does not hold."""
+        p = make_project(
+            [
+                task("done", "done", 5, percent_complete=100.0),
+                task("live", "live", 2),
+            ],
+            start=date(2026, 3, 2),  # Monday
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert r.project_finish == date(2026, 3, 6)
+        assert by_id["done"].early_finish == r.project_finish
+        assert by_id["done"].total_float == timedelta(0)
+        assert by_id["done"].is_critical is False
+        assert by_id["live"].total_float > timedelta(0)
+        assert r.critical_path == []
+
+        # Negative control: the same task, not complete, is critical and is the path.
+        live_p = make_project(
+            [task("done", "done", 5), task("live", "live", 2)], start=date(2026, 3, 2)
+        )
+        live_r = schedule(live_p)
+        assert live_r.critical_path == ["done"]
+        assert {t.id: t for t in live_r.tasks}["done"].early_finish == live_r.project_finish
+
+    def test_all_complete_project_has_empty_critical_path(self) -> None:
+        """Every task done: all have TF 0, none is critical, ``critical_path == []``."""
+        p = make_project(
+            [
+                task("A", "A", 3, percent_complete=100.0),
+                task("B", "B", 2, percent_complete=100.0),
+            ],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        assert all(t.total_float == timedelta(0) for t in r.tasks)
+        assert not any(t.is_critical for t in r.tasks)
+        assert r.critical_path == []
+
     def test_monte_carlo_agrees_with_schedule_on_completed_without_actuals(self) -> None:
         """monte_carlo() must pin a percent_complete=100/no-actual task to the same
         full-duration span schedule() computes, not collapse it to a single working

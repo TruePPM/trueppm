@@ -148,7 +148,7 @@ behavior is calendar-day lag, as described above.
 | `late_finish` | `date` | Latest finish without delaying the project |
 | `total_float` | `timedelta` | Working days of slack before the task delays the project end |
 | `free_float` | `timedelta` | Working days a task can slip without moving any live successor's early dates (see note) |
-| `is_critical` | `bool` | `True` when `total_float == timedelta(0)` |
+| `is_critical` | `bool` | `True` when `total_float == timedelta(0)` and the task is not complete (a completed task keeps zero float but is never critical) |
 
 :::note
 `free_float`, `total_float`, and `is_critical` all account for **all four**
@@ -188,8 +188,9 @@ The two are easy to conflate and they support different decisions, so it is wort
 naming them apart:
 
 - **`total_float`** is how long the task can slip before **the project finish**
-  moves. It is the number that defines the critical path: `is_critical` is exactly
-  `total_float == 0`.
+  moves. It is the number that defines the critical path: `is_critical` means
+  `total_float == 0` on a task that is not complete. A completed task also has zero
+  float but is never critical.
 - **`free_float`** is how long it can slip before **its own successors** have to
   move. It is bounded by the nearest downstream early start, not by the project
   end.
