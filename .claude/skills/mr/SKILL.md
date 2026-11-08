@@ -123,6 +123,17 @@ Rules for the description:
 - If it's a UI change, add a Screenshots section placeholder: `## Screenshots\n<!-- attach before/after -->`
 - Do not pad with filler text
 
+### The pre-MR security gate hook
+
+`.claude/hooks/pre-mr-security-gate.sh` is a PreToolUse hook on the Bash tool. It **blocks
+`glab mr create`** (and `git push -o merge_request.create`, `glab api -X POST .../merge_requests`)
+on a branch that touches source files until `rbac-check` and `broadcast-check` have run — plus
+`security-review` when views, serializers, permissions, consumers/routing, auth, sync, or upload
+paths changed. Docs/CI/changelog-only branches pass. After the gates run against the current HEAD,
+record that and retry: `.claude/hooks/pre-mr-security-gate.sh record ran`. If the user said to skip
+the gates, run `record skipped` and write `gate: <name> — skipped` (not `0 findings`) for each in
+the `## Gates` section. Committing or editing after the record invalidates it.
+
 ### The Gates section
 
 Every MR that ran any agent gate carries this section. It costs nothing to author — the
