@@ -17,7 +17,7 @@ import {
 } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toApiRelativePath } from '@/api/pagination';
-import type { TaskStatus } from '@/types';
+import type { MetricDefinitions, TaskStatus } from '@/types';
 import type { BlockerType } from '@/lib/blocker';
 import type { ExternalSyncOutcome } from '@/features/integrations/syncOutcome';
 import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
@@ -168,13 +168,19 @@ export interface MyWorkSignals {
     /** Projects contributing a real (non-unknown) band. */
     project_count: number;
   };
-  /** Latest Monte-Carlo P80 ship-date across the user's forecasted projects. */
+  /**
+   * Latest Monte-Carlo P80 ship-date across the user's forecasted projects. An echo
+   * of each project's `monte-carlo/latest/` result (ADR-1314, #4778), so it matches
+   * the project's own forecast stamp.
+   */
   forecast?: {
     p80_finish: string;
     project_id: string;
     project_name: string;
-    /** ISO timestamp of the driving run — freshness of the forecast. */
+    /** The driving project's forecast `last_run_at` — freshness of the forecast. */
     as_of: string;
+    /** The server's definition of `p80_finish`; render verbatim (ADR-1314). */
+    definitions?: MetricDefinitions;
   };
   /** Real per-day burn series for the user's soonest-ending active sprint. */
   sprint_burndown?: {
@@ -183,9 +189,15 @@ export interface MyWorkSignals {
     committed_points: number;
     series: MyWorkBurndownPoint[];
     burn_status: 'ahead' | 'on_track' | 'behind' | 'no_data';
+    /** Why `burn_status` is `no_data` (rule 119); null when a pace was computed. */
+    burn_status_reason?: 'no_commitment' | 'no_snapshots' | null;
     /** Signed points vs the ideal line; positive = ahead. Null when no baseline. */
     trend_points: number | null;
     projected_finish_date: string | null;
+    /** When the server computed the pace (an echo of `/sprints/{id}/burndown/`). */
+    as_of?: string;
+    /** The server's definitions for the series and pace (ADR-1314). */
+    definitions?: MetricDefinitions;
   };
   /**
    * The caller's OWN load vs their OWN capacity for the soonest-ending active

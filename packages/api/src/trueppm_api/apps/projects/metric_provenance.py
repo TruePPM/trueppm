@@ -22,10 +22,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 # One sentence per metric. The key is the payload field the sentence defines. Edit a
 # sentence here and in
@@ -101,6 +104,37 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "A task's slip: its forecast finish minus its active-baseline finish, in "
         "calendar days measured in working time; positive means late."
     ),
+    # ── sprints/{id}/burndown (ADR-1314 amendment, #4778) ─────────────────
+    "sprint_burn_series": (
+        "Per day of the sprint, the story points of its committed tasks that are not "
+        "complete (a task's remaining points when set, else its story points), as "
+        "recorded in that day's burn snapshot; pending mid-sprint additions count "
+        "for nothing until accepted."
+    ),
+    "committed_points": (
+        "The story points the sprint committed to, snapshotted when it was activated "
+        "and never recomputed."
+    ),
+    "burn_status": (
+        "The sprint's burn pace: ahead or behind when the latest snapshot's remaining "
+        "points are more than 10% of the committed points (at least 1 point) below or "
+        "above the straight ideal line from the committed points to zero, on track "
+        "otherwise, and no data when nothing was committed or no snapshot exists yet."
+    ),
+    "trend_points": (
+        "The ideal line's remaining points for today minus the latest snapshot's "
+        "remaining points; positive means ahead of the ideal line."
+    ),
+    "projected_finish_date": (
+        "Today plus the remaining points divided by the points burned per elapsed "
+        "sprint day so far; null when nothing has burned yet or nothing remains."
+    ),
+    # ── /me/work signals.forecast (ADR-1314 amendment, #4778) ─────────────
+    "my_work_p80_finish": (
+        "The latest P80 finish among your member projects that are not drafts, each "
+        "read from that project's latest Monte Carlo result: the same date its "
+        "forecast endpoint serves."
+    ),
 }
 
 #: The figures each owning endpoint defines in its ``definitions`` map (ADR-1314).
@@ -125,10 +159,145 @@ FORECAST_DEFINED: list[str] = [
 COMMITMENT_SOURCE_CHOICES = ["baseline", "program_target", "none"]
 COMMITMENT_REASON_CHOICES = ["no_commitment", "no_forecast"]
 
+#: Why a sprint's ``burn_status`` is ``no_data`` (rule 119, #4778). ``no_data`` alone
+#: conflated "the sprint committed nothing" with "no snapshot has been written yet",
+#: and a reader cannot tell which to fix.
+BURN_STATUS_REASON_CHOICES = ["no_commitment", "no_snapshots"]
+
+#: Sprint burn figures (ADR-1314 amendment, #4778), keyed by the PAYLOAD field. The
+#: owner (``/sprints/{id}/burndown/``) names the series ``snapshots``; the My Work
+#: echo names the same series ``series``. One sentence, two field names — the same
+#: arrangement as :func:`task_slip_definitions`.
+_SPRINT_BURN_FIGURES: dict[str, str] = {
+    "committed_points": "committed_points",
+    "burn_status": "burn_status",
+    "trend_points": "trend_points",
+    "projected_finish_date": "projected_finish_date",
+}
+SPRINT_BURNDOWN_DEFINED: dict[str, str] = {
+    "snapshots": "sprint_burn_series",
+    **_SPRINT_BURN_FIGURES,
+}
+MY_WORK_SPRINT_BURN_DEFINED: dict[str, str] = {
+    "series": "sprint_burn_series",
+    **_SPRINT_BURN_FIGURES,
+}
+MY_WORK_FORECAST_DEFINED: dict[str, str] = {"p80_finish": "my_work_p80_finish"}
+
 
 def definitions_for(keys: Iterable[str]) -> dict[str, str]:
     """The ``definitions`` map for a payload carrying ``keys``."""
     return {k: METRIC_DEFINITIONS[k] for k in keys}
+
+
+def definitions_by_field(fields: dict[str, str]) -> dict[str, str]:
+    """The ``definitions`` map for a payload whose field names differ from the metric keys.
+
+    ``fields`` maps the payload field to the :data:`METRIC_DEFINITIONS` key.
+    """
+    return {field: METRIC_DEFINITIONS[key] for field, key in fields.items()}
+
+
+def definitions_field_by_field(name: str, fields: dict[str, str]) -> Any:
+    """:func:`definitions_field` for a payload whose field names differ from the metric keys."""
+    return inline_serializer(
+        name=name,
+        fields={
+            field: serializers.CharField(help_text=METRIC_DEFINITIONS[key])
+            for field, key in fields.items()
+        },
+        help_text=(
+            "One sentence per figure on this payload saying what it measures (ADR-1314). "
+            "Render it verbatim; never substitute a client-written definition."
+        ),
+    )
+
+
+def latest_forecast_result(
+    project_id: Any, runs: QuerySet[Any] | None = None
+) -> tuple[dict[str, Any] | None, Any | None]:
+    """A project's latest Monte Carlo result: ``(cache_entry, None)`` or ``(None, run)``.
+
+    The per-project reader of "the latest forecast" (ADR-1314, #4778). The owner
+    (``monte-carlo/latest/``) and its echoes (status-summary's ``monte_carlo_p80``,
+    the overview's forecast fields) all call it, so none of them can read in a
+    different order. The order: the cache entry first, then the newest persisted
+    ``MonteCarloRun`` once the 24-hour entry has expired. A Member-triggered run
+    refreshes the cache and persists no row (#1502), so a reader of the persisted
+    row alone serves a different forecast than the owner for up to a day.
+
+    ``runs`` narrows the fallback query (``.only(...)``) for a caller that needs a
+    few columns; the run is the newest by ``taken_at`` whatever its P80. The run is
+    ``None`` when there is a cache entry (not queried) or no run at all. Batched
+    over many projects, :func:`latest_forecast_p80_by_project` applies the same order.
+    """
+    from django.core.cache import cache
+
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    # Lazy: scheduling.views imports this module at load time.
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+    entry = cache.get(mc_latest_cache_key(project_id))
+    if entry is not None:
+        return entry, None
+    qs = runs if runs is not None else MonteCarloRun.objects.all()
+    return None, qs.filter(project_id=project_id).order_by("-taken_at").first()
+
+
+def latest_forecast_p80_by_project(project_ids: Iterable[Any]) -> dict[str, tuple[date, str]]:
+    """Each project's P80 and ``last_run_at`` from the forecast owner's latest result.
+
+    The batched form of :func:`latest_forecast_result`, for the My Work signal
+    (#4778): the same order (cache entry first, then the newest persisted run)
+    over many projects in one cache round trip and one DISTINCT ON query. My Work
+    used to read the persisted row alone, the disagreement #4760 fixed in
+    status-summary.
+
+    The persisted fallback takes each project's NEWEST run, whatever its P80, as the
+    owner does. A newest run with no P80 means the owner has no P80 to show, so the
+    project is left out; an older run's date is not substituted for it.
+
+    Returns ``{str(project_id): (p80, last_run_at_iso)}`` for the projects that have
+    a P80. One cache round trip, plus at most one query (DISTINCT ON) for the
+    projects with no cache entry.
+    """
+    from django.core.cache import cache
+
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    # Lazy: scheduling.views imports this module at load time.
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+    ids = [str(pid) for pid in project_ids]
+    if not ids:
+        return {}
+    keys = {mc_latest_cache_key(pid): pid for pid in ids}
+    cached = cache.get_many(list(keys))
+    out: dict[str, tuple[date, str]] = {}
+    uncached: list[str] = []
+    for key, pid in keys.items():
+        entry = cached.get(key)
+        if entry is None:
+            uncached.append(pid)
+            continue
+        p80 = entry.get("p80")
+        if p80 is not None and entry.get("last_run_at"):
+            out[pid] = (
+                date.fromisoformat(p80) if isinstance(p80, str) else p80,
+                entry["last_run_at"],
+            )
+    if uncached:
+        newest = (
+            MonteCarloRun.objects.filter(project_id__in=uncached)
+            .order_by("project_id", "-taken_at")
+            .distinct("project_id")
+            .values_list("project_id", "p80", "taken_at")
+        )
+        for run_project_id, run_p80, taken_at in newest:
+            if run_p80 is not None:
+                out[str(run_project_id)] = (run_p80, taken_at.isoformat())
+    return out
 
 
 def task_slip_definitions() -> dict[str, str]:

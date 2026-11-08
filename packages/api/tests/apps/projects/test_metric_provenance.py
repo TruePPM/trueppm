@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -23,9 +24,13 @@ from trueppm_api.apps.projects.metric_provenance import (
     BURN_DEFINED,
     FORECAST_DEFINED,
     METRIC_DEFINITIONS,
+    MY_WORK_FORECAST_DEFINED,
+    MY_WORK_SPRINT_BURN_DEFINED,
     OVERVIEW_DEFINED,
+    SPRINT_BURNDOWN_DEFINED,
     STATUS_SUMMARY_DEFINED,
     UTILIZATION_DEFINED,
+    definitions_by_field,
 )
 from trueppm_api.apps.projects.models import (
     Baseline,
@@ -33,6 +38,9 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     Program,
     Project,
+    Sprint,
+    SprintBurnSnapshot,
+    SprintState,
     Task,
     TaskStatus,
 )
@@ -584,6 +592,271 @@ class TestOtherOwners:
     ) -> None:
         resp = stranger_client.get(f"/api/v1/projects/{project.pk}/{suffix}")
         assert resp.status_code in (403, 404)
+
+
+# ── /me/work signals.forecast echoes the forecast owner (#4778) ─────────────
+
+
+class TestMyWorkForecastEchoesTheOwner:
+    """``signals.forecast.p80_finish`` reads the owner's latest result, not the row alone."""
+
+    def test_cache_only_run_matches_monte_carlo_latest(
+        self, client: APIClient, project: Project
+    ) -> None:
+        # A Member-triggered run refreshes the cache and persists no row (#1502). The
+        # signal used to read the persisted row only, so it showed June 1 while the
+        # project's own forecast showed July 15.
+        MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 6, 1), n_simulations=500
+        )
+        cache.set(
+            mc_latest_cache_key(project.pk),
+            {"p80": "2026-07-15", "last_run_at": "2026-07-01T09:00:00+00:00"},
+            timeout=60,
+        )
+
+        owner = client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+        forecast = client.get("/api/v1/me/work/").json()["signals"]["forecast"]
+
+        assert forecast["p80_finish"] == owner["p80"] == "2026-07-15"
+        # as_of is the owner's as_of (last_run_at), not the stale row's taken_at.
+        assert forecast["as_of"] == owner["last_run_at"]
+        assert forecast["project_id"] == str(project.pk)
+        assert forecast["definitions"] == definitions_by_field(MY_WORK_FORECAST_DEFINED)
+
+    def test_persisted_fallback_matches_the_owner(
+        self, client: APIClient, project: Project
+    ) -> None:
+        MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 6, 1), n_simulations=500
+        )
+
+        owner = client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+        forecast = client.get("/api/v1/me/work/").json()["signals"]["forecast"]
+
+        assert forecast["p80_finish"] == owner["p80"] == "2026-06-01"
+        assert forecast["as_of"] == owner["last_run_at"]
+
+    def test_newest_run_without_a_p80_is_not_backfilled_from_an_older_run(
+        self, client: APIClient, project: Project
+    ) -> None:
+        # The owner serves the NEWEST run, whose P80 is null: there is no P80 to show.
+        # The signal used to filter on p80 and quietly report the older run's date.
+        MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 6, 1), n_simulations=500
+        )
+        MonteCarloRun.objects.create(project=project, p80=None, n_simulations=500)
+
+        owner = client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+        signals = client.get("/api/v1/me/work/").json()["signals"]
+
+        assert owner["p80"] is None
+        # Not computable: omitted (ADR-0221's "absent key = no backing data").
+        assert "forecast" not in signals
+
+    def test_max_across_projects_takes_each_projects_owner_value(
+        self, client: APIClient, user: object, project: Project
+    ) -> None:
+        other = Project.objects.create(
+            name="Other", start_date=datetime.date(2026, 1, 5), calendar=project.calendar
+        )
+        ProjectMembership.objects.create(project=other, user=user, role=Role.MEMBER)
+        # `project`'s persisted row is LATER than `other`, but its owner value (the
+        # cache entry) is earlier — so `other` drives the aggregate.
+        MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 12, 1), n_simulations=500
+        )
+        cache.set(
+            mc_latest_cache_key(project.pk),
+            {"p80": "2026-07-15", "last_run_at": "2026-07-01T09:00:00+00:00"},
+            timeout=60,
+        )
+        MonteCarloRun.objects.create(
+            project=other, p80=datetime.date(2026, 9, 1), n_simulations=500
+        )
+
+        forecast = client.get("/api/v1/me/work/").json()["signals"]["forecast"]
+
+        assert forecast["p80_finish"] == "2026-09-01"
+        assert forecast["project_id"] == str(other.pk)
+
+    def test_a_non_members_cached_forecast_never_leaks(
+        self, stranger_client: APIClient, project: Project
+    ) -> None:
+        cache.set(
+            mc_latest_cache_key(project.pk),
+            {"p80": "2026-07-15", "last_run_at": "2026-07-01T09:00:00+00:00"},
+            timeout=60,
+        )
+        signals = stranger_client.get("/api/v1/me/work/").json().get("signals", {})
+        assert "forecast" not in signals
+
+    def test_anonymous_is_refused(self, db: object) -> None:
+        assert APIClient().get("/api/v1/me/work/").status_code == 401
+
+
+# ── sprint burn: one owner, two echoes (#4778) ──────────────────────────────
+
+
+def _active_sprint(project: Project, committed: int | None = 40) -> Sprint:
+    today = timezone.localdate()
+    return Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=today - datetime.timedelta(days=4),
+        finish_date=today + datetime.timedelta(days=5),
+        state=SprintState.ACTIVE,
+        committed_points=committed,
+    )
+
+
+def _snapshot(sprint: Sprint, offset: int, remaining: int) -> None:
+    SprintBurnSnapshot.objects.update_or_create(
+        sprint=sprint,
+        snapshot_date=sprint.start_date + datetime.timedelta(days=offset),
+        defaults={
+            "remaining_points": remaining,
+            "remaining_task_count": 1,
+            "completed_points": 40 - remaining,
+            "completed_task_count": 0,
+        },
+    )
+
+
+class TestSprintBurnProvenance:
+    def test_owner_carries_as_of_definitions_and_a_null_reason(
+        self, client: APIClient, project: Project
+    ) -> None:
+        sprint = _active_sprint(project)
+        _snapshot(sprint, 0, 40)
+        _snapshot(sprint, 1, 30)
+
+        body = client.get(f"/api/v1/sprints/{sprint.pk}/burndown/").json()
+
+        assert body["as_of"]
+        assert body["definitions"] == definitions_by_field(SPRINT_BURNDOWN_DEFINED)
+        assert body["burn_status"] in {"ahead", "on_track", "behind"}
+        assert body["burn_status_reason"] is None
+
+    def test_no_snapshots_is_no_data_with_a_reason(
+        self, client: APIClient, project: Project
+    ) -> None:
+        sprint = _active_sprint(project)
+
+        body = client.get(f"/api/v1/sprints/{sprint.pk}/burndown/").json()
+
+        assert body["burn_status"] == "no_data"
+        assert body["burn_status_reason"] == "no_snapshots"
+        assert body["trend_points"] is None
+        assert body["as_of"] and body["definitions"]
+
+    def test_no_commitment_is_no_data_with_a_reason(
+        self, client: APIClient, project: Project
+    ) -> None:
+        sprint = _active_sprint(project, committed=None)
+        _snapshot(sprint, 0, 10)
+
+        body = client.get(f"/api/v1/sprints/{sprint.pk}/burndown/").json()
+
+        assert body["burn_status"] == "no_data"
+        assert body["burn_status_reason"] == "no_commitment"
+
+    def test_my_work_card_echoes_the_owner(
+        self, client: APIClient, user: object, project: Project
+    ) -> None:
+        sprint = _active_sprint(project)
+        # Creating an in-progress task fires the real-time snapshot upsert for today.
+        _task(
+            project,
+            "Mine",
+            sprint=sprint,
+            assignee=user,
+            status=TaskStatus.IN_PROGRESS,
+            story_points=8,
+        )
+        _snapshot(sprint, 0, 40)
+        _snapshot(sprint, 1, 30)
+
+        owner = client.get(f"/api/v1/sprints/{sprint.pk}/burndown/").json()
+        echo = client.get("/api/v1/me/work/").json()["signals"]["sprint_burndown"]
+
+        assert echo["sprint_id"] == str(sprint.pk)
+        assert [p["remaining_points"] for p in echo["series"]] == [
+            s["remaining_points"] for s in owner["snapshots"]
+        ]
+        for field in ("burn_status", "burn_status_reason", "trend_points", "projected_finish_date"):
+            assert echo[field] == owner[field], field
+        assert echo["committed_points"] == owner["sprint"]["committed_points"]
+        assert echo["as_of"]
+        assert echo["definitions"] == definitions_by_field(MY_WORK_SPRINT_BURN_DEFINED)
+        # One sentence, two field names: the series is defined identically.
+        assert echo["definitions"]["series"] == owner["definitions"]["snapshots"]
+
+    def test_active_sprints_card_trend_matches_the_owner(
+        self, client: APIClient, user: object, project: Project
+    ) -> None:
+        """Characterization only: the card and the owner share ``sprint_trend_points``.
+
+        With no snapshot the owner returns null and the card falls back to committed
+        points, an exception recorded in ADR-1314; this pins the shared case.
+        """
+        sprint = _active_sprint(project)
+        _task(
+            project,
+            "Mine",
+            sprint=sprint,
+            assignee=user,
+            status=TaskStatus.IN_PROGRESS,
+            story_points=8,
+        )
+
+        owner = client.get(f"/api/v1/sprints/{sprint.pk}/burndown/").json()
+        cards = client.get("/api/v1/me/active-sprints/").json()
+
+        (card,) = [c for c in cards if c["sprint"]["id"] == str(sprint.pk)]
+        assert card["sprint"]["trend_pts"] == owner["trend_points"]
+
+    @pytest.mark.parametrize(
+        ("committed", "snapshot", "reason"),
+        [(40, False, "no_snapshots"), (None, True, "no_commitment"), (40, True, None)],
+    )
+    def test_sprint_outcome_echoes_the_owners_reason_and_definitions(
+        self,
+        client: APIClient,
+        project: Project,
+        committed: int | None,
+        snapshot: bool,
+        reason: str | None,
+    ) -> None:
+        sprint = _active_sprint(project, committed=committed)
+        if snapshot:
+            _snapshot(sprint, 0, 30)
+        # The velocity block is team-band only (ADR-0104): an OWNER reads it as null,
+        # so read it as a MEMBER.
+        member = User.objects.create_user(username="prov-member", password="pw")
+        ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+        member_client = APIClient()
+        member_client.force_authenticate(user=member)
+
+        owner = member_client.get(f"/api/v1/sprints/{sprint.pk}/burndown/").json()
+        outcome = member_client.get(f"/api/v1/sprints/{sprint.pk}/outcome/").json()
+        velocity = outcome["velocity"]
+        assert velocity is not None
+
+        assert owner["burn_status_reason"] == reason
+        for field in ("burn_status", "burn_status_reason", "trend_points", "projected_finish_date"):
+            assert velocity[field] == owner[field], field
+        for field in ("burn_status", "trend_points", "projected_finish_date"):
+            assert velocity["definitions"][field] == owner["definitions"][field]
+
+    def test_non_member_is_refused(self, stranger_client: APIClient, project: Project) -> None:
+        sprint = _active_sprint(project)
+        resp = stranger_client.get(f"/api/v1/sprints/{sprint.pk}/burndown/")
+        assert resp.status_code in (403, 404)
+
+    def test_anonymous_is_refused(self, project: Project) -> None:
+        sprint = _active_sprint(project)
+        assert APIClient().get(f"/api/v1/sprints/{sprint.pk}/burndown/").status_code == 401
 
 
 # ── the published vocabulary states each definition exactly once ───────────

@@ -225,3 +225,114 @@ percentile sampling, and a client-written definition. The P80 tooltip in
   `MonteCarloLatestView` (cache and persisted branches), `TaskBaselineDetailView`.
 - Tests: `packages/api/tests/apps/projects/test_metric_provenance.py`.
 - Docs: `packages/website/src/content/docs/features/metric-vocabulary.md`.
+
+## Amendment — #4778 (2026-11-07): My Work P80 and the sprint burn sources
+
+Status: Accepted (2026-11-07, #4778). Implemented in the same change. It settles the
+#4778 half of the Consequences bullet above that left "the My Work
+`signals.forecast.p80_finish` and the sprint burn sources" for later; the #4779 half
+(program rollup) is unaffected. The rows below extend the §1 owner table. They sit
+here, not in it, so the two amendments to this ADR do not edit the same lines.
+
+### Owners
+
+| Metric | Owner | Field | as_of |
+|---|---|---|---|
+| Sprint burn series | `GET /sprints/{id}/burndown/` | `snapshots[].remaining_points` | `as_of` (new) |
+| Sprint commitment | sprint burndown | `sprint.committed_points` (defined as `committed_points`) | `as_of` |
+| Sprint burn pace | sprint burndown | `burn_status` + `burn_status_reason` (new) | `as_of` |
+| Sprint trend | sprint burndown | `trend_points` | `as_of` |
+| Sprint projected finish | sprint burndown | `projected_finish_date` | `as_of` |
+
+No new owner is added for the My Work ship date. It is the §1 forecast owner,
+`monte-carlo/latest/`, reduced across the reader's projects.
+
+### Echoes
+
+- **`/me/work` `signals.forecast`** echoes `monte-carlo/latest/`. It read only the
+  persisted `MonteCarloRun`, the same disagreement #4760 fixed in status-summary:
+  after a Member-triggered run (cache refreshed, no row, #1502) the card on the
+  Contributor home showed a different P80 from the project's own forecast for up to
+  a day. Each project's P80 is now read in the owner's order, cache entry first,
+  then the newest persisted run, through
+  `metric_provenance.latest_forecast_p80_by_project`. That is the batched form of
+  `metric_provenance.latest_forecast_result`, which the owner itself
+  (`MonteCarloLatestView`), status-summary's `monte_carlo_p80` and the overview's
+  forecast fields now all call. Before this, each of the three held its own inline
+  copy of the cache-then-newest-row read. The newest run is taken
+  whatever its P80, as the owner does. The signal used to filter on `p80 IS NOT NULL`,
+  which reported an older run's date when the newest had none. `as_of` is the
+  driving project's `last_run_at`, the owner's as_of. The max across projects and
+  the existing scoping (no drafts, the agent opt-out of ADR-0678) are unchanged.
+  `definitions.p80_finish` states the reduction, since "the latest of several P80s"
+  is not the single-project `p80` sentence.
+- **`/me/work` `signals.sprint_burndown`** echoes the sprint burndown. It already
+  read the same snapshots and called the same `compute_sprint_burn_status`. It now
+  also carries `burn_status_reason`, `as_of` and `definitions`. Its series is named
+  `series`, not `snapshots`, so its `definitions` are keyed `series` with the same
+  sentence, the arrangement `task_slip_definitions` uses for task slip.
+- **`/me/active-sprints/` `sprint.trend_pts`** held a second copy of the pace formula.
+  Both callers now use `services.sprint_trend_points`. One difference is kept on
+  purpose: with no snapshot yet the card reads the remaining points as the committed
+  points ("nothing burned"), because `trend_pts` is the card list's sort key and is
+  not nullable. The owner reports `no_data` with `burn_status_reason: no_snapshots`.
+  Once a snapshot exists, the two agree. A test pins that.
+- The sprint outcome's `velocity` block (`GET /sprints/{id}/outcome/`) already
+  called `compute_sprint_burn_status`. It now also carries `burn_status_reason` and
+  the owner's `definitions` for `burn_status`, `trend_points` and
+  `projected_finish_date`, so a `no_data` there names its cause as the owner does.
+
+### Sprint burn is not project burn
+
+The issue's example, one sprint's slip reading 27 / 20 / 22 / 26 points, mixes two
+metrics as well as two sources. `GET /projects/{id}/burn/` (owner in §1) counts every
+task in the project, replayed from task history. The sprint burndown counts only the
+sprint's committed tasks, from daily snapshots, and ignores pending mid-sprint
+additions (ADR-0102 §2). They are both correct and they differ. Each now has its own
+definition, and the published vocabulary states the difference. A surface that shows
+a sprint figure reads the sprint burndown, never `/burn/`.
+
+### Not-computable (rule 119)
+
+`burn_status: no_data` conflated two causes. It now carries `burn_status_reason`:
+`no_commitment` (no points committed at activation) or `no_snapshots`. The field is
+null whenever a pace was computed.
+
+The My Work `signals` block keeps ADR-0221's rule: a signal with no backing data is
+omitted, not sent as null. It is a shipped contract that the web client keys on, and
+the omission is the not-computable state for those cards. The vocabulary page says so.
+
+### Surfaces left out on purpose
+
+`GET /me/active-sprints/` carries neither `definitions` nor `as_of`, and the sprint
+outcome `velocity` block carries `definitions` but no `as_of`. #4778 names the My Work
+P80, the sprint burn signal and `/burndown/`, so these two are out of scope. Each
+echoes the owner's formula (`trend_pts`, the burn reason) and is listed under Echoes in
+the published vocabulary.
+
+### Gates (inline)
+
+- **enterprise-check:** OSS. The reader's own projects and their own soonest-ending
+  sprint. Nothing is cross-program governance or portfolio.
+- **ai-review:** passes. Each echoed figure now carries the owner's definition and an
+  as_of an MCP client can cite. No agent write path changes.
+- **threat-model:** n/a. No new trust boundary. The forecast echo reads the same
+  membership-scoped project set as before. A cache entry for a project the reader is
+  not a member of is never read, because the keys are built from that set.
+
+### Implementation notes
+
+- `metric_provenance.py`: the six new sentences, `SPRINT_BURNDOWN_DEFINED`,
+  `MY_WORK_SPRINT_BURN_DEFINED`, `MY_WORK_FORECAST_DEFINED`, `definitions_by_field`,
+  `definitions_field_by_field`, `BURN_STATUS_REASON_CHOICES`,
+  `latest_forecast_result`, `latest_forecast_p80_by_project`.
+- `services.py`: `compute_sprint_burn_status` (reason), `sprint_trend_points`,
+  `_forecast_signal`, `_sprint_burndown_signal`, `_velocity_block`.
+- `projects/views.py`: `SprintViewSet.burndown`, `MeActiveSprintsView`, the `/me/work`
+  schema, and the forecast reads in `status_summary` and `ProjectOverviewView`.
+  `scheduling/views.py`: `MonteCarloLatestView`.
+- Tests: `packages/api/tests/apps/projects/test_metric_provenance.py`
+  (`TestMyWorkForecastEchoesTheOwner`, `TestSprintBurnProvenance`).
+- Cost: the forecast echo is one cache `get_many` plus at most one DISTINCT ON query
+  and one project-name lookup, which is constant in the number of projects. The sprint
+  figures add no query.

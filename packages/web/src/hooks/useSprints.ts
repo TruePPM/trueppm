@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { ApiSprint, SprintState } from '@/types';
+import type { ApiSprint, MetricDefinitions, SprintState } from '@/types';
 import { invalidateMyWork } from '@/hooks/myWorkQueryKeys';
 
 interface PaginatedSprintResponse {
@@ -569,9 +569,15 @@ export interface SprintBurndown {
   snapshots: SprintBurnSnapshot[];
   /** Current-sprint burn pace vs the ideal line (#984). */
   burn_status?: 'ahead' | 'behind' | 'on_track' | 'no_data';
+  /** Why `burn_status` is `no_data` (rule 119, #4778); null when a pace was computed. */
+  burn_status_reason?: 'no_commitment' | 'no_snapshots' | null;
   /** Signed: positive = ahead of ideal, negative = behind. Null with no data. */
   trend_points?: number | null;
   projected_finish_date?: string | null;
+  /** When the server computed the pace — this endpoint owns the sprint burn figures (ADR-1314). */
+  as_of?: string;
+  /** The server's definitions for the series and pace; render verbatim. */
+  definitions?: MetricDefinitions;
 }
 
 /** GET /api/v1/sprints/{id}/burndown/ — sprint metadata + actual burn series. */
@@ -1092,8 +1098,12 @@ export interface SprintOutcome {
     velocity_delta_points: number | null;
     rolling_avg_points: number | null;
     burn_status: 'ahead' | 'on_track' | 'behind' | 'no_data';
+    /** Why `burn_status` is `no_data` (rule 119, #4778); null when a pace was computed. */
+    burn_status_reason?: 'no_commitment' | 'no_snapshots' | null;
     trend_points: number | null;
     projected_finish_date: string | null;
+    /** The sprint burndown owner's sentences for the three burn figures (ADR-1314). */
+    definitions?: MetricDefinitions;
   } | null;
   didnt_ship: DidntShipItem[];
   didnt_ship_summary: {

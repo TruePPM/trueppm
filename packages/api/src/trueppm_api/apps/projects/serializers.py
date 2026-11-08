@@ -48,10 +48,13 @@ from trueppm_api.apps.projects.attachment_policy import (
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
     BURN_DEFINED,
+    BURN_STATUS_REASON_CHOICES,
     METRIC_DEFINITIONS,
     OVERVIEW_DEFINED,
+    SPRINT_BURNDOWN_DEFINED,
     UTILIZATION_DEFINED,
     definitions_field,
+    definitions_field_by_field,
 )
 from trueppm_api.apps.projects.models import (
     _VALID_DUE_WINDOWS,
@@ -9934,8 +9937,27 @@ class SprintBurndownSerializer(serializers.Serializer[dict[str, Any]]):
     sprint = SprintSerializer(read_only=True)
     snapshots = SprintBurnSnapshotSerializer(many=True, read_only=True)
     burn_status = serializers.CharField(read_only=True)
+    burn_status_reason = serializers.ChoiceField(
+        choices=BURN_STATUS_REASON_CHOICES,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why burn_status is no_data (rule 119): no_commitment when the sprint "
+            "committed no points at activation, no_snapshots when no burn snapshot "
+            "exists yet. Null whenever a pace was computed."
+        ),
+    )
     trend_points = serializers.IntegerField(read_only=True, allow_null=True)
     projected_finish_date = serializers.DateField(read_only=True, allow_null=True)
+    # ADR-1314 amendment (#4778): this endpoint owns the sprint burn figures.
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "When the server computed this payload. The pace is measured against "
+            "today's point on the ideal line, so it ages even when no snapshot changes."
+        ),
+    )
+    definitions = definitions_field_by_field("SprintBurndownDefinitions", SPRINT_BURNDOWN_DEFINED)
 
 
 class SprintCapacityMemberSerializer(serializers.Serializer[dict[str, Any]]):
