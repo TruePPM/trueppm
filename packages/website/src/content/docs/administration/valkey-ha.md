@@ -314,6 +314,8 @@ treated as mandatory.
 
 ## Related pages
 
+- [Deployment Topology](/administration/topology/) — where Valkey sits in the
+  Helm deployment, and the planned replicated topology.
 - [Deployment Sizing](/administration/sizing/) — resource guidance for the API,
   worker, and cache tiers.
 - [Durability & Redundancy](/administration/durability/) — what is authoritative,
