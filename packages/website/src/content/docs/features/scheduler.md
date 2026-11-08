@@ -45,46 +45,191 @@ jupyter notebook packages/scheduler/notebooks/
 
 Negative lag (lead) is supported on every type.
 
+Each diagram below shows the predecessor (A) above the successor (B), with time running left to right. Each task is one bar whose start and finish ends belong to the task, and the arrow runs from the end of A that the link constrains to the end of B it drives. Lag and lead count calendar days; see [Lag is in calendar days](#lag-is-in-calendar-days-durations-are-in-working-days).
+
+#### FS · Finish-to-Start
+
+B can start once A has finished. This is the default link.
+
 ```mermaid
-flowchart TB
-    subgraph FS["FS · Finish-to-Start: B can start once A has finished"]
-        direction LR
-        fsa1(["start"]):::pt --- fsa["Task A"]:::ta --- fsa2(["finish"]):::pt
-        fsb1(["start"]):::pt --- fsb["Task B"]:::tb --- fsb2(["finish"]):::pt
-        fsa2 ==>|"FS"| fsb1
+%%{init: {"block": {"padding": 3}}}%%
+block-beta
+    columns 1
+    block:a
+        columns 10
+        aT["FS, no lag"]:10
+        space:10
+        space:1 aAs["start"]:1 aAm["A"]:2 aAf["finish"]:1 space:4 space:1
+        space:10
+        space:10
+        space:1 space:4 aBs["start"]:1 aBm["B"]:2 aBf["finish"]:1 space:1
+        space:10
     end
-    subgraph SS["SS · Start-to-Start: B can start once A has started"]
-        direction LR
-        ssa1(["start"]):::pt --- ssa["Task A"]:::ta --- ssa2(["finish"]):::pt
-        ssb1(["start"]):::pt --- ssb["Task B"]:::tb --- ssb2(["finish"]):::pt
-        ssa1 ==>|"SS"| ssb1
+    block:b
+        columns 10
+        bT["FS + 2d lag (calendar days)"]:10
+        space:10
+        space:1 bAs["start"]:1 bAm["A"]:1 bAf["finish"]:1 space:5 space:1
+        space:10
+        space:10
+        space:1 space:5 bBs["start"]:1 bBm["B"]:1 bBf["finish"]:1 space:1
+        space:10
     end
-    subgraph FF["FF · Finish-to-Finish: B can finish once A has finished"]
-        direction LR
-        ffa1(["start"]):::pt --- ffa["Task A"]:::ta --- ffa2(["finish"]):::pt
-        ffb1(["start"]):::pt --- ffb["Task B"]:::tb --- ffb2(["finish"]):::pt
-        ffa2 ==>|"FF"| ffb2
-    end
-    subgraph SF["SF · Start-to-Finish: B can finish once A has started"]
-        direction LR
-        sfa1(["start"]):::pt --- sfa["Task A"]:::ta --- sfa2(["finish"]):::pt
-        sfb1(["start"]):::pt --- sfb["Task B"]:::tb --- sfb2(["finish"]):::pt
-        sfa1 ==>|"SF"| sfb2
+    block:c
+        columns 10
+        cT["FS - 2d lead (calendar days)"]:10
+        space:10
+        space:1 cAs["start"]:1 cAm["A"]:3 cAf["finish"]:1 space:3 space:1
+        space:10
+        space:10
+        space:1 space:3 cBs["start"]:1 cBm["B"]:3 cBf["finish"]:1 space:1
+        space:10
     end
 
-    FS ~~~ SS ~~~ FF ~~~ SF
+    aAf --> aBs
+    bAf -- "lag 2d" --> bBs
+    cAf -- "lead 2d" --> cBs
 
+    classDef pt fill:#ffffff,stroke:#8a8378,color:#141413
+    classDef ttl fill:#fafaf7,stroke:#c8c4b6,color:#141413
     classDef ta fill:#f6ebe4,stroke:#c98a6a,stroke-width:1.5px,color:#141413
     classDef tb fill:#e8eee6,stroke:#7da07a,stroke-width:1.5px,color:#141413
-    classDef pt fill:#ffffff,stroke:#8a8378,color:#141413
-    linkStyle 4,9,14,19 stroke:#c0502a,stroke-width:3px
-    style FS fill:#fafaf7,stroke:#c8c4b6,color:#141413
-    style SS fill:#fafaf7,stroke:#c8c4b6,color:#141413
-    style FF fill:#fafaf7,stroke:#c8c4b6,color:#141413
-    style SF fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    class aAs,aAf,aBs,aBf,bAs,bAf,bBs,bBf,cAs,cAf,cBs,cBf pt
+    class aAm,bAm,cAm ta
+    class aBm,bBm,cBm tb
+    class aT,bT,cT ttl
+    style a fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    style b fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    style c fill:#fafaf7,stroke:#c8c4b6,color:#141413
 ```
 
-Each arrow runs from predecessor A to successor B and connects the two points of those tasks that the link type constrains; lag shifts the constraint on the arrow's target.
+A lag leaves a gap between A's finish and B's start; a lead pulls B's start back so the two bars overlap. A lead never snaps backward, so a weekend can absorb a short one.
+
+#### SS · Start-to-Start
+
+B can start once A has started, so the two tasks run in parallel.
+
+```mermaid
+%%{init: {"block": {"padding": 3}}}%%
+block-beta
+    columns 1
+    block:a
+        columns 10
+        aT["SS, no lag"]:10
+        space:10
+        space:1 aAs["start"]:1 aAm["A"]:6 aAf["finish"]:1 space:1
+        space:10
+        space:10
+        space:1 aBs["start"]:1 aBm["B"]:3 aBf["finish"]:1 space:3 space:1
+        space:10
+    end
+    block:b
+        columns 10
+        bT["SS + 2d lag (calendar days)"]:10
+        space:10
+        space:1 bAs["start"]:1 bAm["A"]:6 bAf["finish"]:1 space:1
+        space:10
+        space:10
+        space:1 space:2 bBs["start"]:1 bBm["B"]:4 bBf["finish"]:1 space:1
+        space:10
+    end
+
+    aAs --> aBs
+    bAs -- "lag 2d" --> bBs
+
+    classDef pt fill:#ffffff,stroke:#8a8378,color:#141413
+    classDef ttl fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    classDef ta fill:#f6ebe4,stroke:#c98a6a,stroke-width:1.5px,color:#141413
+    classDef tb fill:#e8eee6,stroke:#7da07a,stroke-width:1.5px,color:#141413
+    class aAs,aAf,aBs,aBf,bAs,bAf,bBs,bBf pt
+    class aAm,bAm ta
+    class aBm,bBm tb
+    class aT,bT ttl
+    style a fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    style b fill:#fafaf7,stroke:#c8c4b6,color:#141413
+```
+
+With a lag, B starts a set number of calendar days after A starts.
+
+#### FF · Finish-to-Finish
+
+B can finish once A has finished, so both tasks end together.
+
+```mermaid
+%%{init: {"block": {"padding": 3}}}%%
+block-beta
+    columns 1
+    block:a
+        columns 10
+        aT["FF, no lag"]:10
+        space:10
+        space:1 aAs["start"]:1 aAm["A"]:6 aAf["finish"]:1 space:1
+        space:10
+        space:10
+        space:1 space:3 aBs["start"]:1 aBm["B"]:3 aBf["finish"]:1 space:1
+        space:10
+    end
+    block:b
+        columns 10
+        bT["FF + 2d lag (calendar days)"]:10
+        space:10
+        space:1 bAs["start"]:1 bAm["A"]:4 bAf["finish"]:1 space:2 space:1
+        space:10
+        space:10
+        space:1 space:3 bBs["start"]:1 bBm["B"]:3 bBf["finish"]:1 space:1
+        space:10
+    end
+
+    aAf --> aBf
+    bAf -- "lag 2d" --> bBf
+
+    classDef pt fill:#ffffff,stroke:#8a8378,color:#141413
+    classDef ttl fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    classDef ta fill:#f6ebe4,stroke:#c98a6a,stroke-width:1.5px,color:#141413
+    classDef tb fill:#e8eee6,stroke:#7da07a,stroke-width:1.5px,color:#141413
+    class aAs,aAf,aBs,aBf,bAs,bAf,bBs,bBf pt
+    class aAm,bAm ta
+    class aBm,bBm tb
+    class aT,bT ttl
+    style a fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    style b fill:#fafaf7,stroke:#c8c4b6,color:#141413
+```
+
+With a lag, B finishes a set number of calendar days after A finishes. B stays contiguous and right-aligned on that finish.
+
+#### SF · Start-to-Finish
+
+B can finish once A has started, so B sits before A.
+
+```mermaid
+%%{init: {"block": {"padding": 3}}}%%
+block-beta
+    columns 1
+    block:a
+        columns 10
+        aT["SF, no lag"]:10
+        space:10
+        space:1 space:4 aAs["start"]:1 aAm["A"]:2 aAf["finish"]:1 space:1
+        space:10
+        space:10
+        space:1 aBs["start"]:1 aBm["B"]:2 aBf["finish"]:1 space:4 space:1
+        space:10
+    end
+
+    aAs --> aBf
+
+    classDef pt fill:#ffffff,stroke:#8a8378,color:#141413
+    classDef ttl fill:#fafaf7,stroke:#c8c4b6,color:#141413
+    classDef ta fill:#f6ebe4,stroke:#c98a6a,stroke-width:1.5px,color:#141413
+    classDef tb fill:#e8eee6,stroke:#7da07a,stroke-width:1.5px,color:#141413
+    class aAs,aAf,aBs,aBf pt
+    class aAm ta
+    class aBm tb
+    class aT ttl
+    style a fill:#fafaf7,stroke:#c8c4b6,color:#141413
+```
+
+With no lag, B ends the working day before A starts. The rule below also covers a positive lag.
 
 `FF` and `SF` constrain the successor's **finish**, and a finish is the *end* of
 its last working day. An `SF` link with zero lag therefore lets the successor
@@ -148,7 +293,7 @@ behavior is calendar-day lag, as described above.
 | `late_finish` | `date` | Latest finish without delaying the project |
 | `total_float` | `timedelta` | Working days of slack before the task delays the project end |
 | `free_float` | `timedelta` | Working days a task can slip without moving any live successor's early dates (see note) |
-| `is_critical` | `bool` | `True` when `total_float == timedelta(0)` |
+| `is_critical` | `bool` | `True` when `total_float == timedelta(0)` and the task is not complete (a completed task keeps zero float but is never critical) |
 
 :::note
 `free_float`, `total_float`, and `is_critical` all account for **all four**
@@ -188,8 +333,9 @@ The two are easy to conflate and they support different decisions, so it is wort
 naming them apart:
 
 - **`total_float`** is how long the task can slip before **the project finish**
-  moves. It is the number that defines the critical path: `is_critical` is exactly
-  `total_float == 0`.
+  moves. It is the number that defines the critical path: `is_critical` means
+  `total_float == 0` on a task that is not complete. A completed task also has zero
+  float but is never critical.
 - **`free_float`** is how long it can slip before **its own successors** have to
   move. It is bounded by the nearest downstream early start, not by the project
   end.
