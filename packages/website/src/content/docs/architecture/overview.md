@@ -151,22 +151,44 @@ Every mutation is followed by a `broadcast_board_event()` call deferred inside `
 
 ## Packages
 
-```mermaid
-flowchart LR
-    web["packages/web<br/>React client"]
-    mobile["packages/mobile<br/>scaffold, not built"]
-    mcp["packages/mcp<br/>read-only MCP server"]
-    api["packages/api<br/>Django + DRF + Channels"]
-    sched["packages/scheduler<br/>trueppm-scheduler"]
-    wasm["packages/wasm-scheduler<br/>Rust + WASM engine"]
-
-    web -->|"REST + WebSocket"| api
-    mobile -.->|"REST + WebSocket<br/>(not yet implemented)"| api
-    mcp -->|"REST, read-only"| api
-    api -->|"pip: trueppm-scheduler<br/>>=0.4,<0.5"| sched
-    wasm -.-|"CI conformance<br/>(wasm:conformance)"| sched
-    web -.->|"planned (#1777),<br/>not wired today"| wasm
-```
+<svg viewBox="0 0 720 420" role="img" aria-label="Package dependency map: web, mobile and mcp call packages/api over HTTP; api imports trueppm-scheduler; wasm-scheduler is checked against scheduler in CI and not yet wired into web." style="width:100%;height:auto;max-width:720px;display:block;margin:1.5rem auto" xmlns="http://www.w3.org/2000/svg">
+<style>.pkc{fill:var(--sl-color-bg);stroke:var(--sl-color-gray-4);stroke-width:1}.pka{fill:var(--sl-color-accent-low);stroke:var(--sl-color-accent)}.pkg{fill:var(--sl-color-gray-6);stroke:var(--sl-color-gray-5)}.pkk{stroke-width:2;stroke:var(--sl-color-gray-3)}.pkx{fill:var(--sl-color-white);font-size:14px}.pkb{font-weight:600}.pks{fill:var(--sl-color-gray-2);font-size:12px}.pkl{fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.5;stroke-linejoin:round}.pkd{stroke-dasharray:5 4}.pkm{fill:var(--sl-color-gray-3)}</style>
+<defs><marker id="pkh" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="pkm" d="M0 0 L8 4 L0 8 Z"/></marker></defs>
+<path class="pkl" d="M120 84 V127"/>
+<path class="pkl" d="M600 84 V127"/>
+<path class="pkl" d="M120 127 H600"/>
+<path class="pkl pkd" d="M360 84 V127"/>
+<path class="pkl" d="M360 127 V168" marker-end="url(#pkh)"/>
+<path class="pkl pkd" d="M60 84 V298" marker-end="url(#pkh)"/>
+<path class="pkl" d="M360 242 V298" marker-end="url(#pkh)"/>
+<path class="pkl pkd" d="M160 332 H258"/>
+<rect class="pkc" x="20" y="20" width="200" height="64" rx="8"/>
+<text class="pkx pkb" x="120.0" y="43.5" text-anchor="middle" dominant-baseline="central">packages/web</text>
+<text class="pks" x="120.0" y="60.5" text-anchor="middle" dominant-baseline="central">React 19 client</text>
+<rect class="pkc" x="260" y="20" width="200" height="64" rx="8" stroke-dasharray="5 4"/>
+<text class="pkx pkb" x="360.0" y="43.5" text-anchor="middle" dominant-baseline="central">packages/mobile</text>
+<text class="pks" x="360.0" y="60.5" text-anchor="middle" dominant-baseline="central">scaffold, not built</text>
+<rect class="pkc" x="500" y="20" width="200" height="64" rx="8"/>
+<text class="pkx pkb" x="600.0" y="43.5" text-anchor="middle" dominant-baseline="central">packages/mcp</text>
+<text class="pks" x="600.0" y="60.5" text-anchor="middle" dominant-baseline="central">read-only MCP server</text>
+<rect class="pka" x="210" y="170" width="300" height="72" rx="8"/>
+<text class="pkx pkb" x="360.0" y="197.5" text-anchor="middle" dominant-baseline="central">packages/api</text>
+<text class="pks" x="360.0" y="214.5" text-anchor="middle" dominant-baseline="central">Django + DRF + Channels</text>
+<rect class="pkg" x="20" y="300" width="140" height="64" rx="8"/>
+<text class="pkx pkb" x="90.0" y="323.5" text-anchor="middle" dominant-baseline="central">wasm-scheduler</text>
+<text class="pks" x="90.0" y="340.5" text-anchor="middle" dominant-baseline="central">Rust + WASM</text>
+<rect class="pkg" x="260" y="300" width="200" height="64" rx="8"/>
+<text class="pkx pkb" x="360.0" y="323.5" text-anchor="middle" dominant-baseline="central">packages/scheduler</text>
+<text class="pks" x="360.0" y="340.5" text-anchor="middle" dominant-baseline="central">trueppm-scheduler</text>
+<text class="pks" x="372" y="150" text-anchor="start" dominant-baseline="central">REST + WebSocket (mcp: REST only)</text>
+<text class="pks" x="372" y="270" text-anchor="start" dominant-baseline="central">pip, &gt;=0.4,&lt;0.5</text>
+<text class="pks" x="72" y="272" text-anchor="start" dominant-baseline="central">planned, not wired (#1777)</text>
+<text class="pks" x="209" y="322" text-anchor="middle" dominant-baseline="central">CI conformance</text>
+<path class="pkl" d="M20 396 H56"/>
+<text class="pks" x="64" y="396" text-anchor="start" dominant-baseline="central">dependency that exists today</text>
+<path class="pkl pkd" d="M270 396 H306"/>
+<text class="pks" x="314" y="396" text-anchor="start" dominant-baseline="central">planned, scaffold, or CI-only check</text>
+</svg>
 
 Solid arrows are dependencies that exist today (the arrow points at what is depended on); dashed lines are a scaffold, a CI-only check, or planned work, and `packages/wasm-scheduler` is not yet used by any client.
 
@@ -206,32 +228,46 @@ Helm 3 chart with vendored first-party sub-charts for PostgreSQL and Valkey (und
 
 ## OSS / Enterprise boundary
 
-```mermaid
-flowchart TB
-    subgraph ent["trueppm-enterprise (proprietary, separate repo)"]
-        direction LR
-        gov["Portfolio governance"]
-        idg["Org identity<br/>SAML / SCIM / LDAP"]
-        hub["Integration hub"]
-        aud["Audit trail<br/>and approvals"]
-    end
+<svg viewBox="0 0 720 384" role="img" aria-label="OSS and Enterprise boundary: four enterprise capabilities register against the community extension points; the dependency runs one way, enforced in CI." style="width:100%;height:auto;max-width:720px;display:block;margin:1.5rem auto" xmlns="http://www.w3.org/2000/svg">
+<style>.bdc{fill:var(--sl-color-bg);stroke:var(--sl-color-gray-4);stroke-width:1}.bda{fill:var(--sl-color-accent-low);stroke:var(--sl-color-accent)}.bdg{fill:var(--sl-color-gray-6);stroke:var(--sl-color-gray-5)}.bdk{stroke-width:2;stroke:var(--sl-color-gray-3)}.bdx{fill:var(--sl-color-white);font-size:14px}.bdb{font-weight:600}.bds{fill:var(--sl-color-gray-2);font-size:12px}.bdl{fill:none;stroke:var(--sl-color-gray-3);stroke-width:1.5;stroke-linejoin:round}.bdd{stroke-dasharray:5 4}.bdm{fill:var(--sl-color-gray-3)}</style>
+<defs><marker id="bdh" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="bdm" d="M0 0 L8 4 L0 8 Z"/></marker></defs>
+<rect class="bda" x="10" y="10" width="700" height="130" rx="12"/>
+<rect class="bdg" x="10" y="214" width="700" height="160" rx="12"/>
+<text class="bds" x="26" y="30" text-anchor="start" dominant-baseline="central">trueppm-enterprise · proprietary, separate repo</text>
+<text class="bds" x="26" y="234" text-anchor="start" dominant-baseline="central">trueppm-suite · Apache 2.0</text>
+<path class="bdl" d="M104 112 V176"/>
+<path class="bdl" d="M276 112 V176"/>
+<path class="bdl" d="M448 112 V176"/>
+<path class="bdl" d="M620 112 V176"/>
+<path class="bdl" d="M104 176 H620"/>
+<path class="bdl" d="M360 176 V272" marker-end="url(#bdh)"/>
+<rect class="bdc" x="26" y="56" width="156" height="56" rx="8"/>
+<text class="bdx bdb" x="104.0" y="75.5" text-anchor="middle" dominant-baseline="central">Portfolio governance</text>
+<text class="bds" x="104.0" y="92.5" text-anchor="middle" dominant-baseline="central">cross-program views</text>
+<rect class="bdc" x="198" y="56" width="156" height="56" rx="8"/>
+<text class="bdx bdb" x="276.0" y="75.5" text-anchor="middle" dominant-baseline="central">Org identity</text>
+<text class="bds" x="276.0" y="92.5" text-anchor="middle" dominant-baseline="central">SAML · SCIM · LDAP</text>
+<rect class="bdc" x="370" y="56" width="156" height="56" rx="8"/>
+<text class="bdx bdb" x="448.0" y="75.5" text-anchor="middle" dominant-baseline="central">Integration hub</text>
+<text class="bds" x="448.0" y="92.5" text-anchor="middle" dominant-baseline="central">org-wide connectors</text>
+<rect class="bdc" x="542" y="56" width="156" height="56" rx="8"/>
+<text class="bdx bdb" x="620.0" y="75.5" text-anchor="middle" dominant-baseline="central">Audit and approvals</text>
+<text class="bds" x="620.0" y="92.5" text-anchor="middle" dominant-baseline="central">trail, workflows</text>
+<rect class="bdc" x="26" y="272" width="160" height="72" rx="8"/>
+<text class="bdx bdb" x="106.0" y="299.5" text-anchor="middle" dominant-baseline="central">Community core</text>
+<text class="bds" x="106.0" y="316.5" text-anchor="middle" dominant-baseline="central">API, scheduler, web</text>
+<rect class="bdc" x="210" y="272" width="300" height="72" rx="8" style="stroke-width:2"/>
+<text class="bdx bdb" x="360.0" y="291.0" text-anchor="middle" dominant-baseline="central">Extension points</text>
+<text class="bds" x="360.0" y="308.0" text-anchor="middle" dominant-baseline="central">settings includes · extension signals</text>
+<text class="bds" x="360.0" y="325.0" text-anchor="middle" dominant-baseline="central">task-source registry</text>
+<rect class="bdc" x="530" y="272" width="170" height="72" rx="8" stroke-dasharray="5 4"/>
+<text class="bdx bdb" x="615.0" y="291.0" text-anchor="middle" dominant-baseline="central">CI-enforced</text>
+<text class="bds" x="615.0" y="308.0" text-anchor="middle" dominant-baseline="central">boundary:imports</text>
+<text class="bds" x="615.0" y="325.0" text-anchor="middle" dominant-baseline="central">blocks enterprise imports</text>
+<text class="bds" x="372" y="196" text-anchor="start" dominant-baseline="central">registers against</text>
+</svg>
 
-    subgraph oss["trueppm-suite (Apache 2.0)"]
-        ext["Extension points<br/>settings includes,<br/>extension signals, task-source registry"]
-        core["Community core<br/>scheduler, API, web"]
-        ext --- core
-    end
-
-    gov -->|registers against| ext
-    idg -->|registers against| ext
-    hub -->|registers against| ext
-    aud -->|registers against| ext
-
-    note["make enterprise-boundary-check<br/>(CI: boundary:imports) enforces:<br/>no OSS import of trueppm_enterprise"]
-    note ~~~ oss
-```
-
-Arrows run from Enterprise to the Community extension points and never the other way; the check named in the note fails the build if the core imports from `trueppm_enterprise`.
+Arrows run from Enterprise to the Community extension points and never the other way; the dashed CI-enforced check fails the build if the core imports from `trueppm_enterprise`.
 
 The community edition must never import from `trueppm_enterprise`. The dependency is strictly one-way: enterprise → core.
 
